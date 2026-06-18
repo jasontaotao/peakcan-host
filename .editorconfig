@@ -12,6 +12,10 @@ dotnet_diagnostic.IDE0005.severity = none
 dotnet_diagnostic.CA1822.severity = none
 # Allow plural flag-enum type names (BindingFlags / FrameFlags idiom).
 dotnet_diagnostic.CA1711.severity = none
+# "Error" collides with VB.NET reserved keyword; this is a C#-only project.
+dotnet_diagnostic.CA1716.severity = none
+# Result<T>.Ok / .Fail are intentional static factories — discriminated-union pattern.
+dotnet_diagnostic.CA1000.severity = none
 
 [*.Tests.cs]
 # xUnit convention: underscored BDD-style test method names (Method_Condition_Expected).
