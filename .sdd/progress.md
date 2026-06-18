@@ -12,8 +12,27 @@ This ledger is the recovery map for subagent-driven development. Tasks listed he
 
 | Task | Status | Commits | Reviewer verdict |
 |---|---|---|---|
-| 1  scaffolding        | pending | — | — |
-| 2  Core 域类型        | pending | — | — |
+| 1  scaffolding        | complete | feat: chore commit `scaffold 3-layer solution` | self-validated by `dotnet build` 0 warn 0 err |
+| 1a plan deviations    | complete | inline in scaffolding | TFM net8→net10, LiveCharts2→OxyPlot.Wpf, Peak.Can.Basic→Peak.PCANBasic.NET |
+| 2  Core domain types  | complete | `9ee928d` feat(core): CanId/CanFrame/FrameFlags/Timestamp/ChannelId | 11/11 tests pass (6 CanId + 2 FrameFlags + 3 CanFrame); dotnet build 0 warn 0 err; CA1707/CA1711/CA1806/CA1014 suppressed via editorconfig + test csproj NoWarn |
+
+## Resume Guide (next session)
+
+To continue:
+1. Read this ledger and `docs/superpowers/plans/2026-06-18-peakcan-host-implementation.md` once.
+2. `cd D:/claude_proj2/peakcan-host && git log --oneline` to confirm baseline.
+3. Start at Task 2 (Core 域类型). Recommended parallel batches (file-isolated, no merge conflicts):
+   - **Batch 1** (4 parallel, all in `src/PeakCan.Host.Core/`, no shared files): Task 2 (CanFrame), Task 3 (Result<T>), Task 4 (DbcTokenizer), Task 7 (SignalDecoder)
+   - **Batch 2** (after Batch 1 merges): Task 5 (DbcParser basic), Task 6 (DbcParser multiplexed), Task 8 (PeakError+Mapper), Task 9 (ICanChannel)
+   - **Batch 3**: Task 10 (ChannelRouter), Task 11 (BusStatisticsCollector)
+   - **Serial from Task 12**: App layer (multiple files share AppShell.xaml).
+4. Per the SDD skill, dispatch a fresh subagent per task, then a task-reviewer subagent; mark each complete + append to this ledger only after the review verdict is clean.
+5. Plan §17 must use OxyPlot.Wpf, not LiveChartsCore (deviation). StatsViewModel/StatsView code blocks reference `LiveChartsCore` types — rewrite using `OxyPlot.PlotModel` + `LineSeries` before implementing Task 17.
+
+## Session boundary
+
+Last session reached the implementer-parallel decision and ran Task 1 manually (scaffolding + restore + build + commit). User opted to stop at Task 1 rather than risk mid-batch crash from context exhaustion.
+| 2  Core domain types  | complete | `9ee928d` | 11/11 tests pass; 0 warn 0 err build |
 | 3  Result<T>          | pending | — | — |
 | 4  DBC Tokenizer      | pending | — | — |
 | 5  DBC parser 基础    | pending | — | — |
