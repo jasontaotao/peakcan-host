@@ -40,4 +40,25 @@ public class CanIdTests
     [InlineData(0x7FF)]
     public void Standard_Boundaries_Are_Valid(uint raw) =>
         new CanId(raw, FrameFormat.Standard).Raw.Should().Be(raw);
+
+    [Theory]
+    [InlineData(0x000)]
+    [InlineData(0x1FFFFFFF)]
+    public void Extended_Boundaries_Are_Valid(uint raw) =>
+        new CanId(raw, FrameFormat.Extended).Raw.Should().Be(raw);
+
+    [Fact]
+    public void ToString_Formats_Standard_As_3Hex()
+        => new CanId(0x123, FrameFormat.Standard).ToString().Should().Be("0x123");
+
+    [Fact]
+    public void ToString_Formats_Extended_As_8Hex()
+        => new CanId(0x18FF1234, FrameFormat.Extended).ToString().Should().Be("0x18FF1234");
+
+    [Fact]
+    public void Type_Can_Be_Overridden_Via_With()
+    {
+        var id = new CanId(1, FrameFormat.Standard) with { Type = FrameType.Remote };
+        id.Type.Should().Be(FrameType.Remote);
+    }
 }

@@ -46,4 +46,12 @@ public class CanFrameTests
         frame.Channel.Handle.Should().Be(7);
         frame.Timestamp.TotalMicroseconds.Should().Be(123_456UL);
     }
+
+    [Fact]
+    public void Id_Roundtrips_Through_Positional_Property()
+    {
+        var id = new CanId(0x123, FrameFormat.Standard);
+        new CanFrame(id, ReadOnlyMemory<byte>.Empty, FrameFlags.None,
+            ChannelId.None, default).Id.Should().Be(id);
+    }
 }
