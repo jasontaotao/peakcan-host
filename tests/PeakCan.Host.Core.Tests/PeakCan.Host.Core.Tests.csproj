@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- xUnit convention: underscore-separated BDD test method names trigger CA1707. -->
+    <!-- Negative-path tests create instances purely to assert exceptions (CA1806 false-positive). -->
+    <NoWarn>$(NoWarn);CA1707;CA1014;CA1806</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

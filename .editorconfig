@@ -10,3 +10,10 @@ indent_size = 4
 trim_trailing_whitespace = true
 dotnet_diagnostic.IDE0005.severity = none
 dotnet_diagnostic.CA1822.severity = none
+# Allow plural flag-enum type names (BindingFlags / FrameFlags idiom).
+dotnet_diagnostic.CA1711.severity = none
+
+[*.Tests.cs]
+# xUnit convention: underscored BDD-style test method names (Method_Condition_Expected).
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1014.severity = none
