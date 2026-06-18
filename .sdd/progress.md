@@ -16,6 +16,7 @@ This ledger is the recovery map for subagent-driven development. Tasks listed he
 | 1a plan deviations    | complete | inline in scaffolding | TFM net8→net10, LiveCharts2→OxyPlot.Wpf, Peak.Can.Basic→Peak.PCANBasic.NET |
 | 2  Core domain types  | complete | `9ee928d` feat + `bd157e1` test(coverage) | 24/24 tests pass; 100% line / 100% branch coverage on Core; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (1 MEDIUM coverage gap fixed) |
 | 3  Result/Error/ErrorCode | complete | `8ffdb29` feat + polish commit | 32/32 tests pass; 100% line / 100% branch coverage on Core; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (4 LOW docs/test polish applied) |
+| 4  DbcTokenizer         | complete | `f5d6a2f` feat + `8df3766` fix(review) | 75/75 tests pass; 100% line coverage; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (4 MEDIUM + 6 LOW; MEDIUM 1+2+4 applied, MEDIUM 3 hex/binary deferred as YAGNI per MVP; LOW identifier test + column doc applied; CRITICAL infinite-loop bug caught by new exponent test and fixed in the same commit) |
 
 ## Resume Guide (next session)
 
