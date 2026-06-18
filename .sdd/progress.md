@@ -14,7 +14,7 @@ This ledger is the recovery map for subagent-driven development. Tasks listed he
 |---|---|---|---|
 | 1  scaffolding        | complete | feat: chore commit `scaffold 3-layer solution` | self-validated by `dotnet build` 0 warn 0 err |
 | 1a plan deviations    | complete | inline in scaffolding | TFM net8→net10, LiveCharts2→OxyPlot.Wpf, Peak.Can.Basic→Peak.PCANBasic.NET |
-| 2  Core domain types  | complete | `9ee928d` feat(core): CanId/CanFrame/FrameFlags/Timestamp/ChannelId | 11/11 tests pass (6 CanId + 2 FrameFlags + 3 CanFrame); dotnet build 0 warn 0 err; CA1707/CA1711/CA1806/CA1014 suppressed via editorconfig + test csproj NoWarn |
+| 2  Core domain types  | complete | `9ee928d` feat + `bd157e1` test(coverage) | 24/24 tests pass; 100% line / 100% branch coverage on Core; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (1 MEDIUM coverage gap fixed) |
 
 ## Resume Guide (next session)
 
