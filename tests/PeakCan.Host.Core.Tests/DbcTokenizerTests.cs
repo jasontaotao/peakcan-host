@@ -89,9 +89,69 @@ public class DbcTokenizerTests
     public void Recognizes_Identifiers()
     {
         var t = new DbcTokenizer();
-        var tokens = t.Tokenize("ECU1 NodeName Signal_With_Underscores MUX_VALUE");
-        tokens.Where(x => x.Type != TokenType.Eof)
-            .Should().AllSatisfy(tok => tok.Type.Should().Be(TokenType.Identifier));
+        var tokens = t.Tokenize("ECU1 NodeName _under MUX_VALUE");
+        tokens.Where(x => x.Type != TokenType.Eof).Select(x => x.Lexeme)
+            .Should().ContainInOrder("ECU1", "NodeName", "_under", "MUX_VALUE");
+    }
+
+    [Fact]
+    public void Number_And_Identifier_Are_Separate_Tokens()
+    {
+        // Regression guard: scanner must NOT merge `100abc` into a single token.
+        var t = new DbcTokenizer();
+        var tokens = t.Tokenize("100abc");
+        tokens.Where(x => x.Type != TokenType.Eof).Select(x => x.Type)
+            .Should().ContainInOrder(TokenType.Integer, TokenType.Identifier);
+    }
+
+    [Fact]
+    public void Throws_On_Malformed_Exponent_No_Digits()
+    {
+        var t = new DbcTokenizer();
+        Action act = () => t.Tokenize("1.0e");
+        act.Should().Throw<DbcParseException>()
+            .Where(e => e.Message.Contains("exponent"));
+    }
+
+    [Fact]
+    public void Throws_On_Malformed_Exponent_Sign_Only()
+    {
+        var t = new DbcTokenizer();
+        Action act = () => t.Tokenize("1.0e+");
+        act.Should().Throw<DbcParseException>()
+            .Where(e => e.Message.Contains("exponent"));
+    }
+
+    [Fact]
+    public void Throws_On_Zero_MaxLine()
+    {
+        // Defensive: zero/negative maxLine must fail fast, not silently allow huge input.
+        var t = new DbcTokenizer();
+        Action act = () => t.Tokenize("a", maxLine: 0);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Strips_Utf8_Bom_Without_Shifting_Columns()
+    {
+        var t = new DbcTokenizer();
+        var bom = "﻿";
+        var tokens = t.Tokenize(bom + "BO_ 100 Msg: 8 ECU");
+        var first = tokens[0];
+        first.Type.Should().Be(TokenType.Keyword_BO_);
+        first.Lexeme.Should().Be("BO_");
+        first.Line.Should().Be(1);
+        first.Column.Should().Be(1);
+    }
+
+    [Fact]
+    public void Comment_After_Whitespace_Newline_Resets_Column()
+    {
+        var t = new DbcTokenizer();
+        var tokens = t.Tokenize("\n  // foo\nBO_");
+        var bo = tokens.First(x => x.Type == TokenType.Keyword_BO_);
+        bo.Line.Should().Be(3);
+        bo.Column.Should().Be(1);
     }
 
     [Fact]

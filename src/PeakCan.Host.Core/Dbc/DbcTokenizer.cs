@@ -10,6 +10,15 @@ namespace PeakCan.Host.Core.Dbc;
 /// unterminated string literals throw <see cref="DbcParseException"/>.
 /// </para>
 /// <para>
+/// A leading UTF-8 BOM (U+FEFF) is stripped before tokenization to keep
+/// column tracking aligned for files saved as UTF-8-with-BOM (Notepad default).
+/// </para>
+/// <para>
+/// MVP scope: decimal integers, signed floats with scientific notation.
+/// Hex (0x..) and binary (0b..) literals are NOT supported — defer until a
+/// DBC consumer needs them. Currently no plan keyword requires them.
+/// </para>
+/// <para>
 /// Threading: instances are stateless and safe to reuse concurrently.
 /// </para>
 /// </summary>
@@ -45,6 +54,13 @@ public sealed class DbcTokenizer
     public IReadOnlyList<Token> Tokenize(string text, int maxLine = DefaultMaxLine)
     {
         ArgumentNullException.ThrowIfNull(text);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLine);
+
+        // Strip leading UTF-8 BOM if present (Notepad default).
+        if (text.Length > 0 && text[0] == '﻿')
+        {
+            text = text[1..];
+        }
 
         var tokens = new List<Token>(text.Length / 8);
         int line = 1;
@@ -61,6 +77,10 @@ public sealed class DbcTokenizer
                 line++;
                 col = 1;
                 i++;
+                if (line > maxLine)
+                {
+                    throw new DbcParseException($"Input exceeds {maxLine} lines", line, col);
+                }
                 continue;
             }
             if (c == '\r')
@@ -115,6 +135,7 @@ public sealed class DbcTokenizer
 
             // Number: optional leading '-', digits, optional fractional part.
             // Scientific notation (1.0e3) is recognized as a Float by spotting 'e' / 'E'.
+            // Exponent MUST be followed by at least one digit — otherwise throw.
             if (char.IsDigit(c) || (c == '-' && i + 1 < text.Length && char.IsDigit(text[i + 1])))
             {
                 int start = i;
@@ -131,6 +152,8 @@ public sealed class DbcTokenizer
                     if (nc == '.')
                     {
                         isFloat = true;
+                        i++;
+                        col++;
                     }
                     else if (nc == 'e' || nc == 'E')
                     {
@@ -142,15 +165,31 @@ public sealed class DbcTokenizer
                             i++;
                             col++;
                         }
+                        int expDigits = 0;
                         while (i < text.Length && char.IsDigit(text[i]))
                         {
                             i++;
                             col++;
+                            expDigits++;
+                        }
+                        if (expDigits == 0)
+                        {
+                            throw new DbcParseException(
+                                "Expected digits after exponent", line, col);
                         }
                         break;
                     }
-                    i++;
-                    col++;
+                    else if (nc == '+' || nc == '-')
+                    {
+                        // '+' / '-' inside a non-exponent number is malformed — let punctuation handle it.
+                        break;
+                    }
+                    else
+                    {
+                        // Plain digit — always advance to guarantee termination.
+                        i++;
+                        col++;
+                    }
                 }
                 tokens.Add(new Token(
                     isFloat ? TokenType.Float : TokenType.Integer,
@@ -193,11 +232,6 @@ public sealed class DbcTokenizer
             tokens.Add(new Token(punc, c.ToString(), line, col));
             i++;
             col++;
-        }
-
-        if (line > maxLine)
-        {
-            throw new DbcParseException($"Input exceeds {maxLine} lines", line, col);
         }
 
         tokens.Add(new Token(TokenType.Eof, string.Empty, line, col));
