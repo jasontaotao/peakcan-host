@@ -6,6 +6,7 @@ namespace PeakCan.Host.Core;
 /// </summary>
 public enum ErrorCode
 {
+    /// <summary>Unclassified failure. Use when no specific code applies; do NOT use for "I forgot to set the code."</summary>
     Unknown = 0,
     InvalidArgument,
     InvalidState,

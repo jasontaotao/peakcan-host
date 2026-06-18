@@ -29,6 +29,14 @@ public readonly record struct Result<T>(bool IsSuccess, T? Value, Error? Error)
     /// <summary>
     /// Force both branches of the union through caller-supplied functions.
     /// Equivalent to a <c>switch</c> on <see cref="IsSuccess"/> with no null checks.
+    /// <para>
+    /// Note: when <typeparamref name="T"/> is a reference type, <paramref name="onOk"/>'s
+    /// parameter is declared non-nullable even if the value was constructed via
+    /// <c>Ok(default(T))</c>. This matches the standard nullable-trap of
+    /// <see cref="System.Collections.Generic.Dictionary{TKey, TValue}.TryGetValue"/>
+    /// and is intentional — callers that need null values should switch to
+    /// <c>Func&lt;T?, TResult&gt;</c> as a breaking change before adding <c>Bind</c>/<c>Map</c>.
+    /// </para>
     /// </summary>
     public TResult Match<TResult>(Func<T, TResult> onOk, Func<Error, TResult> onFail)
         => IsSuccess ? onOk(Value!) : onFail(Error!);

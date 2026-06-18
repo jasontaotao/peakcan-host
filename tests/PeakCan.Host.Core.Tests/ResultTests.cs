@@ -62,6 +62,7 @@ public class ResultTests
         Result<int> r = 5;
         r.IsSuccess.Should().BeTrue();
         r.Value.Should().Be(5);
+        r.Error.Should().BeNull();
     }
 
     [Fact]
