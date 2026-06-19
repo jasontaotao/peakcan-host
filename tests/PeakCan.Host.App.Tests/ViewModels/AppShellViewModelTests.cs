@@ -49,6 +49,20 @@ public class AppShellViewModelTests
         vm.ConnectCommand.CanExecute(null).Should().BeFalse();
     }
 
+    [Fact]
+    public void ConnectCommand_Is_Enabled_After_Probe_Sets_Usb1_Sentinel()
+    {
+        // STRING-COUPLED: the "USB1 ..." sentinel below mirrors the probe-
+        // success message emitted by EnumerateChannels (and the predicate
+        // in AppShellViewModel.CanConnect). A future change to that
+        // message must update both sides. The [ObservableProperty]
+        // ChannelList setter fires the ConnectCommand's CanExecute
+        // re-evaluation via [NotifyCanExecuteChangedFor].
+        var vm = NewVm();
+        vm.ChannelList = "USB1 (1 Mbps default)";
+        vm.ConnectCommand.CanExecute(null).Should().BeTrue();
+    }
+
     [Fact(Skip = "Requires PEAK USB hardware (PCAN-USB FD on handle 0x51).")]
     [Trait("category", "integration")]
     [Trait("category", "hardware")]

@@ -22,11 +22,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// Full multi-channel enumeration is v1.1.
 /// </para>
 /// <para>
-/// <b>Thread-safety:</b> the Connect command uses
-/// <c>Task.Run</c> to call <see cref="PeakCanChannel.ConnectAsync"/>; the
-/// resulting continuations marshal back to the WPF dispatcher via the
-/// generated <c>[ObservableProperty]</c> setters (CommunityToolkit.Mvvm
-/// marshals property changes onto the original synchronization context).
+/// <b>Thread-safety:</b> <see cref="ConnectAsync"/> captures the WPF
+/// <c>DispatcherSynchronizationContext</c> at the await site via
+/// <c>ConfigureAwait(true)</c>; the property setters below it run on the
+/// UI thread because the await resumed there. CommunityToolkit.Mvvm's
+/// generated <c>SetProperty</c> itself does NOT marshal — it just fires
+/// <c>PropertyChanged</c>. The dispatcher affinity comes from the captured
+/// context, not from the source generator.
 /// </para>
 /// </summary>
 public sealed partial class AppShellViewModel : ObservableObject
@@ -125,6 +127,11 @@ public sealed partial class AppShellViewModel : ObservableObject
 
     private bool CanEnumerateChannels() => !IsConnected;
 
+    // STRING-COUPLED: the predicate below matches the probe-success message
+    // emitted by EnumerateChannels at the call site above ("USB1 ..."). A
+    // future change to the probe output (localization, multi-channel) must
+    // update this predicate in lockstep; the AppShellViewModelTests
+    // covers the CanExecute=true path with this exact sentinel.
     private bool CanConnect() => !IsConnected && ChannelList.StartsWith("USB1", StringComparison.Ordinal);
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
@@ -151,6 +158,11 @@ public sealed partial class AppShellViewModel : ObservableObject
                 var err = result.Error!;
                 StatusMessage = $"Connect failed: {err.Code} {err.Message}";
                 LogConnectFailed(_logger, PcanUsbFdFirstHandle, err.Code, err.Message);
+                // PeakCanChannel ctor allocates a CancellationTokenSource
+                // (used by the read loop). On a failed Connect the channel
+                // never acquires the hardware, so the safe teardown is to
+                // dispose it now rather than wait for GC.
+                await channel.DisposeAsync().ConfigureAwait(true);
             }
         }
         catch (Exception ex)

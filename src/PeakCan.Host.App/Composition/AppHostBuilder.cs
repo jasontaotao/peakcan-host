@@ -73,8 +73,15 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<StatsViewModel>();
 
-        // Windows
-        builder.Services.AddSingleton<AppShell>();
+        // Windows: AppShell is a WPF Window whose ctor requires an STA thread
+        // (xunit's MTA threadpool cannot instantiate it). Register via a
+        // factory that the host resolves on demand; production callers must
+        // resolve AppShell from the STA thread (App.OnStartup qualifies).
+        // The factory wires the VM via DataContext so XAML bindings resolve.
+        builder.Services.AddSingleton<AppShell>(sp => new AppShell
+        {
+            DataContext = sp.GetRequiredService<AppShellViewModel>()
+        });
         return builder.Build();
     }
 }
