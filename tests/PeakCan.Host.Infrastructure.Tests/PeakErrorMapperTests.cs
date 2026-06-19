@@ -55,4 +55,33 @@ public class PeakErrorMapperTests
             message.Should().NotBeNullOrWhiteSpace($"status 0x{raw:X8} must have a message");
         }
     }
+
+    [Theory]
+    [InlineData(PeakError.OK, true)]
+    [InlineData(PeakError.XMTFULL, false)]
+    [InlineData(0xDEADBEEFu, false)]
+    [InlineData(uint.MaxValue, false)]
+    public void IsOk_Detects_Success_Sentinel(uint raw, bool expected)
+    {
+        PeakErrorMapper.IsOk(raw).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Bitmasked_Composite_Code_Falls_Through_To_Unknown()
+    {
+        // 0x40000040u = BUSOFF | PCAN_ERROR_INITIALIZE — a composite that some
+        // PEAK drivers return. The MVP mapper does not strip the flag bits,
+        // so this must surface as Unknown with a hex-formatted message.
+        var (code, message) = PeakErrorMapper.ToErrorCode(0x40000040u);
+        code.Should().Be(ErrorCode.Unknown);
+        message.Should().Be("Unknown PCAN status 0x40000040");
+    }
+
+    [Fact]
+    public void Max_Uint_Falls_Through_To_Unknown()
+    {
+        var (code, message) = PeakErrorMapper.ToErrorCode(uint.MaxValue);
+        code.Should().Be(ErrorCode.Unknown);
+        message.Should().Be("Unknown PCAN status 0xFFFFFFFF");
+    }
 }
