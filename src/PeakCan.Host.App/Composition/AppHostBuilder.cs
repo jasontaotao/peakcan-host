@@ -82,6 +82,12 @@ public static class AppHostBuilder
         {
             DataContext = sp.GetRequiredService<AppShellViewModel>()
         });
+
+        // Task 13: hosted service that wires the App-layer sinks
+        // (TraceService + BusStatisticsCollector) into ChannelRouter at
+        // host startup. Closes the Task 12 gap where the two were
+        // registered as singletons but never connected.
+        builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();
     }
 }

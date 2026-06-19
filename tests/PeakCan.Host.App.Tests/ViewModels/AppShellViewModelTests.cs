@@ -14,7 +14,7 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// </summary>
 public class AppShellViewModelTests
 {
-    private static AppShellViewModel NewVm() => new(new ChannelRouter(), NullLogger<AppShellViewModel>.Instance);
+    private static AppShellViewModel NewVm() => new(new ChannelRouter(), NullLogger<AppShellViewModel>.Instance, new TraceViewModel());
 
     [Fact]
     public void Default_State_Is_Disconnected_With_Ready_Status()

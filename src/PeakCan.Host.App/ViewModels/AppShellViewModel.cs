@@ -68,10 +68,20 @@ public sealed partial class AppShellViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     private bool _isConnected;
 
-    public AppShellViewModel(ChannelRouter router, ILogger<AppShellViewModel> logger)
+    /// <summary>
+    /// The Trace tab's view model. Task 13 embeds the
+    /// <see cref="Views.TraceView"/> directly into <c>AppShell.xaml</c>'s
+    /// <c>MainArea</c> via this property; Tasks 14-17 will introduce a
+    /// tab-switching layer (the AppShell's <c>ContentControl</c> will
+    /// switch to a <c>ContentPresenter</c> bound to a selected-tab VM).
+    /// </summary>
+    public TraceViewModel TraceViewModel { get; }
+
+    public AppShellViewModel(ChannelRouter router, ILogger<AppShellViewModel> logger, TraceViewModel traceViewModel)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        TraceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
     }
 
     [RelayCommand]

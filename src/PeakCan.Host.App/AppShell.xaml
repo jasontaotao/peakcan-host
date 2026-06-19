@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PeakCan.Host.App"
+        xmlns:views="clr-namespace:PeakCan.Host.App.Views"
         mc:Ignorable="d"
         Title="PeakCan Host" Height="720" Width="1280">
     <DockPanel>
@@ -32,7 +33,11 @@
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <ContentControl Grid.Row="0" x:Name="MainArea" />
+            <ContentControl Grid.Row="0" x:Name="MainArea">
+                <ContentControl.Content>
+                    <views:TraceView DataContext="{Binding TraceViewModel}" />
+                </ContentControl.Content>
+            </ContentControl>
         </Grid>
     </DockPanel>
 </Window>
