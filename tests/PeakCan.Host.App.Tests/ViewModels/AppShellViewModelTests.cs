@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.Channel;
 
@@ -11,10 +12,17 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// commands exercise the PEAK SDK and are marked as integration+hardware
 /// and skipped in CI; the WPF VM still compiles and instantiates in tests
 /// so constructor injection is exercised.
+/// <para>
+/// Task 14: <see cref="AppShellViewModel"/> gained a 4th ctor parameter
+/// (<see cref="SendService"/>) so the shell can publish the connected
+/// channel to the manual-send form. The hardware-dependent wiring test
+/// is skipped; manual verification on a workstation with a PEAK device
+/// attached is the only way to exercise the production path.
+/// </para>
 /// </summary>
 public class AppShellViewModelTests
 {
-    private static AppShellViewModel NewVm() => new(new ChannelRouter(), NullLogger<AppShellViewModel>.Instance, new TraceViewModel());
+    private static AppShellViewModel NewVm() => new(new ChannelRouter(), NullLogger<AppShellViewModel>.Instance, new TraceViewModel(), new SendService(NullLogger<SendService>.Instance));
 
     [Fact]
     public void Default_State_Is_Disconnected_With_Ready_Status()
@@ -89,5 +97,25 @@ public class AppShellViewModelTests
         vm.ConnectCommand.CanExecute(null).Should().BeTrue();
         vm.ConnectCommand.Execute(null);
         vm.IsConnected.Should().BeTrue();
+    }
+
+    [Fact(Skip = "Requires PEAK USB hardware (PCAN-USB FD on handle 0x51).")]
+    [Trait("category", "integration")]
+    [Trait("category", "hardware")]
+    public void ConnectCommand_After_Successful_Probe_Wires_SendService_ActiveChannel()
+    {
+        // Task 14 wiring: a successful Connect publishes the active
+        // ICanChannel onto SendService so the manual-send form can
+        // transmit. Without PEAK hardware, the probe fails and the
+        // connect path cannot run; covered manually.
+        var svc = new SendService(NullLogger<SendService>.Instance);
+        var vm = new AppShellViewModel(
+            new ChannelRouter(),
+            NullLogger<AppShellViewModel>.Instance,
+            new TraceViewModel(),
+            svc);
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.ConnectCommand.Execute(null);
+        svc.ActiveChannel.Should().NotBeNull();
     }
 }

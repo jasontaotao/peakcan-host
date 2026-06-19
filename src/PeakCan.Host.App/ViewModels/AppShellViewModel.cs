@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Peak.Can.Basic.BackwardCompatibility;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Peak;
@@ -43,6 +44,7 @@ public sealed partial class AppShellViewModel : ObservableObject
 
     private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
+    private readonly SendService _sendService;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private PeakCanChannel? _activeChannel;
@@ -77,11 +79,26 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// </summary>
     public TraceViewModel TraceViewModel { get; }
 
-    public AppShellViewModel(ChannelRouter router, ILogger<AppShellViewModel> logger, TraceViewModel traceViewModel)
+    /// <summary>
+    /// The manual-send form's service. The shell publishes the connected
+    /// <see cref="ICanChannel"/> onto it after a successful
+    /// <see cref="ConnectAsync"/> so the send tab (Task 14) and any
+    /// future sender can transmit without re-initializing the hardware.
+    /// Exposed publicly so tests can assert the wiring without spinning
+    /// up the full WPF shell.
+    /// </summary>
+    public SendService SendService => _sendService;
+
+    public AppShellViewModel(
+        ChannelRouter router,
+        ILogger<AppShellViewModel> logger,
+        TraceViewModel traceViewModel,
+        SendService sendService)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         TraceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
+        _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
     }
 
     [RelayCommand]
@@ -157,6 +174,7 @@ public sealed partial class AppShellViewModel : ObservableObject
             {
                 _activeChannel = channel;
                 _router.RegisterChannel(channel);
+                _sendService.ActiveChannel = channel;
                 IsConnected = true;
                 ConnectionState = "Connected to USB1 (CAN FD 1 Mbps)";
                 StatusMessage = "Connected";
@@ -165,6 +183,7 @@ public sealed partial class AppShellViewModel : ObservableObject
             else
             {
                 ConnectionState = "Disconnected";
+                _sendService.ActiveChannel = null;
                 var err = result.Error!;
                 StatusMessage = $"Connect failed: {err.Code} {err.Message}";
                 LogConnectFailed(_logger, PcanUsbFdFirstHandle, err.Code, err.Message);
