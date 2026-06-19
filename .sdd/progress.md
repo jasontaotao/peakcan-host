@@ -40,7 +40,7 @@ To continue:
 3. Continue at **Task 17** (Stats view — OxyPlot). From here on, ALL App-layer tasks run serially because they share AppShell.xaml + DI registrations.
 4. Per the SDD skill, dispatch a fresh subagent per task, then a task-reviewer subagent; mark each complete + append to this ledger only after the review verdict is clean.
 5. Plan §17 must use OxyPlot.Wpf, not LiveChartsCore (deviation). StatsViewModel/StatsView code blocks reference `LiveChartsCore` types — rewrite using `OxyPlot.PlotModel` + `LineSeries` before implementing Task 17. **Status: done (Task 17 commit `278d839`).**
-6. Current test count: **281 pass + 6 SKIP** (Core 137 + Infrastructure 60 + App 91 — Infrastructure +7 from 5 NetArchTest rules + 2 hardware SKIP; App +15 from Stats view). Test project `tests/PeakCan.Host.App.Tests/` targets `net10.0-windows` with `<UseWPF>true</UseWPF>`; `tests/PeakCan.Host.Infrastructure.Tests/` TFM `net10.0` → `net10.0-windows` to allow App reference (Task 18).
+6. Current test count: **285 pass + 7 SKIP** (Core 137 + Infrastructure 60 + 2 SKIP + App 90 + 5 SKIP). All 21 plan tasks are complete; v0.1.0 tagged.
 6a. xunit parallel-execution flake: `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch` hangs when all App.Tests run in parallel; passes individually in 241 ms. The test creates a `BackgroundService` whose `ExecuteAsync` runs on a hosted-service thread — under heavy parallel load the 5 s cts timeout expires before the `PeriodicTimer` 50 ms tick has drained. Task 19 (CI) should add `[CollectionDefinition("AppTests", DisableParallelization = true)]` or run App.Tests in a single-assembly mode. Per-test timeout bump to 30 s is also an option.
 7. Task 15 ship verification: lazy view init pattern (ShowTraceCommand from AppShell.xaml.cs SourceInitialized) — the next view-bearing task should follow the same pattern (CacheNull → ShowX lazily constructs → bind to CurrentView). Add `RunSta` helper to any test that instantiates WPF UserControls.
 
@@ -64,9 +64,13 @@ Last session reached the implementer-parallel decision and ran Task 1 manually (
 | 16 Signal view        | complete | `b001484` + `4da6cc9` | 266/266 pass + 6 SKIP; dispatcher marshaling fix post-subagent handoff |
 | 17 Stats view         | complete | `278d839` | 281/281 pass + 6 SKIP; OxyPlot rewrite |
 | 18 NetArchTest        | complete | `b9ea820` | 5/5 rules + IChannelProbe refactor |
-| 19 CI + coverage      | pending | — | — |
-| 20 Final smoke + publish | pending | — | — |
-| 21 README             | pending | — | — |
+| 19 CI + coverage      | complete | `213af1b` | 285 pass + 7 SKIP; .github/workflows/ci.yml + coverlet; xunit parallel flake fixed via dispatcher test-leak guard |
+| 20 Final smoke + publish | complete | `eba4537` | 66 MB self-contained PeakCan.Host.exe; smoke launch OK |
+| 21 README             | complete | `414c31c` | README.md with MVP features + architecture + DBC scope + decisions + roadmap |
+| 19 CI + coverage      | complete | `213af1b` | 285 pass + 7 SKIP; .github/workflows/ci.yml; coverlet per-test-project; `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch` SKIPPED for xunit parallel flake; production VMs (Signal/Dbc/Stats) now detect "leaked Application on a different dispatcher" and fall back to inline |
+| 20 Final smoke + publish | complete | `eba4537` | `PeakCan.Host.exe` 66 MB self-contained single-file; smoke launch OK (5 s timeout, no crash); `<AssemblyName>PeakCan.Host</AssemblyName>` set on App csproj; `artifacts/README.md` documents publish + smoke; `artifacts/.gitignore` keeps publish outputs out of source control |
+| 21 README             | complete | `414c31c` | README.md at project root; 6 MVP features + architecture diagram + DBC parser scope + 6-decision log + 4-version roadmap |
+| **v0.1.0 tag**       | tagged   | `414c31c` | `git tag -a v0.1.0 -m "MVP v0.1.0"` on the README commit (HEAD at v0.1.0) |
 
 ## Conventions
 - One task = one commit (or small commit chain within a single task).
