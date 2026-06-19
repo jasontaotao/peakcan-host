@@ -303,8 +303,8 @@ public sealed partial class AppShellViewModel : ObservableObject
     private async Task DisconnectAsync()
     {
         if (!IsConnected || _activeChannel is null) return;
+        StatusMessage = $"Disconnecting from {DefaultBaudRate.Name}";
         ConnectionState = "Disconnecting...";
-        StatusMessage = $"Disconnecting from {ConnectionState}";
         try
         {
             await _activeChannel.DisconnectAsync().ConfigureAwait(true);
