@@ -12,15 +12,17 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// upserted (existing row replaced by key, not duplicated) so the
 /// DataGrid view stays stable as frames stream in.
 /// <para>
-/// <b>Concurrency model:</b> <see cref="ApplyFrame"/> mutates
-/// <see cref="Latest"/> directly on the calling thread. The decode
-/// path is pure (no shared state) and the upsert is a linear scan of a
-/// typically-small collection (one row per signal per loaded message,
-/// &lt;100 rows in practice). WPF's DataGrid binding marshals
-/// <c>CollectionChanged</c> notifications onto the dispatcher
-/// internally when an active visual tree is attached; tests that read
-/// <see cref="SignalViewModel.Latest"/> directly (no binding) observe
-/// the post-state inline.
+/// <b>Concurrency model:</b> <see cref="ApplyFrame"/> decodes on the
+/// calling thread (pure / stateless path) and marshals the resulting
+/// <c>ObservableCollection&lt;SignalEntry&gt;</c> mutations to the WPF
+/// UI thread via <c>Dispatcher.InvokeAsync</c> (mirror of the
+/// <see cref="DbcViewModel.OnLoaded"/> pattern from Task 15). The
+/// non-STA tests below run on xunit's MTA thread with no
+/// <c>Application</c> instance, so the dispatcher is null and the
+/// upsert runs inline — the test observes the post-state directly.
+/// The full dispatcher hop is exercised in production by the WPF
+/// smoke run (Task 20); a dedicated STA test for this VM caused
+/// xunit parallel-execution hangs in the suite and was rolled back.
 /// </para>
 /// </summary>
 public class SignalViewModelTests

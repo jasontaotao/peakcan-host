@@ -24,28 +24,30 @@ namespace PeakCan.Host.App.ViewModels;
 /// the Task 15 HIGH-2 review fix).
 /// </para>
 /// <para>
-/// <b>Concurrency model:</b> <see cref="ApplyFrame"/> mutates
-/// <see cref="Latest"/> directly on the calling thread. The decode
-/// path is pure (no shared state) and the upsert is a linear scan of a
-/// typically-small collection (one row per signal per loaded message,
-/// &lt;100 rows in practice). WPF's <c>ItemsControl</c> binding
-/// internally marshals <c>CollectionChanged</c> notifications onto the
-/// dispatcher when an active visual tree is attached, so the DataGrid
-/// stays in sync without us marshalling explicitly. Tests that read
-/// <see cref="Latest"/> directly (no binding) observe the post-state
-/// inline. If a future task surfaces cross-thread
-/// <c>NotSupportedException</c> from the binding, the fix is a
-/// dispatcher marshalling layer around <see cref="Upsert"/>, not
-/// around <see cref="ApplyFrame"/>.
+/// <b>Concurrency model:</b> <see cref="ApplyFrame"/> is called from
+/// the <see cref="Services.TraceService"/> SDK read thread. The decode
+/// path runs on the calling thread (pure / stateless), but the
+/// resulting <see cref="Latest"/> mutations MUST be marshalled to the
+/// WPF UI thread because the <c>ItemsControl</c> binding rejects
+/// cross-thread <c>CollectionChanged</c> notifications with
+/// <c>NotSupportedException</c> (Task 15 review pattern; mirrors
+/// <see cref="DbcViewModel.OnLoaded"/>). The CPU-light decode stays on
+/// the calling thread; the binding-visible upsert is queued to the
+/// dispatcher via <see cref="System.Windows.Threading.DispatcherOperation"/>
+/// (<c>InvokeAsync</c> — non-blocking so the SDK read thread is not
+/// slowed at ~8 000 fps). In test contexts (no <c>Application</c>) the
+/// dispatcher is null and the upsert runs inline so the test can
+/// observe the post-state.
 /// </para>
 /// </summary>
 public sealed class SignalViewModel : ObservableObject
 {
     /// <summary>
-    /// Backing store of decoded-signal rows. Mutated from the calling
-    /// thread of <see cref="ApplyFrame"/>; reads from any thread are
-    /// safe because the WPF DataGrid binding marshals reads to the UI
-    /// thread.
+    /// Backing store of decoded-signal rows. Mutated only on the WPF UI
+    /// thread (via <see cref="ApplyFrame"/>'s dispatcher hop); reads
+    /// from the UI thread are direct, reads from background threads
+    /// are safe because the WPF DataGrid binding marshals reads to the
+    /// UI thread automatically.
     /// </summary>
     public ObservableCollection<SignalEntry> Latest { get; } = new();
 
@@ -59,14 +61,13 @@ public sealed class SignalViewModel : ObservableObject
     /// </summary>
     public void ApplyFrame(CanFrame frame, Message msg)
     {
-        // Decode all signals on the calling thread — the decode path is
-        // pure (no shared state) and SignalDecoder is cheap. Mutate
-        // Latest directly on the calling thread. The WPF DataGrid
-        // binding internally marshals CollectionChanged notifications
-        // onto the dispatcher when an active visual tree exists;
-        // tests that touch the collection directly (no binding) just
-        // observe the post-state inline.
+        // Decode on the calling thread — the decode path is pure (no
+        // shared state) and SignalDecoder is cheap. Build a local
+        // list of new entries; the collection mutation hops to the
+        // dispatcher below so the WPF binding sees a UI-thread
+        // CollectionChanged.
         var span = frame.Data.Span;
+        var pending = new List<SignalEntry>(msg.Signals.Count);
         foreach (var sig in msg.Signals)
         {
             // v1.1 deferred: multiplexor + multiplexed signals need
@@ -74,7 +75,7 @@ public sealed class SignalViewModel : ObservableObject
             if (sig.IsMultiplexor || sig.IsMultiplexed) continue;
 
             var raw = SignalDecoder.Decode(span, sig);
-            Upsert(new SignalEntry
+            pending.Add(new SignalEntry
             {
                 Message = msg.Name,
                 Signal = sig.Name,
@@ -83,6 +84,22 @@ public sealed class SignalViewModel : ObservableObject
                 Unit = sig.Unit,
             });
         }
+        if (pending.Count == 0) return;
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            // Production: SDK read thread → hop to UI thread. Fire and
+            // forget via InvokeAsync so the SDK thread is not blocked
+            // at ~8 kfps. The Operation is not awaited (caller does
+            // not need ordering or completion).
+            dispatcher.InvokeAsync(() => ApplyEntries(pending));
+            return;
+        }
+        // Inline path: either we're already on the UI thread, or no
+        // Application is running (test context). Tests that touch
+        // Latest directly observe the post-state here.
+        ApplyEntries(pending);
     }
 
     /// <summary>
@@ -108,5 +125,17 @@ public sealed class SignalViewModel : ObservableObject
             }
         }
         Latest.Add(entry);
+    }
+
+    // Bulk apply a batch of decoded entries. Always invoked on the UI
+    // thread (either via InvokeAsync from ApplyFrame, or inline when
+    // the dispatcher is null in test context). Single insertion pass
+    // per batch — the per-entry Upsert is O(N) so the total is O(N*M)
+    // where N=batch size, M=current row count. Acceptable for typical
+    // batch sizes (1 frame per ApplyFrame call from the SDK thread;
+    // < 50 signals per DBC message).
+    private void ApplyEntries(IReadOnlyList<SignalEntry> entries)
+    {
+        foreach (var e in entries) Upsert(e);
     }
 }
