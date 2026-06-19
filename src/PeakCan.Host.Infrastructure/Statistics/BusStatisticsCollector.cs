@@ -30,18 +30,18 @@ public sealed record BusStatistics(
 /// <see cref="IFrameSink"/> that accumulates per-frame counters and
 /// maintains a rolling 1-second window for FPS / BPS / bus-load metrics.
 /// <para>
-/// Thread-safety: counter updates use <see cref="Interlocked"/>; the
-/// window is guarded by a private <c>lock</c>. Safe to call
-/// <see cref="OnFrame"/> from any thread (the SDK read thread, UI thread,
-/// or parallel test producers).
+/// Thread-safety: every counter read or write and every queue mutation
+/// happens under a single <c>_recentLock</c>. <see cref="Snapshot"/> is
+/// therefore a coherent point-in-time view — a frame that arrives mid-snapshot
+/// is either fully visible in counters + window, or fully invisible. Safe
+/// to call <see cref="OnFrame"/> from any thread (SDK read thread, UI
+/// thread, or parallel test producers).
 /// </para>
 /// <para>
-/// <see cref="OnError"/> is intentionally a no-op: this collector is a
-/// downstream consumer, not a source of failures. The
-/// <see cref="ChannelRouter"/> forwards per-sink exceptions to the
-/// originating sink's <c>OnError</c>; if this collector ever throws, that
-/// router-level path will handle the notification, not the other way
-/// around.
+/// <see cref="OnError"/> writes a debug-trace line so the notification is
+/// observable on a debugger-attached host (mirroring the ChannelRouter
+/// pattern at <c>ChannelRouter.cs:121</c>). The collector itself does not
+/// act on errors — it is a downstream consumer, not a failure source.
 /// </para>
 /// </summary>
 public sealed class BusStatisticsCollector : IFrameSink
@@ -65,21 +65,19 @@ public sealed class BusStatisticsCollector : IFrameSink
     /// </summary>
     public void OnFrame(CanFrame frame)
     {
-        Interlocked.Increment(ref _total);
-        if (frame.IsError)
-        {
-            Interlocked.Increment(ref _err);
-        }
-        Interlocked.Add(ref _bytes, frame.Dlc);
-
         long now = _clock.ElapsedTicks;
         lock (_recentLock)
         {
+            _total++;
+            if (frame.IsError)
+            {
+                _err++;
+            }
+            _bytes += frame.Dlc;
             _recent.Enqueue((now, frame.Dlc));
             // Trim head: anything older than 1 second relative to *now*
-            // is dropped. Re-checking now each iteration is safe because
-            // the lock is held — no concurrent push can advance the tail
-            // past us.
+            // is dropped. The locally-captured `now` is safe because the
+            // lock is held — no concurrent push can advance the tail past us.
             while (_recent.Count > 0
                    && now - _recent.Peek().Ticks > TimeSpan.TicksPerSecond)
             {
@@ -89,57 +87,49 @@ public sealed class BusStatisticsCollector : IFrameSink
     }
 
     /// <summary>
-    /// No-op for this collector. The <see cref="ChannelRouter"/> uses
-    /// <c>OnError</c> to forward per-sink failures back to the sink that
-    /// raised them; <see cref="BusStatisticsCollector"/> does not surface
-    /// failures from other sinks, so nothing to log here.
+    /// Surfaces the forwarded exception via <see cref="Debug.WriteLine"/>
+    /// for debugger-attached hosts (mirrors <c>ChannelRouter.cs</c>
+    /// pattern). The collector does not act on the error — it is purely
+    /// informational: the originating sink's failure is the router's
+    /// concern, not this collector's.
     /// </summary>
     public void OnError(Exception ex)
     {
-        // Intentional no-op — see XML doc above.
-        _ = ex;
+        Debug.WriteLine(
+            $"[BusStatisticsCollector] forwarded exception (informational, no action taken): {ex.GetType().Name}: {ex.Message}");
     }
 
     /// <summary>
-    /// Reads current counters and window contents atomically (from the
-    /// caller's perspective) and returns a <see cref="BusStatistics"/>.
-    /// <para>
-    /// Counter reads use <see cref="Interlocked.Read(ref long)"/>; the
-    /// window read takes the lock. The two reads are NOT atomic with each
-    /// other — a frame that arrives between them will appear in the
-    /// counter but not in the window. Acceptable for MVP: the next
-    /// snapshot a UI tick later will be self-consistent.
-    /// </para>
+    /// Reads current counters and window contents under the same lock
+    /// used by <see cref="OnFrame"/>, guaranteeing a coherent snapshot.
     /// </summary>
     public BusStatistics Snapshot()
     {
-        long total = Interlocked.Read(ref _total);
-        long err = Interlocked.Read(ref _err);
-        long bytes = Interlocked.Read(ref _bytes);
-
-        int count;
-        long bytesInWindow;
         lock (_recentLock)
         {
-            count = _recent.Count;
-            bytesInWindow = _recent.Sum(x => (long)x.Bytes);
+            int count = _recent.Count;
+            long bytesInWindow = 0L;
+            foreach (var entry in _recent)
+            {
+                bytesInWindow += entry.Bytes;
+            }
+
+            // windowSeconds is a fixed 1.0 whenever the window has any
+            // entries: the trim loop in OnFrame guarantees every retained
+            // frame is within 1 second of the most recent arrival. This makes
+            // FramesPerSecond == count, which is what the trace view displays.
+            double windowSeconds = count > 0 ? 1.0 : 0.0;
+            double fps = windowSeconds > 0.0 ? count / windowSeconds : 0.0;
+            double bps = windowSeconds > 0.0 ? bytesInWindow / windowSeconds : 0.0;
+
+            return new BusStatistics(
+                _total,
+                _err,
+                fps,
+                _bytes,
+                bps,
+                LoadPercent(count));
         }
-
-        // windowSeconds is a fixed 1.0 whenever the window has any
-        // entries: the trim loop in OnFrame guarantees every retained
-        // frame is within 1 second of the most recent arrival. This makes
-        // FramesPerSecond == count, which is what the trace view displays.
-        double windowSeconds = count > 0 ? 1.0 : 0.0;
-        double fps = windowSeconds > 0.0 ? count / windowSeconds : 0.0;
-        double bps = windowSeconds > 0.0 ? bytesInWindow / windowSeconds : 0.0;
-
-        return new BusStatistics(
-            total,
-            err,
-            fps,
-            bytes,
-            bps,
-            LoadPercent(count));
     }
 
     /// <summary>
@@ -157,8 +147,8 @@ public sealed class BusStatisticsCollector : IFrameSink
     /// compute a real bit-budget percentage instead of this fps heuristic.
     /// </para>
     /// </summary>
-    private static double LoadPercent(int framesPerSecond)
+    private static double LoadPercent(int framesInWindow)
     {
-        return Math.Min(100.0, framesPerSecond / 80.0);
+        return Math.Min(100.0, framesInWindow / 80.0);
     }
 }
