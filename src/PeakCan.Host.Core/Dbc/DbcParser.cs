@@ -52,6 +52,11 @@ public static class DbcParser
     {
         private readonly IReadOnlyList<Token> _tokens;
         private int _i;
+        // Pending message registry: populated by ParseMessage, mutated by
+        // ParseValForSignal to attach value-table references to signals.
+        // Read at end of ParseDocument to build the final DbcDocument.
+        private readonly List<Message> _pendingMessages = new();
+        private readonly Dictionary<uint, Message> _pendingMessagesById = new();
 
         public ParserState(IReadOnlyList<Token> tokens) { _tokens = tokens; }
 
@@ -62,7 +67,6 @@ public static class DbcParser
         {
             string version = string.Empty;
             var nodes = new List<Node>();
-            var messages = new List<Message>();
             var seenIds = new HashSet<uint>();
             var valueTables = new Dictionary<string, ValueTable>();
 
@@ -107,12 +111,18 @@ public static class DbcParser
                                     ErrorCode.ParseFailure,
                                     $"Duplicate message id {msg.Id} at line {Current.Line}");
                             }
-                            messages.Add(msg);
+                            _pendingMessages.Add(msg);
+                            _pendingMessagesById[msg.Id] = msg;
                         }
                         else
                         {
                             return Result<DbcDocument>.Fail(msgResult.Error!.Code, msgResult.Error.Message);
                         }
+                        break;
+
+                    case TokenType.Keyword_VAL_:
+                        // Attach per-signal value tables to previously parsed messages.
+                        ParseValForSignal();
                         break;
 
                     case TokenType.Keyword_VAL_TABLE_:
@@ -161,8 +171,8 @@ public static class DbcParser
                 }
             }
 
-            var byId = messages.ToDictionary(m => m.Id);
-            return Result<DbcDocument>.Ok(new DbcDocument(version, nodes, messages, byId, valueTables));
+            var byId = _pendingMessages.ToDictionary(m => m.Id);
+            return Result<DbcDocument>.Ok(new DbcDocument(version, nodes, _pendingMessages, byId, valueTables));
         }
 
         private Result<Message> ParseMessage()
@@ -219,12 +229,23 @@ public static class DbcParser
                 signals.Add(ParseSignal());
             }
 
-            return Result<Message>.Ok(new Message(id, nameTok.Lexeme, dlc, sender, signals, false, null));
+            // After collecting all signals, fix up IsMultiplexed on the message.
+            // A message is multiplexed if any signal has IsMultiplexed set; the
+            // multiplexor is the one signal flagged IsMultiplexor.
+            bool isMuxed = signals.Any(s => s.IsMultiplexed);
+            ushort? muxIdx = isMuxed ? (ushort?)signals.FindIndex(s => s.IsMultiplexor) : null;
+            return Result<Message>.Ok(new Message(id, nameTok.Lexeme, dlc, sender, signals, isMuxed, muxIdx));
         }
 
         private Signal ParseSignal()
         {
             Consume(); // SG_
+
+            // DBC grammar: the multiplexor marker (M) or multiplexed marker (m<N>)
+            // follows the signal name, e.g. "SG_ Mux M : ..." or "SG_ Val0 m0 : ...".
+            bool isMuxor = false;
+            bool isMuxed = false;
+            ushort? muxVal = null;
 
             var nameTok = Consume();
             if (nameTok.Type != TokenType.Identifier)
@@ -234,6 +255,23 @@ public static class DbcParser
                     nameTok.Line, nameTok.Column);
             }
             string name = nameTok.Lexeme;
+
+            // Look for M or m<N> immediately after the name.
+            if (Current.Type == TokenType.Identifier && Current.Lexeme == "M")
+            {
+                isMuxor = true;
+                Consume();
+            }
+            else if (Current.Type == TokenType.Identifier && Current.Lexeme.Length >= 2 && Current.Lexeme[0] == 'm'
+                     && ushort.TryParse(Current.Lexeme.AsSpan(1),
+                         System.Globalization.NumberStyles.Integer,
+                         System.Globalization.CultureInfo.InvariantCulture, out var mv)
+                     && mv <= 15)
+            {
+                isMuxed = true;
+                muxVal = mv;
+                Consume();
+            }
 
             Expect(TokenType.Colon);
 
@@ -320,7 +358,8 @@ public static class DbcParser
                 }
             }
 
-            return new Signal(name, start, len, order, vt, factor, offset, min, max, unit, receivers);
+            return new Signal(name, start, len, order, vt, factor, offset, min, max, unit, receivers,
+                              IsMultiplexor: isMuxor, IsMultiplexed: isMuxed, MultiplexValue: muxVal);
         }
 
         private Result<ValueTable> ParseValueTable()
@@ -355,6 +394,92 @@ public static class DbcParser
             Expect(TokenType.Semicolon);
             return Result<ValueTable>.Ok(new ValueTable(nameTok.Lexeme, entries));
         }
+
+        private void ParseValForSignal()
+        {
+            Consume(); // VAL_
+
+            // Resolve message id — DBC grammar allows both a numeric ID and a
+            // name reference (Vector convention). Numeric form is more common.
+            uint msgId;
+            if (Current.Type == TokenType.Integer)
+            {
+                var raw = Consume().Lexeme;
+                if (!uint.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out msgId))
+                {
+                    throw new DbcParseException(
+                        $"Bad VAL_ message id '{raw}' at line {Current.Line}, column {Current.Column}",
+                        Current.Line, Current.Column);
+                }
+            }
+            else
+            {
+                var name = Consume().Lexeme;
+                var byName = _pendingMessages.LastOrDefault(m => m.Name == name)
+                             ?? throw new DbcParseException(
+                                 $"VAL_: unknown message '{name}' at line {Current.Line}, column {Current.Column}",
+                                 Current.Line, Current.Column);
+                msgId = byName.Id;
+            }
+
+            // Two forms: (a) inline pairs  VAL_ <msg> <sig> <int> "<text>" ... ;
+            //            (b) reference     VAL_ <msg> <sig> VAL_TABLE_ <name> ;
+            if (Current.Type == TokenType.Identifier && Peek(1).Type == TokenType.Keyword_VAL_TABLE_)
+            {
+                // (b) VAL_TABLE_ reference
+                var sigTok = Consume();
+                Consume(); // VAL_TABLE_
+                var tblTok = Consume();
+                string tableName = tblTok.Lexeme;
+
+                if (_pendingMessagesById.TryGetValue(msgId, out var m))
+                {
+                    var idx = m.Signals.ToList().FindIndex(s => s.Name == sigTok.Lexeme);
+                    if (idx < 0)
+                    {
+                        throw new DbcParseException(
+                            $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {Current.Line}",
+                            Current.Line, Current.Column);
+                    }
+                    m.Signals[idx] = m.Signals[idx] with { ValueTableName = tableName };
+                }
+                Expect(TokenType.Semicolon);
+            }
+            else
+            {
+                // (a) Inline pairs — we don't store the (int -> text) map on the
+                // signal for MVP. We just attach the signal name as a self-table
+                // reference so the UI can show "State: Off" by looking up its own
+                // value table in the document.
+                var sigTok = Consume();
+                if (Current.Type != TokenType.Integer && Current.Type != TokenType.Minus)
+                {
+                    throw new DbcParseException(
+                        $"Expected VAL_ value at line {Current.Line}, column {Current.Column}",
+                        Current.Line, Current.Column);
+                }
+                if (_pendingMessagesById.TryGetValue(msgId, out var m))
+                {
+                    var idx = m.Signals.ToList().FindIndex(s => s.Name == sigTok.Lexeme);
+                    if (idx < 0)
+                    {
+                        throw new DbcParseException(
+                            $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {Current.Line}",
+                            Current.Line, Current.Column);
+                    }
+                    m.Signals[idx] = m.Signals[idx] with { ValueTableName = sigTok.Lexeme };
+                }
+                while (Current.Type == TokenType.Integer || Current.Type == TokenType.Minus)
+                {
+                    Consume(); // value
+                    Consume(); // "text"
+                }
+                Expect(TokenType.Semicolon);
+            }
+        }
+
+        private Token Peek(int offset) => _tokens[_i + offset];
 
         private double ParseDouble()
         {
