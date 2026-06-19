@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Peak;
@@ -12,9 +13,18 @@ namespace PeakCan.Host.App.ViewModels;
 
 /// <summary>
 /// Top-level shell view model: status bar, channel-probe / connect toolbar,
-/// and the Open-DBC menu command. Tasks 13-17 will wire the ContentControl
-/// in <c>AppShell.xaml</c> to per-tab view models and route the DBC
-/// command into <c>DbcService</c>; this VM only owns the chrome.
+/// the Open-DBC menu command, and the per-tab view cache that drives the
+/// <c>MainArea</c> <see cref="System.Windows.Controls.ContentControl"/>.
+/// <para>
+/// <b>View caching (Task 15):</b> the three tab views (<see cref="TraceView"/>,
+/// <see cref="DbcView"/>, <see cref="SendView"/>) are instantiated once in
+/// the constructor and swapped via <see cref="CurrentView"/>. Reusing the
+/// view instances preserves DataGrid virtualization state across switches
+/// (scroll position, selection) and avoids paying the DataGrid layout cost
+/// on every menu click. Each view's <c>DataContext</c> is bound at
+/// construction time so XAML bindings resolve without any per-click
+/// DataContext plumbing.
+/// </para>
 /// <para>
 /// <b>Hardware probe (MVP):</b> per the inline amendment, this class
 /// hard-codes handle <c>0x51</c> (PCAN-USB FD first channel) and probes
@@ -45,6 +55,17 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
     private readonly SendService _sendService;
+    private readonly TraceViewModel _traceViewModel;
+    private readonly DbcViewModel _dbcViewModel;
+    private readonly SendViewModel _sendViewModel;
+
+    // View instances are created lazily on the first Show command so the
+    // shell's ctor stays STA-free (xunit runs on MTA). Production callers
+    // always resolve the VM from the WPF STA thread (App.OnStartup), so
+    // the first Show happens on STA and the WPF UserControl ctor succeeds.
+    private TraceView? _traceView;
+    private DbcView? _dbcView;
+    private SendView? _sendView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private PeakCanChannel? _activeChannel;
@@ -71,44 +92,76 @@ public sealed partial class AppShellViewModel : ObservableObject
     private bool _isConnected;
 
     /// <summary>
-    /// The Trace tab's view model. Task 13 embeds the
-    /// <see cref="Views.TraceView"/> directly into <c>AppShell.xaml</c>'s
-    /// <c>MainArea</c> via this property; Tasks 14-17 will introduce a
-    /// tab-switching layer (the AppShell's <c>ContentControl</c> will
-    /// switch to a <c>ContentPresenter</c> bound to a selected-tab VM).
+    /// The view currently shown in <c>AppShell.xaml</c>'s <c>MainArea</c>.
+    /// Switched by the View menu (Trace / DBC / Send) and by the
+    /// Open-DBC menu command. The instance is cached — see class doc.
     /// </summary>
-    public TraceViewModel TraceViewModel { get; }
+    [ObservableProperty]
+    private object? _currentView;
 
-    /// <summary>
-    /// The manual-send form's service. The shell publishes the connected
-    /// <see cref="ICanChannel"/> onto it after a successful
-    /// <see cref="ConnectAsync"/> so the send tab (Task 14) and any
-    /// future sender can transmit without re-initializing the hardware.
-    /// Exposed publicly so tests can assert the wiring without spinning
-    /// up the full WPF shell.
-    /// </summary>
+    /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).</summary>
     public SendService SendService => _sendService;
 
     public AppShellViewModel(
         ChannelRouter router,
         ILogger<AppShellViewModel> logger,
         TraceViewModel traceViewModel,
-        SendService sendService)
+        SendService sendService,
+        DbcViewModel dbcViewModel,
+        SendViewModel sendViewModel)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        TraceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
+        _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
+        _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
+        _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
+
+        // View instances are lazily created on the first Show command.
+        // The default CurrentView is null until ShowTrace runs (which
+        // happens in production via AppShell.xaml.cs's SourceInitialized
+        // handler). See the field XML doc above for the STA rationale.
     }
 
     [RelayCommand]
     private void OpenDbc()
     {
-        // Wired into DbcService in Task 15. For now, surface in the status
-        // bar so the menu command is observable to the user and to tests.
-        StatusMessage = "Open DBC clicked (Task 15)";
+        // Task 15: the File ▸ Open DBC... menu item routes into the DBC
+        // tab. The actual file-open dialog is owned by the per-view
+        // Open button inside DbcViewModel.OpenAsync; the menu item
+        // only navigates so the user sees the right surface.
+        CurrentView = GetOrCreateDbcView();
         LogOpenDbcInvoked(_logger);
     }
+
+    [RelayCommand]
+    private void ShowTrace()
+    {
+        if (_traceView == null)
+        {
+            _traceView = new TraceView { DataContext = _traceViewModel };
+            // First-show sets the default tab so the very first render
+            // after VM construction lands on the trace grid.
+            if (CurrentView == null) CurrentView = _traceView;
+        }
+        CurrentView = _traceView;
+    }
+
+    [RelayCommand]
+    private void ShowDbc() => CurrentView = GetOrCreateDbcView();
+
+    [RelayCommand]
+    private void ShowSend()
+    {
+        if (_sendView == null)
+        {
+            _sendView = new SendView { DataContext = _sendViewModel };
+            if (CurrentView == null) CurrentView = _sendView;
+        }
+        CurrentView = _sendView;
+    }
+
+    private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };
 
     [RelayCommand(CanExecute = nameof(CanEnumerateChannels))]
     private void EnumerateChannels()
