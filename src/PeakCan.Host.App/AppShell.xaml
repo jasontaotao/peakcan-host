@@ -28,6 +28,7 @@
                 <Separator />
                 <Button Content="Probe" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
                 <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="6,2" />
+                <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />
                 <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" />
             </ToolBar>

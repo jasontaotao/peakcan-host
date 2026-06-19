@@ -325,6 +325,23 @@ public class AppShellViewModelTests
         vm.IsConnected.Should().BeTrue();
     }
 
+    [Fact]
+    public void DisconnectCommand_Is_Disabled_When_Not_Connected()
+    {
+        var vm = NewVm();
+        vm.DisconnectCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DisconnectCommand_Is_Enabled_When_IsConnected_Is_True()
+    {
+        var vm = NewVm();
+        typeof(AppShellViewModel)
+            .GetProperty(nameof(AppShellViewModel.IsConnected))!
+            .SetValue(vm, true);
+        vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
+    }
+
     [Fact(Skip = "Requires PEAK USB hardware (PCAN-USB FD on handle 0x51).")]
     [Trait("category", "integration")]
     [Trait("category", "hardware")]

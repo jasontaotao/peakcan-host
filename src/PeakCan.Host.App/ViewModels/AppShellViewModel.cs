@@ -50,6 +50,12 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// for a single number.
     /// </summary>
     private const ushort PcanUsbFdFirstHandle = 0x51;
+    // BaudRate is a readonly record struct, not a literal type, so it
+    // cannot be a `const` in C#. `static readonly` gives us the same
+    // named, class-level binding the task asked for (see ICanChannel.cs
+    // preset table) without a runtime cost.
+    private static readonly BaudRate DefaultBaudRate = BaudRate.CanFd1Mbps;
+    private const bool DefaultFd = true;
 
     private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
@@ -93,6 +99,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DisconnectCommand))]
     private bool _isConnected;
 
     /// <summary>
@@ -250,7 +257,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         try
         {
             var channel = new PeakCanChannel(new ChannelId(PcanUsbFdFirstHandle));
-            var result = await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true).ConfigureAwait(true);
+            var result = await channel.ConnectAsync(DefaultBaudRate, fd: DefaultFd).ConfigureAwait(true);
             if (result.IsSuccess)
             {
                 _activeChannel = channel;
@@ -290,6 +297,39 @@ public sealed partial class AppShellViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanDisconnect))]
+    private async Task DisconnectAsync()
+    {
+        if (!IsConnected || _activeChannel is null) return;
+        ConnectionState = "Disconnecting...";
+        StatusMessage = $"Disconnecting from {ConnectionState}";
+        try
+        {
+            await _activeChannel.DisconnectAsync().ConfigureAwait(true);
+            _router.UnregisterChannel(_activeChannel);
+            _sendService.ActiveChannel = null;
+            IsConnected = false;
+            ConnectionState = "Disconnected";
+            StatusMessage = "Disconnected";
+            LogDisconnectOk(_logger, PcanUsbFdFirstHandle);
+        }
+        catch (Exception ex)
+        {
+            // DisconnectAsync swallows hardware failures per its own contract;
+            // any exception here is therefore unexpected. Surface it as a
+            // status message so the operator is not stuck in "Disconnecting".
+            ConnectionState = "Disconnected";
+            StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
+            LogDisconnectThrew(_logger, PcanUsbFdFirstHandle, ex);
+        }
+        finally
+        {
+            _activeChannel = null;
+        }
+    }
+
+    private bool CanDisconnect() => IsConnected;
+
     // LoggerMessage source-generated helpers silence CA1848 (use LoggerMessage
     // source generators) and CA1873 (avoid expensive arg computation in
     // disabled loggers). The methods are deliberately not called from hot
@@ -312,4 +352,10 @@ public sealed partial class AppShellViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Connect threw on handle 0x{Handle:X2}")]
     private static partial void LogConnectThrew(ILogger logger, ushort handle, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Disconnect OK on handle 0x{Handle:X2}")]
+    private static partial void LogDisconnectOk(ILogger logger, ushort handle);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Disconnect threw on handle 0x{Handle:X2}")]
+    private static partial void LogDisconnectThrew(ILogger logger, ushort handle, Exception ex);
 }
