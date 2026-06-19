@@ -58,6 +58,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly TraceViewModel _traceViewModel;
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
+    private readonly SignalViewModel _signalViewModel;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -66,6 +67,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private TraceView? _traceView;
     private DbcView? _dbcView;
     private SendView? _sendView;
+    private SignalView? _signalView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private PeakCanChannel? _activeChannel;
@@ -108,7 +110,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         TraceViewModel traceViewModel,
         SendService sendService,
         DbcViewModel dbcViewModel,
-        SendViewModel sendViewModel)
+        SendViewModel sendViewModel,
+        SignalViewModel signalViewModel)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -116,6 +119,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
+        _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
 
         // View instances are lazily created on the first Show command.
         // The default CurrentView is null until ShowTrace runs (which
@@ -159,6 +163,21 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _sendView;
         }
         CurrentView = _sendView;
+    }
+
+    [RelayCommand]
+    private void ShowSignals()
+    {
+        // Task 16: Signal tab (DBC-decoded live signals). Mirrors
+        // ShowSend: lazily create the view on first Show so the shell
+        // ctor stays STA-free; reuse the same instance thereafter so
+        // DataGrid virtualization state survives menu round-trips.
+        if (_signalView == null)
+        {
+            _signalView = new SignalView { DataContext = _signalViewModel };
+            if (CurrentView == null) CurrentView = _signalView;
+        }
+        CurrentView = _signalView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

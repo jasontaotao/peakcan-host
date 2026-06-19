@@ -45,6 +45,7 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class DbcViewModel : ObservableObject
 {
     private readonly DbcService _svc;
+    private readonly SignalViewModel _signals;
     private readonly ILogger<DbcViewModel> _logger;
 
     /// <summary>
@@ -61,9 +62,10 @@ public sealed partial class DbcViewModel : ObservableObject
     [ObservableProperty]
     private string _status = "No DBC loaded";
 
-    public DbcViewModel(DbcService svc, ILogger<DbcViewModel> logger)
+    public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
+        _signals = signals ?? throw new ArgumentNullException(nameof(signals));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _svc.DbcLoaded += OnLoaded;
         _svc.LoadFailed += OnLoadFailed;
@@ -98,6 +100,9 @@ public sealed partial class DbcViewModel : ObservableObject
         {
             Messages.Add(DbcMessageViewModel.From(m));
         }
+        // Task 16: clear the decoded-signal table so stale entries from
+        // a previous parse do not linger against a new DBC load.
+        _signals.Reset();
         var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
         Status = $"Loaded {doc.Messages.Count} messages from {fileName}";
     }

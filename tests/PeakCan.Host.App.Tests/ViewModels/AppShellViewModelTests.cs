@@ -49,8 +49,11 @@ public class AppShellViewModelTests
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
-            new DbcViewModel(new FakeDbcService(), NullLogger<DbcViewModel>.Instance),
-            new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance));
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
+            new SignalViewModel());
 
     /// <summary>
     /// Run <paramref name="body"/> on an STA thread because the view
@@ -176,6 +179,37 @@ public class AppShellViewModelTests
     }
 
     [Fact]
+    public void ShowSignalsCommand_Sets_CurrentView_To_SignalView()
+    {
+        // Task 16: the Signal tab joins the existing Trace / DBC / Send
+        // tabs. Mirror the ShowSendCommand test: lazy view instantiation
+        // on first show.
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowSignalsCommand.Execute(null);
+            vm.CurrentView.Should().BeOfType<SignalView>();
+        });
+    }
+
+    [Fact]
+    public void ShowSignalsCommand_Reuses_Cached_SignalView_Instance()
+    {
+        // Caching the view preserves DataGrid virtualization state across
+        // menu switches. A second Show call must return the same instance.
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowSignalsCommand.Execute(null);
+            var first = vm.CurrentView;
+            vm.ShowTraceCommand.Execute(null);
+            vm.ShowSignalsCommand.Execute(null);
+            vm.CurrentView.Should().BeSameAs(first,
+                "second Show should return the cached SignalView instance");
+        });
+    }
+
+    [Fact]
     public void OpenDbcCommand_Now_Switches_To_DbcView()
     {
         // The Open DBC menu item (File ▸ Open DBC...) is the user-facing
@@ -188,6 +222,31 @@ public class AppShellViewModelTests
             var vm = NewVm();
             vm.OpenDbcCommand.Execute(null);
             vm.CurrentView.Should().BeOfType<DbcView>();
+        });
+    }
+
+    [Fact]
+    public void OpenDbcCommand_Does_Not_Reset_SignalView_Directly()
+    {
+        // Sanity check: opening DBC navigates the view but does not
+        // itself clear SignalViewModel — that happens inside
+        // DbcViewModel.OnLoaded once the DBC actually parses. So a
+        // navigate-without-load must leave any prior decoded-signal
+        // entries alone. The companion test (DbcViewModelTests) covers
+        // the reset-on-load path directly.
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            var signals = (SignalViewModel)typeof(AppShellViewModel)
+                .GetField("_signalViewModel", System.Reflection.BindingFlags.Instance |
+                                              System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(vm)!;
+            signals.Latest.Add(new SignalEntry { Message = "M1", Signal = "S" });
+            signals.Latest.Should().HaveCount(1);
+
+            vm.OpenDbcCommand.Execute(null);
+
+            signals.Latest.Should().HaveCount(1, "navigation alone does not reset the decoded-signal table");
         });
     }
 
@@ -234,8 +293,11 @@ public class AppShellViewModelTests
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             svc,
-            new DbcViewModel(new FakeDbcService(), NullLogger<DbcViewModel>.Instance),
-            new SendViewModel(svc, NullLogger<SendViewModel>.Instance));
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(svc, NullLogger<SendViewModel>.Instance),
+            new SignalViewModel());
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();

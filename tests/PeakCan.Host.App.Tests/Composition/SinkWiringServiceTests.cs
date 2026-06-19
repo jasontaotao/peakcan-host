@@ -54,6 +54,8 @@ public class SinkWiringServiceTests
         builder.Services.AddSingleton<ChannelRouter>();
         builder.Services.AddSingleton<BusStatisticsCollector>();
         builder.Services.AddSingleton<TraceViewModel>();
+        builder.Services.AddSingleton<DbcService>();
+        builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<TraceService>();
         builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();

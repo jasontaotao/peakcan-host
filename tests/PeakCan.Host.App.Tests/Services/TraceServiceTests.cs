@@ -1,7 +1,9 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.Tests.Services;
 
@@ -14,9 +16,16 @@ namespace PeakCan.Host.App.Tests.Services;
 /// the channel directly via <see cref="TraceService.OnFrame"/> so the
 /// timing dependency is contained.
 /// </para>
+/// <para>
+/// Task 16: TraceService also fans out each frame to
+/// <see cref="SignalViewModel"/> if <see cref="DbcService.Current"/> has
+/// a matching message. Tests at the bottom cover that path.
+/// </para>
 /// </summary>
 public class TraceServiceTests
 {
+    private static readonly string[] ExpectedSpeedRpmNames = new[] { "Speed", "Rpm" };
+
     private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4)
     {
         byte[] payload = dlc == 0 ? Array.Empty<byte>() : new byte[dlc];
@@ -28,6 +37,34 @@ public class TraceServiceTests
             Timestamp.FromMicroseconds(1_000_000UL));
     }
 
+    private static CanFrame MakeFrame(uint id, params byte[] data)
+        => new(new CanId(id, FrameFormat.Standard),
+               data,
+               FrameFlags.None,
+               new ChannelId(0x51),
+               Timestamp.FromMicroseconds(1_000_000UL));
+
+    private static Signal Sig(string name)
+        => new(name, StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian,
+               ValueType: PeakCan.Host.Core.Dbc.ValueType.Unsigned, Factor: 1.0, Offset: 0.0,
+               Min: 0, Max: 0, Unit: "", Receivers: Array.Empty<string>());
+
+    /// <summary>
+    /// Build a TraceService with the bare-minimum wiring needed to
+    /// instantiate it after the Task 16 ctor change (DbcService +
+    /// SignalViewModel added). The default DBC is empty so no decode
+    /// fan-out happens unless the test installs a message.
+    /// </summary>
+    private static TraceService NewService(out DbcService dbc, out SignalViewModel signals)
+    {
+        dbc = new DbcService(NullLogger<DbcService>.Instance);
+        signals = new SignalViewModel();
+        return new TraceService(new TraceViewModel(), dbc, signals);
+    }
+
+    private static TraceService NewService()
+        => NewService(out _, out _);
+
     [Fact]
     public void OnFrame_Pushes_Frame_Into_Batching_Channel()
     {
@@ -35,8 +72,7 @@ public class TraceServiceTests
         // thread cannot await). We don't have a public Count, but we can
         // assert that a single OnFrame call doesn't throw and that the
         // service is reusable across many OnFrame invocations.
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         var act = () =>
         {
             for (int i = 0; i < 10; i++)
@@ -57,8 +93,7 @@ public class TraceServiceTests
         // observable we DO have is: StartAsync returns, the service
         // processes OnFrame without throwing, and StopAsync returns
         // within a sane timeout.
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await service.StartAsync(cts.Token);
         try
@@ -80,8 +115,7 @@ public class TraceServiceTests
     {
         // Start the service, then ask it to stop. StopAsync should
         // observe cancellation and complete within 1s.
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         using var startCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await service.StartAsync(startCts.Token);
 
@@ -97,8 +131,7 @@ public class TraceServiceTests
         // The internal channel is bounded at 10_000 with DropOldest. After
         // pre-filling 10_000 frames, additional frames must not throw and
         // must be accepted (dropping the oldest unread).
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         // Pre-fill 10_000 frames synchronously. TryWrite is bounded +
         // DropOldest so this never throws and never blocks. Use modulo
         // 0x800 to stay within the 11-bit Standard ID range; we are
@@ -122,8 +155,7 @@ public class TraceServiceTests
         // exposes a DroppedFrames counter for tests + future UI status
         // bar (Warn ×N overrun indicator). After pushing more than the
         // 10_000 channel capacity, the counter must be > 0.
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         service.DroppedFrames.Should().Be(0, "fresh service has no drops");
         for (int i = 0; i < 10_500; i++)
         {
@@ -138,9 +170,70 @@ public class TraceServiceTests
     {
         // OnError must not throw and must not change service state.
         // Mirrors the BusStatisticsCollector OnError contract.
-        var vm = new TraceViewModel();
-        var service = new TraceService(vm);
+        var service = NewService();
         var act = () => service.OnError(new InvalidOperationException("simulated"));
         act.Should().NotThrow();
+    }
+
+    // ---- Task 16: DBC-decode fan-out ----------------------------------
+
+    [Fact]
+    public void OnFrame_With_Matching_DbcMessage_Decodes_Via_SignalViewModel()
+    {
+        // Install a DBC with one message id 0x100 and two signals.
+        // Pushing a frame with id 0x100 must populate SignalViewModel.Latest.
+        var service = NewService(out var dbc, out var signals);
+        var msg = new Message(0x100, "M1", Dlc: 8, Sender: "ECU1",
+            Signals: new[] { Sig("Speed"), Sig("Rpm") },
+            IsMultiplexed: false, MultiplexorSignalIndex: null);
+        var dict = new Dictionary<uint, Message> { [0x100] = msg };
+        var doc = new DbcDocument(Version: "", Nodes: Array.Empty<Node>(),
+            Messages: new[] { msg }, MessagesById: dict,
+            ValueTables: new Dictionary<string, ValueTable>());
+        dbc.SetCurrentForTests(doc);
+
+        var frame = MakeFrame(0x100, 0x42, 0x10, 0x00, 0x00);
+        service.OnFrame(frame);
+
+        signals.Latest.Should().HaveCount(2, "two signals decoded = two rows");
+        signals.Latest.Select(e => e.Signal).Should().BeEquivalentTo(ExpectedSpeedRpmNames);
+        signals.Latest.Single(e => e.Signal == "Speed").Physical.Should().Be("66");
+    }
+
+    [Fact]
+    public void OnFrame_Without_Dbc_Does_Not_Crash()
+    {
+        // No DBC loaded → DbcService.Current is null → decode path skipped.
+        // Frame must still enter the batching channel without error.
+        var service = NewService(out _, out var signals);
+        var act = () => service.OnFrame(MakeFrame(0x100, 0x42));
+
+        act.Should().NotThrow();
+        // signals.Latest stays empty regardless of dispatcher because the
+        // decode fan-out is gated on _dbc.Current being non-null, so the
+        // BeginInvoke path is never taken for this test.
+        signals.Latest.Should().BeEmpty("no DBC = no decode fan-out");
+    }
+
+    [Fact]
+    public void OnFrame_With_Dbc_But_Unknown_Id_Does_Not_Add_Signal()
+    {
+        // DBC loaded for 0x100, frame with id 0x200 pushed → no decode.
+        // The decode fan-out is gated on MessagesById.TryGetValue, so the
+        // BeginInvoke path is never taken for an unknown id and the
+        // assertion is safe on the default MTA thread.
+        var service = NewService(out var dbc, out var signals);
+        var msg = new Message(0x100, "M1", Dlc: 8, Sender: "ECU1",
+            Signals: new[] { Sig("Speed") },
+            IsMultiplexed: false, MultiplexorSignalIndex: null);
+        var dict = new Dictionary<uint, Message> { [0x100] = msg };
+        var doc = new DbcDocument(Version: "", Nodes: Array.Empty<Node>(),
+            Messages: new[] { msg }, MessagesById: dict,
+            ValueTables: new Dictionary<string, ValueTable>());
+        dbc.SetCurrentForTests(doc);
+
+        service.OnFrame(MakeFrame(0x200, 0x42));
+
+        signals.Latest.Should().BeEmpty("frame id not in DBC.MessagesById = no row");
     }
 }

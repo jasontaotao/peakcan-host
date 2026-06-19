@@ -46,6 +46,15 @@ public partial class DbcService
     }
 
     /// <summary>
+    /// Test seam only. Sets <see cref="Current"/> directly so tests that
+    /// exercise downstream consumers (TraceService → SignalViewModel) can
+    /// install a canned <see cref="DbcDocument"/> without round-tripping
+    /// through <see cref="LoadAsync"/>. Not part of the production API —
+    /// visible to <c>PeakCan.Host.App.Tests</c> via <c>InternalsVisibleTo</c>.
+    /// </summary>
+    internal void SetCurrentForTests(DbcDocument doc) => Current = doc;
+
+    /// <summary>
     /// Load and parse the DBC at <paramref name="path"/>. Updates
     /// <see cref="Current"/> and raises <see cref="DbcLoaded"/> on
     /// success; raises <see cref="LoadFailed"/> on IO / parse errors.

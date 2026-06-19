@@ -1,0 +1,28 @@
+<UserControl x:Class="PeakCan.Host.App.Views.SignalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             d:DataContext="{d:DesignInstance Type=vm:SignalViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <DataGrid ItemsSource="{Binding Latest}"
+              AutoGenerateColumns="False"
+              IsReadOnly="True"
+              EnableRowVirtualization="True"
+              EnableColumnVirtualization="True"
+              VirtualizingPanel.IsVirtualizing="True"
+              VirtualizingPanel.VirtualizationMode="Recycling"
+              VirtualizingPanel.ScrollUnit="Pixel"
+              ScrollViewer.CanContentScroll="True"
+              RowHeight="20"
+              AlternatingRowBackground="#F8F8F8">
+        <DataGrid.Columns>
+            <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
+            <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
+            <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
+            <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
+            <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
+        </DataGrid.Columns>
+    </DataGrid>
+</UserControl>

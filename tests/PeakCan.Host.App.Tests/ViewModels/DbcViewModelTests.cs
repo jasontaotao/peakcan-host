@@ -22,6 +22,7 @@ public class DbcViewModelTests
 {
     private static (DbcViewModel vm, DbcService svc) NewPair()
         => (new DbcViewModel(new DbcService(NullLogger<DbcService>.Instance),
+                             new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
             /* unused svc ref — tests create their own via the VM ctor */
             new DbcService(NullLogger<DbcService>.Instance));
@@ -29,7 +30,7 @@ public class DbcViewModelTests
     // Pair helper above leaks a dummy svc; replace with a real pair
     // builder that returns the same svc the VM holds.
     private static DbcViewModel NewVm(DbcService svc)
-        => new(svc, NullLogger<DbcViewModel>.Instance);
+        => new(svc, new SignalViewModel(), NullLogger<DbcViewModel>.Instance);
 
     [Fact]
     public void Default_Status_Is_No_Dbc_Loaded()
@@ -86,6 +87,30 @@ public class DbcViewModelTests
 
         vm.Status.Should().StartWith("FAIL:");
         vm.Status.Should().Contain("missing file");
+    }
+
+    [Fact]
+    public void DbcLoaded_Event_Resets_SignalViewModel_Latest()
+    {
+        // Task 16 wiring: a fresh DBC load clears the decoded-signal
+        // table so stale entries from a previous parse do not linger.
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var signals = new SignalViewModel();
+        signals.Latest.Add(new SignalEntry { Message = "OldM", Signal = "OldS" });
+        signals.Latest.Should().HaveCount(1, "precondition: signal table seeded with stale row");
+
+        var vm = new DbcViewModel(svc, signals, NullLogger<DbcViewModel>.Instance);
+        var doc = new DbcDocument(
+            Version: "",
+            Nodes: new List<Node>(),
+            Messages: new List<Message>(),
+            MessagesById: new Dictionary<uint, Message>(),
+            ValueTables: new Dictionary<string, ValueTable>());
+
+        svc.GetType().GetEvent(nameof(DbcService.DbcLoaded))!
+            .RaiseMethod(svc, doc);
+
+        signals.Latest.Should().BeEmpty("DbcLoaded must clear the decoded-signal table");
     }
 
     [Fact(Skip = "WPF OpenFileDialog.ShowDialog blocks on non-STA without a message pump; covered by Task 19/20 manual smoke + the 4 event-driven tests above cover the load-result VM transitions.")]
