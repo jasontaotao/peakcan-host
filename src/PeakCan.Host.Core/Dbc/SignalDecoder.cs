@@ -6,13 +6,25 @@ namespace PeakCan.Host.Core.Dbc;
 /// signal's <see cref="ByteOrder"/>, sign extension (for <see cref="ValueType.Signed"/>),
 /// IEEE 754 reinterpretation (for <see cref="ValueType.Float"/> / <see cref="ValueType.Double"/>),
 /// and the engineering <c>factor</c> + <c>offset</c>.
+/// <para>
+/// IEEE 754 float / double are decoded by reinterpreting the raw bit
+/// pattern (<see cref="BitConverter.Int32BitsToSingle"/> /
+/// <see cref="BitConverter.Int64BitsToDouble"/>); this is host-endianness
+/// agnostic, matching the DBC convention of storing float bits in wire order.
+/// </para>
+/// <para>
+/// If <paramref name="data"/> is shorter than the bits the signal spans, the
+/// missing high-order bits are silently treated as zero. This is the MVP
+/// behavior — follow-up may switch to <c>TryDecode</c> with truncation
+/// reporting.
+/// </para>
 /// </summary>
 public static class SignalDecoder
 {
     /// <summary>
     /// Decode <paramref name="signal"/> from <paramref name="data"/>.
     /// </summary>
-    /// <param name="data">Frame payload bytes (length 0..64 for classic CAN, up to 64 for CAN FD).</param>
+    /// <param name="data">CAN frame payload bytes (up to 8 for classic CAN, up to 64 for CAN FD).</param>
     /// <param name="signal">Signal definition extracted from the DBC.</param>
     /// <returns>Engineering value: <c>raw_physical * factor + offset</c>.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
@@ -79,6 +91,8 @@ public static class SignalDecoder
 
     private static long SignExtend(ulong raw, byte len)
     {
+        // len == 64 reaches here only when the top bit is the sign bit; the
+        // int64 cast preserves the sign bit pattern correctly via two's-complement.
         if (len >= 64) return (long)raw;
         ulong sign = 1UL << (len - 1);
         if ((raw & sign) == 0) return (long)raw;
