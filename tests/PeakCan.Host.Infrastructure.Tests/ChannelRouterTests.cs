@@ -128,4 +128,62 @@ public class ChannelRouterTests
 
         badSink.Received(1).OnError(Arg.Any<Exception>());
     }
+
+    [Fact]
+    public void OnError_Itself_Throwing_Autodetaches_Sink()
+    {
+        // Per spec 6.2 ("never silently swallow errors"), when a sink's
+        // OnError also throws, the router must surface the failure AND
+        // stop the loop forever — detach the misbehaving sink.
+        var ch = Substitute.For<ICanChannel>();
+        var foreverBrokenSink = Substitute.For<IFrameSink>();
+        foreverBrokenSink.When(s => s.OnFrame(Arg.Any<CanFrame>()))
+                          .Do(_ => throw new InvalidOperationException("onframe boom"));
+        foreverBrokenSink.When(s => s.OnError(Arg.Any<Exception>()))
+                          .Do(_ => throw new InvalidOperationException("onerror boom"));
+        var router = new ChannelRouter();
+        router.RegisterChannel(ch);
+        router.AttachSink(foreverBrokenSink);
+        var frame = new CanFrame(new CanId(1, FrameFormat.Standard), new byte[] { 0xAA }, FrameFlags.None, ChannelId.None, default);
+
+        ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
+        ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);   // second call — sink should be auto-detached
+
+        // First call triggered OnError (which threw → auto-detach).
+        // Second call goes to no sink (snapshot is empty for this sink).
+        foreverBrokenSink.Received(1).OnError(Arg.Any<Exception>());
+        foreverBrokenSink.Received(1).OnFrame(Arg.Any<CanFrame>());
+    }
+
+    [Fact]
+    public void Register_Null_Channel_Throws()
+    {
+        var router = new ChannelRouter();
+        var act = () => router.RegisterChannel(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Unregister_Null_Channel_Throws()
+    {
+        var router = new ChannelRouter();
+        var act = () => router.UnregisterChannel(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Attach_Null_Sink_Throws()
+    {
+        var router = new ChannelRouter();
+        var act = () => router.AttachSink(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Detach_Null_Sink_Throws()
+    {
+        var router = new ChannelRouter();
+        var act = () => router.DetachSink(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
 }
