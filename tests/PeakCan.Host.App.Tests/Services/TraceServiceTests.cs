@@ -24,8 +24,6 @@ namespace PeakCan.Host.App.Tests.Services;
 /// </summary>
 public class TraceServiceTests
 {
-    private static readonly string[] ExpectedSpeedRpmNames = new[] { "Speed", "Rpm" };
-
     private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4)
     {
         byte[] payload = dlc == 0 ? Array.Empty<byte>() : new byte[dlc];
@@ -51,15 +49,17 @@ public class TraceServiceTests
 
     /// <summary>
     /// Build a TraceService with the bare-minimum wiring needed to
-    /// instantiate it after the Task 16 ctor change (DbcService +
-    /// SignalViewModel added). The default DBC is empty so no decode
-    /// fan-out happens unless the test installs a message.
+    /// instantiate it. The default DBC is empty so no decode fan-out
+    /// happens unless the test installs a message; the SignalViewModel
+    /// is now owned by the separate <see cref="DbcDecodeBackgroundService"/>
+    /// (M11 offload) — these tests still keep the DBc/Signal fixtures
+    /// around for the helper that exercises the prior decode fan-out.
     /// </summary>
     private static TraceService NewService(out DbcService dbc, out SignalViewModel signals)
     {
         dbc = new DbcService(NullLogger<DbcService>.Instance);
         signals = new SignalViewModel();
-        return new TraceService(new TraceViewModel(), dbc, signals);
+        return new TraceService(new TraceViewModel());
     }
 
     private static TraceService NewService()
@@ -175,13 +175,19 @@ public class TraceServiceTests
         act.Should().NotThrow();
     }
 
-    // ---- Task 16: DBC-decode fan-out ----------------------------------
+    // ---- M11: TraceService is a pure forwarder ----------------------
+    // The DBC lookup + signal decode fan-out previously implemented
+    // inline on the SDK read thread moved to DbcDecodeBackgroundService.
+    // These tests pin the new contract: TraceService.OnFrame does NOT
+    // touch DbcService or SignalViewModel, regardless of DBC state.
 
     [Fact]
-    public void OnFrame_With_Matching_DbcMessage_Decodes_Via_SignalViewModel()
+    public void OnFrame_With_Matching_DbcMessage_Does_Not_Decode_Inline()
     {
-        // Install a DBC with one message id 0x100 and two signals.
-        // Pushing a frame with id 0x100 must populate SignalViewModel.Latest.
+        // Even with a fully-loaded DBC matching the frame id, TraceService
+        // must NOT populate SignalViewModel — the decode fan-out moved to
+        // DbcDecodeBackgroundService. The frame still enters the batching
+        // channel (that contract is covered above) but no decode happens.
         var service = NewService(out var dbc, out var signals);
         var msg = new Message(0x100, "M1", Dlc: 8, Sender: "ECU1",
             Signals: new[] { Sig("Speed"), Sig("Rpm") },
@@ -193,36 +199,32 @@ public class TraceServiceTests
         dbc.SetCurrentForTests(doc);
 
         var frame = MakeFrame(0x100, 0x42, 0x10, 0x00, 0x00);
-        service.OnFrame(frame);
+        var act = () => service.OnFrame(frame);
 
-        signals.Latest.Should().HaveCount(2, "two signals decoded = two rows");
-        signals.Latest.Select(e => e.Signal).Should().BeEquivalentTo(ExpectedSpeedRpmNames);
-        signals.Latest.Single(e => e.Signal == "Speed").Physical.Should().Be("66");
+        act.Should().NotThrow();
+        signals.Latest.Should().BeEmpty(
+            "M11 offload: TraceService no longer owns the DBC decode path");
     }
 
     [Fact]
     public void OnFrame_Without_Dbc_Does_Not_Crash()
     {
-        // No DBC loaded → DbcService.Current is null → decode path skipped.
-        // Frame must still enter the batching channel without error.
-        var service = NewService(out _, out var signals);
+        // No DBC loaded → no decode fan-out to worry about. Frame still
+        // enters the batching channel without error (the trace batch
+        // path is independent of DBC state).
+        var service = NewService();
         var act = () => service.OnFrame(MakeFrame(0x100, 0x42));
 
         act.Should().NotThrow();
-        // signals.Latest stays empty regardless of dispatcher because the
-        // decode fan-out is gated on _dbc.Current being non-null, so the
-        // BeginInvoke path is never taken for this test.
-        signals.Latest.Should().BeEmpty("no DBC = no decode fan-out");
     }
 
     [Fact]
-    public void OnFrame_With_Dbc_But_Unknown_Id_Does_Not_Add_Signal()
+    public void OnFrame_With_Dbc_But_Unknown_Id_Does_Not_Crash()
     {
-        // DBC loaded for 0x100, frame with id 0x200 pushed → no decode.
-        // The decode fan-out is gated on MessagesById.TryGetValue, so the
-        // BeginInvoke path is never taken for an unknown id and the
-        // assertion is safe on the default MTA thread.
-        var service = NewService(out var dbc, out var signals);
+        // DBC loaded for 0x100, frame with id 0x200 pushed. TraceService
+        // must not look up the DBC at all now (decode offloaded), so
+        // unknown ids simply go through the batching path.
+        var service = NewService(out var dbc, out _);
         var msg = new Message(0x100, "M1", Dlc: 8, Sender: "ECU1",
             Signals: new[] { Sig("Speed") },
             IsMultiplexed: false, MultiplexorSignalIndex: null);
@@ -232,8 +234,8 @@ public class TraceServiceTests
             ValueTables: new Dictionary<string, ValueTable>());
         dbc.SetCurrentForTests(doc);
 
-        service.OnFrame(MakeFrame(0x200, 0x42));
+        var act = () => service.OnFrame(MakeFrame(0x200, 0x42));
 
-        signals.Latest.Should().BeEmpty("frame id not in DBC.MessagesById = no row");
+        act.Should().NotThrow();
     }
 }

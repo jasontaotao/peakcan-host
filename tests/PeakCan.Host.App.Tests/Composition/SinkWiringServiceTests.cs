@@ -57,6 +57,10 @@ public class SinkWiringServiceTests
         builder.Services.AddSingleton<DbcService>();
         builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<TraceService>();
+        // M11: DBC decode offload worker; same singleton→hosted-service
+        // pattern as AppHostBuilder uses for production wiring.
+        builder.Services.AddSingleton<DbcDecodeBackgroundService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
         builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();
     }

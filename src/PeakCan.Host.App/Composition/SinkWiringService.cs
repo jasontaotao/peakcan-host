@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 
@@ -16,8 +15,8 @@ namespace PeakCan.Host.App.Composition;
 /// <para>
 /// Implemented as an <see cref="IHostedService"/> so it runs during
 /// <c>IHost.StartAsync</c>: by then the DI container has resolved all
-/// three singletons and the router is ready to accept sinks. A
-/// <c>PostConfigureServices</c> approach would not work because the
+/// three (now four) singletons and the router is ready to accept sinks.
+/// A <c>PostConfigureServices</c> approach would not work because the
 /// router and sinks are not yet instantiated at registration time; a
 /// direct <c>BuildServiceProvider().GetService(...)</c> from
 /// <c>AppHostBuilder.Build</c> would work but would break the
@@ -33,29 +32,38 @@ internal sealed class SinkWiringService : IHostedService
     private readonly ChannelRouter _router;
     private readonly TraceService _trace;
     private readonly BusStatisticsCollector _stats;
+    private readonly DbcDecodeBackgroundService _dbcDecode;
 
     /// <summary>
-    /// All three dependencies are resolved by DI. The router and the
-    /// two sinks are registered as singletons in <c>AppHostBuilder.Build</c>,
+    /// All four dependencies are resolved by DI. The router and the
+    /// three sinks are registered as singletons in <c>AppHostBuilder.Build</c>,
     /// so this service is the only place that ever wires them together.
     /// </summary>
-    public SinkWiringService(ChannelRouter router, TraceService trace, BusStatisticsCollector stats)
+    public SinkWiringService(
+        ChannelRouter router,
+        TraceService trace,
+        BusStatisticsCollector stats,
+        DbcDecodeBackgroundService dbcDecode)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _stats = stats ?? throw new ArgumentNullException(nameof(stats));
+        _dbcDecode = dbcDecode ?? throw new ArgumentNullException(nameof(dbcDecode));
     }
 
     /// <summary>
-    /// Attach both sinks to the router. Runs once during
+    /// Attach all sinks to the router. Runs once during
     /// <c>IHost.StartAsync</c>, before <see cref="TraceService.ExecuteAsync"/>
     /// begins its 50 ms tick. After this point, any frame arriving at
-    /// the router is fanned out to both consumers.
+    /// the router is fanned out to all three consumers; the DBC decode
+    /// service runs the dictionary lookup + signal decode on its own
+    /// worker, off the SDK read thread.
     /// </summary>
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _router.AttachSink(_trace);
         _router.AttachSink(_stats);
+        _router.AttachSink(_dbcDecode);
         return Task.CompletedTask;
     }
 

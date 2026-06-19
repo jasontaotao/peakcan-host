@@ -3,7 +3,6 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;
@@ -35,13 +34,12 @@ namespace PeakCan.Host.App.Services;
 /// outside the channel is touched from both threads.
 /// </para>
 /// <para>
-/// <b>Task 16 DBC decoding:</b> in addition to the trace VM, this
-/// service fans out each frame to <see cref="SignalViewModel"/> if the
-/// loaded <see cref="DbcService"/> has a matching message. The
-/// decode path runs inline (no extra channel hop) because
-/// <see cref="SignalViewModel.ApplyFrame"/> is already cheap and
-/// non-blocking; it marshals to the UI dispatcher internally when
-/// one exists.
+/// <b>DBC decode offload:</b> the per-frame dictionary lookup +
+/// signal decode + collection mutation that previously ran inline on
+/// the SDK read thread is owned by
+/// <see cref="DbcDecodeBackgroundService"/>, which fans out the same
+/// frame via its own bounded channel. TraceService is now a pure
+/// frame forwarder with respect to the trace VM.
 /// </para>
 /// </summary>
 public sealed class TraceService : BackgroundService, IFrameSink
@@ -50,8 +48,6 @@ public sealed class TraceService : BackgroundService, IFrameSink
     private const int BatchCapacity = 10_000;
 
     private readonly TraceViewModel _vm;
-    private readonly DbcService _dbc;
-    private readonly SignalViewModel _signalVm;
     private readonly Channel<CanFrame> _batch = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(BatchCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
 
@@ -69,17 +65,13 @@ public sealed class TraceService : BackgroundService, IFrameSink
     public long DroppedFrames => Interlocked.Read(ref _droppedOnFullChannel);
 
     /// <summary>
-    /// Construct a service bound to <paramref name="vm"/> and the
-    /// DBC-decoded signal view <paramref name="signalVm"/>. The
-    /// <paramref name="dbc"/> reference is read for its
-    /// <see cref="DbcService.Current"/> lookup on every frame; the
-    /// service never mutates the document.
+    /// Construct a service bound to <paramref name="vm"/>. The DBC
+    /// decode fan-out is wired separately via
+    /// <see cref="DbcDecodeBackgroundService"/>.
     /// </summary>
-    public TraceService(TraceViewModel vm, DbcService dbc, SignalViewModel signalVm)
+    public TraceService(TraceViewModel vm)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
-        _dbc = dbc ?? throw new ArgumentNullException(nameof(dbc));
-        _signalVm = signalVm ?? throw new ArgumentNullException(nameof(signalVm));
     }
 
     /// <summary>
@@ -111,6 +103,11 @@ public sealed class TraceService : BackgroundService, IFrameSink
     /// <c>DropOldest</c> channel always succeeds (it silently drops the
     /// oldest unread item if the channel is full). Drops are counted and
     /// logged every 100th occurrence per spec §6.2.
+    /// <para>
+    /// Pure forwarder: DBC lookup and signal decode moved to
+    /// <see cref="DbcDecodeBackgroundService"/> so this method does no
+    /// per-frame dictionary reads or VM mutation on the SDK read thread.
+    /// </para>
     /// </summary>
     public void OnFrame(CanFrame frame)
     {
@@ -129,28 +126,17 @@ public sealed class TraceService : BackgroundService, IFrameSink
             }
         }
         _batch.Writer.TryWrite(frame);
-
-        // Task 16: DBC decode fan-out. Lookup the message by raw ID; if
-        // a DBC is loaded and the message is known, decode every non-
-        // multiplexed signal via SignalViewModel.ApplyFrame. The lookup
-        // is a dictionary read on the SDK thread — cheap enough to do
-        // per-frame at 8 kfps. SignalViewModel handles its own
-        // dispatcher marshaling.
-        var doc = _dbc.Current;
-        if (doc is not null && doc.MessagesById.TryGetValue(frame.Id.Raw, out var msg))
-        {
-            _signalVm.ApplyFrame(frame, msg);
-        }
     }
 
     /// <summary>
     /// Sink-isolation contract: <see cref="ChannelRouter"/> forwards
     /// exceptions from peer sinks here. The trace pipeline is a
     /// downstream consumer — the originating sink's failure is the
-    /// router's concern, not ours. Mirror the
-    /// <see cref="BusStatisticsCollector"/> pattern: log via
-    /// <see cref="Debug.WriteLine"/> for debugger-attached hosts and move
-    /// on.
+    /// router's concern, not ours. TraceService no longer participates
+    /// in the DBC-decode fan-out (that work moved to
+    /// <see cref="DbcDecodeBackgroundService"/>); this hook is kept
+    /// for interface compliance and the same debug-log pattern as the
+    /// statistics collector.
     /// </summary>
     public void OnError(Exception ex)
     {
