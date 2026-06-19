@@ -9,9 +9,12 @@ namespace PeakCan.Host.Core;
 /// </summary>
 public readonly record struct Timestamp(ulong TotalMicroseconds)
 {
-    /// <summary>Compose from PCAN-Basic millis/micros parts.</summary>
+    /// <summary>Compose from PCAN-Basic millis/micros parts (classic CAN timestamp).</summary>
     public static Timestamp FromMillis(ulong millis, ushort micros)
         => new(millis * 1000UL + micros);
+
+    /// <summary>Compose from a raw microsecond count (CAN FD <c>TPCANTimestampFD.value</c>).</summary>
+    public static Timestamp FromMicroseconds(ulong microseconds) => new(microseconds);
 
     /// <summary>Format as <c>HH:mm:ss.ffffff</c> for UI display.</summary>
     public override string ToString()
