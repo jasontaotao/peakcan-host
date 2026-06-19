@@ -48,7 +48,7 @@ Last session reached the implementer-parallel decision and ran Task 1 manually (
 | 8  PeakError + Mapper | complete | `41cb0a1` + `?` | 14/14 tests pass |
 | 9  ICanChannel        | complete | `?` + `?` | 167/167 + 2 SKIP; 18 new unit tests for PeakCanFrameFormatter |
 | 10 ChannelRouter      | complete | `822c9c4` + `?` | 178/178 + 2 SKIP; 11 ChannelRouter tests |
-| 11 BusStatisticsCollector | complete | `0724993` | 12/12 tests pass; 100% line coverage; 0 warn 0 err build |
+| 11 BusStatisticsCollector | complete | `0724993` + `3c2f1b2` | 53/53 Infrastructure + 2 SKIP; 12 BusStatisticsCollector tests; review APPROVE_WITH_NOTES → 2 MEDIUM + 4 LOW all closed |
 | 12 AppShell + Connect UI | pending | — | — |
 | 13 Trace              | pending | — | — |
 | 14 Send               | pending | — | — |
