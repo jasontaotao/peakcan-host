@@ -36,7 +36,7 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// the channel router is wired in.
 /// </para>
 /// <para>
-/// <b>Classic baud dispatch (H4 / T3):</b> <see cref="BaudRate"/> in Core
+/// <b>Classic baud dispatch:</b> <see cref="BaudRate"/> in Core
 /// no longer carries the PEAK <c>TPCANBaudrate?</c> field (Core must not
 /// depend on the PEAK SDK per NetArchTest rule 2). For classic CAN
 /// (<c>fd: false</c>) this adapter maps the four preset

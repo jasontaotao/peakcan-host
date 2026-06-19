@@ -98,7 +98,26 @@ public readonly record struct BaudRate(
     /// API requires the matching <c>PCAN_BAUD_*</c> enum value, which
     /// is not representable in Core. Use one of the four
     /// <c>Can*kbps</c> presets for classic custom rates.
+    /// <para>
+    /// This overload always produces an FD <see cref="BaudRate"/> (the
+    /// <c>isFd</c> parameter was dropped when <see cref="BaudRate"/>
+    /// stopped carrying the PEAK <c>TPCANBaudrate?</c> classic-code
+    /// field, to keep Core free of any PEAK SDK dependency per
+    /// NetArchTest rule 2). If a future change reintroduces a
+    /// Core-safe PEAK code mapping, this method should regain the
+    /// <c>classicCode</c> parameter rather than guessing <c>isFd</c>.
+    /// </para>
     /// </summary>
+    // TODO: reintroduce the (string, string, TPCANBaudrate?) overload when
+    // a Core-safe PEAK classic-code mapping exists. Today the only
+    // callers are inside the four Can*kbps / CanFd*Mbps presets above,
+    // so the constraint is invisible to consumers — but a future
+    // third-party extension wanting a custom classic rate will hit
+    // this and need a clear path. The Obsolete attribute on this
+    // signature is the only compile-time signal we can offer until
+    // then; remove it together with this TODO when the new overload
+    // ships.
+    [Obsolete("Custom classic-CAN rates are not representable in Core (no PEAK SDK dependency). Use the four Can*kbps presets, or the CanFd*Mbps presets for FD. If a Core-safe PEAK code mapping is added later, this method will be replaced by a (descriptor, name, classicCode) overload.")]
     public static BaudRate FromDescriptor(string descriptor, string name)
         => new(descriptor, name, true);
 }
