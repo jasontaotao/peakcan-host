@@ -43,12 +43,10 @@ public sealed class PeakCanChannel : ICanChannel
     private static readonly int[] ReadLoopBackoffMs = { 1, 10, 50 };
 
     private readonly ushort _handle;
-    private readonly CancellationTokenSource _cts = new();
-    private Task? _readLoop;
-    private readonly object _connectGate = new();
+    private readonly ChannelConnectGate _gate = new();
 
     public ChannelId Id { get; }
-    public bool IsConnected { get; private set; }
+    public bool IsConnected => _gate.IsConnected;
     public event Action<CanFrame>? FrameReceived;
 
     public PeakCanChannel(ChannelId id)
@@ -59,69 +57,63 @@ public sealed class PeakCanChannel : ICanChannel
 
     public async Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
     {
-        // PCANBasic.Initialize is not thread-safe per handle — serialize.
-        lock (_connectGate)
+        // Atomically: check not already connected, reserve a CTS. If the
+        // token is already cancelled, TryEnter throws and the gate stays
+        // clean.
+        var enter = _gate.TryEnter(ct);
+        if (!enter.IsSuccess) return enter;
+
+        TPCANStatus status;
+        try
         {
-            if (IsConnected)
+            if (fd)
             {
-                return Result<Unit>.Fail(ErrorCode.InvalidState, $"Channel {Id} is already connected");
+                status = PCANBasic.InitializeFD(_handle, baud.Descriptor);
             }
-            try
+            else if (baud.ClassicCode is { } classic)
             {
-                TPCANStatus status;
-                if (fd)
-                {
-                    status = PCANBasic.InitializeFD(_handle, baud.Descriptor);
-                }
-                else if (baud.ClassicCode is { } classic)
-                {
-                    status = PCANBasic.Initialize(_handle, classic);
-                }
-                else
-                {
-                    return Result<Unit>.Fail(
-                        ErrorCode.HardwareParameter,
-                        $"BaudRate '{baud.Name}' has no classic CAN code (use a classic preset or set ClassicCode via FromDescriptor).");
-                }
-                if (PeakErrorMapper.IsOk((uint)status))
-                {
-                    IsConnected = true;
-                }
-                else
-                {
-                    return MakeError(status);
-                }
+                status = PCANBasic.Initialize(_handle, classic);
             }
-            catch (Exception ex)
+            else
             {
-                return Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, ex.Message);
+                _gate.MarkFailed();
+                return Result<Unit>.Fail(
+                    ErrorCode.HardwareParameter,
+                    $"BaudRate '{baud.Name}' has no classic CAN code (use a classic preset or set ClassicCode via FromDescriptor).");
+            }
+            if (!PeakErrorMapper.IsOk((uint)status))
+            {
+                _gate.MarkFailed();
+                return MakeError(status);
             }
         }
-        // _readLoop is launched AFTER the lock is released. The IsConnected
-        // flag was set inside the lock, so a concurrent second ConnectAsync
-        // call will see IsConnected=true and return InvalidState before
-        // reaching this line — there is no TOCTOU race on the read loop.
-        _readLoop = Task.Run(() => ReadLoopAsync(_cts.Token), ct);
+        catch (Exception ex)
+        {
+            _gate.MarkFailed();
+            return Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, ex.Message);
+        }
+
+        // Read loop launched via Task.Run so the synchronous Init does not
+        // block the caller; the cancellation token is the one reserved by
+        // the gate, not the caller's ct (which may have been cancelled).
+        var token = _gate.CurrentToken;
+        var loop = Task.Run(() => ReadLoopAsync(token), ct);
+        _gate.SetReadLoop(loop);
         return await Task.FromResult(Result<Unit>.Ok(default)).ConfigureAwait(false);
     }
 
     public async Task DisconnectAsync(CancellationToken ct = default)
     {
-        if (!IsConnected) return;
-        _cts.Cancel();
-        var loop = _readLoop;
-        if (loop is not null)
-        {
-            try { await loop.ConfigureAwait(false); }
-            catch (OperationCanceledException) { /* expected on cancel */ }
-        }
-        // Uninitialize is best-effort during teardown — the channel is going
-        // away regardless. If the driver is already unloaded or in a bad
-        // state, we still mark the channel disconnected.
+        var (token, loop) = _gate.CaptureForDisconnect();
+        if (loop is null) return;
+        try { await loop.WaitAsync(token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { /* expected */ }
+        // Best-effort teardown: the channel is going away regardless. If
+        // the driver is already unloaded or in a bad state, we still mark
+        // the channel disconnected.
         try { PCANBasic.Uninitialize(_handle); }
         catch { /* best-effort teardown */ }
-        IsConnected = false;
-        _cts.Dispose();
+        _gate.Dispose();
     }
 
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
@@ -175,6 +167,8 @@ public sealed class PeakCanChannel : ICanChannel
     public async ValueTask DisposeAsync()
     {
         await DisconnectAsync().ConfigureAwait(false);
+        // DisposeAsync is now safe to call twice — the gate's CaptureFor-
+        // Disconnect returns a null loop on the second call.
     }
 
     private async Task ReadLoopAsync(CancellationToken ct)

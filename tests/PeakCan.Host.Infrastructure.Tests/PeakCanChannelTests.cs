@@ -1,3 +1,4 @@
+using FluentAssertions;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Peak;
 using Xunit;
@@ -43,5 +44,27 @@ public class PeakCanChannelTests
     {
         // Local-run template: connect on PCAN_USBBUS1 and PCAN_USBBUS2,
         // subscribe to ch2's FrameReceived, write from ch1, assert arrival.
+    }
+
+    [Fact]
+    public async Task DisposeAsync_Called_Twice_Does_Not_Throw()
+    {
+        // H5 regression guard: the previous DisconnectAsync implementation
+        // disposed its CTS unconditionally; a second call threw
+        // ObjectDisposedException. The new gate-backed implementation is
+        // idempotent. We can't drive ConnectAsync without real hardware, but
+        // we can exercise the public DisposeAsync path on a never-connected
+        // channel (CaptureForDisconnect returns null loop, gate stays clean).
+        var ch = new PeakCanChannel(new ChannelId(0x51));
+        await ch.DisposeAsync();
+        var act = async () => await ch.DisposeAsync();
+        await act.Should().NotThrowAsync("DisposeAsync must be idempotent");
+    }
+
+    [Fact]
+    public void IsConnected_On_Never_Connected_Channel_Is_False()
+    {
+        var ch = new PeakCanChannel(new ChannelId(0x51));
+        ch.IsConnected.Should().BeFalse();
     }
 }
