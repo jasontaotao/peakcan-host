@@ -53,7 +53,7 @@ Last session reached the implementer-parallel decision and ran Task 1 manually (
 | 11 BusStatisticsCollector | complete | `0724993` + `3c2f1b2` | 53/53 Infrastructure + 2 SKIP; 12 BusStatisticsCollector tests; review APPROVE_WITH_NOTES → 2 MEDIUM + 4 LOW all closed |
 | 12 AppShell + Connect UI | complete | `352add7` + `7c74e5c` | 12/12 App + 2 SKIP; review APPROVE_WITH_NOTES → 1 HIGH + 5 MEDIUM + 6 LOW all closed |
 | 13 Trace view         | complete | `e56b024` + `a8c1a3b` | 24/24 App + 2 SKIP; review APPROVE_WITH_NOTES → 1 HIGH + 4 MEDIUM + 6 LOW all closed |
-| 14 Send               | complete | `ce64e3f` | 16 new App tests (5 SendService + 10 SendViewModel + 1 hardware SKIP); SendService ctor adds `ILogger<SendService>`; SendViewModel ctor adds `ILogger<SendViewModel>`; AppShellViewModel ctor +SendService param; ConnectAsync success branch wires `_sendService.ActiveChannel = channel` and failure branch clears it; SendView XAML added (not yet wired into AppShell — Task 15); pending reviewer |
+| 14 Send               | complete | `ce64e3f` + `53c4d38` | 45/45 App + 3 SKIP; review APPROVE_WITH_NOTES → 1 HIGH + 5 MEDIUM + 6 LOW all closed |
 | 15 DBC view + shell nav | pending | — | — |
 | 16 Signal view        | pending | — | — |
 | 17 Stats view         | pending | — | — |
