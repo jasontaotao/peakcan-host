@@ -63,6 +63,7 @@ public static class DbcParser
             string version = string.Empty;
             var nodes = new List<Node>();
             var messages = new List<Message>();
+            var seenIds = new HashSet<uint>();
             var valueTables = new Dictionary<string, ValueTable>();
 
             while (Current.Type != TokenType.Eof)
@@ -100,7 +101,7 @@ public static class DbcParser
                         if (msgResult.IsSuccess)
                         {
                             var msg = msgResult.Value!;
-                            if (messages.Any(m => m.Id == msg.Id))
+                            if (!seenIds.Add(msg.Id))
                             {
                                 return Result<DbcDocument>.Fail(
                                     ErrorCode.ParseFailure,
@@ -175,7 +176,7 @@ public static class DbcParser
                     ErrorCode.ParseFailure,
                     $"Expected message ID at line {Current.Line}, column {Current.Column}");
             }
-            uint id = uint.Parse(Consume().Lexeme, CultureInfo.InvariantCulture);
+            uint id = ParseUInt(Consume());
             // If bit 31 is set, this is already the merged IDE ID; otherwise enforce Standard range.
             if ((id & 0x80000000u) == 0 && id > 0x7FFu)
             {
@@ -200,7 +201,7 @@ public static class DbcParser
                     ErrorCode.ParseFailure,
                     $"Expected DLC at line {Current.Line}, column {Current.Column}");
             }
-            byte dlc = byte.Parse(Consume().Lexeme, CultureInfo.InvariantCulture);
+            byte dlc = ParseByte(Consume());
 
             string sender = string.Empty;
             if (Current.Type == TokenType.Identifier)
@@ -243,7 +244,7 @@ public static class DbcParser
                     $"Expected signal start bit at line {startTok.Line}, column {startTok.Column}",
                     startTok.Line, startTok.Column);
             }
-            byte start = byte.Parse(startTok.Lexeme, CultureInfo.InvariantCulture);
+            byte start = ParseByte(startTok);
 
             Expect(TokenType.Pipe);
 
@@ -254,7 +255,7 @@ public static class DbcParser
                     $"Expected signal length at line {lenTok.Line}, column {lenTok.Column}",
                     lenTok.Line, lenTok.Column);
             }
-            byte len = byte.Parse(lenTok.Lexeme, CultureInfo.InvariantCulture);
+            byte len = ParseByte(lenTok);
 
             Expect(TokenType.At);
 
@@ -339,7 +340,7 @@ public static class DbcParser
             while (Current.Type == TokenType.Integer)
             {
                 var intTok = Consume();
-                long val = long.Parse(intTok.Lexeme, CultureInfo.InvariantCulture);
+                long val = ParseLong(intTok);
 
                 var valueTok = Consume();
                 if (valueTok.Type != TokenType.String)
@@ -365,7 +366,60 @@ public static class DbcParser
                     $"Expected number at line {tok.Line}, column {tok.Column}",
                     tok.Line, tok.Column);
             }
-            return double.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            try
+            {
+                // double.Parse returns +Infinity / -Infinity for out-of-range values rather
+                // than throwing OverflowException — only FormatException needs handling here.
+                return double.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException ex)
+            {
+                throw new DbcParseException(
+                    $"Malformed number '{tok.Lexeme}' at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
+        }
+
+        private uint ParseUInt(Token tok)
+        {
+            try
+            {
+                return uint.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException ex)
+            {
+                throw new DbcParseException(
+                    $"Number '{tok.Lexeme}' out of uint range at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
+        }
+
+        private byte ParseByte(Token tok)
+        {
+            try
+            {
+                return byte.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException ex)
+            {
+                throw new DbcParseException(
+                    $"Number '{tok.Lexeme}' out of byte range (0-255) at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
+        }
+
+        private long ParseLong(Token tok)
+        {
+            try
+            {
+                return long.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException ex)
+            {
+                throw new DbcParseException(
+                    $"Number '{tok.Lexeme}' out of long range at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
         }
 
         private void Expect(TokenType type)
@@ -396,7 +450,6 @@ public static class DbcParser
             || t == TokenType.Keyword_BU_
             || t == TokenType.Keyword_BO_
             || t == TokenType.Keyword_VAL_
-            || t == TokenType.Keyword_VAL_TABLE_
-            || t == TokenType.Keyword_SG_;
+            || t == TokenType.Keyword_VAL_TABLE_;
     }
 }

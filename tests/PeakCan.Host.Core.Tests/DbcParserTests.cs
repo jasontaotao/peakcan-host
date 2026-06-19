@@ -456,6 +456,66 @@ public class DbcParserTests
     }
 
     [Fact]
+    public void Fails_On_Message_Id_Overflow()
+    {
+        // uint.Parse would throw OverflowException without the ParseUInt wrapper.
+        var src = "BU_: ECU\nBO_ 5000000000 M: 8 ECU\n";
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
+    public void Fails_On_Dlc_Overflow()
+    {
+        // byte.Parse would throw OverflowException without the ParseByte wrapper.
+        var src = "BU_: ECU\nBO_ 100 M: 999 ECU\n";
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
+    public void Fails_On_Signal_Start_Bit_Overflow()
+    {
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ S : 999|8@1+ (1,0) [0|255] "" ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
+    public void Fails_On_Signal_Factor_Malformed_Bare_Sign()
+    {
+        // "-" alone throws FormatException via double.Parse — must hit catch.
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ S : 0|8@1+ (-,0) [0|255] "" ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
+    public void Fails_On_ValTable_Value_Outside_Long_Range()
+    {
+        // Very large positive value triggers long.Parse overflow.
+        var src = """
+        BU_: ECU
+        VAL_TABLE_ T 99999999999999999999 "X" ;
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
     public void Message_With_No_Signals_Is_Valid()
     {
         var src = """
