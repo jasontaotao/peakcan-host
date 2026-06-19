@@ -66,4 +66,120 @@ public class DbcParserMultiplexedTests
         sig.ValueTableName.Should().Be("Tbl");
         r.Value!.ValueTables.Should().ContainKey("Tbl");
     }
+
+    [Fact]
+    public void Fails_On_Multiplex_Value_Out_Of_Range()
+    {
+        // m16 is outside the DBC-permitted range (0..15). Must surface a
+        // dedicated error, not the generic "Expected Colon" downstream.
+        var src = """
+        BU_: ECU
+        BO_ 500 M: 8 ECU
+         SG_ Bad m16 : 0|8@1+ (1,0) [0|255] ""  ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("out of range");
+    }
+
+    [Fact]
+    public void Fails_On_Multiplex_Marker_Non_Numeric()
+    {
+        // mX cannot parse as ushort — must error with a clear message.
+        var src = """
+        BU_: ECU
+        BO_ 501 M: 8 ECU
+         SG_ Bad mX : 0|8@1+ (1,0) [0|255] ""  ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("Invalid multiplex marker");
+    }
+
+    [Fact]
+    public void Fails_When_VAL_References_Unknown_Message_Id()
+    {
+        // VAL_ for a non-existent message id must fail loudly.
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ S : 0|8@1+ (1,0) [0|255] ""  ECU
+
+        VAL_ 999 S 0 "X" ;
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("unknown message id 999");
+    }
+
+    [Fact]
+    public void Fails_When_VAL_Appears_Before_Referenced_Message()
+    {
+        // DBC is permissive about ordering, but the parser cannot resolve
+        // a VAL_ for a message that has not been declared yet. This must
+        // error rather than silently drop the value table.
+        var src = """
+        BU_: ECU
+        VAL_ 100 S 0 "X" ;
+        BO_ 100 M: 8 ECU
+         SG_ S : 0|8@1+ (1,0) [0|255] ""  ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("unknown message id 100");
+    }
+
+    [Fact]
+    public void Fails_When_VAL_References_Unknown_Signal_Name()
+    {
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ Real : 0|8@1+ (1,0) [0|255] ""  ECU
+
+        VAL_ 100 Ghost 0 "X" ;
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("unknown signal 'Ghost'");
+    }
+
+    [Fact]
+    public void Parses_Inline_VAL_With_Negative_Value()
+    {
+        // Tokenizer merges '-' + digits into one Integer token; inline pairs
+        // with a negative first entry must parse and attach the table name.
+        var src = """
+        BU_: ECU
+        BO_ 600 M: 8 ECU
+         SG_ Code : 0|8@1- (1,0) [-128|127] ""  ECU
+
+        VAL_ 600 Code -1 "Invalid" 0 "Ok" ;
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.MessagesById[600u].Signals[0].ValueTableName.Should().Be("Code");
+    }
+
+    [Fact]
+    public void Message_Signals_Remains_ReadOnly_From_Outside()
+    {
+        // Regression guard: Message.Signals must stay IReadOnlyList<Signal>
+        // so external code cannot mutate the parser's output.
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ S : 0|8@1+ (1,0) [0|255] ""  ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeTrue();
+        var sigs = r.Value!.MessagesById[100u].Signals;
+        // IReadOnlyList<Signal> exposes Count + indexer but no Set.
+        sigs.Should().BeAssignableTo<IReadOnlyList<Signal>>();
+    }
 }

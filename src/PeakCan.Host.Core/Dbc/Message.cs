@@ -13,6 +13,6 @@ public sealed record Message(
     string Name,
     byte Dlc,
     string Sender,
-    IList<Signal> Signals,
+    IReadOnlyList<Signal> Signals,
     bool IsMultiplexed,
     ushort? MultiplexorSignalIndex);

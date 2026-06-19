@@ -256,18 +256,29 @@ public static class DbcParser
             }
             string name = nameTok.Lexeme;
 
-            // Look for M or m<N> immediately after the name.
+            // Look for M or m<N> immediately after the name. The marker must be
+            // a single identifier token; m<N> must parse to 0..15 (DBC spec).
             if (Current.Type == TokenType.Identifier && Current.Lexeme == "M")
             {
                 isMuxor = true;
                 Consume();
             }
-            else if (Current.Type == TokenType.Identifier && Current.Lexeme.Length >= 2 && Current.Lexeme[0] == 'm'
-                     && ushort.TryParse(Current.Lexeme.AsSpan(1),
-                         System.Globalization.NumberStyles.Integer,
-                         System.Globalization.CultureInfo.InvariantCulture, out var mv)
-                     && mv <= 15)
+            else if (Current.Type == TokenType.Identifier && Current.Lexeme.Length >= 2 && Current.Lexeme[0] == 'm')
             {
+                if (!ushort.TryParse(Current.Lexeme.AsSpan(1),
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var mv))
+                {
+                    throw new DbcParseException(
+                        $"Invalid multiplex marker '{Current.Lexeme}' (expected m0..m15) at line {Current.Line}, column {Current.Column}",
+                        Current.Line, Current.Column);
+                }
+                if (mv > 15)
+                {
+                    throw new DbcParseException(
+                        $"Multiplex value {mv} out of range (0..15) at line {Current.Line}, column {Current.Column}",
+                        Current.Line, Current.Column);
+                }
                 isMuxed = true;
                 muxVal = mv;
                 Consume();
@@ -402,6 +413,8 @@ public static class DbcParser
             // Resolve message id — DBC grammar allows both a numeric ID and a
             // name reference (Vector convention). Numeric form is more common.
             uint msgId;
+            int msgIdLine = Current.Line;
+            int msgIdCol = Current.Column;
             if (Current.Type == TokenType.Integer)
             {
                 var raw = Consume().Lexeme;
@@ -409,8 +422,8 @@ public static class DbcParser
                         System.Globalization.CultureInfo.InvariantCulture, out msgId))
                 {
                     throw new DbcParseException(
-                        $"Bad VAL_ message id '{raw}' at line {Current.Line}, column {Current.Column}",
-                        Current.Line, Current.Column);
+                        $"Bad VAL_ message id '{raw}' at line {msgIdLine}, column {msgIdCol}",
+                        msgIdLine, msgIdCol);
                 }
             }
             else
@@ -418,9 +431,16 @@ public static class DbcParser
                 var name = Consume().Lexeme;
                 var byName = _pendingMessages.LastOrDefault(m => m.Name == name)
                              ?? throw new DbcParseException(
-                                 $"VAL_: unknown message '{name}' at line {Current.Line}, column {Current.Column}",
-                                 Current.Line, Current.Column);
+                                 $"VAL_: unknown message '{name}' at line {msgIdLine}, column {msgIdCol}",
+                                 msgIdLine, msgIdCol);
                 msgId = byName.Id;
+            }
+
+            if (!_pendingMessagesById.TryGetValue(msgId, out var m))
+            {
+                throw new DbcParseException(
+                    $"VAL_: unknown message id {msgId} at line {msgIdLine}, column {msgIdCol}",
+                    msgIdLine, msgIdCol);
             }
 
             // Two forms: (a) inline pairs  VAL_ <msg> <sig> <int> "<text>" ... ;
@@ -433,17 +453,16 @@ public static class DbcParser
                 var tblTok = Consume();
                 string tableName = tblTok.Lexeme;
 
-                if (_pendingMessagesById.TryGetValue(msgId, out var m))
+                var sigIdx = FindSignalIndex(m, sigTok.Lexeme);
+                if (sigIdx < 0)
                 {
-                    var idx = m.Signals.ToList().FindIndex(s => s.Name == sigTok.Lexeme);
-                    if (idx < 0)
-                    {
-                        throw new DbcParseException(
-                            $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {Current.Line}",
-                            Current.Line, Current.Column);
-                    }
-                    m.Signals[idx] = m.Signals[idx] with { ValueTableName = tableName };
+                    throw new DbcParseException(
+                        $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {sigTok.Line}, column {sigTok.Column}",
+                        sigTok.Line, sigTok.Column);
                 }
+                ReplaceSignalValueTableName(ref m, sigIdx, tableName);
+                _pendingMessagesById[msgId] = m;
+                _pendingMessages[_pendingMessages.FindIndex(x => x.Id == msgId)] = m;
                 Expect(TokenType.Semicolon);
             }
             else
@@ -456,20 +475,19 @@ public static class DbcParser
                 if (Current.Type != TokenType.Integer && Current.Type != TokenType.Minus)
                 {
                     throw new DbcParseException(
-                        $"Expected VAL_ value at line {Current.Line}, column {Current.Column}",
-                        Current.Line, Current.Column);
+                        $"Expected VAL_ value at line {sigTok.Line}, column {sigTok.Column}",
+                        sigTok.Line, sigTok.Column);
                 }
-                if (_pendingMessagesById.TryGetValue(msgId, out var m))
+                var sigIdx = FindSignalIndex(m, sigTok.Lexeme);
+                if (sigIdx < 0)
                 {
-                    var idx = m.Signals.ToList().FindIndex(s => s.Name == sigTok.Lexeme);
-                    if (idx < 0)
-                    {
-                        throw new DbcParseException(
-                            $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {Current.Line}",
-                            Current.Line, Current.Column);
-                    }
-                    m.Signals[idx] = m.Signals[idx] with { ValueTableName = sigTok.Lexeme };
+                    throw new DbcParseException(
+                        $"VAL_: unknown signal '{sigTok.Lexeme}' on message {msgId} at line {sigTok.Line}, column {sigTok.Column}",
+                        sigTok.Line, sigTok.Column);
                 }
+                ReplaceSignalValueTableName(ref m, sigIdx, sigTok.Lexeme);
+                _pendingMessagesById[msgId] = m;
+                _pendingMessages[_pendingMessages.FindIndex(x => x.Id == msgId)] = m;
                 while (Current.Type == TokenType.Integer || Current.Type == TokenType.Minus)
                 {
                     Consume(); // value
@@ -479,7 +497,36 @@ public static class DbcParser
             }
         }
 
-        private Token Peek(int offset) => _tokens[_i + offset];
+        // Replace the ValueTableName of signal at sigIdx in m, returning a new
+        // Message record (preserves record-with immutability). Caller must
+        // re-insert the returned message into _pendingMessages and
+        // _pendingMessagesById.
+        private static void ReplaceSignalValueTableName(ref Message m, int sigIdx, string tableName)
+        {
+            var newSigs = m.Signals.ToList();
+            newSigs[sigIdx] = newSigs[sigIdx] with { ValueTableName = tableName };
+            m = m with { Signals = newSigs };
+        }
+
+        private static int FindSignalIndex(Message m, string name)
+        {
+            var sigs = m.Signals;
+            for (int i = 0; i < sigs.Count; i++)
+            {
+                if (sigs[i].Name == name) return i;
+            }
+            return -1;
+        }
+
+        private Token Peek(int offset)
+        {
+            var idx = _i + offset;
+            if (idx < 0 || idx >= _tokens.Count)
+            {
+                return new Token(TokenType.Eof, string.Empty, 0, 0);
+            }
+            return _tokens[idx];
+        }
 
         private double ParseDouble()
         {
