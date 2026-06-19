@@ -2,7 +2,6 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
@@ -55,6 +54,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
     private readonly SendService _sendService;
+    private readonly IChannelProbe _channelProbe;
     private readonly TraceViewModel _traceViewModel;
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
@@ -111,6 +111,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         ILogger<AppShellViewModel> logger,
         TraceViewModel traceViewModel,
         SendService sendService,
+        IChannelProbe channelProbe,
         DbcViewModel dbcViewModel,
         SendViewModel sendViewModel,
         SignalViewModel signalViewModel,
@@ -120,6 +121,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
+        _channelProbe = channelProbe ?? throw new ArgumentNullException(nameof(channelProbe));
         _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
@@ -130,7 +132,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         // happens in production via AppShell.xaml.cs's SourceInitialized
         // handler). See the field XML doc above for the STA rationale.
         //
-        // ctor 8-arg explosion flagged for AppDependencies refactor in
+        // ctor 9-arg explosion flagged for AppDependencies refactor in
         // the Task 17+18 wrap-up (bundle VM deps into a single record).
     }
 
@@ -208,42 +210,26 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanEnumerateChannels))]
     private void EnumerateChannels()
     {
-        // MVP probe: call PCANBasic.Initialize on the first PCAN-USB FD
-        // handle. Success means the device responded. Uninitialize right
-        // away — Connect will re-Initialize on the actual baud rate.
-        // We deliberately do NOT enumerate multi-channel yet (v1.1).
-        try
+        // Task 18: the probe was moved out of the VM into
+        // <see cref="IChannelProbe"/> so the App assembly has no
+        // PEAK SDK dependency (enforced by NetArchTest rule 3). The
+        // VM only knows the contract: hand the probe a handle, get
+        // back a structured result. The user-visible "USB1 ..." /
+        // "No PEAK hardware detected" strings stay here because they
+        // are UI formatting (and STRING-COUPLED with CanConnect).
+        var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
+        if (result.Ok)
         {
-            var status = PCANBasic.Initialize(PcanUsbFdFirstHandle, TPCANBaudrate.PCAN_BAUD_1M);
-            if (PeakErrorMapper.IsOk((uint)status))
-            {
-                ChannelList = "USB1 (1 Mbps default)";
-                StatusMessage = "PEAK PCAN-USB FD detected on USB1";
-                LogProbeOk(_logger, PcanUsbFdFirstHandle);
-                // Best-effort uninit so we don't leave the channel held
-                // open between probe and connect.
-                try { PCANBasic.Uninitialize(PcanUsbFdFirstHandle); }
-                catch (Exception uninitEx)
-                {
-                    LogProbeUninitFailed(_logger, PcanUsbFdFirstHandle, uninitEx);
-                }
-            }
-            else
-            {
-                var (code, msg) = PeakErrorMapper.ToErrorCode((uint)status);
-                ChannelList = $"No PEAK hardware detected: {msg}";
-                StatusMessage = $"Probe failed: {msg}";
-                LogProbeFailed(_logger, PcanUsbFdFirstHandle, code, msg);
-            }
+            ChannelList = "USB1 (1 Mbps default)";
+            StatusMessage = result.Message;
+            LogProbeOk(_logger, PcanUsbFdFirstHandle);
         }
-        catch (Exception ex)
+        else
         {
-            // The PEAK SDK occasionally throws (DllNotFound, etc.) on
-            // machines without the driver installed. Surface to the user
-            // and log; never let the RelayCommand swallow silently.
-            ChannelList = $"No PEAK hardware detected: {ex.Message}";
-            StatusMessage = $"Probe exception: {ex.GetType().Name}";
-            LogProbeThrew(_logger, PcanUsbFdFirstHandle, ex);
+            ChannelList = $"No PEAK hardware detected: {result.Message}";
+            StatusMessage = result.Message;
+            LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                new InvalidOperationException(result.Message));
         }
     }
 
@@ -314,12 +300,6 @@ public sealed partial class AppShellViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Probe OK on handle 0x{Handle:X2}")]
     private static partial void LogProbeOk(ILogger logger, ushort handle);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Probe uninit failed on handle 0x{Handle:X2}")]
-    private static partial void LogProbeUninitFailed(ILogger logger, ushort handle, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Probe failed on handle 0x{Handle:X2}: {Code} {Message}")]
-    private static partial void LogProbeFailed(ILogger logger, ushort handle, ErrorCode code, string message);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Probe threw on handle 0x{Handle:X2}")]
     private static partial void LogProbeThrew(ILogger logger, ushort handle, Exception ex);

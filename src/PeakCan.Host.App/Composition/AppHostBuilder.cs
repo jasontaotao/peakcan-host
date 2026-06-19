@@ -58,6 +58,11 @@ public static class AppHostBuilder
         // Core infrastructure
         builder.Services.AddSingleton<ChannelRouter>();
         builder.Services.AddSingleton<BusStatisticsCollector>();
+        // Task 18: extracted PEAK SDK probe call into a swappable
+        // service so the App assembly has no Peak.Can.Basic dependency
+        // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).
+        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
+                                       PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
         // App services
         builder.Services.AddSingleton<TraceService>();

@@ -44,11 +44,23 @@ public class AppShellViewModelTests
             => System.Threading.Tasks.Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Test double for <see cref="Core.IChannelProbe"/>. Always returns
+    /// a successful probe so the <c>CanConnect</c> predicate string
+    /// ("USB1 ...") can be set by tests via <c>ChannelList = "..."</c>.
+    /// </summary>
+    private sealed class FakeChannelProbe : Core.IChannelProbe
+    {
+        public Core.ProbeResult Probe(ushort handle)
+            => new(true, $"fake probe ok 0x{handle:X2}");
+    }
+
     private static AppShellViewModel NewVm() =>
         new(new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
+            new FakeChannelProbe(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
@@ -328,6 +340,7 @@ public class AppShellViewModelTests
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             svc,
+            new FakeChannelProbe(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
