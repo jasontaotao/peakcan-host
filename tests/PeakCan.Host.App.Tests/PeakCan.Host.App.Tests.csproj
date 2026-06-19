@@ -6,6 +6,15 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <UseWPF>true</UseWPF>
+    <!-- Task 19: collect cobertura coverage report (see Core.Tests for
+         the rationale on not setting a hard <Threshold> here). The
+         App assembly is the hardest to cover (WPF VMs + AppShell +
+         BackgroundService lifecycle code) and the per-VM unit tests
+         plus the NetArchTest rules are a stronger safety net than a
+         coverage % would be. -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../..//coverage/app-coverage</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +33,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PeakCan.Host.App\PeakCan.Host.App.csproj" />
     <ProjectReference Include="..\..\src\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
-    <ProjectReference Include="..\..\src\PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src/PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

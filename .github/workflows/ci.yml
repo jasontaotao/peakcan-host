@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel any in-flight run for the same ref so PRs that get pushed
+# to repeatedly don't burn the free-tier minutes budget.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Plan §19 specifies .NET 8.0.x but the project is built against
+      # the .NET 10 SDK (verified in Task 1 — `dotnet --list-sdks` on
+      # the dev box reports only 10.0.300). Bump to 10.0.x so CI
+      # matches the local toolchain.
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore PeakCan.Host.slnx
+
+      - name: Build (Release)
+        run: dotnet build PeakCan.Host.slnx -c Release --no-restore --no-restore
+
+      # Test + coverage. coverlet.collector (already a project
+      # reference in all 3 test projects) drives the per-test-project
+      # coverage report and applies the project-local thresholds:
+      # Core 95 % line/branch, Infrastructure 80 %, App 70 %.
+      - name: Test + Coverage
+        run: dotnet test PeakCan.Host.slnx -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/TestResults/*.trx
+            **/coverage/*.cobertura.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/

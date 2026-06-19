@@ -5,6 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Task 19: collect cobertura coverage report (see Core.Tests for
+         the rationale on not setting a hard <Threshold> here). -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../..//coverage/infra-coverage</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
   </PropertyGroup>
 
   <ItemGroup>

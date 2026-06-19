@@ -168,13 +168,21 @@ public sealed partial class StatsViewModel : ObservableObject
     /// </summary>
     public void Push(BusStatistics s)
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is not null && !dispatcher.CheckAccess())
+        // Task 19: detect the "leaked Application on a different
+        // dispatcher" test-context case (calling thread's dispatcher
+        // differs from Application.Current.Dispatcher) and fall back
+        // to inline. Without this guard, SignalViewModelTests etc.
+        // fail under xunit + XPlat coverage because a previous
+        // STA test leaked an Application singleton whose dispatcher
+        // sits on an exited STA thread.
+        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
+        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
         {
             // Production: 1 Hz timer thread → hop to UI thread.
             // Fire-and-forget via InvokeAsync so the timer thread is
             // not blocked by UI work.
-            dispatcher.InvokeAsync(() => Apply(s));
+            appDispatcher.InvokeAsync(() => Apply(s));
             return;
         }
         Apply(s);

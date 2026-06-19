@@ -85,6 +85,13 @@ public class TraceViewModelTests
         {
             try
             {
+                // Task 19: the leaked-Application concern that originally
+                // motivated capturing this for Shutdown() is now handled
+                // in the production VMs (SignalViewModel / DbcViewModel /
+                // StatsViewModel) via the "calling thread's dispatcher
+                // must match Application.Current.Dispatcher" guard.
+                // We do not need to Shutdown() here — the test still
+                // passes and downstream tests handle the singleton.
                 _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 var vm = new TraceViewModel();
                 var frames = new List<CanFrame>

@@ -89,10 +89,15 @@ public sealed partial class DbcViewModel : ObservableObject
         // dispatcher when the collection is bound to an ItemsControl
         // (DataGrid, ListBox, etc.) — cross-thread mutation throws
         // NotSupportedException. Marshal before mutating Messages.
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is not null && !dispatcher.CheckAccess())
+        // Task 19: detect the "leaked Application on a different
+        // dispatcher" test-context case (the calling thread's
+        // dispatcher differs from Application.Current.Dispatcher)
+        // and fall back to inline so the test observes the post-state.
+        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
+        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
         {
-            dispatcher.Invoke(() => OnLoaded(doc));
+            appDispatcher.Invoke(() => OnLoaded(doc));
             return;
         }
         Messages.Clear();
@@ -112,10 +117,11 @@ public sealed partial class DbcViewModel : ObservableObject
         // Same dispatcher marshaling rationale as OnLoaded. PropertyChanged
         // is benign cross-thread (just fires the event), but Status is bound
         // to the UI and we marshal for consistency.
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is not null && !dispatcher.CheckAccess())
+        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
+        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
         {
-            dispatcher.Invoke(() => OnLoadFailed(error));
+            appDispatcher.Invoke(() => OnLoadFailed(error));
             return;
         }
         Status = $"FAIL: {error.Code} {error.Message}";
