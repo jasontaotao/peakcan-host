@@ -59,6 +59,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
     private readonly SignalViewModel _signalViewModel;
+    private readonly StatsViewModel _statsViewModel;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -68,6 +69,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private DbcView? _dbcView;
     private SendView? _sendView;
     private SignalView? _signalView;
+    private StatsView? _statsView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private PeakCanChannel? _activeChannel;
@@ -111,7 +113,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         SendService sendService,
         DbcViewModel dbcViewModel,
         SendViewModel sendViewModel,
-        SignalViewModel signalViewModel)
+        SignalViewModel signalViewModel,
+        StatsViewModel statsViewModel)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -120,11 +123,15 @@ public sealed partial class AppShellViewModel : ObservableObject
         _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
+        _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
 
         // View instances are lazily created on the first Show command.
         // The default CurrentView is null until ShowTrace runs (which
         // happens in production via AppShell.xaml.cs's SourceInitialized
         // handler). See the field XML doc above for the STA rationale.
+        //
+        // ctor 8-arg explosion flagged for AppDependencies refactor in
+        // the Task 17+18 wrap-up (bundle VM deps into a single record).
     }
 
     [RelayCommand]
@@ -178,6 +185,22 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _signalView;
         }
         CurrentView = _signalView;
+    }
+
+    [RelayCommand]
+    private void ShowStats()
+    {
+        // Task 17: Stats tab (1 Hz OxyPlot charts). Same lazy-view
+        // pattern as ShowSignals / ShowSend. The StatsView hosts an
+        // OxyPlot.PlotView bound to StatsViewModel.PlotModel; the
+        // StatisticsService pushes snapshots at 1 Hz on its own thread
+        // and the VM marshals to the UI dispatcher.
+        if (_statsView == null)
+        {
+            _statsView = new StatsView { DataContext = _statsViewModel };
+            if (CurrentView == null) CurrentView = _statsView;
+        }
+        CurrentView = _statsView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

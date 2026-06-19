@@ -19,6 +19,7 @@
                 <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" />
                 <MenuItem Header="Send" Command="{Binding ShowSendCommand}" />
                 <MenuItem Header="Signals" Command="{Binding ShowSignalsCommand}" />
+                <MenuItem Header="Stats" Command="{Binding ShowStatsCommand}" />
             </MenuItem>
         </Menu>
         <ToolBarTray DockPanel.Dock="Top">

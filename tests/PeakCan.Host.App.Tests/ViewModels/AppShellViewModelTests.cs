@@ -53,7 +53,8 @@ public class AppShellViewModelTests
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
-            new SignalViewModel());
+            new SignalViewModel(),
+            new StatsViewModel());
 
     /// <summary>
     /// Run <paramref name="body"/> on an STA thread because the view
@@ -210,6 +211,40 @@ public class AppShellViewModelTests
     }
 
     [Fact]
+    public void ShowStatsCommand_Sets_CurrentView_To_StatsView()
+    {
+        // Task 17: the Stats tab joins Trace / DBC / Send / Signals.
+        // Lazy view instantiation on first show — same pattern as the
+        // other tabs. StatsView hosts an OxyPlot.PlotView bound to
+        // StatsViewModel.PlotModel.
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowStatsCommand.Execute(null);
+            vm.CurrentView.Should().BeOfType<StatsView>();
+        });
+    }
+
+    [Fact]
+    public void ShowStatsCommand_Reuses_Cached_StatsView_Instance()
+    {
+        // The OxyPlot PlotView holds internal state (axis ranges,
+        // tracker overlays) that should survive a menu round-trip
+        // to another tab. Caching the StatsView instance preserves
+        // it. Same pattern as the other Show* tests.
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowStatsCommand.Execute(null);
+            var first = vm.CurrentView;
+            vm.ShowTraceCommand.Execute(null);
+            vm.ShowStatsCommand.Execute(null);
+            vm.CurrentView.Should().BeSameAs(first,
+                "second Show should return the cached StatsView instance");
+        });
+    }
+
+    [Fact]
     public void OpenDbcCommand_Now_Switches_To_DbcView()
     {
         // The Open DBC menu item (File ▸ Open DBC...) is the user-facing
@@ -297,7 +332,8 @@ public class AppShellViewModelTests
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(svc, NullLogger<SendViewModel>.Instance),
-            new SignalViewModel());
+            new SignalViewModel(),
+            new StatsViewModel());
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
