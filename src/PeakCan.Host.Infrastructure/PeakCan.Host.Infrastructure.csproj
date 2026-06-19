@@ -14,4 +14,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="PeakCan.Host.Infrastructure.Tests" />
+  </ItemGroup>
+
 </Project>

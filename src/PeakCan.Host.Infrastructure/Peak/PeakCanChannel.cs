@@ -1,9 +1,6 @@
-using System.Threading.Channels;
 using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
-// Disambiguate: our own `Channel` namespace shadows System.Threading.Channels.
-using SysChannel = System.Threading.Channels.Channel;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 
@@ -14,9 +11,7 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// <para>
 /// Read path: a single background <see cref="Task"/> polls
 /// <c>PCANBasic.Read</c> / <c>PCANBasic.ReadFD</c> until cancelled, raising
-/// <see cref="FrameReceived"/> on the SDK thread. The internal
-/// <see cref="Channel{T}"/> is reserved for follow-up work (e.g. back-pressure
-/// or async streaming) and is currently written-to but not read-from.
+/// <see cref="FrameReceived"/> on the SDK thread.
 /// </para>
 /// <para>
 /// Write path: <see cref="WriteAsync"/> formats the <see cref="CanFrame"/>
@@ -32,18 +27,23 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// rather than propagated, so the WPF ViewModel layer can render a message
 /// without try/catch boilerplate.
 /// </para>
+/// <para>
+/// <b>Read loop fault handling:</b> any exception thrown from the SDK read
+/// calls is swallowed (with an exponential backoff of 1ms / 10ms / 50ms
+/// after each consecutive failure) to prevent a hot loop. Persistent
+/// failures will manifest as "the bus is quiet" — there is currently no
+/// logging path. Follow-up work: surface via <c>IFrameSink.OnError</c> once
+/// the channel router is wired in.
+/// </para>
 /// </summary>
 public sealed class PeakCanChannel : ICanChannel
 {
+    // Backoff schedule after consecutive read-loop failures. Resets to 0
+    // whenever a read returns a non-error status (success or "queue empty").
+    private static readonly int[] ReadLoopBackoffMs = { 1, 10, 50 };
+
     private readonly ushort _handle;
     private readonly CancellationTokenSource _cts = new();
-    private readonly Channel<CanFrame> _internal = SysChannel.CreateBounded<CanFrame>(
-        new BoundedChannelOptions(4096)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = true,
-        });
     private Task? _readLoop;
     private readonly object _connectGate = new();
 
@@ -68,13 +68,21 @@ public sealed class PeakCanChannel : ICanChannel
             }
             try
             {
-                TPCANStatus status = fd
-                    ? PCANBasic.InitializeFD(_handle, baud.Descriptor)
-                    : ParseClassicBaudRate(baud, out var classicBaud)
-                        ? PCANBasic.Initialize(_handle, classicBaud)
-                        : throw new ArgumentException(
-                            $"BaudRate '{baud.Name}' is not a valid classic CAN rate (use a string descriptor for FD-only rates).",
-                            nameof(baud));
+                TPCANStatus status;
+                if (fd)
+                {
+                    status = PCANBasic.InitializeFD(_handle, baud.Descriptor);
+                }
+                else if (baud.ClassicCode is { } classic)
+                {
+                    status = PCANBasic.Initialize(_handle, classic);
+                }
+                else
+                {
+                    return Result<Unit>.Fail(
+                        ErrorCode.HardwareParameter,
+                        $"BaudRate '{baud.Name}' has no classic CAN code (use a classic preset or set ClassicCode via FromDescriptor).");
+                }
                 if (PeakErrorMapper.IsOk((uint)status))
                 {
                     IsConnected = true;
@@ -84,15 +92,15 @@ public sealed class PeakCanChannel : ICanChannel
                     return MakeError(status);
                 }
             }
-            catch (ArgumentException ex)
-            {
-                return Result<Unit>.Fail(ErrorCode.HardwareParameter, ex.Message);
-            }
             catch (Exception ex)
             {
                 return Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, ex.Message);
             }
         }
+        // _readLoop is launched AFTER the lock is released. The IsConnected
+        // flag was set inside the lock, so a concurrent second ConnectAsync
+        // call will see IsConnected=true and return InvalidState before
+        // reaching this line — there is no TOCTOU race on the read loop.
         _readLoop = Task.Run(() => ReadLoopAsync(_cts.Token), ct);
         return await Task.FromResult(Result<Unit>.Ok(default)).ConfigureAwait(false);
     }
@@ -107,8 +115,11 @@ public sealed class PeakCanChannel : ICanChannel
             try { await loop.ConfigureAwait(false); }
             catch (OperationCanceledException) { /* expected on cancel */ }
         }
+        // Uninitialize is best-effort during teardown — the channel is going
+        // away regardless. If the driver is already unloaded or in a bad
+        // state, we still mark the channel disconnected.
         try { PCANBasic.Uninitialize(_handle); }
-        catch { /* swallow — the channel is going away regardless */ }
+        catch { /* best-effort teardown */ }
         IsConnected = false;
         _cts.Dispose();
     }
@@ -133,7 +144,7 @@ public sealed class PeakCanChannel : ICanChannel
                     ID = frame.Id.Raw,
                     MSGTYPE = msgType,
                     DLC = (byte)Math.Min(frame.Dlc, (byte)15),
-                    DATA = ToFixedBytes64(frame.Data),
+                    DATA = PeakCanFrameFormatter.ToFixedBytes64(frame.Data),
                 };
                 status = PCANBasic.WriteFD(_handle, ref m);
             }
@@ -147,7 +158,7 @@ public sealed class PeakCanChannel : ICanChannel
                     ID = frame.Id.Raw,
                     MSGTYPE = msgType,
                     LEN = (byte)Math.Min(frame.Dlc, (byte)8),
-                    DATA = ToFixedBytes8(frame.Data),
+                    DATA = PeakCanFrameFormatter.ToFixedBytes8(frame.Data),
                 };
                 status = PCANBasic.Write(_handle, ref m);
             }
@@ -168,28 +179,37 @@ public sealed class PeakCanChannel : ICanChannel
 
     private async Task ReadLoopAsync(CancellationToken ct)
     {
-        // Drain both classic and FD queues. We loop on each separately so
-        // a burst of one kind doesn't starve the other.
+        int consecutiveFailures = 0;
         while (!ct.IsCancellationRequested)
         {
             try
             {
+                bool gotAnyFrame = false;
                 while (PCANBasic.Read(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitClassic(msg, ts);
+                    gotAnyFrame = true;
                 }
                 while (PCANBasic.ReadFD(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitFd(fdMsg, tsMicroseconds);
+                    gotAnyFrame = true;
                 }
+                if (gotAnyFrame) consecutiveFailures = 0;
             }
             catch (Exception)
             {
-                // SDK exceptions during read are surfaced as a channel event
-                // failure at the WPF layer via a future `IFrameSink.OnError`
-                // hook. For now, swallow and back off to avoid a hot loop.
+                // See class XML doc for rationale. Bump the backoff index
+                // and continue — the next successful read will reset it.
+                if (consecutiveFailures < ReadLoopBackoffMs.Length)
+                {
+                    consecutiveFailures++;
+                }
             }
-            try { await Task.Delay(1, ct).ConfigureAwait(false); }
+            var delay = consecutiveFailures == 0
+                ? 1
+                : ReadLoopBackoffMs[Math.Min(consecutiveFailures - 1, ReadLoopBackoffMs.Length - 1)];
+            try { await Task.Delay(delay, ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
         }
     }
@@ -206,7 +226,6 @@ public sealed class PeakCanChannel : ICanChannel
         if ((m.MSGTYPE & TPCANMessageType.PCAN_MESSAGE_RTR) != 0) flags |= FrameFlags.Rtr;
         // TPCANTimestamp: millis (uint) + micros (ushort within ms).
         var frame = new CanFrame(canId, bytes, flags, Id, Timestamp.FromMillis(ts.millis, ts.micros));
-        _internal.Writer.TryWrite(frame);
         FrameReceived?.Invoke(frame);
     }
 
@@ -218,63 +237,12 @@ public sealed class PeakCanChannel : ICanChannel
         if ((m.MSGTYPE & TPCANMessageType.PCAN_MESSAGE_BRS) != 0) flags |= FrameFlags.BitRateSwitch;
         if ((m.MSGTYPE & TPCANMessageType.PCAN_MESSAGE_ESI) != 0) flags |= FrameFlags.ErrorStateIndicator;
         if ((m.MSGTYPE & TPCANMessageType.PCAN_MESSAGE_ERRFRAME) != 0) flags |= FrameFlags.ErrFrame;
-        var dlc = DlcToBytes(m.DLC);
+        var dlc = PeakCanFrameFormatter.DlcToBytes(m.DLC);
         var bytes = new byte[dlc];
         Array.Copy(m.DATA, bytes, dlc);
         // TPCANTimestampFD in this SDK version is a plain UInt64 microsecond count.
         var frame = new CanFrame(canId, bytes, flags, Id, Timestamp.FromMicroseconds(tsMicroseconds));
-        _internal.Writer.TryWrite(frame);
         FrameReceived?.Invoke(frame);
-    }
-
-    /// <summary>
-    /// Map a <see cref="BaudRate"/> to a <see cref="TPCANBaudrate"/> enum value
-    /// for the classic-CAN <c>Initialize</c> call. Returns false if the rate's
-    /// descriptor doesn't match a known preset (caller should fall back to
-    /// the FD path with the string descriptor).
-    /// </summary>
-    private static bool ParseClassicBaudRate(BaudRate rate, out TPCANBaudrate result)
-    {
-        if (rate.IsFd)
-        {
-            result = default;
-            return false;
-        }
-        result = rate.Descriptor switch
-        {
-            "f_clock_mhz=20, nom_brp=8, nom_tseg1=8, nom_tseg2=3, nom_sjw=2" => TPCANBaudrate.PCAN_BAUD_125K,
-            "f_clock_mhz=20, nom_brp=4, nom_tseg1=8, nom_tseg2=3, nom_sjw=2" => TPCANBaudrate.PCAN_BAUD_250K,
-            "f_clock_mhz=20, nom_brp=2, nom_tseg1=8, nom_tseg2=3, nom_sjw=2" => TPCANBaudrate.PCAN_BAUD_500K,
-            "f_clock_mhz=20, nom_brp=1, nom_tseg1=8, nom_tseg2=3, nom_sjw=2" => TPCANBaudrate.PCAN_BAUD_1M,
-            _ => default,
-        };
-        return result != default;
-    }
-
-    private static byte DlcToBytes(byte dlc) => dlc switch
-    {
-        <= 8 => dlc,
-        9 => 12,
-        10 => 16,
-        11 => 20,
-        12 => 24,
-        13 => 32,
-        14 => 48,
-        _ => 64,
-    };
-
-    private static byte[] ToFixedBytes8(ReadOnlyMemory<byte> src)
-    {
-        var dst = new byte[8];
-        src.Span.CopyTo(dst);
-        return dst;
-    }
-
-    private static byte[] ToFixedBytes64(ReadOnlyMemory<byte> src)
-    {
-        var dst = new byte[64];
-        src.Span.CopyTo(dst);
-        return dst;
     }
 
     private static Result<Unit> MakeError(TPCANStatus s)
