@@ -35,6 +35,14 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// logging path. Follow-up work: surface via <c>IFrameSink.OnError</c> once
 /// the channel router is wired in.
 /// </para>
+/// <para>
+/// <b>Classic baud dispatch (H4 / T3):</b> <see cref="BaudRate"/> in Core
+/// no longer carries the PEAK <c>TPCANBaudrate?</c> field (Core must not
+/// depend on the PEAK SDK per NetArchTest rule 2). For classic CAN
+/// (<c>fd: false</c>) this adapter maps the four preset
+/// <see cref="BaudRate.Name"/> values back to the matching
+/// <c>PCAN_BAUD_*</c> enum via <see cref="ResolveClassicCode"/>.
+/// </para>
 /// </summary>
 public sealed class PeakCanChannel : ICanChannel
 {
@@ -70,7 +78,7 @@ public sealed class PeakCanChannel : ICanChannel
             {
                 status = PCANBasic.InitializeFD(_handle, baud.Descriptor);
             }
-            else if (baud.ClassicCode is { } classic)
+            else if (ResolveClassicCode(baud) is { } classic)
             {
                 status = PCANBasic.Initialize(_handle, classic);
             }
@@ -79,7 +87,7 @@ public sealed class PeakCanChannel : ICanChannel
                 _gate.MarkFailed();
                 return Result<Unit>.Fail(
                     ErrorCode.HardwareParameter,
-                    $"BaudRate '{baud.Name}' has no classic CAN code (use a classic preset or set ClassicCode via FromDescriptor).");
+                    $"BaudRate '{baud.Name}' has no classic CAN preset (use Can125kbps/Can250kbps/Can500kbps/Can1Mbps).");
             }
             if (!PeakErrorMapper.IsOk((uint)status))
             {
@@ -244,4 +252,21 @@ public sealed class PeakCanChannel : ICanChannel
         var (code, msg) = PeakErrorMapper.ToErrorCode((uint)s);
         return Result<Unit>.Fail(code, msg);
     }
+
+    /// <summary>
+    /// Map a Core <see cref="BaudRate"/> Name to the matching PEAK
+    /// <c>TPCANBaudrate</c> enum. The classic <c>PCANBasic.Initialize</c>
+    /// API does not accept the bitrate descriptor string; it only
+    /// accepts the four <c>PCAN_BAUD_*</c> presets. Returns null for
+    /// any name we don't recognize, which the caller maps to a
+    /// <see cref="ErrorCode.HardwareParameter"/> failure.
+    /// </summary>
+    private static TPCANBaudrate? ResolveClassicCode(BaudRate baud) => baud.Name switch
+    {
+        "125 kbps" => TPCANBaudrate.PCAN_BAUD_125K,
+        "250 kbps" => TPCANBaudrate.PCAN_BAUD_250K,
+        "500 kbps" => TPCANBaudrate.PCAN_BAUD_500K,
+        "1 Mbps" => TPCANBaudrate.PCAN_BAUD_1M,
+        _ => null,
+    };
 }

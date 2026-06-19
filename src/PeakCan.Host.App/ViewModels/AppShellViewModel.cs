@@ -6,7 +6,6 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
-using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -61,6 +60,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly ILogger<AppShellViewModel> _logger;
     private readonly SendService _sendService;
     private readonly IChannelProbe _channelProbe;
+    private readonly IChannelFactory _channelFactory;
     private readonly TraceViewModel _traceViewModel;
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
@@ -78,7 +78,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private StatsView? _statsView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
-    private PeakCanChannel? _activeChannel;
+    private ICanChannel? _activeChannel;
 
     /// <summary>Last known probe result. Connect is enabled only when this is "USB1 ...".</summary>
     [ObservableProperty]
@@ -119,6 +119,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         TraceViewModel traceViewModel,
         SendService sendService,
         IChannelProbe channelProbe,
+        IChannelFactory channelFactory,                    // NEW (T3)
         DbcViewModel dbcViewModel,
         SendViewModel sendViewModel,
         SignalViewModel signalViewModel,
@@ -129,6 +130,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _channelProbe = channelProbe ?? throw new ArgumentNullException(nameof(channelProbe));
+        _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
         _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
@@ -256,7 +258,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         StatusMessage = "Connecting to USB1 (CAN FD 1 Mbps)";
         try
         {
-            var channel = new PeakCanChannel(new ChannelId(PcanUsbFdFirstHandle));
+            var channel = _channelFactory.Create(new ChannelId(PcanUsbFdFirstHandle));
             var result = await channel.ConnectAsync(DefaultBaudRate, fd: DefaultFd).ConfigureAwait(true);
             if (result.IsSuccess)
             {

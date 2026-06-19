@@ -64,6 +64,13 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
                                        PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
+        // Task T3 (H4): the App-layer VM no longer news PeakCanChannel
+        // directly; it asks the factory for an ICanChannel. Production DI
+        // binds the PEAK implementation; tests inject a fake to drive the
+        // connect/disconnect state machine without hardware.
+        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelFactory,
+                                      PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
+
         // App services
         builder.Services.AddSingleton<TraceService>();
         builder.Services.AddSingleton<SendService>();

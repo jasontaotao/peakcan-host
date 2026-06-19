@@ -1,9 +1,4 @@
-using PeakCan.Host.Core;
-// PEAK SDK type referenced in the BaudRate record's ClassicCode field.
-// TPCANBaudrate is the classic-CAN baud-rate enum (PCAN_BAUD_xxx).
-using Peak.Can.Basic.BackwardCompatibility;
-
-namespace PeakCan.Host.Infrastructure.Channel;
+namespace PeakCan.Host.Core;
 
 /// <summary>
 /// One CAN channel (one PCAN-USB handle). Owns the connect/disconnect lifecycle
@@ -13,7 +8,7 @@ namespace PeakCan.Host.Infrastructure.Channel;
 /// (the SDK's <c>PCANBasic.Read</c> polling thread or its event-driven
 /// <c>SetRcvEvent</c> equivalent) — consumers must marshal back to the UI
 /// thread themselves. Subscribers should not throw; the
-/// <see cref="ChannelRouter"/> isolates per-sink exceptions.
+/// <c>ChannelRouter</c> isolates per-sink exceptions.
 /// </para>
 /// <para>
 /// A channel is single-use: after <see cref="IAsyncDisposable.DisposeAsync"/>
@@ -53,58 +48,57 @@ public interface ICanChannel : IAsyncDisposable
 }
 
 /// <summary>
-/// PEAK bitrate descriptor + human-readable label + CAN-FD flag +
-/// (for classic rates only) the matching <see cref="TPCANBaudrate"/> enum value.
+/// PEAK bitrate descriptor + human-readable label + CAN-FD flag.
 /// <para>
 /// <see cref="Descriptor"/> is a PEAK-format string accepted by
-/// <c>PCANBasic.Initialize</c> (classic, via <see cref="ClassicCode"/>) and
-/// <c>PCANBasic.InitializeFD</c> (FD, the descriptor itself). The pre-canned
-/// constants below assume a 20 MHz nominal clock (typical for PCAN-USB FD);
+/// <c>PCANBasic.InitializeFD</c>; the classic <c>PCANBasic.Initialize</c>
+/// API requires matching the <see cref="Name"/> to one of the four
+/// <c>Can*kbps</c> presets, which the PEAK adapter maps internally to the
+/// corresponding <c>PCAN_BAUD_*</c> enum value. The pre-canned constants
+/// below assume a 20 MHz nominal clock (typical for PCAN-USB FD);
 /// other clocks require a different descriptor — use
-/// <see cref="FromDescriptor"/> to build a custom rate.
+/// <see cref="FromDescriptor"/> to build a custom rate for FD mode.
 /// </para>
 /// </summary>
 public readonly record struct BaudRate(
     string Descriptor,
     string Name,
-    bool IsFd,
-    TPCANBaudrate? ClassicCode = null)
+    bool IsFd)
 {
-    // Classic CAN bitrate strings (20 MHz clock). Each preset pairs the
-    // descriptor with the corresponding TPCANBaudrate enum value so
-    // ConnectAsync can pick the right API without string-matching the descriptor.
+    // Classic CAN bitrate strings (20 MHz clock). The PEAK adapter
+    // recognizes these four names and dispatches to PCANBasic.Initialize
+    // with the matching PCAN_BAUD_* enum.
     public static readonly BaudRate Can125kbps = new(
         "f_clock_mhz=20, nom_brp=8, nom_tseg1=8, nom_tseg2=3, nom_sjw=2",
-        "125 kbps", false, TPCANBaudrate.PCAN_BAUD_125K);
+        "125 kbps", false);
     public static readonly BaudRate Can250kbps = new(
         "f_clock_mhz=20, nom_brp=4, nom_tseg1=8, nom_tseg2=3, nom_sjw=2",
-        "250 kbps", false, TPCANBaudrate.PCAN_BAUD_250K);
+        "250 kbps", false);
     public static readonly BaudRate Can500kbps = new(
         "f_clock_mhz=20, nom_brp=2, nom_tseg1=8, nom_tseg2=3, nom_sjw=2",
-        "500 kbps", false, TPCANBaudrate.PCAN_BAUD_500K);
+        "500 kbps", false);
     public static readonly BaudRate Can1Mbps = new(
         "f_clock_mhz=20, nom_brp=1, nom_tseg1=8, nom_tseg2=3, nom_sjw=2",
-        "1 Mbps", false, TPCANBaudrate.PCAN_BAUD_1M);
+        "1 Mbps", false);
 
     // CAN FD bitrate strings (20 MHz clock, nominal 1 Mbps, data phase varies).
-    // ClassicCode is null because the classic Initialize API does not accept
-    // these strings.
     public static readonly BaudRate CanFd1Mbps = new(
         "f_clock_mhz=20, nom_brp=1, nom_tseg1=8, nom_tseg2=3, nom_sjw=2, data_brp=1, data_tseg1=4, data_tseg2=3, data_sjw=2",
-        "1 Mbps (FD)", true, null);
+        "1 Mbps (FD)", true);
     public static readonly BaudRate CanFd2Mbps = new(
         "f_clock_mhz=20, nom_brp=1, nom_tseg1=8, nom_tseg2=3, nom_sjw=2, data_brp=1, data_tseg1=2, data_tseg2=2, data_sjw=1",
-        "2 Mbps (FD)", true, null);
+        "2 Mbps (FD)", true);
     public static readonly BaudRate CanFd5Mbps = new(
         "f_clock_mhz=20, nom_brp=1, nom_tseg1=8, nom_tseg2=3, nom_sjw=2, data_brp=1, data_tseg1=1, data_tseg2=1, data_sjw=1",
-        "5 Mbps (FD)", true, null);
+        "5 Mbps (FD)", true);
 
     /// <summary>
-    /// Build a custom rate from a PEAK bitrate descriptor. <paramref name="isFd"/>
-    /// selects which API the descriptor is passed to; the classic API additionally
-    /// requires a <paramref name="classicCode"/> matching one of the
-    /// <c>PCAN_BAUD_*</c> enum values.
+    /// Build a custom FD rate from a PEAK bitrate descriptor. Classic
+    /// (non-FD) custom rates are not supported here — the PEAK classic
+    /// API requires the matching <c>PCAN_BAUD_*</c> enum value, which
+    /// is not representable in Core. Use one of the four
+    /// <c>Can*kbps</c> presets for classic custom rates.
     /// </summary>
-    public static BaudRate FromDescriptor(string descriptor, string name, bool isFd, TPCANBaudrate? classicCode = null)
-        => new(descriptor, name, isFd, classicCode);
+    public static BaudRate FromDescriptor(string descriptor, string name)
+        => new(descriptor, name, true);
 }

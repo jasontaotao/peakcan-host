@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Infrastructure.Channel;
+namespace PeakCan.Host.Core;
 
 /// <summary>
 /// Sentinel "no value" return for operations whose success carries no payload

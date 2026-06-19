@@ -1,3 +1,5 @@
+using PeakCan.Host.Core;
+
 namespace PeakCan.Host.Infrastructure.Channel;
 
 /// <summary>

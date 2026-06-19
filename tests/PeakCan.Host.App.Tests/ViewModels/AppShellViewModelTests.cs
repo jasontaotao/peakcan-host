@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Views;
+using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -61,6 +62,7 @@ public class AppShellViewModelTests
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
             new FakeChannelProbe(),
+            new FakeChannelFactory(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
@@ -358,6 +360,7 @@ public class AppShellViewModelTests
             new TraceViewModel(),
             svc,
             new FakeChannelProbe(),
+            new FakeChannelFactory(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
                              NullLogger<DbcViewModel>.Instance),
@@ -367,5 +370,87 @@ public class AppShellViewModelTests
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// Test double for <see cref="Core.IChannelFactory"/> that hands out
+    /// hand-rolled <see cref="FakeCanChannel"/> instances so
+    /// <see cref="AppShellViewModel.ConnectAsync"/> / <c>DisconnectAsync</c>
+    /// can run without PEAK hardware.
+    /// </summary>
+    private sealed class FakeChannelFactory : Core.IChannelFactory
+    {
+        public int CreatedCount { get; private set; }
+        public FakeCanChannel? LastCreated { get; private set; }
+        public ICanChannel Create(ChannelId id)
+        {
+            CreatedCount++;
+            LastCreated = new FakeCanChannel(id);
+            return LastCreated;
+        }
+    }
+
+    private sealed class FakeCanChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+#pragma warning disable CS0067 // event never used in this test double
+        public event Action<CanFrame>? FrameReceived;
+#pragma warning restore CS0067
+        public FakeCanChannel(ChannelId id) { Id = id; }
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        {
+            IsConnected = true;
+            return Task.FromResult(Result<Unit>.Ok(default));
+        }
+        public async Task DisconnectAsync(CancellationToken ct = default)
+        {
+            await Task.Yield();
+            IsConnected = false;
+        }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private static AppShellViewModel NewVmWithFactory(IChannelFactory factory) =>
+        new(new ChannelRouter(),
+            NullLogger<AppShellViewModel>.Instance,
+            new TraceViewModel(),
+            new SendService(NullLogger<SendService>.Instance),
+            new FakeChannelProbe(),
+            factory,
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
+            new SignalViewModel(),
+            new StatsViewModel());
+
+    [Fact]
+    public async Task ConnectCommand_Through_Fake_Factory_Sets_IsConnected_True()
+    {
+        var factory = new FakeChannelFactory();
+        var vm = NewVmWithFactory(factory);
+        vm.ChannelList = "USB1 (1 Mbps default)"; // unlock CanConnect
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue();
+        factory.CreatedCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task DisconnectCommand_Through_Fake_Factory_Resets_IsConnected()
+    {
+        var factory = new FakeChannelFactory();
+        var vm = NewVmWithFactory(factory);
+        vm.ChannelList = "USB1 (1 Mbps default)";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue();
+        vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
+
+        await vm.DisconnectCommand.ExecuteAsync(null);
+
+        vm.IsConnected.Should().BeFalse();
+        factory.LastCreated!.IsConnected.Should().BeFalse();
     }
 }
