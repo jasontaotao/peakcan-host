@@ -5,6 +5,7 @@
     <Project Path="src/PeakCan.Host.Infrastructure/PeakCan.Host.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Infrastructure.Tests/PeakCan.Host.Infrastructure.Tests.csproj" />
   </Folder>

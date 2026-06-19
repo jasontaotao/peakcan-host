@@ -1,0 +1,38 @@
+<Window x:Class="PeakCan.Host.App.AppShell"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PeakCan.Host.App"
+        mc:Ignorable="d"
+        Title="PeakCan Host" Height="720" Width="1280">
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="Open DBC..." Command="{Binding OpenDbcCommand}" />
+                <Separator />
+                <MenuItem Header="Exit" Click="OnExit" />
+            </MenuItem>
+        </Menu>
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar>
+                <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
+                <Separator />
+                <Button Content="Probe" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
+                <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="6,2" />
+                <Separator />
+                <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" />
+            </ToolBar>
+        </ToolBarTray>
+        <StatusBar DockPanel.Dock="Bottom">
+            <TextBlock Text="{Binding StatusMessage}" />
+        </StatusBar>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ContentControl Grid.Row="0" x:Name="MainArea" />
+        </Grid>
+    </DockPanel>
+</Window>
