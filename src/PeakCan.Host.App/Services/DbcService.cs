@@ -18,8 +18,13 @@ namespace PeakCan.Host.App.Services;
 /// must marshal to the UI thread if they touch WPF bindings.
 /// </para>
 /// <para>
-/// <b>Virtual:</b> <see cref="LoadAsync"/> is <c>virtual</c> so tests can
-/// swap in a no-op / canned-document stub without hitting the disk.
+/// <b>Partial class:</b> declared <c>partial</c> because WPF source
+/// generators may emit a partial declaration for App-layer types
+/// (verified during Task 15 review: removing <c>partial</c> fails
+/// with CS0260 from the WPF temp-build). <see cref="LoadAsync"/> is
+/// <c>virtual</c> (so this class is intentionally NOT <c>sealed</c>) to
+/// allow tests to swap in a no-op / canned-document stub without
+/// hitting the disk.
 /// </para>
 /// </summary>
 public partial class DbcService

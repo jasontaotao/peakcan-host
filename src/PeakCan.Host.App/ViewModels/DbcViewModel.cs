@@ -15,11 +15,24 @@ namespace PeakCan.Host.App.ViewModels;
 /// status string surfaced next to the Open button.
 /// <para>
 /// <b>Event wiring:</b> subscribes to <see cref="DbcService.DbcLoaded"/>
-/// and <see cref="DbcService.LoadFailed"/> in the constructor;
-/// <see cref="Dispose"/> unsubscribes. The shell registers the VM as a
-/// singleton so the service + VM live for the whole app — Dispose is
-/// called at process shutdown via <see cref="AppHostBuilder"/>'s host
-/// disposal path (Task 17 may wire an explicit shutdown hook).
+/// and <see cref="DbcService.LoadFailed"/> in the constructor. The
+/// shell registers the VM as a DI singleton that lives for the whole
+/// app, so the event subscriptions are intentionally NEVER unsubscribed
+/// — a previous <see cref="IDisposable"/> implementation was a latent
+/// footgun (see review Task 15 fix-history). Both <c>DbcService</c> and
+/// <c>DbcViewModel</c> die together at process exit, so GC + finalizer
+/// pass handles cleanup.
+/// </para>
+/// <para>
+/// <b>Dispatcher marshaling:</b> <see cref="DbcService.LoadAsync"/> runs
+/// the parse on a worker thread and raises the events on that worker.
+/// Any mutation of an <see cref="System.Collections.ObjectModel.ObservableCollection{T}"/>
+/// bound to a WPF <c>ItemsControl</c> MUST happen on the UI dispatcher
+/// (cross-thread <c>CollectionChanged</c> throws
+/// <c>NotSupportedException</c>). Both <see cref="OnLoaded"/> and
+/// <see cref="OnLoadFailed"/> marshal via <see cref="System.Windows.Application.Current"/>.
+/// In the xunit test context (no <c>Application</c>) we fall back to
+/// running inline so the test can still observe the post-state.
 /// </para>
 /// <para>
 /// <b>OpenCommand testability:</b> the production path pops a WPF
@@ -29,7 +42,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// state transitions.
 /// </para>
 /// </summary>
-public sealed partial class DbcViewModel : ObservableObject, IDisposable
+public sealed partial class DbcViewModel : ObservableObject
 {
     private readonly DbcService _svc;
     private readonly ILogger<DbcViewModel> _logger;
@@ -69,6 +82,17 @@ public sealed partial class DbcViewModel : ObservableObject, IDisposable
 
     private void OnLoaded(DbcDocument doc)
     {
+        // DbcService.LoadAsync raises this event on its worker thread.
+        // ObservableCollection<T>.CollectionChanged must fire on the UI
+        // dispatcher when the collection is bound to an ItemsControl
+        // (DataGrid, ListBox, etc.) — cross-thread mutation throws
+        // NotSupportedException. Marshal before mutating Messages.
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => OnLoaded(doc));
+            return;
+        }
         Messages.Clear();
         foreach (var m in doc.Messages)
         {
@@ -80,17 +104,16 @@ public sealed partial class DbcViewModel : ObservableObject, IDisposable
 
     private void OnLoadFailed(PeakCan.Host.Core.Error error)
     {
+        // Same dispatcher marshaling rationale as OnLoaded. PropertyChanged
+        // is benign cross-thread (just fires the event), but Status is bound
+        // to the UI and we marshal for consistency.
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => OnLoadFailed(error));
+            return;
+        }
         Status = $"FAIL: {error.Code} {error.Message}";
-    }
-
-    /// <summary>
-    /// Unsubscribe from the singleton <see cref="DbcService"/> events so
-    /// the VM does not outlive the service. Idempotent.
-    /// </summary>
-    public void Dispose()
-    {
-        _svc.DbcLoaded -= OnLoaded;
-        _svc.LoadFailed -= OnLoadFailed;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "DBC Open invoked for {Path}")]
