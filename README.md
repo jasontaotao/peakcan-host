@@ -4,15 +4,17 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.1.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
-> for the design and [Plan](docs/superpowers/plans/2026-06-18-peakcan-host-implementation.md)
-> for the build plan. 285 unit tests pass; 3 architecture rules enforced
-> via NetArchTest; CI runs on every push to `main`.
+> **Status:** MVP v0.2.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
+> for the v0.2.0 defect-fix plan. 305 unit tests pass (137 Core + 96 App
+> + 72 Infrastructure); 5 architecture rules enforced via NetArchTest;
+> CI runs on every push to `main`.
 
 ## Features (MVP)
 
-- **Probe + Connect** — detect a PEAK PCAN-USB FD, open a CAN FD channel
-  at 1 Mbps, register on the in-process frame router.
+- **Probe + Connect / Disconnect** — detect a PEAK PCAN-USB FD, open a
+  CAN FD channel at 1 Mbps, register on the in-process frame router,
+  and release the hardware at any time via the **Disconnect** button.
 - **Trace view** — virtualized DataGrid of every received frame
   (timestamp, channel, ID, DLC, hex data, decoded row).
 - **DBC file load** — parse a `.dbc` file off the UI thread; populate a
@@ -24,6 +26,40 @@ and 1 Hz bus statistics.
 - **Bus statistics** — 1 Hz OxyPlot chart of frames-per-second + bus
   load %; total + error frame counters.
 - **Serilog rolling logs** at `%LocalAppData%\PeakCan.Host\logs\`.
+
+## v0.2.0 (Sprint 17)
+
+Six design defects closed, all with unit-test coverage:
+
+- **Disconnect button** (C1) — toolbar button releases the PEAK
+  hardware without exiting the app; toolbar `IsConnected` cross-triggers
+  both the Connect and Disconnect CanExecute states.
+- **Safer channel lifecycle** (H1 + H5) — extracted a `ChannelConnectGate`
+  that owns the connect/disconnect state machine (lock +
+  `CancellationTokenSource` + read-loop task) so the previous read-loop
+  race and the previous `DisposeAsync` double-throw are now caught by
+  12 dedicated unit tests (including a 64-thread concurrent
+  `TryEnter` race).
+- **`IChannelFactory` seam** (H4) — the shell no longer news up
+  `PeakCanChannel` directly; a new `IChannelFactory` in Core +
+  `PeakCanChannelFactory` in Infrastructure.Peak + `FakeChannelFactory`
+  test double let the VM's connect/disconnect state machine be driven
+  end-to-end in unit tests for the first time.
+- **Hardcoded baud / handle constants** (H8) — `PcanUsbFdFirstHandle`,
+  `DefaultBaudRate`, `DefaultFd` promoted to class-level named constants
+  on `AppShellViewModel`.
+- **DBC decode offload** (M11) — `DbcDecodeBackgroundService` consumes
+  raw frames on the SDK read thread (`OnFrame` is now a single
+  `TryWrite` enqueue) and runs the dictionary lookup +
+  `SignalViewModel.ApplyFrame` on a dedicated worker thread.
+  Net effect at 8 kfps: the SDK read loop is a pure forwarder; DBC
+  decode no longer competes with frame intake.
+- **Architectural cleanup** — T3's `IChannelFactory` work exposed a
+  Core↔Infrastructure reference cycle in the original plan; resolved by
+  relocating `ICanChannel` and `Unit` to Core (preserving NetArchTest
+  rule 2: Core must not depend on `Peak.Can.Basic`). `BaudRate`'s
+  `TPCANBaudrate?` field was retired and replaced by a
+  `PeakCanChannel.ResolveClassicCode` adapter switch.
 
 ## Prerequisites
 
