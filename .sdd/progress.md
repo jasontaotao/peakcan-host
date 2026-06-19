@@ -18,16 +18,17 @@ This ledger is the recovery map for subagent-driven development. Tasks listed he
 | 3  Result/Error/ErrorCode | complete | `8ffdb29` feat + polish commit | 32/32 tests pass; 100% line / 100% branch coverage on Core; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (4 LOW docs/test polish applied) |
 | 4  DbcTokenizer         | complete | `f5d6a2f` feat + `8df3766` fix(review) | 75/75 tests pass; 100% line coverage; build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (4 MEDIUM + 6 LOW; MEDIUM 1+2+4 applied, MEDIUM 3 hex/binary deferred as YAGNI per MVP; LOW identifier test + column doc applied; CRITICAL infinite-loop bug caught by new exponent test and fixed in the same commit) |
 | 5  DbcParser AST+basic  | complete | `9b2c197` feat + fix commit | 115/115 tests pass; 100% line / 98.3% branch coverage on Core; build 0 warn 0 err; code-reviewer WARN (1 HIGH exception-leak + 3 MEDIUM) — all HIGH/MEDIUM fixed: ParseUInt/ParseByte/ParseLong wrap OverflowException, HashSet seenIds replaces O(n²) duplicate check, dead Keyword_SG_ removed from IsStructuralKeyword, trailing newlines applied |
+| 6  DBC parser multiplexed M/m + VAL_ | complete | `8eda017` feat + `028ef42` fix(review) | 125/125 tests pass (10 new in DbcParserMultiplexedTests); build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (3 MEDIUM + 6 LOW) — MEDIUM 1 reverted Message.Signals to IReadOnlyList and used 'with' rebuild, MEDIUM 2 added DbcParseException for unknown msg id (including VAL_-before-BO_), MEDIUM 3 added 7 edge-case tests; LOW applied: Peek bounds, m<N> range/malformed error, FindSignalIndex + ReplaceSignalValueTableName helpers; LOW deferred: inline-VAL_ self-table naming (documented MVP shortcut, follow-up), LastOrDefault duplicate-name (rare in real DBC) |
 
 ## Resume Guide (next session)
 
 To continue:
 1. Read this ledger and `docs/superpowers/plans/2026-06-18-peakcan-host-implementation.md` once.
 2. `cd D:/claude_proj2/peakcan-host && git log --oneline` to confirm baseline.
-3. Start at Task 2 (Core 域类型). Recommended parallel batches (file-isolated, no merge conflicts):
-   - **Batch 1** (4 parallel, all in `src/PeakCan.Host.Core/`, no shared files): Task 2 (CanFrame), Task 3 (Result<T>), Task 4 (DbcTokenizer), Task 7 (SignalDecoder)
-   - **Batch 2** (after Batch 1 merges): Task 5 (DbcParser basic), Task 6 (DbcParser multiplexed), Task 8 (PeakError+Mapper), Task 9 (ICanChannel)
-   - **Batch 3**: Task 10 (ChannelRouter), Task 11 (BusStatisticsCollector)
+3. Continue at **Task 7** (Core — SignalDecoder, file-isolated from Task 6 work, no merge conflict). Recommended batch from here:
+   - **Batch A** (4 parallel, all in `src/PeakCan.Host.Core/`, no shared files): Task 7 (SignalDecoder)
+   - **Batch B** (after Task 7 merges): Task 8 (Infrastructure PeakError+Mapper), Task 9 (Infrastructure ICanChannel)
+   - **Batch C**: Task 10 (ChannelRouter), Task 11 (BusStatisticsCollector)
    - **Serial from Task 12**: App layer (multiple files share AppShell.xaml).
 4. Per the SDD skill, dispatch a fresh subagent per task, then a task-reviewer subagent; mark each complete + append to this ledger only after the review verdict is clean.
 5. Plan §17 must use OxyPlot.Wpf, not LiveChartsCore (deviation). StatsViewModel/StatsView code blocks reference `LiveChartsCore` types — rewrite using `OxyPlot.PlotModel` + `LineSeries` before implementing Task 17.
@@ -36,10 +37,10 @@ To continue:
 
 Last session reached the implementer-parallel decision and ran Task 1 manually (scaffolding + restore + build + commit). User opted to stop at Task 1 rather than risk mid-batch crash from context exhaustion.
 | 2  Core domain types  | complete | `9ee928d` | 11/11 tests pass; 0 warn 0 err build |
-| 3  Result<T>          | pending | — | — |
-| 4  DBC Tokenizer      | pending | — | — |
-| 5  DBC parser 基础    | pending | — | — |
-| 6  DBC parser 高级    | pending | — | — |
+| 3  Result<T>          | complete | `8ffdb29` | 32/32 tests pass; 100% coverage |
+| 4  DBC Tokenizer      | complete | `f5d6a2f` + `8df3766` | 75/75 tests pass; 100% line |
+| 5  DBC parser 基础    | complete | `9b2c197` + `cac575e` | 115/115 tests pass; 100% line / 98.3% branch |
+| 6  DBC parser 高级    | complete | `8eda017` + `028ef42` | 125/125 tests pass (10 new); review APPROVE_WITH_NOTES → all MEDIUM fixed |
 | 7  SignalDecoder      | pending | — | — |
 | 8  PeakError + Mapper | pending | — | — |
 | 9  ICanChannel        | pending | — | — |
