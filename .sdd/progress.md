@@ -49,7 +49,7 @@ Last session reached the implementer-parallel decision and ran Task 1 manually (
 | 9  ICanChannel        | complete | `?` + `?` | 167/167 + 2 SKIP; 18 new unit tests for PeakCanFrameFormatter |
 | 10 ChannelRouter      | complete | `822c9c4` + `?` | 178/178 + 2 SKIP; 11 ChannelRouter tests |
 | 11 BusStatisticsCollector | complete | `0724993` + `3c2f1b2` | 53/53 Infrastructure + 2 SKIP; 12 BusStatisticsCollector tests; review APPROVE_WITH_NOTES → 2 MEDIUM + 4 LOW all closed |
-| 12 AppShell + Connect UI | complete | `352add7` feat | 11/11 App tests pass + 2 SKIP (hardware); new PeakCan.Host.App.Tests project (xunit + FluentAssertions + STA-thread fixture for AppShell resolve); MVP single-handle probe per inline amendment |
+| 12 AppShell + Connect UI | complete | `352add7` + `7c74e5c` | 12/12 App + 2 SKIP; review APPROVE_WITH_NOTES → 1 HIGH + 5 MEDIUM + 6 LOW all closed |
 | 13 Trace              | pending | — | — |
 | 14 Send               | pending | — | — |
 | 15 DBC view + shell nav | pending | — | — |
