@@ -20,6 +20,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Task 20: brand the published exe as PeakCan.Host.exe (instead
+         of PeakCan.Host.App.exe). The assembly name is also renamed
+         from PeakCan.Host.App to PeakCan.Host — the .NET SDK
+         resolves ProjectReferences by file path, not by name, so the
+         test projects still link. The default namespace remains
+         PeakCan.Host.App.* (defined per .cs file). -->
+    <AssemblyName>PeakCan.Host</AssemblyName>
+    <RootNamespace>PeakCan.Host.App</RootNamespace>
   </PropertyGroup>
 
 </Project>

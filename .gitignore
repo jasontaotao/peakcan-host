@@ -1,6 +1,12 @@
 bin/
 obj/
-artifacts/
+# artifacts/ is the dotnet publish output directory (Task 20). The
+# directory itself is tracked (README + .gitignore live here) but
+# the publish outputs (PeakCan.Host.exe, .pdb files) are ignored.
+# The .gitignore in artifacts/ lists the specific filenames.
+artifacts/*
+!artifacts/.gitignore
+!artifacts/README.md
 *.user
 *.suo
 .vs/
