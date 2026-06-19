@@ -1,6 +1,8 @@
 using FluentAssertions;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.ViewModels;
+using System.Windows;
+using System.Windows.Threading;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -10,10 +12,11 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// it without dragging in WPF types.
 /// <para>
 /// <b>Dispatcher contract:</b> <see cref="TraceViewModel.AppendBatchAsync"/>
-/// silently no-ops when <c>Application.Current</c> is null (test contexts).
-/// The test <c>AppendBatch_With_Null_Dispatcher_Returns_CompletedTask_Without_Throwing</c>
-/// pins that behavior; in production <c>Application.Current.Dispatcher</c>
-/// is always available, so the silent path is never hit.
+/// silently no-ops when <c>Application.Current</c> is null (test contexts
+/// that run on the xunit MTA threadpool). The STA-hosted test
+/// <c>AppendBatch_On_StaThread_With_Application_Adds_All_Frames</c> exercises
+/// the production dispatcher path. In the running app, <c>Application.Current.Dispatcher</c>
+/// is always available, so the silent path is never hit at runtime.
 /// </para>
 /// </summary>
 public class TraceViewModelTests
@@ -48,13 +51,13 @@ public class TraceViewModelTests
     }
 
     [Fact]
-    public async Task AppendBatch_Adds_All_Frames_As_TraceEntries()
+    public async Task AppendBatch_With_Null_Application_Returns_CompletedTask_Without_Adding()
     {
-        // In a non-WPF test process Application.Current is null and
-        // AppendBatchAsync returns Task.CompletedTask without adding.
-        // The non-null dispatcher path is exercised by the live app run
-        // (Task 13 Step 6) — the unit tests pin the silent test-context
-        // contract only.
+        // Documents the test-context limitation: xunit runs tests on the
+        // MTA threadpool with no WPF Application, so Application.Current is
+        // null and AppendBatchAsync returns CompletedTask without mutating
+        // Entries. The production dispatcher path is exercised by the
+        // STA-hosted test below.
         var vm = new TraceViewModel();
         var frames = new List<CanFrame>
         {
@@ -65,18 +68,50 @@ public class TraceViewModelTests
         var task = vm.AppendBatchAsync(frames);
         await task;
         task.IsCompletedSuccessfully.Should().BeTrue();
+        vm.Entries.Should().BeEmpty("xunit MTA thread has no WPF Application; dispatcher path is null");
     }
 
     [Fact]
-    public async Task AppendBatch_With_Null_Dispatcher_Returns_CompletedTask_Without_Throwing()
+    public void AppendBatch_On_StaThread_With_Application_Adds_All_Frames()
     {
-        // Documents the test-context limitation: the dispatcher is null in
-        // unit tests, so frames are silently dropped. In production the
-        // dispatcher is always present.
-        var vm = new TraceViewModel();
-        var task = vm.AppendBatchAsync(new List<CanFrame> { MakeFrame() });
-        await task;
-        task.IsCompletedSuccessfully.Should().BeTrue();
-        vm.Entries.Should().BeEmpty("test context has no WPF dispatcher");
+        // The only test that exercises the production dispatcher path.
+        // Spawns an STA thread, creates a WPF Application on it (so
+        // Application.Current is non-null), invokes AppendBatchAsync, and
+        // pumps the dispatcher with DispatcherFrame until the awaited
+        // Task completes. Asserts all 3 frames land in Entries.
+        Exception? caught = null;
+        int entriesCount = 0;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                var vm = new TraceViewModel();
+                var frames = new List<CanFrame>
+                {
+                    MakeFrame(id: 0x111, dlc: 2),
+                    MakeFrame(id: 0x222, dlc: 4),
+                    MakeFrame(id: 0x333, dlc: 8, fd: true),
+                };
+
+                // AppendBatchAsync queues work onto the current dispatcher
+                // (Application.Current.Dispatcher === Dispatcher.CurrentDispatcher
+                // on this STA thread). Pump the dispatcher until the task
+                // completes — using a DispatcherFrame so we don't deadlock.
+                var task = vm.AppendBatchAsync(frames);
+                var frame = new DispatcherFrame();
+                task.ContinueWith(_ => frame.Continue = false, TaskScheduler.Default);
+                Dispatcher.PushFrame(frame);
+
+                entriesCount = vm.Entries.Count;
+            }
+            catch (Exception ex) { caught = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(5)).Should().BeTrue("STA thread must complete within 5 s");
+
+        if (caught is not null) throw caught;
+        entriesCount.Should().Be(3, "the dispatcher path should add all 3 frames");
     }
 }

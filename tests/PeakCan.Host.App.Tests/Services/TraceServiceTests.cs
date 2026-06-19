@@ -116,6 +116,24 @@ public class TraceServiceTests
     }
 
     [Fact]
+    public void DroppedFrames_Counter_Increments_When_Channel_Is_Full()
+    {
+        // Spec §6.2 mandates "dropped frames only log". The TraceService
+        // exposes a DroppedFrames counter for tests + future UI status
+        // bar (Warn ×N overrun indicator). After pushing more than the
+        // 10_000 channel capacity, the counter must be > 0.
+        var vm = new TraceViewModel();
+        var service = new TraceService(vm);
+        service.DroppedFrames.Should().Be(0, "fresh service has no drops");
+        for (int i = 0; i < 10_500; i++)
+        {
+            service.OnFrame(MakeFrame(id: (uint)(i & 0x7FF)));
+        }
+        service.DroppedFrames.Should().BeGreaterThan(0,
+            "pushing past the 10_000 capacity must increment the drop counter");
+    }
+
+    [Fact]
     public void OnError_Is_NoOp()
     {
         // OnError must not throw and must not change service state.

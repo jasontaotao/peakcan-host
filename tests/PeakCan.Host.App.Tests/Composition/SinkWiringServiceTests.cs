@@ -86,11 +86,12 @@ public class SinkWiringServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_Is_Idempotent_On_Second_Call()
+    public async Task StartAsync_Second_Call_Is_Safe_Via_AttachSink_Idempotency()
     {
-        // ChannelRouter.AttachSink is idempotent, so a second StartAsync
-        // must not throw. Verify by re-running the hosted service's
-        // StartAsync directly on the same instance.
+        // ChannelRouter.AttachSink is idempotent (Task 10), so a second
+        // StartAsync on the same hosted-service instance must not throw
+        // and must not double-attach the sinks. Verify by calling
+        // StartAsync directly twice on the same SinkWiringService.
         using var host = BuildHost();
         await host.StartAsync();
         var sws = host.Services.GetServices<IHostedService>()
