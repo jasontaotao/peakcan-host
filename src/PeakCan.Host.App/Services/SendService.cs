@@ -17,13 +17,14 @@ namespace PeakCan.Host.App.Services;
 /// a user-facing status string.
 /// </para>
 /// <para>
-/// <b>Thread-safety on <see cref="ActiveChannel"/>:</b> the setter is a
-/// plain field write and is NOT synchronized. In the MVP it is invoked
-/// on the UI thread by <c>AppShellViewModel.ConnectAsync</c> and read
-/// on the UI thread by the send command; the race is benign because
-/// both sides run on the dispatcher. If a future background thread
-/// needs to write this property, the host must marshal to the UI
-/// thread first (e.g. via <c>Dispatcher.Invoke</c>).
+/// <b>Thread-safety on <see cref="ActiveChannel"/>:</b> the backing
+/// field is mutated with <see cref="Interlocked.Exchange{T}(ref T, T)"/>
+/// and read with <see cref="Volatile.Read{T}(ref T)"/> so that the
+/// setter can be safely invoked from a background thread (e.g. a
+/// Task 17 statistics pump) without tearing or missing the latest
+/// value. Both sides still observe a coherent value, but ordering
+/// across the field + an external action (e.g. Set + Use) is the
+/// caller's responsibility.
 /// </para>
 /// </summary>
 public partial class SendService
@@ -35,18 +36,19 @@ public partial class SendService
     /// The channel the next <see cref="SendAsync"/> will target.
     /// <c>null</c> means "no channel connected" — the next send returns
     /// a failed <see cref="Result{T}"/> with <see cref="ErrorCode.InvalidState"/>
-    /// instead of throwing.
+    /// instead of throwing. Thread-safe via
+    /// <see cref="Interlocked.Exchange{T}(ref T, T)"/>.
     /// </summary>
     public ICanChannel? ActiveChannel
     {
-        get => _activeChannel;
+        get => Volatile.Read(ref _activeChannel);
         set
         {
-            if (ReferenceEquals(_activeChannel, value))
+            var prev = Interlocked.Exchange(ref _activeChannel, value);
+            if (ReferenceEquals(prev, value))
             {
                 return;
             }
-            _activeChannel = value;
             if (value is null)
             {
                 LogActiveChannelCleared(_logger);

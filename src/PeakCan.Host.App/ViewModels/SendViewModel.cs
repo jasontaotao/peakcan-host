@@ -56,6 +56,17 @@ public sealed partial class SendViewModel : ObservableObject
             LogInvalidId(_logger, IdText);
             return;
         }
+        // Pre-validate ID against the chosen frame format. CanId ctor
+        // throws ArgumentOutOfRangeException for out-of-range raw values;
+        // we surface a friendly status here instead of letting the
+        // SDK exception path handle it.
+        var maxId = IsExtended ? 0x1FFFFFFFu : 0x7FFu;
+        if (raw > maxId)
+        {
+            Status = $"ID 0x{raw:X} exceeds max for {(IsExtended ? "Extended (29-bit)" : "Standard (11-bit)")} (max 0x{maxId:X})";
+            LogInvalidId(_logger, IdText);
+            return;
+        }
         byte[] bytes;
         try
         {
@@ -64,7 +75,9 @@ public sealed partial class SendViewModel : ObservableObject
         catch (FormatException ex)
         {
             // Defensive: ParseHex only throws on a non-hex character that
-            // survived the strip-separator step. Treat it as a user input
+            // survived the strip-separator step, OR on an all-separator
+            // input that strips down to empty (footgun: user clicks Send
+            // after clearing the data field). Treat both as a user input
             // error, not a bug.
             Status = $"Invalid data: {ex.Message}";
             LogInvalidData(_logger, DataText, ex);
@@ -103,11 +116,18 @@ public sealed partial class SendViewModel : ObservableObject
     /// as separators (e.g. <c>"DE AD-BE EF"</c>) and pads odd-length input
     /// with a leading zero (e.g. <c>"ABC"</c> → <c>{0x0A, 0xBC}</c>).
     /// </summary>
-    /// <exception cref="FormatException">A non-hex character survived the separator strip.</exception>
+    /// <exception cref="FormatException">A non-hex character survived the separator strip, OR the input was empty / separators-only (no hex digits to parse).</exception>
     private static byte[] ParseHex(string s)
     {
         var stripped = s.Replace(" ", string.Empty, StringComparison.Ordinal)
                         .Replace("-", string.Empty, StringComparison.Ordinal);
+        if (stripped.Length == 0)
+        {
+            // Footgun guard: clicking Send with an empty Data field (or
+            // spaces/dashes only) previously produced a silent DLC=0
+            // transmission. Reject loudly so the user fixes the input.
+            throw new FormatException("Hex data is empty (only separators or no input).");
+        }
         if ((stripped.Length & 1) == 1)
         {
             stripped = "0" + stripped;

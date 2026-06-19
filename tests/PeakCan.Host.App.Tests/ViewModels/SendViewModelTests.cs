@@ -147,7 +147,7 @@ public class SendViewModelTests
         var vm = NewVm(fake);
         vm.IdText = "18FF1234";
         vm.IsExtended = true;
-        vm.DataText = string.Empty;
+        vm.DataText = "DEADBEEF";
 
         vm.SendCommand.Execute(null);
 
@@ -185,5 +185,88 @@ public class SendViewModelTests
 
         vm.Status.Should().Contain("FAIL");
         vm.Status.Should().Contain("USB unplugged");
+    }
+
+    [Fact]
+    public void SendCommand_With_All_Separator_Data_Sets_Invalid_Status_Without_Sending()
+    {
+        // MEDIUM-1 (review): all-separator input previously produced a
+        // silent DLC=0 transmission. ParseHex now rejects empty stripped
+        // input with FormatException, which the VM surfaces as a status.
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.DataText = "   ";
+
+        vm.SendCommand.Execute(null);
+
+        vm.Status.Should().Contain("Invalid data");
+        vm.Status.Should().Contain("empty");
+        fake.LastFrame.Should().BeNull("no frame should be sent on empty hex");
+    }
+
+    [Fact]
+    public void SendCommand_With_Standard_Id_Exceeding_11_Bits_Sets_Friendly_Status_Without_Sending()
+    {
+        // MEDIUM-2 (review): CanId ctor throws ArgumentOutOfRangeException
+        // for IDs > 0x7FF when IsExtended is false. The VM now pre-validates
+        // and surfaces a friendly status instead of letting the SDK path
+        // convert the throw into an opaque error message.
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IsExtended = false;
+        vm.IdText = "18FF1234"; // 29-bit value
+
+        vm.SendCommand.Execute(null);
+
+        vm.Status.Should().Contain("exceeds max");
+        vm.Status.Should().Contain("Standard");
+        fake.LastFrame.Should().BeNull();
+    }
+
+    [Fact]
+    public void SendCommand_With_Extended_Id_Accepts_29_Bit_Value()
+    {
+        // Counterpart to the Standard-id overflow test: an Extended frame
+        // accepts a 29-bit ID without pre-validation rejecting it.
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IsExtended = true;
+        vm.IdText = "18FF1234";
+
+        vm.SendCommand.Execute(null);
+
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Id.Raw.Should().Be(0x18FF1234u);
+        fake.LastFrame.Value.Id.IsExtended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SendCommand_With_Lowercase_Hex_Data_Parses_Correctly()
+    {
+        // byte.Parse with NumberStyles.HexNumber accepts both upper and
+        // lower case; pin the behavior so a future regex-based rewrite
+        // doesn't regress.
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.DataText = "deadbeef";
+
+        vm.SendCommand.Execute(null);
+
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Data.ToArray().Should().Equal(0xDE, 0xAD, 0xBE, 0xEF);
+    }
+
+    [Fact]
+    public void SendCommand_With_Leading_Trailing_Whitespace_Data_Parses_Correctly()
+    {
+        // " DEADBEEF " should strip spaces and parse as 4 bytes.
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.DataText = "  DEADBEEF  ";
+
+        vm.SendCommand.Execute(null);
+
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Data.ToArray().Should().Equal(0xDE, 0xAD, 0xBE, 0xEF);
     }
 }

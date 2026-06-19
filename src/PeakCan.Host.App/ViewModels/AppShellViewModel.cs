@@ -174,10 +174,17 @@ public sealed partial class AppShellViewModel : ObservableObject
             {
                 _activeChannel = channel;
                 _router.RegisterChannel(channel);
-                _sendService.ActiveChannel = channel;
+                // Set IsConnected=true BEFORE publishing the channel to
+                // SendService so that any binding observer sees "connected"
+                // and an available channel atomically — no window where
+                // Send can fire against a channel the UI still considers
+                // disconnected. [ObservableProperty] setters fire
+                // PropertyChanged in order; this ordering keeps the
+                // Send button's CanExecute (when wired) consistent.
                 IsConnected = true;
                 ConnectionState = "Connected to USB1 (CAN FD 1 Mbps)";
                 StatusMessage = "Connected";
+                _sendService.ActiveChannel = channel;
                 LogConnectOk(_logger, PcanUsbFdFirstHandle);
             }
             else
