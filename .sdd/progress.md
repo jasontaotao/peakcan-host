@@ -23,6 +23,7 @@ This ledger is the recovery map for subagent-driven development. Tasks listed he
 | 8  Infrastructure PeakError + Mapper | complete | `41cb0a1` feat + `bdaee18` fix(review) | 14/14 Infrastructure tests pass (PeakErrorMapperTests: 5 plan InlineData + 3 fact added OK msg / unknown hex / non-empty sweep + 6 review MEDIUM tests for IsOk Theory 4 cases / bitmasked composite / uint.MaxValue); build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (2 MEDIUM + 3 LOW) — MEDIUM 1 documented MVP limitation that bit-flag composites (PCAN_ERROR_INITIALIZE\|BUSOFF) fall through to Unknown, MEDIUM 2 added IsOk helper to remove the OK-trap; LOW applied: 2 boundary tests (composite + max uint); LOW deferred: return type `Error` record (no callers yet, defer to call site materialization), split HardwareBusy into Transient vs Reset (UI message text already distinguishes them) |
 | 9  ICanChannel + PeakCanChannel adapter | complete | `ae8240b` feat + `40ca9b0` fix(review) | 167/167 pass + 2 SKIP (integration) (137 Core + 30 Infrastructure PeakCanFrameFormatterTests: 11 DLC table + padding/truncate/empty variants); build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (3 MEDIUM + 7 LOW) — 5 SDK deviations from plan (no TPCANHandle, no TPCANTimestampFD, InitializeFD takes String, no FD_BRS combined, no TPCANMessageId flag consts) — all verified against actual `PCANBasic.NET.dll` v5.0.1.1131; MEDIUM 1 removed dead Channel<CanFrame> field, MEDIUM 2 read-loop backoff 1/10/50ms after consecutive failures, MEDIUM 3 BaudRate redesigned with ClassicCode field + FromDescriptor factory; LOW applied: single-use XML doc, best-effort teardown comment, Unit → own file, IFrameSource future-router note, 18 unit tests for PeakCanFrameFormatter helpers (Span.CopyTo → bounded Buffer.BlockCopy); LOW deferred: expose ReadLoopFaulted event (wait for ChannelRouter), ILogger integration (wait for WPF layer) |
 | 10 ChannelRouter fan-out | complete | `822c9c4` feat + `?` fix(review) | 178/178 pass + 2 SKIP (137 Core + 41 Infrastructure ChannelRouterTests: 6 plan tests + 4 null-arg + 1 OnError-throw → auto-detach; plan had 2 tests, implementation added 4 idempotency/isolation/forwarding tests, then 5 more for review fixes); build 0 warn 0 err; code-reviewer APPROVE_WITH_NOTES (3 MEDIUM + 3 LOW) — MEDIUM 1 OnError secondary throw now logged + auto-detaches sink (spec 6.2 compliance), MEDIUM 2 OCE excluded from catch so sink-shutdown propagates cleanly, MEDIUM 3 per-frame ToArray allocation deferred to follow-up (ImmutableArray or reused buffer); LOW applied: 5 new tests (4 null-arg + auto-detach), XML note on RegisterChannel explaining concrete-only; LOW deferred: per-frame allocation (per MEDIUM 3) |
+| 11 BusStatisticsCollector | complete | `0724993` feat | 53/53 pass + 2 SKIP (Infrastructure full suite; 12 new BusStatisticsCollectorTests: 6 plan tests rewritten + 6 added — empty snapshot / BPS / load saturation / load linearity / error-only / window-slide / OnError no-op / concurrent producers / default-struct / record equality). Coverage on `BusStatisticsCollector.cs`: 100% line / 91.66% branch; build 0 warn 0 err; pending reviewer |
 
 ## Resume Guide (next session)
 
@@ -36,6 +37,7 @@ To continue:
    - **Serial from Task 12**: App layer (multiple files share AppShell.xaml).
 4. Per the SDD skill, dispatch a fresh subagent per task, then a task-reviewer subagent; mark each complete + append to this ledger only after the review verdict is clean.
 5. Plan §17 must use OxyPlot.Wpf, not LiveChartsCore (deviation). StatsViewModel/StatsView code blocks reference `LiveChartsCore` types — rewrite using `OxyPlot.PlotModel` + `LineSeries` before implementing Task 17.
+6. **Next: Task 12 AppShell + Connect UI** (`src/PeakCan.Host.App/`, multiple files share `AppShell.xaml` — serial, not parallel).
 
 ## Session boundary
 
@@ -49,7 +51,7 @@ Last session reached the implementer-parallel decision and ran Task 1 manually (
 | 8  PeakError + Mapper | complete | `41cb0a1` + `?` | 14/14 tests pass |
 | 9  ICanChannel        | complete | `?` + `?` | 167/167 + 2 SKIP; 18 new unit tests for PeakCanFrameFormatter |
 | 10 ChannelRouter      | complete | `822c9c4` + `?` | 178/178 + 2 SKIP; 11 ChannelRouter tests |
-| 11 BusStatisticsCollector | pending | — | — |
+| 11 BusStatisticsCollector | complete | `0724993` | 12/12 tests pass; 100% line coverage; 0 warn 0 err build |
 | 12 AppShell + Connect UI | pending | — | — |
 | 13 Trace              | pending | — | — |
 | 14 Send               | pending | — | — |
