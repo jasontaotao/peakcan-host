@@ -6,8 +6,8 @@ PeakCan-Host WPF app.
 ## Files
 
 - `PeakCan.Host.exe` — single-file self-contained Windows binary
-  (~66 MB compressed). The .NET 10 runtime is embedded; no separate
-  runtime install is required.
+  (~64 MB compressed, v0.2.0; was ~66 MB at v0.1.0). The .NET 10
+  runtime is embedded; no separate runtime install is required.
 - `PeakCan.Host.pdb` — debug symbols (sourcelink + portable PDB)
   for crash analysis. Not needed at runtime.
 - `PeakCan.Host.Core.pdb` / `PeakCan.Host.Infrastructure.pdb` —
@@ -33,9 +33,10 @@ artifacts/win-x64/PeakCan.Host.exe
 ```
 
 Expected: a 1280×720 WPF window appears with a menu (File / View),
-a toolbar (channel list + Probe / Connect buttons), and an empty
-Trace view. The status bar reads "Ready". Without a PEAK device
-plugged in, clicking **Probe** displays "No PEAK hardware detected".
+a toolbar (channel list + Probe / Connect / **Disconnect** buttons),
+and an empty Trace view. The status bar reads "Ready". Without a
+PEAK device plugged in, clicking **Probe** displays "No PEAK
+hardware detected".
 
 ## Hardware smoke
 
@@ -48,12 +49,18 @@ With a PEAK PCAN-USB FD connected and the PEAK driver installed
 4. **View ▸ Signals** → decoded values appear as frames arrive.
 5. **View ▸ Stats** → 1 Hz OxyPlot chart updates.
 6. **View ▸ Send** → enter ID + data, click **Send** → frame on bus.
+7. **Disconnect** (v0.2.0+) → releases the hardware; toolbar reverts
+   to the Disconnected state without exiting the app.
 
-## Known limitations (MVP v0.1.0)
+## Known limitations (v0.2.0)
 
 - Single hardcoded channel (PCAN-USB FD first handle `0x51`).
   Multi-channel enumeration is v1.1.
 - No recording / playback (v1.1 ASC / CSV export).
-- No frame filters (v1.1).
-- No cyclic transmission (v1.1).
+- No frame filters (v0.3.x).
+- No cyclic transmission (v0.3.x).
 - Multiplexor / multiplexed signals are not decoded (v1.1).
+- DBC decode runs on a dedicated background worker (v0.2.0+)
+  but signal decode is still single-threaded; the Decode fan-out
+  bottleneck is bounded-channel `DropOldest` so overruns drop old
+  frames silently (visible in the trace view).
