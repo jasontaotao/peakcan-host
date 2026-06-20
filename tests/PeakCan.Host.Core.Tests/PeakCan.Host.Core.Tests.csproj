@@ -38,4 +38,10 @@
     <ProjectReference Include="..\..\src\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="E51_PT_CAN-BMS.dbc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

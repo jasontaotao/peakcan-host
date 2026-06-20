@@ -186,7 +186,10 @@ public class DbcParserTests
     [Fact]
     public void Skips_Unknown_Keywords_Until_Semicolon()
     {
-        // NS_, BS_, CM_, EV_, BA_DEF_, BA_, SIG_GROUP_ should be skipped, not crash.
+        // Top-level CM_/EV_/BA_DEF_/BA_/SIG_GROUP_ statements should be
+        // skipped-to-semicolon, not crash. NS_ block here uses a
+        // minimal-list shape (NS_DESC_ + CM_) — the VAL_/VAL_TABLE_-in-NS_
+        // regression is covered by a separate, more targeted test.
         var src = """
         VERSION "1.0";
         NS_ :
@@ -215,6 +218,109 @@ public class DbcParserTests
         r.Value.Nodes.Should().HaveCount(1);
         r.Value.MessagesById.Should().ContainKey(100u);
     }
+
+    [Fact]
+    public void Ns_Block_With_Val_And_ValTable_Declarations_Does_Not_Early_Exit()
+    {
+        // Regression: a Vector-generated NS_ block lists per-symbol keywords
+        // (CM_, BA_DEF_, BA_, VAL_, CAT_DEF_, CAT_, FILTER, BA_DEF_DEF_,
+        // EV_DATA_, ENVVAR_DATA_, SGTYPE_, SGTYPE_VAL_, BA_DEF_SGTYPE_,
+        // BA_SGTYPE_, SIG_TYPE_REF_, VAL_TABLE_, SIG_GROUP_, SIG_VALTYPE_,
+        // SIGTYPE_VALTYPE_, BO_TX_BU_, BA_DEF_REL_, BA_REL_,
+        // BA_DEF_DEF_REL_, BU_SG_REL_, BU_EV_REL_) as "new symbol"
+        // declarations. The previous IsStructuralKeyword set wrongly treated
+        // VAL_/VAL_TABLE_ as section terminators, so the parser exited the
+        // NS_ block at the VAL_ entry and tried to ParseValForSignal on the
+        // next identifier (e.g. CAT_DEF_), failing with
+        // "VAL_: unknown message 'CAT_DEF_'".
+        var src = """
+        VERSION "1.0";
+        NS_ :
+            NS_DESC_
+            CM_
+            BA_DEF_
+            BA_
+            VAL_
+            CAT_DEF_
+            CAT_
+            FILTER
+            BA_DEF_DEF_
+            EV_DATA_
+            ENVVAR_DATA_
+            SGTYPE_
+            SGTYPE_VAL_
+            BA_DEF_SGTYPE_
+            BA_SGTYPE_
+            SIG_TYPE_REF_
+            VAL_TABLE_
+            SIG_GROUP_
+            SIG_VALTYPE_
+            SIGTYPE_VALTYPE_
+            BO_TX_BU_
+            BA_DEF_REL_
+            BA_REL_
+            BA_DEF_DEF_REL_
+            BU_SG_REL_
+            BU_EV_REL_
+        BS_:
+        BU_: ECU
+        BO_ 100 M1: 8 ECU
+         SG_ S : 0|8@1+ (1,0) [0|255] "" ECU
+        """;
+        var r = DbcParser.Parse(src);
+        if (!r.IsSuccess) throw new Xunit.Sdk.XunitException($"Parse failed: {r.Error!.Code} {r.Error.Message}");
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.MessagesById.Should().ContainKey(100u);
+        r.Value.MessagesById[100u].Signals.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Val_Block_After_Val_Declaration_In_Ns_Block_Still_Parses()
+    {
+        // After the fix, a genuine VAL_ block following an NS_ block that
+        // declared VAL_ as a new symbol must still parse correctly.
+        // VAL_ inline form is:  VAL_ <msgId> <signalName> <int> "<text>" ... ;
+        // (the message-id-by-name form takes only one identifier; the
+        // signal name comes *after* it, not as a second identifier).
+        var src = """
+        BU_: ECU
+        NS_ :
+            VAL_
+        BS_:
+        BO_ 100 M1: 8 ECU
+         SG_ S : 0|8@1+ (1,0) [0|1] "" ECU
+        VAL_ 100 S 0 "Off" 1 "On" ;
+        """;
+        var r = DbcParser.Parse(src);
+        if (!r.IsSuccess) throw new Xunit.Sdk.XunitException($"Parse failed: {r.Error!.Code} {r.Error.Message}");
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.MessagesById[100u].Signals[0].ValueTableName.Should().Be("S");
+    }
+
+    [Fact]
+    public void NonEmpty_Bs_Block_With_Next_Node_Does_Not_Crash()
+    {
+        // BS_ blocks are typically empty (BS_:) but the parser must not
+        // crash if a file happens to put content between BS_ and the next
+        // real top-level block. Per the parser's MVP scope, the BS_ body
+        // is ignored — this test only guards that the drain loop terminates
+        // cleanly and BU_ nodes after BS_ still parse.
+        var src = """
+        VERSION "1.0";
+        BS_:
+        BU_: ECU1 ECU2
+        BO_ 100 M: 8 ECU1
+         SG_ S : 0|8@1+ (1,0) [0|255] "" ECU1
+        """;
+        var r = DbcParser.Parse(src);
+        if (!r.IsSuccess) throw new Xunit.Sdk.XunitException($"Parse failed: {r.Error!.Code} {r.Error.Message}");
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.Nodes.Select(n => n.Name).Should().Contain(ExpectedBusNodes);
+        r.Value.MessagesById.Should().ContainKey(100u);
+    }
+
+    // CA1861: avoid allocating the same array on every call.
+    private static readonly string[] ExpectedBusNodes = { "ECU1", "ECU2" };
 
     [Fact]
     public void Fails_On_Duplicate_Message()

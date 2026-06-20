@@ -140,15 +140,22 @@ public static class DbcParser
 
                     case TokenType.Keyword_NS_:
                     case TokenType.Keyword_BS_:
-                        // NS_ / BS_ blocks list "new symbol" definitions — each line is
-                        // either an Identifier or one of the per-symbol keywords
-                        // (NS_DESC_, CM_, BA_DEF_, BA_, SIG_GROUP_, EV_). The block ends at
-                        // the next structural keyword (VERSION, BU_, BO_, VAL_, VAL_TABLE_)
-                        // or a semicolon. Tokenizer already flattens whitespace, so we just
-                        // drain until a structural token appears.
+                        // NS_ block lists "new symbol" definitions — each entry is either
+                        // an Identifier (e.g. CAT_DEF_, FILTER) or one of the per-symbol
+                        // keywords (NS_DESC_, CM_, BA_DEF_, BA_, VAL_, VAL_TABLE_,
+                        // SIG_GROUP_, EV_). These keyword-like tokens are *declarations*
+                        // inside the NS_ block, NOT new section starts. The block ends at
+                        // the next real top-level block (VERSION / BS_ / BU_ / BO_) or ';' / EOF.
+                        //
+                        // Regression: a previous version treated VAL_ and VAL_TABLE_ as
+                        // section terminators, which caused any DBC whose NS_ block listed
+                        // those tokens to fail with "VAL_: unknown message '<next-token>'"
+                        // because the parser leaked out of NS_ and into ParseValForSignal.
+                        // First observed in production on a Vector-generated BMS DBC
+                        // (E51_PT_CAN-BMS.dbc, June 2026).
                         Consume();
                         if (Current.Type == TokenType.Colon) Consume();
-                        while (!IsStructuralKeyword(Current.Type) && Current.Type != TokenType.Semicolon && Current.Type != TokenType.Eof)
+                        while (!IsTopLevelBlockStart(Current.Type) && Current.Type != TokenType.Semicolon && Current.Type != TokenType.Eof)
                         {
                             Consume();
                         }
@@ -617,11 +624,14 @@ public static class DbcParser
             }
         }
 
-        private static bool IsStructuralKeyword(TokenType t) =>
+        // True for keywords that *begin* a new top-level DBC block. Does NOT
+        // include per-symbol keywords (NS_DESC_, CM_, BA_DEF_, BA_, VAL_,
+        // VAL_TABLE_, SIG_GROUP_, EV_) because those can legally appear as
+        // entries inside an NS_ "new symbols" block. See NS_/BS_ case above.
+        private static bool IsTopLevelBlockStart(TokenType t) =>
             t == TokenType.Keyword_VERSION
+            || t == TokenType.Keyword_BS_
             || t == TokenType.Keyword_BU_
-            || t == TokenType.Keyword_BO_
-            || t == TokenType.Keyword_VAL_
-            || t == TokenType.Keyword_VAL_TABLE_;
+            || t == TokenType.Keyword_BO_;
     }
 }
