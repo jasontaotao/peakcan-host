@@ -86,41 +86,19 @@ public sealed class SignalViewModel : ObservableObject
         }
         if (pending.Count == 0) return;
 
-        // Production path: marshal to the WPF UI thread so the
-        // ObservableCollection<SignalEntry> mutation fires
-        // CollectionChanged on the thread the ItemsControl binding
-        // is bound to. WPF throws NotSupportedException on cross-thread
-        // SourceCollection mutation when an active visual tree is
-        // attached (Task 15 review pattern).
+        // Marshal to the WPF UI thread so the ObservableCollection
+        // mutation fires CollectionChanged on the thread the ItemsControl
+        // binding is bound to. WPF throws NotSupportedException on
+        // cross-thread SourceCollection mutation when an active visual
+        // tree is attached (Task 15 review pattern).
         //
-        // Test path: when no Application.Current is alive (the common
-        // xunit case) the dispatcher is null and the inline fallback
-        // runs the upsert synchronously so the test can read
-        // Latest.Count immediately.
-        //
-        // Edge case: if a previous test class (TraceViewModelTests)
-        // created an Application singleton that did not get fully
-        // torn down, Application.Current may be non-null but its
-        // dispatcher is on a different (now-exited) STA thread.
-        // Queuing to that dispatcher would never complete. Detect
-        // this by comparing the calling thread's Dispatcher to
-        // Application.Current.Dispatcher; if they differ, the calling
-        // thread is in a different dispatcher (xunit's test pool) and
-        // the queued work would never run — fall back to inline.
-        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
-        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
-        {
-            // Genuine production cross-thread call: SDK read thread
-            // → UI thread. Fire and forget via InvokeAsync so the
-            // SDK thread is not blocked at ~8 kfps.
-            appDispatcher.InvokeAsync(() => ApplyEntries(pending));
-            return;
-        }
-        // Inline path: either no Application, or test-context with a
-        // leaked Application on a different dispatcher, or already on
-        // the UI thread. Tests observe the post-state here.
-        ApplyEntries(pending);
+        // The previous Task 19 guard (`appDispatcher == callingDispatcher`)
+        // was inverted and silently skipped the hop in production; the
+        // chokepoint is now DispatcherExtensions.RunOnUi which always
+        // hops for a live, different dispatcher. Use the fire-and-forget
+        // variant here because the SDK read thread pumps at ~8 kfps and
+        // must not block on UI work.
+        ((Action)(() => ApplyEntries(pending))).RunOnUiPost();
     }
 
     /// <summary>

@@ -88,43 +88,33 @@ public sealed partial class DbcViewModel : ObservableObject
         // ObservableCollection<T>.CollectionChanged must fire on the UI
         // dispatcher when the collection is bound to an ItemsControl
         // (DataGrid, ListBox, etc.) — cross-thread mutation throws
-        // NotSupportedException. Marshal before mutating Messages.
-        // Task 19: detect the "leaked Application on a different
-        // dispatcher" test-context case (the calling thread's
-        // dispatcher differs from Application.Current.Dispatcher)
-        // and fall back to inline so the test observes the post-state.
-        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
-        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
+        // NotSupportedException ("This type of CollectionView does not
+        // support changes to its SourceCollection from a thread different
+        // from the Dispatcher thread"). The marshal chokepoint lives in
+        // DispatcherExtensions.RunOnUi; the previous Task 19 guard
+        // (`appDispatcher == callingDispatcher`) was inverted and silently
+        // skipped the hop in production. See
+        // DispatcherExtensions.cs class doc-comment for the regression.
+        ((Action)(() =>
         {
-            appDispatcher.Invoke(() => OnLoaded(doc));
-            return;
-        }
-        Messages.Clear();
-        foreach (var m in doc.Messages)
-        {
-            Messages.Add(DbcMessageViewModel.From(m));
-        }
-        // Task 16: clear the decoded-signal table so stale entries from
-        // a previous parse do not linger against a new DBC load.
-        _signals.Reset();
-        var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
-        Status = $"Loaded {doc.Messages.Count} messages from {fileName}";
+            Messages.Clear();
+            foreach (var m in doc.Messages)
+            {
+                Messages.Add(DbcMessageViewModel.From(m));
+            }
+            // Task 16: clear the decoded-signal table so stale entries
+            // from a previous parse do not linger against a new DBC load.
+            _signals.Reset();
+            var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
+            Status = $"Loaded {doc.Messages.Count} messages from {fileName}";
+        })).RunOnUi();
     }
 
     private void OnLoadFailed(PeakCan.Host.Core.Error error)
     {
-        // Same dispatcher marshaling rationale as OnLoaded. PropertyChanged
-        // is benign cross-thread (just fires the event), but Status is bound
-        // to the UI and we marshal for consistency.
-        var appDispatcher = System.Windows.Application.Current?.Dispatcher;
-        var callingDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        if (appDispatcher is not null && appDispatcher == callingDispatcher && !callingDispatcher.CheckAccess())
-        {
-            appDispatcher.Invoke(() => OnLoadFailed(error));
-            return;
-        }
-        Status = $"FAIL: {error.Code} {error.Message}";
+        // Same dispatcher marshaling rationale as OnLoaded. Status is
+        // bound to the UI; marshal via the same chokepoint.
+        ((Action)(() => Status = $"FAIL: {error.Code} {error.Message}")).RunOnUi();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "DBC Open invoked for {Path}")]
