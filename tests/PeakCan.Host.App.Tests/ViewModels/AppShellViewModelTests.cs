@@ -453,4 +453,97 @@ public class AppShellViewModelTests
         vm.IsConnected.Should().BeFalse();
         factory.LastCreated!.IsConnected.Should().BeFalse();
     }
+
+    /// <summary>
+    /// Test double whose <see cref="DisconnectAsync"/> throws so the
+    /// <c>catch</c> block of <c>AppShellViewModel.DisconnectAsync</c>
+    /// runs. Used to verify the catch path correctly resets every piece
+    /// of state the success path resets.
+    /// </summary>
+    private sealed class ThrowingFakeCanChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+#pragma warning restore CS0067
+        public ThrowingFakeCanChannel(ChannelId id) { Id = id; }
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        {
+            IsConnected = true;
+            return Task.FromResult(Result<Unit>.Ok(default));
+        }
+        public Task DisconnectAsync(CancellationToken ct = default)
+            => throw new InvalidOperationException("simulated hardware fault during disconnect");
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ThrowingChannelFactory : Core.IChannelFactory
+    {
+        public ThrowingFakeCanChannel? LastCreated { get; private set; }
+        public ICanChannel Create(ChannelId id)
+        {
+            LastCreated = new ThrowingFakeCanChannel(id);
+            return LastCreated;
+        }
+    }
+
+    /// <summary>
+    /// ChannelRouter is <c>sealed</c> with non-virtual public methods, so
+    /// we cannot subclass it. To verify the catch path calls
+    /// <c>UnregisterChannel</c>, read the private <c>_channels</c> list
+    /// via reflection: after disconnect-throws the list must be empty.
+    /// </summary>
+    private static int GetRegisteredChannelCount(ChannelRouter router)
+    {
+        var field = typeof(ChannelRouter).GetField(
+            "_channels",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?? throw new InvalidOperationException("ChannelRouter._channels field not found — has the field name changed?");
+        var list = (System.Collections.IList)field.GetValue(router)!;
+        return list.Count;
+    }
+
+    [Fact]
+    public async Task DisconnectCommand_When_Channel_Throws_Still_Resets_IsConnected_Router_And_SendService()
+    {
+        // ARRANGE: VM with a real ChannelRouter and a factory whose channel
+        // throws on Disconnect. After a successful Connect, every piece
+        // of state is populated (IsConnected=true, router has 1 channel,
+        // SendService.ActiveChannel set).
+        var router = new ChannelRouter();
+        var sendSvc = new SendService(NullLogger<SendService>.Instance);
+        var factory = new ThrowingChannelFactory();
+        var vm = new AppShellViewModel(
+            router,
+            NullLogger<AppShellViewModel>.Instance,
+            new TraceViewModel(),
+            sendSvc,
+            new FakeChannelProbe(),
+            factory,
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(sendSvc, NullLogger<SendViewModel>.Instance),
+            new SignalViewModel(),
+            new StatsViewModel());
+        vm.ChannelList = "USB1 (1 Mbps default)";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue("preconditions for the test");
+        GetRegisteredChannelCount(router).Should().Be(1, "Connect registers the channel");
+        sendSvc.ActiveChannel.Should().NotBeNull("Connect publishes the channel");
+
+        // ACT: Disconnect throws inside the channel's DisconnectAsync.
+        var act = async () => await vm.DisconnectCommand.ExecuteAsync(null);
+
+        // ASSERT: the exception is swallowed (the user sees a status
+        // message, not a crash), AND every piece of state the success
+        // path would have reset is reset in the catch block too.
+        await act.Should().NotThrowAsync("DisconnectCommand must surface hardware faults as a status message, not propagate to the caller");
+        vm.IsConnected.Should().BeFalse("the catch block must reset IsConnected, otherwise the Disconnect button stays enabled against a dead channel");
+        GetRegisteredChannelCount(router).Should().Be(0, "the catch block must call _router.UnregisterChannel(_activeChannel) so frames stop being routed to a dead channel");
+        sendSvc.ActiveChannel.Should().BeNull("the catch block must clear SendService.ActiveChannel, otherwise the next manual Send targets a dead channel");
+    }
 }

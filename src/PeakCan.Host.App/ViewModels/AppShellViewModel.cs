@@ -320,6 +320,15 @@ public sealed partial class AppShellViewModel : ObservableObject
             // DisconnectAsync swallows hardware failures per its own contract;
             // any exception here is therefore unexpected. Surface it as a
             // status message so the operator is not stuck in "Disconnecting".
+            // Reset every piece of state the success path resets: leaving
+            // IsConnected=true keeps the Disconnect button enabled against a
+            // dead channel; leaving the channel on the router keeps frames
+            // being routed to it; leaving SendService.ActiveChannel set
+            // targets the next manual send at a dead channel. Mirrors lines
+            // 310-313 (the success path) exactly so the two paths converge.
+            IsConnected = false;
+            _router.UnregisterChannel(_activeChannel);
+            _sendService.ActiveChannel = null;
             ConnectionState = "Disconnected";
             StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
             LogDisconnectThrew(_logger, PcanUsbFdFirstHandle, ex);
