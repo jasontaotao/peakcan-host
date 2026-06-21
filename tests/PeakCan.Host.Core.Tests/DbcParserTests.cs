@@ -618,6 +618,29 @@ public class DbcParserTests
     }
 
     [Fact]
+    public void MultiplexorSignalIndex_Is_Null_When_No_Signal_Is_Marked_Multiplexor()
+    {
+        // A DBC with multiplexed signals (m0, m1, ...) but no
+        // multiplexor (M) is malformed — but the parser must still
+        // accept the file and surface a null MultiplexorSignalIndex
+        // rather than wrap FindIndex's -1 to ushort 65535. The previous
+        // (ushort?)signals.FindIndex(...) produced 65535, which
+        // downstream decoder dispatch treated as a valid index and
+        // threw ArgumentOutOfRangeException on Messages[65535].
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 8 ECU
+         SG_ S0 m0 : 0|8@1+ (1,0) [0|255] "" ECU
+        """;
+        var r = DbcParser.Parse(src);
+        if (!r.IsSuccess) throw new Xunit.Sdk.XunitException($"Parse failed: {r.Error!.Code} {r.Error.Message}");
+        var msg = r.Value!.Messages[0];
+        msg.IsMultiplexed.Should().BeTrue("the m0 marker sets IsMultiplexed");
+        msg.MultiplexorSignalIndex.Should().BeNull(
+            "no M signal exists; MultiplexorSignalIndex must be null, not 65535 (the FindIndex(-1) wrap-around)");
+    }
+
+    [Fact]
     public void Fails_On_Signal_Factor_Malformed_Bare_Sign()
     {
         // "-" alone throws FormatException via double.Parse — must hit catch.

@@ -238,9 +238,21 @@ public static class DbcParser
 
             // After collecting all signals, fix up IsMultiplexed on the message.
             // A message is multiplexed if any signal has IsMultiplexed set; the
-            // multiplexor is the one signal flagged IsMultiplexor.
+            // multiplexor is the one signal flagged IsMultiplexor. The FindIndex
+            // call must guard against the malformed-DBC case where some signal
+            // carries the m0..m15 marker but no signal carries the M marker:
+            // FindIndex returns -1, and casting -1 to ushort silently produces
+            // 65535, which then triggers ArgumentOutOfRangeException in any
+            // downstream dispatch that uses the index to index into the
+            // signals list. Use a pattern match and only set muxIdx when the
+            // multiplexor was actually found.
             bool isMuxed = signals.Any(s => s.IsMultiplexed);
-            ushort? muxIdx = isMuxed ? (ushort?)signals.FindIndex(s => s.IsMultiplexor) : null;
+            ushort? muxIdx = null;
+            if (isMuxed)
+            {
+                int idx = signals.FindIndex(s => s.IsMultiplexor);
+                if (idx >= 0) muxIdx = (ushort)idx;
+            }
             return Result<Message>.Ok(new Message(id, nameTok.Lexeme, dlc, sender, signals, isMuxed, muxIdx));
         }
 
