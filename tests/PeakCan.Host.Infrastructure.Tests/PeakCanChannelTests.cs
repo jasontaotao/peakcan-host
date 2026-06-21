@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Peak;
 using Xunit;
@@ -66,5 +67,57 @@ public class PeakCanChannelTests
     {
         var ch = new PeakCanChannel(new ChannelId(0x51));
         ch.IsConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Constructor_Accepts_Optional_Logger_For_Read_Loop_Logging()
+    {
+        // H7 + H8: PeakCanChannel used to silently swallow every
+        // exception from the SDK read path. The fix routes them through
+        // an ILogger<PeakCanChannel> so bus-off / driver-unload events
+        // are visible in production. The constructor keeps an optional
+        // logger parameter (defaulting to NullLogger) so test code that
+        // news up the channel directly stays simple.
+        var logger = new TestLogger<PeakCanChannel>();
+        var ch = new PeakCanChannel(new ChannelId(0x51), logger);
+        ch.Should().NotBeNull();
+        // Smoke check: the channel must expose a public Id and stay
+        // unconnected — proves the ctor ran without throwing under the
+        // new logger-injection path.
+        ch.Id.Handle.Should().Be((ushort)0x51);
+        ch.IsConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MaxConsecutiveReadFailures_Is_Exposed_And_Reasonable()
+    {
+        // The read loop now gives up after this many consecutive
+        // failures (instead of busy-spinning forever on a dead bus).
+        // Assert the constant exists and is a sensible bound: large
+        // enough to absorb short transient glitches, small enough to
+        // not paper over a real hardware failure.
+        PeakCan.Host.Infrastructure.Peak.PeakCanChannel.MaxConsecutiveReadFailures
+            .Should().BeGreaterThan(10, "must allow transient glitches to recover");
+        PeakCan.Host.Infrastructure.Peak.PeakCanChannel.MaxConsecutiveReadFailures
+            .Should().BeLessThan(10_000, "must not busy-spin forever on a dead bus");
+    }
+
+    /// <summary>
+    /// Minimal ILogger that records every log call. Used to verify the
+    /// PeakCanChannel ctor accepts an ILogger without throwing and that
+    /// the field is wired (we cannot exercise the read loop without
+    /// hardware). Records are exposed for future tests that may want
+    /// to assert the channel logged a read-loop exception.
+    /// </summary>
+    private sealed class TestLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+    {
+        public System.Collections.Generic.List<(LogLevel Level, string Message)> Entries { get; } = new();
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 }

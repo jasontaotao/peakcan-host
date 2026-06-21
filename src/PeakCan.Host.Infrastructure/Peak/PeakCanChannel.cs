@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
@@ -29,11 +31,15 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// </para>
 /// <para>
 /// <b>Read loop fault handling:</b> any exception thrown from the SDK read
-/// calls is swallowed (with an exponential backoff of 1ms / 10ms / 50ms
-/// after each consecutive failure) to prevent a hot loop. Persistent
-/// failures will manifest as "the bus is quiet" — there is currently no
-/// logging path. Follow-up work: surface via <c>IFrameSink.OnError</c> once
-/// the channel router is wired in.
+/// calls is caught, logged at error level, and the loop backs off
+/// (1ms / 10ms / 50ms per consecutive failure) to prevent a hot loop.
+/// If <see cref="MaxConsecutiveReadFailures"/> consecutive failures
+/// accumulate, the read loop gives up rather than busy-spinning on a
+/// dead bus; the channel remains connected from the SDK's perspective
+/// but no frames will be delivered. The classic and FD read blocks each
+/// have their own try/catch so a subscriber that throws on
+/// <see cref="FrameReceived"/> for a classic frame cannot skip the FD
+/// read in the same iteration.
 /// </para>
 /// <para>
 /// <b>Classic baud dispatch:</b> <see cref="BaudRate"/> in Core
@@ -44,23 +50,37 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// <c>PCAN_BAUD_*</c> enum via <see cref="ResolveClassicCode"/>.
 /// </para>
 /// </summary>
-public sealed class PeakCanChannel : ICanChannel
+public sealed partial class PeakCanChannel : ICanChannel
 {
     // Backoff schedule after consecutive read-loop failures. Resets to 0
     // whenever a read returns a non-error status (success or "queue empty").
     private static readonly int[] ReadLoopBackoffMs = { 1, 10, 50 };
 
+    /// <summary>
+    /// After this many consecutive read-loop failures, the loop gives up
+    /// rather than busy-spinning on a dead bus / unloaded driver. The
+    /// channel stays in the connected state from the SDK's perspective
+    /// (so a future manual disconnect still works), but no frames will
+    /// be delivered until the user calls Disconnect + Connect again.
+    /// </summary>
+    internal const int MaxConsecutiveReadFailures = 100;
+
     private readonly ushort _handle;
     private readonly ChannelConnectGate _gate = new();
+    private readonly ILogger<PeakCanChannel> _logger;
 
     public ChannelId Id { get; }
     public bool IsConnected => _gate.IsConnected;
     public event Action<CanFrame>? FrameReceived;
 
-    public PeakCanChannel(ChannelId id)
+    public PeakCanChannel(ChannelId id, ILogger<PeakCanChannel>? logger = null)
     {
         Id = id;
         _handle = id.Handle;
+        // NullLogger keeps test paths that new up the channel directly
+        // (no DI) free of logger plumbing while still letting production
+        // capture read-loop failures via the registered ILogger.
+        _logger = (ILogger<PeakCanChannel>?)logger ?? NullLogger<PeakCanChannel>.Instance;
     }
 
     public async Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
@@ -184,30 +204,51 @@ public sealed class PeakCanChannel : ICanChannel
         int consecutiveFailures = 0;
         while (!ct.IsCancellationRequested)
         {
+            // Classic and FD reads each get their own try/catch. Previously
+            // they shared one try, so an exception thrown from a FrameReceived
+            // subscriber for a classic frame (e.g. a buggy decoder) would
+            // skip the FD read in the same iteration, silently dropping FD
+            // traffic until the next loop turn. This matches the per-sink
+            // isolation pattern in ChannelRouter.
+            bool gotAnyFrame = false;
             try
             {
-                bool gotAnyFrame = false;
                 while (PCANBasic.Read(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitClassic(msg, ts);
                     gotAnyFrame = true;
                 }
+            }
+            catch (Exception ex)
+            {
+                LogReadLoopException(_logger, Id.Handle, "classic", ex);
+                if (consecutiveFailures < int.MaxValue) consecutiveFailures++;
+            }
+            try
+            {
                 while (PCANBasic.ReadFD(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitFd(fdMsg, tsMicroseconds);
                     gotAnyFrame = true;
                 }
-                if (gotAnyFrame) consecutiveFailures = 0;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // See class XML doc for rationale. Bump the backoff index
-                // and continue — the next successful read will reset it.
-                if (consecutiveFailures < ReadLoopBackoffMs.Length)
-                {
-                    consecutiveFailures++;
-                }
+                LogReadLoopException(_logger, Id.Handle, "FD", ex);
+                if (consecutiveFailures < int.MaxValue) consecutiveFailures++;
             }
+            if (gotAnyFrame) consecutiveFailures = 0;
+
+            if (consecutiveFailures >= MaxConsecutiveReadFailures)
+            {
+                // Don't busy-spin on a dead bus. Surface a single fatal
+                // log and exit the loop; the channel stays "connected"
+                // from the SDK's perspective so a manual disconnect
+                // (and a fresh Connect) can recover.
+                LogReadLoopGivingUp(_logger, Id.Handle, consecutiveFailures);
+                return;
+            }
+
             var delay = consecutiveFailures == 0
                 ? 1
                 : ReadLoopBackoffMs[Math.Min(consecutiveFailures - 1, ReadLoopBackoffMs.Length - 1)];
@@ -215,6 +256,12 @@ public sealed class PeakCanChannel : ICanChannel
             catch (OperationCanceledException) { return; }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Read loop threw on handle 0x{Handle:X2} ({Kind} read)")]
+    private static partial void LogReadLoopException(ILogger logger, ushort handle, string kind, Exception error);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Read loop giving up on handle 0x{Handle:X2} after {Failures} consecutive failures — bus appears dead, call Disconnect+Connect to recover")]
+    private static partial void LogReadLoopGivingUp(ILogger logger, ushort handle, int failures);
 
     private void EmitClassic(TPCANMsg m, TPCANTimestamp ts)
     {
