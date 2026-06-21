@@ -4,10 +4,12 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.2.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.2.1 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
-> for the v0.2.0 defect-fix plan. 305 unit tests pass (137 Core + 96 App
-> + 72 Infrastructure); 5 architecture rules enforced via NetArchTest;
+> for the previous v0.2.0 defect-fix plan, plus
+> [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
+> review triage. 334 unit tests pass (153 Core + 107 App
+> + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
 ## Features (MVP)
@@ -60,6 +62,41 @@ Six design defects closed, all with unit-test coverage:
   rule 2: Core must not depend on `Peak.Can.Basic`). `BaudRate`'s
   `TPCANBaudrate?` field was retired and replaced by a
   `PeakCanChannel.ResolveClassicCode` adapter switch.
+
+## v0.2.1 (HIGH-bug review triage)
+
+Seven HIGH-severity bugs found by a 71-file multi-agent code review,
+all closed with regression tests. See
+[Release Notes v0.2.1](docs/release-notes-v0.2.1.md) for the per-bug
+writeup. Summary:
+
+- **`AppShellViewModel.DisconnectAsync` catch path** (H1) — if
+  `DisconnectAsync` throws, the user was stuck: `IsConnected` stayed
+  true (Disconnect button re-enabled), `ChannelRouter` still routed
+  frames to the dead channel, and `SendService.ActiveChannel` still
+  pointed at it. Catch path now resets all three in the same order
+  as the success path.
+- **CAN FD `StartBit` byte overflow** (H2 + H3) — `Signal.StartBit`
+  was `byte` (max 255) and the decoders used `(byte)(start + i)`,
+  silently truncating any CAN FD Motorola signal that starts past
+  byte 31. Widened to `ushort` and replaced byte arithmetic with
+  int throughout the decoders.
+- **Multiplexor `FindIndex(-1) → ushort 65535` wrap-around** (H4) —
+  a malformed DBC with multiplexed signals but no multiplexor
+  produced `MultiplexorSignalIndex = 65535`, crashing downstream
+  dispatch. Now null when no `M` signal exists.
+- **Read-loop silent swallow + classic/FD cross-tripping** (H5 + H6) —
+  the SDK read loop's catch was empty (no log) and wrapped both
+  classic and FD reads in one try, so a subscriber throw on a
+  classic frame silently skipped the FD read. Now each read has its
+  own catch with `ILogger<PeakCanChannel>` error logging, plus a
+  give-up threshold (100 iterations) for dead-bus detection.
+- **IHost lifecycle + global exception handlers** (H7) — the IHost
+  was a local variable in `OnStartup` (never disposed on exit) and
+  the app had no global exception handlers (silent production
+  crashes). Host now stored as a field, disposed in `OnExit`;
+  `AppDomain`, `Dispatcher`, and `TaskScheduler` exception
+  handlers installed at startup.
 
 ## Prerequisites
 
