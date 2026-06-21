@@ -300,7 +300,10 @@ public static class DbcParser
                     $"Expected signal start bit at line {startTok.Line}, column {startTok.Column}",
                     startTok.Line, startTok.Column);
             }
-            byte start = ParseByte(startTok);
+            // Start bit must fit a ushort (CAN FD payloads reach 64 bytes
+            // = 512 bits, so Motorola signals can have start > 255). The
+            // previous byte.Parse truncated any DBC with start >= 256.
+            ushort start = ParseUShort(startTok);
 
             Expect(TokenType.Pipe);
 
@@ -583,6 +586,31 @@ public static class DbcParser
             {
                 throw new DbcParseException(
                     $"Number '{tok.Lexeme}' out of byte range (0-255) at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
+        }
+
+        /// <summary>
+        /// Parse a DBC numeric token as an unsigned 16-bit value. Used for
+        /// the signal start bit, which must accept the full 0..511 range
+        /// that CAN FD Motorola signals can occupy.
+        /// </summary>
+        private ushort ParseUShort(Token tok)
+        {
+            try
+            {
+                return ushort.Parse(tok.Lexeme, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException ex)
+            {
+                throw new DbcParseException(
+                    $"Number '{tok.Lexeme}' out of ushort range (0-65535) at line {tok.Line}, column {tok.Column}: {ex.Message}",
+                    tok.Line, tok.Column);
+            }
+            catch (FormatException ex)
+            {
+                throw new DbcParseException(
+                    $"Number '{tok.Lexeme}' is not a valid ushort at line {tok.Line}, column {tok.Column}: {ex.Message}",
                     tok.Line, tok.Column);
             }
         }

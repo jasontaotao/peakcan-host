@@ -134,4 +134,57 @@ public class SignalDecoderTests
             1.0, 0.0, 0, 4095, "u", Array.Empty<string>());
         SignalDecoder.Decode(new byte[] { 0xCD, 0xAB }, sig).Should().Be(2748.0);
     }
+
+    [Fact]
+    public void BigEndian_Unsigned_8Bit_At_FD_Start_256()
+    {
+        // CAN FD payloads go up to 64 bytes (= 512 bits), so a Motorola
+        // signal can have StartBit > 255. With start=256 the field lives
+        // entirely in byte 32. data[32]=0x80 (only the MSB set) should
+        // decode to 128.0: in DBC big-endian, start is the MSB of the
+        // value, so bit 7 of byte 32 is the MSB of the 8-bit result.
+        // The previous Signal.StartBit (byte, max 255) made this impossible
+        // to even construct, and (byte)(start + i) inside ReadBigEndian
+        // wrapped start=256 to 0 — a silent mis-decode for any signal
+        // starting past byte 31.
+        var sig = new Signal("S", 256, 8, ByteOrder.BigEndian, DbcValueType.Unsigned,
+            1.0, 0.0, 0, 255, "u", Array.Empty<string>());
+        var data = new byte[64];
+        data[32] = 0x80;
+        SignalDecoder.Decode(data, sig).Should().Be(128.0);
+    }
+
+    [Fact]
+    public void BigEndian_Unsigned_16Bit_At_FD_Start_300()
+    {
+        // start=300, big-endian, 16 bits: bit 300 is in byte 37 (300/8=37)
+        // at bit position 7-(300%8)=3. The 16 bits span bytes 37-39. The
+        // full byte-37 bits 3,2,1,0 then byte 38 bits 7,6,5,4,3,2,1,0 then
+        // byte 39 bits 7,6,5,4 — read MSB-first into the result. With
+        // data[37]=0x0F (low nibble set) and data[38]=0x00 and
+        // data[39]=0x00, the value is 0b1111_0000_0000_0000 = 0xF000.
+        var sig = new Signal("S", 300, 16, ByteOrder.BigEndian, DbcValueType.Unsigned,
+            1.0, 0.0, 0, 65535, "u", Array.Empty<string>());
+        var data = new byte[64];
+        data[37] = 0x0F;
+        SignalDecoder.Decode(data, sig).Should().Be(0xF000);
+    }
+
+    [Fact]
+    public void LittleEndian_Unsigned_8Bit_At_FD_Start_300()
+    {
+        // start=300, little-endian, 8 bits: start bit is the LSB of the
+        // value. Byte 37 holds the 4 LSBs of the result (at bit positions
+        // 4,5,6,7), byte 38 holds the 4 MSBs (at positions 0,1,2,3).
+        // data[37]=0xF0 + data[38]=0x0F → result = 0b1111_1111 = 0xFF.
+        // The (byte)((start + i) / 8) and (byte)((start + i) % 8) inside
+        // ReadLittleEndian wrapped at 256 the same way ReadBigEndian did,
+        // silently reading the wrong bytes.
+        var sig = new Signal("S", 300, 8, ByteOrder.LittleEndian, DbcValueType.Unsigned,
+            1.0, 0.0, 0, 255, "u", Array.Empty<string>());
+        var data = new byte[64];
+        data[37] = 0xF0;
+        data[38] = 0x0F;
+        SignalDecoder.Decode(data, sig).Should().Be(0xFF);
+    }
 }

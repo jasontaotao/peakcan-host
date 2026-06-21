@@ -6,7 +6,9 @@ namespace PeakCan.Host.Core.Dbc;
 /// <see cref="MultiplexValue"/>) are populated by Task 6.
 /// </summary>
 /// <param name="Name">DBC signal identifier.</param>
-/// <param name="StartBit">0-based bit offset on the wire.</param>
+/// <param name="StartBit">0-based bit offset on the wire. Up to 511 for CAN FD
+/// (64-byte payload); ushort is required because byte (max 255) cannot
+/// represent a Motorola signal that starts past byte 31.</param>
 /// <param name="Length">Bit width. Up to 64 for CAN FD.</param>
 /// <param name="Order">Byte order on the wire.</param>
 /// <param name="ValueType">Numeric interpretation.</param>
@@ -22,7 +24,7 @@ namespace PeakCan.Host.Core.Dbc;
 /// <param name="ValueTableName">Optional <c>VAL_TABLE_</c> name attached via <c>VAL_</c> (Task 6).</param>
 public sealed record Signal(
     string Name,
-    byte StartBit,
+    ushort StartBit,
     byte Length,
     ByteOrder Order,
     ValueType ValueType,

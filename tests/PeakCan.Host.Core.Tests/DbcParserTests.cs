@@ -584,14 +584,37 @@ public class DbcParserTests
     [Fact]
     public void Fails_On_Signal_Start_Bit_Overflow()
     {
+        // StartBit used to be parsed as byte (max 255), so 999 used to
+        // throw OverflowException and fail. After widening the type to
+        // ushort, the *new* upper bound is 65535 — only a value past that
+        // is now an overflow. This test is the analogue of the old
+        // overflow test, shifted to the new boundary.
         var src = """
         BU_: ECU
         BO_ 100 M: 8 ECU
-         SG_ S : 999|8@1+ (1,0) [0|255] "" ECU
+         SG_ S : 999999|8@1+ (1,0) [0|255] "" ECU
         """;
         var r = DbcParser.Parse(src);
         r.IsSuccess.Should().BeFalse();
         r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+    }
+
+    [Fact]
+    public void Parses_Signal_Start_Bit_Above_255_For_CAN_FD()
+    {
+        // The whole point of the Signal.StartBit byte→ushort widening:
+        // a CAN FD Motorola signal whose start bit lives in byte 32+
+        // must parse without throwing. StartBit=300 is well within the
+        // ushort range, so the parse succeeds. (Decoding correctness at
+        // that offset is covered in SignalDecoderTests.)
+        var src = """
+        BU_: ECU
+        BO_ 100 M: 64 ECU
+         SG_ S : 300|16@0+ (1,0) [0|65535] "" ECU
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.Messages[0].Signals[0].StartBit.Should().Be((ushort)300);
     }
 
     [Fact]

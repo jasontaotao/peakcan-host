@@ -58,13 +58,18 @@ public static class SignalDecoder
 
     // DBC little-endian (Intel): start bit is the LSB of the first byte;
     // the field grows toward higher byte indices.
-    private static ulong ReadLittleEndian(ReadOnlySpan<byte> data, byte start, byte len)
+    // `start` is ushort and the loop accumulator is int so CAN FD
+    // signals with StartBit > 255 (up to 511) do not overflow byte
+    // arithmetic. The previous (byte) cast silently truncated to the
+    // wrong byte/offset pair.
+    private static ulong ReadLittleEndian(ReadOnlySpan<byte> data, ushort start, byte len)
     {
         ulong result = 0;
-        for (byte i = 0; i < len; i++)
+        for (int i = 0; i < len; i++)
         {
-            byte byteIdx = (byte)((start + i) / 8);
-            byte bitIdx = (byte)((start + i) % 8);
+            int absBit = start + i;
+            int byteIdx = absBit / 8;
+            int bitIdx = absBit % 8;
             if (byteIdx >= data.Length) break;          // not enough data — treat remaining as 0
             ulong bit = (ulong)(data[byteIdx] >> bitIdx) & 1UL;
             result |= bit << i;
@@ -73,15 +78,16 @@ public static class SignalDecoder
     }
 
     // DBC big-endian (Motorola): bit 0 is the MSB of byte 0, grows toward
-    // byte 1 etc.
-    private static ulong ReadBigEndian(ReadOnlySpan<byte> data, byte start, byte len)
+    // byte 1 etc. `start` is ushort and the loop accumulator is int for the
+    // same FD-start-up-to-511 reason as ReadLittleEndian.
+    private static ulong ReadBigEndian(ReadOnlySpan<byte> data, ushort start, byte len)
     {
         ulong result = 0;
-        for (byte i = 0; i < len; i++)
+        for (int i = 0; i < len; i++)
         {
-            byte absBit = (byte)(start + i);
-            byte byteIdx = (byte)(absBit / 8);
-            byte bitInByte = (byte)(7 - (absBit % 8));  // MSB-first within the byte
+            int absBit = start + i;
+            int byteIdx = absBit / 8;
+            int bitInByte = 7 - (absBit % 8);            // MSB-first within the byte
             if (byteIdx >= data.Length) break;
             ulong bit = (ulong)(data[byteIdx] >> bitInByte) & 1UL;
             result = (result << 1) | bit;

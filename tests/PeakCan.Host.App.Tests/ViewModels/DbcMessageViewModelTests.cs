@@ -32,7 +32,7 @@ public class DbcMessageViewModelTests
         {
             signals.Add(new Signal(
                 Name: $"Sig{i}",
-                StartBit: (byte)i,
+                StartBit: (ushort)i,
                 Length: 8,
                 Order: ByteOrder.LittleEndian,
                 ValueType: PeakCan.Host.Core.Dbc.ValueType.Unsigned,
