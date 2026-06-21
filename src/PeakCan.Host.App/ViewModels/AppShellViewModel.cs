@@ -324,11 +324,13 @@ public sealed partial class AppShellViewModel : ObservableObject
             // IsConnected=true keeps the Disconnect button enabled against a
             // dead channel; leaving the channel on the router keeps frames
             // being routed to it; leaving SendService.ActiveChannel set
-            // targets the next manual send at a dead channel. Mirrors lines
-            // 310-313 (the success path) exactly so the two paths converge.
-            IsConnected = false;
+            // targets the next manual send at a dead channel. Order matches
+            // the success path (UnregisterChannel → ActiveChannel=null →
+            // IsConnected=false) so the two paths produce identical state
+            // transitions from an observer's point of view.
             _router.UnregisterChannel(_activeChannel);
             _sendService.ActiveChannel = null;
+            IsConnected = false;
             ConnectionState = "Disconnected";
             StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
             LogDisconnectThrew(_logger, PcanUsbFdFirstHandle, ex);

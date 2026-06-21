@@ -201,7 +201,7 @@ public sealed partial class PeakCanChannel : ICanChannel
 
     private async Task ReadLoopAsync(CancellationToken ct)
     {
-        int consecutiveFailures = 0;
+        int consecutiveIterationsWithFailure = 0;
         while (!ct.IsCancellationRequested)
         {
             // Classic and FD reads each get their own try/catch. Previously
@@ -211,6 +211,7 @@ public sealed partial class PeakCanChannel : ICanChannel
             // traffic until the next loop turn. This matches the per-sink
             // isolation pattern in ChannelRouter.
             bool gotAnyFrame = false;
+            bool iterationFailed = false;
             try
             {
                 while (PCANBasic.Read(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
@@ -222,7 +223,7 @@ public sealed partial class PeakCanChannel : ICanChannel
             catch (Exception ex)
             {
                 LogReadLoopException(_logger, Id.Handle, "classic", ex);
-                if (consecutiveFailures < int.MaxValue) consecutiveFailures++;
+                iterationFailed = true;
             }
             try
             {
@@ -235,23 +236,27 @@ public sealed partial class PeakCanChannel : ICanChannel
             catch (Exception ex)
             {
                 LogReadLoopException(_logger, Id.Handle, "FD", ex);
-                if (consecutiveFailures < int.MaxValue) consecutiveFailures++;
+                iterationFailed = true;
             }
-            if (gotAnyFrame) consecutiveFailures = 0;
+            // Count per-iteration, not per-throw, so a worst-case iteration
+            // with both classic and FD failures still counts as 1 (matching
+            // the pre-split semantics). Reset on any successful frame.
+            if (iterationFailed && !gotAnyFrame) consecutiveIterationsWithFailure++;
+            if (gotAnyFrame) consecutiveIterationsWithFailure = 0;
 
-            if (consecutiveFailures >= MaxConsecutiveReadFailures)
+            if (consecutiveIterationsWithFailure >= MaxConsecutiveReadFailures)
             {
                 // Don't busy-spin on a dead bus. Surface a single fatal
                 // log and exit the loop; the channel stays "connected"
                 // from the SDK's perspective so a manual disconnect
                 // (and a fresh Connect) can recover.
-                LogReadLoopGivingUp(_logger, Id.Handle, consecutiveFailures);
+                LogReadLoopGivingUp(_logger, Id.Handle, consecutiveIterationsWithFailure);
                 return;
             }
 
-            var delay = consecutiveFailures == 0
+            var delay = consecutiveIterationsWithFailure == 0
                 ? 1
-                : ReadLoopBackoffMs[Math.Min(consecutiveFailures - 1, ReadLoopBackoffMs.Length - 1)];
+                : ReadLoopBackoffMs[Math.Min(consecutiveIterationsWithFailure - 1, ReadLoopBackoffMs.Length - 1)];
             try { await Task.Delay(delay, ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
         }

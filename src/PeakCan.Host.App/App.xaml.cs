@@ -82,11 +82,12 @@ public partial class App : Application
         // provider. Use GetAwaiter().GetResult() to block the shutdown
         // synchronously — OnExit is the only safe call site for
         // sync-over-async during process teardown. Cap the wait at
-        // 5s so a stuck hosted service cannot prevent the process
-        // from exiting.
+        // 10s so a mid-decode 64-byte FD frame or a long ChannelRouter
+        // sink teardown has time to finish; the OS reaps the process
+        // if shutdown still hangs.
         try
         {
-            _host?.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            _host?.StopAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
