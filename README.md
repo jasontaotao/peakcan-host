@@ -4,11 +4,11 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.6.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.7.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
-> review triage. 371 unit tests pass (155 Core + 141 App
+> review triage. 373 unit tests pass (155 Core + 142 App
 > + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
@@ -147,6 +147,16 @@ writeup. Summary:
 - **Value-table names** — DBC `VAL_TABLE_` / `VAL_` entries are
   resolved and displayed in a new "Value" column on the Signal tab.
 
+## v0.7.0 (IFileDialogService + testability)
+
+- **`IFileDialogService`** — abstraction over file-open dialogs.
+  `WpfFileDialogService` (production) pops `OpenFileDialog`; tests
+  inject a fake that returns a canned path or simulates cancellation.
+- **`DbcViewModel`** — uses `IFileDialogService` instead of direct
+  `OpenFileDialog` usage. The previously-skipped
+  `OpenAsync_When_User_Cancels_Dialog_Does_Nothing` test is now
+  enabled. New `OpenAsync_With_FakeDialog_Loads_File` end-to-end test.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -198,9 +208,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **371 pass + 2 SKIP** across Core (155) / Infrastructure (74) /
-App (141 + 2 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
-+ `OpenAsync_When_User_Cancels_Dialog_Does_Nothing`).
+Output: **373 pass + 1 SKIP** across Core (155) / Infrastructure (74) /
+App (142 + 1 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
@@ -251,7 +260,6 @@ See the spec §"DBC parser scope" for the full subset.
 
 ## Roadmap
 
-- **v0.7.0** — IFileDialogService extraction, additional polish.
 - **v1.0** — Real-time signal charts, scripting automation
   (CodeMirror 6 + sandboxed script engine).
 - **v1.1** — UDS diagnostic stack.
