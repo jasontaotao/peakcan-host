@@ -39,7 +39,8 @@ public partial class TraceView : UserControl
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         // Auto-scroll is on when the user is within 1 row-height of the bottom.
-        var scrollViewer = (ScrollViewer)sender;
-        _autoScroll = scrollViewer.VerticalOffset >= scrollViewer.ScrollableHeight - 20;
+        // Use the event args instead of casting sender (which may be
+        // the DataGrid, not the ScrollViewer).
+        _autoScroll = e.VerticalOffset >= e.ExtentHeight - e.ViewportHeight - 20;
     }
 }
