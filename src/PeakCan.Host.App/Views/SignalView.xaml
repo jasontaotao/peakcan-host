@@ -10,51 +10,64 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisConverter" />
     </UserControl.Resources>
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" MinHeight="120" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" MinHeight="150" />
-        </Grid.RowDefinitions>
+    <DockPanel>
+        <!-- Chart toolbar (visible when chart VM is available) -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,0"
+                    Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}">
+            <Button Content="Export CSV" Command="{Binding ExportChartCsvCommand}"
+                    Padding="8,2" Margin="0,0,8,0" />
+            <Button Content="Clear Chart" Command="{Binding ClearChartCommand}"
+                    Padding="8,2" Margin="0,0,16,0" />
+            <TextBlock Text="Charted: " FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding ChartStatistics.Count}" VerticalAlignment="Center" Margin="0,0,16,0" />
+        </StackPanel>
 
-        <!-- Signal DataGrid with checkbox column for chart selection -->
-        <DataGrid Grid.Row="0"
-                  ItemsSource="{Binding Latest}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  EnableRowVirtualization="True"
-                  EnableColumnVirtualization="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling"
-                  VirtualizingPanel.ScrollUnit="Pixel"
-                  ScrollViewer.CanContentScroll="True"
-                  RowHeight="20"
-                  AlternatingRowBackground="#F8F8F8"
-                  CellEditEnding="OnCellEditEnding">
-            <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="Plot"
-                    Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    Width="40"
-                    IsReadOnly="False" />
-                <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
-                <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
-                <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
-                <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
-                <DataGridTextColumn Header="Value"     Binding="{Binding ValueTableName}" Width="120" />
-                <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
-            </DataGrid.Columns>
-        </DataGrid>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="120" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" MinHeight="150" />
+            </Grid.RowDefinitions>
 
-        <!-- GridSplitter between table and chart -->
-        <GridSplitter Grid.Row="1" Height="5"
-                      HorizontalAlignment="Stretch"
-                      VerticalAlignment="Center"
-                      Background="#CCCCCC"
-                      Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
+            <!-- Signal DataGrid with checkbox column for chart selection -->
+            <DataGrid Grid.Row="0"
+                      ItemsSource="{Binding Latest}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
+                      RowHeight="20"
+                      AlternatingRowBackground="#F8F8F8"
+                      CellEditEnding="OnCellEditEnding">
+                <DataGrid.Columns>
+                    <DataGridCheckBoxColumn Header="Plot"
+                        Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        Width="40"
+                        IsReadOnly="False" />
+                    <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
+                    <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
+                    <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
+                    <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
+                    <DataGridTextColumn Header="Value"     Binding="{Binding ValueTableName}" Width="120" />
+                    <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
 
-        <!-- OxyPlot signal chart (hidden when no chart VM) -->
-        <oxy:PlotView Grid.Row="2"
-                      Model="{Binding ChartModel}"
-                      Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
-    </Grid>
+            <!-- GridSplitter between table and chart -->
+            <GridSplitter Grid.Row="1" Height="5"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          Background="#CCCCCC"
+                          Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
+
+            <!-- OxyPlot signal chart (hidden when no chart VM) -->
+            <oxy:PlotView Grid.Row="2"
+                          Model="{Binding ChartModel}"
+                          Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
+        </Grid>
+    </DockPanel>
 </UserControl>

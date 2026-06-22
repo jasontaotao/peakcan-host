@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using OxyPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
@@ -42,7 +44,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// observe the post-state.
 /// </para>
 /// </summary>
-public sealed class SignalViewModel : ObservableObject
+public sealed partial class SignalViewModel : ObservableObject
 {
     private readonly SignalChartViewModel? _chartVm;
 
@@ -67,6 +69,19 @@ public sealed class SignalViewModel : ObservableObject
     /// chart visibility.
     /// </summary>
     public bool HasChart => _chartVm is not null;
+
+    /// <summary>
+    /// Whether any signals are currently charted. Bound to toolbar
+    /// button enabled states.
+    /// </summary>
+    public bool HasChartedSignals => _chartVm?.HasSignals == true;
+
+    /// <summary>
+    /// Per-signal statistics for the charted window. Returns an empty
+    /// list when no chart VM is injected.
+    /// </summary>
+    public IReadOnlyList<SignalChartViewModel.SignalStatistics> ChartStatistics
+        => _chartVm?.GetStatistics() ?? Array.Empty<SignalChartViewModel.SignalStatistics>();
 
     /// <param name="chartVm">
     /// Optional chart VM. Null in tests that don't need charting.
@@ -215,6 +230,39 @@ public sealed class SignalViewModel : ObservableObject
             _chartVm.AddSignal(key, signal);
         else
             _chartVm.RemoveSignal(key);
+    }
+
+    /// <summary>
+    /// Export charted signal data to CSV. Prompts for file path via
+    /// <see cref="SaveFileDialog"/>.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasChartedSignals))]
+    private void ExportChartCsv()
+    {
+        if (_chartVm is null) return;
+        var dlg = new SaveFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv",
+            FileName = "signal-chart.csv",
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            _chartVm.ExportToCsv(dlg.FileName);
+        }
+    }
+
+    /// <summary>
+    /// Clear all charted signals and reset the chart.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasChartedSignals))]
+    private void ClearChart()
+    {
+        if (_chartVm is null) return;
+        // Uncheck all IsSelected flags in the grid.
+        foreach (var entry in Latest)
+            entry.IsSelected = false;
+        _chartVm.Reset();
     }
 
     // Upsert by (Message, Signal). The grid is small (one row per signal
