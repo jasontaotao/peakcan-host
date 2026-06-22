@@ -51,6 +51,7 @@
             <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="120" />
             <DataGridTextColumn Header="Ch" Binding="{Binding Channel}" Width="60" />
             <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="100" />
+            <DataGridTextColumn Header="Type" Binding="{Binding FrameType}" Width="50" />
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="50" />
             <DataGridTextColumn Header="Data" Binding="{Binding DataHex}" Width="*" />
             <DataGridTextColumn Header="Decoded" Binding="{Binding Decoded}" Width="200" />
