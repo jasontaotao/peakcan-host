@@ -4,11 +4,11 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.4.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.5.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
-> review triage. 351 unit tests pass (155 Core + 124 App
+> review triage. 371 unit tests pass (155 Core + 141 App
 > + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
@@ -125,6 +125,18 @@ writeup. Summary:
   hardcoded 0x51. Legacy single-channel `IChannelProbe` path
   preserved for tests without `IChannelEnumerator`.
 
+## v0.5.0 (frame recording + cyclic send)
+
+- **`RecordService`** — records received frames to disk in ASC
+  (Vector ASCII, CANoe/CANalyzer compatible) or CSV format.
+  `StartRecording(path, format)` / `StopRecording()`. Thread-safe,
+  buffered I/O, drop-tolerant. Wired as 5th `IFrameSink` on the
+  `ChannelRouter`.
+- **`CyclicSendService`** — periodically transmits a configured
+  `CanFrame` on the active channel. `Start(frame, interval)` /
+  `Stop()`. Configurable interval (default 100 ms). Thread-safe
+  timer callback.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -176,8 +188,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **351 pass + 2 SKIP** across Core (155) / Infrastructure (74) /
-App (124 + 2 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
+Output: **371 pass + 2 SKIP** across Core (155) / Infrastructure (74) /
+App (141 + 2 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
 + `OpenAsync_When_User_Cancels_Dialog_Does_Nothing`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
@@ -229,9 +241,8 @@ See the spec §"DBC parser scope" for the full subset.
 
 ## Roadmap
 
-- **v0.5.0** — Frame recording (ASC / CSV), frame filters, cyclic
-  transmission, multiplexor decoding, value-table decoded names,
-  IFileDialogService extraction.
+- **v0.6.0** — Frame filters, multiplexor decoding, value-table
+  decoded names, IFileDialogService extraction.
 - **v1.0** — Real-time signal charts, scripting automation
   (CodeMirror 6 + sandboxed script engine).
 - **v1.1** — UDS diagnostic stack.
