@@ -24,6 +24,14 @@
             <TextBlock Text="{Binding ChartStatistics.Count}" VerticalAlignment="Center" Margin="0,0,16,0" />
         </StackPanel>
 
+        <!-- Signal search bar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding FilteredSignals.Count}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text=" shown" VerticalAlignment="Center" />
+        </StackPanel>
+
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" MinHeight="120" />
@@ -33,7 +41,7 @@
 
             <!-- Signal DataGrid with checkbox column for chart selection -->
             <DataGrid Grid.Row="0"
-                      ItemsSource="{Binding Latest}"
+                      ItemsSource="{Binding FilteredSignals}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       EnableRowVirtualization="True"

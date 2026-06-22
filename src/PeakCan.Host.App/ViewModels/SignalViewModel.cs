@@ -83,6 +83,16 @@ public sealed partial class SignalViewModel : ObservableObject
     public IReadOnlyList<SignalChartViewModel.SignalStatistics> ChartStatistics
         => _chartVm?.GetStatistics() ?? Array.Empty<SignalChartViewModel.SignalStatistics>();
 
+    /// <summary>
+    /// Search text for filtering signals. Matches message name or
+    /// signal name (case-insensitive substring). Empty = show all.
+    /// </summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>Filtered view of Latest based on SearchText.</summary>
+    public ObservableCollection<SignalEntry> FilteredSignals { get; } = new();
+
     /// <param name="chartVm">
     /// Optional chart VM. Null in tests that don't need charting.
     /// </param>
@@ -324,5 +334,27 @@ public sealed partial class SignalViewModel : ObservableObject
     private void ApplyEntries(IReadOnlyList<SignalEntry> entries)
     {
         foreach (var e in entries) Upsert(e);
+        ApplyFilter();
+    }
+
+    /// <summary>
+    /// Called when <see cref="SearchText"/> changes. Filters the
+    /// <see cref="FilteredSignals"/> collection.
+    /// </summary>
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    private void ApplyFilter()
+    {
+        FilteredSignals.Clear();
+        var pattern = SearchText.AsSpan().Trim();
+        foreach (var e in Latest)
+        {
+            if (pattern.Length == 0
+                || e.Message.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                || e.Signal.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredSignals.Add(e);
+            }
+        }
     }
 }
