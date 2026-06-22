@@ -1,7 +1,9 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -11,26 +13,26 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// surface. It is wired to <see cref="DbcService"/> via the
 /// <c>DbcLoaded</c> + <c>LoadFailed</c> events.
 /// <para>
-/// <b>OpenCommand testability:</b> the command pops a WPF <c>OpenFileDialog</c>
-/// which is a UI component. We exercise the load-result path directly by
-/// firing <c>DbcService</c> events from the test — that bypasses the
-/// dialog while still validating the VM's reaction. A future task can
-/// abstract <c>OpenFileDialog</c> for end-to-end command coverage.
+/// <b>v0.7.0 IFileDialogService:</b> the previously-skipped
+/// <c>OpenAsync_When_User_Cancels_Dialog_Does_Nothing</c> test is now
+/// enabled by injecting a fake <see cref="IFileDialogService"/> that
+/// simulates user cancellation.
 /// </para>
 /// </summary>
 public class DbcViewModelTests
 {
-    private static (DbcViewModel vm, DbcService svc) NewPair()
-        => (new DbcViewModel(new DbcService(NullLogger<DbcService>.Instance),
-                             new SignalViewModel(),
-                             NullLogger<DbcViewModel>.Instance),
-            /* unused svc ref — tests create their own via the VM ctor */
-            new DbcService(NullLogger<DbcService>.Instance));
+    /// <summary>
+    /// Test double for <see cref="IFileDialogService"/> that returns
+    /// a configurable path (or null to simulate cancellation).
+    /// </summary>
+    private sealed class FakeFileDialogService : IFileDialogService
+    {
+        public string? NextResult { get; set; }
+        public string? ShowOpenDialog(string filter) => NextResult;
+    }
 
-    // Pair helper above leaks a dummy svc; replace with a real pair
-    // builder that returns the same svc the VM holds.
-    private static DbcViewModel NewVm(DbcService svc)
-        => new(svc, new SignalViewModel(), NullLogger<DbcViewModel>.Instance);
+    private static DbcViewModel NewVm(DbcService svc, IFileDialogService? fileDialog = null)
+        => new(svc, new SignalViewModel(), NullLogger<DbcViewModel>.Instance, fileDialog);
 
     [Fact]
     public void Default_Status_Is_No_Dbc_Loaded()
@@ -65,8 +67,6 @@ public class DbcViewModelTests
             MessagesById: new Dictionary<uint, Message>(),
             ValueTables: new Dictionary<string, ValueTable>());
 
-        // Raise DbcLoaded directly. The VM subscribes to svc.DbcLoaded in
-        // its ctor so the handler will run synchronously.
         svc.GetType().GetEvent(nameof(DbcService.DbcLoaded))!
             .RaiseMethod(svc, doc);
 
@@ -83,7 +83,7 @@ public class DbcViewModelTests
         var vm = NewVm(svc);
 
         svc.GetType().GetEvent(nameof(DbcService.LoadFailed))!
-            .RaiseMethod(svc, new PeakCan.Host.Core.Error(PeakCan.Host.Core.ErrorCode.IoError, "missing file"));
+            .RaiseMethod(svc, new Error(ErrorCode.IoError, "missing file"));
 
         vm.Status.Should().StartWith("FAIL:");
         vm.Status.Should().Contain("missing file");
@@ -92,12 +92,10 @@ public class DbcViewModelTests
     [Fact]
     public void DbcLoaded_Event_Resets_SignalViewModel_Latest()
     {
-        // Task 16 wiring: a fresh DBC load clears the decoded-signal
-        // table so stale entries from a previous parse do not linger.
         var svc = new DbcService(NullLogger<DbcService>.Instance);
         var signals = new SignalViewModel();
         signals.Latest.Add(new SignalEntry { Message = "OldM", Signal = "OldS" });
-        signals.Latest.Should().HaveCount(1, "precondition: signal table seeded with stale row");
+        signals.Latest.Should().HaveCount(1, "precondition");
 
         var vm = new DbcViewModel(svc, signals, NullLogger<DbcViewModel>.Instance);
         var doc = new DbcDocument(
@@ -113,15 +111,46 @@ public class DbcViewModelTests
         signals.Latest.Should().BeEmpty("DbcLoaded must clear the decoded-signal table");
     }
 
-    [Fact(Skip = "WPF OpenFileDialog.ShowDialog blocks on non-STA without a message pump; covered by Task 19/20 manual smoke + the 4 event-driven tests above cover the load-result VM transitions.")]
-    [Trait("category", "ui-integration")]
-    public void OpenAsync_When_User_Cancels_Dialog_Does_Nothing()
+    [Fact]
+    public async Task OpenAsync_When_User_Cancels_Dialog_Does_Nothing()
     {
-        // Skipped via [Fact(Skip=...)]; body never executes.
-        // See the message on the [Fact] attribute for rationale.
-        // Preserved (rather than deleted) so the future IFileDialogService
-        // refactor has a concrete acceptance test to enable.
-        throw new System.NotImplementedException("test is skipped via [Fact(Skip=...)] attribute");
+        // v0.7.0: previously skipped because OpenFileDialog requires STA.
+        // Now enabled via IFileDialogService fake that returns null.
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var dialog = new FakeFileDialogService { NextResult = null };
+        var vm = NewVm(svc, dialog);
+
+        await vm.OpenCommand.ExecuteAsync(null);
+
+        vm.Status.Should().Be("No DBC loaded", "cancel should leave VM unchanged");
+        vm.Messages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task OpenAsync_With_FakeDialog_Loads_File()
+    {
+        // v0.7.0: end-to-end OpenCommand coverage via fake dialog.
+        // Write a tiny DBC to a temp file, point the fake at it.
+        var path = Path.Combine(Path.GetTempPath(), $"peakcan-test-{Guid.NewGuid():N}.dbc");
+        try
+        {
+            await File.WriteAllTextAsync(path,
+                "VERSION \"\"\nNS_ :\nBS_ :\nBU_: ECU1\nBO_ 256 Msg: 8 ECU1\n");
+            var svc = new DbcService(NullLogger<DbcService>.Instance);
+            var dialog = new FakeFileDialogService { NextResult = path };
+            var vm = NewVm(svc, dialog);
+
+            await vm.OpenCommand.ExecuteAsync(null);
+
+            vm.Messages.Should().HaveCount(1);
+            vm.Messages[0].Name.Should().Be("Msg");
+            vm.Status.Should().Contain("Loaded 1 message");
+            vm.LoadedPath.Should().Be(path);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }
 
