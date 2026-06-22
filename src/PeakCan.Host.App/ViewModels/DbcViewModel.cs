@@ -3,8 +3,8 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -47,6 +47,7 @@ public sealed partial class DbcViewModel : ObservableObject
     private readonly DbcService _svc;
     private readonly SignalViewModel _signals;
     private readonly ILogger<DbcViewModel> _logger;
+    private readonly IFileDialogService _fileDialog;
 
     /// <summary>
     /// Rows bound to the DataGrid. Replaced on every successful load
@@ -62,11 +63,16 @@ public sealed partial class DbcViewModel : ObservableObject
     [ObservableProperty]
     private string _status = "No DBC loaded";
 
-    public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger)
+    public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger,
+                        IFileDialogService? fileDialog = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _signals = signals ?? throw new ArgumentNullException(nameof(signals));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // v0.7.0: optional file dialog service. When null, OpenAsync
+        // falls back to the legacy WPF OpenFileDialog path (backwards
+        // compatible with existing tests that don't inject one).
+        _fileDialog = fileDialog ?? new WpfFileDialogService();
         _svc.DbcLoaded += OnLoaded;
         _svc.LoadFailed += OnLoadFailed;
     }
@@ -74,12 +80,12 @@ public sealed partial class DbcViewModel : ObservableObject
     [RelayCommand]
     private async Task OpenAsync()
     {
-        var dlg = new OpenFileDialog { Filter = "DBC files (*.dbc)|*.dbc|All files|*.*" };
-        if (dlg.ShowDialog() != true) return;
-        LoadedPath = dlg.FileName;
+        var path = _fileDialog.ShowOpenDialog("DBC files (*.dbc)|*.dbc|All files|*.*");
+        if (path is null) return;
+        LoadedPath = path;
         Status = "Parsing...";
-        LogOpenInvoked(_logger, dlg.FileName);
-        await _svc.LoadAsync(dlg.FileName).ConfigureAwait(true);
+        LogOpenInvoked(_logger, path);
+        await _svc.LoadAsync(path).ConfigureAwait(true);
     }
 
     private void OnLoaded(DbcDocument doc)
