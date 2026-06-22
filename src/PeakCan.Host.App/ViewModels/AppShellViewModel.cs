@@ -293,9 +293,9 @@ public sealed partial class AppShellViewModel : ObservableObject
     {
         ConnectionState = "Connecting...";
         StatusMessage = $"Connecting to USB1 ({SelectedBaudRate.Name})";
+        var channel = _channelFactory.Create(new ChannelId(PcanUsbFdFirstHandle));
         try
         {
-            var channel = _channelFactory.Create(new ChannelId(PcanUsbFdFirstHandle));
             var result = await channel.ConnectAsync(SelectedBaudRate, fd: IsFd).ConfigureAwait(true);
             if (result.IsSuccess)
             {
@@ -333,6 +333,11 @@ public sealed partial class AppShellViewModel : ObservableObject
             ConnectionState = "Disconnected";
             StatusMessage = $"Connect exception: {ex.GetType().Name}";
             LogConnectThrew(_logger, PcanUsbFdFirstHandle, ex);
+            // M1 fix: dispose the channel if RegisterChannel or any
+            // subsequent step threw after ConnectAsync succeeded. Without
+            // this, the channel (and its CTS + read-loop task) leaks until
+            // the next GC cycle.
+            await channel.DisposeAsync().ConfigureAwait(true);
         }
     }
 

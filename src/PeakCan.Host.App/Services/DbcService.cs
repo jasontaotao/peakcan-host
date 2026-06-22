@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
@@ -32,7 +33,19 @@ public partial class DbcService
     private readonly ILogger<DbcService> _logger;
 
     /// <summary>The most recently successfully parsed DBC, or null.</summary>
-    public DbcDocument? Current { get; private set; }
+    /// <remarks>
+    /// Thread-safety: written on a Task.Run worker (LoadAsync) and read
+    /// from DbcDecodeBackgroundService's worker thread. Uses
+    /// <see cref="Volatile.Read{T}"/> / <see cref="Volatile.Write{T}"/>
+    /// to ensure cross-thread visibility without locks.
+    /// </remarks>
+    private DbcDocument? _current;
+
+    public DbcDocument? Current
+    {
+        get => Volatile.Read(ref _current);
+        private set => Volatile.Write(ref _current, value);
+    }
 
     /// <summary>Raised after a successful parse; carries the new document.</summary>
     public event Action<DbcDocument>? DbcLoaded;

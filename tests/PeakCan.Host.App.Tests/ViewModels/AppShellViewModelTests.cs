@@ -643,4 +643,69 @@ public class AppShellViewModelTests
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ChannelList.Should().Contain("5 Mbps (FD)");
     }
+
+    // ──────────────────────────────────────────────
+    // M1 fix: ConnectAsync catch disposes channel
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Channel whose <see cref="DisposeAsync"/> records whether it was
+    /// called, so M1 regression tests can verify the catch path cleans up.
+    /// Its <see cref="ConnectAsync"/> always throws to simulate a hardware
+    /// fault, exercising the catch path in <see cref="AppShellViewModel"/>.
+    /// </summary>
+    private sealed class DisposeTrackingChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+        public bool WasDisposed { get; private set; }
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+#pragma warning restore CS0067
+        public DisposeTrackingChannel(ChannelId id) { Id = id; }
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+            => throw new InvalidOperationException("simulated hardware fault");
+        public Task DisconnectAsync(CancellationToken ct = default)
+        {
+            IsConnected = false;
+            return Task.CompletedTask;
+        }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync()
+        {
+            WasDisposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class DisposeTrackingChannelFactory : Core.IChannelFactory
+    {
+        public DisposeTrackingChannel? LastCreated { get; private set; }
+        public ICanChannel Create(ChannelId id)
+        {
+            LastCreated = new DisposeTrackingChannel(id);
+            return LastCreated;
+        }
+    }
+
+    [Fact]
+    public async Task ConnectAsync_When_Channel_Throws_Disposes_Channel()
+    {
+        // M1 regression: if ConnectAsync (or RegisterChannel) throws,
+        // the channel must be disposed, not leaked until GC.
+        var factory = new DisposeTrackingChannelFactory();
+        var vm = NewVmWithFactory(factory);
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        // The catch block ran (ConnectException status), and the channel
+        // was disposed rather than leaked.
+        vm.IsConnected.Should().BeFalse();
+        vm.ConnectionState.Should().Be("Disconnected");
+        vm.StatusMessage.Should().Contain("Connect exception");
+        factory.LastCreated!.WasDisposed.Should().BeTrue(
+            "M1 fix: catch block must dispose the channel after ConnectAsync throws");
+    }
 }

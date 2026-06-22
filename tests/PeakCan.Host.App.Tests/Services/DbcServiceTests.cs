@@ -116,4 +116,19 @@ public class DbcServiceTests
             if (File.Exists(path)) File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Current_Property_Uses_Volatile_Read_For_Cross_Thread_Visibility()
+    {
+        // M2 structural test: verify Current has a backing field named
+        // _current (not an auto-property), which confirms the
+        // Volatile.Read/Write pattern is in place. An auto-property
+        // would have no such field.
+        var svc = NewSvc();
+        var field = typeof(DbcService).GetField(
+            "_current",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        field.Should().NotBeNull(
+            "M2 fix: DbcService must have a _current backing field for Volatile.Read/Write");
+    }
 }

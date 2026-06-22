@@ -71,9 +71,17 @@ public partial class SendService
     /// <see cref="ErrorCode.InvalidState"/> when no channel is connected.
     /// </summary>
     public virtual ValueTask<Result<Unit>> SendAsync(CanFrame frame, CancellationToken ct = default)
-        => _activeChannel is null
+    {
+        // M3 fix: use the ActiveChannel property (Volatile.Read) instead
+        // of the backing field directly. Without this, the JIT may cache
+        // _activeChannel in a register, causing SendAsync to see a stale
+        // non-null value after ActiveChannel is set to null from another
+        // thread (e.g. during DisconnectAsync).
+        var ch = ActiveChannel;
+        return ch is null
             ? ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "No active channel"))
-            : _activeChannel.WriteAsync(frame, ct);
+            : ch.WriteAsync(frame, ct);
+    }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SendService active channel changed to handle 0x{Handle:X2}")]
     private static partial void LogActiveChannelChanged(ILogger logger, ushort handle);
