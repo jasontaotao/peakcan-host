@@ -26,7 +26,7 @@ public sealed class TraceEntry
     /// <summary>Data length code in bytes. 0–8 for classic CAN, 0–64 for CAN FD.</summary>
     public byte Dlc { get; init; }
 
-    /// <summary>Payload as uppercase hex bytes separated by spaces. Empty string when <see cref="Dlc"/> is 0.</summary>
+    /// <summary>Payload as contiguous uppercase hex bytes (e.g. "DEADBEEF"). Empty string when <see cref="Dlc"/> is 0.</summary>
     public string DataHex { get; init; } = "";
 
     /// <summary>DBC-decoded signal values; empty until a DBC is loaded (Task 15).</summary>

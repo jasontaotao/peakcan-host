@@ -80,5 +80,13 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
             }
         }
         catch (OperationCanceledException) { /* expected on shutdown */ }
+        finally
+        {
+            // LOW fix: complete the writer on shutdown. Without this,
+            // OnFrame can still write to the channel after the worker
+            // exits, violating the Channel contract. TryWrite succeeds
+            // silently but the data is never consumed.
+            _queue.Writer.TryComplete();
+        }
     }
 }

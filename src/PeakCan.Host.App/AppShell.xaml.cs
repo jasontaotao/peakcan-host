@@ -21,13 +21,17 @@ public partial class AppShell : Window
     public AppShell()
     {
         InitializeComponent();
-        SourceInitialized += (_, _) =>
+        SourceInitialized += OnSourceInitialized;
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        // Unsubscribe immediately — this is a one-shot initialization.
+        SourceInitialized -= OnSourceInitialized;
+        if (DataContext is AppShellViewModel shell)
         {
-            if (DataContext is AppShellViewModel shell)
-            {
-                shell.ShowTraceCommand.Execute(null);
-            }
-        };
+            shell.ShowTraceCommand.Execute(null);
+        }
     }
 
     private void OnExit(object sender, RoutedEventArgs e) => Close();
