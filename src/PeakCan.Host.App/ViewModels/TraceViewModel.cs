@@ -96,6 +96,13 @@ public sealed partial class TraceViewModel : ObservableObject
     [ObservableProperty]
     private bool _showErrorsOnly;
 
+    /// <summary>
+    /// When true, new frames are not appended to the trace.
+    /// Counter updates still happen.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isPaused;
+
     // Per-message-ID counter. Key = raw CAN ID.
     private readonly Dictionary<uint, long> _messageCounts = new();
 
@@ -115,6 +122,9 @@ public sealed partial class TraceViewModel : ObservableObject
                 // Track per-message-ID counts (before filtering).
                 TotalFrameCount++;
                 _messageCounts[f.Id.Raw] = _messageCounts.GetValueOrDefault(f.Id.Raw) + 1;
+
+                // v0.9.2: pause still tracks counts but skips display.
+                if (IsPaused) continue;
 
                 // v0.6.0: apply hex-prefix filter. If FilterText is non-empty,
                 // only append frames whose ID hex starts with the pattern.

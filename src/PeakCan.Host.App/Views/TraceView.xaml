@@ -22,6 +22,7 @@
             <TextBlock Text="Highlight (hex prefix):" VerticalAlignment="Center" Margin="0,0,4,0" />
             <TextBox Text="{Binding HighlightText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
             <CheckBox Content="Errors only" IsChecked="{Binding ShowErrorsOnly}" VerticalAlignment="Center" Margin="16,0,0,0" />
+            <CheckBox Content="Pause" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="16,0,0,0" />
         </StackPanel>
         <DataGrid x:Name="TraceGrid"
               ItemsSource="{Binding Entries}"
