@@ -236,12 +236,12 @@ Infrastructure. CI fails any PR that violates the boundary.
 
 - **Supported keywords**: `VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`,
   `VAL_`, `VAL_TABLE_`, `CM_`, `BA_DEF_`, `BA_`, `SIG_GROUP_`, `EV_`
-- **Multiplexed signals (M / m)** — parsed and stored, but not yet
-  decoded in the signal view (v1.1).
+- **Multiplexed signals (M / m)** — fully supported (v0.6.0). Multiplexor
+  value is extracted; only matching multiplexed signals are decoded.
 - **IEEE float / double** (Vector extension) — accepted; decoder falls
   back to int if the keyword is unrecognized.
-- **Value tables** — fully supported; signal view will display the
-  decoded value-name pair (v1.1).
+- **Value tables** — fully supported (v0.6.0). Signal view displays the
+  decoded value-name pair in a "Value" column.
 - **Custom attributes** — `BA_DEF_` accepted; ignored at the decoder
   layer (no consumer yet).
 
