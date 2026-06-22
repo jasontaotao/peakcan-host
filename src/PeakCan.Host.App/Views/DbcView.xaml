@@ -9,6 +9,7 @@
     <DockPanel Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Open DBC..." Command="{Binding OpenCommand}" Width="100" />
+            <Button Content="Export CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="8,0,0,0" />
             <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" />
         </StackPanel>
         <!-- Search bar -->
