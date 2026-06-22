@@ -64,6 +64,10 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
                                        PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
+        // v0.4.0: multi-channel enumerator. Probes PCAN-USB 1–16.
+        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelEnumerator,
+                                       PeakCan.Host.Infrastructure.Peak.PeakChannelEnumerator>();
+
         // Task T3 (H4): the App-layer VM no longer news PeakCanChannel
         // directly; it asks the factory for an ICanChannel. Production DI
         // binds the PEAK implementation; tests inject a fake to drive the

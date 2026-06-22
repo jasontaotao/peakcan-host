@@ -69,6 +69,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly SendService _sendService;
     private readonly IChannelProbe _channelProbe;
     private readonly IChannelFactory _channelFactory;
+    private readonly IChannelEnumerator? _channelEnumerator;
     private readonly TraceViewModel _traceViewModel;
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
@@ -92,6 +93,22 @@ public sealed partial class AppShellViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     private string _channelList = "(click Probe to detect)";
+
+    /// <summary>
+    /// v0.4.0: detected channels from the last EnumerateChannels call.
+    /// Empty before the first probe. The toolbar ComboBox binds to this.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    private IReadOnlyList<ChannelInfo> _availableChannels = Array.Empty<ChannelInfo>();
+
+    /// <summary>
+    /// v0.4.0: the channel the user selected from the toolbar ComboBox.
+    /// Null before the first probe or if no channels were detected.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    private ChannelInfo? _selectedChannel;
 
     [ObservableProperty]
     private string _statusMessage = "Ready";
@@ -156,11 +173,12 @@ public sealed partial class AppShellViewModel : ObservableObject
         TraceViewModel traceViewModel,
         SendService sendService,
         IChannelProbe channelProbe,
-        IChannelFactory channelFactory,                    // NEW (T3)
+        IChannelFactory channelFactory,
         DbcViewModel dbcViewModel,
         SendViewModel sendViewModel,
         SignalViewModel signalViewModel,
-        StatsViewModel statsViewModel)
+        StatsViewModel statsViewModel,
+        IChannelEnumerator? channelEnumerator = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -172,14 +190,9 @@ public sealed partial class AppShellViewModel : ObservableObject
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
-
-        // View instances are lazily created on the first Show command.
-        // The default CurrentView is null until ShowTrace runs (which
-        // happens in production via AppShell.xaml.cs's SourceInitialized
-        // handler). See the field XML doc above for the STA rationale.
-        //
-        // ctor 9-arg explosion flagged for AppDependencies refactor in
-        // the Task 17+18 wrap-up (bundle VM deps into a single record).
+        // v0.4.0: optional multi-channel enumerator. When null, the
+        // single-channel probe path (IChannelProbe) is used instead.
+        _channelEnumerator = channelEnumerator;
     }
 
     [RelayCommand]
@@ -256,44 +269,64 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanEnumerateChannels))]
     private void EnumerateChannels()
     {
-        // Task 18: the probe was moved out of the VM into
-        // <see cref="IChannelProbe"/> so the App assembly has no
-        // PEAK SDK dependency (enforced by NetArchTest rule 3). The
-        // VM only knows the contract: hand the probe a handle, get
-        // back a structured result. The user-visible "USB1 ..." /
-        // "No PEAK hardware detected" strings stay here because they
-        // are UI formatting (and STRING-COUPLED with CanConnect).
-        var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
-        if (result.Ok)
+        // v0.4.0: if IChannelEnumerator is available, probe all channels;
+        // otherwise fall back to the single-channel IChannelProbe path.
+        if (_channelEnumerator is not null)
         {
-            ChannelList = $"USB1 ({SelectedBaudRate.Name})";
-            StatusMessage = result.Message;
-            LogProbeOk(_logger, PcanUsbFdFirstHandle);
+            var channels = _channelEnumerator.Enumerate();
+            AvailableChannels = channels;
+            if (channels.Count > 0)
+            {
+                SelectedChannel = channels[0];
+                ChannelList = $"{channels[0].Name} ({SelectedBaudRate.Name})";
+                StatusMessage = $"Detected {channels.Count} channel(s)";
+                LogProbeOk(_logger, channels[0].Handle);
+            }
+            else
+            {
+                SelectedChannel = null;
+                ChannelList = "No PEAK hardware detected";
+                StatusMessage = "No channels found";
+                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                    new InvalidOperationException("No channels found"));
+            }
         }
         else
         {
-            ChannelList = $"No PEAK hardware detected: {result.Message}";
-            StatusMessage = result.Message;
-            LogProbeThrew(_logger, PcanUsbFdFirstHandle,
-                new InvalidOperationException(result.Message));
+            // Legacy single-channel path (tests without IChannelEnumerator).
+            var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
+            if (result.Ok)
+            {
+                ChannelList = $"USB1 ({SelectedBaudRate.Name})";
+                StatusMessage = result.Message;
+                LogProbeOk(_logger, PcanUsbFdFirstHandle);
+            }
+            else
+            {
+                ChannelList = $"No PEAK hardware detected: {result.Message}";
+                StatusMessage = result.Message;
+                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                    new InvalidOperationException(result.Message));
+            }
         }
     }
 
     private bool CanEnumerateChannels() => !IsConnected;
 
-    // STRING-COUPLED: the predicate below matches the probe-success message
-    // emitted by EnumerateChannels at the call site above ("USB1 ..."). A
-    // future change to the probe output (localization, multi-channel) must
-    // update this predicate in lockstep; the AppShellViewModelTests
-    // covers the CanExecute=true path with this exact sentinel.
-    private bool CanConnect() => !IsConnected && ChannelList.StartsWith("USB1", StringComparison.Ordinal);
+    // v0.4.0: CanConnect now checks SelectedChannel when available,
+    // falling back to the legacy ChannelList string check.
+    private bool CanConnect() => !IsConnected && (
+        SelectedChannel is not null
+        || ChannelList.StartsWith("USB1", StringComparison.Ordinal));
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
     {
+        // v0.4.0: use SelectedChannel handle when available.
+        var handle = SelectedChannel?.Handle ?? PcanUsbFdFirstHandle;
         ConnectionState = "Connecting...";
-        StatusMessage = $"Connecting to USB1 ({SelectedBaudRate.Name})";
-        var channel = _channelFactory.Create(new ChannelId(PcanUsbFdFirstHandle));
+        StatusMessage = $"Connecting to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+        var channel = _channelFactory.Create(new ChannelId(handle));
         try
         {
             var result = await channel.ConnectAsync(SelectedBaudRate, fd: IsFd).ConfigureAwait(true);
@@ -309,10 +342,10 @@ public sealed partial class AppShellViewModel : ObservableObject
                 // PropertyChanged in order; this ordering keeps the
                 // Send button's CanExecute (when wired) consistent.
                 IsConnected = true;
-                ConnectionState = $"Connected to USB1 ({SelectedBaudRate.Name})";
+                ConnectionState = $"Connected to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
                 StatusMessage = "Connected";
                 _sendService.ActiveChannel = channel;
-                LogConnectOk(_logger, PcanUsbFdFirstHandle);
+                LogConnectOk(_logger, handle);
             }
             else
             {
@@ -320,7 +353,7 @@ public sealed partial class AppShellViewModel : ObservableObject
                 _sendService.ActiveChannel = null;
                 var err = result.Error!;
                 StatusMessage = $"Connect failed: {err.Code} {err.Message}";
-                LogConnectFailed(_logger, PcanUsbFdFirstHandle, err.Code, err.Message);
+                LogConnectFailed(_logger, handle, err.Code, err.Message);
                 // PeakCanChannel ctor allocates a CancellationTokenSource
                 // (used by the read loop). On a failed Connect the channel
                 // never acquires the hardware, so the safe teardown is to
@@ -332,7 +365,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         {
             ConnectionState = "Disconnected";
             StatusMessage = $"Connect exception: {ex.GetType().Name}";
-            LogConnectThrew(_logger, PcanUsbFdFirstHandle, ex);
+            LogConnectThrew(_logger, handle, ex);
             // M1 fix: dispose the channel if RegisterChannel or any
             // subsequent step threw after ConnectAsync succeeded. Without
             // this, the channel (and its CTS + read-loop task) leaks until
