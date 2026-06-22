@@ -89,6 +89,12 @@ public sealed partial class TraceViewModel : ObservableObject
     [ObservableProperty]
     private string _highlightText = "";
 
+    /// <summary>
+    /// When true, only error frames are shown in the trace.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showErrorsOnly;
+
     // Per-message-ID counter. Key = raw CAN ID.
     private readonly Dictionary<uint, long> _messageCounts = new();
 
@@ -119,6 +125,13 @@ public sealed partial class TraceViewModel : ObservableObject
                         FilteredCount++;
                         continue;
                     }
+                }
+
+                // v0.9.2: error-only filter.
+                if (ShowErrorsOnly && !f.IsError)
+                {
+                    FilteredCount++;
+                    continue;
                 }
                 Entries.Add(new TraceEntry
                 {
