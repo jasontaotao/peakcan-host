@@ -76,6 +76,14 @@ public sealed partial class DbcViewModel : ObservableObject
     /// <summary>Filtered view of Messages based on SearchText.</summary>
     public ObservableCollection<DbcMessageViewModel> FilteredMessages { get; } = new();
 
+    /// <summary>Total number of messages in the loaded DBC.</summary>
+    [ObservableProperty]
+    private int _totalMessages;
+
+    /// <summary>Total number of signals across all messages.</summary>
+    [ObservableProperty]
+    private int _totalSignals;
+
     public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger,
                         IFileDialogService? fileDialog = null)
     {
@@ -131,8 +139,10 @@ public sealed partial class DbcViewModel : ObservableObject
             _signals.Reset();
             // v0.6.0: wire DBC service for value-table lookups.
             _signals.SetDbcService(_svc);
+            TotalMessages = doc.Messages.Count;
+            TotalSignals = doc.Messages.Sum(m => m.Signals.Count);
             var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
-            Status = $"Loaded {doc.Messages.Count} messages from {fileName}";
+            Status = $"Loaded {TotalMessages} messages, {TotalSignals} signals from {fileName}";
         })).RunOnUi();
     }
 

@@ -11,6 +11,10 @@
             <Button Content="Open DBC..." Command="{Binding OpenCommand}" Width="100" />
             <Button Content="Export CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="8,0,0,0" />
             <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" />
+            <TextBlock Text="  Messages: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
+            <TextBlock Text="{Binding TotalMessages}" VerticalAlignment="Center" />
+            <TextBlock Text="  Signals: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text="{Binding TotalSignals}" VerticalAlignment="Center" />
         </StackPanel>
         <!-- Search bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
