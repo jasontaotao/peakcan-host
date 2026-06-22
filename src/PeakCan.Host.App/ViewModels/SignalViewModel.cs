@@ -228,6 +228,12 @@ public sealed class SignalViewModel : ObservableObject
         {
             if (Latest[i].Message == entry.Message && Latest[i].Signal == entry.Signal)
             {
+                // v0.8.0: preserve the chart checkbox state across
+                // frame updates. The new entry is built fresh by
+                // ApplyFrame with IsSelected=false; carry over the
+                // user's selection so the chart doesn't lose signals
+                // on every frame.
+                entry.IsSelected = Latest[i].IsSelected;
                 Latest[i] = entry;
                 return;
             }

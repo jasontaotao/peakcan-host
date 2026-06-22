@@ -254,4 +254,24 @@ public class SignalViewModelTests
         chartVm.SignalCount.Should().Be(0);
         vm.Latest.Should().BeEmpty();
     }
+
+    [Fact]
+    public void ApplyFrame_Preserves_IsSelected_Across_Frames()
+    {
+        // v0.8.0 fix: Upsert must carry over IsSelected from the
+        // existing entry so the chart checkbox doesn't reset on every
+        // frame update.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+        var frame1 = MakeFrame(0x100, 0x10);
+        var frame2 = MakeFrame(0x100, 0x20);
+
+        vm.ApplyFrame(frame1, msg);
+        vm.Latest[0].IsSelected = true;  // user checks the checkbox
+
+        vm.ApplyFrame(frame2, msg);
+
+        vm.Latest.Should().HaveCount(1);
+        vm.Latest[0].IsSelected.Should().BeTrue("checkbox state must survive frame updates");
+    }
 }
