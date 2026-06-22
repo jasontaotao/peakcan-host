@@ -208,8 +208,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **373 pass + 1 SKIP** across Core (155) / Infrastructure (74) /
-App (142 + 1 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
+Output: **370 pass + 4 SKIP** across Core (155) / Infrastructure (74) /
+App (141 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
