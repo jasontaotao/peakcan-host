@@ -82,6 +82,13 @@ public sealed partial class TraceViewModel : ObservableObject
     [ObservableProperty]
     private long _totalFrameCount;
 
+    /// <summary>
+    /// Hex prefix for highlighting matching rows. Empty = no highlight.
+    /// Matching rows get <see cref="TraceEntry.IsHighlighted"/> = true.
+    /// </summary>
+    [ObservableProperty]
+    private string _highlightText = "";
+
     // Per-message-ID counter. Key = raw CAN ID.
     private readonly Dictionary<uint, long> _messageCounts = new();
 
@@ -135,6 +142,31 @@ public sealed partial class TraceViewModel : ObservableObject
         FilteredCount = 0;
         TotalFrameCount = 0;
         _messageCounts.Clear();
+    }
+
+    /// <summary>
+    /// Called when <see cref="HighlightText"/> changes. Updates
+    /// <see cref="TraceEntry.IsHighlighted"/> on all entries.
+    /// </summary>
+    partial void OnHighlightTextChanged(string value) => ApplyHighlight();
+
+    private void ApplyHighlight()
+    {
+        var pattern = HighlightText.AsSpan().Trim();
+        foreach (var entry in Entries)
+        {
+            if (pattern.Length == 0)
+            {
+                entry.IsHighlighted = false;
+            }
+            else
+            {
+                var idHex = entry.Id.Raw.ToString("X",
+                    System.Globalization.CultureInfo.InvariantCulture);
+                entry.IsHighlighted = idHex.StartsWith(pattern,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
     }
 
     /// <summary>

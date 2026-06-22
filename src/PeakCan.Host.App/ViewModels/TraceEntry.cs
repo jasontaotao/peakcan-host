@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -11,8 +12,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// DataGrid binding does not need a <c>IValueConverter</c> — keeping the
 /// view-model layer free of UI-framework concerns.
 /// </para>
+/// <para>
+/// <b>v0.9.2:</b> <see cref="IsHighlighted"/> is mutable for
+/// highlight-on-match functionality. Fires
+/// <see cref="PropertyChanged"/> when toggled.
+/// </para>
 /// </summary>
-public sealed class TraceEntry
+public sealed class TraceEntry : INotifyPropertyChanged
 {
     /// <summary>Frame timestamp as reported by the SDK (formatted by <see cref="Timestamp.ToString"/>).</summary>
     public Timestamp Timestamp { get; init; }
@@ -37,4 +43,25 @@ public sealed class TraceEntry
 
     /// <summary>True iff this row uses the CAN FD frame format (up to 64-byte payloads).</summary>
     public bool IsFd { get; init; }
+
+    /// <summary>
+    /// Whether this row is highlighted (e.g. matching a highlight filter).
+    /// Used by the view to apply a background color.
+    /// </summary>
+    public bool IsHighlighted
+    {
+        get => _isHighlighted;
+        set
+        {
+            if (_isHighlighted != value)
+            {
+                _isHighlighted = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHighlighted)));
+            }
+        }
+    }
+    private bool _isHighlighted;
+
+    /// <summary>Fires when <see cref="IsHighlighted"/> changes.</summary>
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

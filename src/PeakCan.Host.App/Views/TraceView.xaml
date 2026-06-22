@@ -16,6 +16,11 @@
             <TextBlock Text="  Total: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
             <TextBlock Text="{Binding TotalFrameCount}" VerticalAlignment="Center" />
         </StackPanel>
+        <!-- v0.9.2: highlight bar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,4">
+            <TextBlock Text="Highlight (hex prefix):" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding HighlightText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
+        </StackPanel>
         <DataGrid ItemsSource="{Binding Entries}"
               AutoGenerateColumns="False"
               IsReadOnly="True"
@@ -27,6 +32,15 @@
               ScrollViewer.CanContentScroll="True"
               RowHeight="20"
               AlternatingRowBackground="#F8F8F8">
+        <DataGrid.RowStyle>
+            <Style TargetType="DataGridRow">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                        <Setter Property="Background" Value="#FFFDE7" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </DataGrid.RowStyle>
         <DataGrid.Columns>
             <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="120" />
             <DataGridTextColumn Header="Ch" Binding="{Binding Channel}" Width="60" />
