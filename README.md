@@ -4,7 +4,7 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.9.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.9.1 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
@@ -198,6 +198,13 @@ writeup. Summary:
   on the Trace filter bar.
 - **DBC message search** — search bar on the DBC tab filters
   messages by name or sender (case-insensitive substring).
+
+## v0.9.1 (Signal + DBC detail polish)
+
+- **Signal search filter** — search bar on the Signal tab filters
+  signals by message or signal name (case-insensitive substring).
+- **DBC signal details** — expand a message row to see its signal
+  list with name, unit, mux status, and bit layout.
 
 ## Prerequisites
 
