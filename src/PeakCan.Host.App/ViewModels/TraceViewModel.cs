@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -149,7 +150,8 @@ public sealed partial class TraceViewModel : ObservableObject
     }
 
     /// <summary>Clear the trace entries and reset the filter counter.</summary>
-    public void Clear()
+    [RelayCommand]
+    private void Clear()
     {
         Entries.Clear();
         FilteredCount = 0;

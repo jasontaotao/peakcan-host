@@ -148,7 +148,7 @@ public class TraceViewModelTests
     public void Clear_Resets_All_Counters()
     {
         var vm = new TraceViewModel();
-        vm.Clear();
+        vm.ClearCommand.Execute(null);
         vm.TotalFrameCount.Should().Be(0);
         vm.FilteredCount.Should().Be(0);
         vm.GetMessageIdStats().Should().BeEmpty();
