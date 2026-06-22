@@ -76,6 +76,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly SignalViewModel _signalViewModel;
     private readonly StatsViewModel _statsViewModel;
     private readonly ScriptViewModel _scriptViewModel;
+    private readonly UdsViewModel _udsViewModel;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -87,6 +88,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private SignalView? _signalView;
     private StatsView? _statsView;
     private ScriptView? _scriptView;
+    private UdsView? _udsView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -181,6 +183,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         SignalViewModel signalViewModel,
         StatsViewModel statsViewModel,
         ScriptViewModel scriptViewModel,
+        UdsViewModel udsViewModel,
         IChannelEnumerator? channelEnumerator = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
@@ -194,6 +197,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
         _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
+        _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -280,6 +284,18 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _scriptView;
         }
         CurrentView = _scriptView;
+    }
+
+    [RelayCommand]
+    private void ShowUds()
+    {
+        // v1.1.0: UDS diagnostic tab. Same lazy-view pattern.
+        if (_udsView == null)
+        {
+            _udsView = new UdsView { DataContext = _udsViewModel };
+            if (CurrentView == null) CurrentView = _udsView;
+        }
+        CurrentView = _udsView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

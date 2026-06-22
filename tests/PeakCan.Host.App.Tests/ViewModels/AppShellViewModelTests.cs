@@ -5,6 +5,8 @@ using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds;
+using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -57,8 +59,12 @@ public class AppShellViewModelTests
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 
-    private static AppShellViewModel NewVm() =>
-        new(new ChannelRouter(),
+    private static AppShellViewModel NewVm()
+    {
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
+        return new AppShellViewModel(
+            new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
@@ -71,7 +77,9 @@ public class AppShellViewModelTests
             new SignalViewModel(),
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
-                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+    }
 
     /// <summary>
     /// Run <paramref name="body"/> on an STA thread because the view
@@ -356,6 +364,8 @@ public class AppShellViewModelTests
         // transmit. Without PEAK hardware, the probe fails and the
         // connect path cannot run; covered manually.
         var svc = new SendService(NullLogger<SendService>.Instance);
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
         var vm = new AppShellViewModel(
             new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
@@ -370,7 +380,8 @@ public class AppShellViewModelTests
             new SignalViewModel(),
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
-                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -417,8 +428,12 @@ public class AppShellViewModelTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private static AppShellViewModel NewVmWithFactory(IChannelFactory factory) =>
-        new(new ChannelRouter(),
+    private static AppShellViewModel NewVmWithFactory(IChannelFactory factory)
+    {
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
+        return new AppShellViewModel(
+            new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
@@ -431,7 +446,9 @@ public class AppShellViewModelTests
             new SignalViewModel(),
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
-                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+    }
 
     [Fact]
     public async Task ConnectCommand_Through_Fake_Factory_Sets_IsConnected_True()
@@ -522,6 +539,8 @@ public class AppShellViewModelTests
         var router = new ChannelRouter();
         var sendSvc = new SendService(NullLogger<SendService>.Instance);
         var factory = new ThrowingChannelFactory();
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
         var vm = new AppShellViewModel(
             router,
             NullLogger<AppShellViewModel>.Instance,
@@ -536,7 +555,8 @@ public class AppShellViewModelTests
             new SignalViewModel(),
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
-                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -734,8 +754,12 @@ public class AppShellViewModelTests
 
     private static AppShellViewModel NewVmWithEnumerator(
         Core.IChannelEnumerator enumerator,
-        IChannelFactory? factory = null) =>
-        new(new ChannelRouter(),
+        IChannelFactory? factory = null)
+    {
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
+        return new AppShellViewModel(
+            new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
@@ -749,7 +773,9 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient),
             enumerator);
+    }
 
     [Fact]
     public void EnumerateChannels_With_Enumerator_Populates_AvailableChannels()

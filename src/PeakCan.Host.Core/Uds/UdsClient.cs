@@ -1,0 +1,402 @@
+using System.Collections.Concurrent;
+using PeakCan.Host.Core.Uds.IsoTp;
+
+namespace PeakCan.Host.Core.Uds;
+
+/// <summary>
+/// UDS (Unified Diagnostic Services) client implementing ISO 14229.
+/// Provides high-level API for diagnostic operations.
+/// <para>
+/// <b>Thread-safety:</b> This class is thread-safe. Requests are
+/// serialized internally to prevent overlapping request/response pairs.
+/// </para>
+/// </summary>
+public sealed class UdsClient : IDisposable
+{
+    private readonly IsoTpLayer _isoTp;
+    private readonly UdsTimer _timer;
+    private readonly SemaphoreSlim _requestLock = new(1, 1);
+
+    // Response correlation
+    private TaskCompletionSource<byte[]>? _responseTcs;
+    private CancellationTokenSource? _responseCts;
+
+    /// <summary>Current diagnostic session.</summary>
+    public UdsSession Session { get; } = new();
+
+    /// <summary>Security access state.</summary>
+    public UdsSecurity Security { get; }
+
+    /// <summary>Create a new UDS client.</summary>
+    /// <param name="isoTp">ISO-TP transport layer.</param>
+    /// <param name="timer">UDS timer for timeout management.</param>
+    public UdsClient(IsoTpLayer isoTp, UdsTimer? timer = null)
+    {
+        ArgumentNullException.ThrowIfNull(isoTp);
+
+        _isoTp = isoTp;
+        _timer = timer ?? new UdsTimer();
+        Security = new UdsSecurity();
+
+        // Subscribe to ISO-TP messages
+        _isoTp.MessageReceived += OnMessageReceived;
+    }
+
+    /// <summary>
+    /// Send a UDS service request and wait for response.
+    /// </summary>
+    /// <param name="serviceId">Service ID (SID).</param>
+    /// <param name="data">Service data (excluding SID).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Response bytes (excluding SID + 0x40).</returns>
+    public async Task<byte[]> SendRequestAsync(byte serviceId, byte[]? data = null, CancellationToken ct = default)
+    {
+        // Build request: SID + data
+        byte[] request;
+        if (data is null)
+        {
+            request = [serviceId];
+        }
+        else
+        {
+            request = new byte[1 + data.Length];
+            request[0] = serviceId;
+            Array.Copy(data, 0, request, 1, data.Length);
+        }
+
+        // Serialize requests to prevent overlapping
+        await _requestLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await SendRequestInternalAsync(request, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _requestLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// DiagnosticSessionControl (0x10).
+    /// </summary>
+    /// <param name="sessionType">Session type (1=Default, 2=Extended, 3=Programming).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync(0x10, new byte[] { sessionType }, ct).ConfigureAwait(false);
+
+        // Parse response: [sessionType, P2high, P2low, P2*high, P2*low]
+        if (response.Length < 5)
+            throw new UdsException("Invalid DiagnosticSessionControl response");
+
+        var result = new DiagnosticSessionResponse
+        {
+            SessionType = response[0],
+            P2 = (response[1] << 8) | response[2],
+            P2Star = (response[3] << 8) | response[4]
+        };
+
+        Session.SetSession(result.SessionType, result.P2, result.P2Star);
+        return result;
+    }
+
+    /// <summary>
+    /// ECUReset (0x11).
+    /// </summary>
+    /// <param name="resetType">Reset type (1=Hard, 2=KeyOff, 3=Soft).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync(0x11, new byte[] { resetType }, ct).ConfigureAwait(false);
+        return response[0];
+    }
+
+    /// <summary>
+    /// ReadDataByIdentifier (0x22).
+    /// </summary>
+    /// <param name="did">Data Identifier (2 bytes).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>DID data bytes.</returns>
+    public async Task<byte[]> ReadDataByIdentifierAsync(ushort did, CancellationToken ct = default)
+    {
+        var didBytes = new byte[] { (byte)(did >> 8), (byte)(did & 0xFF) };
+        var response = await SendRequestAsync(0x22, didBytes, ct).ConfigureAwait(false);
+
+        // Response: [DIDhigh, DIDlow, data...]
+        if (response.Length < 3)
+            throw new UdsException("Invalid ReadDataByIdentifier response");
+
+        return response[2..];
+    }
+
+    /// <summary>
+    /// WriteDataByIdentifier (0x2E).
+    /// </summary>
+    /// <param name="did">Data Identifier (2 bytes).</param>
+    /// <param name="data">Data to write.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task WriteDataByIdentifierAsync(ushort did, byte[] data, CancellationToken ct = default)
+    {
+        var request = new byte[2 + data.Length];
+        request[0] = (byte)(did >> 8);
+        request[1] = (byte)(did & 0xFF);
+        Array.Copy(data, 0, request, 2, data.Length);
+
+        await SendRequestAsync(0x2E, request, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SecurityAccess (0x27).
+    /// </summary>
+    /// <param name="level">Security level (1=RequestSeed, 3=RequestSeed, ...).</param>
+    /// <param name="key">Security key (for SendKey).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Seed bytes (for RequestSeed) or success (for SendKey).</returns>
+    public async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
+    {
+        byte[] requestData;
+        byte subFunction;
+
+        if (key is null)
+        {
+            // RequestSeed
+            subFunction = level;
+            requestData = [subFunction];
+        }
+        else
+        {
+            // SendKey
+            subFunction = (byte)(level + 1);
+            requestData = new byte[1 + key.Length];
+            requestData[0] = subFunction;
+            Array.Copy(key, 0, requestData, 1, key.Length);
+        }
+
+        var response = await SendRequestAsync(0x27, requestData, ct).ConfigureAwait(false);
+
+        if (key is null)
+        {
+            // Seed response: [level, seed...]
+            Security.SetSeed(level, response[1..]);
+            return response[1..];
+        }
+        else
+        {
+            // Key response: success (empty or level)
+            Security.SetAuthenticated(level);
+            return response;
+        }
+    }
+
+    /// <summary>
+    /// TesterPresent (0x3E).
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task TesterPresentAsync(CancellationToken ct = default)
+    {
+        await SendRequestAsync(0x3E, [0x00], ct).ConfigureAwait(false);
+        Session.ResetS3Timer();
+    }
+
+    /// <summary>
+    /// RoutineControl (0x31).
+    /// </summary>
+    /// <param name="routineControlType">Type (1=Start, 2=Stop, 3=QueryResult).</param>
+    /// <param name="routineId">Routine ID (2 bytes).</param>
+    /// <param name="data">Optional routine data.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Routine result bytes.</returns>
+    public async Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data = null, CancellationToken ct = default)
+    {
+        var requestData = new byte[3 + (data?.Length ?? 0)];
+        requestData[0] = routineControlType;
+        requestData[1] = (byte)(routineId >> 8);
+        requestData[2] = (byte)(routineId & 0xFF);
+        if (data is not null)
+            Array.Copy(data, 0, requestData, 3, data.Length);
+
+        var response = await SendRequestAsync(0x31, requestData, ct).ConfigureAwait(false);
+
+        // Response: [routineControlType, routineIdhigh, routineIdlow, result...]
+        if (response.Length < 3)
+            throw new UdsException("Invalid RoutineControl response");
+
+        return response[3..];
+    }
+
+    /// <summary>
+    /// RequestDownload (0x34).
+    /// </summary>
+    /// <param name="address">Memory address.</param>
+    /// <param name="length">Data length.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Block length for TransferData.</returns>
+    public async Task<int> RequestDownloadAsync(uint address, uint length, CancellationToken ct = default)
+    {
+        // Format: [dataFormatId, addressAndLengthFormatId, address..., length...]
+        // Simplified: 4-byte address, 4-byte length
+        var requestData = new byte[10];
+        requestData[0] = 0x00; // No compression, no encryption
+        requestData[1] = 0x44; // 4-byte address, 4-byte length
+        requestData[2] = (byte)(address >> 24);
+        requestData[3] = (byte)((address >> 16) & 0xFF);
+        requestData[4] = (byte)((address >> 8) & 0xFF);
+        requestData[5] = (byte)(address & 0xFF);
+        requestData[6] = (byte)(length >> 24);
+        requestData[7] = (byte)((length >> 16) & 0xFF);
+        requestData[8] = (byte)((length >> 8) & 0xFF);
+        requestData[9] = (byte)(length & 0xFF);
+
+        var response = await SendRequestAsync(0x34, requestData, ct).ConfigureAwait(false);
+
+        // Response: [dataFormatId, lengthFormatId, maxLength...]
+        if (response.Length < 3)
+            throw new UdsException("Invalid RequestDownload response");
+
+        // Parse max block length (simplified: assume 4-byte)
+        int blockLength = (response[2] << 24) | (response[3] << 16) | (response[4] << 8) | response[5];
+        return blockLength;
+    }
+
+    /// <summary>
+    /// TransferData (0x36).
+    /// </summary>
+    /// <param name="blockSequenceCounter">Block sequence counter (1-255).</param>
+    /// <param name="data">Data to transfer.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task TransferDataAsync(byte blockSequenceCounter, byte[] data, CancellationToken ct = default)
+    {
+        var requestData = new byte[1 + data.Length];
+        requestData[0] = blockSequenceCounter;
+        Array.Copy(data, 0, requestData, 1, data.Length);
+
+        await SendRequestAsync(0x36, requestData, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// RequestTransferExit (0x37).
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task RequestTransferExitAsync(CancellationToken ct = default)
+    {
+        await SendRequestAsync(0x37, null, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ReadDTCInformation (0x19).
+    /// </summary>
+    /// <param name="subFunction">Sub-function (e.g., 0x02 = ReadDTCByStatusMask).</param>
+    /// <param name="mask">DTC status mask.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>DTC data bytes.</returns>
+    public async Task<byte[]> ReadDtcInformationAsync(byte subFunction, byte mask = 0xFF, CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync(0x19, [subFunction, mask], ct).ConfigureAwait(false);
+        return response;
+    }
+
+    /// <summary>
+    /// ClearDiagnosticInformation (0x14).
+    /// </summary>
+    /// <param name="groupOfDtc">DTC group (0xFFFFFF = all).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task ClearDiagnosticInformationAsync(uint groupOfDtc = 0xFFFFFF, CancellationToken ct = default)
+    {
+        var requestData = new byte[3];
+        requestData[0] = (byte)(groupOfDtc >> 16);
+        requestData[1] = (byte)((groupOfDtc >> 8) & 0xFF);
+        requestData[2] = (byte)(groupOfDtc & 0xFF);
+
+        await SendRequestAsync(0x14, requestData, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Start automatic TesterPresent.</summary>
+    public void StartTesterPresent(TimeSpan? interval = null)
+    {
+        Session.StartS3KeepAlive(this, interval);
+    }
+
+    /// <summary>Stop automatic TesterPresent.</summary>
+    public void StopTesterPresent()
+    {
+        Session.StopS3KeepAlive();
+    }
+
+    public void Dispose()
+    {
+        _isoTp.MessageReceived -= OnMessageReceived;
+        _requestLock.Dispose();
+        _responseCts?.Dispose();
+        Session.Dispose();
+    }
+
+    private async Task<byte[]> SendRequestInternalAsync(byte[] request, CancellationToken ct)
+    {
+        _responseTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _responseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        // Register timeout
+        _responseCts.CancelAfter(_timer.P2Timeout);
+
+        try
+        {
+            // Send via ISO-TP
+            await _isoTp.SendMessageAsync(request, ct).ConfigureAwait(false);
+
+            // Wait for response
+            var response = await _responseTcs.Task.ConfigureAwait(false);
+            return response;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new UdsException("UDS response timeout");
+        }
+        finally
+        {
+            _responseCts.Dispose();
+            _responseCts = null;
+        }
+    }
+
+    private void OnMessageReceived(byte[] data)
+    {
+        if (data.Length < 1)
+            return;
+
+        byte sid = data[0];
+
+        // Check for negative response (0x7F)
+        if (sid == 0x7F && data.Length >= 3)
+        {
+            byte requestedSid = data[1];
+            byte nrc = data[2];
+
+            // Handle NRC 0x78 (requestCorrectlyReceivedResponsePending)
+            if (nrc == 0x78)
+            {
+                // Extend timeout to P2*
+                _responseCts?.CancelAfter(_timer.P2StarTimeout);
+                return;
+            }
+
+            // Other NRCs: complete with error
+            _responseTcs?.TrySetException(new UdsNegativeResponseException(requestedSid, (UdsNegativeResponseCode)nrc));
+            return;
+        }
+
+        // Positive response: SID + 0x40
+        if (data.Length >= 2)
+        {
+            byte responseData = data[1..][0]; // Skip SID byte
+            _responseTcs?.TrySetResult(data[1..]);
+        }
+    }
+}
+
+/// <summary>DiagnosticSessionControl response.</summary>
+public sealed record DiagnosticSessionResponse
+{
+    public byte SessionType { get; init; }
+    public int P2 { get; init; }
+    public int P2Star { get; init; }
+}

@@ -132,6 +132,25 @@ public static class AppHostBuilder
                 engine);
         });
 
+        // v1.1.0: UDS diagnostic stack.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsTimer>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>(sp =>
+        {
+            var config = new PeakCan.Host.Core.Uds.IsoTp.CanIdConfig
+            {
+                RequestId = 0x7E0,  // Default UDS physical request ID
+                ResponseId = 0x7E8  // Default UDS physical response ID
+            };
+            var sendService = sp.GetRequiredService<SendService>();
+            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, frame =>
+            {
+                // Fire-and-forget send (simplified for MVP)
+                sendService.SendAsync(frame).AsTask().Wait();
+            });
+        });
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>();
+        builder.Services.AddSingleton<UdsViewModel>();
+
         // ViewModels
         builder.Services.AddSingleton<AppShellViewModel>();
         builder.Services.AddSingleton<TraceViewModel>();
