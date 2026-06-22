@@ -4,7 +4,7 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.9.2 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.10.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
@@ -212,6 +212,20 @@ writeup. Summary:
   enter a hex prefix to highlight matching rows with a yellow
   background (`#FFFDE7`). Matching is by CAN ID hex prefix
   (case-insensitive).
+
+## v0.10.0 (Trace polish)
+
+- **Error frame highlight** — error rows get red background
+  (`#FFCDD2`); FD rows get blue (`#E3F2FD`); highlight yellow
+  (`#FFFDE7`). Priority: error > FD > highlight.
+- **Frame type column** — "Type" column shows "FD", "ERR", or "".
+- **Errors-only filter** — checkbox to show only error frames.
+- **Pause** — checkbox to freeze the trace display while counters
+  still update.
+- **Clear button** — clears all trace entries and resets counters.
+- **Export CSV** — exports current trace entries to CSV file.
+- **Auto-scroll** — automatically scrolls to newest rows when at
+  the bottom; pauses when user scrolls up.
 
 ## Prerequisites
 
