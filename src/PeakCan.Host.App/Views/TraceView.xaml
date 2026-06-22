@@ -38,6 +38,9 @@
                     <DataTrigger Binding="{Binding IsError}" Value="True">
                         <Setter Property="Background" Value="#FFCDD2" />
                     </DataTrigger>
+                    <DataTrigger Binding="{Binding IsFd}" Value="True">
+                        <Setter Property="Background" Value="#E3F2FD" />
+                    </DataTrigger>
                     <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
                         <Setter Property="Background" Value="#FFFDE7" />
                     </DataTrigger>
