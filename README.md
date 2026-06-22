@@ -251,6 +251,25 @@ writeup. Summary:
   frame logger, DBC signal monitor, periodic send, request-response,
   signal statistics, bus load generator.
 
+## v1.1.0 (UDS Diagnostic Stack)
+
+- **ISO 15765-2 (ISO-TP)** — segmented message transport over CAN with
+  Single/First/Consecutive/Flow Control frames.
+- **ISO 14229 (UDS)** — all mandatory diagnostic services:
+  * DiagnosticSessionControl (0x10) — Default/Extended/Programming sessions
+  * ECUReset (0x11) — Hard/Soft/Power-Down reset
+  * ReadDataByIdentifier (0x22) — read DID values
+  * WriteDataByIdentifier (0x2E) — write DID values
+  * SecurityAccess (0x27) — seed/key authentication
+  * TesterPresent (0x3E) — session keep-alive
+  * RoutineControl (0x31) — start/stop/query routines
+  * ReadDTCInformation (0x19) — read diagnostic trouble codes
+  * ClearDiagnosticInformation (0x14) — clear DTCs
+  * RequestDownload/TransferData/RequestTransferExit (0x34/0x36/0x37) — flash programming
+- **Session management** — automatic session state tracking
+- **Security access** — seed/key exchange with configurable algorithms
+- **UDS tab** — DID read/write, routine execution, DTC list with clear
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
