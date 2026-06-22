@@ -255,7 +255,7 @@ See the spec §"DBC parser scope" for the full subset.
 | **`Peak.PCANBasic.NET` 5.0.1** (not `Peak.Can.Basic`) | The legacy `Peak.Can.Basic` NuGet package is not findable on nuget.org. `Peak.PCANBasic.NET` is the PEAK-System-official replacement (127k downloads). |
 | **OxyPlot.Wpf 2.2.0** (not LiveChartsCore 2.0.4) | LiveCharts 2.0.4's native dependencies (OpenTK + SkiaSharp.Views.WPF) target .NET Framework only and fail at runtime on .NET 10. OxyPlot is pure-managed and works. |
 | **Single hardcoded channel (`0x51`)** | The MVP probes + connects the PCAN-USB FD first handle. Multi-channel enumeration added in v0.4.0. |
-| **No DDD-level IFileDialogService seam** | The `OpenFileDialog.ShowDialog` in `DbcViewModel.OpenAsync` is currently called inline; the test for the user-cancel path is `[Fact(Skip=...)]`. A service extraction is a v1.1 refactor. |
+| **`IFileDialogService` seam** | `DbcViewModel.OpenAsync` uses `IFileDialogService` (v0.7.0) instead of direct `OpenFileDialog`. Tests inject a fake; the previously-skipped cancel test is now enabled. |
 | **VMs are not `IDisposable`** | All ViewModels are DI singletons that live for the whole process. Disposing would unsubscribe from singleton services that are never disposed themselves — a latent footgun. Both VM and service die together at process exit. |
 
 ## Roadmap
