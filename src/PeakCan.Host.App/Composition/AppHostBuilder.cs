@@ -99,6 +99,39 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<DbcDecodeBackgroundService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
+        // v1.0.0: Scripting engine.
+        // ScriptEngine has a circular dependency with ScriptUtilities (ScriptEngine
+        // needs ScriptUtilities for logging, ScriptUtilities needs ScriptEngine for
+        // output routing). Break the cycle by registering ScriptEngine first with a
+        // factory that lazily resolves ScriptUtilities.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptEngine>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptEngine>>();
+            var canApi = sp.GetService<PeakCan.Host.App.Services.Scripting.CanApi>();
+            var dbcApi = sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>();
+            // ScriptUtilities will be resolved lazily to break the cycle.
+            PeakCan.Host.App.Services.Scripting.ScriptUtilities? utilities = null;
+            var engine = new PeakCan.Host.App.Services.Scripting.ScriptEngine(logger, canApi, dbcApi, null);
+            // Now create ScriptUtilities with the engine reference.
+            utilities = new PeakCan.Host.App.Services.Scripting.ScriptUtilities(
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptUtilities>>(),
+                engine);
+            // Update the engine's utilities field via reflection.
+            var field = typeof(PeakCan.Host.App.Services.Scripting.ScriptEngine)
+                .GetField("_utilities", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            field?.SetValue(engine, utilities);
+            return engine;
+        });
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.CanApi>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.DbcApi>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(sp =>
+        {
+            var engine = sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngine>();
+            return new PeakCan.Host.App.Services.Scripting.ScriptUtilities(
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptUtilities>>(),
+                engine);
+        });
+
         // ViewModels
         builder.Services.AddSingleton<AppShellViewModel>();
         builder.Services.AddSingleton<TraceViewModel>();
@@ -109,6 +142,7 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<SignalChartViewModel>();
         builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<StatsViewModel>();
+        builder.Services.AddSingleton<ScriptViewModel>();
 
         // Windows: AppShell is a WPF Window whose ctor requires an STA thread
         // (xunit's MTA threadpool cannot instantiate it). Register via a

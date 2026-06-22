@@ -75,6 +75,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly SendViewModel _sendViewModel;
     private readonly SignalViewModel _signalViewModel;
     private readonly StatsViewModel _statsViewModel;
+    private readonly ScriptViewModel _scriptViewModel;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -85,6 +86,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private SendView? _sendView;
     private SignalView? _signalView;
     private StatsView? _statsView;
+    private ScriptView? _scriptView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -178,6 +180,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         SendViewModel sendViewModel,
         SignalViewModel signalViewModel,
         StatsViewModel statsViewModel,
+        ScriptViewModel scriptViewModel,
         IChannelEnumerator? channelEnumerator = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
@@ -190,6 +193,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
+        _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -262,6 +266,20 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _statsView;
         }
         CurrentView = _statsView;
+    }
+
+    [RelayCommand]
+    private void ShowScript()
+    {
+        // v1.0.0: Script tab (JavaScript automation). Same lazy-view
+        // pattern as ShowStats / ShowSignals. The ScriptView hosts a
+        // WebView2 with CodeMirror 6 editor and an output panel.
+        if (_scriptView == null)
+        {
+            _scriptView = new ScriptView { DataContext = _scriptViewModel };
+            if (CurrentView == null) CurrentView = _scriptView;
+        }
+        CurrentView = _scriptView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

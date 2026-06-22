@@ -1,0 +1,128 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Scripting;
+using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.Channel;
+using Xunit;
+
+namespace PeakCan.Host.App.Tests.Services.Scripting;
+
+/// <summary>
+/// Unit tests for <see cref="ScriptEngine"/>.
+/// </summary>
+public sealed class ScriptEngineTests : IDisposable
+{
+    private readonly ILogger<ScriptEngine> _logger = Substitute.For<ILogger<ScriptEngine>>();
+    private readonly ScriptEngine _engine;
+
+    public ScriptEngineTests()
+    {
+        // Create a ScriptEngine with null dependencies for testing.
+        // The engine will only use basic JS execution, not the can/dbc APIs.
+        _engine = new ScriptEngine(_logger, null, null, null);
+    }
+
+    [Fact]
+    public async Task RunAsync_SimpleScript_ReturnsSuccess()
+    {
+        // Arrange
+        var script = "var x = 1 + 2;";
+
+        // Act
+        var result = await _engine.RunAsync(script);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public async Task RunAsync_ScriptWithSyntaxError_ReturnsFailure()
+    {
+        // Arrange
+        var script = "function {";
+
+        // Act
+        var result = await _engine.RunAsync(script);
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.NotNull(result.Error);
+        Assert.Equal(ScriptErrorType.Runtime, result.ErrorType);
+    }
+
+    [Fact]
+    public async Task RunAsync_ScriptWithRuntimeError_ReturnsFailure()
+    {
+        // Arrange
+        var script = "throw new Error('Test error');";
+
+        // Act
+        var result = await _engine.RunAsync(script);
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.Contains("Test error", result.Error);
+    }
+
+    [Fact]
+    public async Task RunAsync_ScriptWithTimeout_ReturnsTimeoutError()
+    {
+        // Arrange
+        var script = "while(true) {}";
+        var timeout = TimeSpan.FromMilliseconds(100);
+
+        // Act
+        var result = await _engine.RunAsync(script, timeout: timeout);
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.Equal(ScriptErrorType.Timeout, result.ErrorType);
+    }
+
+    [Fact]
+    public async Task RunAsync_ScriptWithCancellation_ReturnsTimeoutError()
+    {
+        // Arrange
+        var script = "while(true) {}";
+        var cts = new CancellationTokenSource();
+        cts.CancelAfter(100);
+
+        // Act
+        var result = await _engine.RunAsync(script, ct: cts.Token);
+
+        // Assert
+        Assert.False(result.Success);
+        // Note: Cancellation triggers timeout because the engine interrupts
+        // the script when the CTS fires, which looks like a timeout to V8.
+        Assert.Equal(ScriptErrorType.Timeout, result.ErrorType);
+    }
+
+    [Fact]
+    public void IsRunning_ReturnsFalseWhenNoScriptRunning()
+    {
+        // Assert
+        Assert.False(_engine.IsRunning);
+    }
+
+    [Fact]
+    public void Stop_DoesNotThrowWhenNoScriptRunning()
+    {
+        // Act & Assert
+        _engine.Stop();
+    }
+
+    [Fact]
+    public void Dispose_DoesNotThrow()
+    {
+        // Act & Assert
+        _engine.Dispose();
+    }
+
+    public void Dispose()
+    {
+        _engine.Dispose();
+    }
+}

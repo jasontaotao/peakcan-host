@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
@@ -68,7 +69,9 @@ public class AppShellViewModelTests
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
-            new StatsViewModel());
+            new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
 
     /// <summary>
     /// Run <paramref name="body"/> on an STA thread because the view
@@ -365,7 +368,9 @@ public class AppShellViewModelTests
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(svc, NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
-            new StatsViewModel());
+            new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -424,7 +429,9 @@ public class AppShellViewModelTests
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
-            new StatsViewModel());
+            new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
 
     [Fact]
     public async Task ConnectCommand_Through_Fake_Factory_Sets_IsConnected_True()
@@ -527,7 +534,9 @@ public class AppShellViewModelTests
                              NullLogger<DbcViewModel>.Instance),
             new SendViewModel(sendSvc, NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
-            new StatsViewModel());
+            new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -738,6 +747,8 @@ public class AppShellViewModelTests
             new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
             new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
             enumerator);
 
     [Fact]

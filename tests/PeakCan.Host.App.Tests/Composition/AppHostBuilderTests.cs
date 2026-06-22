@@ -63,6 +63,7 @@ public class AppHostBuilderTests
         host.Services.GetService<DbcViewModel>().Should().NotBeNull();
         host.Services.GetService<SignalViewModel>().Should().NotBeNull();
         host.Services.GetService<StatsViewModel>().Should().NotBeNull();
+        host.Services.GetService<ScriptViewModel>().Should().NotBeNull();
     }
 
     [Fact]

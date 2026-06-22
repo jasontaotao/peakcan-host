@@ -20,6 +20,7 @@
                 <MenuItem Header="Send" Command="{Binding ShowSendCommand}" />
                 <MenuItem Header="Signals" Command="{Binding ShowSignalsCommand}" />
                 <MenuItem Header="Stats" Command="{Binding ShowStatsCommand}" />
+                <MenuItem Header="Script" Command="{Binding ShowScriptCommand}" />
             </MenuItem>
         </Menu>
         <ToolBarTray DockPanel.Dock="Top">

@@ -227,6 +227,30 @@ writeup. Summary:
 - **Auto-scroll** — automatically scrolls to newest rows when at
   the bottom; pauses when user scrolls up.
 
+## v1.0.0 (Scripting Engine)
+
+- **JavaScript scripting** — write and execute scripts to automate CAN
+  bus operations. Scripts run in a sandboxed V8 engine with no access
+  to filesystem, network, or system APIs.
+- **`can.*` API** — `can.send(id, data, options?)` to transmit frames;
+  `can.onFrame(callback)` to register callbacks for all received frames;
+  `can.onMessage(id, callback)` for specific CAN ID or hex prefix.
+- **`dbc.*` API** — `dbc.load(path)` to load DBC files;
+  `dbc.decode(frame)` to decode frames; `dbc.getSignal()` to query
+  signal values.
+- **Utility functions** — `log()`, `warn()`, `error()` for script
+  output; `delay(ms)` for async waits; `hex()`, `toHex()` for
+  formatting.
+- **Script lifecycle** — `onInit()` runs once at start; `onDispose()`
+  runs on stop for cleanup.
+- **CodeMirror 6 editor** — syntax highlighting and basic editing in
+  the Script tab (WebView2-based).
+- **Output panel** — timestamped script output with auto-scroll and
+  clear button.
+- **Example scripts** — 6 pre-built examples in `scripts/examples/`:
+  frame logger, DBC signal monitor, periodic send, request-response,
+  signal statistics, bus load generator.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -278,8 +302,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **407 pass + 6 SKIP** across Core (155) / Infrastructure (74 + 2 SKIP) /
-App (178 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
+Output: **423 pass + 6 SKIP** across Core (155) / Infrastructure (74 + 2 SKIP) /
+App (194 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 

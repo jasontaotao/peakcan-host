@@ -12,6 +12,11 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <!-- Scripting engine: V8 via ClearScript -->
+    <PackageReference Include="Microsoft.ClearScript.V8" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" />
+    <!-- WebView2 for CodeMirror editor -->
+    <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
 
   <PropertyGroup>
