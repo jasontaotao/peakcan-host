@@ -213,4 +213,36 @@ public sealed partial class TraceViewModel : ObservableObject
                 100.0 * kv.Value / TotalFrameCount))
             .ToList();
     }
+
+    /// <summary>
+    /// Export current trace entries to a CSV file.
+    /// </summary>
+    [RelayCommand]
+    private void ExportCsv()
+    {
+        if (Entries.Count == 0) return;
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv",
+            FileName = "trace-export.csv",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Time,Channel,ID,Type,DLC,Data,Decoded");
+        foreach (var e in Entries)
+        {
+            sb.AppendLine(string.Join(',',
+                e.Timestamp.ToString(),
+                e.Channel.ToString(),
+                $"0x{e.Id.Raw:X}",
+                e.FrameType,
+                e.Dlc.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                e.DataHex,
+                e.Decoded));
+        }
+        System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+    }
 }
