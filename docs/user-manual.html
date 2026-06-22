@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>PeakCan Host 用户使用手册 (v0.1.0)</title>
+<title>PeakCan Host 用户使用手册 (v0.7.0)</title>
 <style>
   :root {
     --bg: #fafafa;
@@ -64,10 +64,10 @@
   <h1>PeakCan Host — 用户使用手册</h1>
   <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控上位机</div>
   <div class="meta">
-    <span>版本：<strong>v0.1.0</strong> (MVP)</span>
+    <span>版本：<strong>v0.7.0</strong></span>
     <span>框架：WPF · .NET 10</span>
     <span>平台：Windows 10 1809+ / Windows 11</span>
-    <span>更新日期：2026-06-19</span>
+    <span>更新日期：2026-06-22</span>
   </div>
 </header>
 
@@ -101,20 +101,15 @@ CAN 总线监控、解码、手动发送与总线负载统计能力。</p>
 <h3>核心能力</h3>
 <table>
   <tr><th>能力</th><th>说明</th></tr>
-  <tr><td>硬件探测 &amp; 连接</td><td>检测 PCAN-USB FD 是否在线，以 CAN-FD 1 Mbps 打开第一路通道并接入内部帧路由器</td></tr>
-  <tr><td>Trace 视图</td><td>虚拟化 DataGrid 滚动展示所有接收到的帧（时间戳 / 通道 / ID / DLC / 十六进制数据 / 解析结果）</td></tr>
-  <tr><td>DBC 解码</td><td>解析 <code>.dbc</code> 文件并填充消息表（发送方 / DLC / 信号列表）</td></tr>
-  <tr><td>Signals 视图</td><td>对收到帧按 DBC 解码信号，实时显示原始值与物理值（已应用 factor / offset）</td></tr>
-  <tr><td>手动发送</td><td>输入 CAN ID + 十六进制数据发送；支持 CAN-FD 与 11/29-bit 切换</td></tr>
+  <tr><td>多通道探测 &amp; 连接</td><td>枚举 PCAN-USB 1–16 通道，用户可选择任意通道连接</td></tr>
+  <tr><td>Trace 视图</td><td>虚拟化 DataGrid 滚动展示所有接收到的帧（时间戳 / 通道 / ID / DLC / 十六进制数据 / 解析结果），支持 ID 前缀过滤</td></tr>
+  <tr><td>DBC 解码</td><td>解析 <code>.dbc</code> 文件并填充消息表（发送方 / DLC / 信号列表），支持多路复用信号解码</td></tr>
+  <tr><td>Signals 视图</td><td>对收到帧按 DBC 解码信号，实时显示原始值、物理值、Value-Table 解码名称</td></tr>
+  <tr><td>手动发送</td><td>输入 CAN ID + 十六进制数据发送；支持 CAN-FD 与 11/29-bit 切换；支持周期性发送</td></tr>
+  <tr><td>帧录制</td><td>将接收到的帧录制到 ASC（Vector ASCII）或 CSV 文件</td></tr>
   <tr><td>Stats 视图</td><td>1 Hz OxyPlot 折线图，显示每秒帧数与总线负载百分比，含总帧 / 错误帧计数</td></tr>
   <tr><td>滚动日志</td><td>Serilog 按天滚动写入 <code>%LocalAppData%\PeakCan.Host\logs\</code>，保留 14 天</td></tr>
 </table>
-
-<blockquote>
-<strong>当前版本 v0.1.0 为 MVP</strong>，仅支持单通道（PCAN-USB FD 第一个 handle = <code>0x51</code>）。
-多通道枚举、ASC/CSV 录制、帧过滤、循环发送、多路复用信号解码均在 v1.1 路线图中，
-详见 <a href="#faq">第 12 节</a>。
-</blockquote>
 
 <!-- =========================================================== -->
 <h2 id="install">2. 安装与前置条件</h2>
@@ -156,8 +151,8 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
   <li><strong>插上 PCAN-USB FD</strong>，确认 PEAK 驱动已正确安装（设备管理器可见"PEAK-System PCAN-USB FD"）。</li>
   <li><strong>启动 PeakCan.Host.exe</strong>，主窗口默认打开 <strong>Trace</strong> 标签页。</li>
   <li>点击工具栏上的 <strong>Probe</strong> 按钮 → 状态栏应显示
-      <code>"USB1 (1 Mbps default)"</code>，通道下拉显示同样的提示（如图 1 中状态栏所示）。</li>
-  <li>点击 <strong>Connect</strong> → 状态变为 <code>"Connected to USB1 (CAN FD 1 Mbps)"</code>。</li>
+      <code>"Detected N channel(s)"</code>，通道下拉列表显示检测到的通道。</li>
+  <li>从通道下拉列表选择要连接的通道，点击 <strong>Connect</strong> → 状态变为 <code>"Connected"</code>。</li>
   <li>（可选）菜单 <strong>File ▸ Open DBC...</strong> 选择 <code>.dbc</code> 文件 →
       <strong>Signals</strong> 标签页将随帧到达实时显示解码结果。</li>
   <li>切到 <strong>Stats</strong> 标签页，可观察 1 Hz 折线图。</li>
