@@ -13,6 +13,8 @@
             <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
             <TextBlock Text="{Binding FilteredCount}" VerticalAlignment="Center" Margin="8,0,0,0" />
             <TextBlock Text=" filtered" VerticalAlignment="Center" />
+            <TextBlock Text="  Total: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
+            <TextBlock Text="{Binding TotalFrameCount}" VerticalAlignment="Center" />
         </StackPanel>
         <DataGrid ItemsSource="{Binding Entries}"
               AutoGenerateColumns="False"
