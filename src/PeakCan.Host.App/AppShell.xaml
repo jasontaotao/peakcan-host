@@ -27,6 +27,12 @@
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
                 <Separator />
                 <Button Content="Probe" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
+                <!-- v0.4.0: channel selector (visible after probe) -->
+                <ComboBox ItemsSource="{Binding AvailableChannels}"
+                          SelectedItem="{Binding SelectedChannel}"
+                          DisplayMemberPath="Name"
+                          IsEnabled="{Binding IsDisconnected}"
+                          Width="140" VerticalAlignment="Center" />
                 <Separator />
                 <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}"
                           IsEnabled="{Binding IsDisconnected}" VerticalAlignment="Center" />
