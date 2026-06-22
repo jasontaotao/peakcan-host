@@ -34,6 +34,12 @@ namespace PeakCan.Host.App.ViewModels;
 /// <see cref="Services.TraceService"/> depends on the VM and the VM is
 /// resolved before the service starts).
 /// </para>
+/// <para>
+/// <b>v0.6.0 frame filter:</b> <see cref="FilterText"/> accepts a hex
+/// prefix pattern (e.g. <c>"1A"</c> matches IDs 0x1A0–0x1AF). When
+/// non-empty, only matching frames are appended to <see cref="Entries"/>.
+/// <see cref="FilteredCount"/> tracks how many frames were suppressed.
+/// </para>
 /// </summary>
 public sealed partial class TraceViewModel : ObservableObject
 {
@@ -55,25 +61,20 @@ public sealed partial class TraceViewModel : ObservableObject
     private int _maxRows = 10_000;
 
     /// <summary>
+    /// v0.6.0: hex prefix filter for CAN IDs. Empty = show all.
+    /// E.g. "1A" matches 0x1A0–0x1AF; "1A3" matches exactly 0x1A3.
+    /// </summary>
+    [ObservableProperty]
+    private string _filterText = "";
+
+    /// <summary>Count of frames suppressed by the current filter.</summary>
+    [ObservableProperty]
+    private long _filteredCount;
+
+    /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to
     /// <see cref="MaxRows"/>. Marshals to the WPF UI thread via
     /// <c>Application.Current.Dispatcher</c>.
-    /// <para>
-    /// <b>Test-context behaviour:</b> when <c>Application.Current</c> is
-    /// null (no WPF <c>Application</c> has been created — e.g. in xunit
-    /// test runs), the method returns <see cref="Task.CompletedTask"/>
-    /// silently without modifying <see cref="Entries"/>. This is a
-    /// pragmatic MVP shortcut: spinning up a <c>Application</c> for
-    /// tests is heavy, and the trace rows are not testable from a
-    /// non-UI process anyway. The WPF path is exercised by the live
-    /// AppHostBuilder smoke run (Task 13 Step 6).
-    /// </para>
-    /// <para>
-    /// <b>Why <c>IReadOnlyList</c> and not <c>IEnumerable</c>?</c> the
-    /// caller (<see cref="Services.TraceService"/>) already holds a
-    /// <c>List&lt;CanFrame&gt;</c>; taking <c>IReadOnlyList</c> avoids a
-    /// re-enumeration and documents the contract.
-    /// </para>
     /// </summary>
     public Task AppendBatchAsync(IReadOnlyList<CanFrame> batch)
     {
@@ -83,6 +84,17 @@ public sealed partial class TraceViewModel : ObservableObject
         {
             foreach (var f in batch)
             {
+                // v0.6.0: apply hex-prefix filter. If FilterText is non-empty,
+                // only append frames whose ID hex starts with the pattern.
+                if (FilterText.Length > 0)
+                {
+                    var idHex = f.Id.Raw.ToString("X", System.Globalization.CultureInfo.InvariantCulture);
+                    if (!idHex.StartsWith(FilterText, StringComparison.OrdinalIgnoreCase))
+                    {
+                        FilteredCount++;
+                        continue;
+                    }
+                }
                 Entries.Add(new TraceEntry
                 {
                     Timestamp = f.Timestamp,
@@ -96,5 +108,12 @@ public sealed partial class TraceViewModel : ObservableObject
             }
             while (Entries.Count > MaxRows) Entries.RemoveAt(0);
         }).Task;
+    }
+
+    /// <summary>Clear the trace entries and reset the filter counter.</summary>
+    public void Clear()
+    {
+        Entries.Clear();
+        FilteredCount = 0;
     }
 }

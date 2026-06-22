@@ -29,4 +29,7 @@ public sealed class SignalEntry
 
     /// <summary>Display unit (e.g. "rpm", "°C") or empty string if unspecified.</summary>
     public string Unit { get; init; } = "";
+
+    /// <summary>v0.6.0: value-table decoded name (e.g. "On") or null if not applicable.</summary>
+    public string? ValueTableName { get; init; }
 }

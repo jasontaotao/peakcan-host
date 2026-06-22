@@ -105,6 +105,8 @@ public sealed partial class DbcViewModel : ObservableObject
             // Task 16: clear the decoded-signal table so stale entries
             // from a previous parse do not linger against a new DBC load.
             _signals.Reset();
+            // v0.6.0: wire DBC service for value-table lookups.
+            _signals.SetDbcService(_svc);
             var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
             Status = $"Loaded {doc.Messages.Count} messages from {fileName}";
         })).RunOnUi();

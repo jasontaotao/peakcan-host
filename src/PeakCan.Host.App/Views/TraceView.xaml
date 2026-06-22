@@ -6,7 +6,15 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d">
-    <DataGrid ItemsSource="{Binding Entries}"
+    <DockPanel>
+        <!-- v0.6.0: ID filter bar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
+            <TextBlock Text="ID filter (hex prefix):" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding FilteredCount}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text=" filtered" VerticalAlignment="Center" />
+        </StackPanel>
+        <DataGrid ItemsSource="{Binding Entries}"
               AutoGenerateColumns="False"
               IsReadOnly="True"
               EnableRowVirtualization="True"
@@ -26,4 +34,5 @@
             <DataGridTextColumn Header="Decoded" Binding="{Binding Decoded}" Width="200" />
         </DataGrid.Columns>
     </DataGrid>
+    </DockPanel>
 </UserControl>

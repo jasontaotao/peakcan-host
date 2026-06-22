@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 
@@ -52,27 +53,51 @@ public sealed class SignalViewModel : ObservableObject
     public ObservableCollection<SignalEntry> Latest { get; } = new();
 
     /// <summary>
-    /// Decode the non-multiplexed signals in <paramref name="msg"/>
-    /// against <paramref name="frame"/> and upsert one row per signal
-    /// into <see cref="Latest"/>. The key is <c>(Message, Signal)</c>;
-    /// a fresh frame with the same key replaces the existing row
-    /// (in-place via indexer assignment) so the DataGrid does not
-    /// thrash the virtualization recycling pass.
+    /// Decode signals in <paramref name="msg"/> against
+    /// <paramref name="frame"/> and upsert one row per signal into
+    /// <see cref="Latest"/>. The key is <c>(Message, Signal)</c>.
+    /// <para>
+    /// <b>v0.6.0 multiplexor support:</b> if the message has a
+    /// multiplexor signal, its raw value is extracted first. Then only
+    /// multiplexed signals whose <see cref="Signal.MultiplexValue"/>
+    /// matches the mux value are decoded (plus non-muxed signals).
+    /// </para>
     /// </summary>
     public void ApplyFrame(CanFrame frame, Message msg)
     {
-        // Decode on the calling thread — the decode path is pure (no
-        // shared state) and SignalDecoder is cheap. Build a local
-        // list of new entries; the collection mutation hops to the
-        // dispatcher below so the WPF binding sees a UI-thread
-        // CollectionChanged.
         var span = frame.Data.Span;
         var pending = new List<SignalEntry>(msg.Signals.Count);
+
+        // v0.6.0: extract multiplexor value if present.
+        ushort? muxValue = null;
+        if (msg.MultiplexorSignalIndex is { } muxIdx && muxIdx < msg.Signals.Count)
+        {
+            var muxSig = msg.Signals[muxIdx];
+            muxValue = (ushort)SignalDecoder.Decode(span, muxSig);
+            // Also add the multiplexor signal itself as a row.
+            var muxRaw = SignalDecoder.Decode(span, muxSig);
+            pending.Add(new SignalEntry
+            {
+                Message = msg.Name,
+                Signal = muxSig.Name,
+                Raw = $"0x{muxRaw.ToString("F0", CultureInfo.InvariantCulture)}",
+                Physical = muxRaw.ToString("0.###", CultureInfo.InvariantCulture),
+                Unit = muxSig.Unit,
+                ValueTableName = ResolveValueTableName(muxSig, muxRaw),
+            });
+        }
+
         foreach (var sig in msg.Signals)
         {
-            // v1.1 deferred: multiplexor + multiplexed signals need
-            // mux-value extraction before the row is meaningful.
-            if (sig.IsMultiplexor || sig.IsMultiplexed) continue;
+            // Skip the multiplexor itself (already added above).
+            if (sig.IsMultiplexor) continue;
+            // v0.6.0: if this signal is multiplexed, only decode when
+            // its mux value matches the frame's mux value.
+            if (sig.IsMultiplexed && sig.MultiplexValue is { } expected
+                && muxValue is not null && expected != muxValue.Value)
+            {
+                continue;
+            }
 
             var raw = SignalDecoder.Decode(span, sig);
             pending.Add(new SignalEntry
@@ -82,24 +107,35 @@ public sealed class SignalViewModel : ObservableObject
                 Raw = $"0x{raw.ToString("F0", CultureInfo.InvariantCulture)}",
                 Physical = raw.ToString("0.###", CultureInfo.InvariantCulture),
                 Unit = sig.Unit,
+                ValueTableName = ResolveValueTableName(sig, raw),
             });
         }
         if (pending.Count == 0) return;
 
-        // Marshal to the WPF UI thread so the ObservableCollection
-        // mutation fires CollectionChanged on the thread the ItemsControl
-        // binding is bound to. WPF throws NotSupportedException on
-        // cross-thread SourceCollection mutation when an active visual
-        // tree is attached (Task 15 review pattern).
-        //
-        // The previous Task 19 guard (`appDispatcher == callingDispatcher`)
-        // was inverted and silently skipped the hop in production; the
-        // chokepoint is now DispatcherExtensions.RunOnUi which always
-        // hops for a live, different dispatcher. Use the fire-and-forget
-        // variant here because the SDK read thread pumps at ~8 kfps and
-        // must not block on UI work.
         ((Action)(() => ApplyEntries(pending))).RunOnUiPost();
     }
+
+    /// <summary>
+    /// Look up <paramref name="signal"/>'s value table entry for
+    /// <paramref name="rawValue"/>. Returns the human-readable name
+    /// (e.g. "On") or null if no value table is attached or the
+    /// value is not in the table.
+    /// </summary>
+    private string? ResolveValueTableName(Signal signal, double rawValue)
+    {
+        if (signal.ValueTableName is not { } tableName) return null;
+        if (_dbc?.Current?.ValueTables is not { } tables) return null;
+        if (!tables.TryGetValue(tableName, out var table)) return null;
+        return table.Entries.TryGetValue((long)rawValue, out var name) ? name : null;
+    }
+
+    /// <summary>
+    /// Set the DBC reference for value-table lookups. Called by
+    /// <see cref="DbcViewModel"/> after a successful DBC load.
+    /// </summary>
+    internal void SetDbcService(DbcService dbc) => _dbc = dbc;
+
+    private DbcService? _dbc;
 
     /// <summary>
     /// Clear the decoded-signal table. Called by

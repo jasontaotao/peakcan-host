@@ -22,6 +22,7 @@
             <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
             <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
             <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
+            <DataGridTextColumn Header="Value"     Binding="{Binding ValueTableName}" Width="120" />
             <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
         </DataGrid.Columns>
     </DataGrid>

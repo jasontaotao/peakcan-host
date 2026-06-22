@@ -48,7 +48,14 @@ public class SignalViewModelTests
     private static Message Msg(uint id, string name, params Signal[] signals)
         => new(id, name, Dlc: 8, Sender: "ECU1", Signals: signals,
                IsMultiplexed: signals.Any(s => s.IsMultiplexed),
-               MultiplexorSignalIndex: null);
+               MultiplexorSignalIndex: FindMultiplexorIndex(signals));
+
+    private static ushort? FindMultiplexorIndex(Signal[] signals)
+    {
+        for (ushort i = 0; i < signals.Length; i++)
+            if (signals[i].IsMultiplexor) return i;
+        return null;
+    }
 
     [Fact]
     public void Default_Latest_Is_Empty()
@@ -112,23 +119,27 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Skips_Multiplexor_And_Multiplexed_Signals()
+    public void ApplyFrame_Decodes_Multiplexor_And_Matching_Muxed_Signals()
     {
-        // Per plan §2: multiplexor + multiplexed signals are deferred to v1.1.
-        // Only "plain" signals (neither IsMultiplexor nor IsMultiplexed) get
-        // a row in the v1.0 grid.
+        // v0.6.0: multiplexor signal is decoded first, then only
+        // multiplexed signals whose MultiplexValue matches the mux
+        // value are decoded. Non-muxed signals are always decoded.
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1",
             Sig("Mux",       isMultiplexor: true),
             Sig("PlainSig"),
             Sig("Muxed0",    isMultiplexed: true, multiplexValue: 0),
             Sig("Muxed1",    isMultiplexed: true, multiplexValue: 1));
-        var frame = MakeFrame(0x100, 0x00);
+        var frame = MakeFrame(0x100, 0x00); // mux value = 0
 
         vm.ApplyFrame(frame, msg);
 
-        vm.Latest.Should().HaveCount(1);
-        vm.Latest[0].Signal.Should().Be("PlainSig");
+        // Expected: Mux (multiplexor) + PlainSig (always) + Muxed0 (mux=0 matches)
+        vm.Latest.Should().HaveCount(3);
+        vm.Latest.Should().Contain(e => e.Signal == "Mux");
+        vm.Latest.Should().Contain(e => e.Signal == "PlainSig");
+        vm.Latest.Should().Contain(e => e.Signal == "Muxed0");
+        vm.Latest.Should().NotContain(e => e.Signal == "Muxed1");
     }
 
     [Fact]
