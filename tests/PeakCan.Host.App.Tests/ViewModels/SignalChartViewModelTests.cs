@@ -3,6 +3,7 @@ using OxyPlot;
 using OxyPlot.Axes;
 using OxyPlot.Series;
 using PeakCan.Host.App.ViewModels;
+using System.IO;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -282,5 +283,94 @@ public class SignalChartViewModelTests
         vm.DrainBufferForTest();
 
         vm.PlotModel.Series.Should().BeEmpty();
+    }
+
+    // --- v0.8.1: statistics and export tests ---
+
+    [Fact]
+    public void GetStatistics_Empty_Chart_Returns_Empty()
+    {
+        var vm = new SignalChartViewModel();
+        vm.GetStatistics().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetStatistics_Returns_Min_Max_Avg_Count()
+    {
+        var vm = new SignalChartViewModel();
+        vm.AddSignal("M1.Speed", "Speed");
+
+        vm.AppendSample("M1.Speed", 10.0, 1_000_000UL);
+        vm.DrainBufferForTest();
+        vm.AppendSample("M1.Speed", 20.0, 2_000_000UL);
+        vm.DrainBufferForTest();
+        vm.AppendSample("M1.Speed", 30.0, 3_000_000UL);
+        vm.DrainBufferForTest();
+
+        var stats = vm.GetStatistics();
+        stats.Should().HaveCount(1);
+        stats[0].SignalKey.Should().Be("M1.Speed");
+        stats[0].DisplayName.Should().Be("Speed");
+        stats[0].Min.Should().Be(10.0);
+        stats[0].Max.Should().Be(30.0);
+        stats[0].Average.Should().Be(20.0);
+        stats[0].SampleCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void GetStatistics_Multiple_Signals_Independent()
+    {
+        var vm = new SignalChartViewModel();
+        vm.AddSignal("M1.Speed", "Speed");
+        vm.AddSignal("M1.Rpm", "Rpm");
+
+        vm.AppendSample("M1.Speed", 100.0, 1_000_000UL);
+        vm.AppendSample("M1.Rpm", 3000.0, 1_000_000UL);
+        vm.DrainBufferForTest();
+
+        var stats = vm.GetStatistics();
+        stats.Should().HaveCount(2);
+        stats.Should().Contain(s => s.SignalKey == "M1.Speed" && s.Min == 100.0);
+        stats.Should().Contain(s => s.SignalKey == "M1.Rpm" && s.Min == 3000.0);
+    }
+
+    [Fact]
+    public void ExportToCsv_Creates_File_With_Header_And_Data()
+    {
+        var vm = new SignalChartViewModel();
+        vm.AddSignal("M1.Speed", "Speed");
+
+        vm.AppendSample("M1.Speed", 10.0, 1_000_000UL);
+        vm.DrainBufferForTest();
+        vm.AppendSample("M1.Speed", 20.0, 2_000_000UL);
+        vm.DrainBufferForTest();
+
+        var path = Path.Combine(Path.GetTempPath(), $"peakcan_test_{Guid.NewGuid():N}.csv");
+        try
+        {
+            vm.ExportToCsv(path);
+
+            File.Exists(path).Should().BeTrue();
+            var lines = File.ReadAllLines(path);
+            lines.Should().HaveCount(3); // header + 2 data rows
+            lines[0].Should().StartWith("Time (s),Speed");
+            lines[1].Should().Contain("10");
+            lines[2].Should().Contain("20");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ExportToCsv_Empty_Chart_Creates_Nothing()
+    {
+        var vm = new SignalChartViewModel();
+        var path = Path.Combine(Path.GetTempPath(), $"peakcan_test_{Guid.NewGuid():N}.csv");
+
+        vm.ExportToCsv(path);
+
+        File.Exists(path).Should().BeFalse("no signals = no file written");
     }
 }
