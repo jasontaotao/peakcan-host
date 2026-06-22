@@ -5,6 +5,13 @@ using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 
+/// <summary>Per-message-ID statistics for the Trace tab.</summary>
+public sealed record MessageIdStat(
+    string IdHex,
+    uint RawId,
+    long Count,
+    double Percent);
+
 /// <summary>
 /// Backing view model for the Trace tab. Owns an
 /// <see cref="ObservableCollection{TraceEntry}"/> that the WPF
@@ -71,6 +78,13 @@ public sealed partial class TraceViewModel : ObservableObject
     [ObservableProperty]
     private long _filteredCount;
 
+    /// <summary>Total frames received (including filtered).</summary>
+    [ObservableProperty]
+    private long _totalFrameCount;
+
+    // Per-message-ID counter. Key = raw CAN ID.
+    private readonly Dictionary<uint, long> _messageCounts = new();
+
     /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to
     /// <see cref="MaxRows"/>. Marshals to the WPF UI thread via
@@ -84,6 +98,10 @@ public sealed partial class TraceViewModel : ObservableObject
         {
             foreach (var f in batch)
             {
+                // Track per-message-ID counts (before filtering).
+                TotalFrameCount++;
+                _messageCounts[f.Id.Raw] = _messageCounts.GetValueOrDefault(f.Id.Raw) + 1;
+
                 // v0.6.0: apply hex-prefix filter. If FilterText is non-empty,
                 // only append frames whose ID hex starts with the pattern.
                 if (FilterText.Length > 0)
@@ -115,5 +133,27 @@ public sealed partial class TraceViewModel : ObservableObject
     {
         Entries.Clear();
         FilteredCount = 0;
+        TotalFrameCount = 0;
+        _messageCounts.Clear();
+    }
+
+    /// <summary>
+    /// Get per-message-ID statistics sorted by count (descending).
+    /// Returns the top N message IDs with their counts and percentages.
+    /// </summary>
+    public IReadOnlyList<MessageIdStat> GetMessageIdStats(int topN = 20)
+    {
+        if (_messageCounts.Count == 0 || TotalFrameCount == 0)
+            return Array.Empty<MessageIdStat>();
+
+        return _messageCounts
+            .OrderByDescending(kv => kv.Value)
+            .Take(topN)
+            .Select(kv => new MessageIdStat(
+                $"0x{kv.Key:X}",
+                kv.Key,
+                kv.Value,
+                100.0 * kv.Value / TotalFrameCount))
+            .ToList();
     }
 }
