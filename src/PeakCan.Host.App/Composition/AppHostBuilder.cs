@@ -104,6 +104,9 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<TraceViewModel>();
         builder.Services.AddSingleton<SendViewModel>();
         builder.Services.AddSingleton<DbcViewModel>();
+        // v0.8.0: signal chart VM must be registered before SignalViewModel
+        // (SignalViewModel depends on it via constructor injection).
+        builder.Services.AddSingleton<SignalChartViewModel>();
         builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<StatsViewModel>();
 

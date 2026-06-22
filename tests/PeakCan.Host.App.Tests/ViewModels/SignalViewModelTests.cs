@@ -186,4 +186,72 @@ public class SignalViewModelTests
 
         vm.Latest[0].Physical.Should().Be("42");
     }
+
+    // --- v0.8.0: chart integration tests ---
+
+    [Fact]
+    public void ChartModel_Is_Null_Without_ChartVm()
+    {
+        var vm = new SignalViewModel();
+        vm.ChartModel.Should().BeNull();
+        vm.HasChart.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ChartModel_Is_Set_With_ChartVm()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+
+        vm.ChartModel.Should().NotBeNull();
+        vm.ChartModel.Should().BeSameAs(chartVm.PlotModel);
+        vm.HasChart.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OnSignalSelectionChanged_Calls_ChartVm_AddSignal()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+
+        vm.OnSignalSelectionChanged("M1", "Speed", true);
+
+        chartVm.SignalCount.Should().Be(1);
+        chartVm.HasSignals.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OnSignalSelectionChanged_False_Calls_ChartVm_RemoveSignal()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+
+        vm.OnSignalSelectionChanged("M1", "Speed", true);
+        vm.OnSignalSelectionChanged("M1", "Speed", false);
+
+        chartVm.SignalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void OnSignalSelectionChanged_Without_ChartVm_Does_Not_Throw()
+    {
+        var vm = new SignalViewModel();
+
+        var act = () => vm.OnSignalSelectionChanged("M1", "Speed", true);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Reset_Also_Resets_Chart()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+        vm.OnSignalSelectionChanged("M1", "Speed", true);
+
+        vm.Reset();
+
+        chartVm.SignalCount.Should().Be(0);
+        vm.Latest.Should().BeEmpty();
+    }
 }

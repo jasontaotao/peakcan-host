@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using OxyPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
@@ -43,6 +44,8 @@ namespace PeakCan.Host.App.ViewModels;
 /// </summary>
 public sealed class SignalViewModel : ObservableObject
 {
+    private readonly SignalChartViewModel? _chartVm;
+
     /// <summary>
     /// Backing store of decoded-signal rows. Mutated only on the WPF UI
     /// thread (via <see cref="ApplyFrame"/>'s dispatcher hop); reads
@@ -51,6 +54,27 @@ public sealed class SignalViewModel : ObservableObject
     /// UI thread automatically.
     /// </summary>
     public ObservableCollection<SignalEntry> Latest { get; } = new();
+
+    /// <summary>
+    /// OxyPlot model exposed for the chart in SignalView.xaml.
+    /// Delegates to the injected <see cref="SignalChartViewModel"/>.
+    /// Null when no chart VM is injected (test context).
+    /// </summary>
+    public PlotModel? ChartModel => _chartVm?.PlotModel;
+
+    /// <summary>
+    /// Whether a chart VM is available. Used by the view to toggle
+    /// chart visibility.
+    /// </summary>
+    public bool HasChart => _chartVm is not null;
+
+    /// <param name="chartVm">
+    /// Optional chart VM. Null in tests that don't need charting.
+    /// </param>
+    public SignalViewModel(SignalChartViewModel? chartVm = null)
+    {
+        _chartVm = chartVm;
+    }
 
     /// <summary>
     /// Decode signals in <paramref name="msg"/> against
@@ -112,7 +136,34 @@ public sealed class SignalViewModel : ObservableObject
         }
         if (pending.Count == 0) return;
 
-        ((Action)(() => ApplyEntries(pending))).RunOnUiPost();
+        // Collect chart samples for selected signals. The decode is
+        // pure (stateless) so we build the list on the calling thread;
+        // the chart buffer mutation is then marshalled to the UI thread
+        // alongside the Latest upsert.
+        List<(string key, double physical, ulong ts)>? chartSamples = null;
+        if (_chartVm is not null)
+        {
+            chartSamples = new List<(string key, double physical, ulong ts)>(pending.Count);
+            foreach (var entry in pending)
+            {
+                if (double.TryParse(entry.Physical, CultureInfo.InvariantCulture, out var phys))
+                {
+                    chartSamples.Add(($"{entry.Message}.{entry.Signal}", phys,
+                                      frame.Timestamp.TotalMicroseconds));
+                }
+            }
+        }
+
+        var samples = chartSamples;
+        ((Action)(() =>
+        {
+            ApplyEntries(pending);
+            if (samples is not null)
+            {
+                foreach (var (key, phys, ts) in samples)
+                    _chartVm!.AppendSample(key, phys, ts);
+            }
+        })).RunOnUiPost();
     }
 
     /// <summary>
@@ -141,8 +192,30 @@ public sealed class SignalViewModel : ObservableObject
     /// Clear the decoded-signal table. Called by
     /// <see cref="DbcViewModel"/> after a fresh DBC load so the grid
     /// does not display stale entries from a previous parse.
+    /// Also resets the signal chart when present.
     /// </summary>
-    public void Reset() => Latest.Clear();
+    public void Reset()
+    {
+        Latest.Clear();
+        _chartVm?.Reset();
+    }
+
+    /// <summary>
+    /// Called when a signal's IsSelected checkbox changes in the view.
+    /// Adds or removes the signal from the chart.
+    /// </summary>
+    /// <param name="message">DBC message name.</param>
+    /// <param name="signal">DBC signal name.</param>
+    /// <param name="isSelected">Whether the checkbox is checked.</param>
+    public void OnSignalSelectionChanged(string message, string signal, bool isSelected)
+    {
+        if (_chartVm is null) return;
+        var key = $"{message}.{signal}";
+        if (isSelected)
+            _chartVm.AddSignal(key, signal);
+        else
+            _chartVm.RemoveSignal(key);
+    }
 
     // Upsert by (Message, Signal). The grid is small (one row per signal
     // per loaded message — typically < 100 rows) so a linear scan is
