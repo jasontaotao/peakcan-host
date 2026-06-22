@@ -4,11 +4,11 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.8.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.8.1 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
-> review triage. 395 unit tests pass (155 Core + 166 App
+> review triage. 401 unit tests pass (155 Core + 172 App
 > + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
@@ -175,6 +175,18 @@ writeup. Summary:
   samples to the chart buffer; `Reset` clears both the grid and the
   chart.
 
+## v0.8.1 (Signal chart polish)
+
+- **Signal statistics** — `GetStatistics()` returns per-signal
+  min/max/avg/sample-count for the charted window.
+- **CSV export** — `ExportChartCsv` command exports all charted
+  signal data to a CSV file (Time column + one column per signal).
+  Toolbar button with `SaveFileDialog`.
+- **Chart toolbar** — Export CSV, Clear Chart buttons + charted
+  signal count display.
+- **`ClearChart` command** — unchecks all Plot checkboxes and
+  resets the chart.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -226,8 +238,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **395 pass + 6 SKIP** across Core (155) / Infrastructure (74 + 2 SKIP) /
-App (166 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
+Output: **401 pass + 6 SKIP** across Core (155) / Infrastructure (74 + 2 SKIP) /
+App (172 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
