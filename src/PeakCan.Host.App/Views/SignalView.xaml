@@ -14,10 +14,12 @@
         <!-- Chart toolbar (visible when chart VM is available) -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,0"
                     Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}">
+            <Button Content="Plot All" Command="{Binding PlotAllCommand}"
+                    Padding="8,2" Margin="0,0,4,0" />
+            <Button Content="Plot None" Command="{Binding PlotNoneCommand}"
+                    Padding="8,2" Margin="0,0,16,0" />
             <Button Content="Export CSV" Command="{Binding ExportChartCsvCommand}"
                     Padding="8,2" Margin="0,0,8,0" />
-            <Button Content="Clear Chart" Command="{Binding ClearChartCommand}"
-                    Padding="8,2" Margin="0,0,16,0" />
             <TextBlock Text="Charted: " FontWeight="SemiBold" VerticalAlignment="Center" />
             <TextBlock Text="{Binding ChartStatistics.Count}" VerticalAlignment="Center" Margin="0,0,16,0" />
         </StackPanel>

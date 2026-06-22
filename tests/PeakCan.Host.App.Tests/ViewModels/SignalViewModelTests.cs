@@ -274,4 +274,46 @@ public class SignalViewModelTests
         vm.Latest.Should().HaveCount(1);
         vm.Latest[0].IsSelected.Should().BeTrue("checkbox state must survive frame updates");
     }
+
+    // --- v0.8.1: PlotAll / PlotNone tests ---
+
+    [Fact]
+    public void PlotAll_Sets_All_IsSelected_True()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+
+        vm.PlotAllCommand.Execute(null);
+
+        vm.Latest.Should().AllSatisfy(e => e.IsSelected.Should().BeTrue());
+        chartVm.SignalCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void PlotNone_Clears_All_IsSelected()
+    {
+        var chartVm = new SignalChartViewModel();
+        var vm = new SignalViewModel(chartVm);
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        vm.PlotAllCommand.Execute(null);
+
+        vm.PlotNoneCommand.Execute(null);
+
+        vm.Latest.Should().AllSatisfy(e => e.IsSelected.Should().BeFalse());
+        chartVm.SignalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void PlotAll_Without_ChartVm_Does_Not_Throw()
+    {
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+
+        var act = () => vm.PlotAllCommand.Execute(null);
+        act.Should().NotThrow();
+    }
 }

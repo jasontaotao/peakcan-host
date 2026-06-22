@@ -265,6 +265,31 @@ public sealed partial class SignalViewModel : ObservableObject
         _chartVm.Reset();
     }
 
+    /// <summary>Select all signals for charting.</summary>
+    [RelayCommand]
+    private void PlotAll()
+    {
+        if (_chartVm is null) return;
+        foreach (var entry in Latest)
+        {
+            if (!entry.IsSelected)
+            {
+                entry.IsSelected = true;
+                _chartVm.AddSignal($"{entry.Message}.{entry.Signal}", entry.Signal);
+            }
+        }
+    }
+
+    /// <summary>Deselect all signals and clear the chart.</summary>
+    [RelayCommand]
+    private void PlotNone()
+    {
+        if (_chartVm is null) return;
+        foreach (var entry in Latest)
+            entry.IsSelected = false;
+        _chartVm.Reset();
+    }
+
     // Upsert by (Message, Signal). The grid is small (one row per signal
     // per loaded message — typically < 100 rows) so a linear scan is
     // fine. If a future task pushes this to thousands of signals,
