@@ -27,4 +27,26 @@ public readonly record struct CanFrame(
 
     /// <summary>True iff this is a hardware-reported bus error frame (not a data frame).</summary>
     public bool IsError => (Flags & FrameFlags.ErrFrame) != 0;
+
+    // M8 fix: the synthesized Equals for record struct uses
+    // EqualityComparer<ReadOnlyMemory<byte>>.Default, which compares
+    // the underlying array reference, offset, and length — NOT the
+    // byte content. Two CanFrames with identical byte content from
+    // different array instances will not be equal. Override to compare
+    // the actual span content.
+
+    public bool Equals(CanFrame other)
+        => Id == other.Id
+           && Flags == other.Flags
+           && Channel == other.Channel
+           && Timestamp == other.Timestamp
+           && Data.Span.SequenceEqual(other.Data.Span);
+
+    public override int GetHashCode()
+    {
+        // Hash the metadata fields; hashing the full byte content on
+        // every call is too expensive for the hot path (frame dispatch).
+        // Collisions are fine — Equals catches them.
+        return HashCode.Combine(Id, Flags, Channel, Timestamp);
+    }
 }

@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace PeakCan.Host.Infrastructure.Channel;
 
 /// <summary>
@@ -32,7 +34,20 @@ internal static class PeakCanFrameFormatter
     {
         var dst = new byte[8];
         var len = Math.Min(src.Length, dst.Length);
-        if (len > 0) Buffer.BlockCopy(src.ToArray(), 0, dst, 0, len);
+        if (len > 0)
+        {
+            // M7 fix: use MemoryMarshal.TryGetArray to avoid the ToArray()
+            // allocation. At 10k fps this saves 10k GC allocations/sec.
+            if (MemoryMarshal.TryGetArray(src, out var segment) && segment.Array is not null)
+            {
+                Buffer.BlockCopy(segment.Array, segment.Offset, dst, 0, len);
+            }
+            else
+            {
+                // Fallback for unusual Memory implementations (rare).
+                Buffer.BlockCopy(src.ToArray(), 0, dst, 0, len);
+            }
+        }
         return dst;
     }
 
@@ -46,7 +61,18 @@ internal static class PeakCanFrameFormatter
     {
         var dst = new byte[64];
         var len = Math.Min(src.Length, dst.Length);
-        if (len > 0) Buffer.BlockCopy(src.ToArray(), 0, dst, 0, len);
+        if (len > 0)
+        {
+            // M7 fix: same as ToFixedBytes8 — avoid ToArray() allocation.
+            if (MemoryMarshal.TryGetArray(src, out var segment) && segment.Array is not null)
+            {
+                Buffer.BlockCopy(segment.Array, segment.Offset, dst, 0, len);
+            }
+            else
+            {
+                Buffer.BlockCopy(src.ToArray(), 0, dst, 0, len);
+            }
+        }
         return dst;
     }
 }

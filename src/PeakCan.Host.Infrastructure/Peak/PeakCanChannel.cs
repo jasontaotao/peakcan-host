@@ -127,7 +127,11 @@ public sealed partial class PeakCanChannel : ICanChannel
         var token = _gate.CurrentToken;
         var loop = Task.Run(() => ReadLoopAsync(token), ct);
         _gate.SetReadLoop(loop);
-        return await Task.FromResult(Result<Unit>.Ok(default)).ConfigureAwait(false);
+        // LOW fix: remove unnecessary async/await + Task.FromResult.
+        // The method is already async for the ConnectAsync path; this
+        // return just avoids the state machine overhead on the success
+        // path where no real async work remains.
+        return Result<Unit>.Ok(default);
     }
 
     public async Task DisconnectAsync(CancellationToken ct = default)
@@ -140,7 +144,7 @@ public sealed partial class PeakCanChannel : ICanChannel
         // the driver is already unloaded or in a bad state, we still mark
         // the channel disconnected.
         try { PCANBasic.Uninitialize(_handle); }
-        catch { /* best-effort teardown */ }
+        catch (Exception) { /* best-effort teardown — catch Exception, not bare catch */ }
         _gate.Dispose();
     }
 
