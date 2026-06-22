@@ -71,6 +71,11 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.IChannelFactory,
                                       PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
 
+        // v0.4.0: IPcanReader abstracts the PEAK SDK read calls so
+        // PeakCanChannel's read loop can be unit-tested without hardware.
+        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.IPcanReader,
+                                      PeakCan.Host.Infrastructure.Peak.PcanReader>();
+
         // App services
         builder.Services.AddSingleton<TraceService>();
         builder.Services.AddSingleton<SendService>();

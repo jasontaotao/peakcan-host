@@ -68,12 +68,13 @@ public sealed partial class PeakCanChannel : ICanChannel
     private readonly ushort _handle;
     private readonly ChannelConnectGate _gate = new();
     private readonly ILogger<PeakCanChannel> _logger;
+    private readonly IPcanReader _reader;
 
     public ChannelId Id { get; }
     public bool IsConnected => _gate.IsConnected;
     public event Action<CanFrame>? FrameReceived;
 
-    public PeakCanChannel(ChannelId id, ILogger<PeakCanChannel>? logger = null)
+    public PeakCanChannel(ChannelId id, ILogger<PeakCanChannel>? logger = null, IPcanReader? reader = null)
     {
         Id = id;
         _handle = id.Handle;
@@ -81,6 +82,8 @@ public sealed partial class PeakCanChannel : ICanChannel
         // (no DI) free of logger plumbing while still letting production
         // capture read-loop failures via the registered ILogger.
         _logger = (ILogger<PeakCanChannel>?)logger ?? NullLogger<PeakCanChannel>.Instance;
+        // PcanReader is the production default; tests inject a fake.
+        _reader = reader ?? new PcanReader();
     }
 
     public async Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
@@ -218,7 +221,7 @@ public sealed partial class PeakCanChannel : ICanChannel
             bool iterationFailed = false;
             try
             {
-                while (PCANBasic.Read(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
+                while (_reader.ReadClassic(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitClassic(msg, ts);
                     gotAnyFrame = true;
@@ -231,7 +234,7 @@ public sealed partial class PeakCanChannel : ICanChannel
             }
             try
             {
-                while (PCANBasic.ReadFD(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
+                while (_reader.ReadFd(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
                 {
                     EmitFd(fdMsg, tsMicroseconds);
                     gotAnyFrame = true;

@@ -8,20 +8,21 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// PEAK-backed <see cref="IChannelFactory"/>. Production DI binds this
 /// to <see cref="IChannelFactory"/>; tests inject a fake instead.
 /// <para>
-/// The factory takes an <see cref="ILogger{T}"/> so the channel it
-/// produces can log read-loop failures. Without the logger, those
-/// failures would be silently swallowed (see <see cref="PeakCanChannel"/>
-/// class doc).
+/// The factory takes an <see cref="ILogger{T}"/> and an
+/// <see cref="IPcanReader"/> so the channel it produces can log
+/// read-loop failures and be tested without real hardware.
 /// </para>
 /// </summary>
 public sealed class PeakCanChannelFactory : IChannelFactory
 {
     private readonly ILogger<PeakCanChannel> _logger;
+    private readonly IPcanReader _reader;
 
-    public PeakCanChannelFactory(ILogger<PeakCanChannel> logger)
+    public PeakCanChannelFactory(ILogger<PeakCanChannel> logger, IPcanReader reader)
     {
         _logger = logger;
+        _reader = reader;
     }
 
-    public ICanChannel Create(ChannelId id) => new PeakCanChannel(id, _logger);
+    public ICanChannel Create(ChannelId id) => new PeakCanChannel(id, _logger, _reader);
 }
