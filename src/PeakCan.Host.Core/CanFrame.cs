@@ -20,6 +20,13 @@ public readonly record struct CanFrame(
     Timestamp Timestamp)
 {
     /// <summary>Payload length in bytes (= DLC for classical CAN; valid 0–8 or 0–64 for CAN FD).</summary>
+    /// <remarks>
+    /// For CAN FD, wire DLC values 9–15 encode non-linear payload lengths
+    /// (9=12, 10=16, ..., 15=64 bytes). This property returns the actual
+    /// payload byte count, not the wire DLC code. Use
+    /// <see cref="PeakCan.Host.Infrastructure.Channel.PeakCanFrameFormatter.DlcToBytes"/>
+    /// to convert between the two.
+    /// </remarks>
     public byte Dlc => (byte)Data.Length;
 
     /// <summary>True iff the FD flag is set (CAN FD format, up to 64-byte payloads).</summary>
