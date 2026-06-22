@@ -11,7 +11,14 @@
             <Button Content="Open DBC..." Command="{Binding OpenCommand}" Width="100" />
             <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" />
         </StackPanel>
-        <DataGrid ItemsSource="{Binding Messages}"
+        <!-- Search bar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding FilteredMessages.Count}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text=" shown" VerticalAlignment="Center" />
+        </StackPanel>
+        <DataGrid ItemsSource="{Binding FilteredMessages}"
                   AutoGenerateColumns="False"
                   IsReadOnly="True"
                   EnableRowVirtualization="True"

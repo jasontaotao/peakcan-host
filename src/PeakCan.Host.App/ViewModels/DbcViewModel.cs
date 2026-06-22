@@ -63,6 +63,19 @@ public sealed partial class DbcViewModel : ObservableObject
     [ObservableProperty]
     private string _status = "No DBC loaded";
 
+    /// <summary>
+    /// Search text for filtering DBC messages. Matches message name
+    /// or sender (case-insensitive substring). Empty = show all.
+    /// </summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    // Full list of messages from the last successful load.
+    private readonly List<DbcMessageViewModel> _allMessages = new();
+
+    /// <summary>Filtered view of Messages based on SearchText.</summary>
+    public ObservableCollection<DbcMessageViewModel> FilteredMessages { get; } = new();
+
     public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger,
                         IFileDialogService? fileDialog = null)
     {
@@ -104,10 +117,15 @@ public sealed partial class DbcViewModel : ObservableObject
         ((Action)(() =>
         {
             Messages.Clear();
+            _allMessages.Clear();
+            FilteredMessages.Clear();
             foreach (var m in doc.Messages)
             {
-                Messages.Add(DbcMessageViewModel.From(m));
+                var vm = DbcMessageViewModel.From(m);
+                Messages.Add(vm);
+                _allMessages.Add(vm);
             }
+            ApplyFilter();
             // Task 16: clear the decoded-signal table so stale entries
             // from a previous parse do not linger against a new DBC load.
             _signals.Reset();
@@ -127,4 +145,25 @@ public sealed partial class DbcViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Information, Message = "DBC Open invoked for {Path}")]
     private static partial void LogOpenInvoked(ILogger logger, string path);
+
+    /// <summary>
+    /// Called when <see cref="SearchText"/> changes. Filters the
+    /// <see cref="FilteredMessages"/> collection.
+    /// </summary>
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    private void ApplyFilter()
+    {
+        FilteredMessages.Clear();
+        var pattern = SearchText.AsSpan().Trim();
+        foreach (var m in _allMessages)
+        {
+            if (pattern.Length == 0
+                || m.Name.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                || m.Sender.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredMessages.Add(m);
+            }
+        }
+    }
 }
