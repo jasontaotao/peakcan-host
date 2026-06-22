@@ -708,4 +708,92 @@ public class AppShellViewModelTests
         factory.LastCreated!.WasDisposed.Should().BeTrue(
             "M1 fix: catch block must dispose the channel after ConnectAsync throws");
     }
+
+    // ──────────────────────────────────────────────
+    // v0.4.0: multi-channel enumeration tests
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Test double for <see cref="IChannelEnumerator"/> that returns
+    /// a configurable list of channels.
+    /// </summary>
+    private sealed class FakeChannelEnumerator : Core.IChannelEnumerator
+    {
+        public IReadOnlyList<ChannelInfo> Channels { get; set; } = Array.Empty<ChannelInfo>();
+        public IReadOnlyList<ChannelInfo> Enumerate() => Channels;
+    }
+
+    private static AppShellViewModel NewVmWithEnumerator(
+        Core.IChannelEnumerator enumerator,
+        IChannelFactory? factory = null) =>
+        new(new ChannelRouter(),
+            NullLogger<AppShellViewModel>.Instance,
+            new TraceViewModel(),
+            new SendService(NullLogger<SendService>.Instance),
+            new FakeChannelProbe(),
+            factory ?? new FakeChannelFactory(),
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance),
+            new SignalViewModel(),
+            new StatsViewModel(),
+            enumerator);
+
+    [Fact]
+    public void EnumerateChannels_With_Enumerator_Populates_AvailableChannels()
+    {
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[]
+            {
+                new ChannelInfo(0x51, "PCAN-USB 1"),
+                new ChannelInfo(0x52, "PCAN-USB 2"),
+            }
+        };
+        var vm = NewVmWithEnumerator(enumerator);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        vm.AvailableChannels.Should().HaveCount(2);
+        vm.SelectedChannel.Should().NotBeNull();
+        vm.SelectedChannel!.Handle.Should().Be(0x51);
+        vm.ChannelList.Should().Contain("PCAN-USB 1");
+    }
+
+    [Fact]
+    public void EnumerateChannels_With_Empty_Enumerator_Sets_No_Hardware_Message()
+    {
+        var enumerator = new FakeChannelEnumerator { Channels = Array.Empty<ChannelInfo>() };
+        var vm = NewVmWithEnumerator(enumerator);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        vm.AvailableChannels.Should().BeEmpty();
+        vm.SelectedChannel.Should().BeNull();
+        vm.ChannelList.Should().Contain("No PEAK hardware detected");
+    }
+
+    [Fact]
+    public async Task ConnectCommand_Uses_SelectedChannel_Handle()
+    {
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[]
+            {
+                new ChannelInfo(0x51, "PCAN-USB 1"),
+                new ChannelInfo(0x52, "PCAN-USB 2"),
+            }
+        };
+        var factory = new FakeChannelFactory();
+        var vm = NewVmWithEnumerator(enumerator, factory);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.SelectedChannel = vm.AvailableChannels[1]; // select USB 2
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        vm.IsConnected.Should().BeTrue();
+        factory.LastCreated!.Id.Handle.Should().Be(0x52,
+            "ConnectAsync must use SelectedChannel handle");
+    }
 }
