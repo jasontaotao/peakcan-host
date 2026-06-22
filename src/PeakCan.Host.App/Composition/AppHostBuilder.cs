@@ -85,6 +85,9 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<SendService>();
         builder.Services.AddSingleton<DbcService>();
         builder.Services.AddSingleton<StatisticsService>();
+        // v0.5.0: frame recording (ASC/CSV) and cyclic send.
+        builder.Services.AddSingleton<RecordService>();
+        builder.Services.AddSingleton<CyclicSendService>();
         // M11: DBC lookup + signal decode runs off the SDK read thread on
         // its own worker. Registered as both a singleton (so SinkWiringService
         // gets the same instance the host starts) and a hosted service

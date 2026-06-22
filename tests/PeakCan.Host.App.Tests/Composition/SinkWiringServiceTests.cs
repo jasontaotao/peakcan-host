@@ -61,6 +61,8 @@ public class SinkWiringServiceTests
         // pattern as AppHostBuilder uses for production wiring.
         builder.Services.AddSingleton<DbcDecodeBackgroundService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
+        // v0.5.0: RecordService is now a required dependency of SinkWiringService.
+        builder.Services.AddSingleton<RecordService>();
         builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();
     }

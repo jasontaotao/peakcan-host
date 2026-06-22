@@ -33,29 +33,32 @@ internal sealed class SinkWiringService : IHostedService
     private readonly TraceService _trace;
     private readonly BusStatisticsCollector _stats;
     private readonly DbcDecodeBackgroundService _dbcDecode;
+    private readonly RecordService _record;
 
     /// <summary>
-    /// All four dependencies are resolved by DI. The router and the
-    /// three sinks are registered as singletons in <c>AppHostBuilder.Build</c>,
+    /// All five dependencies are resolved by DI. The router and the
+    /// four sinks are registered as singletons in <c>AppHostBuilder.Build</c>,
     /// so this service is the only place that ever wires them together.
     /// </summary>
     public SinkWiringService(
         ChannelRouter router,
         TraceService trace,
         BusStatisticsCollector stats,
-        DbcDecodeBackgroundService dbcDecode)
+        DbcDecodeBackgroundService dbcDecode,
+        RecordService record)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _stats = stats ?? throw new ArgumentNullException(nameof(stats));
         _dbcDecode = dbcDecode ?? throw new ArgumentNullException(nameof(dbcDecode));
+        _record = record ?? throw new ArgumentNullException(nameof(record));
     }
 
     /// <summary>
     /// Attach all sinks to the router. Runs once during
     /// <c>IHost.StartAsync</c>, before <see cref="TraceService.ExecuteAsync"/>
     /// begins its 50 ms tick. After this point, any frame arriving at
-    /// the router is fanned out to all three consumers; the DBC decode
+    /// the router is fanned out to all four consumers; the DBC decode
     /// service runs the dictionary lookup + signal decode on its own
     /// worker, off the SDK read thread.
     /// </summary>
@@ -64,6 +67,7 @@ internal sealed class SinkWiringService : IHostedService
         _router.AttachSink(_trace);
         _router.AttachSink(_stats);
         _router.AttachSink(_dbcDecode);
+        _router.AttachSink(_record);
         return Task.CompletedTask;
     }
 
