@@ -4,7 +4,7 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.5.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.6.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
@@ -137,6 +137,16 @@ writeup. Summary:
   `Stop()`. Configurable interval (default 100 ms). Thread-safe
   timer callback.
 
+## v0.6.0 (frame filter + multiplexor + value-table)
+
+- **Frame filter** — hex-prefix filter on Trace tab (e.g. "1A"
+  matches 0x1A0–0x1AF). Filtered count displayed in toolbar.
+- **Multiplexor decoding** — multiplexor signal value is extracted;
+  only matching multiplexed signals are decoded. Non-muxed signals
+  always decoded.
+- **Value-table names** — DBC `VAL_TABLE_` / `VAL_` entries are
+  resolved and displayed in a new "Value" column on the Signal tab.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -241,8 +251,7 @@ See the spec §"DBC parser scope" for the full subset.
 
 ## Roadmap
 
-- **v0.6.0** — Frame filters, multiplexor decoding, value-table
-  decoded names, IFileDialogService extraction.
+- **v0.7.0** — IFileDialogService extraction, additional polish.
 - **v1.0** — Real-time signal charts, scripting automation
   (CodeMirror 6 + sandboxed script engine).
 - **v1.1** — UDS diagnostic stack.
