@@ -22,7 +22,8 @@
             <TextBox Text="{Binding HighlightText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
             <CheckBox Content="Errors only" IsChecked="{Binding ShowErrorsOnly}" VerticalAlignment="Center" Margin="16,0,0,0" />
         </StackPanel>
-        <DataGrid ItemsSource="{Binding Entries}"
+        <DataGrid x:Name="TraceGrid"
+              ItemsSource="{Binding Entries}"
               AutoGenerateColumns="False"
               IsReadOnly="True"
               EnableRowVirtualization="True"
@@ -31,6 +32,7 @@
               VirtualizingPanel.VirtualizationMode="Recycling"
               VirtualizingPanel.ScrollUnit="Pixel"
               ScrollViewer.CanContentScroll="True"
+              ScrollViewer.ScrollChanged="OnScrollChanged"
               RowHeight="20"
               AlternatingRowBackground="#F8F8F8">
         <DataGrid.RowStyle>
