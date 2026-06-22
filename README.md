@@ -4,11 +4,11 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.2.1 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
+> **Status:** MVP v0.4.0 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
 > for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
 > for the previous v0.2.0 defect-fix plan, plus
 > [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
-> review triage. 334 unit tests pass (153 Core + 107 App
+> review triage. 351 unit tests pass (155 Core + 124 App
 > + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
@@ -98,6 +98,33 @@ writeup. Summary:
   `AppDomain`, `Dispatcher`, and `TaskScheduler` exception
   handlers installed at startup.
 
+## v0.2.2 – v0.3.x (thread-safety + correctness + cleanup)
+
+- **M1** — `ConnectAsync` catch block now disposes the channel after
+  `RegisterChannel` or any subsequent step throws.
+- **M2** — `DbcService.Current` uses `Volatile.Read/Write` for
+  cross-thread visibility.
+- **M3** — `SendAsync` reads via `ActiveChannel` property
+  (`Volatile.Read`) instead of the backing field.
+- **M7** — `ToFixedBytes8/64` uses `MemoryMarshal.TryGetArray` to
+  avoid `ToArray()` allocation (saves 10k GC allocs/sec at 8 kfps).
+- **M8** — `CanFrame` custom `Equals/GetHashCode` compares `Data.Span`
+  content instead of `ReadOnlyMemory` reference equality.
+- **LOW** — doc sync, channel contract, event cleanup, bare catch fix.
+
+## v0.4.0 (multi-channel + testable read loop)
+
+- **`IPcanReader` interface** — abstracts `PCANBasic.Read/ReadFD` so
+  `PeakCanChannel`'s read loop can be unit-tested without real PEAK
+  hardware. Tests inject a fake reader that yields canned frames.
+- **`IChannelEnumerator` + `PeakChannelEnumerator`** — probes
+  PCAN-USB channels 1–16 (handles 0x51–0x60) and returns those that
+  responded. Toolbar shows a ComboBox for channel selection.
+- **`AppShellViewModel`** — `AvailableChannels` + `SelectedChannel`
+  properties; `ConnectAsync` uses the selected handle instead of
+  hardcoded 0x51. Legacy single-channel `IChannelProbe` path
+  preserved for tests without `IChannelEnumerator`.
+
 ## Prerequisites
 
 - **Windows 10 (1809+) or Windows 11** for the WPF app
@@ -149,10 +176,9 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **285 pass + 7 SKIP** across Core (137) / Infrastructure (60 +
-2 hardware SKIP) / App (90 + 5 SKIP — 3 hardware + 1
-`TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
-+ 1 pre-existing `OpenAsync_When_User_Cancels_Dialog_Does_Nothing`).
+Output: **351 pass + 2 SKIP** across Core (155) / Infrastructure (74) /
+App (124 + 2 SKIP — `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
++ `OpenAsync_When_User_Cancels_Dialog_Does_Nothing`).
 With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
@@ -197,18 +223,18 @@ See the spec §"DBC parser scope" for the full subset.
 | **.NET 10** (not 8) | The dev box only has 10.0.300 SDK; 8.0 was unavailable. The published exe is self-contained so the target machine does not need any specific runtime. |
 | **`Peak.PCANBasic.NET` 5.0.1** (not `Peak.Can.Basic`) | The legacy `Peak.Can.Basic` NuGet package is not findable on nuget.org. `Peak.PCANBasic.NET` is the PEAK-System-official replacement (127k downloads). |
 | **OxyPlot.Wpf 2.2.0** (not LiveChartsCore 2.0.4) | LiveCharts 2.0.4's native dependencies (OpenTK + SkiaSharp.Views.WPF) target .NET Framework only and fail at runtime on .NET 10. OxyPlot is pure-managed and works. |
-| **Single hardcoded channel (`0x51`)** | The MVP probes + connects the PCAN-USB FD first handle. Multi-channel enumeration is v1.1 (spec §"v1.1 scope"). |
+| **Single hardcoded channel (`0x51`)** | The MVP probes + connects the PCAN-USB FD first handle. Multi-channel enumeration added in v0.4.0. |
 | **No DDD-level IFileDialogService seam** | The `OpenFileDialog.ShowDialog` in `DbcViewModel.OpenAsync` is currently called inline; the test for the user-cancel path is `[Fact(Skip=...)]`. A service extraction is a v1.1 refactor. |
 | **VMs are not `IDisposable`** | All ViewModels are DI singletons that live for the whole process. Disposing would unsubscribe from singleton services that are never disposed themselves — a latent footgun. Both VM and service die together at process exit. |
 
 ## Roadmap
 
-- **v1.1** — Multi-channel enumeration, frame recording (ASC / CSV),
-  frame filters, cyclic transmission, multiplexor decoding, value-table
-  decoded names, IFileDialogService extraction.
-- **v1.2** — Real-time signal charts, scripting automation
+- **v0.5.0** — Frame recording (ASC / CSV), frame filters, cyclic
+  transmission, multiplexor decoding, value-table decoded names,
+  IFileDialogService extraction.
+- **v1.0** — Real-time signal charts, scripting automation
   (CodeMirror 6 + sandboxed script engine).
-- **v1.3** — UDS diagnostic stack.
+- **v1.1** — UDS diagnostic stack.
 - **v2.0** — J1939 / CANopen, cross-platform (Linux + SocketCAN).
 
 ## License
