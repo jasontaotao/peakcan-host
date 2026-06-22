@@ -34,6 +34,12 @@ public sealed class DbcMessageViewModel
     public bool IsExtended { get; init; }
 
     /// <summary>
+    /// Signal list for this message. Each entry is a formatted string
+    /// like "Speed (rpm) : 0|16@1+ (0.1,0) [0|6553.5]".
+    /// </summary>
+    public IReadOnlyList<string> Signals { get; init; } = Array.Empty<string>();
+
+    /// <summary>
     /// Project a parsed <see cref="Message"/> into a row for the DataGrid.
     /// </summary>
     public static DbcMessageViewModel From(Message m)
@@ -41,6 +47,15 @@ public sealed class DbcMessageViewModel
         var isExtended = (m.Id & 0x80000000u) != 0;
         var rawId = isExtended ? m.Id & 0x7FFFFFFFu : m.Id;
         var fmt = isExtended ? "X8" : "X3";
+
+        var signals = new List<string>(m.Signals.Count);
+        foreach (var s in m.Signals)
+        {
+            var unit = string.IsNullOrEmpty(s.Unit) ? "" : $" ({s.Unit})";
+            var mux = s.IsMultiplexor ? " [MUX]" : s.IsMultiplexed ? $" [m{s.MultiplexValue}]" : "";
+            signals.Add($"{s.Name}{unit}{mux} : {s.StartBit}|{s.Length}@{(s.Order == ByteOrder.LittleEndian ? '1' : '0')}{(s.ValueType == PeakCan.Host.Core.Dbc.ValueType.Signed ? '-' : '+')}");
+        }
+
         return new DbcMessageViewModel
         {
             Id = $"0x{rawId.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture)}",
@@ -49,6 +64,7 @@ public sealed class DbcMessageViewModel
             Sender = m.Sender,
             SignalCount = m.Signals.Count,
             IsExtended = isExtended,
+            Signals = signals,
         };
     }
 }

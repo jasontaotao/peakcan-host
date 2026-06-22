@@ -28,7 +28,8 @@
                   VirtualizingPanel.ScrollUnit="Pixel"
                   ScrollViewer.CanContentScroll="True"
                   RowHeight="20"
-                  AlternatingRowBackground="#F8F8F8">
+                  AlternatingRowBackground="#F8F8F8"
+                  RowDetailsVisibilityMode="VisibleWhenSelected">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" />
                 <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
@@ -36,6 +37,17 @@
                 <DataGridTextColumn Header="Sender" Binding="{Binding Sender}" Width="120" />
                 <DataGridTextColumn Header="Signals" Binding="{Binding SignalCount}" Width="80" />
             </DataGrid.Columns>
+            <DataGrid.RowDetailsTemplate>
+                <DataTemplate>
+                    <ItemsControl ItemsSource="{Binding Signals}" Margin="16,4,4,4">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" Margin="0,1" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DataTemplate>
+            </DataGrid.RowDetailsTemplate>
         </DataGrid>
     </DockPanel>
 </UserControl>
