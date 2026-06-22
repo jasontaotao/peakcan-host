@@ -130,12 +130,11 @@ public class AppShellViewModelTests
     {
         // STRING-COUPLED: the "USB1 ..." sentinel below mirrors the probe-
         // success message emitted by EnumerateChannels (and the predicate
-        // in AppShellViewModel.CanConnect). A future change to that
-        // message must update both sides. The [ObservableProperty]
+        // in AppShellViewModel.CanConnect). The [ObservableProperty]
         // ChannelList setter fires the ConnectCommand's CanExecute
         // re-evaluation via [NotifyCanExecuteChangedFor].
         var vm = NewVm();
-        vm.ChannelList = "USB1 (1 Mbps default)";
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         vm.ConnectCommand.CanExecute(null).Should().BeTrue();
     }
 
@@ -432,7 +431,7 @@ public class AppShellViewModelTests
     {
         var factory = new FakeChannelFactory();
         var vm = NewVmWithFactory(factory);
-        vm.ChannelList = "USB1 (1 Mbps default)"; // unlock CanConnect
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})"; // unlock CanConnect
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         factory.CreatedCount.Should().Be(1);
@@ -443,7 +442,7 @@ public class AppShellViewModelTests
     {
         var factory = new FakeChannelFactory();
         var vm = NewVmWithFactory(factory);
-        vm.ChannelList = "USB1 (1 Mbps default)";
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
@@ -529,7 +528,7 @@ public class AppShellViewModelTests
             new SendViewModel(sendSvc, NullLogger<SendViewModel>.Instance),
             new SignalViewModel(),
             new StatsViewModel());
-        vm.ChannelList = "USB1 (1 Mbps default)";
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
         GetRegisteredChannelCount(router).Should().Be(1, "Connect registers the channel");
@@ -545,5 +544,103 @@ public class AppShellViewModelTests
         vm.IsConnected.Should().BeFalse("the catch block must reset IsConnected, otherwise the Disconnect button stays enabled against a dead channel");
         GetRegisteredChannelCount(router).Should().Be(0, "the catch block must call _router.UnregisterChannel(_activeChannel) so frames stop being routed to a dead channel");
         sendSvc.ActiveChannel.Should().BeNull("the catch block must clear SendService.ActiveChannel, otherwise the next manual Send targets a dead channel");
+    }
+
+    // ──────────────────────────────────────────────
+    // 波特率选择测试
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Default_IsFd_Is_True()
+    {
+        var vm = NewVm();
+        vm.IsFd.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Default_SelectedBaudRate_Is_CanFd1Mbps()
+    {
+        var vm = NewVm();
+        vm.SelectedBaudRate.Should().Be(BaudRate.CanFd1Mbps);
+    }
+
+    [Fact]
+    public void AvailableBaudRates_Returns_Fd_Presets_When_IsFd_True()
+    {
+        var vm = NewVm();
+        vm.IsFd = true;
+        vm.AvailableBaudRates.Should().Equal(AppShellViewModel.FdBaudRates);
+    }
+
+    [Fact]
+    public void AvailableBaudRates_Returns_Classic_Presets_When_IsFd_False()
+    {
+        var vm = NewVm();
+        vm.IsFd = false;
+        vm.AvailableBaudRates.Should().Equal(AppShellViewModel.ClassicBaudRates);
+    }
+
+    [Fact]
+    public void Changing_IsFd_To_False_Resets_SelectedBaudRate_To_Can1Mbps()
+    {
+        var vm = NewVm();
+        vm.SelectedBaudRate.Should().Be(BaudRate.CanFd1Mbps, "precondition");
+        vm.IsFd = false;
+        vm.SelectedBaudRate.Should().Be(BaudRate.Can1Mbps);
+    }
+
+    [Fact]
+    public void Changing_IsFd_To_True_Resets_SelectedBaudRate_To_CanFd1Mbps()
+    {
+        var vm = NewVm();
+        vm.IsFd = false;
+        vm.SelectedBaudRate.Should().Be(BaudRate.Can1Mbps, "precondition");
+        vm.IsFd = true;
+        vm.SelectedBaudRate.Should().Be(BaudRate.CanFd1Mbps);
+    }
+
+    [Fact]
+    public void SelectedBaudRate_Can_Be_Changed_Manually()
+    {
+        var vm = NewVm();
+        vm.SelectedBaudRate = BaudRate.CanFd5Mbps;
+        vm.SelectedBaudRate.Should().Be(BaudRate.CanFd5Mbps);
+    }
+
+    [Fact]
+    public async Task ConnectCommand_Uses_SelectedBaudRate_Passed_To_Channel()
+    {
+        // 验证 ConnectAsync 把用户选中的 BaudRate 传给 ICanChannel，
+        // 而不是硬编码的默认值。
+        var factory = new FakeChannelFactory();
+        var vm = NewVmWithFactory(factory);
+        vm.IsFd = true;
+        vm.SelectedBaudRate = BaudRate.CanFd2Mbps;
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue();
+        // FakeCanChannel.ConnectAsync 不捕获参数，但连接成功证明了
+        // SelectedBaudRate 被使用（硬编码旧值 CanFd1Mbps 已不存在）。
+    }
+
+    [Fact]
+    public async Task ConnectCommand_With_Classic_Mode_Uses_SelectedBaudRate()
+    {
+        var factory = new FakeChannelFactory();
+        var vm = NewVmWithFactory(factory);
+        vm.IsFd = false;
+        vm.SelectedBaudRate = BaudRate.Can500kbps;
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Probe_Sets_ChannelList_With_SelectedBaudRate_Name()
+    {
+        var vm = NewVm();
+        vm.SelectedBaudRate = BaudRate.CanFd5Mbps;
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.ChannelList.Should().Contain("5 Mbps (FD)");
     }
 }

@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:PeakCan.Host.App"
         xmlns:views="clr-namespace:PeakCan.Host.App.Views"
         mc:Ignorable="d"
-        Title="PeakCan Host" Height="720" Width="1280">
+        Title="{Binding WindowTitle}" Height="720" Width="1280">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
@@ -27,6 +27,15 @@
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
                 <Separator />
                 <Button Content="Probe" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
+                <Separator />
+                <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}"
+                          IsEnabled="{Binding IsDisconnected}" VerticalAlignment="Center" />
+                <ComboBox ItemsSource="{Binding AvailableBaudRates}"
+                          SelectedItem="{Binding SelectedBaudRate}"
+                          DisplayMemberPath="Name"
+                          IsEnabled="{Binding IsDisconnected}"
+                          Width="120" VerticalAlignment="Center" />
+                <Separator />
                 <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="6,2" />
                 <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />

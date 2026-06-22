@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -49,12 +50,19 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// for a single number.
     /// </summary>
     private const ushort PcanUsbFdFirstHandle = 0x51;
-    // BaudRate is a readonly record struct, not a literal type, so it
-    // cannot be a `const` in C#. `static readonly` gives us the same
-    // named, class-level binding the task asked for (see ICanChannel.cs
-    // preset table) without a runtime cost.
-    private static readonly BaudRate DefaultBaudRate = BaudRate.CanFd1Mbps;
-    private const bool DefaultFd = true;
+
+    /// <summary>窗口标题，含版本号（从 AssemblyInformationalVersion 读取）。</summary>
+    public string WindowTitle { get; } = $"PeakCan Host v{Assembly.GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+        .InformationalVersion ?? "0.0.0"}";
+
+    /// <summary>Classic CAN 预设列表（125 / 250 / 500 / 1000 kbps）。</summary>
+    public static readonly IReadOnlyList<BaudRate> ClassicBaudRates =
+        new[] { BaudRate.Can125kbps, BaudRate.Can250kbps, BaudRate.Can500kbps, BaudRate.Can1Mbps };
+
+    /// <summary>CAN FD 预设列表（1 / 2 / 5 Mbps data phase）。</summary>
+    public static readonly IReadOnlyList<BaudRate> FdBaudRates =
+        new[] { BaudRate.CanFd1Mbps, BaudRate.CanFd2Mbps, BaudRate.CanFd5Mbps };
 
     private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
@@ -100,7 +108,23 @@ public sealed partial class AppShellViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(DisconnectCommand))]
+    [NotifyPropertyChangedFor(nameof(IsDisconnected))]
     private bool _isConnected;
+
+    /// <summary>
+    /// 与 <see cref="IsConnected"/> 相反，供工具栏 CAN FD / 波特率控件的
+    /// <c>IsEnabled</c> 绑定——连接状态下禁用，断开后恢复。
+    /// </summary>
+    public bool IsDisconnected => !IsConnected;
+
+    /// <summary>CAN FD 模式开关。切换时自动将 SelectedBaudRate 重置为对应列表首项。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AvailableBaudRates))]
+    private bool _isFd = true;
+
+    /// <summary>当前选中的波特率预设。工具栏 ComboBox 绑定此属性。</summary>
+    [ObservableProperty]
+    private BaudRate _selectedBaudRate = BaudRate.CanFd1Mbps;
 
     /// <summary>
     /// The view currently shown in <c>AppShell.xaml</c>'s <c>MainArea</c>.
@@ -109,6 +133,19 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     private object? _currentView;
+
+    /// <summary>根据 IsFd 动态返回可用波特率预设列表。ComboBox ItemsSource 绑定此属性。</summary>
+    public IReadOnlyList<BaudRate> AvailableBaudRates => IsFd ? FdBaudRates : ClassicBaudRates;
+
+    /// <summary>
+    /// IsFd 属性变更回调：切换模式时自动将 SelectedBaudRate 重置为对应列表首项，
+    /// 避免用户在 Classic 模式下残留一个 FD 预设（或反之）。
+    /// CommunityToolkit.Mvvm 源生成器会将此方法注册到 IsFd 的 setter 中。
+    /// </summary>
+    partial void OnIsFdChanged(bool value)
+    {
+        SelectedBaudRate = value ? BaudRate.CanFd1Mbps : BaudRate.Can1Mbps;
+    }
 
     /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).</summary>
     public SendService SendService => _sendService;
@@ -229,7 +266,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
         if (result.Ok)
         {
-            ChannelList = "USB1 (1 Mbps default)";
+            ChannelList = $"USB1 ({SelectedBaudRate.Name})";
             StatusMessage = result.Message;
             LogProbeOk(_logger, PcanUsbFdFirstHandle);
         }
@@ -255,11 +292,11 @@ public sealed partial class AppShellViewModel : ObservableObject
     private async Task ConnectAsync()
     {
         ConnectionState = "Connecting...";
-        StatusMessage = "Connecting to USB1 (CAN FD 1 Mbps)";
+        StatusMessage = $"Connecting to USB1 ({SelectedBaudRate.Name})";
         try
         {
             var channel = _channelFactory.Create(new ChannelId(PcanUsbFdFirstHandle));
-            var result = await channel.ConnectAsync(DefaultBaudRate, fd: DefaultFd).ConfigureAwait(true);
+            var result = await channel.ConnectAsync(SelectedBaudRate, fd: IsFd).ConfigureAwait(true);
             if (result.IsSuccess)
             {
                 _activeChannel = channel;
@@ -272,7 +309,7 @@ public sealed partial class AppShellViewModel : ObservableObject
                 // PropertyChanged in order; this ordering keeps the
                 // Send button's CanExecute (when wired) consistent.
                 IsConnected = true;
-                ConnectionState = "Connected to USB1 (CAN FD 1 Mbps)";
+                ConnectionState = $"Connected to USB1 ({SelectedBaudRate.Name})";
                 StatusMessage = "Connected";
                 _sendService.ActiveChannel = channel;
                 LogConnectOk(_logger, PcanUsbFdFirstHandle);
@@ -303,7 +340,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private async Task DisconnectAsync()
     {
         if (!IsConnected || _activeChannel is null) return;
-        StatusMessage = $"Disconnecting from {DefaultBaudRate.Name}";
+        StatusMessage = $"Disconnecting from {SelectedBaudRate.Name}";
         ConnectionState = "Disconnecting...";
         try
         {
