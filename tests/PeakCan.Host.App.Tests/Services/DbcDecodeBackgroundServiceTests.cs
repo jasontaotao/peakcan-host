@@ -65,11 +65,14 @@ public class DbcDecodeBackgroundServiceTests
                 Timestamp.FromMicroseconds(0));
             svc.OnFrame(frame);
 
-            // Wait up to 1 s for the service to drain.
-            var deadline = DateTime.UtcNow.AddSeconds(1);
+            // Wait up to 5 s for the service to drain. CI Windows runners
+            // under load can take several seconds for the BackgroundService
+            // worker to dequeue and decode; 1 s is too aggressive and flakes
+            // the PR build (pre-existing on main).
+            var deadline = DateTime.UtcNow.AddSeconds(5);
             while (sigVm.Latest.Count == 0 && DateTime.UtcNow < deadline)
             {
-                await Task.Delay(10);
+                await Task.Delay(20);
             }
 
             sigVm.Latest.Should().HaveCount(1, "the matching DBC message must produce one decoded-signal row");
