@@ -321,20 +321,18 @@ public sealed class IsoTpLayer
         {
             lock (_rxLock)
             {
-                if (_rxInProgress && _rxExpectedSequence > 1)
+                if (_rxInProgress)
                 {
-                    // Only abort if we're still waiting for a CF (sequence > 1
-                    // means the first CF slot has been used). Otherwise the FF
-                    // was a complete single-chunk message that just hadn't
-                    // delivered yet — leave it alone.
+                    // Watchdog fires → reassembly stalled at any stage. Clear
+                    // state so a fresh FF can take over (covers the FF → no-CF1
+                    // case where the sequence number never advanced past 1).
                     _rxInProgress = false;
                     _rxBuffer = null;
                 }
             }
         });
 
-        // Replace the existing watchdog under lock so a fast CF can't race the cancel.
-        lock (_rxLock) { _rxWatchdog?.Dispose(); _rxWatchdog = cts; }
+        lock (_rxLock) { _rxWatchdog = cts; }
     }
 
     private void CancelReceiveWatchdog()
@@ -384,8 +382,20 @@ public sealed class IsoTpLayer
                 _rxBuffer = null;
                 CancelReceiveWatchdog();
 
-                // Deliver complete message
-                MessageReceived?.Invoke(complete);
+                // Snapshot the handler under the lock; invoke outside the lock
+                // so a subscriber that re-enters ProcessFrame (e.g. UdsClient
+                // dispatching the next request on the same instance) does not
+                // re-enter this critical section in an interleaved state.
+                var handler = MessageReceived;
+                Monitor.Exit(_rxLock);
+                try
+                {
+                    handler?.Invoke(complete);
+                }
+                finally
+                {
+                    Monitor.Enter(_rxLock);
+                }
             }
             else
             {

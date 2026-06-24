@@ -234,4 +234,43 @@ public sealed class IsoTpLayerTests
         sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1),
             "with N_Bs=200ms the layer must give up well before the hardcoded 5s");
     }
+
+    /// <summary>
+    /// Regression for code-review finding M-3: N_Cr watchdog must also fire
+    /// when the very first CF after an FF never arrives (the old guard
+    /// <c>_rxExpectedSequence &gt; 1</c> blocked the watchdog in this case).
+    /// </summary>
+    [Fact]
+    public async Task HandleFirstFrame_Timeout_Without_Any_CF_Resets_Reassembly()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(120);
+
+        // Inject an FF and never send any CF — the FF's first CF never arrives.
+        // Without the fix, _rxInProgress stays true forever and the second FF
+        // (with valid CFs) is silently rejected by the stuck reassembly state.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // Subscribe after the stuck FF so we can verify the *new* FF reassembles.
+        byte[]? receivedPayload = null;
+        var done = new TaskCompletionSource();
+        iso.MessageReceived += bytes =>
+        {
+            receivedPayload = bytes;
+            done.TrySetResult();
+        };
+
+        // Wait past N_Cr so the watchdog fires and clears the stuck state.
+        await Task.Delay(250);
+
+        // Inject a fresh FF(10) + CF1(4) — MessageReceived MUST fire with the new payload.
+        InjectFirstFrame(iso, totalLength: 10, firstChunk: new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF });
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 0x11, 0x22, 0x33, 0x44 });
+
+        var completed = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(1)));
+        completed.Should().Be(done.Task,
+            "after N_Cr watchdog fires for a stalled FF, the layer must accept the next FF and reassemble");
+        receivedPayload.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44);
+    }
 }
