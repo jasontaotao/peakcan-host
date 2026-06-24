@@ -21,6 +21,11 @@ public sealed class UdsClient : IDisposable
     private TaskCompletionSource<byte[]>? _responseTcs;
     private CancellationTokenSource? _responseCts;
 
+    // C-8 fix: the SID of the in-flight request, used to validate that an
+    // incoming positive response (SID+0x40) actually echoes our SID. Without
+    // this guard, stale or out-of-sequence frames are accepted as the result.
+    private byte _pendingRequestSid;
+
     /// <summary>Current diagnostic session.</summary>
     public UdsSession Session { get; } = new();
 
@@ -97,6 +102,14 @@ public sealed class UdsClient : IDisposable
         };
 
         Session.SetSession(result.SessionType, result.P2, result.P2Star);
+
+        // C-3 fix: propagate negotiated timings to UdsTimer so subsequent
+        // requests honour the ECU's P2 / P2* (e.g. longer P2* in Programming
+        // session). Without this, SendRequestInternalAsync would always use
+        // the 50 ms default and time out on the first diagnostic request.
+        _timer.P2Timeout = TimeSpan.FromMilliseconds(result.P2);
+        _timer.P2StarTimeout = TimeSpan.FromMilliseconds(result.P2Star);
+
         return result;
     }
 
@@ -249,12 +262,17 @@ public sealed class UdsClient : IDisposable
 
         var response = await SendRequestAsync(0x34, requestData, ct).ConfigureAwait(false);
 
-        // Response: [dataFormatId, lengthFormatId, maxLength...]
-        if (response.Length < 3)
-            throw new UdsException("Invalid RequestDownload response");
+        // C-7 fix: response layout per ISO 14229-1 §10.6.2.4 is
+        //   [dataFormatId, lengthFormatId, maxNumberOfBlockLength (lengthFormatId.lowNibble bytes)]
+        // SendRequestAsync strips the SID, so response[0] is dataFormatId,
+        // response[1] is lengthFormatId, and response[2..5] are the 4-byte
+        // maxNumberOfBlockLength (the common case, low nibble = 4).
+        if (response.Length < 5)
+            throw new UdsException(
+                $"Invalid RequestDownload response: length {response.Length} < 5");
 
         // Parse max block length (simplified: assume 4-byte)
-        int blockLength = (response[2] << 24) | (response[3] << 16) | (response[4] << 8) | response[5];
+        int blockLength = (response[1] << 24) | (response[2] << 16) | (response[3] << 8) | response[4];
         return blockLength;
     }
 
@@ -332,6 +350,7 @@ public sealed class UdsClient : IDisposable
 
     private async Task<byte[]> SendRequestInternalAsync(byte[] request, CancellationToken ct)
     {
+        _pendingRequestSid = request[0];
         _responseTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _responseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -387,7 +406,13 @@ public sealed class UdsClient : IDisposable
         // Positive response: SID + 0x40
         if (data.Length >= 2)
         {
-            byte responseData = data[1..][0]; // Skip SID byte
+            // C-8 fix: validate the SID echoes our in-flight request's SID + 0x40.
+            // A misaligned SID means the frame is stale or from a different
+            // request; dropping it lets the P2 timer expire (semantically correct).
+            byte expectedPositiveSid = (byte)(_pendingRequestSid + 0x40);
+            if (sid != expectedPositiveSid)
+                return;
+
             _responseTcs?.TrySetResult(data[1..]);
         }
     }
