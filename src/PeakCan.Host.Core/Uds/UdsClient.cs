@@ -11,7 +11,7 @@ namespace PeakCan.Host.Core.Uds;
 /// serialized internally to prevent overlapping request/response pairs.
 /// </para>
 /// </summary>
-public sealed class UdsClient : IDisposable
+public class UdsClient : IDisposable
 {
     private readonly IsoTpLayer _isoTp;
     private readonly UdsTimer _timer;
@@ -165,7 +165,7 @@ public sealed class UdsClient : IDisposable
     /// <param name="key">Security key (for SendKey).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Seed bytes (for RequestSeed) or success (for SendKey).</returns>
-    public async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
+    public virtual async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
     {
         byte[] requestData;
         byte subFunction;
@@ -346,6 +346,7 @@ public sealed class UdsClient : IDisposable
         _requestLock.Dispose();
         _responseCts?.Dispose();
         Session.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     private async Task<byte[]> SendRequestInternalAsync(byte[] request, CancellationToken ct)
