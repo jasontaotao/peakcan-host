@@ -118,13 +118,21 @@ public sealed partial class UdsViewModel : ObservableObject
         {
             Log("Requesting security access...");
             var seed = await _udsClient.SecurityAccessAsync(0x01);
-            Log($"Received seed: {BitConverter.ToString(seed)}");
 
-            // TODO: Implement actual key calculation
-            var key = new byte[seed.Length]; // Placeholder
-            await _udsClient.SecurityAccessAsync(0x01, key);
-            SecurityText = "Authenticated (Level 1)";
-            Log("Security access granted");
+            // C-2 fix: never log the seed bytes in plaintext — seed is
+            // security-sensitive material (input to the key derivation).
+            Log($"Received seed ({seed.Length} bytes) — redacted");
+
+            // C-1 fix: refuse to send a placeholder (all-zero) key. Sending
+            // a zero-byte key would falsely authenticate on misconfigured
+            // ECUs and would consume ECU-side failed-attempt counters,
+            // eventually locking the ECU. The OEM-specific key algorithm
+            // must be wired here (e.g. via HMAC-SHA256(seed, secret)) before
+            // the SendKey leg of the handshake is reachable.
+            throw new NotImplementedException(
+                "UDS SecurityAccess key calculation is OEM-specific and not yet implemented. " +
+                "Wire the OEM algorithm here (e.g., HMAC-SHA256(seed, secret)) before " +
+                "calling _udsClient.SecurityAccessAsync(0x01, key).");
         }
         catch (UdsNegativeResponseException ex)
         {
