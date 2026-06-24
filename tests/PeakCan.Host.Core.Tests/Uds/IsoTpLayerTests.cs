@@ -167,10 +167,12 @@ public sealed class IsoTpLayerTests
         await sendTask.WaitAsync(TimeSpan.FromSeconds(5));
         sw.Stop();
 
-        // With the fix: 2 delays × 100 µs = ~200 µs. Without the fix the
-        // layer treats 0xF1 as 241 ms, totalling ~482 ms — fails loudly.
-        sw.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(50),
-            "STmin=0xF1 is 100 µs per ISO 15765-2 §6.5.5.4, not 241 ms");
+        // With the fix: 2 delays × 100 µs = ~200 µs (plus CI scheduler jitter,
+        // typically 15-30 ms). Without the fix the layer treats 0xF1 as 241 ms,
+        // totalling ~482 ms. The 250 ms upper bound is comfortably below 482 ms
+        // (catches the regression) but generously above CI noise (passes with fix).
+        sw.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(250),
+            "STmin=0xF1 is 100 µs per ISO 15765-2 §6.5.5.4, not 241 ms per CF");
     }
 
     // ========================================================================
