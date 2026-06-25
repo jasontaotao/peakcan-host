@@ -130,21 +130,27 @@ listed below. NetArchTest rule 2 (Core must not depend on `Peak.Can.Basic`)
 is preserved.
 
 **Core testability hook (added 2026-06-25 during v1.2.0 implementation,
-discovered while building `SessionPanelViewModelTests`):**
+discovered while building `SessionPanelViewModelTests` + `DidPanelViewModelTests`):**
 
-- `src/PeakCan.Host.Core/Uds/UdsClient.cs:116` — `DiagnosticSessionControlAsync`
-  gains the `virtual` keyword. Both `SecurityAccessAsync` overloads were
-  already `virtual` (lines 195, 246); adding `virtual` to the third
-  `UdsClient` async service method brings the class to a consistent
-  testability surface. Non-behavioral: callers see no API change.
+Three `UdsClient` async service methods gained the `virtual` keyword (none
+had it before despite the two `SecurityAccessAsync` overloads being
+`virtual` since v1.1.0):
 
-Rationale: `SessionPanelViewModel` (App layer) takes `UdsClient` directly
-via DI per spec §4.5; its tests need a `RecordingUdsClient : UdsClient`
-test double that overrides `DiagnosticSessionControlAsync` to record
-calls without going through the real ISO-TP transport. Without `virtual`
-the test double cannot intercept the call, and the 3 session-command
-tests (Default/Extended/Programming) cannot verify the right
-sub-function byte is sent to the bus.
+- `src/PeakCan.Host.Core/Uds/UdsClient.cs` — `DiagnosticSessionControlAsync`,
+  `ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync` all `virtual`.
+  Both `SecurityAccessAsync` overloads were already `virtual`. Brings the
+  class to a consistent testability surface. Non-behavioral: callers see
+  no API change.
+
+Rationale: every panel `ViewModel` (Session/DID/Routine/DTC; §4.5–§4.8)
+takes `UdsClient` directly via DI; their tests need a
+`RecordingUdsClient : UdsClient` test double that overrides the relevant
+async service method to record calls without going through the real
+ISO-TP transport. Without `virtual` the test double cannot intercept the
+call, and the panel-command tests cannot verify the right parameters
+are sent to the bus. Each panel test double only overrides the methods
+it actually exercises; the remaining methods stay non-overridden and
+inherited.
 
 ### 3.2 Component diagram
 
@@ -538,7 +544,13 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
     private async Task WriteDidAsync()
     {
         var row = SelectedDid;
-        if (row is null || !row.Writable) return;
+        // Note: Writable is NOT a local guard — the ECU is the authority
+        // on writability and returns NRC 0x31 (requestOutOfRange) for
+        // read-only DIDs. UI-level enforcement of Writable happens in
+        // UdsView.xaml via IsEnabled="{Binding Did.SelectedDid.Writable}".
+        // Clarified 2026-06-25 during v1.2.0 implementation: this matches
+        // v1.1.0 monolith's WriteDidAsync behavior.
+        if (row is null) return;
         try
         {
             var data = ParseHexString(WriteValue);
@@ -1170,6 +1182,20 @@ tests/PeakCan.Host.App.Tests/...                                 (any using upda
 ## 9. Open Questions
 
 None. All design decisions resolved.
+
+## 9.1 Discovered during v1.2.0 implementation (out of scope, deferred)
+
+- **`DidDatabase` 2-arg ctor NRE on null `ILogger`** —
+  `src/PeakCan.Host.Core/Uds/Database/DidDatabase.cs:57` calls
+  `LogNoPathConfigured(logger!)` on a `ILogger<DidDatabase>?` parameter
+  that the `[LoggerMessage]` source-gen does not null-check. The 1-arg
+  ctor `DidDatabase(ILogger<DidDatabase>?)` is unusable in test setups
+  that pass `null`. **Workaround in v1.2.0 tests:** always pass
+  `NullLogger<DidDatabase>.Instance`. **Root cause fix (v1.2.x PATCH):**
+  one of:
+  - Guard the ctor: `_logger = logger;` then `_logger?.LogInformation(...)` (LoggerMessage source-gen can be made null-safe by changing the `[LoggerMessage]` signature to `partial void LogNoPathConfigured(LogLevel level)` and routing through `_logger?.IsEnabled(level) == true ? _logger.Log(level, ...) : NoOp`).
+  - Make the ctor non-nullable: `DidDatabase(ILogger<DidDatabase> logger)` (breaks the 1-arg ctor public surface; minor).
+  - Same NRE likely exists on `RoutineDatabase.cs` (mirror of DidDatabase). Surface and fix together. Discovered 2026-06-25 by Task 3 review; not in v1.2.0 ship.
 
 ## 10. References
 
