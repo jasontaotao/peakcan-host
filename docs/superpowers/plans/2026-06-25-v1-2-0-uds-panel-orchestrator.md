@@ -727,16 +727,6 @@ public sealed class DidPanelViewModelTests
         }
     }
 
-    private static DidDatabase NewDb(params DidDefinition[] defs)
-        => new DidDatabase(Path.Combine(Path.GetTempPath(), $"uds-dids-{Guid.NewGuid():N}.json"), logger: null)
-            .Tap(db =>
-            {
-                // Inject test definitions via the user-JSON path (built-in merge handled by DidDatabase).
-                var json = "{\"dids\":[" + string.Join(",", defs.Select(d =>
-                    $"{{\"id\":\"0x{d.Id:X4}\",\"name\":\"{d.Name}\",\"description\":\"{d.Description}\",\"lengthBytes\":{d.LengthBytes},\"writable\":{(d.Writable ? "true" : "false")}}}")) + "]}";
-                File.WriteAllText(db.GetType().GetField("_userPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(db) as string ?? "", json);
-            });
-
     [Fact]
     public void Ctor_Populates_Dids_From_DidDatabase_All()
     {
@@ -841,8 +831,6 @@ public sealed class DidPanelViewModelTests
     }
 }
 ```
-
-Note: The `Tap` extension and `_userPath` reflection are placeholders if the v1.1.0 `DidDatabase` API does not allow injection post-construction. If `DidDatabase` does not expose the user path after construction, drop those tests or use the built-in defaults path (the 5 built-in defaults are sufficient for most assertions).
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -989,7 +977,7 @@ Run:
 dotnet test tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj --filter "FullyQualifiedName~DidPanelViewModelTests"
 ```
 
-Expected: 7 new tests pass (the reflection-based `Tap` test from step 1 is a placeholder; drop it if v1.1.0 `DidDatabase` does not expose the user path — the 5 built-in defaults are sufficient).
+Expected: 7 new tests pass (all 7 use `new DidDatabase(userJsonPath: null, logger: null)` for the v1.1.0 built-in defaults; no reflection / file injection is needed).
 
 - [ ] **Step 5: Commit**
 
@@ -1594,7 +1582,7 @@ public sealed class UdsViewModelOrchestratorTests
     }
 
     [Fact]
-    public void Ctor_Appending_Log_From_Session_Appears_In_OutputLog()
+    public async Task Ctor_Appending_Log_From_Session_Via_Command_Appears_In_OutputLog()
     {
         var uds = new FakeUdsClient();
         var session = new SessionPanelViewModel(uds, NullLogger<SessionPanelViewModel>.Instance);
@@ -1604,11 +1592,9 @@ public sealed class UdsViewModelOrchestratorTests
 
         var vm = new UdsViewModel(session, did, routine, dtc);
 
-        session.AttachLog(vm.OutputLog);
-        session.GetType().GetMethod("AppendLog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            ?.Invoke(session, new object[] { "Info", "test message" });
+        await session.SetDefaultSessionCommand.ExecuteAsync(null);
 
-        vm.OutputLog.Should().ContainSingle(l => l.Level == "Info" && l.Message == "test message");
+        vm.OutputLog.Should().Contain(l => l.Level == "Info" && l.Message == "Session → Default");
     }
 
     [Fact]
@@ -1740,7 +1726,7 @@ Did / Routine / Dtc) own their own commands and share an
 ObservableCollection<UdsLogLine> via the IUdsPanel.AttachLog hook.
 
 4 new orchestrator tests cover: panel wiring + identity, shared log
-forwarding via reflection-driven AppendLog invocation, ClearOutput
+forwarding via SetDefaultSessionCommand (which internally calls private AppendLog), ClearOutput
 empties collection, null-arg ArgumentNullException.
 
 BREAKING: AppShellViewModel.cs:79,186 and AppHostBuilder.cs:163 still
@@ -2310,7 +2296,7 @@ Gaps: none. Spec §7.2 calls for `UdsPanelIntegrationTests` (4 cross-panel integ
 **2. Placeholder scan:**
 
 - No "TBD" / "TODO" / "implement later" in any step.
-- Step 3 of Task 3 has one `Tap` extension placeholder; the step text explicitly notes "drop those tests if v1.1.0 `DidDatabase` does not expose the user path". This is an intentional conditional, not an unresolved TODO — the tests fall back to the 5 built-in defaults and the step is viable without the `Tap` helper.
+- Step 3 of Task 3 test code uses only `new DidDatabase(userJsonPath: null, logger: null)` (built-in defaults path) — no reflection, no `Tap` extension, no dead helpers.
 - All test code blocks are complete and runnable.
 - All implementation code blocks are complete (no "fill in later" markers).
 - All commands have explicit expected output.
