@@ -1207,14 +1207,22 @@ None. All design decisions resolved.
 
   - `SignalViewModelTests.ApplyFrame_Multiple_Signals_Adds_All_As_Entries` —
     Task 5 reported, likely a test-ordering / shared-state issue with the
-    signal chart's internal collection. Discovered 2026-06-25.
+    signal chart's internal collection. Discovered 2026-06-25. **RESOLVED
+    in v1.2.1 PATCH `<4010fae>`**: root cause was a leaked
+    `System.Windows.Application.Current` singleton from
+    `TraceViewModelTests.AppendBatch_On_StaThread_With_Application_Adds_All_Frames`
+    (the STA thread exited but the static survived). xUnit runs test
+    classes in parallel, so a sibling MTA test could observe the leaked
+    singleton and route its inline path through `Dispatcher.InvokeAsync`
+    on the dead dispatcher — the queued action never ran and
+    `vm.Latest` stayed empty. Fix: `Collections/LeakedApplicationReset.cs`
+    helper called from the three affected test class ctors.
   - `DbcDecodeBackgroundServiceTests` — Task 6 reported timing flake,
     passes in isolation. Likely the same shared-state / timing pattern.
 
-  Both are unrelated to UDS work. Tracked together for a v1.2.x PATCH
-  that fixes test isolation in the App test assembly (likely needs a
-  `TestBase` fixture pattern that resets shared state between tests).
-  Out of v1.2.0 ship scope.
+  Both are unrelated to UDS work. The SignalViewModel flake was closed
+  in v1.2.1 PATCH Task 5. The DbcDecodeBackgroundService flake remains
+  open and is tracked for v1.2.x.
 
 ## 10. References
 

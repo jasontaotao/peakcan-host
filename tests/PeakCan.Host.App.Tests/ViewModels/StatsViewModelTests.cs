@@ -1,6 +1,7 @@
 using FluentAssertions;
 using OxyPlot;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.Infrastructure.Statistics;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -22,9 +23,22 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// observes the post-state directly. The full dispatcher hop is
 /// exercised in production by the WPF smoke run (Task 20).
 /// </para>
+/// <para>
+/// <b>v1.2.1 PATCH (Task 5):</b> the ctor calls
+/// <see cref="LeakedApplicationReset.CleanupLeakedApplication"/> to null
+/// out any leaked <see cref="System.Windows.Application.Current"/> from a
+/// sibling test class. Without this, the inline path inside
+/// <see cref="StatsViewModel.Push"/> would route through
+/// <c>Dispatcher.InvokeAsync</c> on a dead dispatcher and
+/// <c>TotalFrames</c> would stay 0.
+/// </para>
 /// </summary>
 public class StatsViewModelTests
 {
+    // v1.2.1 PATCH Task 5: defensive cleanup of leaked Application.Current
+    // before each test (ctor runs once per test instance in xUnit).
+    public StatsViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
+
     private static BusStatistics MakeSnap(long total = 0, long errors = 0,
                                           double fps = 0.0, long bytes = 0,
                                           double bps = 0.0, double load = 0.0)

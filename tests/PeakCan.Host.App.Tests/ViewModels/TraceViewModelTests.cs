@@ -1,6 +1,7 @@
 using FluentAssertions;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.Tests.Collections;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -18,9 +19,23 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// the production dispatcher path. In the running app, <c>Application.Current.Dispatcher</c>
 /// is always available, so the silent path is never hit at runtime.
 /// </para>
+/// <para>
+/// <b>v1.2.1 PATCH (Task 5):</b> the ctor calls
+/// <see cref="LeakedApplicationReset.CleanupLeakedApplication"/> defensively
+/// so a leaked <see cref="System.Windows.Application.Current"/> from a
+/// prior sibling test class is nulled before each test. The STA-hosted
+/// test below still creates its own <see cref="Application"/> on its
+/// dedicated STA thread — it does not depend on a prior leak. The
+/// test's own <c>finally</c> block cleans up the singleton after the
+/// STA thread exits.
+/// </para>
 /// </summary>
 public class TraceViewModelTests
 {
+    // v1.2.1 PATCH Task 5: defensive cleanup of leaked Application.Current
+    // before each test (ctor runs once per test instance in xUnit).
+    public TraceViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
+
     private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4, bool fd = false, bool error = false)
     {
         byte[] payload = dlc == 0 ? Array.Empty<byte>() : new byte[dlc];
@@ -113,6 +128,27 @@ public class TraceViewModelTests
                 entriesCount = vm.Entries.Count;
             }
             catch (Exception ex) { caught = ex; }
+            finally
+            {
+                // v1.2.1 PATCH Task 5: clean up the leaked Application
+                // singleton so sibling test classes don't see a
+                // foreign STA dispatcher. Without this, the static
+                // Application.Current reference survives the STA thread
+                // exit and causes RunOnUiPost in sibling tests to
+                // queue work to a dispatcher that may never pump.
+                try
+                {
+                    Application.Current?.Shutdown();
+                }
+                catch { /* dispatcher may already be shutting down */ }
+                // _appInstance is the backing field for Application.Current
+                // (introspected via reflection; the Current property is
+                // read-only and has no public setter).
+                typeof(Application).GetField("_appInstance",
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Static)
+                    ?.SetValue(null, null);
+            }
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();

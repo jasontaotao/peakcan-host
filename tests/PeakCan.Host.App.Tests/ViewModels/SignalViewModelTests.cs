@@ -1,5 +1,6 @@
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 
@@ -24,9 +25,22 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// smoke run (Task 20); a dedicated STA test for this VM caused
 /// xunit parallel-execution hangs in the suite and was rolled back.
 /// </para>
+/// <para>
+/// <b>v1.2.1 PATCH (Task 5):</b> the ctor calls
+/// <see cref="LeakedApplicationReset.CleanupLeakedApplication"/> to null
+/// out any leaked <see cref="System.Windows.Application.Current"/> from a
+/// sibling test class (xUnit runs test classes in parallel). Without
+/// this, the inline path inside <see cref="ApplyFrame"/> would route
+/// through <c>Dispatcher.InvokeAsync</c> on a dead dispatcher and
+/// <see cref="SignalViewModel.Latest"/> would stay empty.
+/// </para>
 /// </summary>
 public class SignalViewModelTests
 {
+    // v1.2.1 PATCH Task 5: defensive cleanup of leaked Application.Current
+    // before each test (ctor runs once per test instance in xUnit).
+    public SignalViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
+
     private static readonly string[] ExpectedPlainSigNames = new[] { "Speed", "Rpm", "Temp" };
 
     private static CanFrame MakeFrame(uint id, params byte[] data)
@@ -99,6 +113,108 @@ public class SignalViewModelTests
         vm.Latest.Should().HaveCount(3);
         vm.Latest.Select(e => e.Signal).Should().BeEquivalentTo(ExpectedPlainSigNames);
         vm.Latest.Single(e => e.Signal == "Temp").Unit.Should().Be("°C");
+    }
+
+    /// <summary>
+    /// v1.2.1 PATCH Task 5: repro for the pre-existing flake in
+    /// <see cref="ApplyFrame_Multiple_Signals_Adds_All_As_Entries"/>.
+    /// <para>
+    /// <b>Root cause:</b> <see cref="TraceViewModelTests.AppendBatch_On_StaThread_With_Application_Adds_All_Frames"/>
+    /// creates <c>new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown }</c>
+    /// on a dedicated STA thread. The static
+    /// <see cref="System.Windows.Application.Current"/> singleton survives
+    /// even after the STA thread is Join'd. xUnit runs test classes in
+    /// parallel, so a sibling MTA test may observe a leaked
+    /// <c>Application.Current</c> whose dispatcher thread either has
+    /// exited (IsAlive=false but singleton survives) or is still alive
+    /// but no longer pumping.
+    /// </para>
+    /// <para>
+    /// When <c>Application.Current</c> is non-null, <see cref="SignalViewModel.ApplyFrame"/>'s
+    /// <c>RunOnUiPost</c> extension takes the
+    /// <c>Dispatcher.InvokeAsync(action)</c> path on the foreign dispatcher,
+    /// so the queued action never runs and <c>vm.Latest</c> stays empty.
+    /// In the clean state (no leak) <c>RunOnUiPost</c> runs inline and
+    /// <c>vm.Latest</c> is populated synchronously.
+    /// </para>
+    /// <para>
+    /// <b>This test is RED today:</b> the simulated leaked state makes
+    /// the assertion fail with "Expected 3, found 0". It is GREEN with
+    /// the fix: the test cleans up <c>Application.Current</c> via
+    /// reflection so the inline fallback path runs.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ApplyFrame_With_LeakedApplication_DeadDispatcher_Fails_To_Fill_Latest()
+    {
+        // Simulate the leaked state: create an Application on an STA thread
+        // that blocks until we release it. The dispatcher thread is ALIVE
+        // but not pumping — the exact same race window as a sibling test
+        // class whose STA thread is mid-Join. RunOnUiPost's
+        // `appDispatcher.Thread.IsAlive` check returns true, so it routes
+        // through InvokeAsync onto the blocked thread — the queued action
+        // never runs and vm.Latest stays empty.
+        var pumpRelease = new ManualResetEventSlim(false);
+        var pumpDone = new ManualResetEventSlim(false);
+        Exception? staCaught = null;
+        var staThread = new Thread(() =>
+        {
+            try
+            {
+                _ = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+                pumpRelease.Set();
+                // Block here — STA thread alive but not pumping. This is the
+                // race window during which a parallel MTA test can observe
+                // Application.Current != null with a live-but-stuck dispatcher.
+                System.Threading.Thread.Sleep(TimeSpan.FromSeconds(3));
+            }
+            catch (Exception ex) { staCaught = ex; }
+            finally { pumpDone.Set(); }
+        });
+        staThread.SetApartmentState(ApartmentState.STA);
+        staThread.Start();
+        pumpRelease.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        // The leak: Application.Current is now non-null and the dispatcher
+        // thread (staThread) is alive but not pumping.
+        System.Windows.Application.Current.Should().NotBeNull("the STA thread set the singleton and is still alive");
+
+        try
+        {
+            // Now exercise SignalViewModel.ApplyFrame on the calling thread
+            // (xunit MTA pool). RunOnUiPost sees a non-null
+            // Application.Current.Dispatcher with IsAlive=true and routes
+            // the upsert through Dispatcher.InvokeAsync onto the blocked
+            // STA thread — the queued action never runs, Latest stays empty.
+            var vm = new SignalViewModel();
+            var msg = Msg(0x100, "M1",
+                Sig("Speed", factor: 0.1),
+                Sig("Rpm"),
+                Sig("Temp", unit: "°C"));
+            var frame = MakeFrame(0x100, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE);
+
+            vm.ApplyFrame(frame, msg);
+
+            // RED assertion: with a leaked Application.Current pointing at
+            // an alive-but-stuck dispatcher, the queued RunOnUiPost action
+            // never executes and vm.Latest is empty.
+            vm.Latest.Should().HaveCount(3,
+                "ApplyFrame must populate Latest inline even when Application.Current "
+                + "points at a dispatcher whose thread is alive but not pumping");
+        }
+        finally
+        {
+            // Clean up: release the STA thread, shut down the Application,
+            // and null out the singleton so subsequent tests are not affected.
+            pumpRelease.Reset();
+            try { System.Windows.Application.Current?.Shutdown(); } catch { }
+            typeof(System.Windows.Application).GetField("_appInstance",
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Static)
+                ?.SetValue(null, null);
+            pumpDone.Wait(TimeSpan.FromSeconds(5));
+            staThread.Join(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Fact]
