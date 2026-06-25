@@ -1187,18 +1187,20 @@ None. All design decisions resolved.
 
 ## 9.1 Discovered during v1.2.0 implementation (out of scope, deferred)
 
-- **`DidDatabase` 2-arg ctor NRE on null `ILogger`** —
-  `src/PeakCan.Host.Core/Uds/Database/DidDatabase.cs:57` calls
+- **`DidDatabase` 2-arg ctor NRE on null `ILogger`** — **RESOLVED in v1.2.1**.
+  `src/PeakCan.Host.Core/Uds/Database/DidDatabase.cs:51-58` originally called
   `LogNoPathConfigured(logger!)` on a `ILogger<DidDatabase>?` parameter
   that the `[LoggerMessage]` source-gen does not null-check. The 1-arg
-  ctor `DidDatabase(ILogger<DidDatabase>?)` is unusable in test setups
-  that pass `null`. **Workaround in v1.2.0 tests:** always pass
-  `NullLogger<DidDatabase>.Instance`. **Root cause fix (v1.2.x PATCH):**
-  one of:
-  - Guard the ctor: `_logger = logger;` then `_logger?.LogInformation(...)` (LoggerMessage source-gen can be made null-safe by changing the `[LoggerMessage]` signature to `partial void LogNoPathConfigured(LogLevel level)` and routing through `_logger?.IsEnabled(level) == true ? _logger.Log(level, ...) : NoOp`).
-  - Make the ctor non-nullable: `DidDatabase(ILogger<DidDatabase> logger)` (breaks the 1-arg ctor public surface; minor).
-  - **`RoutineDatabase` does NOT have this bug** (verified 2026-06-25 by Task 4 implementer): its nullable `_logger` + `logger!` at the partial-method call sites handles null logger correctly. No workaround needed for `RoutineDatabase` ctor.
-  Discovered 2026-06-25 by Task 3 review; not in v1.2.0 ship.
+  ctor `DidDatabase(ILogger<DidDatabase>?)` was unusable in test setups
+  that pass `null`. Fix: `LoadUserFile` now guards with `if (_logger is { } l)`
+  and calls the source-generated helpers only when a real logger exists.
+  3 regression tests added (`DidDatabaseNreTests`).
+  **Note on `RoutineDatabase`:** the original spec claim that it does not
+  have the bug is incorrect — `RoutineDatabase.LoadUserFile` (lines 38-69)
+  uses the same `logger!` pattern and would NRE the same way. It was never
+  reached in v1.2.0 tests because all callers passed `NullLogger<RoutineDatabase>.Instance`.
+  Out of scope for v1.2.1 PATCH (no failing tests).
+  Discovered 2026-06-25 by Task 3 review; fixed in v1.2.1 PATCH Task 4.
 
 - **Pre-existing test flakes surfaced during v1.2.0 test runs** (none introduced
   by v1.2.0 work; both pass in isolation, fail in full-suite runs):

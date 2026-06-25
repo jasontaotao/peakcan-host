@@ -50,17 +50,44 @@ public sealed partial class DidDatabase
 
     private List<DidDefinition>? LoadUserFile(string? path)
     {
-        var logger = _logger; // capture for null-safety; LoggerMessage methods
-                              // below require a non-nullable ILogger parameter.
-        if (string.IsNullOrEmpty(path))
+        // The [LoggerMessage] source-gen helpers below require a non-null ILogger
+        // argument (they dereference without a null-check). Skip logging when no
+        // logger was supplied rather than calling them with a null-forced value.
+        if (_logger is { } l)
         {
-            LogNoPathConfigured(logger!);
-            return null;
+            if (string.IsNullOrEmpty(path))
+            {
+                LogNoPathConfigured(l);
+                return null;
+            }
+
+            if (!File.Exists(path))
+            {
+                LogFileMissing(l, path);
+                return null;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(path);
+                var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
+                return dto?.Dids;
+            }
+            catch (JsonException ex)
+            {
+                LogMalformedJson(l, ex, path);
+                return null;
+            }
+            catch (IOException ex)
+            {
+                LogIoError(l, ex, path);
+                return null;
+            }
         }
 
-        if (!File.Exists(path))
+        // No logger: still execute the file-IO logic, but skip log calls.
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
-            LogFileMissing(logger!, path);
             return null;
         }
 
@@ -70,14 +97,12 @@ public sealed partial class DidDatabase
             var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
             return dto?.Dids;
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            LogMalformedJson(logger!, ex, path);
             return null;
         }
-        catch (IOException ex)
+        catch (IOException)
         {
-            LogIoError(logger!, ex, path);
             return null;
         }
     }
@@ -117,8 +142,8 @@ public sealed partial class DidDatabase
     // LoggerMessage source-generated helpers (CA1848). Methods are not on
     // hot paths; only LoadUserFile calls them. Parameter type is non-nullable
     // ILogger because the source generator dereferences without a null check;
-    // call sites pass `_logger!` because DidDatabase's ctor accepts a nullable
-    // ILogger and we silently skip logging when none is supplied.
+    // LoadUserFile guards with `if (_logger is { } l)` and passes `l` so the
+    // nullable ctor parameter does not force NRE at these call sites.
     [LoggerMessage(Level = LogLevel.Information,
         Message = "No DID user JSON path configured; using built-in defaults only.")]
     private static partial void LogNoPathConfigured(ILogger logger);
