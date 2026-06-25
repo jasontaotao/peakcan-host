@@ -117,22 +117,42 @@ public sealed partial class UdsViewModel : ObservableObject
         try
         {
             Log("Requesting security access...");
-            var seed = await _udsClient.SecurityAccessAsync(0x01);
-            Log($"Received seed: {BitConverter.ToString(seed)}");
-
-            // TODO: Implement actual key calculation
-            var key = new byte[seed.Length]; // Placeholder
-            await _udsClient.SecurityAccessAsync(0x01, key);
-            SecurityText = "Authenticated (Level 1)";
-            Log("Security access granted");
+            // v1.1.0: use the new KeyProvider-aware overload that delegates
+            // key computation to the injected IKeyDerivationAlgorithm.
+            // SECURITY: the new overload never returns the seed to the caller
+            // (it returns only the success response from SendKey), so there
+            // is no seed byte to log here. See commit a9fe443 (C-2 fix).
+            // Cast `0x01` to byte to disambiguate between the legacy 3-arg
+            // overload and the new (byte, CancellationToken) overload.
+            var response = await _udsClient.SecurityAccessAsync((byte)0x01, CancellationToken.None);
+            SecurityText = $"Level 0x01 (authenticated, {response.Length} bytes)";
+            Log($"SecurityAccess level 0x01 succeeded ({response.Length} bytes).");
+        }
+        catch (KeyAlgorithmNotConfiguredException ex)
+        {
+            // Targeted hint for the placeholder case (no OEM algorithm wired).
+            // Distinct catch ABOVE the generic Exception branch so we can
+            // surface a configuration message instead of a generic error.
+            Log($"SecurityAccess: {ex.Message}");
+            Log("Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
+            SecurityText = "Not Authenticated";
         }
         catch (UdsNegativeResponseException ex)
         {
             Log($"Security access failed: {ex.ResponseCode}");
+            SecurityText = $"Rejected: {ex.ResponseCode}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Thrown by the new overload when the UdsClient was constructed
+            // without an IKeyDerivationAlgorithm (legacy 2-arg ctor).
+            Log($"Security access error: {ex.Message}");
+            SecurityText = "Not Authenticated";
         }
         catch (Exception ex)
         {
             Log($"Security access error: {ex.Message}");
+            SecurityText = "Not Authenticated";
         }
     }
 

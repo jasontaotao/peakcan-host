@@ -4,11 +4,11 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** MVP v0.10.1 — see [Spec](docs/superpowers/specs/2026-06-18-peakcan-host-design.md)
-> for the design and [Sprint 17 Plan](docs/superpowers/plans/2026-06-19-sprint-17-v0-2-0.md)
-> for the previous v0.2.0 defect-fix plan, plus
-> [Release Notes](docs/release-notes-v0.2.1.md) for the v0.2.1 high-bug
-> review triage. 407 unit tests pass (155 Core + 178 App
+> **Status:** v1.1.0 — UDS SecurityAccess KeyProvider + JSON-loadable DID/Routine databases.
+> See [Spec](docs/superpowers/specs/2026-06-25-v1-1-0-uds-ui-and-key-provider-design.md)
+> for the v1.1.0 design and [Plan](docs/superpowers/plans/2026-06-25-v1-1-0-uds-ui-and-key-provider.md)
+> for the implementation plan, plus [Release Notes](docs/release-notes-v1.1.0.md)
+> for the v1.1.0 ship summary. **477 unit tests pass** (207 Core + 196 App
 > + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
@@ -269,6 +269,45 @@ writeup. Summary:
 - **Session management** — automatic session state tracking
 - **Security access** — seed/key exchange with configurable algorithms
 - **UDS tab** — DID read/write, routine execution, DTC list with clear
+
+### v1.1.0 additions (this release)
+
+- **`IKeyDerivationAlgorithm` seam** — `UdsClient` gains a 3-arg constructor
+  accepting an OEM-specific key derivation algorithm. A new public overload
+  `SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)`
+  performs the full RequestSeed → ComputeKey → SendKey handshake. Default
+  DI registration is `PlaceholderKeyAlgorithm`, which throws
+  `KeyAlgorithmNotConfiguredException(securityLevel)` and surfaces a clear
+  configuration hint in the UDS log when SecurityAccess is invoked before
+  an OEM algorithm is wired. OEMs register their seed→key implementation
+  via DI; no recompile needed. `UdsViewModel.SecurityAccessAsync` no
+  longer throws `NotImplementedException` — it fails fast with a
+  targeted hint when no OEM algorithm is wired, and otherwise delegates
+  the full handshake to the new overload. Seed bytes are never logged
+  (C-2 redaction invariant preserved; strengthened — the seed byte
+  sequence is no longer logged at all because the new overload
+  encapsulates the RequestSeed leg internally).
+- **`DidDatabase`** — 5 built-in defaults (VIN 0xF190, ECU SW version
+  0xF184, ECU HW version 0xF191, Part Number 0xF187, Supplier ID 0xF18A)
+  + JSON load from `%APPDATA%\PeakCan.Host\uds-dids.json`. User entries
+  with matching IDs override built-ins; non-matching entries are appended.
+  Missing or malformed JSON falls back to built-in defaults and logs a
+  warning — the UI never breaks on bad config.
+- **`RoutineDatabase`** — 100% OEM-defined; loads from
+  `%APPDATA%\PeakCan.Host\uds-routines.json`. Empty list when no file
+  is present; missing/malformed JSON handled identically to DidDatabase.
+- **`HexUshortJsonConverter`** — shared JSON converter that accepts
+  UDS 16-bit ids in decimal (`6160`), hex-with-prefix (`"0xF190"`), or
+  hex-without-prefix (`"F190"`) forms. Used by both databases so the
+  natural hex representation works in user JSON files.
+
+> **v1.2 backlog (not in this release):** the spec's "4-panel orchestrator
+> refactor" (`SessionPanelViewModel` / `DidPanelViewModel` /
+> `RoutinePanelViewModel` / `DtcPanelViewModel` + JSON databases as
+> `DataGrid` ItemsSources) is **deferred to v1.2** to keep v1.1.0 ship
+> scope tight; the existing monolithic `UdsViewModel` and the existing
+> `UdsView.xaml` (TabControl with free-text DID / Routine ID inputs +
+> DTC DataGrid + Log Panel) remain.
 
 ## Prerequisites
 

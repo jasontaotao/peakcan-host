@@ -98,7 +98,14 @@ public class CyclicSendServiceTests
         var svc = new CyclicSendService(sendSvc, NullLogger<CyclicSendService>.Instance);
 
         svc.Start(MakeFrame(), TimeSpan.FromMilliseconds(50));
-        await Task.Delay(200); // wait for ~4 ticks
+        // Wait up to 2 s for at least one tick. CI Windows runners can be slow
+        // enough that the 50 ms timer hasn't fired inside the original 200 ms
+        // window (pre-existing flake on main).
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (channel.Written.Count == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
         svc.Stop();
 
         svc.SendCount.Should().BeGreaterThan(0, "cyclic send should have fired at least once");

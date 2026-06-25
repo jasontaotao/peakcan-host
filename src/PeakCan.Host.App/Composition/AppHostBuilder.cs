@@ -148,7 +148,18 @@ public static class AppHostBuilder
                 sendService.SendAsync(frame).AsTask().Wait();
             });
         });
-        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>();
+        // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();
+        // v1.1.0: DID + Routine databases (load from %APPDATA%\PeakCan.Host\ on construction).
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DidDatabase>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.RoutineDatabase>();
+        // v1.1.0: UdsClient now requires an IKeyDerivationAlgorithm via the 3-arg ctor.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>(sp =>
+        {
+            var isoTp = sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
+            var keyAlgorithm = sp.GetRequiredService<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm>();
+            return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm);
+        });
         builder.Services.AddSingleton<UdsViewModel>();
 
         // ViewModels

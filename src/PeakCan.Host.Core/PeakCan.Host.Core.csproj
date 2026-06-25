@@ -6,4 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- v1.1.0: ILogger<T> for DidDatabase / RoutineDatabase. Already
+         declared centrally in Directory.Packages.props; this just
+         references it. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
 </Project>

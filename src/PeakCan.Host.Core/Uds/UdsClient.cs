@@ -11,7 +11,7 @@ namespace PeakCan.Host.Core.Uds;
 /// serialized internally to prevent overlapping request/response pairs.
 /// </para>
 /// </summary>
-public sealed class UdsClient : IDisposable
+public class UdsClient : IDisposable
 {
     private readonly IsoTpLayer _isoTp;
     private readonly UdsTimer _timer;
@@ -20,6 +20,17 @@ public sealed class UdsClient : IDisposable
     // Response correlation
     private TaskCompletionSource<byte[]>? _responseTcs;
     private CancellationTokenSource? _responseCts;
+
+    // C-8 fix: the SID of the in-flight request, used to validate that an
+    // incoming positive response (SID+0x40) actually echoes our SID. Without
+    // this guard, stale or out-of-sequence frames are accepted as the result.
+    private byte _pendingRequestSid;
+
+    // v1.1.0: OEM-specific SecurityAccess key derivation. Nullable so the
+    // legacy 2-arg ctor keeps working for tests that don't care about
+    // SecurityAccess. The new overload SecurityAccessAsync(byte, CancellationToken)
+    // throws InvalidOperationException when this is null.
+    private readonly IKeyDerivationAlgorithm? _keyAlgorithm;
 
     /// <summary>Current diagnostic session.</summary>
     public UdsSession Session { get; } = new();
@@ -35,6 +46,27 @@ public sealed class UdsClient : IDisposable
         ArgumentNullException.ThrowIfNull(isoTp);
 
         _isoTp = isoTp;
+        _timer = timer ?? new UdsTimer();
+        Security = new UdsSecurity();
+
+        // Subscribe to ISO-TP messages
+        _isoTp.MessageReceived += OnMessageReceived;
+    }
+
+    /// <summary>
+    /// Create a new UDS client with an OEM-specific key derivation algorithm
+    /// for SecurityAccess (0x27). Added in v1.1.0.
+    /// </summary>
+    /// <param name="isoTp">ISO-TP transport layer.</param>
+    /// <param name="keyAlgorithm">OEM key algorithm. Must not be null.</param>
+    /// <param name="timer">Optional UDS timer. Defaults to a fresh <see cref="UdsTimer"/>.</param>
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null)
+    {
+        ArgumentNullException.ThrowIfNull(isoTp);
+        ArgumentNullException.ThrowIfNull(keyAlgorithm);
+
+        _isoTp = isoTp;
+        _keyAlgorithm = keyAlgorithm;
         _timer = timer ?? new UdsTimer();
         Security = new UdsSecurity();
 
@@ -97,6 +129,14 @@ public sealed class UdsClient : IDisposable
         };
 
         Session.SetSession(result.SessionType, result.P2, result.P2Star);
+
+        // C-3 fix: propagate negotiated timings to UdsTimer so subsequent
+        // requests honour the ECU's P2 / P2* (e.g. longer P2* in Programming
+        // session). Without this, SendRequestInternalAsync would always use
+        // the 50 ms default and time out on the first diagnostic request.
+        _timer.P2Timeout = TimeSpan.FromMilliseconds(result.P2);
+        _timer.P2StarTimeout = TimeSpan.FromMilliseconds(result.P2Star);
+
         return result;
     }
 
@@ -152,7 +192,7 @@ public sealed class UdsClient : IDisposable
     /// <param name="key">Security key (for SendKey).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Seed bytes (for RequestSeed) or success (for SendKey).</returns>
-    public async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
+    public virtual async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
     {
         byte[] requestData;
         byte subFunction;
@@ -186,6 +226,39 @@ public sealed class UdsClient : IDisposable
             Security.SetAuthenticated(level);
             return response;
         }
+    }
+
+    /// <summary>
+    /// SecurityAccess (0x27) using the injected <see cref="IKeyDerivationAlgorithm"/>.
+    /// Performs the full handshake: RequestSeed → ComputeKey → SendKey.
+    /// </summary>
+    /// <param name="requestLevel">Security level sub-function byte (0x01, 0x03, ...).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Success response bytes from the ECU after SendKey.</returns>
+    /// <exception cref="InvalidOperationException">
+    ///   The client was constructed via the legacy 2-arg ctor that does not
+    ///   take an <see cref="IKeyDerivationAlgorithm"/>.
+    /// </exception>
+    /// <exception cref="KeyAlgorithmNotConfiguredException">
+    ///   The injected algorithm's placeholder has not been replaced with an
+    ///   OEM-specific implementation.
+    /// </exception>
+    public virtual async Task<byte[]> SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)
+    {
+        if (_keyAlgorithm is null)
+            throw new InvalidOperationException(
+                "UdsClient was constructed without an IKeyDerivationAlgorithm. " +
+                "Use the (IsoTpLayer, IKeyDerivationAlgorithm, UdsTimer?) constructor " +
+                "or call SecurityAccessAsync(byte level, byte[] key, CancellationToken) directly.");
+
+        // RequestSeed leg via the existing 3-arg method (key=null returns seed bytes).
+        byte[] seed = await SecurityAccessAsync(requestLevel, key: null, ct).ConfigureAwait(false);
+
+        // SECURITY: never log seed bytes — see commit a9fe443 (C-2 fix).
+        byte[] key = _keyAlgorithm.ComputeKey(seed, requestLevel);
+
+        // SendKey leg via the existing 3-arg method.
+        return await SecurityAccessAsync(requestLevel, key, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -249,12 +322,17 @@ public sealed class UdsClient : IDisposable
 
         var response = await SendRequestAsync(0x34, requestData, ct).ConfigureAwait(false);
 
-        // Response: [dataFormatId, lengthFormatId, maxLength...]
-        if (response.Length < 3)
-            throw new UdsException("Invalid RequestDownload response");
+        // C-7 fix: response layout per ISO 14229-1 §10.6.2.4 is
+        //   [dataFormatId, lengthFormatId, maxNumberOfBlockLength (lengthFormatId.lowNibble bytes)]
+        // SendRequestAsync strips the SID, so response[0] is dataFormatId,
+        // response[1] is lengthFormatId, and response[2..5] are the 4-byte
+        // maxNumberOfBlockLength (the common case, low nibble = 4).
+        if (response.Length < 5)
+            throw new UdsException(
+                $"Invalid RequestDownload response: length {response.Length} < 5");
 
         // Parse max block length (simplified: assume 4-byte)
-        int blockLength = (response[2] << 24) | (response[3] << 16) | (response[4] << 8) | response[5];
+        int blockLength = (response[1] << 24) | (response[2] << 16) | (response[3] << 8) | response[4];
         return blockLength;
     }
 
@@ -328,10 +406,12 @@ public sealed class UdsClient : IDisposable
         _requestLock.Dispose();
         _responseCts?.Dispose();
         Session.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     private async Task<byte[]> SendRequestInternalAsync(byte[] request, CancellationToken ct)
     {
+        _pendingRequestSid = request[0];
         _responseTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _responseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -387,7 +467,13 @@ public sealed class UdsClient : IDisposable
         // Positive response: SID + 0x40
         if (data.Length >= 2)
         {
-            byte responseData = data[1..][0]; // Skip SID byte
+            // C-8 fix: validate the SID echoes our in-flight request's SID + 0x40.
+            // A misaligned SID means the frame is stale or from a different
+            // request; dropping it lets the P2 timer expire (semantically correct).
+            byte expectedPositiveSid = (byte)(_pendingRequestSid + 0x40);
+            if (sid != expectedPositiveSid)
+                return;
+
             _responseTcs?.TrySetResult(data[1..]);
         }
     }

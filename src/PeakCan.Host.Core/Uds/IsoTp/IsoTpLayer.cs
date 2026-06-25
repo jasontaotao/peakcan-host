@@ -21,6 +21,12 @@ public sealed class IsoTpLayer
     /// <summary>Maximum payload size for a complete message (4095 bytes per ISO-TP).</summary>
     public const int MaxMessageLength = 4095;
 
+    /// <summary>Default N_Bs: max time to wait for a Flow Control after sending a First Frame (ISO 15765-2 §6.7).</summary>
+    public static readonly TimeSpan DefaultFlowControlTimeout = TimeSpan.FromMilliseconds(1000);
+
+    /// <summary>Default N_Cr: max time to wait between Consecutive Frames before aborting reassembly (ISO 15765-2 §6.7).</summary>
+    public static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromMilliseconds(1000);
+
     private readonly CanIdConfig _config;
     private readonly Action<CanFrame> _sendFrame;
 
@@ -31,12 +37,37 @@ public sealed class IsoTpLayer
     private int _rxReceivedLength;
     private int _rxExpectedSequence;
     private bool _rxInProgress;
+    private CancellationTokenSource? _rxWatchdog;
 
     // Transmission state for outgoing messages.
     private readonly object _txLock = new();
     private int _txBlockSize;
     private int _txStMin;
     private bool _txWaitingForFc;
+
+    private TimeSpan _flowControlTimeout = DefaultFlowControlTimeout;
+    private TimeSpan _receiveTimeout = DefaultReceiveTimeout;
+
+    /// <summary>
+    /// Maximum time to wait for a Flow Control frame after sending a First Frame
+    /// (ISO 15765-2 N_Bs). Default: 1000 ms. Configurable for slow ECUs.
+    /// </summary>
+    public TimeSpan FlowControlTimeout
+    {
+        get => _flowControlTimeout;
+        set => _flowControlTimeout = value;
+    }
+
+    /// <summary>
+    /// Maximum time to wait between Consecutive Frames during reassembly
+    /// (ISO 15765-2 N_Cr). When this expires, _rxInProgress is reset so a
+    /// subsequent First Frame can be reassembled. Default: 1000 ms.
+    /// </summary>
+    public TimeSpan ReceiveTimeout
+    {
+        get => _receiveTimeout;
+        set => _receiveTimeout = value;
+    }
 
     /// <summary>Raised when a complete message is reassembled.</summary>
     public event Action<byte[]>? MessageReceived;
@@ -117,6 +148,7 @@ public sealed class IsoTpLayer
             _rxInProgress = false;
             _rxBuffer = null;
         }
+        CancelReceiveWatchdog();
 
         lock (_txLock)
         {
@@ -147,9 +179,14 @@ public sealed class IsoTpLayer
         if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
             throw new TimeoutException("No Flow Control received");
 
-        // Send Consecutive Frames
+        // Send Consecutive Frames. Honour the negotiated Block Size (BS):
+        // when BS>0, pause after every BS-th CF and wait for the next FC.
+        // BS=0 means "send all remaining CFs without further FC".
         int offset = 6;
         int sequence = 1;
+        int cfInBlock = 0;
+        int bs;
+        lock (_txLock) { bs = _txBlockSize; }
 
         while (offset < data.Length)
         {
@@ -162,20 +199,58 @@ public sealed class IsoTpLayer
 
             offset += chunkSize;
             sequence = (sequence + 1) & 0x0F;
+            cfInBlock++;
 
-            // Apply STmin delay
-            if (_txStMin > 0 && offset < data.Length)
+            // Apply STmin delay (inter-CF pacing, ISO 15765-2 §6.5.5.4).
+            // STmin units: 0x00..0x7F → ms, 0xF1..0xF9 → 100..900 µs.
+            if (offset < data.Length)
             {
-                await Task.Delay(_txStMin, ct).ConfigureAwait(false);
+                var st = StMinToTimeSpan(_txStMin);
+                if (st > TimeSpan.Zero)
+                    await Task.Delay(st, ct).ConfigureAwait(false);
+            }
+
+            // Block-Size gate: after every BS CFs (when BS>0 and more remain),
+            // wait for the next FC before continuing.
+            if (bs > 0 && cfInBlock >= bs && offset < data.Length)
+            {
+                lock (_txLock) { _txWaitingForFc = true; }
+                if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
+                    throw new TimeoutException("No Flow Control received (block-size gate)");
+                lock (_txLock) { bs = _txBlockSize; }
+                cfInBlock = 0;
             }
         }
     }
 
+    /// <summary>
+    /// Convert a raw STmin byte to a TimeSpan per ISO 15765-2 §6.5.5.4:
+    /// <list type="bullet">
+    /// <item>0x00..0x7F → 0..127 ms</item>
+    /// <item>0x80..0xF0 → reserved, treated as 0 ms</item>
+    /// <item>0xF1..0xF9 → 100..900 µs (100-µs resolution)</item>
+    /// <item>0xFA..0xFF → reserved, treated as 0 ms</item>
+    /// </list>
+    /// </summary>
+    private static TimeSpan StMinToTimeSpan(int stMinRaw)
+    {
+        if (stMinRaw <= 0x7F)
+            return TimeSpan.FromMilliseconds(stMinRaw);
+        if (stMinRaw >= 0xF1 && stMinRaw <= 0xF9)
+        {
+            // 100 µs = 1 tick (TimeSpan tick = 100 ns).
+            return TimeSpan.FromTicks(stMinRaw - 0xF0);
+        }
+        return TimeSpan.Zero; // reserved range
+    }
+
     private async Task<bool> WaitForFlowControlAsync(CancellationToken ct)
     {
-        // Wait up to P2* (5 seconds default) for Flow Control
+        // Wait up to N_Bs for Flow Control. Default is ISO 15765-2's recommended
+        // 1000 ms; overridable via FlowControlTimeout for slow ECUs.
+        var timeout = _flowControlTimeout;
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+        timeoutCts.CancelAfter(timeout);
 
         while (!timeoutCts.Token.IsCancellationRequested)
         {
@@ -185,7 +260,15 @@ public sealed class IsoTpLayer
                     return true;
             }
 
-            await Task.Delay(1, timeoutCts.Token).ConfigureAwait(false);
+            try
+            {
+                await Task.Delay(1, timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Timed out waiting for FC. Caller will throw TimeoutException.
+                return false;
+            }
         }
 
         return false;
@@ -214,6 +297,56 @@ public sealed class IsoTpLayer
 
             // Send Flow Control
             SendFlowControl();
+
+            // Start the N_Cr watchdog: if the next CF doesn't arrive in time,
+            // abort reassembly so a fresh FF can be processed.
+            StartReceiveWatchdog();
+        }
+    }
+
+    /// <summary>
+    /// Arm a CancellationTokenSource that fires after <see cref="ReceiveTimeout"/>.
+    /// On expiry it clears _rxInProgress / _rxBuffer so the next FF starts a
+    /// fresh reassembly (rather than silently wedging the receive state).
+    /// </summary>
+    private void StartReceiveWatchdog()
+    {
+        CancelReceiveWatchdog();
+
+        var timeout = _receiveTimeout;
+        var cts = new CancellationTokenSource();
+        cts.CancelAfter(timeout);
+        var token = cts.Token;
+        token.Register(() =>
+        {
+            lock (_rxLock)
+            {
+                if (_rxInProgress)
+                {
+                    // Watchdog fires → reassembly stalled at any stage. Clear
+                    // state so a fresh FF can take over (covers the FF → no-CF1
+                    // case where the sequence number never advanced past 1).
+                    _rxInProgress = false;
+                    _rxBuffer = null;
+                }
+            }
+        });
+
+        lock (_rxLock) { _rxWatchdog = cts; }
+    }
+
+    private void CancelReceiveWatchdog()
+    {
+        CancellationTokenSource? old;
+        lock (_rxLock)
+        {
+            old = _rxWatchdog;
+            _rxWatchdog = null;
+        }
+        if (old is not null)
+        {
+            try { old.Cancel(); } catch (ObjectDisposedException) { }
+            old.Dispose();
         }
     }
 
@@ -230,6 +363,7 @@ public sealed class IsoTpLayer
                 // Sequence error: abort reassembly
                 _rxInProgress = false;
                 _rxBuffer = null;
+                CancelReceiveWatchdog();
                 return;
             }
 
@@ -246,9 +380,27 @@ public sealed class IsoTpLayer
                 var complete = _rxBuffer;
                 _rxInProgress = false;
                 _rxBuffer = null;
+                CancelReceiveWatchdog();
 
-                // Deliver complete message
-                MessageReceived?.Invoke(complete);
+                // Snapshot the handler under the lock; invoke outside the lock
+                // so a subscriber that re-enters ProcessFrame (e.g. UdsClient
+                // dispatching the next request on the same instance) does not
+                // re-enter this critical section in an interleaved state.
+                var handler = MessageReceived;
+                Monitor.Exit(_rxLock);
+                try
+                {
+                    handler?.Invoke(complete);
+                }
+                finally
+                {
+                    Monitor.Enter(_rxLock);
+                }
+            }
+            else
+            {
+                // Re-arm the N_Cr watchdog for the next CF slot.
+                StartReceiveWatchdog();
             }
         }
     }
