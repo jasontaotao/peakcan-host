@@ -1208,7 +1208,7 @@ None. All design decisions resolved.
   - `SignalViewModelTests.ApplyFrame_Multiple_Signals_Adds_All_As_Entries` —
     Task 5 reported, likely a test-ordering / shared-state issue with the
     signal chart's internal collection. Discovered 2026-06-25. **RESOLVED
-    in v1.2.1 PATCH `<4010fae>`**: root cause was a leaked
+    in v1.2.1 PATCH `<23e7d7c>`**: root cause was a leaked
     `System.Windows.Application.Current` singleton from
     `TraceViewModelTests.AppendBatch_On_StaThread_With_Application_Adds_All_Frames`
     (the STA thread exited but the static survived). xUnit runs test
