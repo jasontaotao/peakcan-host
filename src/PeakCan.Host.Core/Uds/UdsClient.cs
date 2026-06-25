@@ -279,7 +279,7 @@ public class UdsClient : IDisposable
     /// <param name="data">Optional routine data.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Routine result bytes.</returns>
-    public async Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data = null, CancellationToken ct = default)
+    public virtual async Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data = null, CancellationToken ct = default)
     {
         var requestData = new byte[3 + (data?.Length ?? 0)];
         requestData[0] = routineControlType;
