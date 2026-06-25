@@ -671,6 +671,19 @@ UdsViewModelTests.cs (125 lines, 2 [Fact]s)."
 - Create: `src/PeakCan.Host.App/ViewModels/Uds/DidPanelViewModel.cs`
 - Create: `tests/PeakCan.Host.App.Tests/ViewModels/Uds/DidPanelViewModelTests.cs`
 
+**Test double pattern (CRITICAL — use this, NOT the inline code in the brief below):**
+
+The brief's inline test code in this task originally contained 5 bugs that the Task 2 implementer had to fix:
+- `UdsNegativeResponseException` ctor takes `(byte, UdsNegativeResponseCode)` not `(byte, string)`
+- `DateTime.Now.ToString("HH:mm:ss.fff")` triggers CA1305 — use `$"{DateTime.Now:HH:mm:ss.fff}"`
+- `_logger.LogWarning(ex, ...)` triggers CA1848 — use `[LoggerMessage]` source-gen partial
+- enum + `:X2` format triggers analyzer — cast to `(byte)` first
+- `CancellationTokenSource` field triggers CA1001 — class must implement `IDisposable`
+- `SecurityAccessAsync` 3-arg override never fires (production calls the 2-arg) — override the 2-arg one
+- `DiagnosticSessionControlAsync` must be `virtual` (now true per spec amendment 9c2f2b6) — override it too
+
+**Copy the canonical `RecordingUdsClient` pattern from `tests/PeakCan.Host.App.Tests/ViewModels/Uds/SessionPanelViewModelTests.cs`** (file at HEAD = `e42204c`+). Modify its overrides to match the new production methods (`ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync`). The brief's verbatim test code below is the conceptual shape — replace with the canonical pattern adapted to the new methods.
+
 **Interfaces:**
 - Consumes:
   - `UdsClient` — `Task<byte[]> ReadDataByIdentifierAsync(ushort)`, `Task WriteDataByIdentifierAsync(ushort, byte[])`
@@ -1004,6 +1017,10 @@ success / FormatException path."
 - Create: `src/PeakCan.Host.App/ViewModels/Uds/RoutinePanelViewModel.cs`
 - Create: `tests/PeakCan.Host.App.Tests/ViewModels/Uds/RoutinePanelViewModelTests.cs`
 
+**Test double pattern (CRITICAL — use this, NOT the inline code in the brief below):**
+
+See the canonical pattern note at the top of Task 3 (lines 670-682). **Copy `RecordingUdsClient` from `tests/PeakCan.Host.App.Tests/ViewModels/Uds/SessionPanelViewModelTests.cs`** and replace the `DiagnosticSessionControlAsync` override with `RoutineControlAsync(byte, ushort, CT)` returning canned bytes. Apply all 6 bug fixes from Task 2's discovery.
+
 **Interfaces:**
 - Consumes: `UdsClient` (method `Task<byte[]> RoutineControlAsync(byte subFunction, ushort routineId)`), `RoutineDatabase` (from `PeakCan.Host.Core.Uds.Database`, has `IReadOnlyList<RoutineDefinition> All`), `UdsLogLine` / `IUdsPanel` / `RoutineRow` from Task 1.
 - Produces:
@@ -1275,6 +1292,10 @@ Routines → commands disabled."
 **Files:**
 - Create: `src/PeakCan.Host.App/ViewModels/Uds/DtcPanelViewModel.cs`
 - Create: `tests/PeakCan.Host.App.Tests/ViewModels/Uds/DtcPanelViewModelTests.cs`
+
+**Test double pattern (CRITICAL — use this, NOT the inline code in the brief below):**
+
+See the canonical pattern note at the top of Task 3 (lines 670-682). **Copy `RecordingUdsClient` from `tests/PeakCan.Host.App.Tests/ViewModels/Uds/SessionPanelViewModelTests.cs`** and replace the `DiagnosticSessionControlAsync` override with `ReadDtcInformationAsync(byte, byte, CT)` returning canned bytes (the 4-byte DTC chunk format from the brief) and `ClearDiagnosticInformationAsync()` setting a flag. Apply all 6 bug fixes from Task 2's discovery.
 
 **Interfaces:**
 - Consumes: `UdsClient` (method `Task<byte[]> ReadDtcInformationAsync(byte subFunction, byte statusMask)` and `Task ClearDiagnosticInformationAsync()`), `UdsLogLine` / `IUdsPanel` / `DtcRow` from Task 1.
