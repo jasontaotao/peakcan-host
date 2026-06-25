@@ -26,6 +26,12 @@ public class UdsClient : IDisposable
     // this guard, stale or out-of-sequence frames are accepted as the result.
     private byte _pendingRequestSid;
 
+    // v1.1.0: OEM-specific SecurityAccess key derivation. Nullable so the
+    // legacy 2-arg ctor keeps working for tests that don't care about
+    // SecurityAccess. The new overload SecurityAccessAsync(byte, CancellationToken)
+    // throws InvalidOperationException when this is null.
+    private readonly IKeyDerivationAlgorithm? _keyAlgorithm;
+
     /// <summary>Current diagnostic session.</summary>
     public UdsSession Session { get; } = new();
 
@@ -40,6 +46,27 @@ public class UdsClient : IDisposable
         ArgumentNullException.ThrowIfNull(isoTp);
 
         _isoTp = isoTp;
+        _timer = timer ?? new UdsTimer();
+        Security = new UdsSecurity();
+
+        // Subscribe to ISO-TP messages
+        _isoTp.MessageReceived += OnMessageReceived;
+    }
+
+    /// <summary>
+    /// Create a new UDS client with an OEM-specific key derivation algorithm
+    /// for SecurityAccess (0x27). Added in v1.1.0.
+    /// </summary>
+    /// <param name="isoTp">ISO-TP transport layer.</param>
+    /// <param name="keyAlgorithm">OEM key algorithm. Must not be null.</param>
+    /// <param name="timer">Optional UDS timer. Defaults to a fresh <see cref="UdsTimer"/>.</param>
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null)
+    {
+        ArgumentNullException.ThrowIfNull(isoTp);
+        ArgumentNullException.ThrowIfNull(keyAlgorithm);
+
+        _isoTp = isoTp;
+        _keyAlgorithm = keyAlgorithm;
         _timer = timer ?? new UdsTimer();
         Security = new UdsSecurity();
 
@@ -199,6 +226,39 @@ public class UdsClient : IDisposable
             Security.SetAuthenticated(level);
             return response;
         }
+    }
+
+    /// <summary>
+    /// SecurityAccess (0x27) using the injected <see cref="IKeyDerivationAlgorithm"/>.
+    /// Performs the full handshake: RequestSeed → ComputeKey → SendKey.
+    /// </summary>
+    /// <param name="requestLevel">Security level sub-function byte (0x01, 0x03, ...).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Success response bytes from the ECU after SendKey.</returns>
+    /// <exception cref="InvalidOperationException">
+    ///   The client was constructed via the legacy 2-arg ctor that does not
+    ///   take an <see cref="IKeyDerivationAlgorithm"/>.
+    /// </exception>
+    /// <exception cref="KeyAlgorithmNotConfiguredException">
+    ///   The injected algorithm's placeholder has not been replaced with an
+    ///   OEM-specific implementation.
+    /// </exception>
+    public virtual async Task<byte[]> SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)
+    {
+        if (_keyAlgorithm is null)
+            throw new InvalidOperationException(
+                "UdsClient was constructed without an IKeyDerivationAlgorithm. " +
+                "Use the (IsoTpLayer, IKeyDerivationAlgorithm, UdsTimer?) constructor " +
+                "or call SecurityAccessAsync(byte level, byte[] key, CancellationToken) directly.");
+
+        // RequestSeed leg via the existing 3-arg method (key=null returns seed bytes).
+        byte[] seed = await SecurityAccessAsync(requestLevel, key: null, ct).ConfigureAwait(false);
+
+        // SECURITY: never log seed bytes — see commit a9fe443 (C-2 fix).
+        byte[] key = _keyAlgorithm.ComputeKey(seed, requestLevel);
+
+        // SendKey leg via the existing 3-arg method.
+        return await SecurityAccessAsync(requestLevel, key, ct).ConfigureAwait(false);
     }
 
     /// <summary>
