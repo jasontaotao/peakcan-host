@@ -1548,10 +1548,14 @@ Clear invokes UdsClient and empties collection."
 ## Task 6: Replace `UdsViewModel` (monolith → orchestrator)
 
 **Files:**
-- Delete: `src/PeakCan.Host.App/ViewModels/UdsViewModel.cs` (279-line monolith)
-- Delete: `src/PeakCan.Host.App/ViewModels/UdsViewModel.DtcEntry.cs` if present (DtcEntry nested class — replaced by Rows/DtcRow.cs from Task 1; confirm via `grep -l "class DtcEntry" src/PeakCan.Host.App/`)
 - Create: `src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs` (new orchestrator at new namespace)
 - Create: `tests/PeakCan.Host.App.Tests/ViewModels/Uds/UdsViewModelOrchestratorTests.cs`
+
+**Scope correction (amended 2026-06-25 mid-execution):**
+
+The original plan deleted the old monolith in Task 6 (Step 2: `rm UdsViewModel.cs`) and updated DI in Task 7. That left the App project in a non-compiling state between Tasks 6 and 7 (AppHostBuilder.cs:163 + AppShellViewModel.cs:79,186 still referenced the old `UdsViewModel`), which made the orchestrator tests impossible to run (the test host can't start when the project under test doesn't compile).
+
+**Revised scope:** Task 6 creates the new orchestrator at the new namespace and keeps the old monolith in place (now unreachable since no one registers it after Task 7). The old monolith is deleted in Task 7 alongside the DI/using updates. This keeps the build green at every step boundary.
 
 **Interfaces:**
 - Consumes: `SessionPanelViewModel`, `DidPanelViewModel`, `RoutinePanelViewModel`, `DtcPanelViewModel` (all from Tasks 2–5), `UdsLogLine` from Task 1.
@@ -1649,24 +1653,7 @@ public sealed class UdsViewModelOrchestratorTests
 }
 ```
 
-- [ ] **Step 2: Delete the old monolith**
-
-```bash
-rm src/PeakCan.Host.App/ViewModels/UdsViewModel.cs
-# Also delete nested DtcEntry if it's in a partial file
-rm -f src/PeakCan.Host.App/ViewModels/UdsViewModel.DtcEntry.cs
-```
-
-- [ ] **Step 3: Run tests to verify the build is broken (the old UdsViewModel no longer exists, so `AppShellViewModel.cs:79,186` and `AppHostBuilder.cs:163` and the new orchestrator tests fail to build)**
-
-Run:
-```bash
-dotnet build PeakCan.Host.slnx -c Debug
-```
-
-Expected: build fails with CS0246 / CS0103 / CS0234 errors referencing `UdsViewModel`. This is intentional — Tasks 7 + 8 fix the references.
-
-- [ ] **Step 4: Create the new orchestrator `src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs`**
+- [ ] **Step 2: Create the new orchestrator `src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs`**
 
 ```csharp
 using System.Collections.ObjectModel;
@@ -1718,29 +1705,32 @@ public sealed partial class UdsViewModel : ObservableObject
 }
 ```
 
-- [ ] **Step 5: Verify orchestrator tests pass (build still fails on AppShellViewModel / AppHostBuilder; that's Task 7)**
+- [ ] **Step 3: Verify orchestrator tests pass**
 
 Run:
 ```bash
 dotnet test tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj --filter "FullyQualifiedName~UdsViewModelOrchestratorTests"
 ```
 
-Expected: 4 orchestrator tests pass; the rest of the App test assembly fails to load due to `AppShellViewModel` and `AppHostBuilder` referencing the deleted `UdsViewModel` at the old namespace. **This is expected** — Task 7 fixes those references.
+Expected: 4 orchestrator tests pass. The old monolith still exists in the App project (Task 7 deletes it) so the App project compiles; the orchestrator tests exercise the new `UdsViewModel` at the new namespace and don't touch the old type.
 
-If the test host cannot start because AppShellViewModel fails to compile, fix the reference in Task 7 first, then re-run this step.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/PeakCan.Host.App/ViewModels/UdsViewModel.cs \
-        src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs \
+git add src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs \
         tests/PeakCan.Host.App.Tests/ViewModels/Uds/UdsViewModelOrchestratorTests.cs
-git -c diff-index.quiet=true rm src/PeakCan.Host.App/ViewModels/UdsViewModel.cs
-git commit -m "refactor(uds): split UdsViewModel monolith into 4-panel orchestrator
+git commit -m "refactor(uds): add 4-panel orchestrator alongside monolith
 
-Replace the 279-line 8-RelayCommand monolith (src/.../UdsViewModel.cs,
-PeakCan.Host.App.ViewModels namespace) with a thin orchestrator
-(src/.../Uds/UdsViewModel.cs, PeakCan.Host.App.ViewModels.Uds namespace).
+Add the new UdsViewModel orchestrator at src/.../Uds/UdsViewModel.cs
+(PeakCan.Host.App.ViewModels.Uds namespace, 4-arg ctor taking Session/
+Did/Routine/Dtc panel VMs) alongside the existing 279-line monolith
+(src/.../UdsViewModel.cs, PeakCan.Host.App.ViewModels namespace, 2-arg
+ctor taking ILogger + UdsClient).
+
+Both types coexist in this commit so the App project compiles. The old
+monolith becomes unreachable after Task 7 wires DI to register the new
+orchestrator + 4 panel VMs; Task 7 deletes the old monolith in the
+same PR that wires the new one.
 
 Orchestrator owns no UdsClient interaction: 4 panel VMs (Session /
 Did / Routine / Dtc) own their own commands and share an
@@ -1748,20 +1738,18 @@ ObservableCollection<UdsLogLine> via the IUdsPanel.AttachLog hook.
 
 4 new orchestrator tests cover: panel wiring + identity, shared log
 forwarding via SetDefaultSessionCommand (which internally calls private AppendLog), ClearOutput
-empties collection, null-arg ArgumentNullException.
-
-BREAKING: AppShellViewModel.cs:79,186 and AppHostBuilder.cs:163 still
-reference the old UdsViewModel — fixed in Task 7."
+empties collection, null-arg ArgumentNullException."
 ```
 
 ---
 
-## Task 7: Update `AppHostBuilder.cs` + `AppShellViewModel.cs` for new namespace and DI
+## Task 7: Wire 4-panel DI + delete old monolith + update AppShellViewModel using
 
 **Files:**
 - Modify: `src/PeakCan.Host.App/Composition/AppHostBuilder.cs` (line 163: change `UdsViewModel` registration to the 4-arg ctor via DI auto-resolution)
 - Modify: `src/PeakCan.Host.App/ViewModels/AppShellViewModel.cs` (line 5 or appropriate: add `using PeakCan.Host.App.ViewModels.Uds;` so the existing `_udsViewModel` field at line 79 and the ctor parameter at line 186 resolve)
 - Modify: `tests/PeakCan.Host.App.Tests/Composition/AppHostBuilderTests.cs` (add one assertion that `UdsViewModel` resolves after wiring panel VMs)
+- Delete: `src/PeakCan.Host.App/ViewModels/UdsViewModel.cs` (279-line monolith — added in Task 6's revision to keep the App project compiling between Tasks 6 and 7)
 
 **Interfaces:**
 - Consumes: All 5 VM types from Tasks 1–6.
