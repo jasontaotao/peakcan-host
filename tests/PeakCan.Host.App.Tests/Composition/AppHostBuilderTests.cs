@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 
@@ -64,6 +65,17 @@ public class AppHostBuilderTests
         host.Services.GetService<SignalViewModel>().Should().NotBeNull();
         host.Services.GetService<StatsViewModel>().Should().NotBeNull();
         host.Services.GetService<ScriptViewModel>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Build_Registers_UdsViewModel_And_PanelVMs_As_Singletons()
+    {
+        using var host = AppHostBuilder.Build();
+        host.Services.GetService<UdsViewModel>().Should().NotBeNull();
+        host.Services.GetService<SessionPanelViewModel>().Should().NotBeNull();
+        host.Services.GetService<DidPanelViewModel>().Should().NotBeNull();
+        host.Services.GetService<RoutinePanelViewModel>().Should().NotBeNull();
+        host.Services.GetService<DtcPanelViewModel>().Should().NotBeNull();
     }
 
     [Fact]

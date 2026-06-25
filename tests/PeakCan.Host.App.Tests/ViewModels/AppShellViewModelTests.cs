@@ -3,9 +3,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
+using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 
@@ -78,7 +80,11 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)));
     }
 
     /// <summary>
@@ -381,7 +387,11 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -447,7 +457,11 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)));
     }
 
     [Fact]
@@ -556,7 +570,11 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient));
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -773,7 +791,11 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(NullLogger<UdsViewModel>.Instance, udsClient),
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)),
             enumerator);
     }
 

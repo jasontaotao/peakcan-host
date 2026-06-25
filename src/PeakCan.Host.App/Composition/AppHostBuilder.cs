@@ -160,7 +160,15 @@ public static class AppHostBuilder
             var keyAlgorithm = sp.GetRequiredService<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm>();
             return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm);
         });
-        builder.Services.AddSingleton<UdsViewModel>();
+        // v1.2.0: 4-panel orchestrator holds Session/Did/Routine/Dtc panel VMs;
+        // each panel VM is registered as a singleton below and DI auto-resolves
+        // the new UdsViewModel ctor (SessionPanelViewModel, DidPanelViewModel,
+        // RoutinePanelViewModel, DtcPanelViewModel).
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.SessionPanelViewModel>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DidPanelViewModel>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.RoutinePanelViewModel>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DtcPanelViewModel>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // ViewModels
         builder.Services.AddSingleton<AppShellViewModel>();

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Views;
+using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
