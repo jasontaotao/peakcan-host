@@ -6,7 +6,12 @@
 
 ## 1. Overview
 
-v0.10.1 + the merged-but-untagged UDS diagnostic stack (`feat: add UDS diagnostic stack (ISO 14229 + ISO 15765-2)`) shipped the Core/Infrastructure side of UDS — ISO-TP transport, session/timer management, all mandatory services (DiagnosticSessionControl, ECUReset, ReadDataByIdentifier, WriteDataByIdentifier, SecurityAccess, TesterPresent, RoutineControl, ReadDTCInformation, ClearDiagnosticInformation, RequestDownload/TransferData/RequestTransferExit), and a stub `UdsViewModel` in App. The App-layer UI integration (plan Phase E) and a configurable SecurityAccess key derivation algorithm remain undone.
+v0.10.1 + the merged-but-untagged UDS diagnostic stack (`feat: add UDS diagnostic stack (ISO 14229 + ISO 15765-2)`) shipped the Core/Infrastructure side of UDS — ISO-TP transport, session/timer management, all mandatory services (DiagnosticSessionControl, ECUReset, ReadDataByIdentifier, WriteDataByIdentifier, SecurityAccess, TesterPresent, RoutineControl, ReadDTCInformation, ClearDiagnosticInformation, RequestDownload/TransferData/RequestTransferExit), and a functional App-layer UI: `UdsViewModel` with 8 RelayCommands, `UdsView.xaml` (TabControl with DIDs / Routines / DTCs + Log Panel), `AppShellViewModel.ShowUdsCommand`, and `AppHostBuilder` registrations for `IsoTpLayer` / `UdsTimer` / `UdsClient` / `UdsViewModel`.
+
+Two gaps remain that block v1.1.0 ship:
+
+1. `UdsViewModel.SecurityAccessAsync` (`src/PeakCan.Host.App/ViewModels/UdsViewModel.cs:132`) still throws `NotImplementedException` because no configurable SecurityAccess key derivation algorithm exists. OEMs need a DI seam to plug in their seed→key computation without recompiling the host.
+2. DID and Routine definitions are hard-coded in the existing `UdsViewModel` (free-text DID / Routine ID input boxes in `UdsView.xaml`). Users need JSON-loadable databases (`%APPDATA%\PeakCan.Host\uds-dids.json`, `uds-routines.json`) so they can extend the DID/Routine lists without code changes.
 
 This spec closes those two gaps:
 
@@ -40,6 +45,22 @@ Both ship together as **v1.1.0**.
 - **N6**: NOT modifying the existing `feat: add JavaScript scripting engine` (`e5de8e2`) — `can.*` API does not need to expose UDS yet (future `v1.2` backlog).
 - **N7**: NOT adding Linux/SocketCAN or J1939/CANopen (`v2.0` backlog).
 - **N8**: NOT changing the persisted format of any existing user data (e.g. DBC files, ASC recordings).
+
+### v1.1.0 Ship Scope (v1.2 Backlog Items)
+
+The merged-but-untagged UDS work already shipped `UdsViewModel` (monolithic, 8 RelayCommands), `UdsView.xaml` (TabControl with free-text DID / Routine ID inputs + DTC DataGrid + Log Panel), `AppShellViewModel.ShowUdsCommand`, and DI registrations for `IsoTpLayer` / `UdsTimer` / `UdsClient` / `UdsViewModel`. The following spec items are therefore **deferred to v1.2** and NOT part of v1.1.0 ship:
+
+- **D1**: §4.5 (`UdsViewModel` refactor to orchestrator holding 4 panel VMs). The existing monolithic `UdsViewModel` is functional — refactoring risks regression in the working `ReadDid` / `WriteDid` / `ReadDTC` commands.
+- **D2**: §4.8 (Session / DID / Routine / DTC panel ViewModels + Row types). Same reason.
+- **D3**: §4.9 (`UdsView.xaml` rewrite to use DataGrid tree views with `DidDatabase` + `RoutineDatabase` as ItemsSource). The existing free-text input boxes remain. Once `DidDatabase` / `RoutineDatabase` are in Core (§4.6 / §4.7), wiring them into the XAML is a v1.2 task.
+- **D4**: §6 error-handling table entries that reference panel VMs (`InvalidOperationException` from disconnected channel). Existing `UdsViewModel` already has `try/catch (Exception)` in every command.
+
+The v1.1.0 ship scope is therefore:
+- §4.1 / §4.2 / §4.3 — `IKeyDerivationAlgorithm` + `PlaceholderKeyAlgorithm` + `KeyAlgorithmNotConfiguredException` (Core).
+- §4.4 — `UdsClient` ctor + new `SecurityAccessAsync(byte, CancellationToken)` overload (Core).
+- §4.6 / §4.7 — `DidDefinition` + `DidDatabase` (with 5 built-in defaults + JSON load) and `RoutineDefinition` + `RoutineDatabase` (Core).
+- §4.10 (subset) — `AppHostBuilder` DI registration of `IKeyDerivationAlgorithm`, `DidDatabase`, `RoutineDatabase`, and the `UdsClient` factory using the 3-arg ctor (App).
+- `UdsViewModel.SecurityAccessAsync` modification: remove the `NotImplementedException` (line 132) and call the new `UdsClient.SecurityAccessAsync(0x01)` overload. Existing `try/catch` shape is preserved.
 
 ## 3. Architecture
 
