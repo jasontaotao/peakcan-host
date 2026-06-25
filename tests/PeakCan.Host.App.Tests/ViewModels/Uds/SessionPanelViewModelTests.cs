@@ -114,6 +114,24 @@ public sealed class SessionPanelViewModelTests
     }
 
     [Fact]
+    public void Dispose_CancelsTesterPresentLoop()
+    {
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        // Start the tester-present loop so the lazy _testerPresentCts is created.
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue();
+
+        // Dispose must not throw — it cancels and disposes the CTS so the
+        // background tester-present loop exits cleanly. This is the contract
+        // that UdsView.OnUnloaded relies on to release the CTS at tab close
+        // rather than letting it leak to process exit.
+        var act = () => vm.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public async Task SecurityAccessCommand_With_Placeholder_Algorithm_Logs_HintMessage_DoesNotCrash()
     {
         var fake = new RecordingUdsClient { SecurityAccessThrowsInvalidOp = true };

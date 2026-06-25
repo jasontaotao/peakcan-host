@@ -14,14 +14,24 @@ namespace PeakCan.Host.App.Views;
 /// </summary>
 public partial class UdsView : UserControl
 {
-    private static readonly SolidColorBrush WarnBrush  = new(Color.FromRgb(0xDC, 0xDC, 0xAA));
-    private static readonly SolidColorBrush ErrorBrush = new(Color.FromRgb(0xF4, 0x87, 0x71));
+    private static readonly SolidColorBrush WarnBrush  = Freeze(new(Color.FromRgb(0xDC, 0xDC, 0xAA)));
+    private static readonly SolidColorBrush ErrorBrush = Freeze(new(Color.FromRgb(0xF4, 0x87, 0x71)));
+
+    private static SolidColorBrush Freeze(SolidColorBrush brush)
+    {
+        brush.Freeze();
+        return brush;
+    }
 
     public UdsView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
-        Unloaded += (_, _) => DetachLog();
+        Unloaded += (_, _) =>
+        {
+            DetachLog();
+            DisposeSessionVm();
+        };
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -65,6 +75,14 @@ public partial class UdsView : UserControl
         if (DataContext is UdsViewModel oldVm)
         {
             oldVm.OutputLog.CollectionChanged -= OnLogCollectionChanged;
+        }
+    }
+
+    private void DisposeSessionVm()
+    {
+        if (DataContext is UdsViewModel udsVm && udsVm.Session is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 }

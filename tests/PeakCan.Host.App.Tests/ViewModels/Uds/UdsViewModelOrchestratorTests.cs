@@ -38,7 +38,7 @@ public sealed class UdsViewModelOrchestratorTests
     }
 
     [Fact]
-    public void Ctor_Wires_All_Four_PanelVMs_To_Shared_OutputLog()
+    public void Ctor_Stores_All_Four_PanelVm_References()
     {
         var uds = new FakeUdsClient();
         var session = new SessionPanelViewModel(uds, NullLogger<SessionPanelViewModel>.Instance);
