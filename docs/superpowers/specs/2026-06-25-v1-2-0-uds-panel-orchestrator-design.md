@@ -1200,6 +1200,20 @@ None. All design decisions resolved.
   - **`RoutineDatabase` does NOT have this bug** (verified 2026-06-25 by Task 4 implementer): its nullable `_logger` + `logger!` at the partial-method call sites handles null logger correctly. No workaround needed for `RoutineDatabase` ctor.
   Discovered 2026-06-25 by Task 3 review; not in v1.2.0 ship.
 
+- **Pre-existing test flakes surfaced during v1.2.0 test runs** (none introduced
+  by v1.2.0 work; both pass in isolation, fail in full-suite runs):
+
+  - `SignalViewModelTests.ApplyFrame_Multiple_Signals_Adds_All_As_Entries` —
+    Task 5 reported, likely a test-ordering / shared-state issue with the
+    signal chart's internal collection. Discovered 2026-06-25.
+  - `DbcDecodeBackgroundServiceTests` — Task 6 reported timing flake,
+    passes in isolation. Likely the same shared-state / timing pattern.
+
+  Both are unrelated to UDS work. Tracked together for a v1.2.x PATCH
+  that fixes test isolation in the App test assembly (likely needs a
+  `TestBase` fixture pattern that resets shared state between tests).
+  Out of v1.2.0 ship scope.
+
 ## 10. References
 
 - [v1.1.0 design spec](file:///D:/claude_proj2/peakcan-host/docs/superpowers/specs/2026-06-25-v1-1-0-uds-ui-and-key-provider-design.md) — predecessor that shipped the JSON DBs and the SecurityAccess KeyProvider; v1.2.0 completes D1/D2/D3 carved out in §9.
