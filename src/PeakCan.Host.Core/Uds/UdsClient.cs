@@ -367,7 +367,7 @@ public class UdsClient : IDisposable
     /// <param name="mask">DTC status mask.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>DTC data bytes.</returns>
-    public async Task<byte[]> ReadDtcInformationAsync(byte subFunction, byte mask = 0xFF, CancellationToken ct = default)
+    public virtual async Task<byte[]> ReadDtcInformationAsync(byte subFunction, byte mask = 0xFF, CancellationToken ct = default)
     {
         var response = await SendRequestAsync(0x19, [subFunction, mask], ct).ConfigureAwait(false);
         return response;
@@ -378,7 +378,7 @@ public class UdsClient : IDisposable
     /// </summary>
     /// <param name="groupOfDtc">DTC group (0xFFFFFF = all).</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task ClearDiagnosticInformationAsync(uint groupOfDtc = 0xFFFFFF, CancellationToken ct = default)
+    public virtual async Task ClearDiagnosticInformationAsync(uint groupOfDtc = 0xFFFFFF, CancellationToken ct = default)
     {
         var requestData = new byte[3];
         requestData[0] = (byte)(groupOfDtc >> 16);
