@@ -130,17 +130,19 @@ listed below. NetArchTest rule 2 (Core must not depend on `Peak.Can.Basic`)
 is preserved.
 
 **Core testability hook (added 2026-06-25 during v1.2.0 implementation,
-discovered while building `SessionPanelViewModelTests` + `DidPanelViewModelTests` + `RoutinePanelViewModelTests`):**
+discovered while building `SessionPanelViewModelTests` + `DidPanelViewModelTests` + `RoutinePanelViewModelTests` + `DtcPanelViewModelTests`):**
 
-Four `UdsClient` async service methods gained the `virtual` keyword (none
+Six `UdsClient` async service methods gained the `virtual` keyword (none
 had it before despite the two `SecurityAccessAsync` overloads being
 `virtual` since v1.1.0):
 
 - `src/PeakCan.Host.Core/Uds/UdsClient.cs` — `DiagnosticSessionControlAsync`,
-  `ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync`, and
-  `RoutineControlAsync` are all `virtual`. Both `SecurityAccessAsync`
-  overloads were already `virtual`. Brings the class to a consistent
-  testability surface. Non-behavioral: callers see no API change.
+  `ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync`,
+  `RoutineControlAsync`, `ReadDtcInformationAsync`, and
+  `ClearDiagnosticInformationAsync` are all `virtual`. Both
+  `SecurityAccessAsync` overloads were already `virtual`. Brings the
+  class to a consistent testability surface. Non-behavioral: callers see
+  no API change.
 
 Rationale: every panel `ViewModel` (Session/DID/Routine/DTC; §4.5–§4.8)
 takes `UdsClient` directly via DI; their tests need a
