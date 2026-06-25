@@ -117,30 +117,42 @@ public sealed partial class UdsViewModel : ObservableObject
         try
         {
             Log("Requesting security access...");
-            var seed = await _udsClient.SecurityAccessAsync(0x01);
-
-            // C-2 fix: never log the seed bytes in plaintext — seed is
-            // security-sensitive material (input to the key derivation).
-            Log($"Received seed ({seed.Length} bytes) — redacted");
-
-            // C-1 fix: refuse to send a placeholder (all-zero) key. Sending
-            // a zero-byte key would falsely authenticate on misconfigured
-            // ECUs and would consume ECU-side failed-attempt counters,
-            // eventually locking the ECU. The OEM-specific key algorithm
-            // must be wired here (e.g. via HMAC-SHA256(seed, secret)) before
-            // the SendKey leg of the handshake is reachable.
-            throw new NotImplementedException(
-                "UDS SecurityAccess key calculation is OEM-specific and not yet implemented. " +
-                "Wire the OEM algorithm here (e.g., HMAC-SHA256(seed, secret)) before " +
-                "calling _udsClient.SecurityAccessAsync(0x01, key).");
+            // v1.1.0: use the new KeyProvider-aware overload that delegates
+            // key computation to the injected IKeyDerivationAlgorithm.
+            // SECURITY: the new overload never returns the seed to the caller
+            // (it returns only the success response from SendKey), so there
+            // is no seed byte to log here. See commit a9fe443 (C-2 fix).
+            // Cast `0x01` to byte to disambiguate between the legacy 3-arg
+            // overload and the new (byte, CancellationToken) overload.
+            var response = await _udsClient.SecurityAccessAsync((byte)0x01, CancellationToken.None);
+            SecurityText = $"Level 0x01 (authenticated, {response.Length} bytes)";
+            Log($"SecurityAccess level 0x01 succeeded ({response.Length} bytes).");
+        }
+        catch (KeyAlgorithmNotConfiguredException ex)
+        {
+            // Targeted hint for the placeholder case (no OEM algorithm wired).
+            // Distinct catch ABOVE the generic Exception branch so we can
+            // surface a configuration message instead of a generic error.
+            Log($"SecurityAccess: {ex.Message}");
+            Log("Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
+            SecurityText = "Not Authenticated";
         }
         catch (UdsNegativeResponseException ex)
         {
             Log($"Security access failed: {ex.ResponseCode}");
+            SecurityText = $"Rejected: {ex.ResponseCode}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Thrown by the new overload when the UdsClient was constructed
+            // without an IKeyDerivationAlgorithm (legacy 2-arg ctor).
+            Log($"Security access error: {ex.Message}");
+            SecurityText = "Not Authenticated";
         }
         catch (Exception ex)
         {
             Log($"Security access error: {ex.Message}");
+            SecurityText = "Not Authenticated";
         }
     }
 
