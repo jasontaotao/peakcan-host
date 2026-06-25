@@ -122,11 +122,29 @@ chain `JSON → Core DB → Panel VM → XAML DataGrid`.
    PeakCan.Host.Infrastructure  (PEAK SDK adapter, ChannelRouter, BusStatistics) — unchanged
             ▼  uses
    PeakCan.Host.Core           (CanFrame, DBC parser, SignalDecoder, Result, Uds*, Database/*)
-                                — unchanged
+                                — unchanged except as noted below
 ```
 
-No Core / Infrastructure changes. NetArchTest rule 2 (Core must not depend on
-`Peak.Can.Basic`) is preserved.
+No Core / Infrastructure changes EXCEPT for the single testability hook
+listed below. NetArchTest rule 2 (Core must not depend on `Peak.Can.Basic`)
+is preserved.
+
+**Core testability hook (added 2026-06-25 during v1.2.0 implementation,
+discovered while building `SessionPanelViewModelTests`):**
+
+- `src/PeakCan.Host.Core/Uds/UdsClient.cs:116` — `DiagnosticSessionControlAsync`
+  gains the `virtual` keyword. Both `SecurityAccessAsync` overloads were
+  already `virtual` (lines 195, 246); adding `virtual` to the third
+  `UdsClient` async service method brings the class to a consistent
+  testability surface. Non-behavioral: callers see no API change.
+
+Rationale: `SessionPanelViewModel` (App layer) takes `UdsClient` directly
+via DI per spec §4.5; its tests need a `RecordingUdsClient : UdsClient`
+test double that overrides `DiagnosticSessionControlAsync` to record
+calls without going through the real ISO-TP transport. Without `virtual`
+the test double cannot intercept the call, and the 3 session-command
+tests (Default/Extended/Programming) cannot verify the right
+sub-function byte is sent to the bus.
 
 ### 3.2 Component diagram
 
@@ -997,6 +1015,7 @@ checkbox semantics make more sense with a continuous background loop.
 | Exception | Source | Caught at | UI behavior |
 |---|---|---|---|
 | `KeyAlgorithmNotConfiguredException` | `PlaceholderKeyAlgorithm.ComputeKey` | `SessionPanelViewModel.SecurityAccessCommand` | Log Warn via `ILogger` + 2 OutputLog lines (ex.Message + Hint); `SecurityLevel = null`; no crash |
+| `InvalidOperationException` ("no IKeyDerivationAlgorithm wired") | `UdsClient.SecurityAccessAsync` 2-arg overload (throws when `_keyAlgorithm` is null because UdsClient was built with the legacy 2-arg ctor) | `SessionPanelViewModel.SecurityAccessCommand` | **Same as `KeyAlgorithmNotConfiguredException`**: OutputLog Warn + Hint + `SecurityLevel = null`. **Clarified 2026-06-25 during v1.2.0 implementation:** both exceptions mean the same root cause from the user's POV (no OEM key algorithm registered), so they get identical user-facing treatment. A generic `InvalidOperationException` from elsewhere in `UdsClient` (e.g. channel disconnected via `SendService`) still falls into the top-level `catch (Exception)` row below and logs Error. |
 | `UdsNegativeResponseException(Nrc)` | `UdsClient` response parser | Each panel VM's `[RelayCommand]` catch block | OutputLog Warn (`"NRC 0xNN"`); release busy flag; no crash |
 | `IsoTpTimeoutException` | `IsoTpLayer` | Top-level `catch (Exception)` per command | OutputLog Error; release busy flag; no crash |
 | `TimeoutException` (P2/P2*) | `UdsTimer` | Top-level `catch (Exception)` | OutputLog Error; release busy flag; no crash |
@@ -1027,7 +1046,7 @@ Target: ≥80% line coverage for all new code. Net new tests: ~17.
 - `SecurityAccessCommand_With_Placeholder_Algorithm_Logs_HintMessage_DoesNotCrash`
 - `SecurityAccessCommand_With_Fake_Algorithm_Sets_SecurityLevel_0x01`
 - `SecurityAccessCommand_With_UdsNegativeResponse_Logs_Warn_And_Clears_SecurityLevel`
-- `SecurityAccessCommand_With_InvalidOperationException_Logs_Error_And_Clears_SecurityLevel`
+- `SecurityAccessCommand_With_InvalidOperationException_Logs_HintMessage_And_Clears_SecurityLevel` (renamed from the brief's `_Logs_Error_` version 2026-06-25 — InvalidOp in SecurityAccess context now matches the `KeyAlgorithmNotConfigured` behavior of Warn + Hint)
 - `AttachLog_Null_DoesNotThrow`
 - `SetSessionAsync_On_Exception_Logs_Error_Without_Changing_CurrentSession`
 
