@@ -1218,7 +1218,7 @@ None. All design decisions resolved.
     `vm.Latest` stayed empty. Fix: `Collections/LeakedApplicationReset.cs`
     helper called from the three affected test class ctors.
   - `DbcDecodeBackgroundServiceTests` — Task 6 reported timing flake,
-    passes in isolation. **RESOLVED in v1.2.1 PATCH Task 6 `<pending>`**:
+    passes in isolation. **RESOLVED in v1.2.1 PATCH Task 6 `<d3909a8>`**:
     same root cause as the SignalViewModel flake above (leaked
     `System.Windows.Application.Current` from a sibling STA test class
     with a live-but-stuck dispatcher; xUnit parallel test classes race).
