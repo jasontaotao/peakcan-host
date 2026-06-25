@@ -62,9 +62,12 @@ chain `JSON → Core DB → Panel VM → XAML DataGrid`.
   `record(string Timestamp, string Level, string Message)`. The XAML
   code-behind listens to `CollectionChanged` and appends a colored `<Run>`
   per entry into the `RichTextBox.FlowDocument`.
-- **G6**: `AppHostBuilder` registers the four panel VMs as singletons and
-  re-registers `UdsViewModel` against the new 4-arg constructor. Old
-  `UdsViewModel(ILogger, UdsClient)` ctor is removed.
+- **G6**: `AppHostBuilder` registers the four panel VMs as singletons
+  (`SessionPanelViewModel` / `DidPanelViewModel` / `RoutinePanelViewModel`
+  / `DtcPanelViewModel`) and re-registers `UdsViewModel` against the new
+  4-arg constructor (which DI auto-resolves from the panel VM
+  registrations). The old `UdsViewModel(ILogger, UdsClient)` 2-arg ctor
+  is removed.
 - **G7**: Version bump `Directory.Build.props` from `1.1.0` to `1.2.0`;
   release notes `docs/release-notes-v1.2.0.md`.
 - **G8**: Unit-test coverage ≥80% for all new code (project default floor).
@@ -180,19 +183,32 @@ No Core / Infrastructure changes. NetArchTest rule 2 (Core must not depend on
 The old `src/PeakCan.Host.App/ViewModels/UdsViewModel.cs` lived in
 `PeakCan.Host.App.ViewModels`. The new orchestrator lives at
 `src/PeakCan.Host.App/ViewModels/Uds/UdsViewModel.cs` in
-`PeakCan.Host.App.ViewModels.Uds`. Affected files:
+`PeakCan.Host.App.ViewModels.Uds`. Affected files (verified against
+v1.1.0 tree):
 
-- `src/PeakCan.Host.App/Composition/AppHostBuilder.cs` — `using` update
-- `src/PeakCan.Host.App/AppShellViewModel.cs` — `using` update (if it
-  references `UdsViewModel` directly)
-- `tests/PeakCan.Host.App.Tests/...` — `using` update in any file that
-  references `UdsViewModel` directly (mainly test files being migrated)
+- `src/PeakCan.Host.App/Composition/AppHostBuilder.cs:163` — `using`
+  update needed for the type reference on the `AddSingleton<UdsViewModel>()`
+  line; replace with fully-qualified `PeakCan.Host.App.ViewModels.Uds.UdsViewModel`
+  to match the convention already used on lines 152 / 154 / 155 / 161.
+- `src/PeakCan.Host.App/ViewModels/AppShellViewModel.cs` — currently
+  declares `namespace PeakCan.Host.App.ViewModels` (line 11) and
+  references `UdsViewModel` implicitly (lines 79, 186) via the same
+  namespace. After the move, add `using PeakCan.Host.App.ViewModels.Uds;`
+  at the top so the field (`_udsViewModel`, line 79) and the ctor
+  parameter (`UdsViewModel udsViewModel`, line 186) still resolve.
+- `tests/PeakCan.Host.App.Tests/...` — the existing
+  `UdsViewModelSecurityAccessTests` references the old
+  `UdsViewModel` directly. Those tests are deleted in this PR (cases
+  migrated to `SessionPanelViewModelTests`), so no `using` update is
+  required for the surviving tests.
 
-The XAML namespace `xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"`
-still resolves through `AppShell.xaml.cs` `DataContext = new UdsViewModel(...)`
-declaration; the namespace change does not require XAML `clr-namespace`
-updates because `UdsView.xaml` references its DataContext via implicit
-inheritance from `AppShellViewModel.Uds` property.
+The XAML namespace `xmlns:views="clr-namespace:PeakCan.Host.App.Views"`
+in `AppShell.xaml` is unaffected: `UdsView` and `UdsView.xaml.cs` are
+not moved (only their DataContext's *type* changes). WPF resolves the
+DataContext via the runtime type, not via a compile-time XAML namespace
+reference. `AppShellViewModel` constructs `_udsView = new UdsView {
+DataContext = _udsViewModel }` (line 295) at runtime — the
+`UdsViewModel` reference resolves through the new `using` directive.
 
 ## 4. Components
 
@@ -300,6 +316,7 @@ public sealed class DidRow : ObservableObject
     public string Name       { get; init; } = "";
     public int    LengthBytes { get; init; }
     public bool   Writable   { get; init; }
+    public string WritableDisplay => Writable ? "R/W" : "R/O";
 
     [ObservableProperty] private string? _readValue;
     [ObservableProperty] private bool    _isReading;
@@ -712,11 +729,19 @@ called the top control "SessionPanel" which conflicts with the new
 `SessionPanelViewModel` name; here the top is just the layout header strip
 and the XAML binds to `{Binding Session.CurrentSession}` etc.):
 
+**Style note**: `App.xaml` has an empty `<Application.Resources>` block and
+no static brushes or converters are defined in the project. The new XAML
+uses inline brush literals (`#F0F0F0` for the session strip, `#1E1E1E` for
+the log background, `#D4D4D4` for log foreground) and a computed
+`WritableDisplay` property on `DidRow` (replacing the missing
+`BoolToReadWriteConverter`). This matches the pattern already used in
+`SignalView.xaml` / `TraceView.xaml` (`Background="#F8F8F8"` inline).
+
 ```xml
 <UserControl x:Class="PeakCan.Host.App.Views.UdsView" ...>
   <DockPanel>
     <!-- Top: Session header strip -->
-    <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource PanelBrush}">
+    <Border DockPanel.Dock="Top" Padding="8" Background="#F0F0F0">
       <StackPanel Orientation="Horizontal">
         <Button Content="Default"     Command="{Binding Session.SetDefaultSessionCommand}"/>
         <Button Content="Extended"    Command="{Binding Session.SetExtendedSessionCommand}"/>
@@ -764,7 +789,7 @@ and the XAML binds to `{Binding Session.CurrentSession}` etc.):
               <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
               <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
               <DataGridTextColumn Header="Length" Binding="{Binding LengthBytes}"/>
-              <DataGridTextColumn Header="R/W"    Binding="{Binding Writable, Converter={StaticResource BoolToReadWriteConverter}}"/>
+              <DataGridTextColumn Header="R/W"    Binding="{Binding WritableDisplay}"/>
               <DataGridTextColumn Header="Value"  Binding="{Binding ReadValue}"/>
             </DataGrid.Columns>
           </DataGrid>
