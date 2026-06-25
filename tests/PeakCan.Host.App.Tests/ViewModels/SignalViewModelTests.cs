@@ -1,3 +1,5 @@
+using System.Windows;
+using System.Windows.Threading;
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
@@ -23,6 +25,13 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// The full dispatcher hop is exercised in production by the WPF
 /// smoke run (Task 20); a dedicated STA test for this VM caused
 /// xunit parallel-execution hangs in the suite and was rolled back.
+/// <para>
+/// CI flake fix: when <see cref="TraceViewModelTests"/> runs first and
+/// instantiates the WPF <c>Application</c> singleton, the dispatcher
+/// path becomes async and tests racing the queue can observe an empty
+/// <see cref="SignalViewModel.Latest"/>. <see cref="PumpDispatcherAsync"/>
+/// drains pending dispatcher operations so the post-state is observable
+/// deterministically regardless of test ordering.
 /// </para>
 /// </summary>
 public class SignalViewModelTests
@@ -57,15 +66,28 @@ public class SignalViewModelTests
         return null;
     }
 
+    /// <summary>
+    /// Drain any pending dispatcher operations invoked by ApplyFrame.
+    /// No-op when no WPF Application singleton exists (the typical
+    /// xunit MTA path); drains the queue when one does (CI when
+    /// TraceViewModelTests ran first and instantiated Application).
+    /// </summary>
+    private static async Task PumpDispatcherAsync()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null) return;
+        await dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+    }
+
     [Fact]
-    public void Default_Latest_Is_Empty()
+    public async Task Default_Latest_Is_Empty()
     {
         var vm = new SignalViewModel();
         vm.Latest.Should().BeEmpty();
     }
 
     [Fact]
-    public void ApplyFrame_No_DbcMessage_Leaves_Latest_Empty()
+    public async Task ApplyFrame_No_DbcMessage_Leaves_Latest_Empty()
     {
         // Sanity check that ApplyFrame doesn't misbehave on a bare frame.
         // The SignalViewModel receives (frame, msg) where msg is the
@@ -78,6 +100,7 @@ public class SignalViewModelTests
         var frame = MakeFrame(0x100, 0x42);
 
         vm.ApplyFrame(frame, msg);
+        await PumpDispatcherAsync();
 
         vm.Latest.Should().HaveCount(1, "one signal decoded = one row");
         vm.Latest[0].Message.Should().Be("M1");
@@ -85,7 +108,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Multiple_Signals_Adds_All_As_Entries()
+    public async Task ApplyFrame_Multiple_Signals_Adds_All_As_Entries()
     {
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1",
@@ -95,6 +118,7 @@ public class SignalViewModelTests
         var frame = MakeFrame(0x100, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE);
 
         vm.ApplyFrame(frame, msg);
+        await PumpDispatcherAsync();
 
         vm.Latest.Should().HaveCount(3);
         vm.Latest.Select(e => e.Signal).Should().BeEquivalentTo(ExpectedPlainSigNames);
@@ -102,7 +126,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Repeated_Frame_Updates_Existing_Entry_Not_Adds_New()
+    public async Task ApplyFrame_Repeated_Frame_Updates_Existing_Entry_Not_Adds_New()
     {
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1", Sig("Speed"));
@@ -110,7 +134,9 @@ public class SignalViewModelTests
         var frame2 = MakeFrame(0x100, 0x20);
 
         vm.ApplyFrame(frame1, msg);
+        await PumpDispatcherAsync();
         vm.ApplyFrame(frame2, msg);
+        await PumpDispatcherAsync();
 
         vm.Latest.Should().HaveCount(1, "key is (Message, Signal); repeated frame replaces existing row");
         // Verify the latest value is reflected in the entry. Speed factor=1, offset=0,
@@ -119,7 +145,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Decodes_Multiplexor_And_Matching_Muxed_Signals()
+    public async Task ApplyFrame_Decodes_Multiplexor_And_Matching_Muxed_Signals()
     {
         // v0.6.0: multiplexor signal is decoded first, then only
         // multiplexed signals whose MultiplexValue matches the mux
@@ -133,6 +159,7 @@ public class SignalViewModelTests
         var frame = MakeFrame(0x100, 0x00); // mux value = 0
 
         vm.ApplyFrame(frame, msg);
+        await PumpDispatcherAsync();
 
         // Expected: Mux (multiplexor) + PlainSig (always) + Muxed0 (mux=0 matches)
         vm.Latest.Should().HaveCount(3);
@@ -143,13 +170,14 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void Reset_Clears_All_Entries()
+    public async Task Reset_Clears_All_Entries()
     {
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
         var frame = MakeFrame(0x100, 0x42);
 
         vm.ApplyFrame(frame, msg);
+        await PumpDispatcherAsync();
         vm.Latest.Should().HaveCount(2);
 
         vm.Reset();
@@ -158,7 +186,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Does_Not_Throw()
+    public async Task ApplyFrame_Does_Not_Throw()
     {
         // The contract: ApplyFrame must not throw regardless of thread
         // (MTA or STA, dispatcher available or not). The post-state
@@ -173,7 +201,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Decoded_Physical_Value_Uses_Factor_And_Offset()
+    public async Task ApplyFrame_Decoded_Physical_Value_Uses_Factor_And_Offset()
     {
         // Sanity check that SignalDecoder is wired through correctly:
         // signal at startBit=0 len=8 LE = first byte = 0x40 = 64 raw,
@@ -183,6 +211,7 @@ public class SignalViewModelTests
         var frame = MakeFrame(0x100, 0x40);
 
         vm.ApplyFrame(frame, msg);
+        await PumpDispatcherAsync();
 
         vm.Latest[0].Physical.Should().Be("42");
     }
@@ -243,7 +272,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void Reset_Also_Resets_Chart()
+    public async Task Reset_Also_Resets_Chart()
     {
         var chartVm = new SignalChartViewModel();
         var vm = new SignalViewModel(chartVm);
@@ -256,7 +285,7 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void ApplyFrame_Preserves_IsSelected_Across_Frames()
+    public async Task ApplyFrame_Preserves_IsSelected_Across_Frames()
     {
         // v0.8.0 fix: Upsert must carry over IsSelected from the
         // existing entry so the chart checkbox doesn't reset on every
@@ -267,9 +296,11 @@ public class SignalViewModelTests
         var frame2 = MakeFrame(0x100, 0x20);
 
         vm.ApplyFrame(frame1, msg);
+        await PumpDispatcherAsync();
         vm.Latest[0].IsSelected = true;  // user checks the checkbox
 
         vm.ApplyFrame(frame2, msg);
+        await PumpDispatcherAsync();
 
         vm.Latest.Should().HaveCount(1);
         vm.Latest[0].IsSelected.Should().BeTrue("checkbox state must survive frame updates");
@@ -278,12 +309,13 @@ public class SignalViewModelTests
     // --- v0.8.1: PlotAll / PlotNone tests ---
 
     [Fact]
-    public void PlotAll_Sets_All_IsSelected_True()
+    public async Task PlotAll_Sets_All_IsSelected_True()
     {
         var chartVm = new SignalChartViewModel();
         var vm = new SignalViewModel(chartVm);
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
         vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        await PumpDispatcherAsync();
 
         vm.PlotAllCommand.Execute(null);
 
@@ -292,12 +324,13 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void PlotNone_Clears_All_IsSelected()
+    public async Task PlotNone_Clears_All_IsSelected()
     {
         var chartVm = new SignalChartViewModel();
         var vm = new SignalViewModel(chartVm);
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
         vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        await PumpDispatcherAsync();
         vm.PlotAllCommand.Execute(null);
 
         vm.PlotNoneCommand.Execute(null);
@@ -307,11 +340,12 @@ public class SignalViewModelTests
     }
 
     [Fact]
-    public void PlotAll_Without_ChartVm_Does_Not_Throw()
+    public async Task PlotAll_Without_ChartVm_Does_Not_Throw()
     {
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1", Sig("Speed"));
         vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        await PumpDispatcherAsync();
 
         var act = () => vm.PlotAllCommand.Execute(null);
         act.Should().NotThrow();
