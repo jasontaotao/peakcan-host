@@ -157,7 +157,7 @@ public class UdsClient : IDisposable
     /// <param name="did">Data Identifier (2 bytes).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>DID data bytes.</returns>
-    public async Task<byte[]> ReadDataByIdentifierAsync(ushort did, CancellationToken ct = default)
+    public virtual async Task<byte[]> ReadDataByIdentifierAsync(ushort did, CancellationToken ct = default)
     {
         var didBytes = new byte[] { (byte)(did >> 8), (byte)(did & 0xFF) };
         var response = await SendRequestAsync(0x22, didBytes, ct).ConfigureAwait(false);
@@ -175,7 +175,7 @@ public class UdsClient : IDisposable
     /// <param name="did">Data Identifier (2 bytes).</param>
     /// <param name="data">Data to write.</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task WriteDataByIdentifierAsync(ushort did, byte[] data, CancellationToken ct = default)
+    public virtual async Task WriteDataByIdentifierAsync(ushort did, byte[] data, CancellationToken ct = default)
     {
         var request = new byte[2 + data.Length];
         request[0] = (byte)(did >> 8);
