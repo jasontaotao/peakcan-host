@@ -130,17 +130,17 @@ listed below. NetArchTest rule 2 (Core must not depend on `Peak.Can.Basic`)
 is preserved.
 
 **Core testability hook (added 2026-06-25 during v1.2.0 implementation,
-discovered while building `SessionPanelViewModelTests` + `DidPanelViewModelTests`):**
+discovered while building `SessionPanelViewModelTests` + `DidPanelViewModelTests` + `RoutinePanelViewModelTests`):**
 
-Three `UdsClient` async service methods gained the `virtual` keyword (none
+Four `UdsClient` async service methods gained the `virtual` keyword (none
 had it before despite the two `SecurityAccessAsync` overloads being
 `virtual` since v1.1.0):
 
 - `src/PeakCan.Host.Core/Uds/UdsClient.cs` — `DiagnosticSessionControlAsync`,
-  `ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync` all `virtual`.
-  Both `SecurityAccessAsync` overloads were already `virtual`. Brings the
-  class to a consistent testability surface. Non-behavioral: callers see
-  no API change.
+  `ReadDataByIdentifierAsync`, `WriteDataByIdentifierAsync`, and
+  `RoutineControlAsync` are all `virtual`. Both `SecurityAccessAsync`
+  overloads were already `virtual`. Brings the class to a consistent
+  testability surface. Non-behavioral: callers see no API change.
 
 Rationale: every panel `ViewModel` (Session/DID/Routine/DTC; §4.5–§4.8)
 takes `UdsClient` directly via DI; their tests need a
@@ -1195,7 +1195,8 @@ None. All design decisions resolved.
   one of:
   - Guard the ctor: `_logger = logger;` then `_logger?.LogInformation(...)` (LoggerMessage source-gen can be made null-safe by changing the `[LoggerMessage]` signature to `partial void LogNoPathConfigured(LogLevel level)` and routing through `_logger?.IsEnabled(level) == true ? _logger.Log(level, ...) : NoOp`).
   - Make the ctor non-nullable: `DidDatabase(ILogger<DidDatabase> logger)` (breaks the 1-arg ctor public surface; minor).
-  - Same NRE likely exists on `RoutineDatabase.cs` (mirror of DidDatabase). Surface and fix together. Discovered 2026-06-25 by Task 3 review; not in v1.2.0 ship.
+  - **`RoutineDatabase` does NOT have this bug** (verified 2026-06-25 by Task 4 implementer): its nullable `_logger` + `logger!` at the partial-method call sites handles null logger correctly. No workaround needed for `RoutineDatabase` ctor.
+  Discovered 2026-06-25 by Task 3 review; not in v1.2.0 ship.
 
 ## 10. References
 
