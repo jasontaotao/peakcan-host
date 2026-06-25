@@ -1218,11 +1218,27 @@ None. All design decisions resolved.
     `vm.Latest` stayed empty. Fix: `Collections/LeakedApplicationReset.cs`
     helper called from the three affected test class ctors.
   - `DbcDecodeBackgroundServiceTests` — Task 6 reported timing flake,
-    passes in isolation. Likely the same shared-state / timing pattern.
+    passes in isolation. **RESOLVED in v1.2.1 PATCH Task 6 `<pending>`**:
+    same root cause as the SignalViewModel flake above (leaked
+    `System.Windows.Application.Current` from a sibling STA test class
+    with a live-but-stuck dispatcher; xUnit parallel test classes race).
+    `DbcDecodeBackgroundServiceTests` uses `SignalViewModel.ApplyFrame`
+    on the worker thread, so its inline path was equally vulnerable.
+    Fix: ctor calls `LeakedApplicationReset.CleanupLeakedApplication()`
+    before each test (mirror of Task 5's three test class ctors). Added
+    RED repro `OnFrame_With_LeakedApplication_DeadDispatcher_Fills_Latest`
+    that simulates the leak and asserts `sigVm.Latest` populates —
+    intentionally RED (same status as Task 5's repro); converts to GREEN
+    in Task 8 alongside Task 5's repro by removing the leak-injection
+    body. The original flake test
+    (`OnFrame_With_Matching_Dbc_Decodes_Eventually`) is GREEN in 10/10
+    isolated runs and 5/5 full-suite runs with the ctor fix.
 
-  Both are unrelated to UDS work. The SignalViewModel flake was closed
-  in v1.2.1 PATCH Task 5. The DbcDecodeBackgroundService flake remains
-  open and is tracked for v1.2.x.
+  Both are unrelated to UDS work. Both flakes were closed in v1.2.1 PATCH
+  (SignalViewModel in Task 5, DbcDecodeBackgroundService in Task 6). The
+  two deliberate RED repros (one per flake) remain and are tracked for
+  Task 8 (convert RED → GREEN by removing the leak-injection body, or
+  delete the repros as redundant after the ctor fix is verified).
 
 ## 10. References
 
