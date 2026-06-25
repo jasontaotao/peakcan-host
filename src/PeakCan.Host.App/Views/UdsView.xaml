@@ -6,111 +6,117 @@
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
 
-    <Grid Margin="8">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="200" />
-        </Grid.RowDefinitions>
+    <DockPanel>
+        <!-- Top: Session header strip -->
+        <Border DockPanel.Dock="Top" Padding="8" Background="#F0F0F0">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="Default"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
+                <Button Content="Extended"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
+                <Button Content="Programming" Command="{Binding Session.SetProgrammingSessionCommand}" Padding="6,2" Margin="0,0,12,0"/>
+                <Separator/>
+                <CheckBox Content="TesterPresent" IsChecked="{Binding Session.TesterPresentActive, Mode=OneWay}"
+                          Command="{Binding Session.ToggleTesterPresentCommand}"
+                          VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <Separator/>
+                <Button Content="SecurityAccess (Level 1)"
+                        Command="{Binding Session.SecurityAccessCommand}"
+                        Padding="6,2" Margin="0,0,12,0"/>
+                <TextBlock Text="{Binding Session.CurrentSession, StringFormat='Session: {0}'}"
+                           VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBlock Text="{Binding Session.SecurityLevel, StringFormat='Level: 0x{0:X2}', TargetNullValue='(not authenticated)'}"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
 
-        <!-- Toolbar -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="8,4" Margin="0,0,8,0" />
-            <Button Content="Security Access" Command="{Binding SecurityAccessCommand}" Padding="8,4" Margin="0,0,8,0" />
-            <Button Content="Tester Present" Command="{Binding TesterPresentCommand}" Padding="8,4" Margin="0,0,16,0" />
+        <!-- Bottom: Output Log -->
+        <Border DockPanel.Dock="Bottom" Padding="8" Background="#1E1E1E">
+            <DockPanel>
+                <Button DockPanel.Dock="Top" Content="Clear" HorizontalAlignment="Right"
+                        Command="{Binding ClearOutputCommand}" Margin="0,0,0,4"/>
+                <RichTextBox x:Name="LogBox" IsReadOnly="True" IsDocumentEnabled="True"
+                             Background="#1E1E1E" Foreground="#D4D4D4"
+                             FontFamily="Consolas" FontSize="12"
+                             VerticalScrollBarVisibility="Auto">
+                    <FlowDocument PageWidth="2400">
+                        <Paragraph x:Name="LogParagraph"/>
+                    </FlowDocument>
+                </RichTextBox>
+            </DockPanel>
+        </Border>
 
-            <TextBlock Text="Session:" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <TextBlock Text="{Binding SessionText}" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,16,0" />
-
-            <TextBlock Text="Security:" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <TextBlock Text="{Binding SecurityText}" VerticalAlignment="Center" FontWeight="Bold" />
-        </StackPanel>
-
-        <!-- Main Content -->
-        <TabControl Grid.Row="1">
-            <!-- DID Tab -->
+        <!-- Middle: TabControl -->
+        <TabControl>
             <TabItem Header="DIDs">
-                <Grid Margin="8">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="DID:" VerticalAlignment="Center" Margin="0,0,4,0" />
-                        <TextBox Text="{Binding DidAddress, StringFormat=0x{0:X4}}" Width="80" VerticalAlignment="Center" />
-                        <Button Content="Read" Command="{Binding ReadDidCommand}" Padding="8,4" Margin="8,0,4,0" />
-                        <Button Content="Write" Command="{Binding WriteDidCommand}" Padding="8,4" Margin="4,0,0,0" />
-                    </StackPanel>
-
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Value:" VerticalAlignment="Center" Margin="0,0,4,0" />
-                        <TextBox Text="{Binding DidValue, UpdateSourceTrigger=PropertyChanged}" Width="400" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Grid>
-            </TabItem>
-
-            <!-- Routine Tab -->
-            <TabItem Header="Routines">
-                <Grid Margin="8">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Routine ID:" VerticalAlignment="Center" Margin="0,0,4,0" />
-                        <TextBox Text="{Binding RoutineId, StringFormat=0x{0:X4}}" Width="80" VerticalAlignment="Center" />
-                        <Button Content="Run" Command="{Binding RunRoutineCommand}" Padding="8,4" Margin="8,0,0,0" />
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="1" Text="{Binding RoutineResult}" />
-                </Grid>
-            </TabItem>
-
-            <!-- DTC Tab -->
-            <TabItem Header="DTCs">
-                <Grid Margin="8">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Read DTCs" Command="{Binding ReadDtcCommand}" Padding="8,4" Margin="0,0,8,0" />
-                        <Button Content="Clear DTCs" Command="{Binding ClearDtcCommand}" Padding="8,4" />
-                    </StackPanel>
-
-                    <DataGrid Grid.Row="1"
-                              ItemsSource="{Binding DtcList}"
-                              AutoGenerateColumns="False"
-                              IsReadOnly="True">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="3*"/>
+                    </Grid.ColumnDefinitions>
+                    <DataGrid ItemsSource="{Binding Did.Dids}" SelectedItem="{Binding Did.SelectedDid}"
+                              AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="DTC" Binding="{Binding Code}" Width="100" />
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80" />
-                            <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
+                            <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
+                            <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
+                            <DataGridTextColumn Header="Length" Binding="{Binding LengthBytes}"/>
+                            <DataGridTextColumn Header="R/W"    Binding="{Binding WritableDisplay}"/>
+                            <DataGridTextColumn Header="Value"  Binding="{Binding ReadValue}"/>
                         </DataGrid.Columns>
                     </DataGrid>
+                    <StackPanel Grid.Column="1" Margin="12">
+                        <TextBlock Text="{Binding Did.SelectedDid.Name, StringFormat='Selected DID: {0}', TargetNullValue='(none selected)'}"
+                                   FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Did.SelectedDid.LengthBytes, StringFormat='Length: {0} bytes', TargetNullValue=''}"
+                                   Margin="0,4,0,0"/>
+                        <TextBlock Text="Write value (hex)" Margin="0,8,0,0"/>
+                        <TextBox  Text="{Binding Did.WriteValue, UpdateSourceTrigger=PropertyChanged}"
+                                  IsEnabled="{Binding Did.SelectedDid.Writable}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="Read"  Command="{Binding Did.ReadDidCommand}"  Padding="6,2" Margin="0,0,8,0"/>
+                            <Button Content="Write" Command="{Binding Did.WriteDidCommand}" Padding="6,2"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Did.LastResult, StringFormat='Last: {0}'}"
+                                   Margin="0,8,0,0" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    </StackPanel>
                 </Grid>
             </TabItem>
+
+            <TabItem Header="Routines">
+                <DockPanel>
+                    <DataGrid DockPanel.Dock="Top" Height="200"
+                              ItemsSource="{Binding Routine.Routines}" SelectedItem="{Binding Routine.SelectedRoutine}"
+                              AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
+                            <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+                            <DataGridTextColumn Header="Result" Binding="{Binding LastResult}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Orientation="Horizontal" Margin="8">
+                        <Button Content="Start" Command="{Binding Routine.StartRoutineCommand}" Padding="6,2"/>
+                        <Button Content="Stop"  Command="{Binding Routine.StopRoutineCommand}"  Padding="6,2" Margin="8,0,0,0"/>
+                        <Button Content="Query" Command="{Binding Routine.QueryRoutineCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                        <TextBlock Text="{Binding Routine.SelectedRoutine.LastResult, StringFormat='Last: {0}'}"
+                                   Margin="12,0,0,0" VerticalAlignment="Center" FontFamily="Consolas"/>
+                    </StackPanel>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="DTCs">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
+                        <Button Content="Read DTCs"  Command="{Binding Dtc.ReadDtcsCommand}" Padding="6,2"/>
+                        <Button Content="Clear DTCs" Command="{Binding Dtc.ClearDtcsCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Dtc.Dtcs}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Code"        Binding="{Binding CodeDisplay}"/>
+                            <DataGridTextColumn Header="Status"      Binding="{Binding StatusDisplay}"/>
+                            <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
         </TabControl>
-
-        <!-- Log Panel -->
-        <Grid Grid.Row="2" Margin="0,8,0,0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-
-            <TextBlock Grid.Row="0" Text="UDS Log" FontWeight="Bold" />
-
-            <ListBox Grid.Row="1"
-                     ItemsSource="{Binding LogEntries}"
-                     Background="#1E1E1E"
-                     Foreground="#D4D4D4"
-                     FontFamily="Consolas"
-                     FontSize="12" />
-        </Grid>
-    </Grid>
+    </DockPanel>
 </UserControl>
