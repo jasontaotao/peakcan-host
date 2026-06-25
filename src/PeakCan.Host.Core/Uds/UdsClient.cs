@@ -113,7 +113,7 @@ public class UdsClient : IDisposable
     /// </summary>
     /// <param name="sessionType">Session type (1=Default, 2=Extended, 3=Programming).</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct = default)
+    public virtual async Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct = default)
     {
         var response = await SendRequestAsync(0x10, new byte[] { sessionType }, ct).ConfigureAwait(false);
 
