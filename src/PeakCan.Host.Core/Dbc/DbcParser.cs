@@ -57,6 +57,15 @@ public static class DbcParser
         // Read at end of ParseDocument to build the final DbcDocument.
         private readonly List<Message> _pendingMessages = new();
         private readonly Dictionary<uint, Message> _pendingMessagesById = new();
+        // v1.2.9: inline VAL_ pairs (form (a) below) used to be discarded.
+        // Now we collect them into _pendingValueTables keyed by the signal
+        // name, then merge into the document's valueTables dict at the
+        // end of ParseDocument. The signal's ValueTableName is already set
+        // to the signal name (self-reference) by ReplaceSignalValueTableName
+        // on the same code path, so the lookup
+        //   doc.ValueTables[signal.ValueTableName]
+        // now resolves to the actual (int -> text) map.
+        private readonly Dictionary<string, ValueTable> _pendingValueTables = new();
 
         public ParserState(IReadOnlyList<Token> tokens) { _tokens = tokens; }
 
@@ -179,6 +188,12 @@ public static class DbcParser
             }
 
             var byId = _pendingMessages.ToDictionary(m => m.Id);
+            // v1.2.9: merge inline VAL_ value tables collected during
+            // ParseValForSignal into the document-level dict. Inline
+            // definitions take precedence over a pre-existing VAL_TABLE_
+            // block of the same name (matches the DBC convention that
+            // the most-recently-defined table wins).
+            foreach (var (name, vt) in _pendingValueTables) valueTables[name] = vt;
             return Result<DbcDocument>.Ok(new DbcDocument(version, nodes, _pendingMessages, byId, valueTables));
         }
 
@@ -489,10 +504,14 @@ public static class DbcParser
             }
             else
             {
-                // (a) Inline pairs — we don't store the (int -> text) map on the
-                // signal for MVP. We just attach the signal name as a self-table
-                // reference so the UI can show "State: Off" by looking up its own
-                // value table in the document.
+                // (a) Inline pairs — attach the signal name as a
+                // self-table reference AND collect the (int -> text)
+                // pairs into _pendingValueTables so the document's
+                // ValueTables dict resolves to a real table. Pre-1.2.9
+                // the entries were discarded (the signal's ValueTableName
+                // was set, but no ValueTable was ever created), so the
+                // Signal view's Value column showed the raw integer
+                // even when the DBC had human-readable names defined.
                 var sigTok = Consume();
                 if (Current.Type != TokenType.Integer && Current.Type != TokenType.Minus)
                 {
@@ -510,11 +529,29 @@ public static class DbcParser
                 ReplaceSignalValueTableName(ref m, sigIdx, sigTok.Lexeme);
                 _pendingMessagesById[msgId] = m;
                 _pendingMessages[_pendingMessages.FindIndex(x => x.Id == msgId)] = m;
+
+                // Collect the (int -> text) entries. Repeat the same
+                // structure as ParseValueTable (Integer or leading-Minus
+                // + Integer for the key, String for the value).
+                var inlineEntries = new Dictionary<long, string>();
                 while (Current.Type == TokenType.Integer || Current.Type == TokenType.Minus)
                 {
-                    Consume(); // value
-                    Consume(); // "text"
+                    long value = ParseLong(Consume());
+                    if (Current.Type != TokenType.String)
+                    {
+                        throw new DbcParseException(
+                            $"Expected VAL_ text at line {Current.Line}, column {Current.Column}",
+                            Current.Line, Current.Column);
+                    }
+                    string text = Consume().Lexeme;
+                    inlineEntries[value] = text;
                 }
+                // Self-reference: the table name is the signal's own
+                // name, matching the ValueTableName set above. This is
+                // the lookup key the Signal view's ResolveValueTableName
+                // will use.
+                _pendingValueTables[sigTok.Lexeme] = new ValueTable(sigTok.Lexeme, inlineEntries);
+
                 Expect(TokenType.Semicolon);
             }
         }
