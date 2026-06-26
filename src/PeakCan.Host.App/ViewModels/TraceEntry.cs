@@ -36,7 +36,19 @@ public sealed class TraceEntry : INotifyPropertyChanged
     public string DataHex { get; init; } = "";
 
     /// <summary>DBC-decoded signal values; empty until a DBC is loaded (Task 15).</summary>
-    public string Decoded { get; init; } = "";
+    public string Decoded
+    {
+        get => _decoded;
+        set
+        {
+            if (_decoded != value)
+            {
+                _decoded = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Decoded)));
+            }
+        }
+    }
+    private string _decoded = "";
 
     /// <summary>True iff this row is a hardware-reported bus error frame.</summary>
     public bool IsError { get; init; }

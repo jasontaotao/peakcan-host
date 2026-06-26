@@ -4,8 +4,9 @@ using Xunit;
 namespace PeakCan.Host.App.Tests.ViewModels;
 
 /// <summary>
-/// v1.2.11 PATCH (Item 1): <see cref="TraceEntry.FrameType"/> 必须区分 RTR
-/// 帧，与 ERR / FD 并列。优先级: ERR > RTR > FD > ""。
+/// v1.2.11 PATCH (Item 1 + Item 2 prep): <see cref="TraceEntry.FrameType"/>
+/// 必须区分 RTR 帧；<see cref="TraceEntry.Decoded"/> 改成 mutable 以便
+/// DbcDecodeBackgroundService 异步填充。
 /// </summary>
 public class TraceEntryTests
 {
@@ -42,5 +43,37 @@ public class TraceEntryTests
     {
         var entry = new TraceEntry { IsRtr = false, IsFd = true, IsError = false };
         Assert.Equal("FD", entry.FrameType);
+    }
+
+    // --- v1.2.11 PATCH Item 2 prep: Decoded mutable + PropertyChanged ---
+
+    [Fact]
+    public void Decoded_Set_Fires_PropertyChanged()
+    {
+        // v1.2.11: DbcDecodeBackgroundService fills Decoded asynchronously,
+        // so the property must be set-able AND fire PropertyChanged so the
+        // WPF DataGrid row re-renders the Decoded column.
+        var entry = new TraceEntry();
+        var fired = new List<string?>();
+        entry.PropertyChanged += (_, e) => fired.Add(e.PropertyName);
+
+        entry.Decoded = "SigA=42";
+
+        Assert.Equal("SigA=42", entry.Decoded);
+        Assert.Contains(nameof(TraceEntry.Decoded), fired);
+    }
+
+    [Fact]
+    public void Decoded_Set_Same_Value_Does_Not_Fire()
+    {
+        // v1.2.11: avoid spurious DataGrid re-renders when worker re-fills
+        // with identical text (e.g. on a re-decode loop).
+        var entry = new TraceEntry();
+        var fired = 0;
+        entry.PropertyChanged += (_, _) => fired++;
+
+        entry.Decoded = "";
+
+        Assert.Equal(0, fired);
     }
 }
