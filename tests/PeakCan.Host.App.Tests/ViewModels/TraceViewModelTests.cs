@@ -58,11 +58,15 @@ public class TraceViewModelTests
     }
 
     [Fact]
-    public void Default_MaxRows_Is_Ten_Thousand()
+    public void Default_MaxRows_Is_One_Thousand()
     {
-        // The plan specifies 10_000 as the FIFO trim threshold.
+        // v1.2.3: lowered from 10_000 to 1_000 because under sustained
+        // high frame rates the WPF DataGrid paint + collection mutation
+        // cost on the dispatcher thread becomes prohibitive. 1_000 rows
+        // × 20 px = 20 k px of virtualized content, well within the
+        // recycling virtualization budget.
         var vm = new TraceViewModel();
-        vm.MaxRows.Should().Be(10_000);
+        vm.MaxRows.Should().Be(1_000);
     }
 
     [Fact]

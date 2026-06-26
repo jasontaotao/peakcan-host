@@ -17,6 +17,9 @@
             <TextBlock Text=" filtered" VerticalAlignment="Center" />
             <TextBlock Text="  Total: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
             <TextBlock Text="{Binding TotalFrameCount}" VerticalAlignment="Center" />
+            <TextBlock Text=" (cap: " VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#6e7781" />
+            <TextBlock Text="{Binding MaxRows}" VerticalAlignment="Center" Foreground="#6e7781" />
+            <TextBlock Text=" rows)" VerticalAlignment="Center" Foreground="#6e7781" />
         </StackPanel>
         <!-- v0.9.2: highlight bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,4">
