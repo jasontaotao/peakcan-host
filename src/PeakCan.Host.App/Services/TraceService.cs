@@ -75,16 +75,27 @@ public sealed class TraceService : BackgroundService, IFrameSink
     }
 
     /// <summary>
-    /// Background loop: every 50 ms (via <see cref="PeriodicTimer"/>),
+    /// Background loop: every 200 ms (via <see cref="PeriodicTimer"/>),
     /// drain the channel into a local list and hand it to the VM.
     /// Exits cleanly on cancellation — PeriodicTimer.WaitForNextTickAsync
     /// throws <see cref="OperationCanceledException"/> on token cancel,
     /// which propagates and ends the loop without an explicit break.
+    /// <para>
+    /// <b>Tick interval (200 ms vs 50 ms):</b> at high frame rates (≥
+    /// 1 000 fps), a 50 ms tick fires the WPF dispatcher 20 times/sec
+    /// with batches of ~50 frames each; under sustained load the
+    /// <see cref="ObservableCollection{T}"/> mutations + DataGrid item
+    /// container creation saturate the UI thread and the grid becomes
+    /// unresponsive. Bumping the tick to 200 ms caps dispatcher
+    /// invocations at 5/sec with batches of ~200 frames; the absolute
+    /// work is unchanged but the layout passes collapse, leaving the
+    /// UI thread free to process paint + scroll between batches.
+    /// </para>
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
-        var buf = new List<CanFrame>(256);
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(200));
+        var buf = new List<CanFrame>(1024);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))

@@ -1,3 +1,4 @@
+using System.Linq;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -121,5 +122,31 @@ public class AppHostBuilderTests
         using var host = AppHostBuilder.Build();
         var vm = host.Services.GetService<AppShellViewModel>();
         vm.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Build_Registers_TraceService_And_StatisticsService_As_Both_Singleton_And_HostedService_Same_Instance()
+    {
+        // Regression test for v1.2.4 PATCH: the IHostedService wiring
+        // must reuse the singleton instance so SinkWiringService attaches
+        // the same TraceService that runs ExecuteAsync. If a future
+        // refactor changes AddHostedService(sp => sp.GetRequiredService<T>())
+        // to AddHostedService<T>() (which would resolve a second
+        // instance), SinkWiringService attaches instance A and the
+        // hosted-service worker runs on instance B — the v1.2.3 bug
+        // returns silently and all 535+ existing tests stay green.
+        using var host = AppHostBuilder.Build();
+
+        var traceSingleton = host.Services.GetRequiredService<TraceService>();
+        var traceHosted = host.Services.GetServices<IHostedService>()
+            .OfType<TraceService>().Single();
+        traceHosted.Should().BeSameAs(traceSingleton,
+            "TraceService IHostedService registration must reuse the singleton or Trace/Stats views stay empty");
+
+        var statsSingleton = host.Services.GetRequiredService<StatisticsService>();
+        var statsHosted = host.Services.GetServices<IHostedService>()
+            .OfType<StatisticsService>().Single();
+        statsHosted.Should().BeSameAs(statsSingleton,
+            "StatisticsService IHostedService registration must reuse the singleton or the 1 Hz stats pump never fires");
     }
 }

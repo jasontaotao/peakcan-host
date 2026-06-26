@@ -66,6 +66,28 @@ public partial class App : Application
         InstallStaticGlobalExceptionHandlers();
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         _host = AppHostBuilder.Build();
+        // Start hosted services (SinkWiringService, DbcDecodeBackgroundService)
+        // synchronously so their StartAsync runs before we resolve the shell.
+        // Without this, SinkWiringService.StartAsync never fires and the
+        // router only has the CanApi self-attach; Trace/Stats/Recording stay
+        // empty even though the read loop is delivering frames. Discovered
+        // 2026-06-26 via DIAG logging (sinks=1, dispatches=18000). See
+        // OnExit below for the matching StopAsync on shutdown.
+        //
+        // Sync-over-async is safe here: Microsoft.Extensions.Hosting's
+        // BackgroundService.StartAsync awaits ExecuteAsync on the
+        // threadpool without capturing the WPF Dispatcher
+        // SynchronizationContext, so the STA UI thread is never posted
+        // back to during StartAsync. No deadlock risk.
+        try
+        {
+            _host.StartAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "IHost.StartAsync threw during OnStartup");
+            throw;
+        }
         Services = _host.Services;
         var shell = new AppShell
         {
