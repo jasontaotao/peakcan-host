@@ -36,12 +36,15 @@ public class TraceViewModelTests
     // before each test (ctor runs once per test instance in xUnit).
     public TraceViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
 
-    private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4, bool fd = false, bool error = false)
+    private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4, bool fd = false, bool error = false, bool rtr = false)
     {
         byte[] payload = dlc == 0 ? Array.Empty<byte>() : new byte[dlc];
         var flags = FrameFlags.None;
         if (fd) flags |= FrameFlags.Fd;
         if (error) flags |= FrameFlags.ErrFrame;
+        // v1.2.11 PATCH Item 1: RTR uses empty payload per CAN spec;
+        // override dlc=0 callers if rtr=true.
+        if (rtr) { flags |= FrameFlags.Rtr; payload = Array.Empty<byte>(); }
         return new CanFrame(
             new CanId(id, FrameFormat.Standard),
             payload,
@@ -127,9 +130,13 @@ public class TraceViewModelTests
         // Spawns an STA thread, creates a WPF Application on it (so
         // Application.Current is non-null), invokes AppendBatchAsync, and
         // pumps the dispatcher with DispatcherFrame until the awaited
-        // Task completes. Asserts all 3 frames land in Entries.
+        // Task completes. Asserts all frames land in Entries.
+        // v1.2.11 PATCH Item 1: also includes a 4th RTR frame and asserts
+        // IsRtr + FrameType="RTR" wire-up from FrameFlags.Rtr bit.
         Exception? caught = null;
         int entriesCount = 0;
+        bool rtrIsRtr = false;
+        string rtrFrameType = "";
         var thread = new Thread(() =>
         {
             try
@@ -148,6 +155,7 @@ public class TraceViewModelTests
                     MakeFrame(id: 0x111, dlc: 2),
                     MakeFrame(id: 0x222, dlc: 4),
                     MakeFrame(id: 0x333, dlc: 8, fd: true),
+                    MakeFrame(id: 0x444, dlc: 0, rtr: true),
                 };
 
                 // AppendBatchAsync queues work onto the current dispatcher
@@ -160,6 +168,12 @@ public class TraceViewModelTests
                 Dispatcher.PushFrame(frame);
 
                 entriesCount = vm.Entries.Count;
+                var rtrEntry = vm.Entries.FirstOrDefault(e => e.Id.Raw == 0x444);
+                if (rtrEntry != null)
+                {
+                    rtrIsRtr = rtrEntry.IsRtr;
+                    rtrFrameType = rtrEntry.FrameType;
+                }
             }
             catch (Exception ex) { caught = ex; }
             finally
@@ -189,7 +203,9 @@ public class TraceViewModelTests
         thread.Join(TimeSpan.FromSeconds(5)).Should().BeTrue("STA thread must complete within 5 s");
 
         if (caught is not null) throw caught;
-        entriesCount.Should().Be(3, "the dispatcher path should add all 3 frames");
+        entriesCount.Should().Be(4, "the dispatcher path should add all 4 frames (3 normal + 1 RTR)");
+        rtrIsRtr.Should().BeTrue("FrameFlags.Rtr must propagate to TraceEntry.IsRtr");
+        rtrFrameType.Should().Be("RTR", "FrameType must show 'RTR' when IsRtr is set");
     }
 
     // --- v0.8.2: message ID stats tests ---

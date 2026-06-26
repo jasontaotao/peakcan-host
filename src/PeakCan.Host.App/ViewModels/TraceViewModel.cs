@@ -166,6 +166,7 @@ public sealed partial class TraceViewModel : ObservableObject
                     DataHex = FormatHexWithSpaces(f.Data.Span),
                     IsError = f.IsError,
                     IsFd = f.IsFd,
+                    IsRtr = (f.Flags & FrameFlags.Rtr) != 0,
                 });
             }
             while (Entries.Count > MaxRows) Entries.RemoveAt(0);
