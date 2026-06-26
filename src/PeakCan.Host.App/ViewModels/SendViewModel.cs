@@ -35,6 +35,16 @@ public sealed partial class SendViewModel : ObservableObject
     [ObservableProperty]
     private bool _isFd;
 
+    // v1.2.11 PATCH Item 4: frame-level flags exposed on the Send form.
+    [ObservableProperty]
+    private bool _isRtr;
+
+    [ObservableProperty]
+    private bool _isBitRateSwitch;
+
+    [ObservableProperty]
+    private bool _isErrorStateIndicator;
+
     [ObservableProperty]
     private string _dataText = "DEADBEEF";
 
@@ -84,7 +94,21 @@ public sealed partial class SendViewModel : ObservableObject
             return;
         }
         var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var flags = IsFd ? FrameFlags.Fd : FrameFlags.None;
+        // v1.2.11 PATCH Item 4: RTR + FD is not a valid CAN frame per the
+        // ISO 11898-1 spec (RTR applies to classic CAN only). Reject loudly
+        // so the user fixes the input rather than seeing a silent zero-byte
+        // classic frame go out.
+        if (IsRtr && IsFd)
+        {
+            Status = "RTR is not valid for CAN FD (classic CAN only)";
+            LogInvalidId(_logger, "RTR+FD");
+            return;
+        }
+        var flags = FrameFlags.None;
+        if (IsFd) flags |= FrameFlags.Fd;
+        if (IsRtr) flags |= FrameFlags.Rtr;
+        if (IsBitRateSwitch) flags |= FrameFlags.BitRateSwitch;
+        if (IsErrorStateIndicator) flags |= FrameFlags.ErrorStateIndicator;
         var frame = new CanFrame(canId, bytes, flags, ChannelId.None, default);
         try
         {

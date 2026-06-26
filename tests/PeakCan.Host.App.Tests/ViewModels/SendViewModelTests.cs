@@ -269,4 +269,61 @@ public class SendViewModelTests
         fake.LastFrame.Should().NotBeNull();
         fake.LastFrame!.Value.Data.ToArray().Should().Equal(0xDE, 0xAD, 0xBE, 0xEF);
     }
+
+    // --- v1.2.11 PATCH Item 4: SendViewModel flags RTR/BRS/ESI ---
+
+    [Fact]
+    public async Task Send_Rtr_Sets_Rtr_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsRtr = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.Rtr);
+    }
+
+    [Fact]
+    public async Task Send_BitRateSwitch_Sets_Brs_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsBitRateSwitch = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.BitRateSwitch);
+    }
+
+    [Fact]
+    public async Task Send_ErrorStateIndicator_Sets_Esi_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsErrorStateIndicator = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.ErrorStateIndicator);
+    }
+
+    [Fact]
+    public async Task Send_Rtr_With_Fd_Is_Rejected()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsRtr = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().BeNull("RTR + FD is not a valid CAN frame");
+        vm.Status.Should().Contain("RTR");
+    }
+
+    [Fact]
+    public async Task Send_All_Flags_Combined_Produces_Expected_Bitmask()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsBitRateSwitch = true; vm.IsErrorStateIndicator = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        var expected = FrameFlags.Fd | FrameFlags.BitRateSwitch | FrameFlags.ErrorStateIndicator;
+        fake.LastFrame!.Value.Flags.Should().Be(expected);
+    }
 }
