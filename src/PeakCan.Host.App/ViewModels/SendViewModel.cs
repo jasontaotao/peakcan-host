@@ -24,6 +24,8 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class SendViewModel : ObservableObject
 {
     private readonly SendService _svc;
+    private readonly ICyclicSendService _cyclic;
+    private readonly SendFrameLibrary? _library;
     private readonly ILogger<SendViewModel> _logger;
 
     [ObservableProperty]
@@ -51,10 +53,39 @@ public sealed partial class SendViewModel : ObservableObject
     [ObservableProperty]
     private string _status = string.Empty;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger)
+    // v1.2.11 PATCH Item 3: cyclic-send state surfaced to the SendView form.
+    [ObservableProperty]
+    private string _cyclicIntervalText = "100";
+
+    [ObservableProperty]
+    private bool _isCyclicRunning;
+
+    [ObservableProperty]
+    private long _cyclicSendCount;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cyclic = cyclic ?? throw new ArgumentNullException(nameof(cyclic));
+        // Library may be null in unit tests until Task 8 wires it up;
+        // production DI provides a singleton instance.
+        _library = library;
+
+        // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
+        // the UI reflects IsRunning / SendCount without a separate event.
+        // DispatcherTimer ctor doesn't require WPF Application; in test
+        // context (no Application) the Tick simply never fires — fine.
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(200),
+        };
+        timer.Tick += (_, _) =>
+        {
+            IsCyclicRunning = _cyclic.IsRunning;
+            CyclicSendCount = _cyclic.SendCount;
+        };
+        timer.Start();
     }
 
     [RelayCommand]
@@ -104,11 +135,7 @@ public sealed partial class SendViewModel : ObservableObject
             LogInvalidId(_logger, "RTR+FD");
             return;
         }
-        var flags = FrameFlags.None;
-        if (IsFd) flags |= FrameFlags.Fd;
-        if (IsRtr) flags |= FrameFlags.Rtr;
-        if (IsBitRateSwitch) flags |= FrameFlags.BitRateSwitch;
-        if (IsErrorStateIndicator) flags |= FrameFlags.ErrorStateIndicator;
+        var flags = BuildFlags();
         var frame = new CanFrame(canId, bytes, flags, ChannelId.None, default);
         try
         {
@@ -162,6 +189,59 @@ public sealed partial class SendViewModel : ObservableObject
             bytes[i] = byte.Parse(stripped.AsSpan(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         }
         return bytes;
+    }
+
+    /// <summary>
+    /// v1.2.11 PATCH Item 3: central flag builder shared by
+    /// <see cref="SendAsync"/> and <see cref="StartCyclic"/>. Single source
+    /// of truth so the manual-send path and cyclic path produce identical
+    /// bitmasks for the same checkbox state.
+    /// </summary>
+    private FrameFlags BuildFlags()
+    {
+        var flags = FrameFlags.None;
+        if (IsFd) flags |= FrameFlags.Fd;
+        if (IsRtr) flags |= FrameFlags.Rtr;
+        if (IsBitRateSwitch) flags |= FrameFlags.BitRateSwitch;
+        if (IsErrorStateIndicator) flags |= FrameFlags.ErrorStateIndicator;
+        return flags;
+    }
+
+    // v1.2.11 PATCH Item 3: cyclic-send commands exposed to SendView.xaml.
+
+    [RelayCommand]
+    private void StartCyclic()
+    {
+        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+        {
+            Status = $"Invalid ID: {IdText}";
+            return;
+        }
+        if (!int.TryParse(CyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
+            || ms < 1 || ms > 60_000)
+        {
+            Status = $"Invalid interval: {CyclicIntervalText} (must be 1..60000 ms)";
+            return;
+        }
+        if (IsRtr && IsFd)
+        {
+            Status = "RTR is not valid for CAN FD (classic CAN only)";
+            return;
+        }
+        var bytes = ParseHex(DataText);
+        var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
+        var frame = new CanFrame(canId, bytes, BuildFlags(), ChannelId.None, default);
+        _cyclic.Start(frame, TimeSpan.FromMilliseconds(ms));
+        IsCyclicRunning = _cyclic.IsRunning;
+        Status = $"Cyclic started: every {ms} ms";
+    }
+
+    [RelayCommand]
+    private void StopCyclic()
+    {
+        _cyclic.Stop();
+        IsCyclicRunning = _cyclic.IsRunning;
+        Status = $"Cyclic stopped ({CyclicSendCount} frames)";
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]

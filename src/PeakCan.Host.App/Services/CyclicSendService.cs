@@ -17,7 +17,7 @@ namespace PeakCan.Host.App.Services;
 /// new parameters.
 /// </para>
 /// </summary>
-public sealed partial class CyclicSendService : IDisposable
+public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
 {
     private readonly SendService _sendService;
     private readonly ILogger<CyclicSendService> _logger;

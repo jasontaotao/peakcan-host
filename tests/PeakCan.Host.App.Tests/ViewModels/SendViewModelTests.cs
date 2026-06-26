@@ -46,7 +46,38 @@ public class SendViewModelTests
         }
     }
 
-    private static SendViewModel NewVm(SendService svc) => new(svc, NullLogger<SendViewModel>.Instance);
+    /// <summary>
+    /// v1.2.11 PATCH Item 3: in-memory fake of <see cref="ICyclicSendService"/>
+    /// for SendViewModel unit tests (and shared with sibling test classes
+    /// that also construct SendViewModel). Avoids driving real timers or
+    /// the PEAK SDK.
+    /// </summary>
+    internal sealed class FakeCyclicSendService : ICyclicSendService
+    {
+        public bool IsRunning { get; set; }
+        public long SendCount { get; set; }
+        public CanFrame? LastFrame { get; private set; }
+        public TimeSpan? LastInterval { get; private set; }
+        public bool StartCalled => LastFrame.HasValue;
+        public bool StopCalled { get; private set; }
+
+        public void Start(CanFrame frame, TimeSpan interval)
+        {
+            LastFrame = frame;
+            LastInterval = interval;
+            IsRunning = true;
+            SendCount = 0;
+        }
+
+        public void Stop()
+        {
+            StopCalled = true;
+            IsRunning = false;
+        }
+    }
+
+    private static SendViewModel NewVm(SendService svc, ICyclicSendService? cyclic = null, SendFrameLibrary? library = null)
+        => new(svc, NullLogger<SendViewModel>.Instance, cyclic ?? new FakeCyclicSendService(), library);
 
     [Fact]
     public void Default_IdText_Is_100()
@@ -325,5 +356,40 @@ public class SendViewModelTests
         await vm.SendCommand.ExecuteAsync(null);
         var expected = FrameFlags.Fd | FrameFlags.BitRateSwitch | FrameFlags.ErrorStateIndicator;
         fake.LastFrame!.Value.Flags.Should().Be(expected);
+    }
+
+    // --- v1.2.11 PATCH Item 3: cyclic send commands ---
+
+    [Fact]
+    public void StartCyclic_Parses_Interval_And_Invokes_Service()
+    {
+        var fakeSend = new FakeSendService();
+        var fakeCyclic = new FakeCyclicSendService();
+        var vm = NewVm(fakeSend, fakeCyclic);
+        vm.IdText = "100"; vm.DataText = "00"; vm.CyclicIntervalText = "200";
+        vm.StartCyclicCommand.Execute(null);
+        fakeCyclic.StartCalled.Should().BeTrue();
+        fakeCyclic.LastInterval.Should().Be(TimeSpan.FromMilliseconds(200));
+    }
+
+    [Fact]
+    public void StartCyclic_Rejects_Invalid_Interval()
+    {
+        var fakeSend = new FakeSendService();
+        var fakeCyclic = new FakeCyclicSendService();
+        var vm = NewVm(fakeSend, fakeCyclic);
+        vm.IdText = "100"; vm.DataText = "00"; vm.CyclicIntervalText = "0";
+        vm.StartCyclicCommand.Execute(null);
+        fakeCyclic.StartCalled.Should().BeFalse();
+        vm.Status.Should().Contain("interval");
+    }
+
+    [Fact]
+    public void StopCyclic_Calls_Stop_On_Service()
+    {
+        var fakeCyclic = new FakeCyclicSendService { IsRunning = true };
+        var vm = NewVm(new FakeSendService(), fakeCyclic);
+        vm.StopCyclicCommand.Execute(null);
+        fakeCyclic.StopCalled.Should().BeTrue();
     }
 }

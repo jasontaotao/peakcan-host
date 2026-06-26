@@ -98,6 +98,12 @@ public static class AppHostBuilder
         // v0.5.0: frame recording (ASC/CSV) and cyclic send.
         builder.Services.AddSingleton<RecordService>();
         builder.Services.AddSingleton<CyclicSendService>();
+        // v1.2.11 PATCH Item 3: register cyclic service as its interface
+        // so SendViewModel can be tested with a fake via ICyclicSendService.
+        builder.Services.AddSingleton<ICyclicSendService>(sp =>
+            sp.GetRequiredService<CyclicSendService>());
+        // v1.2.11 PATCH Item 5 (placeholder): library type registered in Task 8.
+        // builder.Services.AddSingleton<SendFrameLibrary>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
