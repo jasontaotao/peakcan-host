@@ -141,33 +141,25 @@ public class StatsViewModelTests
     }
 
     [Fact]
-    public void Apply_Triggers_PlotModel_Updated_Event()
+    public void Apply_Increments_InvalidatePlotCallCount()
     {
         // v1.2.10 PATCH: v1.2.9 fixed the X-index collapse but missed
-        // PlotModel.InvalidatePlot(updateData: false) at the end of
+        // PlotModel.InvalidatePlot(updateData: true) at the end of
         // Apply. OxyPlot 2.2.0 WPF does NOT auto-redraw on a manual
-        // LineSeries.Points mutation, so the chart stays frozen on
+        // LineSeries.Points.Clear+Add, so the chart stays frozen on
         // the first render even though new samples stream in. The
-        // PlotModel.Updated event fires from InvalidatePlot, so
-        // subscribing to it is a precise regression test for the
-        // missing call.
+        // Updated event is a no-op from InvalidatePlot without an
+        // attached IPlotView, so we use a deterministic internal
+        // counter — mirrors the project's existing test-hook pattern
+        // (SignalViewModel.FilterRebuildCount / DrainCount).
         var vm = new StatsViewModel();
-        var updatedCount = 0;
-        // CS0618: PlotModel.Updated is marked [Obsolete] in 2.2.0
-        // ("May be removed in v4.0 (#111)"). The event is still
-        // functional in 2.2.0 and is the only direct signal that
-        // InvalidatePlot actually ran. If OxyPlot removes this event
-        // in a future major, this test must be rewritten against the
-        // replacement API.
-#pragma warning disable CS0618
-        vm.PlotModel.Updated += (sender, args) => updatedCount++;
-#pragma warning restore CS0618
+        Assert.Equal(0, vm.InvalidatePlotCallCount);
 
         // Inline Apply path: test context has no Application, so
         // RunOnUiPost falls through to the synchronous Action invoke.
-        vm.Push(MakeSnap(total: 1, fps: 100, load: 5));
+        vm.Push(MakeSnap(total: 1, errors: 0, fps: 100.0, bytes: 0, bps: 0, load: 5.0));
 
-        Assert.True(updatedCount >= 1,
-            $"Expected PlotModel.Updated to fire at least once after Push; got {updatedCount}.");
+        Assert.True(vm.InvalidatePlotCallCount >= 1,
+            $"Expected Apply to call InvalidatePlot at least once; got {vm.InvalidatePlotCallCount}.");
     }
 }

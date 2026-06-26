@@ -91,6 +91,17 @@ public sealed partial class StatsViewModel : ObservableObject
     /// </summary>
     public PlotModel PlotModel { get; }
 
+    /// <summary>
+    /// v1.2.10: test-only counter tracking how many times Apply called
+    /// <see cref="PlotModel.InvalidatePlot"/>. The OxyPlot Updated event
+    /// doesn't fire from InvalidatePlot directly (only from
+    /// IPlotModel.Update, called by PlotView during render), so this
+    /// counter is the deterministic unit-test surface for verifying
+    /// Apply triggers an OxyPlot redraw cycle. Mirrors the project's
+    /// internal test-hook pattern (FilterRebuildCount, DrainCount).
+    /// </summary>
+    internal int InvalidatePlotCallCount { get; private set; }
+
     // v1.2.7: hold direct references to the LineSeries so we can
     // mutate series.Points explicitly. OxyPlot 2.2.0's WPF binding
     // of LineSeries.ItemsSource to ObservableCollection<T> is
@@ -230,5 +241,10 @@ public sealed partial class StatsViewModel : ObservableObject
         {
             _loadLine.Points.Add(new DataPoint(i, LoadSeries[i]));
         }
+        // v1.2.10: OxyPlot 2.2.0 WPF doesn't auto-invalidate on LineSeries.Points
+        // mutation; without explicit InvalidatePlot the chart stays frozen at the
+        // constructor pre-fill. updateData:true forces OxyPlot to re-process Points.
+        InvalidatePlotCallCount++;
+        PlotModel.InvalidatePlot(updateData: true);
     }
 }
