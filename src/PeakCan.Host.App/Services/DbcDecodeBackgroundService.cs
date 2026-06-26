@@ -36,13 +36,15 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
 
     private readonly DbcService _dbc;
     private readonly SignalViewModel _signalVm;
+    private readonly TraceViewModel _traceVm;
     private readonly Channel<CanFrame> _queue = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(DecodeQueueCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
 
-    public DbcDecodeBackgroundService(DbcService dbc, SignalViewModel signalVm)
+    public DbcDecodeBackgroundService(DbcService dbc, SignalViewModel signalVm, TraceViewModel traceVm)
     {
         _dbc = dbc ?? throw new ArgumentNullException(nameof(dbc));
         _signalVm = signalVm ?? throw new ArgumentNullException(nameof(signalVm));
+        _traceVm = traceVm ?? throw new ArgumentNullException(nameof(traceVm));
     }
 
     /// <summary>
@@ -97,6 +99,26 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
                         : frame.Id.Raw;
                     if (!doc.MessagesById.TryGetValue(lookupId, out var msg)) continue;
                     _signalVm.ApplyFrame(frame, msg);
+
+                    // v1.2.11 PATCH Item 2 fan-out: if a TraceEntry is
+                    // awaiting DBC decode for this frame, fill its Decoded
+                    // string. The lookup key matches the (IdRaw,
+                    // TimestampMicroseconds, ChannelHandle) tuple that
+                    // TraceViewModel.AppendBatchAsync registered — pure ID
+                    // without IDE-merge, since that's what was registered.
+                    var pendingKey = new TraceEntryKey(
+                        frame.Id.Raw,
+                        frame.Timestamp.TotalMicroseconds,
+                        frame.Channel.Handle);
+                    if (_traceVm.PendingDecode.TryGetValue(pendingKey, out var traceEntry))
+                    {
+                        var decoded = FormatDecoded(msg, frame);
+                        // Marshal to UI thread when Application is up so the
+                        // WPF DataGrid binding observes the PropertyChanged
+                        // on the dispatcher that owns the row. In tests
+                        // (no Application) RunOnUiPost falls through to inline.
+                        ((Action)(() => traceEntry.Decoded = decoded)).RunOnUiPost();
+                    }
                 }
             }
         }
@@ -109,5 +131,24 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
             // silently but the data is never consumed.
             _queue.Writer.TryComplete();
         }
+    }
+
+    /// <summary>
+    /// v1.2.11 PATCH Item 2: format a DBC message's decoded signals as
+    /// "Name=Value, Name=Value, ...". Uses invariant culture so the
+    /// Trace Decoded column reads consistently across locales.
+    /// </summary>
+    internal static string FormatDecoded(Message msg, CanFrame frame)
+    {
+        if (msg.Signals.Count == 0) return string.Empty;
+        var parts = new List<string>(msg.Signals.Count);
+        foreach (var signal in msg.Signals)
+        {
+            var value = SignalDecoder.Decode(frame.Data.Span, signal);
+            // G format keeps doubles compact (no trailing zeros); InvariantCulture
+            // prevents de-DE locale from emitting "0,42" with a comma.
+            parts.Add($"{signal.Name}={value.ToString("G", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+        return string.Join(", ", parts);
     }
 }

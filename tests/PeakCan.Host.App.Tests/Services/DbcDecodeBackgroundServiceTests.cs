@@ -67,7 +67,8 @@ public class DbcDecodeBackgroundServiceTests
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         dbc.SetCurrentForTests(DocWithOneSignal());
         var sigVm = new SignalViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm);
+        var traceVm = new TraceViewModel();
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -106,7 +107,8 @@ public class DbcDecodeBackgroundServiceTests
     {
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         var sigVm = new SignalViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm);
+        var traceVm = new TraceViewModel();
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -172,7 +174,8 @@ public class DbcDecodeBackgroundServiceTests
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         dbc.SetCurrentForTests(DocWithOneExtendedSignal());
         var sigVm = new SignalViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm);
+        var traceVm = new TraceViewModel();
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -204,4 +207,138 @@ public class DbcDecodeBackgroundServiceTests
         }
     }
 
+    // --- v1.2.11 PATCH Item 2: DbcDecodeBackgroundService fills TraceEntry.Decoded ---
+
+    [Fact]
+    public async Task Worker_Fills_Decoded_Of_Pending_TraceEntry()
+    {
+        // v1.2.11: when a frame matches DBC AND a pending TraceEntry exists
+        // with the same (IdRaw, TimestampMicroseconds, ChannelHandle), the
+        // worker must fill entry.Decoded with a "Name=Value, ..." string.
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());
+        var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();
+        var entry = new TraceEntry
+        {
+            Id = new CanId(0x100, FrameFormat.Standard),
+            Timestamp = Timestamp.FromMicroseconds(0UL),
+            Channel = new ChannelId(0x51),
+            DataHex = "42",
+        };
+        // Inject pending entry directly — RegisterForTesting bypasses the
+        // AppendBatchAsync dispatcher path that no-ops without WPF Application.
+        traceVm.RegisterForTesting(
+            new TraceEntryKey(0x100, 0UL, 0x51), entry);
+
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            var frame = new CanFrame(
+                new CanId(0x100, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0));
+            svc.OnFrame(frame);
+
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (entry.Decoded == "" && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20);
+            }
+
+            entry.Decoded.Should().NotBeEmpty("the matching DBC frame must fill the pending entry's Decoded");
+            entry.Decoded.Should().Contain("S1", "the decoded string should name the signal");
+            entry.Decoded.Should().Contain("66", "0x42 = 66 unsigned with factor=1.0");
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Worker_NoOp_When_Frame_Not_In_Dbc()
+    {
+        // v1.2.11: if frame id is not in DBC, the worker skips the lookup
+        // entirely and pending entry's Decoded stays "".
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());  // only id 0x100
+        var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();
+        var entry = new TraceEntry
+        {
+            Id = new CanId(0x555, FrameFormat.Standard),
+            Timestamp = Timestamp.FromMicroseconds(0UL),
+            Channel = new ChannelId(0x51),
+            DataHex = "42",
+        };
+        traceVm.RegisterForTesting(
+            new TraceEntryKey(0x555, 0UL, 0x51), entry);
+
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            var frame = new CanFrame(
+                new CanId(0x555, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0));
+            svc.OnFrame(frame);
+
+            await Task.Delay(200);   // give worker time to process (and skip)
+
+            entry.Decoded.Should().Be("", "frames not in DBC must not touch Decoded");
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Worker_NoThrow_When_Pending_Missing()
+    {
+        // v1.2.11: if frame is in DBC but no pending entry exists, the worker
+        // must not throw — SignalViewModel still receives the decoded signal.
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());
+        var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();   // empty — no pending entries
+
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            var frame = new CanFrame(
+                new CanId(0x100, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0));
+            svc.OnFrame(frame);
+
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (sigVm.Latest.Count == 0 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20);
+            }
+
+            sigVm.Latest.Should().HaveCount(1, "SignalViewModel still receives the decoded signal");
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
 }

@@ -130,6 +130,15 @@ public sealed partial class TraceViewModel : ObservableObject
     public IReadOnlyDictionary<TraceEntryKey, TraceEntry> PendingDecode => _pendingDecode;
 
     /// <summary>
+    /// v1.2.11: test-only helper to inject a pending entry directly,
+    /// bypassing <see cref="AppendBatchAsync"/>'s dispatcher hop. Used by
+    /// <c>DbcDecodeBackgroundServiceTests</c> which run on the xunit MTA
+    /// threadpool with no WPF Application.
+    /// </summary>
+    internal void RegisterForTesting(TraceEntryKey key, TraceEntry entry)
+        => _pendingDecode[key] = entry;
+
+    /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to
     /// <see cref="MaxRows"/>. Marshals to the WPF UI thread via
     /// <c>Application.Current.Dispatcher</c>.
