@@ -209,14 +209,26 @@ public sealed partial class StatsViewModel : ObservableObject
         LoadSeries.Add(s.BusLoadPercent);
         while (FpsSeries.Count > MaxPoints) FpsSeries.RemoveAt(0);
         while (LoadSeries.Count > MaxPoints) LoadSeries.RemoveAt(0);
-        // v1.2.7: also push to the LineSeries Points. The X index is
-        // the rolling window's slot (always MaxPoints-1 for the most
-        // recent sample); the chart auto-renders the Points list.
-        // X is the sample slot, not the absolute time, so the X axis
-        // can stay in [0, MaxPoints] range.
-        _fpsLine.Points.Add(new DataPoint(MaxPoints - 1, s.FramesPerSecond));
-        while (_fpsLine.Points.Count > MaxPoints) _fpsLine.Points.RemoveAt(0);
-        _loadLine.Points.Add(new DataPoint(MaxPoints - 1, s.BusLoadPercent));
-        while (_loadLine.Points.Count > MaxPoints) _loadLine.Points.RemoveAt(0);
+        // v1.2.9: rebuild the LineSeries Points from the FpsSeries /
+        // LoadSeries ObservableCollection. Pre-1.2.9 every new sample
+        // was added at X=MaxPoints-1, which collapsed all points onto
+        // a single vertical line at X=59 and made the chart look like
+        // a one-pixel stick. Rebuilt points have correct X indices
+        // 0..MaxPoints-1 that match the collection ordering, mirroring
+        // the original ObservableCollection's index-as-X semantics
+        // (OxyPlot 2.2.0's ItemsSource path on .NET 10 used the
+        // collection index as X implicitly; the explicit Points
+        // approach requires us to encode the X position ourselves).
+        // Cost: O(N) per sample with N=MaxPoints=60 — negligible.
+        _fpsLine.Points.Clear();
+        for (int i = 0; i < FpsSeries.Count; i++)
+        {
+            _fpsLine.Points.Add(new DataPoint(i, FpsSeries[i]));
+        }
+        _loadLine.Points.Clear();
+        for (int i = 0; i < LoadSeries.Count; i++)
+        {
+            _loadLine.Points.Add(new DataPoint(i, LoadSeries[i]));
+        }
     }
 }
