@@ -214,6 +214,14 @@ public sealed partial class CanApi : IFrameSink
         }
 
         // Dispatch to exact-ID callbacks.
+        // Script authors register with a plain int literal (e.g.
+        // can.onMessage(0x100, cb) for an Extended frame with on-wire
+        // ID 0x100), so the dictionary key is the raw 11/29-bit ID —
+        // intentionally NOT the merged-IDE form used by
+        // DbcDocument.MessagesById (see DbcDecodeBackgroundService.cs
+        // for the contrast). Lookup uses frame.Id.Raw to match the
+        // registration convention; do not "consistency-fix" this to
+        // OR with 0x80000000u.
         if (_messageCallbacks.TryGetValue(frame.Id.Raw, out var idCallbacks))
         {
             foreach (var callback in idCallbacks.Values)
