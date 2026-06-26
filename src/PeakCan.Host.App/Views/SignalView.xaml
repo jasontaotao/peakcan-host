@@ -54,10 +54,30 @@
                       AlternatingRowBackground="#F8F8F8"
                       CellEditEnding="OnCellEditEnding">
                 <DataGrid.Columns>
-                    <DataGridCheckBoxColumn Header="Plot"
-                        Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                        Width="40"
-                        IsReadOnly="False" />
+                    <!-- v1.2.7: was DataGridCheckBoxColumn, but
+                         WPF's edit lifecycle (CellEditEnding) is
+                         unreliable for DataGridCheckBoxColumn
+                         under DataGrid IsReadOnly=True + column
+                         IsReadOnly=False — clicks did not raise
+                         CellEditEnding on the .NET 10 / OxyPlot
+                         2.2.0 build, so the chart VM AddSignal
+                         was never called from the checkbox path
+                         (Plot All button worked because it
+                         bypasses the DataGrid entirely).
+                         Switched to DataGridTemplateColumn +
+                         explicit CheckBox + Click handler: the
+                         Click event fires reliably regardless of
+                         DataGrid edit-mode state. -->
+                    <DataGridTemplateColumn Header="Plot" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Click="OnPlotCheckboxClick"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
                     <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
                     <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />

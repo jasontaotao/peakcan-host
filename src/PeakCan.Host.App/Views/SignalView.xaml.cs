@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using PeakCan.Host.App.ViewModels;
 
@@ -31,6 +32,27 @@ public partial class SignalView : UserControl
         if (e.Column is DataGridCheckBoxColumn
             && e.EditAction == DataGridEditAction.Commit
             && e.Row.DataContext is SignalEntry entry
+            && DataContext is SignalViewModel vm)
+        {
+            vm.OnSignalSelectionChanged(entry.Message, entry.Signal, entry.IsSelected);
+        }
+    }
+
+    /// <summary>
+    /// v1.2.7: <see cref="OnCellEditEnding"/> does not fire reliably
+    /// for checkbox clicks when the DataGrid is read-only at the
+    /// parent level (a known WPF gotcha that the .NET 10 build
+    /// exposed). Replaced the <c>DataGridCheckBoxColumn</c> with a
+    /// <c>DataGridTemplateColumn</c> + explicit <c>CheckBox</c>; the
+    /// <c>Click</c> event fires regardless of DataGrid edit-mode
+    /// state, so this handler is the primary path for chart-plot
+    /// selection. <see cref="OnCellEditEnding"/> is kept as a
+    /// belt-and-braces fallback for any future scenario where
+    /// WPF's edit lifecycle does fire (e.g. keyboard activation).
+    /// </summary>
+    private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { DataContext: SignalEntry entry }
             && DataContext is SignalViewModel vm)
         {
             vm.OnSignalSelectionChanged(entry.Message, entry.Signal, entry.IsSelected);
