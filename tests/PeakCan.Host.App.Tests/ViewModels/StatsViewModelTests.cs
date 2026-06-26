@@ -1,5 +1,6 @@
 using FluentAssertions;
 using OxyPlot;
+using OxyPlot.Legends;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.Infrastructure.Statistics;
@@ -161,5 +162,17 @@ public class StatsViewModelTests
 
         Assert.True(vm.InvalidatePlotCallCount >= 1,
             $"Expected Apply to call InvalidatePlot at least once; got {vm.InvalidatePlotCallCount}.");
+    }
+
+    [Fact]
+    public void Constructor_Adds_Legend_To_PlotModel()
+    {
+        // Arrange + Act
+        var vm = new StatsViewModel();
+
+        // Assert
+        Assert.NotEmpty(vm.PlotModel.Legends);
+        var legend = vm.PlotModel.Legends[0];
+        Assert.Equal(LegendPlacement.Outside, legend.LegendPlacement);
     }
 }
