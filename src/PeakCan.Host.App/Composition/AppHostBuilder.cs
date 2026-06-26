@@ -82,9 +82,19 @@ public static class AppHostBuilder
 
         // App services
         builder.Services.AddSingleton<TraceService>();
+        // TraceService is a BackgroundService; its 50ms drain loop lives in
+        // ExecuteAsync and only fires when the host starts it. Without this
+        // AddHostedService line, frames pile up in the bounded channel and
+        // TotalFrameCount stays 0 even though fan-out delivers them. Same
+        // bug pattern as the IHost.StartAsync miss in App.xaml.cs.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<TraceService>());
         builder.Services.AddSingleton<SendService>();
         builder.Services.AddSingleton<DbcService>();
         builder.Services.AddSingleton<StatisticsService>();
+        // StatisticsService is a BackgroundService; its 1Hz snapshot loop
+        // needs IHostedService registration too. Without this, Stats view
+        // never refreshes — matches TraceService bug pattern.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<StatisticsService>());
         // v0.5.0: frame recording (ASC/CSV) and cyclic send.
         builder.Services.AddSingleton<RecordService>();
         builder.Services.AddSingleton<CyclicSendService>();
