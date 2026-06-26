@@ -2,24 +2,97 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             d:DataContext="{d:DesignInstance Type=vm:SendViewModel}"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d"
-             d:DataContext="{d:DesignInstance Type=vm:SendViewModel}">
-    <StackPanel Margin="8" Orientation="Vertical">
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-            <TextBlock Text="ID (hex):" Width="80" VerticalAlignment="Center" />
-            <TextBox Text="{Binding IdText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
-            <CheckBox Content="Extended" IsChecked="{Binding IsExtended}" Margin="8,0,0,0" VerticalAlignment="Center" />
-            <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}" Margin="8,0,0,0" VerticalAlignment="Center" />
+             mc:Ignorable="d">
+    <UserControl.Resources>
+        <conv:InverseBooleanConverter x:Key="InverseBool" />
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="8" Orientation="Vertical">
+            <!-- Single-shot section -->
+            <GroupBox Header="Send frame" Padding="6">
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="ID (hex):" Width="80" VerticalAlignment="Center" />
+                        <TextBox Text="{Binding IdText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
+                        <CheckBox Content="Extended" IsChecked="{Binding IsExtended}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        <CheckBox Content="RTR" IsChecked="{Binding IsRtr}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsFd, Converter={StaticResource InverseBool}}" />
+                        <CheckBox Content="BRS" IsChecked="{Binding IsBitRateSwitch}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsFd}" />
+                        <CheckBox Content="ESI" IsChecked="{Binding IsErrorStateIndicator}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                  IsEnabled="{Binding IsFd}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Data (hex):" Width="80" VerticalAlignment="Center" />
+                        <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" Width="300" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
+                        <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="DarkGreen" />
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Cyclic section -->
+            <Expander x:Name="CyclicExpander" Header="Cyclic send" Margin="0,8,0,0" IsExpanded="False">
+                <StackPanel Orientation="Vertical" Margin="6">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Interval (ms):" Width="100" VerticalAlignment="Center" />
+                        <TextBox Text="{Binding CyclicIntervalText, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Start cyclic" Command="{Binding StartCyclicCommand}" Margin="0,0,8,0"
+                                IsEnabled="{Binding IsCyclicRunning, Converter={StaticResource InverseBool}}" />
+                        <Button Content="Stop" Command="{Binding StopCyclicCommand}"
+                                IsEnabled="{Binding IsCyclicRunning}" />
+                        <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
+                            <Run Text="{Binding CyclicSendCount, Mode=OneWay}" />
+                            <Run Text=" frames sent" />
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+
+            <!-- Library section -->
+            <Expander x:Name="LibraryExpander" Header="Frame library" Margin="0,4,0,0" IsExpanded="False">
+                <StackPanel Orientation="Vertical" Margin="6">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Name:" Width="50" VerticalAlignment="Center" />
+                        <TextBox x:Name="NewFrameNameBox" Width="150" />
+                        <Button Content="Save current" Command="{Binding SaveCurrentToLibraryCommand}"
+                                CommandParameter="{Binding ElementName=NewFrameNameBox, Path=Text}"
+                                Margin="8,0,0,0" />
+                        <Button Content="Refresh" Command="{Binding RefreshLibraryCommand}" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Library}" AutoGenerateColumns="False" IsReadOnly="True"
+                              MaxHeight="200" SelectedItem="{Binding SelectedLibraryFrame}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="120" />
+                            <DataGridTextColumn Header="ID" Binding="{Binding RawId}" Width="80" />
+                            <DataGridTextColumn Header="Data" Binding="{Binding DataHex}" Width="*" />
+                            <DataGridTemplateColumn Header="" Width="160">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Content="Load" Width="50" Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.LoadFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Content="Delete" Width="50"
+                                                    Command="{Binding DataContext.DeleteFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+            </Expander>
         </StackPanel>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-            <TextBlock Text="Data (hex):" Width="80" VerticalAlignment="Center" />
-            <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" Width="300" />
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
-            <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="DarkGreen" />
-        </StackPanel>
-    </StackPanel>
+    </ScrollViewer>
 </UserControl>

@@ -29,7 +29,14 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// test's own <c>finally</c> block cleans up the singleton after the
 /// STA thread exits.
 /// </para>
+/// <para>
+/// <b>v1.2.11 PATCH (Task 10):</b> class joined to
+/// <see cref="Collections.WpfAppTestCollection"/> so it does not run in
+/// parallel with <c>SendViewTests</c> (both create a WPF
+/// <see cref="System.Windows.Application"/>; only one allowed per AppDomain).
+/// </para>
 /// </summary>
+[Collection(Collections.WpfAppTestCollection.Name)]
 public class TraceViewModelTests
 {
     // v1.2.1 PATCH Task 5: defensive cleanup of leaked Application.Current
