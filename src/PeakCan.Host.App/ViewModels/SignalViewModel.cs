@@ -271,7 +271,27 @@ public sealed partial class SignalViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void OnDrainTick(object? sender, EventArgs e) => DrainPending();
+    /// <summary>
+/// System.Threading.Timer callback. Dispatches <see cref="DrainPending"/>
+/// onto the WPF UI thread via <see cref="DispatcherExtensions.RunOnUiPost"/>:
+/// DrainPending mutates <see cref="Latest"/> and
+/// <see cref="FilteredSignals"/>, both of which are bound to a WPF
+/// DataGrid, and the binding's CollectionView throws
+/// <c>NotSupportedException</c> on cross-thread CollectionChanged.
+/// <para>
+/// <b>v1.2.5 regression catch:</b> this hop was present in pre-PATCH-2
+/// ApplyFrame as <c>((Action)(() => ApplyEntries(pending))).RunOnUiPost()</c>
+/// but was inadvertently dropped when PATCH-2 moved the per-frame
+/// ApplyEntries into a buffered DrainPending. The fix re-introduces
+/// the hop here, on the timer-callback side. Without this, the
+/// production app crashes with the cross-thread NotSupportedException
+/// on the first DrainPending after frames start flowing (the
+/// dispatcher-less xunit test path never trips it because
+/// <see cref="DispatcherExtensions.RunOnUiPost"/> falls through to
+/// inline when <c>Application.Current</c> is null).
+/// </para>
+/// </summary>
+private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).RunOnUiPost();
 
     /// <summary>
     /// Flush every batch queued since the last tick onto the UI
