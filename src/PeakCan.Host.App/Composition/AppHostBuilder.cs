@@ -102,8 +102,8 @@ public static class AppHostBuilder
         // so SendViewModel can be tested with a fake via ICyclicSendService.
         builder.Services.AddSingleton<ICyclicSendService>(sp =>
             sp.GetRequiredService<CyclicSendService>());
-        // v1.2.11 PATCH Item 5 (placeholder): library type registered in Task 8.
-        // builder.Services.AddSingleton<SendFrameLibrary>();
+        // v1.2.11 PATCH Item 5: named-frame library persistence.
+        builder.Services.AddSingleton<SendFrameLibrary>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
