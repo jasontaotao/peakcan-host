@@ -113,6 +113,22 @@ public sealed partial class TraceViewModel : ObservableObject
     // Per-message-ID counter. Key = raw CAN ID.
     private readonly Dictionary<uint, long> _messageCounts = new();
 
+    // v1.2.11: pending entries awaiting DBC decode. Read by
+    // DbcDecodeBackgroundService; mutated only on the UI thread inside
+    // AppendBatchAsync's dispatcher action. Bounded by MaxRows (default
+    // 1_000) since each entry is removed on Clear() but not on FIFO trim;
+    // the leak per trimmed row is short-lived (~200 ms before the worker
+    // fills Decoded) and acceptable for the PATCH.
+    private readonly Dictionary<TraceEntryKey, TraceEntry> _pendingDecode = new();
+
+    /// <summary>
+    /// Read-only view of entries awaiting DBC decode. Consumed by
+    /// <see cref="Services.DbcDecodeBackgroundService"/> to fill
+    /// <see cref="TraceEntry.Decoded"/> without taking a write dependency
+    /// on the trace VM.
+    /// </summary>
+    public IReadOnlyDictionary<TraceEntryKey, TraceEntry> PendingDecode => _pendingDecode;
+
     /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to
     /// <see cref="MaxRows"/>. Marshals to the WPF UI thread via
@@ -168,6 +184,13 @@ public sealed partial class TraceViewModel : ObservableObject
                     IsFd = f.IsFd,
                     IsRtr = (f.Flags & FrameFlags.Rtr) != 0,
                 });
+                // v1.2.11: register the just-appended entry so DbcDecodeBackgroundService
+                // can fill Decoded when it looks up the same CanFrame in DBC.
+                var pendingKey = new TraceEntryKey(
+                    f.Id.Raw,
+                    f.Timestamp.TotalMicroseconds,
+                    f.Channel.Handle);
+                _pendingDecode[pendingKey] = Entries[^1];
             }
             while (Entries.Count > MaxRows) Entries.RemoveAt(0);
         }).Task;
@@ -181,6 +204,9 @@ public sealed partial class TraceViewModel : ObservableObject
         FilteredCount = 0;
         TotalFrameCount = 0;
         _messageCounts.Clear();
+        // v1.2.11: drop pending-decode entries so stale lookups don't fill
+        // Decoded on rows the user has already discarded.
+        _pendingDecode.Clear();
     }
 
     /// <summary>

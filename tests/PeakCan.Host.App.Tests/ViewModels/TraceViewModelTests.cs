@@ -133,10 +133,17 @@ public class TraceViewModelTests
         // Task completes. Asserts all frames land in Entries.
         // v1.2.11 PATCH Item 1: also includes a 4th RTR frame and asserts
         // IsRtr + FrameType="RTR" wire-up from FrameFlags.Rtr bit.
+        // v1.2.11 PATCH Item 2: also asserts PendingDecode is populated
+        // for each appended frame and cleared by Clear().
+        // All STA-bound assertions are consolidated here because xunit
+        // cannot create multiple System.Windows.Application instances
+        // per AppDomain (each STA test would trip the second-creation guard).
         Exception? caught = null;
         int entriesCount = 0;
         bool rtrIsRtr = false;
         string rtrFrameType = "";
+        int pendingBeforeClear = -1;
+        int pendingAfterClear = -1;
         var thread = new Thread(() =>
         {
             try
@@ -174,6 +181,10 @@ public class TraceViewModelTests
                     rtrIsRtr = rtrEntry.IsRtr;
                     rtrFrameType = rtrEntry.FrameType;
                 }
+                pendingBeforeClear = vm.PendingDecode.Count;
+
+                vm.ClearCommand.Execute(null);
+                pendingAfterClear = vm.PendingDecode.Count;
             }
             catch (Exception ex) { caught = ex; }
             finally
@@ -206,6 +217,8 @@ public class TraceViewModelTests
         entriesCount.Should().Be(4, "the dispatcher path should add all 4 frames (3 normal + 1 RTR)");
         rtrIsRtr.Should().BeTrue("FrameFlags.Rtr must propagate to TraceEntry.IsRtr");
         rtrFrameType.Should().Be("RTR", "FrameType must show 'RTR' when IsRtr is set");
+        pendingBeforeClear.Should().Be(4, "all 4 appended frames register pending entries");
+        pendingAfterClear.Should().Be(0, "Clear must empty the pending-decode map");
     }
 
     // --- v0.8.2: message ID stats tests ---
@@ -238,5 +251,32 @@ public class TraceViewModelTests
         vm.TotalFrameCount.Should().Be(0);
         vm.FilteredCount.Should().Be(0);
         vm.GetMessageIdStats().Should().BeEmpty();
+    }
+
+    // --- v1.2.11 PATCH Item 2: pending-decode map (unit-level, no STA) ---
+
+    [Fact]
+    public void PendingDecode_Default_Is_Empty()
+    {
+        // v1.2.11: fresh VM exposes no pending entries. Unit-level — no
+        // dispatcher needed because PendingDecode is just an empty dictionary.
+        var vm = new TraceViewModel();
+        vm.PendingDecode.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PendingDecode_Key_Equality_Uses_Id_Timestamp_Channel()
+    {
+        // v1.2.11: composite key distinguishes frames by (id, timestamp,
+        // channel). Same id + channel + microsecond is the same row for the
+        // DBC worker lookup.
+        var k1 = new TraceEntryKey(0x100, 1_000_000UL, 0x51);
+        var k2 = new TraceEntryKey(0x100, 1_000_000UL, 0x51);
+        var k3 = new TraceEntryKey(0x100, 1_000_001UL, 0x51);
+        var k4 = new TraceEntryKey(0x100, 1_000_000UL, 0x52);
+
+        k1.Should().Be(k2, "same (id, timestamp, channel) → equal keys");
+        k1.Should().NotBe(k3, "different timestamp → different keys");
+        k1.Should().NotBe(k4, "different channel → different keys");
     }
 }
