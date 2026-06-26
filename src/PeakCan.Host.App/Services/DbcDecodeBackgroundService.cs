@@ -74,7 +74,28 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
                 {
                     var doc = _dbc.Current;
                     if (doc is null) continue;
-                    if (!doc.MessagesById.TryGetValue(frame.Id.Raw, out var msg)) continue;
+                    // PEAK's CanId.Raw carries the pure 11/29-bit
+                    // identifier (bit 31 = 0, enforced by CanId ctor
+                    // validation), but DbcDocument.MessagesById is keyed
+                    // by the merged-IDE convention (bit 31 set for
+                    // Extended, matching PCAN_MESSAGE_ID). The DBC parser
+                    // stores Extended message IDs with the IDE bit set,
+                    // e.g. "BO_ 2147487744 X" lands as 0x80001000.
+                    // Without this normalization, every Extended frame
+                    // misses the dictionary and SignalViewModel stays
+                    // empty for any DBC containing an Extended message.
+                    //
+                    // NOTE: the scripting API
+                    // (Scripting/CanApi.cs:217 _messageCallbacks lookup)
+                    // intentionally uses the opposite convention — raw
+                    // ID, no IDE bit merge — because there script
+                    // authors supply the int literal directly. Do not
+                    // "consistency-fix" that lookup without revisiting
+                    // the script API contract.
+                    var lookupId = frame.Id.IsExtended
+                        ? frame.Id.Raw | 0x80000000u
+                        : frame.Id.Raw;
+                    if (!doc.MessagesById.TryGetValue(lookupId, out var msg)) continue;
                     _signalVm.ApplyFrame(frame, msg);
                 }
             }
