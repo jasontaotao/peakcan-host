@@ -3,6 +3,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using OxyPlot;
 using OxyPlot.Axes;
+using OxyPlot.Legends;
 using OxyPlot.Series;
 using PeakCan.Host.Infrastructure.Statistics;
 
@@ -189,6 +190,18 @@ public sealed partial class StatsViewModel : ObservableObject
         }
         PlotModel.Series.Add(_fpsLine);
         PlotModel.Series.Add(_loadLine);
+
+        // v1.2.10: OxyPlot 2.2.0 doesn't render series labels unless a
+        // Legend is registered on the PlotModel. Without this the FPS /
+        // Bus-load series names show up only as data, no legend.
+        PlotModel.Legends.Add(new Legend
+        {
+            LegendPlacement = LegendPlacement.Outside,
+            LegendPosition = LegendPosition.RightTop,
+            LegendBackground = OxyColor.FromAColor(32, OxyColor.FromRgb(0xFF, 0xFF, 0xFF)),
+            LegendBorder = OxyColor.FromRgb(0xCC, 0xCC, 0xCC),
+            LegendBorderThickness = 1,
+        });
     }
 
     /// <summary>
