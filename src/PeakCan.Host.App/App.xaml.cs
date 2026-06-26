@@ -73,6 +73,12 @@ public partial class App : Application
         // empty even though the read loop is delivering frames. Discovered
         // 2026-06-26 via DIAG logging (sinks=1, dispatches=18000). See
         // OnExit below for the matching StopAsync on shutdown.
+        //
+        // Sync-over-async is safe here: Microsoft.Extensions.Hosting's
+        // BackgroundService.StartAsync awaits ExecuteAsync on the
+        // threadpool without capturing the WPF Dispatcher
+        // SynchronizationContext, so the STA UI thread is never posted
+        // back to during StartAsync. No deadlock risk.
         try
         {
             _host.StartAsync().GetAwaiter().GetResult();
