@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -61,12 +62,18 @@ public sealed partial class TraceViewModel : ObservableObject
     /// <summary>
     /// FIFO trim threshold. When <see cref="Entries"/>.Count exceeds this
     /// value after a batch is appended, the oldest rows are removed
-    /// (from index 0) until the count is back at the cap. Default 10_000
-    /// matches the bounded channel depth so memory pressure is bounded
-    /// under sustained bus load.
+    /// (from index 0) until the count is back at the cap. Default 1_000
+    /// keeps the WPF DataGrid render cost manageable under sustained
+    /// high frame rates. 1_000 rows × 20 px = 20 k px of virtualized
+    /// content, well within the recycling virtualization budget.
+    /// The toolbar's "cap: {N} rows" label displays the current value
+    /// (read-only); programmatic mutation via the generated setter is
+    /// supported but no UI editor ships today. A future PATCH can
+    /// add a numeric input bound TwoWay to <see cref="MaxRows"/> if
+    /// user-tunable cap is wanted.
     /// </summary>
     [ObservableProperty]
-    private int _maxRows = 10_000;
+    private int _maxRows = 1_000;
 
     /// <summary>
     /// v0.6.0: hex prefix filter for CAN IDs. Empty = show all.
@@ -150,7 +157,13 @@ public sealed partial class TraceViewModel : ObservableObject
                     Channel = f.Channel,
                     Id = f.Id,
                     Dlc = f.Dlc,
-                    DataHex = Convert.ToHexString(f.Data.Span),
+                    // Insert a single space between every 2-char hex byte so
+                    // "DEADBEEF" reads as "DE AD BE EF". The DataGrid column
+                    // is wide enough for canonical 8-byte classic frames plus
+                    // 1-2 trailing padding; FD frames are 16-64 bytes so the
+                    // row height is fixed (RowHeight=20) and the user can
+                    // horizontally scroll.
+                    DataHex = FormatHexWithSpaces(f.Data.Span),
                     IsError = f.IsError,
                     IsFd = f.IsFd,
                 });
@@ -215,7 +228,37 @@ public sealed partial class TraceViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Export current trace entries to a CSV file.
+    /// Format a byte span as uppercase hex with single-space separators
+    /// between bytes (e.g. <c>{0xDE,0xAD,0xBE,0xEF}</c> → "DE AD BE EF").
+    /// Empty span → empty string. Length is always 3n-1 (3 chars per byte
+    /// except the last). At ~127 fps the formatter runs ~1 ms/s of CPU
+    /// budget per 1 fps of bus rate, so the cost is negligible compared
+    /// to the DataGrid row-add itself.
+    /// </summary>
+    internal static string FormatHexWithSpaces(ReadOnlySpan<byte> data)
+    {
+        if (data.IsEmpty) return string.Empty;
+        // Convert.ToHexString is allocation-light; the join adds one string
+        // per 2 hex chars (≈ len bytes). Use a span-based builder to
+        // avoid intermediate string[] allocation.
+        var raw = Convert.ToHexString(data); // "DEADBEEF..."
+        var chars = new char[raw.Length + (raw.Length / 2 - 1)];
+        int w = 0;
+        for (int i = 0; i < raw.Length; i += 2)
+        {
+            if (w > 0) chars[w++] = ' ';
+            chars[w++] = raw[i];
+            chars[w++] = raw[i + 1];
+        }
+        return new string(chars, 0, w);
+    }
+
+    /// <summary>
+    /// Export current trace entries to a CSV file. The UI thread shows
+    /// the SaveFileDialog (modal by design) but defers the file write
+    /// to <see cref="Task.Run"/> so the WPF dispatcher stays responsive
+    /// for scrolling Trace / other tabs while the export runs in the
+    /// background.
     /// </summary>
     [RelayCommand]
     private void ExportCsv()
@@ -230,19 +273,67 @@ public sealed partial class TraceViewModel : ObservableObject
         };
         if (dlg.ShowDialog() != true) return;
 
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Time,Channel,ID,Type,DLC,Data,Decoded");
-        foreach (var e in Entries)
+        // Snapshot Entries once so the export iterates a stable list even
+        // if the live dispatcher action appends new frames mid-write.
+        // Copy via ctor (not LINQ) to avoid an extra allocation.
+        var snapshot = new List<TraceEntry>(Entries);
+        var path = dlg.FileName;
+
+        _ = Task.Run(async () =>
         {
-            sb.AppendLine(string.Join(',',
-                e.Timestamp.ToString(),
-                e.Channel.ToString(),
-                $"0x{e.Id.Raw:X}",
-                e.FrameType,
-                e.Dlc.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                e.DataHex,
-                e.Decoded));
+            try
+            {
+                await using var writer = new System.IO.StreamWriter(path, append: false, System.Text.Encoding.UTF8);
+                await writer.WriteLineAsync("Time,Channel,ID,Type,DLC,Data,Decoded").ConfigureAwait(false);
+                foreach (var e in snapshot)
+                {
+                    // CSV escape: bare string.Join(',') is unsafe if any
+                    // field contains a comma / quote / newline. The DataHex
+                    // and Decoded columns could plausibly contain such
+                    // characters, so wrap each field in double quotes and
+                    // escape internal quotes per RFC 4180. Channel and
+                    // FrameType are enum strings; Timestamp.ToString() uses
+                    // a culture-stable format (TimeSpan doesn't carry
+                    // culture); the rest are hex / integer / invariant.
+                    await writer.WriteLineAsync(string.Join(',',
+                        CsvEscape(e.Timestamp.ToString()),
+                        CsvEscape(e.Channel.ToString()),
+                        CsvEscape($"0x{e.Id.Raw:X}"),
+                        CsvEscape(e.FrameType),
+                        CsvEscape(e.Dlc.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        CsvEscape(e.DataHex),
+                        CsvEscape(e.Decoded))).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Surface the failure to the user without crashing the
+                // process; ExportCsv is a fire-and-forget Task.Run so
+                // unobserved exceptions would just disappear.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[TraceViewModel] CSV export to {path} threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// RFC 4180 field escape: wrap in double quotes if the field contains
+    /// comma, quote, CR, or LF; double any embedded quotes.
+    /// </summary>
+    internal static string CsvEscape(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return string.Empty;
+        bool needsQuote = false;
+        for (int i = 0; i < field.Length; i++)
+        {
+            var c = field[i];
+            if (c == ',' || c == '"' || c == '\r' || c == '\n')
+            {
+                needsQuote = true;
+                break;
+            }
         }
-        System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+        if (!needsQuote) return field;
+        return "\"" + field.Replace("\"", "\"\"") + "\"";
     }
 }

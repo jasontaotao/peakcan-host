@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>PeakCan Host 用户使用手册 (v0.7.0)</title>
+<title>PeakCan Host 用户使用手册 (v1.2.5)</title>
 <style>
   :root {
     --bg: #fafafa;
@@ -62,12 +62,12 @@
 
 <header class="cover">
   <h1>PeakCan Host — 用户使用手册</h1>
-  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控上位机</div>
+  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机</div>
   <div class="meta">
-    <span>版本：<strong>v0.7.0</strong></span>
+    <span>版本：<strong>v1.2.5</strong></span>
     <span>框架：WPF · .NET 10</span>
     <span>平台：Windows 10 1809+ / Windows 11</span>
-    <span>更新日期：2026-06-22</span>
+    <span>更新日期：2026-06-26</span>
   </div>
 </header>
 
@@ -83,6 +83,8 @@
     <li><a href="#signal">Signals（信号解码视图）</a></li>
     <li><a href="#send">Send（手动发送帧）</a></li>
     <li><a href="#stats">Stats（总线统计）</a></li>
+    <li><a href="#script">Script（脚本自动化）</a></li>
+    <li><a href="#uds">UDS（UDS 诊断栈）</a></li>
     <li><a href="#dbc-scope">DBC 解析器支持范围</a></li>
     <li><a href="#logs">日志与故障排查</a></li>
     <li><a href="#faq">FAQ &amp; 已知限制</a></li>
@@ -108,6 +110,8 @@ CAN 总线监控、解码、手动发送与总线负载统计能力。</p>
   <tr><td>手动发送</td><td>输入 CAN ID + 十六进制数据发送；支持 CAN-FD 与 11/29-bit 切换；支持周期性发送</td></tr>
   <tr><td>帧录制</td><td>将接收到的帧录制到 ASC（Vector ASCII）或 CSV 文件</td></tr>
   <tr><td>Stats 视图</td><td>1 Hz OxyPlot 折线图，显示每秒帧数与总线负载百分比，含总帧 / 错误帧计数</td></tr>
+  <tr><td><strong>Script 视图</strong> <span class="badge info">v1.2.0</span></td><td>CodeMirror 6 脚本引擎 + Roslyn 沙箱，可在 UI 内编写/运行 C# 脚本自动化测试场景</td></tr>
+  <tr><td><strong>UDS 诊断栈</strong> <span class="badge info">v1.2.0</span></td><td>4 面板 UDS 诊断 UI（Session / DID / Routine / DTC），含 DataGrid 绑定的 JSON 配置 DID/Routine 库与共享彩色 OutputLog</td></tr>
   <tr><td>滚动日志</td><td>Serilog 按天滚动写入 <code>%LocalAppData%\PeakCan.Host\logs\</code>，保留 14 天</td></tr>
 </table>
 
@@ -169,9 +173,9 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 <!-- =========================================================== -->
 
 <div class="figure">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 460" font-family="Microsoft YaHei, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 470" font-family="Microsoft YaHei, sans-serif" font-size="13">
   <!-- window frame -->
-  <rect x="2" y="2" width="1076" height="456" rx="6" fill="#f4f4f4" stroke="#888" stroke-width="1"/>
+  <rect x="2" y="2" width="1076" height="466" rx="6" fill="#f4f4f4" stroke="#888" stroke-width="1"/>
   <rect x="2" y="2" width="1076" height="28" rx="6" fill="#e8e8e8" stroke="#888"/>
   <text x="14" y="20" fill="#222" font-weight="600">PeakCan Host</text>
   <circle cx="1054" cy="16" r="5" fill="#ff5f56"/>
@@ -181,65 +185,86 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
   <rect x="10" y="34" width="1060" height="26" fill="#ffffff" stroke="#cccccc"/>
   <text x="22" y="52" fill="#222" font-weight="600">File</text>
   <text x="60" y="52" fill="#222" font-weight="600">View</text>
-  <!-- menuitems (sub-menus expanded) -->
+  <!-- File sub-menu -->
   <rect x="10" y="60" width="120" height="60" fill="#ffffff" stroke="#bbbbbb"/>
   <text x="22" y="78" fill="#222">Open DBC...</text>
   <line x1="14" y1="86" x2="126" y2="86" stroke="#dddddd"/>
   <text x="22" y="104" fill="#222">Exit</text>
 
-  <rect x="60" y="60" width="80" height="120" fill="#ffffff" stroke="#bbbbbb"/>
+  <!-- View sub-menu (7 items) -->
+  <rect x="60" y="60" width="92" height="160" fill="#ffffff" stroke="#bbbbbb"/>
   <text x="72" y="78" fill="#222">Trace</text>
   <text x="72" y="98" fill="#222">DBC</text>
   <text x="72" y="118" fill="#222">Send</text>
   <text x="72" y="138" fill="#222">Signals</text>
   <text x="72" y="158" fill="#222">Stats</text>
-  <!-- toolbar -->
-  <rect x="10" y="186" width="1060" height="34" fill="#fafafa" stroke="#cccccc"/>
-  <text x="22" y="208" fill="#444">USB1 (1 Mbps default)</text>
-  <line x1="190" y1="192" x2="190" y2="214" stroke="#cccccc"/>
-  <rect x="200" y="194" width="60" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
-  <text x="218" y="209" fill="#222">Probe</text>
-  <rect x="266" y="194" width="72" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
-  <text x="280" y="209" fill="#222">Connect</text>
-  <line x1="348" y1="192" x2="348" y2="214" stroke="#cccccc"/>
-  <text x="358" y="208" fill="#444">Connected to USB1 (CAN FD 1 Mbps)</text>
+  <text x="72" y="178" fill="#222">Script</text>
+  <text x="72" y="198" fill="#222">UDS</text>
+  <!-- toolbar (v1.1+ with channel selector, baud rate, CAN FD) -->
+  <rect x="10" y="226" width="1060" height="34" fill="#fafafa" stroke="#cccccc"/>
+  <text x="22" y="248" fill="#444">USB1 (1 Mbps)</text>
+  <line x1="120" y1="232" x2="120" y2="254" stroke="#cccccc"/>
+  <rect x="128" y="234" width="56" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="142" y="249" fill="#222">Probe</text>
+  <rect x="192" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="200" y="249" fill="#666">▾ USB1, FD</text>
+  <line x1="320" y1="232" x2="320" y2="254" stroke="#cccccc"/>
+  <rect x="328" y="237" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <path d="M331 246 L335 250 L344 240" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <text x="350" y="249" fill="#222">CAN FD</text>
+  <rect x="410" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="418" y="249" fill="#666">▾ 1 Mbps</text>
+  <line x1="538" y1="232" x2="538" y2="254" stroke="#cccccc"/>
+  <rect x="546" y="234" width="68" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="560" y="249" fill="#222">Connect</text>
+  <rect x="622" y="234" width="84" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="634" y="249" fill="#222">Disconnect</text>
+  <line x1="714" y1="232" x2="714" y2="254" stroke="#cccccc"/>
+  <text x="722" y="248" fill="#444">Connected to USB1 (CAN FD 1 Mbps)</text>
   <!-- main content area placeholder -->
-  <rect x="10" y="224" width="1060" height="190" fill="#ffffff" stroke="#cccccc"/>
-  <text x="22" y="244" fill="#888" font-style="italic">主内容区（ContentControl，根据 View 菜单切换 Trace / DBC / Send / Signals / Stats）</text>
+  <rect x="10" y="264" width="1060" height="158" fill="#ffffff" stroke="#cccccc"/>
+  <text x="22" y="284" fill="#888" font-style="italic">主内容区（ContentControl，根据 View 菜单切换 Trace / DBC / Send / Signals / Stats / Script / UDS）</text>
   <!-- status bar -->
-  <rect x="10" y="418" width="1060" height="34" fill="#f0f0f0" stroke="#cccccc"/>
-  <text x="22" y="440" fill="#222">Connected</text>
+  <rect x="10" y="426" width="1060" height="34" fill="#f0f0f0" stroke="#cccccc"/>
+  <text x="22" y="448" fill="#222">Connected</text>
   <!-- callouts -->
   <line x1="120" y1="52" x2="180" y2="20" stroke="#1f77b4" stroke-dasharray="3,2"/>
   <text x="190" y="20" fill="#1f77b4" font-size="12">① File 菜单</text>
   <line x1="100" y1="52" x2="180" y2="50" stroke="#1f77b4" stroke-dasharray="3,2"/>
-  <text x="280" y="50" fill="#1f77b4" font-size="12">② View 菜单（5 个标签）</text>
-  <line x1="230" y1="208" x2="280" y2="170" stroke="#1f77b4" stroke-dasharray="3,2"/>
-  <text x="240" y="160" fill="#1f77b4" font-size="12">③ Probe / Connect</text>
-  <line x1="500" y1="208" x2="650" y2="170" stroke="#1f77b4" stroke-dasharray="3,2"/>
-  <text x="600" y="160" fill="#1f77b4" font-size="12">④ 连接状态</text>
-  <line x1="540" y1="440" x2="640" y2="380" stroke="#1f77b4" stroke-dasharray="3,2"/>
-  <text x="640" y="370" fill="#1f77b4" font-size="12">⑤ 状态栏（Serilog 日志同步）</text>
+  <text x="280" y="50" fill="#1f77b4" font-size="12">② View 菜单（7 个标签）</text>
+  <line x1="156" y1="248" x2="220" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="230" y="195" fill="#1f77b4" font-size="12">③ Probe + 通道下拉</text>
+  <line x1="350" y1="248" x2="430" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="440" y="195" fill="#1f77b4" font-size="12">④ CAN FD + 波特率</text>
+  <line x1="580" y1="248" x2="650" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="660" y="195" fill="#1f77b4" font-size="12">⑤ Connect / Disconnect</text>
+  <line x1="780" y1="248" x2="860" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="870" y="195" fill="#1f77b4" font-size="12">⑥ 连接状态</text>
+  <line x1="540" y1="448" x2="640" y2="380" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="650" y="375" fill="#1f77b4" font-size="12">⑦ 状态栏（Serilog 日志同步）</text>
 </svg>
-<div class="caption">图 1 — 主窗口布局（菜单、工具栏、状态栏）。View 菜单切换主区域。</div>
+<div class="caption">图 1 — 主窗口布局（菜单、工具栏、状态栏）。View 菜单在 7 个视图间切换。</div>
 </div>
 
 <h3>4.1 工具栏说明</h3>
 <table>
   <tr><th>控件</th><th>行为</th></tr>
-  <tr><td>通道列表（左侧文本）</td><td>显示最近一次 Probe 的结果。初始为 <code>"(click Probe to detect)"</code>；成功时变为 <code>"USB1 (1 Mbps default)"</code>；失败时变为 <code>"No PEAK hardware detected: ..."</code>。</td></tr>
-  <tr><td><strong>Probe</strong> 按钮</td><td>检测 PCAN-USB FD 是否在线。仅在未连接时可用（<code>!IsConnected</code>）。</td></tr>
-  <tr><td><strong>Connect</strong> 按钮</td><td>以 CAN-FD 1 Mbps 打开通道 0x51。仅在 Probe 成功且未连接时可用。</td></tr>
-  <tr><td><strong>Disconnect</strong> 按钮 <small>（v0.2.0 新增）</small></td><td>释放硬件（<code>PCANBasic.Uninitialize</code>），从 <code>ChannelRouter</code> 注销通道，清空 <code>SendService.ActiveChannel</code>。仅在已连接时可用（<code>IsConnected</code>）。可重复点击，第二次调用为 no-op（幂等）。</td></tr>
+  <tr><td>通道列表（左侧文本）</td><td>显示最近一次 Probe 的结果。初始为 <code>"(click Probe to detect)"</code>；成功时显示通道名（如 <code>"USB1 (1 Mbps)"</code>）；失败时变为 <code>"No PEAK hardware detected: ..."</code>。</td></tr>
+  <tr><td><strong>Probe</strong> 按钮</td><td>检测 PCAN-USB FD 1–16 通道是否在线。仅在未连接时可用（<code>!IsConnected</code>）。v1.1 起支持多通道探测。</td></tr>
+  <tr><td><strong>通道下拉</strong> <span class="badge info">v1.1</span></td><td>Probe 成功后填充所有检测到的通道（<code>DisplayMemberPath="Name"</code>），可选择任意通道连接。仅在未连接时可用。</td></tr>
+  <tr><td><strong>CAN FD</strong> 复选框</td><td>勾选 = 设置 FDF 标志位（CAN-FD，DLC 可达 64）；不勾 = 经典 CAN（DLC 0-8）。仅在未连接时可用。</td></tr>
+  <tr><td><strong>波特率下拉</strong> <span class="badge info">v1.1</span></td><td>选择通道比特率（1 Mbps / 500 kbps / 250 kbps / 125 kbps / 100 kbps / 50 kbps 等），列表由 <code>AvailableBaudRates</code> 提供。仅在未连接时可用。</td></tr>
+  <tr><td><strong>Connect</strong> 按钮</td><td>以选定通道 + CAN-FD/CAN 模式 + 波特率打开。仅在 Probe 成功且未连接时可用。</td></tr>
+  <tr><td><strong>Disconnect</strong> 按钮 <span class="badge info">v0.2.0</span></td><td>释放硬件（<code>PCANBasic.Uninitialize</code>），从 <code>ChannelRouter</code> 注销通道，清空 <code>SendService.ActiveChannel</code>。仅在已连接时可用。幂等（重复点击为 no-op）。</td></tr>
   <tr><td>连接状态文本</td><td>实时显示 <code>"Disconnected"</code> / <code>"Connecting..."</code> / <code>"Connected to USB1 (CAN FD 1 Mbps)"</code> / <code>"Disconnecting..."</code>（断开过程中）。</td></tr>
 </table>
 
 <h3>4.2 状态栏说明</h3>
 <p>底部状态栏显示当前操作的简短反馈（如 <code>"Connected"</code>、<code>"FAIL: ..."</code>）。
-完整的诊断信息写入 Serilog 滚动文件，详见 <a href="#logs">第 11 节</a>。</p>
+完整的诊断信息写入 Serilog 滚动文件，详见 <a href="#logs">第 12 节</a>。</p>
 
 <h3>4.3 View 菜单</h3>
-<p>5 个标签对应 5 个视图（详见后续章节）。视图实例被<strong>缓存</strong>——重复切换不会丢失滚动位置或选中行。</p>
+<p>7 个标签对应 7 个视图（Trace / DBC / Send / Signals / Stats / Script / UDS，详见后续章节）。视图实例被<strong>缓存</strong>——重复切换不会丢失滚动位置或选中行。</p>
 
 <!-- =========================================================== -->
 <h2 id="trace">5. Trace（实时帧追踪）</h2>
@@ -318,7 +343,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 <table>
   <tr><th>列</th><th>含义</th></tr>
   <tr><td><strong>Time</strong></td><td>帧接收时刻（本地时间，<code>HH:mm:ss.ffffff</code>）。</td></tr>
-  <tr><td><strong>Ch</strong></td><td>硬件通道名，当前 v0.1.0 始终为 <code>USB1</code>。</td></tr>
+  <tr><td><strong>Ch</strong></td><td>硬件通道名（如 <code>USB1</code> / <code>USB2</code> / <code>PCAN_PCIE_1</code>），由通道下拉的选择决定。</td></tr>
   <tr><td><strong>ID</strong></td><td>CAN ID。Standard 11-bit 显示为 <code>0xNNN</code>（≤ 0x7FF）；Extended 29-bit 显示为 <code>0xNNNNNNNN</code>。</td></tr>
   <tr><td><strong>DLC</strong></td><td>数据长度码（0-8 为经典 CAN；CAN-FD 可达 64）。</td></tr>
   <tr><td><strong>Data</strong></td><td>十六进制字节序列（无分隔符）。</td></tr>
@@ -500,7 +525,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 <ul>
   <li><strong>前提</strong>：必须先在 DBC 视图加载一个 DBC 文件，否则 Signals 视图始终为空。</li>
   <li><strong>解码规则</strong>：<code>physical = raw * factor + offset</code>。Intel/ Motorola 字节序、signed/unsigned、有符号数都按 DBC 规则解码。</li>
-  <li><strong>跳过</strong>：多路复用信号（<code>M</code> / <code>m</code>）当前 v0.1.0 <strong>不</strong>解码，留待 v1.1。</li>
+  <li><strong>多路复用</strong>：<code>M</code> / <code>m</code> 多路复用信号在 v1.1.0 起完整解码；当前多路复用器值下激活的子信号会显示在 Signals 视图。</li>
   <li><strong>更新频率</strong>：随帧到达实时更新；满负载下界面帧率受 WPF DataGrid 限制。</li>
   <li><strong>跨线程</strong>：SDK 读线程触发解码，结果通过 WPF Dispatcher 投递到 UI 线程（你不会看到 <code>NotSupportedException</code>）。</li>
 </ul>
@@ -670,10 +695,245 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 </blockquote>
 
 <!-- =========================================================== -->
-<h2 id="dbc-scope">10. DBC 解析器支持范围</h2>
+<h2 id="script">10. Script（脚本自动化）</h2>
 <!-- =========================================================== -->
 
-<p>v0.1.0 支持以下 DBC 关键字与特性：</p>
+<p><strong>Script 视图</strong>（v1.2.0 起）内嵌 <strong>CodeMirror 6</strong> 编辑器 + <strong>Roslyn 沙箱</strong>，允许在 UI 内编写/运行 C# 脚本，自动化重复的 CAN 总线测试场景（例：周期发帧、断言特定帧到达、清空 DTC）。</p>
+
+<h3>10.1 典型用法</h3>
+<ul>
+  <li><strong>周期性发送</strong>：<code>Send.PeriodicAsync(canId, data, intervalMs)</code> 启动后台定时器。</li>
+  <li><strong>帧断言</strong>：订阅 <code>Trace.Frames</code> 集合变更，在指定时间窗内断言期望帧到达。</li>
+  <li><strong>UDS 流程编排</strong>：调用 <code>UdsClient.DiagnosticSessionControlAsync</code> / <code>ReadDataByIdentifierAsync</code> 等，与 <a href="#uds">UDS 视图</a>共享同一个 <code>UdsClient</code> 实例。</li>
+</ul>
+
+<h3>10.2 沙箱约束</h3>
+<blockquote class="warn">
+<strong>安全模型：</strong>脚本在独立 <code>AssemblyLoadContext</code> + 受限 <code>Permissionset</code> 中执行，<strong>无法</strong>访问文件系统、网络、注册表。允许的 API：<code>Send</code> / <code>Uds</code> / <code>Trace</code> / <code>Stats</code> / <code>Script</code> 命名空间下的命令对象。
+</blockquote>
+
+<p>脚本的写入/读取位于 <code>%LocalAppData%\PeakCan.Host\scripts\</code>，文件名 <code>*.csx</code>。运行结果实时回写到右下角的输出面板（与 UDS 视图的 RichTextBox OutputLog 风格一致）。</p>
+
+<!-- =========================================================== -->
+<h2 id="uds">11. UDS（UDS 诊断栈）</h2>
+<!-- =========================================================== -->
+
+<p><strong>UDS 视图</strong>（v1.2.0 起）是 PeakCan Host 的核心诊断 UI，按 ISO 14229（UDS-on-IP）实现应用层协议，运行在 CAN 之上。所有命令通过当前连接（<code>UdsClient</code> 单例）发往 ECU。</p>
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 540" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="536" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">UDS View — 4 面板诊断 UI</text>
+
+  <!-- Session strip -->
+  <rect x="10" y="30" width="1060" height="40" fill="#F0F0F0" stroke="#bbb"/>
+  <rect x="18" y="40" width="62" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="34" y="56" fill="#222">Default</text>
+  <rect x="86" y="40" width="74" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="104" y="56" fill="#222">Extended</text>
+  <rect x="166" y="40" width="98" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="184" y="56" fill="#222">Programming</text>
+  <line x1="270" y1="34" x2="270" y2="66" stroke="#ccc"/>
+  <rect x="280" y="44" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <path d="M283 53 L287 57 L296 47" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <text x="302" y="56" fill="#222">TesterPresent</text>
+  <line x1="408" y1="34" x2="408" y2="66" stroke="#ccc"/>
+  <rect x="416" y="40" width="180" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="432" y="56" fill="#222">SecurityAccess (Level 1)</text>
+  <text x="612" y="56" fill="#222">Session: Default</text>
+  <text x="752" y="56" fill="#222">Level: 0x01</text>
+
+  <!-- TabControl -->
+  <rect x="10" y="74" width="1060" height="280" fill="#ffffff" stroke="#bbb"/>
+  <rect x="10" y="74" width="80" height="24" fill="#e8eef4" stroke="#bbb"/>
+  <text x="22" y="91" fill="#0b3d91" font-weight="600">DIDs</text>
+  <text x="100" y="91" fill="#666">Routines</text>
+  <text x="180" y="91" fill="#666">DTCs</text>
+  <line x1="10" y1="98" x2="1070" y2="98" stroke="#bbb"/>
+
+  <!-- DIDs DataGrid (left half) -->
+  <rect x="10" y="98" width="440" height="256" fill="#ffffff"/>
+  <rect x="10" y="98" width="440" height="22" fill="#e8eef4" stroke="#aaa"/>
+  <text x="22" y="113" fill="#222" font-weight="600" font-size="11">ID</text>
+  <text x="100" y="113" fill="#222" font-weight="600" font-size="11">Name</text>
+  <text x="220" y="113" fill="#222" font-weight="600" font-size="11">Len</text>
+  <text x="260" y="113" fill="#222" font-weight="600" font-size="11">R/W</text>
+  <text x="300" y="113" fill="#222" font-weight="600" font-size="11">Value</text>
+  <g font-size="11">
+    <rect x="10" y="120" width="440" height="20" fill="#ffffff"/>
+    <text x="22" y="134" font-family="Consolas, monospace">0xF190</text>
+    <text x="100" y="134">VIN</text>
+    <text x="220" y="134" font-family="Consolas, monospace">17</text>
+    <text x="260" y="134">R</text>
+    <text x="300" y="134" font-family="Consolas, monospace">LSV...</text>
+    <rect x="10" y="140" width="440" height="20" fill="#f8f8f8"/>
+    <text x="22" y="154" font-family="Consolas, monospace">0xF187</text>
+    <text x="100" y="154">PartNumber</text>
+    <text x="220" y="154" font-family="Consolas, monospace">10</text>
+    <text x="260" y="154">R</text>
+    <text x="300" y="154" font-family="Consolas, monospace">PN-12345</text>
+    <rect x="10" y="160" width="440" height="20" fill="#ffffff"/>
+    <text x="22" y="174" font-family="Consolas, monospace">0xF184</text>
+    <text x="100" y="174">SoftwareVersion</text>
+    <text x="220" y="174" font-family="Consolas, monospace">9</text>
+    <text x="260" y="174">R</text>
+    <text x="300" y="174" font-family="Consolas, monospace">v3.2.1</text>
+  </g>
+
+  <!-- DID action panel (right half) -->
+  <rect x="450" y="98" width="620" height="256" fill="#ffffff"/>
+  <text x="462" y="118" fill="#222" font-weight="600">Selected DID: VIN</text>
+  <text x="462" y="138" fill="#444">Length: 17 bytes</text>
+  <text x="462" y="170" fill="#444">Write value (hex)</text>
+  <rect x="462" y="176" width="400" height="26" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="472" y="194" fill="#999" font-style="italic" font-size="11">— (VIN is read-only)</text>
+  <rect x="462" y="218" width="60" height="26" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="482" y="236" fill="#222">Read</text>
+  <rect x="530" y="218" width="68" height="26" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="554" y="236" fill="#444">Write</text>
+  <text x="462" y="276" fill="#1a7f37" font-family="Consolas, monospace">Last: OK 17 bytes</text>
+
+  <!-- OutputLog -->
+  <rect x="10" y="358" width="1060" height="170" fill="#1E1E1E" stroke="#888"/>
+  <text x="22" y="378" fill="#888" font-style="italic" font-size="11">OutputLog（共享彩色 RichTextBox，按 Level 染色：Info=灰 / Warn=黄 / Error=红）</text>
+  <g font-family="Consolas, monospace" font-size="11">
+    <text x="22" y="402" fill="#D4D4D4">14:23:01.105  Info   Session → Extended</text>
+    <text x="22" y="420" fill="#D4D4D4">14:23:03.422  Info   Reading DID 0xF190 (VIN)...</text>
+    <text x="22" y="438" fill="#D4D4D4">14:23:03.587  Info   Read DID 0xF190 OK (17 bytes): 4C 53 56 4F ...</text>
+    <text x="22" y="456" fill="#d4a72c">14:23:05.001  Warn   SecurityAccess 0x01 failed: NRC 0x35 (invalidKey)</text>
+    <text x="22" y="474" fill="#5b9bd5">14:23:05.002  Info   Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.</text>
+    <text x="22" y="492" fill="#D4D4D4">14:23:08.114  Info   Reading DTCs (reportByStatusMask=0xFF)...</text>
+    <text x="22" y="510" fill="#D4D4D4">14:23:08.290  Info   Found 3 DTCs</text>
+  </g>
+  <rect x="990" y="364" width="70" height="20" rx="3" fill="#3c3c3c" stroke="#666"/>
+  <text x="1014" y="378" fill="#D4D4D4">Clear</text>
+
+  <!-- annotation -->
+  <line x1="380" y1="50" x2="600" y2="20" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="610" y="20" fill="#1f77b4" font-size="12">① Session strip — 会话控制 / TP / SecAccess</text>
+  <line x1="200" y1="86" x2="280" y2="60" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="290" y="60" fill="#1f77b4" font-size="12">② 3 个诊断 Tab：DIDs / Routines / DTCs</text>
+  <line x1="540" y1="448" x2="700" y2="400" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="710" y="395" fill="#1f77b4" font-size="12">③ OutputLog（4 面板共享，按 Level 染色）</text>
+</svg>
+<div class="caption">图 7 — UDS 视图：顶部 Session 条 + 3-tab TabControl + 底部共享 OutputLog。</div>
+</div>
+
+<h3>11.1 Session 条（顶部）</h3>
+<table>
+  <tr><th>控件</th><th>行为</th></tr>
+  <tr><td><strong>Default</strong> 按钮</td><td><code>DiagnosticSessionControl 0x01</code> — 切到默认会话。</td></tr>
+  <tr><td><strong>Extended</strong> 按钮</td><td><code>DiagnosticSessionControl 0x02</code> — 切到扩展诊断会话（解锁 DID Read/Write）。</td></tr>
+  <tr><td><strong>Programming</strong> 按钮</td><td><code>DiagnosticSessionControl 0x03</code> — 切到编程会话（预刷写状态）。</td></tr>
+  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。<code>Dispose</code> 被显式调用时也会停掉循环并复位标志位——但 DI 容器不调用 Dispose（单例 VM 生命周期 ≈ 进程），详见 <a href="#sec-14-2">14.2</a>。</td></tr>
+  <tr><td><strong>SecurityAccess (Level 1)</strong> 按钮</td><td>触发 <code>SecurityAccess RequestSeed 0x01</code> → 调 <code>IKeyDerivationAlgorithm.ComputeKey(...)</code> → <code>SendKey 0x02</code>。成功时 <code>Level: 0x01</code> 显示在右侧。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
+  <tr><td><strong>Session:</strong> 文本</td><td>当前会话名（Default / Extended / Programming）。</td></tr>
+  <tr><td><strong>Level: 0xNN</strong> 文本</td><td>当前认证等级。未认证时显示 <code>(not authenticated)</code>。</td></tr>
+</table>
+
+<h3>11.2 DIDs Tab</h3>
+<p>DataGrid 显示 DID 库（默认内置 5 个：<code>VIN / PartNumber / SupplierID / HardwareVersion / SoftwareVersion</code>），可由用户 JSON 文件扩展。</p>
+
+<h4>11.2.1 DID 数据源</h4>
+<p>DID 库按以下优先级合并：</p>
+<ol>
+  <li><strong>内置默认</strong>（<code>DidDatabase.BuiltInDefaults()</code>）：5 个标准 VIN/PartNumber 等。</li>
+  <li><strong>用户 JSON</strong>：<code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code>（可选）。同名 ID 覆盖内置，缺失追加。</li>
+</ol>
+
+<p>JSON 格式示例：</p>
+<pre><code>{
+  "dids": [
+    { "id": 49152, "name": "BatteryVoltage", "lengthBytes": 2, "writable": false },
+    { "id": 49153, "name": "CoolantTemp",   "lengthBytes": 1, "writable": false }
+  ]
+}</code></pre>
+
+<p>JSON 文件缺失或格式错误时<strong>不会抛异常</strong>——回退到内置默认，并在 Serilog 日志写一条 <code>Warn</code>。</p>
+
+<h4>11.2.2 DIDs Tab 字段</h4>
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>ID</strong></td><td>DID 标识符（16-bit，hex 显示 <code>0xNNNN</code>）。</td></tr>
+  <tr><td><strong>Name</strong></td><td>人类可读名。</td></tr>
+  <tr><td><strong>Length</strong></td><td>数据长度（字节）。</td></tr>
+  <tr><td><strong>R/W</strong></td><td>是否可写（来自 JSON 的 <code>writable</code> 字段，内置默认都为 <code>R</code>）。</td></tr>
+  <tr><td><strong>Value</strong></td><td>最近一次 Read 后的字节序列（首次未读取时为空）。</td></tr>
+</table>
+
+<h4>11.2.3 操作流程</h4>
+<ol>
+  <li>选择 DataGrid 中的某一行 → 右侧详情面板填充 Name / Length。</li>
+  <li>点击 <strong>Read</strong> → <code>UdsClient.ReadDataByIdentifierAsync(id)</code> → 成功后 Value 列填充十六进制字节。</li>
+  <li>若 DID 可写（<code>Writable=true</code>），可在 <strong>Write value (hex)</strong> 文本框输入字节（空格/连字符分隔），点击 <strong>Write</strong> → <code>WriteDataByIdentifierAsync(id, bytes)</code>。</li>
+  <li>每次操作的结果会追加到底部 OutputLog：<code>Info</code>（成功）/ <code>Warn</code>（NRC）/ <code>Error</code>（异常）。</li>
+</ol>
+
+<h3>11.3 Routines Tab</h3>
+<p>DataGrid 显示 Routine 库（默认内置空数组），由用户 JSON 文件 <code>%LOCALAPPDATA%\PeakCan.Host\uds-routines.json</code> 加载（结构与 DIDs 类似，字段 <code>id / name</code>）。</p>
+
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>ID</strong></td><td>Routine 标识符（16-bit hex）。</td></tr>
+  <tr><td><strong>Name</strong></td><td>Routine 名（来自 JSON）。</td></tr>
+  <tr><td><strong>Status</strong></td><td>当前状态（<code>Idle</code> / <code>Running</code> / <code>Stopped</code>）。</td></tr>
+  <tr><td><strong>Result</strong></td><td>最近一次 Query 的结果字节序列。</td></tr>
+</table>
+
+<p>操作：<strong>Start</strong>（<code>RoutineControl 0x01</code>）/ <strong>Stop</strong>（<code>0x02</code>）/ <strong>Query</strong>（<code>0x03</code>）。结果写入 OutputLog + DataGrid 的 Status / Result 列。</p>
+
+<h3>11.4 DTCs Tab</h3>
+<p>DTC <strong>不</strong>走 JSON 文件——直接通过 <code>ReadDtcInformationAsync(subFunction=0x02, statusMask=0xFF)</code> 从 ECU 拉取。</p>
+
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>Code</strong></td><td>3 字节 DTC 代码（<code>0xNNNNNN</code>）。</td></tr>
+  <tr><td><strong>Status</strong></td><td>1 字节 DTC 状态位掩码（<code>0xNN</code>）。</td></tr>
+  <tr><td><strong>Description</strong></td><td>分类描述（Powertrain / Chassis / Body / Network / Unknown，按 ISO 15031-6 高 2 bit 分类）。</td></tr>
+</table>
+
+<p>操作：<strong>Read DTCs</strong> 拉取并填充 DataGrid；<strong>Clear DTCs</strong> 发送 <code>ClearDiagnosticInformation(0xFFFFFF)</code> 并清空本地列表。</p>
+
+<h3 id="uds-secauth">11.6 SecurityAccess 与 <code>IKeyDerivationAlgorithm</code></h3>
+
+<p><strong>SecurityAccess</strong>（Level 1）调用流程：</p>
+<ol>
+  <li>UI 点击按钮 → <code>UdsClient.SecurityAccessAsync(0x01)</code>。</li>
+  <li>Core 层先发 <code>RequestSeed 0x01</code>，收到 ECU 发的 seed。</li>
+  <li>调用<strong>已注册</strong>的 <code>IKeyDerivationAlgorithm.ComputeKey(seed, level)</code> 计算 key。</li>
+  <li>发 <code>SendKey 0x02</code>，等 ECU 响应正/负响应。</li>
+</ol>
+
+<blockquote class="warn">
+<strong>关键：</strong>当前默认注册的是 <code>PlaceholderKeyAlgorithm</code>——它<strong>原样回传 seed 作为 key</strong>，仅用于联调与冒烟测试。<strong>任何真实 ECU 都会拒绝</strong>（NRC <code>0x35 invalidKey</code>）。
+<br><br>
+OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在 <code>PeakCan.Host.Core/Uds/IKeyDerivationAlgorithm.cs</code>），并在 <code>AppHostBuilder</code> 中以单例注册替换占位实现。详见 <a href="#appendix">附录 A §A.2</a>。
+</blockquote>
+
+<p>如果未注册任何算法（或注册的是占位实现），UI 会输出：</p>
+<pre><code>14:23:05.001  Warn   Security access failed: KeyAlgorithmNotConfiguredException
+14:23:05.002  Info   Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.</code></pre>
+
+<h3>11.7 OutputLog（共享日志）</h3>
+<p>底部 RichTextBox 由 4 个面板共享，每条日志按 <code>Level</code> 染色：</p>
+<table>
+  <tr><th>Level</th><th>颜色</th><th>典型触发场景</th></tr>
+  <tr><td><code>Info</code></td><td style="color:#D4D4D4">浅灰</td><td>Session 切换成功、DID Read 返回字节数、Routine Start 收到正响应</td></tr>
+  <tr><td><code>Warn</code></td><td style="color:#d4a72c">琥珀</td><td>负响应 NRC、KeyAlgorithmNotConfiguredException</td></tr>
+  <tr><td><code>Error</code></td><td style="color:#cf222e">深红</td><td>底层异常（ISO-TP 发送失败、总线断开）</td></tr>
+</table>
+
+<p>点击右上 <strong>Clear</strong> 清空 OutputLog（<code>UdsViewModel.ClearOutputCommand</code>）。</p>
+
+<blockquote>
+<strong>已知限制：</strong>UDS 视图所有面板 VM 都是 DI 单例；切换 View 标签不会 Dispose。如果长时间运行并反复切换会话，TesterPresent 的后台循环不会自动停——切换会话前请手动取消勾选 <code>TesterPresent</code>。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="dbc-scope">12. DBC 解析器支持范围</h2>
+<!-- =========================================================== -->
+
+<p>当前 v1.2.2 支持以下 DBC 关键字与特性：</p>
 
 <table>
   <tr><th>类别</th><th>关键字</th><th>状态</th></tr>
@@ -695,7 +955,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 </blockquote>
 
 <!-- =========================================================== -->
-<h2 id="logs">11. 日志与故障排查</h2>
+<h2 id="logs">13. 日志与故障排查</h2>
 <!-- =========================================================== -->
 
 <h3>11.1 日志位置</h3>
@@ -721,50 +981,62 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 </ol>
 
 <!-- =========================================================== -->
-<h2 id="faq">12. FAQ &amp; 已知限制</h2>
+<h2 id="faq">14. FAQ &amp; 已知限制</h2>
 <!-- =========================================================== -->
 
-<h3>12.1 FAQ</h3>
+<h3>14.1 FAQ</h3>
 
-<h4>Q1: 能否连接两块 PCAN-USB FD？</h4>
-<p>A: 不能。v0.1.0 硬编码单通道（handle <code>0x51</code>）。多通道枚举在 v1.1。</p>
+<h4>Q1: 能否连接多块 PCAN-USB FD 或多通道?</h4>
+<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v1.2.x 范围）。</p>
 
-<h4>Q2: 能否录制总线数据供后续回放？</h4>
-<p>A: 不能。v0.1.0 不支持 ASC / CSV 录制。v1.1 将加入录制 + 回放。</p>
+<h4>Q2: 能否录制总线数据供后续回放?</h4>
+<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>当前未提供（v2.0 候选）。</p>
 
-<h4>Q3: 多路复用（M / m）信号何时能解码？</h4>
-<p>A: v1.1 路线图中。当前会被跳过，不出现在 Signals 视图。</p>
+<h4>Q3: 多路复用（M / m）信号能否解码?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。Signals 视图会显示当前多路复用器值下激活的子信号。</p>
 
-<h4>Q4: 能否在后台运行脚本自动化测试？</h4>
-<p>A: 当前只能通过外部 .NET 控制台程序调用 <code>PeakCan.Host.Core</code> 解析器与 <code>PeakCan.Host.Infrastructure</code> SDK 适配器。v1.2 计划加入内置 CodeMirror 6 脚本引擎 + 沙箱。</p>
+<h4>Q4: 能否在后台运行脚本自动化测试?</h4>
+<p>A: <strong>可以</strong>。v1.2.0 起内置 <strong>Script 视图</strong>：CodeMirror 6 编辑器 + Roslyn 沙箱，<code>%LocalAppData%\PeakCan.Host\scripts\*.csx</code> 文件管理。详见 <a href="#script">§10</a>。</p>
 
-<h4>Q5: 程序崩溃了日志在哪？</h4>
-<p>A: <code>%LocalAppData%\PeakCan.Host\logs\peak-yyyy-MM-dd.log</code>（Serilog），加上 Windows 应用事件查看器（Application Error 事件）。</p>
+<h4>Q5: 程序崩溃了日志在哪?</h4>
+<p>A: <code>%LocalAppData%\PeakCan.Host\logs\peak-yyyy-MM-dd.log</code>（Serilog，保留 14 天），加上 Windows 应用事件查看器（Application Error 事件）。</p>
 
-<h4>Q6: 能否选择非 1 Mbps 的波特率？</h4>
-<p>A: v0.1.0 硬编码 CAN-FD 1 Mbps。其他波特率在 v1.1（计划加入下拉框）。</p>
+<h4>Q6: 能否选择非 1 Mbps 的波特率?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起工具栏的波特率下拉支持 1 Mbps / 500 kbps / 250 kbps / 125 kbps / 100 kbps / 50 kbps / 等常见档位（<code>AvailableBaudRates</code> 列表由 PEAK SDK 提供）。</p>
 
-<h3>12.2 v0.1.0 已知限制（MVP 范围）</h3>
+<h4>Q7: UDS SecurityAccess 直接能工作吗?</h4>
+<p>A: <strong>不能直接</strong>。v1.2.0 默认注册的是 <code>PlaceholderKeyAlgorithm</code>——原样回传 seed，仅用于联调；真实 ECU 会返回 NRC <code>0x35 invalidKey</code>。<strong>OEM 客户需要实现 <code>IKeyDerivationAlgorithm</code> 并在 <code>AppHostBuilder</code> 替换</strong>。详见 <a href="#uds-secauth">§11.6</a>。</p>
+
+<h4>Q8: DID/Routine 库能不能扩展?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起 <code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code> + <code>uds-routines.json</code> 可放置用户 JSON，缺失/格式错误时回退到内置默认。详见 <a href="#uds">§11</a>。</p>
+
+<h4>Q9: UDS 视图如何与 Trace/DBC 视图联动?</h4>
+<p>A: 通过同一个 <code>UdsClient</code> 单例（DI 注入）。UDS 视图发出的请求帧会通过底层 CAN 通道被 <code>ChannelRouter</code> 广播，Trace 视图同步看到；DBC 中已加载的消息 ID 在 UDS 响应解码时被复用（如果响应 ID 命中 DBC 中消息）。</p>
+
+<h4>Q10: 能否在 UI 关闭后保留 TesterPresent?</h4>
+<p>A: <strong>不能</strong>。TesterPresent 后台循环由 <code>SessionPanelViewModel</code> 持有，VM 是 DI 单例直到进程退出。<strong>关闭 UDS 视图标签</strong>不会停止 TesterPresent；切换会话前请手动取消勾选，或关闭整个应用。</p>
+
+<h3>14.2 v1.2.2 已知限制</h3>
 <ul>
-  <li>单通道（PCAN-USB FD 第一个 handle）</li>
-  <li>无 ASC / CSV 录制</li>
-  <li>无帧过滤（ID / 通道过滤）</li>
-  <li>无循环发送（cyclic transmission）</li>
-  <li>多路复用信号（M / m）不解码</li>
-  <li>无值表（VAL_）名称显示</li>
-  <li>无内置脚本自动化</li>
-  <li>无 UDS 诊断栈</li>
+  <li>同一时刻单连接（多通道并行收发未实现）</li>
+  <li>无 ASC 录制回放（仅录制可，回放需 v2.0）</li>
+  <li>无 UDS SecurityAccess 默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</li>
+  <li>TesterPresent 循环无法跨 UDS 视图关闭（VM 单例生命周期）</li>
+  <li>UDS DID/Routine 仅支持 ISO 14229 简单子功能（<code>0x01 Start</code> / <code>0x02 Stop</code> / <code>0x03 QueryResults</code>）；<code>RequestCorrectlyReceived</code> 等长流程未实现</li>
+  <li>UDS 视图 <code>SessionPanelViewModel</code> 实现 <code>IDisposable</code>（v1.2.2 起）但<strong>未被 DI 容器调用 Dispose</strong>——VM 单例直到进程退出</li>
   <li>无 J1939 / CANopen 协议层</li>
   <li>仅 Windows 平台（依赖 WPF）</li>
 </ul>
 
-<h3>12.3 路线图</h3>
+<h3>14.3 路线图</h3>
 <table>
   <tr><th>版本</th><th>主要内容</th></tr>
-  <tr><td><strong>v1.1</strong></td><td>多通道枚举、帧录制（ASC / CSV）、帧过滤、循环发送、多路复用解码、值表名称显示、<code>IFileDialogService</code> 抽象</td></tr>
-  <tr><td><strong>v1.2</strong></td><td>实时信号曲线、脚本自动化（CodeMirror 6 + 沙箱脚本引擎）</td></tr>
-  <tr><td><strong>v1.3</strong></td><td>UDS 诊断栈</td></tr>
-  <tr><td><strong>v2.0</strong></td><td>J1939 / CANopen、跨平台（Linux + SocketCAN）</td></tr>
+  <tr><td><strong>v1.1.0 ✅</strong></td><td>多通道枚举、ASC/CSV 录制、帧过滤、循环发送、多路复用解码、值表（VAL_）名称显示、<code>IFileDialogService</code> 抽象、波特率下拉、<code>IKeyDerivationAlgorithm</code> 抽象 + 占位实现、DidDatabase / RoutineDatabase JSON 加载</td></tr>
+  <tr><td><strong>v1.2.0 ✅</strong></td><td>实时 OxyPlot 信号曲线（v0.10.1 已含）、CodeMirror 6 脚本引擎 + Roslyn 沙箱、4 面板 UDS 诊断 UI（Session / DID / Routine / DTC）、共享彩色 OutputLog</td></tr>
+  <tr><td><strong>v1.2.1 ✅</strong></td><td>DidDatabase 2-arg ctor null-ILogger NRE 修复 + STA Dispatcher 泄漏 flake 修复（4 个测试类）</td></tr>
+  <tr><td><strong>v1.2.2 ✅</strong></td><td>RoutineDatabase NRE 修复 + SessionPanelVM.Dispose 复位 TesterPresentActive</td></tr>
+  <tr><td><strong>v1.3.0 🔜</strong></td><td>OEM-specific <code>IKeyDerivationAlgorithm</code> 实现（需 OEM 列表 / 客户触发）+ 多通道并行收发（可选）+ UDS SecurityAccess 多级支持（Level 1/3/5 按 OEM 需求）</td></tr>
+  <tr><td><strong>v2.0</strong></td><td>J1939 / CANopen 协议层、跨平台（Linux + SocketCAN）、ASC 录制回放</td></tr>
 </table>
 
 <!-- =========================================================== -->
@@ -790,16 +1062,19 @@ CI 会拒绝破坏此边界的 PR。</p>
   <tr><td><strong>.NET 10</strong>（非 8）</td><td>开发机仅有 10.0.300 SDK；自包含发布后目标机不需任何运行时。</td></tr>
   <tr><td><strong>Peak.PCANBasic.NET 5.0.1</strong>（非 <code>Peak.Can.Basic</code>）</td><td>旧的 <code>Peak.Can.Basic</code> 在 nuget.org 上不可寻；<code>Peak.PCANBasic.NET</code> 是 PEAK 官方替代（12.7 万次下载）。</td></tr>
   <tr><td><strong>OxyPlot.Wpf 2.2.0</strong>（非 LiveChartsCore 2.0.4）</td><td>LiveCharts 2.0.4 的原生依赖（OpenTK + SkiaSharp.Views.WPF）仅目标 .NET Framework，在 .NET 10 上启动失败。OxyPlot 是纯托管的，干净。</td></tr>
-  <tr><td><strong>单硬编码通道 (0x51)</strong></td><td>MVP 仅探测 + 连接第一个 handle。多通道枚举在 v1.1。</td></tr>
-  <tr><td><strong>VM 非 IDisposable</strong></td><td>所有 ViewModel 是 DI 单例，整个进程生命周期存活；若实现 IDisposable 反而需要 unsubscribe 单例服务（潜在隐患）。VM 与服务一起在进程退出时消亡。</td></tr>
-  <tr><td><strong>无 IFileDialogService 抽象</strong></td><td><code>DbcViewModel.OpenAsync</code> 中内联调用 <code>OpenFileDialog.ShowDialog</code>；用户取消路径的测试为 <code>[Fact(Skip=...)]</code>。抽象抽取留 v1.1。</td></tr>
+  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发在 v2.0 候选。</td></tr>
+  <tr><td><strong>VM 部分 IDisposable（v1.2.2 起）</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，v1.2.2 起实现 <code>IDisposable</code> 复位 <code>TesterPresentActive=false</code> + Cancel/Dispose CTS。<strong>注</strong>：当前 DI 容器不调用 <code>Dispose()</code>——VM 生命周期 ≈ 进程生命周期，Dispose 仅作为防御性 API 暴露。</td></tr>
+  <tr><td><strong><code>IFileDialogService</code> 抽象（v1.1 起）</strong></td><td>v0.x <code>DbcViewModel.OpenAsync</code> 内联调用 <code>OpenFileDialog.ShowDialog</code>，用户取消路径测试为 <code>[Fact(Skip=...)]</code>。v1.1 起抽取为 <code>IFileDialogService</code> 接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
+  <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code>（v1.1 起）</strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异（典型：HMAC-SHA256、HSM 模拟、硬件安全模块等）。v1.1 抽取为接口并提供占位实现（<em>原样回传 seed</em>）让 UI 联调可跑通；OEM 客户需自行实现并替换。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
+  <tr><td><strong>UDS 4 面板 orchestrator 模式（v1.2.0 起）</strong></td><td>原 <code>UdsViewModel</code> 单体 279 行 / 8 个 <code>[RelayCommand]</code>，v1.2.0 拆为 4 个 panel VM（Session / DID / Routine / DTC） + ≤80 行 orchestrator。每个 panel VM 通过 <code>IUdsPanel.AttachLog(...)</code> 接口共享一个 <code>OutputLog</code>。</td></tr>
 </table>
 
 <h3>A.3 测试覆盖</h3>
 <ul>
-  <li><strong>285 pass + 7 SKIP</strong>：Core 137 + Infrastructure 60（+2 硬件 SKIP）+ App 90（+5 SKIP，其中 3 硬件 + 1 调度器泄漏守卫 + 1 用户取消）</li>
-  <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖</li>
-  <li>每次 push 到 <code>main</code> 触发 CI</li>
+  <li><strong>523 pass + 6 SKIP + 0 fail</strong>：Core 213 + App 236 + Infrastructure 74</li>
+  <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
+  <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
+  <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
 </ul>
 
 <h3>A.4 引用文档</h3>
@@ -807,10 +1082,11 @@ CI 会拒绝破坏此边界的 PR。</p>
   <li>PEAK PCAN-USB FD 驱动下载：<a href="https://www.peak-system.com/PCAN-USB-FD.366.0.html" target="_blank">https://www.peak-system.com/PCAN-USB-FD.366.0.html</a></li>
   <li>CAN-FD 标准：ISO 11898-1:2015</li>
   <li>DBC 文件格式参考：Vector Informatik 公开规范</li>
+  <li>UDS-on-CAN 标准：ISO 14229-1:2013 + ISO 15765-2（ISO-TP）</li>
 </ul>
 
 <footer>
-  PeakCan Host v0.1.0 用户使用手册 · 生成于 2026-06-19 ·
+  PeakCan Host v1.2.5 用户使用手册 · 更新于 2026-06-26 ·
   与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
   报告问题请附当日 Serilog 日志
 </footer>

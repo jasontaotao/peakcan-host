@@ -58,11 +58,45 @@ public class TraceViewModelTests
     }
 
     [Fact]
-    public void Default_MaxRows_Is_Ten_Thousand()
+    public void Default_MaxRows_Is_One_Thousand()
     {
-        // The plan specifies 10_000 as the FIFO trim threshold.
+        // v1.2.3: lowered from 10_000 to 1_000 because under sustained
+        // high frame rates the WPF DataGrid paint + collection mutation
+        // cost on the dispatcher thread becomes prohibitive. 1_000 rows
+        // × 20 px = 20 k px of virtualized content, well within the
+        // recycling virtualization budget.
         var vm = new TraceViewModel();
-        vm.MaxRows.Should().Be(10_000);
+        vm.MaxRows.Should().Be(1_000);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { }, "")]
+    [InlineData(new byte[] { 0xDE }, "DE")]
+    [InlineData(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }, "DE AD BE EF")]
+    [InlineData(new byte[] { 0x00, 0xFF, 0x10 }, "00 FF 10")]
+    public void FormatHexWithSpaces_Formats_Byte_Sequence_With_Single_Space_Separators(
+        byte[] input, string expected)
+    {
+        TraceViewModel.FormatHexWithSpaces(input).Should().Be(expected,
+            "hex format is the user-visible DataGrid DataHex column; a regression here breaks live trace readability");
+    }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("plain", "plain")]
+    [InlineData("with,comma", "\"with,comma\"")]
+    [InlineData("with\"quote", "\"with\"\"quote\"")]
+    [InlineData("with\nnewline", "\"with\nnewline\"")]
+    [InlineData("with\rcr", "\"with\rcr\"")]
+    [InlineData("a,b\"c", "\"a,b\"\"c\"")]
+    public void CsvEscape_Wraps_Fields_With_Rfc4180_Required_Characters(string input, string expected)
+    {
+        // RFC 4180 §2.6: any field containing comma, double-quote, CR, or LF
+        // must be enclosed in double-quotes; embedded double-quotes are
+        // doubled. The CSV export uses this for every cell, so a regression
+        // here corrupts the export (Excel imports split on the unescaped
+        // comma inside a quoted cell).
+        TraceViewModel.CsvEscape(input).Should().Be(expected);
     }
 
     [Fact]
