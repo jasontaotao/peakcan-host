@@ -24,5 +24,10 @@
     <PackageVersion Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.4.5" />
     <!-- WebView2 for CodeMirror editor -->
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <!-- v1.2.9: legacy code-page encodings for non-UTF-8 DBC files
+         (GBK/CP936, CP932, CP949). .NET Core / .NET 5+ only ships
+         UTF-8/16/32 by default; this package adds the OEM code
+         pages needed for the DbcService OEM-fallback path. -->
+    <PackageVersion Include="System.Text.Encoding.CodePages" Version="9.0.0" />
   </ItemGroup>
 </Project>

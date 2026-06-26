@@ -12,6 +12,15 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <!-- v1.2.9: non-UTF-8 DBC files (GBK/CP936 on zh-CN, etc.) need
+         legacy code-page encodings, which the DBC loader's
+         OEM-fallback path requests via Encoding.GetEncoding(oem).
+         On .NET 10 the System.Text.Encoding.CodePages package is
+         provided transitively by the shared framework, so no
+         explicit PackageReference is required. If a future .NET
+         version moves the package out of the shared framework,
+         add it back here as a central package-version entry. -->
+    <!-- (intentionally empty: code page encoding is transitive) -->
     <!-- Scripting engine: V8 via ClearScript -->
     <PackageReference Include="Microsoft.ClearScript.V8" />
     <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" />

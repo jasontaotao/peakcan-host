@@ -57,6 +57,17 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // v1.2.9: register the legacy code-page encoding provider
+        // (GBK/CP936, CP932, CP949, etc.) before any DBC load
+        // attempt. .NET Core / .NET 5+ only ships UTF-8/16/32 by
+        // default; the DbcService.ReadDbcTextAsync helper falls
+        // back to the system OEM code page on UTF-8 decode
+        // failure, which throws NotSupportedException if the
+        // provider isn't registered. Registration is idempotent
+        // and process-global; safe to call here before DI
+        // container construction.
+        System.Text.Encoding.RegisterProvider(
+            System.Text.CodePagesEncodingProvider.Instance);
         // Install the global handlers BEFORE we touch the DI host, so
         // any failure during host construction is captured. The static
         // method is also exposed for test verification of the

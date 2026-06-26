@@ -200,12 +200,31 @@ public partial class DbcService
         {
             // No-BOM + strict UTF-8 failed → fall back to the system
             // OEM code page (GBK on zh-CN, etc.). Re-include the
-            // original bytes (no BOM to strip here).
-            var oem = Encoding.GetEncoding(
-                CultureInfo.CurrentCulture.TextInfo.OEMCodePage,
-                EncoderFallback.ReplacementFallback,
-                DecoderFallback.ReplacementFallback);
-            return oem.GetString(bytes);
+            // original bytes (no BOM to strip here). The CodePages
+            // encoding provider must be registered at app startup
+            // (App.OnStartup calls Encoding.RegisterProvider);
+            // without it, Encoding.GetEncoding throws
+            // NotSupportedException — in that case we fall back to
+            // ISO-8859-1 (Latin-1) which never throws but produces
+            // garbled chars for any non-Latin code point. Latin-1
+            // is better than crashing on a real DBC the user is
+            // trying to load.
+            try
+            {
+                var oem = Encoding.GetEncoding(
+                    CultureInfo.CurrentCulture.TextInfo.OEMCodePage,
+                    EncoderFallback.ReplacementFallback,
+                    DecoderFallback.ReplacementFallback);
+                return oem.GetString(bytes);
+            }
+            catch (NotSupportedException)
+            {
+                // No OEM code page registered. Try Latin-1 as a
+                // last-resort (always available, 1-to-1 byte mapping,
+                // so no replacement chars — but produces 'wrong'
+                // glyphs for any non-Latin-1 char).
+                return Encoding.Latin1.GetString(bytes);
+            }
         }
     }
 
