@@ -44,8 +44,11 @@ public sealed class TraceEntry : INotifyPropertyChanged
     /// <summary>True iff this row uses the CAN FD frame format (up to 64-byte payloads).</summary>
     public bool IsFd { get; init; }
 
-    /// <summary>Frame type display string: "FD", "ERR", or "" (standard).</summary>
-    public string FrameType => IsError ? "ERR" : IsFd ? "FD" : "";
+    /// <summary>True iff this row is an RTR (Remote Transmission Request) frame.</summary>
+    public bool IsRtr { get; init; }
+
+    /// <summary>Frame type display string: "ERR", "RTR", "FD", or "" (standard data frame).</summary>
+    public string FrameType => IsError ? "ERR" : IsRtr ? "RTR" : IsFd ? "FD" : "";
 
     /// <summary>
     /// Whether this row is highlighted (e.g. matching a highlight filter).
