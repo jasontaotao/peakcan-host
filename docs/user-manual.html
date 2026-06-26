@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>PeakCan Host 用户使用手册 (v1.2.2)</title>
+<title>PeakCan Host 用户使用手册 (v1.2.5)</title>
 <style>
   :root {
     --bg: #fafafa;
@@ -64,7 +64,7 @@
   <h1>PeakCan Host — 用户使用手册</h1>
   <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机</div>
   <div class="meta">
-    <span>版本：<strong>v1.2.2</strong></span>
+    <span>版本：<strong>v1.2.5</strong></span>
     <span>框架：WPF · .NET 10</span>
     <span>平台：Windows 10 1809+ / Windows 11</span>
     <span>更新日期：2026-06-26</span>
@@ -825,7 +825,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
   <tr><td><strong>Default</strong> 按钮</td><td><code>DiagnosticSessionControl 0x01</code> — 切到默认会话。</td></tr>
   <tr><td><strong>Extended</strong> 按钮</td><td><code>DiagnosticSessionControl 0x02</code> — 切到扩展诊断会话（解锁 DID Read/Write）。</td></tr>
   <tr><td><strong>Programming</strong> 按钮</td><td><code>DiagnosticSessionControl 0x03</code> — 切到编程会话（预刷写状态）。</td></tr>
-  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。<code>Dispose</code> 时也会自动停掉循环并复位标志位。</td></tr>
+  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。<code>Dispose</code> 被显式调用时也会停掉循环并复位标志位——但 DI 容器不调用 Dispose（单例 VM 生命周期 ≈ 进程），详见 <a href="#sec-14-2">14.2</a>。</td></tr>
   <tr><td><strong>SecurityAccess (Level 1)</strong> 按钮</td><td>触发 <code>SecurityAccess RequestSeed 0x01</code> → 调 <code>IKeyDerivationAlgorithm.ComputeKey(...)</code> → <code>SendKey 0x02</code>。成功时 <code>Level: 0x01</code> 显示在右侧。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
   <tr><td><strong>Session:</strong> 文本</td><td>当前会话名（Default / Extended / Programming）。</td></tr>
   <tr><td><strong>Level: 0xNN</strong> 文本</td><td>当前认证等级。未认证时显示 <code>(not authenticated)</code>。</td></tr>
@@ -1086,7 +1086,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 </ul>
 
 <footer>
-  PeakCan Host v1.2.2 用户使用手册 · 更新于 2026-06-26 ·
+  PeakCan Host v1.2.5 用户使用手册 · 更新于 2026-06-26 ·
   与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
   报告问题请附当日 Serilog 日志
 </footer>

@@ -64,10 +64,13 @@ public sealed partial class TraceViewModel : ObservableObject
     /// value after a batch is appended, the oldest rows are removed
     /// (from index 0) until the count is back at the cap. Default 1_000
     /// keeps the WPF DataGrid render cost manageable under sustained
-    /// high frame rates; on high-end hardware or low-rate buses, the
-    /// user can raise this via the toolbar (which now exposes the cap).
-    /// 1_000 rows × 20 px = 20 k px of virtualized content, well within
-    /// the recycling virtualization budget.
+    /// high frame rates. 1_000 rows × 20 px = 20 k px of virtualized
+    /// content, well within the recycling virtualization budget.
+    /// The toolbar's "cap: {N} rows" label displays the current value
+    /// (read-only); programmatic mutation via the generated setter is
+    /// supported but no UI editor ships today. A future PATCH can
+    /// add a numeric input bound TwoWay to <see cref="MaxRows"/> if
+    /// user-tunable cap is wanted.
     /// </summary>
     [ObservableProperty]
     private int _maxRows = 1_000;
@@ -232,7 +235,7 @@ public sealed partial class TraceViewModel : ObservableObject
     /// budget per 1 fps of bus rate, so the cost is negligible compared
     /// to the DataGrid row-add itself.
     /// </summary>
-    private static string FormatHexWithSpaces(ReadOnlySpan<byte> data)
+    internal static string FormatHexWithSpaces(ReadOnlySpan<byte> data)
     {
         if (data.IsEmpty) return string.Empty;
         // Convert.ToHexString is allocation-light; the join adds one string
@@ -317,7 +320,7 @@ public sealed partial class TraceViewModel : ObservableObject
     /// RFC 4180 field escape: wrap in double quotes if the field contains
     /// comma, quote, CR, or LF; double any embedded quotes.
     /// </summary>
-    private static string CsvEscape(string field)
+    internal static string CsvEscape(string field)
     {
         if (string.IsNullOrEmpty(field)) return string.Empty;
         bool needsQuote = false;
