@@ -441,6 +441,18 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     }
 
     /// <summary>
+    /// v1.2.10: routing layer for the Signal tab's per-row Plot checkbox.
+    /// Takes the checkbox's UI-side IsChecked (just toggled by the click)
+    /// rather than the SignalEntry's source-side IsSelected (which can be
+    /// stale because DrainPending replaces the entry in Latest[i] every
+    /// frame, and the row's DataContext can target the NEW entry by the
+    /// time the Click handler runs). Centralised here so unit tests can
+    /// verify the routing without spinning up a WPF UserControl.
+    /// </summary>
+    public void HandlePlotCheckboxClick(SignalEntry entry, bool isChecked)
+        => OnSignalSelectionChanged(entry.Message, entry.Signal, isChecked);
+
+    /// <summary>
     /// Export charted signal data to CSV. Prompts for file path via
     /// <see cref="SaveFileDialog"/>.
     /// </summary>
