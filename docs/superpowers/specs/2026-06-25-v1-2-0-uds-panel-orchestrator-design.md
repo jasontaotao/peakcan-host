@@ -1200,7 +1200,9 @@ None. All design decisions resolved.
   uses the same `logger!` pattern and would NRE the same way. It was never
   reached in v1.2.0 tests because all callers passed `NullLogger<RoutineDatabase>.Instance`.
   Out of scope for v1.2.1 PATCH (no failing tests).
-  Discovered 2026-06-25 by Task 3 review; fixed in v1.2.1 PATCH Task 4.
+  Discovered 2026-06-25 by Task 3 review; **RESOLVED in v1.2.2 PATCH Task 1**
+  (same `if (_logger is { } l)` guard pattern as the DidDatabase fix, plus
+  3 regression tests in `RoutineDatabaseNreTests`).
 
 - **Pre-existing test flakes surfaced during v1.2.0 test runs** (none introduced
   by v1.2.0 work; both pass in isolation, fail in full-suite runs):

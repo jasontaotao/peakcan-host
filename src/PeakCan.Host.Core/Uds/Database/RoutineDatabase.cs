@@ -37,16 +37,45 @@ public sealed partial class RoutineDatabase
 
     private List<RoutineDefinition> LoadUserFile(string? path)
     {
-        var logger = _logger;
-        if (string.IsNullOrEmpty(path))
+        // The [LoggerMessage] source-gen helpers below require a non-null ILogger
+        // argument (they dereference without a null-check). Skip logging when no
+        // logger was supplied rather than calling them with a null-forced value.
+        // Mirrors DidDatabase.LoadUserFile (v1.2.1 PATCH Task 4).
+        if (_logger is { } l)
         {
-            LogNoPathConfigured(logger!);
-            return new List<RoutineDefinition>();
+            if (string.IsNullOrEmpty(path))
+            {
+                LogNoPathConfigured(l);
+                return new List<RoutineDefinition>();
+            }
+
+            if (!File.Exists(path))
+            {
+                LogFileMissing(l, path);
+                return new List<RoutineDefinition>();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(path);
+                var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
+                return dto?.Routines ?? new List<RoutineDefinition>();
+            }
+            catch (JsonException ex)
+            {
+                LogMalformedJson(l, ex, path);
+                return new List<RoutineDefinition>();
+            }
+            catch (IOException ex)
+            {
+                LogIoError(l, ex, path);
+                return new List<RoutineDefinition>();
+            }
         }
 
-        if (!File.Exists(path))
+        // No logger: still execute the file-IO logic, but skip log calls.
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
-            LogFileMissing(logger!, path);
             return new List<RoutineDefinition>();
         }
 
@@ -56,14 +85,12 @@ public sealed partial class RoutineDatabase
             var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
             return dto?.Routines ?? new List<RoutineDefinition>();
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            LogMalformedJson(logger!, ex, path);
             return new List<RoutineDefinition>();
         }
-        catch (IOException ex)
+        catch (IOException)
         {
-            LogIoError(logger!, ex, path);
             return new List<RoutineDefinition>();
         }
     }
@@ -82,8 +109,11 @@ public sealed partial class RoutineDatabase
         public List<RoutineDefinition> Routines { get; set; } = new();
     }
 
-    // LoggerMessage source-generated helpers (CA1848). See DidDatabase for
-    // the rationale on `ILogger` (non-nullable) parameter type and `!` at call sites.
+    // LoggerMessage source-generated helpers (CA1848). Methods are not on
+    // hot paths; only LoadUserFile calls them. Parameter type is non-nullable
+    // ILogger because the source generator dereferences without a null check;
+    // LoadUserFile guards with `if (_logger is { } l)` and passes `l` so the
+    // nullable ctor parameter does not force NRE at these call sites.
     [LoggerMessage(Level = LogLevel.Information,
         Message = "No routine user JSON path configured.")]
     private static partial void LogNoPathConfigured(ILogger logger);
