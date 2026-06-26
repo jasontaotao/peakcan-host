@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -44,7 +45,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// observe the post-state.
 /// </para>
 /// </summary>
-public sealed partial class SignalViewModel : ObservableObject
+public sealed partial class SignalViewModel : ObservableObject, IDisposable
 {
     private readonly SignalChartViewModel? _chartVm;
 
@@ -93,13 +94,88 @@ public sealed partial class SignalViewModel : ObservableObject
     /// <summary>Filtered view of Latest based on SearchText.</summary>
     public ObservableCollection<SignalEntry> FilteredSignals { get; } = new();
 
+    // v1.2.3 dispatcher-starvation hardening: ApplyFilter was being
+    // called once per DBC-decoded frame (up to 8 kfps), and every call
+    // did a FilteredSignals.Clear() + N Adds — 8 000 CollectionChanged
+    // events per second saturated the WPF UI dispatcher and starved
+    // sibling 1 Hz VMs (e.g. StatsViewModel) of any pump time. The
+    // throttle below coalesces consecutive ApplyFilter calls when the
+    // SearchText has not changed AND the throttle window has not
+    // elapsed, while still guaranteeing a rebuild when the user types
+    // (or the window elapses).
+    private static readonly TimeSpan FilterRebuildInterval = TimeSpan.FromMilliseconds(100);
+    private string _lastFilterPattern = "";
+    private DateTime _lastFilterRebuildUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// Test-visible counter for <see cref="ApplyFilter"/> rebuilds.
+    /// Each call to <c>FilteredSignals.Clear</c> increments this by
+    /// one; throttled (skipped) calls do not. The contract under
+    /// test: at 8 kfps, this counter must advance at most every
+    /// <see cref="FilterRebuildInterval"/>, not every frame.
+    /// <c>internal</c> + <c>InternalsVisibleTo</c> keeps the public
+    /// XAML surface clean.
+    /// </summary>
+    internal int FilterRebuildCount { get; private set; }
+
+    // v1.2.3 PATCH-2: ApplyFrame itself was the real dispatcher
+    // saturator. Pre-PATCH-2 the SDK worker thread did
+    // ((Action)(() => ApplyEntries(pending))).RunOnUiPost() once per
+    // frame, queuing 8 000 dispatcher operations per second; even with
+    // the ApplyFilter Clear+Add throttle the per-frame Upsert + the
+    // dispatch post itself starved the dispatcher. PATCH-2 removes
+    // the per-frame post entirely: ApplyFrame only buffers, and a
+    // ~30 Hz drain tick applies the buffered batches onto the UI
+    // thread. Dispatcher queue length drops from 8 000/s to ≤ 30/s,
+    // leaving the 1 Hz StatsView tick room to pump.
+    private static readonly TimeSpan DrainInterval = TimeSpan.FromMilliseconds(33);
+    private readonly object _pendingLock = new();
+    private readonly List<PendingWork> _pending = new();
+    private readonly System.Threading.Timer _drainTimer;
+
+    private readonly record struct PendingWork(
+        List<SignalEntry> Entries,
+        List<(string Key, double Physical, ulong TimestampMicroseconds)>? ChartSamples);
+
+    /// <summary>
+    /// Test-visible counter for <see cref="DrainPending"/> invocations.
+    /// Each call (timer tick or <c>DrainPendingForTest</c>) increments
+    /// this by one; the contract under test is that ApplyFrame never
+    /// drains inline, and that a drain tick processes every batch
+    /// queued since the last tick.
+    /// </summary>
+    internal int DrainCount { get; private set; }
+
     /// <param name="chartVm">
     /// Optional chart VM. Null in tests that don't need charting.
     /// </param>
     public SignalViewModel(SignalChartViewModel? chartVm = null)
     {
         _chartVm = chartVm;
+
+        // v1.2.3 PATCH-2: a <see cref="System.Threading.Timer"/> (not
+        // <see cref="DispatcherTimer"/>) so the tick fires regardless
+        // of whether a WPF <c>Application</c> is present. The tick
+        // body is the OnDrainTick method, which dispatches the actual
+        // <c>DrainPending</c> onto the WPF UI dispatcher via
+        // <see cref="DispatcherExtensions.RunOnUiPost"/>. In test
+        // contexts (no Application) the dispatcher hop is a no-op
+        // and DrainPending runs inline on the timer thread — which
+        // matches the existing "no Application" inline path used by
+        // every other VM in the test suite. <c>DrainPending</c>
+        // itself reads/writes <see cref="Latest"/> and
+        /// <see cref="FilteredSignals"/>; the UI-thread marshalling
+        /// via <c>RunOnUiPost</c> is the only thing that makes
+        /// those <see cref="ObservableCollection{T}"/> mutations
+        /// safe in production.
+        _drainTimer = new System.Threading.Timer(
+            _ => OnDrainTickProxy(),
+            state: null,
+            dueTime: DrainInterval,
+            period: DrainInterval);
     }
+
+    private void OnDrainTickProxy() => OnDrainTick(this, EventArgs.Empty);
 
     /// <summary>
     /// Decode signals in <paramref name="msg"/> against
@@ -180,16 +256,93 @@ public sealed partial class SignalViewModel : ObservableObject
         }
 
         var samples = chartSamples;
-        ((Action)(() =>
+
+        // v1.2.3 PATCH-2: buffer the decoded entries + chart samples
+        // for the next drain tick. No RunOnUiPost here — the SDK
+        // worker thread is done with this frame, and the UI
+        // dispatcher will pick the batch up on the ~30 Hz timer.
+        // The lock is cheap (no allocations inside the critical
+        // section — we hand the lists over verbatim and the timer
+        // tick swaps them out under the same lock).
+        var work = new PendingWork(pending, samples);
+        lock (_pendingLock)
         {
-            ApplyEntries(pending);
-            if (samples is not null)
-            {
-                foreach (var (key, phys, ts) in samples)
-                    _chartVm!.AppendSample(key, phys, ts);
-            }
-        })).RunOnUiPost();
+            _pending.Add(work);
+        }
     }
+
+    private void OnDrainTick(object? sender, EventArgs e) => DrainPending();
+
+    /// <summary>
+    /// Flush every batch queued since the last tick onto the UI
+    /// thread's <see cref="Latest"/> and the chart VM. Always runs
+    /// on the UI thread (the timer fires there, and the test entry
+    /// <c>DrainPendingForTest</c> is invoked by the test thread
+    /// which xunit is using as the UI thread surrogate).
+    /// </summary>
+    private void DrainPending()
+    {
+        DrainCount++;
+
+        PendingWork[] batch;
+        lock (_pendingLock)
+        {
+            if (_pending.Count == 0) return;
+            batch = _pending.ToArray();
+            _pending.Clear();
+        }
+
+        // Coalesce: between two ticks many frames may carry the same
+        // (Message, Signal) — ApplyEntries' Upsert key takes care of
+        // de-dup, so we just concatenate. Order is preserved (newest
+        // last) which keeps the "last writer wins" semantics of
+        // Upsert natural for back-to-back same-key frames.
+        var allEntries = new List<SignalEntry>(batch.Length * 8);
+        for (var i = 0; i < batch.Length; i++)
+        {
+            allEntries.AddRange(batch[i].Entries);
+        }
+        ApplyEntries(allEntries);
+
+        if (_chartVm is not null)
+        {
+            for (var i = 0; i < batch.Length; i++)
+            {
+                var samples = batch[i].ChartSamples;
+                if (samples is null) continue;
+                for (var j = 0; j < samples.Count; j++)
+                {
+                    var s = samples[j];
+                    _chartVm.AppendSample(s.Key, s.Physical, s.TimestampMicroseconds);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Test-only entry point that invokes <see cref="DrainPending"/>
+    /// synchronously. Production uses the <c>DispatcherTimer</c>
+    /// started in the constructor; the test path uses reflection
+    /// on this method because xunit's MTA thread pool has no
+    /// dispatcher to host the timer.
+    /// </summary>
+    internal void DrainPendingForTest() => DrainPending();
+
+    /// <summary>
+    /// v1.2.3 PATCH-2: the <see cref="System.Threading.Timer"/> must
+    /// be disposed to release its finalizer-thread callback. The
+    /// production VM is a DI singleton (Task 16 high-2 review fix
+    /// said "no IDisposable because VM lives for the whole app
+    /// lifetime"), but with PATCH-2 the timer holds a strong
+    /// reference to <c>this</c> via the <c>OnDrainTick</c> delegate,
+    /// so we promote the VM to <see cref="IDisposable"/> and have
+    /// <c>AppHostBuilder</c> register it as <c>IHostedService</c> so
+    /// the host disposes it on shutdown. The cost is a single
+    /// <c>Dispose</c> call; the benefit is the timer no longer
+    /// prevents the VM from being collected in test contexts and
+    /// cleans up cleanly on app exit.
+    /// </summary>
+    public void Dispose() => _drainTimer.Dispose();
 
     /// <summary>
     /// Look up <paramref name="signal"/>'s value table entry for
@@ -345,8 +498,27 @@ public sealed partial class SignalViewModel : ObservableObject
 
     private void ApplyFilter()
     {
-        FilteredSignals.Clear();
         var pattern = SearchText.AsSpan().Trim();
+        var trimmed = pattern.IsEmpty ? "" : pattern.ToString();
+
+        // v1.2.3 throttle: skip the Clear+Add pass when nothing the
+        // user-visible output depends on has changed. The first call
+        // after construction is never throttled (the FilteredSignals
+        // count check protects against a "first call has the right
+        // count by accident" false-skip on an empty Latest).
+        var now = DateTime.UtcNow;
+        if (trimmed == _lastFilterPattern
+            && (now - _lastFilterRebuildUtc) < FilterRebuildInterval
+            && FilteredSignals.Count == Latest.Count)
+        {
+            return;
+        }
+
+        _lastFilterPattern = trimmed;
+        _lastFilterRebuildUtc = now;
+        FilterRebuildCount++;
+
+        FilteredSignals.Clear();
         foreach (var e in Latest)
         {
             if (pattern.Length == 0

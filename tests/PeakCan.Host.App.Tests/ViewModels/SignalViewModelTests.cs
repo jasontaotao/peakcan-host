@@ -91,7 +91,7 @@ public class SignalViewModelTests
         var msg = Msg(0x100, "M1", Sig("Speed"));
         var frame = MakeFrame(0x100, 0x42);
 
-        vm.ApplyFrame(frame, msg);
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
 
         vm.Latest.Should().HaveCount(1, "one signal decoded = one row");
         vm.Latest[0].Message.Should().Be("M1");
@@ -108,7 +108,7 @@ public class SignalViewModelTests
             Sig("Temp", unit: "°C"));
         var frame = MakeFrame(0x100, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE);
 
-        vm.ApplyFrame(frame, msg);
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
 
         vm.Latest.Should().HaveCount(3);
         vm.Latest.Select(e => e.Signal).Should().BeEquivalentTo(ExpectedPlainSigNames);
@@ -123,8 +123,8 @@ public class SignalViewModelTests
         var frame1 = MakeFrame(0x100, 0x10);
         var frame2 = MakeFrame(0x100, 0x20);
 
-        vm.ApplyFrame(frame1, msg);
-        vm.ApplyFrame(frame2, msg);
+        vm.ApplyFrame(frame1, msg); DrainPending_ForTest(vm);
+        vm.ApplyFrame(frame2, msg); DrainPending_ForTest(vm);
 
         vm.Latest.Should().HaveCount(1, "key is (Message, Signal); repeated frame replaces existing row");
         // Verify the latest value is reflected in the entry. Speed factor=1, offset=0,
@@ -146,7 +146,7 @@ public class SignalViewModelTests
             Sig("Muxed1",    isMultiplexed: true, multiplexValue: 1));
         var frame = MakeFrame(0x100, 0x00); // mux value = 0
 
-        vm.ApplyFrame(frame, msg);
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
 
         // Expected: Mux (multiplexor) + PlainSig (always) + Muxed0 (mux=0 matches)
         vm.Latest.Should().HaveCount(3);
@@ -163,7 +163,7 @@ public class SignalViewModelTests
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
         var frame = MakeFrame(0x100, 0x42);
 
-        vm.ApplyFrame(frame, msg);
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
         vm.Latest.Should().HaveCount(2);
 
         vm.Reset();
@@ -181,7 +181,7 @@ public class SignalViewModelTests
         var msg = Msg(0x100, "M1", Sig("Speed"));
         var frame = MakeFrame(0x100, 0x42);
 
-        var act = () => vm.ApplyFrame(frame, msg);
+        var act = () => vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
 
         act.Should().NotThrow();
     }
@@ -196,7 +196,7 @@ public class SignalViewModelTests
         var msg = Msg(0x100, "M1", Sig("Speed", factor: 0.5, offset: 10));
         var frame = MakeFrame(0x100, 0x40);
 
-        vm.ApplyFrame(frame, msg);
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
 
         vm.Latest[0].Physical.Should().Be("42");
     }
@@ -280,10 +280,10 @@ public class SignalViewModelTests
         var frame1 = MakeFrame(0x100, 0x10);
         var frame2 = MakeFrame(0x100, 0x20);
 
-        vm.ApplyFrame(frame1, msg);
+        vm.ApplyFrame(frame1, msg); DrainPending_ForTest(vm);
         vm.Latest[0].IsSelected = true;  // user checks the checkbox
 
-        vm.ApplyFrame(frame2, msg);
+        vm.ApplyFrame(frame2, msg); DrainPending_ForTest(vm);
 
         vm.Latest.Should().HaveCount(1);
         vm.Latest[0].IsSelected.Should().BeTrue("checkbox state must survive frame updates");
@@ -297,7 +297,7 @@ public class SignalViewModelTests
         var chartVm = new SignalChartViewModel();
         var vm = new SignalViewModel(chartVm);
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
-        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
 
         vm.PlotAllCommand.Execute(null);
 
@@ -311,7 +311,7 @@ public class SignalViewModelTests
         var chartVm = new SignalChartViewModel();
         var vm = new SignalViewModel(chartVm);
         var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
-        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
         vm.PlotAllCommand.Execute(null);
 
         vm.PlotNoneCommand.Execute(null);
@@ -325,9 +325,299 @@ public class SignalViewModelTests
     {
         var vm = new SignalViewModel();
         var msg = Msg(0x100, "M1", Sig("Speed"));
-        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg);
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
 
         var act = () => vm.PlotAllCommand.Execute(null);
         act.Should().NotThrow();
     }
+
+    // --- v1.2.3 PATCH-2: ApplyFrame dispatcher removal ---
+
+    [Fact]
+    public void ApplyFrame_Does_Not_Mutate_Latest_Immediately_When_Running_Off_UI_Thread()
+    {
+        // v1.2.3 PATCH-2: the v1.2.3 first cut only throttled ApplyFilter
+        // (the Clear+Add pass) but left the per-frame RunOnUiPost in
+        // place. At 8 kfps that still queued 8 000 dispatcher
+        // operations per second; the throttle's escape condition
+        // (FilteredSignals.Count == Latest.Count) also failed in
+        // practice because every Upsert grew Latest by 1 before
+        // ApplyFilter ran, so the rebuild still happened. The PATCH-2
+        // fix removes the RunOnUiPost entirely: ApplyFrame now only
+        // buffers; the DispatcherTimer tick at ~30 Hz drains the
+        // buffer onto the UI thread in batches. The test pins the
+        // off-thread "buffer only, no immediate apply" contract.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        var frame = MakeFrame(0x100, 0x01);
+
+        // ApplyFrame is documented as callable from any thread; the
+        // 8 kfps decode path is the SDK read loop / DbcDecodeBackground
+        // worker. Pre-PATCH-2 it did RunOnUiPost; the post-state of
+        // Latest is only visible AFTER the dispatch hop. PATCH-2
+        // removes the post, so Latest is still empty immediately
+        // after a synchronous call.
+        vm.ApplyFrame(frame, msg);
+
+        vm.Latest.Should().BeEmpty(
+            "ApplyFrame now buffers only; the DispatcherTimer tick drains onto the UI thread");
+    }
+
+    [Fact]
+    public void DrainPending_Applies_Buffered_Frames_To_Latest()
+    {
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        var frame = MakeFrame(0x100, 0x01);
+
+        // Buffer 100 frames; the test entry DrainPending_ForTest
+        // flushes them onto Latest in one batch. The expected post-
+        // state: 1 row per (Message, Signal) pair (Upsert semantics)
+        // — 2 rows total, not 100.
+        for (var i = 0; i < 100; i++) vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
+
+        DrainPending_ForTest(vm);
+
+        vm.Latest.Should().HaveCount(2,
+            "Upsert key is (Message, Signal); 100 frames to the same message still yields 2 rows");
+        vm.Latest.Select(e => e.Signal).Should().BeEquivalentTo(SpeedAndRpm);
+    }
+
+    private static readonly string[] SpeedAndRpm = new[] { "Speed", "Rpm" };
+
+    [Fact]
+    public void DrainPending_Triggers_Filter_After_Buffer_Flush()
+    {
+        // v1.2.3 PATCH-2: the v1.2.3 first cut left ApplyFilter inside
+        // ApplyEntries, so it ran on the (now-removed) dispatcher
+        // post. PATCH-2 moves ApplyFilter into the same DispatcherTimer
+        // tick that drains the buffer, so the filter is always
+        // up-to-date with whatever just landed in Latest.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.SearchText = "Rpm";
+
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+        DrainPending_ForTest(vm);
+
+        vm.FilteredSignals.Should().ContainSingle(e => e.Signal == "Rpm",
+            "after drain FilteredSignals reflects Latest under the active SearchText");
+        vm.FilteredSignals.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void ApplyFrame_Coalesces_Same_Signal_Updates_Into_Single_Upsert()
+    {
+        // The decoder runs on every frame but the per-signal value
+        // usually only changes occasionally. PATCH-2's drain batches
+        // all buffered values for a (Message, Signal) into a single
+        // Latest[i] = entry assignment, regardless of how many
+        // frames in between carried the same key. This keeps the
+        // CollectionChanged rate ≤ 30 Hz × unique-keys rather than
+        // 8 kHz × unique-keys.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+        var frame = MakeFrame(0x100, 0x10);
+
+        // First buffer + drain establishes a row.
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
+        DrainPending_ForTest(vm);
+        vm.Latest.Should().HaveCount(1);
+
+        // Now buffer many updates to the same key.
+        for (var i = 0; i < 50; i++) vm.ApplyFrame(MakeFrame(0x100, (byte)i), msg);
+        DrainPending_ForTest(vm);
+
+        vm.Latest.Should().HaveCount(1,
+            "100 buffered frames + 50 more = still 1 row; the drain coalesces by (Message, Signal)");
+    }
+
+    [Fact]
+    public void ApplyFrame_Chart_Samples_Still_Forward_To_ChartVm()
+    {
+        // The chart VM relies on every decoded signal reaching it; the
+        // v1.2.3 PATCH-2 batching must not drop chart samples. The
+        // contract is: the user adds a signal to the chart
+        // (<c>AddSignal</c>), then the drain tick appends one sample
+        // per frame; the LineSeries.Points count grows by one per
+        // drain (matching the pre-PATCH-2 contract — see
+        // SignalChartViewModelTests.AppendSample_*_Drains_To_Points).
+        var chartVm = new SignalChartViewModel();
+        chartVm.AddSignal("M1.Speed", "Speed");
+        var vm = new SignalViewModel(chartVm);
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+        var frame = MakeFrame(0x100, 0x42);
+
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
+        chartVm.DrainBufferForTest();
+
+        var series = (OxyPlot.Series.LineSeries)chartVm.PlotModel.Series[0];
+        series.Points.Should().HaveCount(1,
+            "the PATCH-2 drain tick must hand the sample to the chart VM exactly as the pre-PATCH-2 RunOnUiPost did");
+    }
+
+    // --- v1.2.3 test helpers ---
+
+    /// <summary>
+    /// Trigger the PATCH-2 drain tick from a unit test (no
+    /// <c>DispatcherTimer</c> in xUnit's MTA context). The production
+    /// path is a 33 ms <c>DispatcherTimer</c> started in the VM ctor
+    /// when an <c>Application</c> is available; the test path exposes
+    /// a single internal <c>DrainPendingForTest</c> method that does
+    /// the same work synchronously.
+    /// </summary>
+    private static void DrainPending_ForTest(SignalViewModel vm) =>
+        vm.GetType()
+          .GetMethod("DrainPendingForTest", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+          .Invoke(vm, null);
+
+    /// <summary>
+    /// PATCH-2 convenience helper: buffer a frame and drain the
+    /// pending work immediately so the test sees the post-state
+    /// synchronously. Replaces the pre-PATCH-2 "ApplyFrame mutates
+    /// <c>Latest</c> inline" contract that the v1.2.2-era tests
+    /// were written against.
+    /// </summary>
+    private static void ApplyFrame_ForTest(SignalViewModel vm, CanFrame frame, Message msg)
+    {
+        vm.ApplyFrame(frame, msg); DrainPending_ForTest(vm);
+        DrainPending_ForTest(vm);
+    }
+
+    // --- v1.2.3 dispatcher-starvation hardening (P1) ---
+
+    [Fact]
+    public void ApplyFilter_Empty_SearchText_Rebuilds_FilteredSignals_To_Match_Latest()
+    {
+        // v1.2.3: ApplyFilter must produce a FilteredSignals view that
+        // mirrors Latest when SearchText is empty. Pre-1.2.3 the
+        // contract held because ApplyFilter always rebuilt; the v1.2.3
+        // change adds throttling, so this test pins the "first rebuild
+        // is exhaustive" invariant that the throttling code must
+        // preserve.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+
+        vm.FilteredSignals.Should().HaveCount(3,
+            "empty SearchText means the filter is a pass-through");
+        vm.Latest.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void ApplyFilter_SearchText_Changed_Triggers_Rebuild()
+    {
+        // v1.2.3: changing SearchText must immediately rebuild
+        // FilteredSignals (the throttle is only for "no-op" rebuilds
+        // when the pattern is unchanged and the window has not elapsed).
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+        FilteredSignalsRebuildCount(vm).Should().Be(1, "first ApplyFilter rebuilds");
+
+        vm.SearchText = "Rpm";
+        ApplyFilter_ForTest(vm);
+
+        vm.FilteredSignals.Should().ContainSingle(e => e.Signal == "Rpm",
+            "filter must drop Speed/Temp and keep the matching Rpm row");
+        vm.FilteredSignals.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void ApplyFilter_Throttles_When_Pattern_Unchanged_And_Window_Not_Elapsed()
+    {
+        // v1.2.3 P1: at 8 kfps the pre-1.2.3 ApplyFilter rebuilt
+        // FilteredSignals on every frame, generating up to 8 000
+        // CollectionChanged events per second and saturating the WPF
+        // dispatcher. Throttling: do not rebuild if the SearchText has
+        // not changed AND the throttle window has not elapsed.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+        var before = FilteredSignalsRebuildCount(vm);
+
+        // Second ApplyFilter call within the throttle window must not
+        // rebuild. The exact throttle interval is private; what we
+        // pin is that two back-to-back calls do not both rebuild.
+        ApplyFilter_ForTest(vm);
+
+        FilteredSignalsRebuildCount(vm).Should().Be(before,
+            "back-to-back ApplyFilter with unchanged SearchText must be coalesced");
+    }
+
+    [Fact]
+    public void ApplyFilter_Rebuilds_After_SearchText_Change()
+    {
+        // v1.2.3 P1: the throttle is a window, not a one-shot. When
+        // SearchText changes, the next ApplyFilter must rebuild so
+        // the view reflects the new pattern. We exercise that
+        // escape hatch explicitly because wall-clock-based testing
+        // of the 100 ms window is flaky.
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+        var before = FilteredSignalsRebuildCount(vm);
+
+        vm.SearchText = "Sp";   // matches Speed only
+        ApplyFilter_ForTest(vm);
+
+        var after = FilteredSignalsRebuildCount(vm);
+        after.Should().BeGreaterThan(before,
+            "SearchText change must trigger exactly one additional rebuild");
+        vm.FilteredSignals.Should().ContainSingle(e => e.Signal == "Speed");
+    }
+
+    [Fact]
+    public void ApplyFilter_Throttled_Rebuild_Stays_Consistent_With_Latest()
+    {
+        // v1.2.3 P1: when a rebuild actually happens (e.g. after a
+        // SearchText change or window elapse), FilteredSignals must
+        // match Latest under the active filter — no stale rows, no
+        // missing rows. This pins the contract that the throttle
+        // does not skip a required rebuild.
+        var vm = new SignalViewModel();
+        var msg1 = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg1); DrainPending_ForTest(vm);
+        vm.SearchText = "Rpm";
+        ApplyFilter_ForTest(vm);
+
+        var msg2 = Msg(0x200, "M2", Sig("RpmMap"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x200, 0x01), msg2); DrainPending_ForTest(vm);
+        ApplyFilter_ForTest(vm);   // still throttled window after first rebuild
+
+        // Force a real rebuild via the documented SearchText-change
+        // escape hatch (change to a different non-empty pattern that
+        // still matches Rpm-prefixed rows).
+        vm.SearchText = "RpmM";
+        ApplyFilter_ForTest(vm);
+
+        vm.FilteredSignals.Should().ContainSingle(e => e.Signal == "RpmMap",
+            "after a real rebuild FilteredSignals reflects Latest under the new pattern");
+        vm.FilteredSignals.Select(e => e.Signal).Should().NotContain("Speed");
+    }
+
+    // --- v1.2.3 test helpers ---
+
+    /// <summary>
+    /// Expose the throttling logic. <c>OnSearchTextChanged</c> already
+    /// calls <c>ApplyFilter</c> for free, so a public trigger for tests
+    /// is the simplest way to drive a second/third filter pass without
+    /// having to synthesise an 8 kfps frame stream.
+    /// </summary>
+    private static void ApplyFilter_ForTest(SignalViewModel vm) =>
+        vm.GetType()
+          .GetMethod("OnSearchTextChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+          .Invoke(vm, new object[] { vm.SearchText });
+
+    /// <summary>
+    /// Read the test-visible FilteredSignals rebuild counter via
+    /// reflection. <c>ObservableCollection.Clear</c> is the only
+    /// observable side-effect of <c>ApplyFilter</c>; the counter is
+    /// the canonical hook for asserting throttling semantics in
+    /// unit tests without depending on wall-clock timing.
+    /// </summary>
+    private static int FilteredSignalsRebuildCount(SignalViewModel vm) =>
+        (int)(vm.GetType()
+                 .GetProperty("FilterRebuildCount", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                 .GetValue(vm) ?? 0);
 }
