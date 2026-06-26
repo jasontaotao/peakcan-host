@@ -1,3 +1,4 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
@@ -391,5 +392,46 @@ public class SendViewModelTests
         var vm = NewVm(new FakeSendService(), fakeCyclic);
         vm.StopCyclicCommand.Execute(null);
         fakeCyclic.StopCalled.Should().BeTrue();
+    }
+
+    // --- v1.2.11 PATCH Item 5 UI: library commands ---
+
+    [Fact]
+    public void SaveCurrentToLibrary_Appends_And_Refreshes()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.IdText = "100"; vm.DataText = "DEADBEEF";
+        vm.SaveCurrentToLibraryCommand.Execute("Door Unlock");
+        vm.Library.Should().HaveCount(1);
+        vm.Library[0].Name.Should().Be("Door Unlock");
+    }
+
+    [Fact]
+    public void LoadFromLibrary_Populates_All_Fields()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        var frame = new SendFrameLibrary.SavedFrame("X", 0x200, true, true, false, true, "AABB", DateTimeOffset.UtcNow);
+        lib.Save(new[] { frame });
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.RefreshLibraryCommand.Execute(null);
+        vm.LoadFromLibraryCommand.Execute(vm.Library[0]);
+
+        vm.IdText.Should().Be("200");
+        vm.IsExtended.Should().BeTrue();
+        vm.IsFd.Should().BeTrue();
+        vm.IsBitRateSwitch.Should().BeTrue();
+        vm.DataText.Should().Be("AABB");
+    }
+
+    [Fact]
+    public void DeleteFromLibrary_Removes_And_Refreshes()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        lib.Save(new[] { new SendFrameLibrary.SavedFrame("X", 1, false, false, false, false, "AA", DateTimeOffset.UtcNow) });
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.RefreshLibraryCommand.Execute(null);
+        vm.DeleteFromLibraryCommand.Execute(vm.Library[0]);
+        vm.Library.Should().BeEmpty();
     }
 }

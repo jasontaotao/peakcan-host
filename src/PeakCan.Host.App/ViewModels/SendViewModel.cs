@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -25,7 +26,7 @@ public sealed partial class SendViewModel : ObservableObject
 {
     private readonly SendService _svc;
     private readonly ICyclicSendService _cyclic;
-    private readonly SendFrameLibrary? _library;
+    private readonly SendFrameLibrary? _libraryService;
     private readonly ILogger<SendViewModel> _logger;
 
     [ObservableProperty]
@@ -63,6 +64,13 @@ public sealed partial class SendViewModel : ObservableObject
     [ObservableProperty]
     private long _cyclicSendCount;
 
+    // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
+    [ObservableProperty]
+    private ObservableCollection<SendFrameLibrary.SavedFrame> _library = new();
+
+    [ObservableProperty]
+    private SendFrameLibrary.SavedFrame? _selectedLibraryFrame;
+
     public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
@@ -70,7 +78,7 @@ public sealed partial class SendViewModel : ObservableObject
         _cyclic = cyclic ?? throw new ArgumentNullException(nameof(cyclic));
         // Library may be null in unit tests until Task 8 wires it up;
         // production DI provides a singleton instance.
-        _library = library;
+        _libraryService = library;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
         // the UI reflects IsRunning / SendCount without a separate event.
@@ -242,6 +250,75 @@ public sealed partial class SendViewModel : ObservableObject
         _cyclic.Stop();
         IsCyclicRunning = _cyclic.IsRunning;
         Status = $"Cyclic stopped ({CyclicSendCount} frames)";
+    }
+
+    // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.
+
+    [RelayCommand]
+    private void RefreshLibrary()
+    {
+        Library.Clear();
+        if (_libraryService is null) return;
+        foreach (var f in _libraryService.Load()) Library.Add(f);
+    }
+
+    [RelayCommand]
+    private void SaveCurrentToLibrary(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Status = "Frame name is required";
+            return;
+        }
+        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+        {
+            Status = $"Invalid ID: {IdText}";
+            return;
+        }
+        if (_libraryService is null)
+        {
+            Status = "Library unavailable";
+            return;
+        }
+        byte[] bytes;
+        try { bytes = ParseHex(DataText); }
+        catch (FormatException ex)
+        {
+            Status = $"Invalid data: {ex.Message}";
+            return;
+        }
+        var saved = new SendFrameLibrary.SavedFrame(
+            name, raw, IsExtended, IsFd, IsRtr, IsBitRateSwitch,
+            Convert.ToHexString(bytes), DateTimeOffset.UtcNow);
+        var current = _libraryService.Load().ToList();
+        current.Add(saved);
+        _libraryService.Save(current);
+        RefreshLibrary();
+        Status = $"Saved '{name}' to library";
+    }
+
+    [RelayCommand]
+    private void LoadFromLibrary(SendFrameLibrary.SavedFrame? frame)
+    {
+        if (frame is null) return;
+        IdText = frame.RawId.ToString("X", CultureInfo.InvariantCulture);
+        IsExtended = frame.IsExtended;
+        IsFd = frame.IsFd;
+        IsRtr = frame.IsRtr;
+        IsBitRateSwitch = frame.BitRateSwitch;
+        DataText = frame.DataHex;
+        Status = $"Loaded '{frame.Name}'";
+    }
+
+    [RelayCommand]
+    private void DeleteFromLibrary(SendFrameLibrary.SavedFrame? frame)
+    {
+        if (frame is null || _libraryService is null) return;
+        var current = _libraryService.Load().ToList();
+        current.RemoveAll(f => f.Name == frame.Name);
+        _libraryService.Save(current);
+        RefreshLibrary();
+        Status = $"Deleted '{frame.Name}'";
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]
