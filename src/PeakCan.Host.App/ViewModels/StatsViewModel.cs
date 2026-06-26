@@ -91,6 +91,18 @@ public sealed partial class StatsViewModel : ObservableObject
     /// </summary>
     public PlotModel PlotModel { get; }
 
+    // v1.2.7: hold direct references to the LineSeries so we can
+    // mutate series.Points explicitly. OxyPlot 2.2.0's WPF binding
+    // of LineSeries.ItemsSource to ObservableCollection<T> is
+    // broken on .NET 10 windows (the LineSeries does not render
+    // the source-collection updates, even though the binding
+    // path is technically subscribed). SignalChartViewModel uses
+    // the working pattern (series.Points.Add) which is why the
+    // Signal chart renders fine and only the Stats chart was
+    // empty. See docs/release-notes-v1.2.7.md for full diagnosis.
+    private readonly LineSeries _fpsLine;
+    private readonly LineSeries _loadLine;
+
     /// <summary>
     /// Build the VM and pre-populate the empty rolling-window series so
     /// the chart can render an empty axis range on first render.
@@ -99,9 +111,15 @@ public sealed partial class StatsViewModel : ObservableObject
     {
         // Pre-fill the rolling windows with zeros so the chart's X axis
         // renders a stable range from t=0 to t=MaxPoints even before
-        // the first 1-second timer tick arrives. OxyPlot binds the
-        // series to the source ObservableCollection via a DataPoint
-        // wrapper; using double values is the simplest contract.
+        // the first 1-second timer tick arrives.
+        //
+        // v1.2.7: we maintain TWO parallel representations of the same
+        // rolling window — FpsSeries / LoadSeries (ObservableCollection<double>,
+        // kept for backward-compat with existing tests and any external
+        // binding) and _fpsLine.Points / _loadLine.Points
+        // (OxyPlot DataPoint list, the source of truth for what the
+        // chart actually renders on .NET 10). The LineSeries no longer
+        // has an ItemsSource binding.
         for (var i = 0; i < MaxPoints; i++)
         {
             FpsSeries.Add(0.0);
@@ -139,25 +157,27 @@ public sealed partial class StatsViewModel : ObservableObject
             Title = "FPS / Load %",
         });
 
-        var fpsLine = new LineSeries
+        _fpsLine = new LineSeries
         {
             Title = "Frames / sec",
             Color = OxyColor.FromRgb(0x1F, 0x77, 0xB4),  // Tableau blue
             StrokeThickness = 1.5,
-            ItemsSource = FpsSeries,
-            // OxyPlot's LineSeries consumes INotifyCollectionChanged on
-            // its ItemsSource; adding to / clearing FpsSeries on the UI
-            // thread triggers a chart refresh.
         };
-        var loadLine = new LineSeries
+        _loadLine = new LineSeries
         {
             Title = "Bus load %",
             Color = OxyColor.FromRgb(0xD6, 0x27, 0x28),  // Tableau red
             StrokeThickness = 1.5,
-            ItemsSource = LoadSeries,
         };
-        PlotModel.Series.Add(fpsLine);
-        PlotModel.Series.Add(loadLine);
+        // Pre-fill the LineSeries Points with zeros so the X axis
+        // range is stable from t=0 to t=MaxPoints on first render.
+        for (var i = 0; i < MaxPoints; i++)
+        {
+            _fpsLine.Points.Add(new DataPoint(i, 0.0));
+            _loadLine.Points.Add(new DataPoint(i, 0.0));
+        }
+        PlotModel.Series.Add(_fpsLine);
+        PlotModel.Series.Add(_loadLine);
     }
 
     /// <summary>
@@ -189,5 +209,14 @@ public sealed partial class StatsViewModel : ObservableObject
         LoadSeries.Add(s.BusLoadPercent);
         while (FpsSeries.Count > MaxPoints) FpsSeries.RemoveAt(0);
         while (LoadSeries.Count > MaxPoints) LoadSeries.RemoveAt(0);
+        // v1.2.7: also push to the LineSeries Points. The X index is
+        // the rolling window's slot (always MaxPoints-1 for the most
+        // recent sample); the chart auto-renders the Points list.
+        // X is the sample slot, not the absolute time, so the X axis
+        // can stay in [0, MaxPoints] range.
+        _fpsLine.Points.Add(new DataPoint(MaxPoints - 1, s.FramesPerSecond));
+        while (_fpsLine.Points.Count > MaxPoints) _fpsLine.Points.RemoveAt(0);
+        _loadLine.Points.Add(new DataPoint(MaxPoints - 1, s.BusLoadPercent));
+        while (_loadLine.Points.Count > MaxPoints) _loadLine.Points.RemoveAt(0);
     }
 }
