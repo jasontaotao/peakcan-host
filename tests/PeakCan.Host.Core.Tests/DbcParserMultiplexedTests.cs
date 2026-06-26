@@ -50,6 +50,34 @@ public class DbcParserMultiplexedTests
     }
 
     [Fact]
+    public void Inline_VAL_Entries_Are_Available_In_Document_ValueTables()
+    {
+        // v1.2.9 regression test for the silent VALUE-column bug:
+        // pre-1.2.9 the parser attached the signal's ValueTableName
+        // (string) but discarded the (int -> text) entries, so the
+        // document's ValueTables dict had no entry under "State" and
+        // the Signal view's Value column showed the raw integer.
+        // After the fix, the inline pairs are collected into a
+        // ValueTable named after the signal and merged into
+        // ValueTables under the same key.
+        var src = """
+        BU_: ECU
+        BO_ 300 Msg: 8 ECU
+         SG_ State : 0|3@1+ (1,0) [0|7] ""  ECU
+
+        VAL_ 300 State 0 "Off" 1 "On" 2 "Error" ;
+        """;
+        var r = DbcParser.Parse(src);
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.ValueTables.Should().ContainKey("State");
+        var tbl = r.Value.ValueTables["State"];
+        tbl.Entries.Should().HaveCount(3);
+        tbl.Entries[0L].Should().Be("Off");
+        tbl.Entries[1L].Should().Be("On");
+        tbl.Entries[2L].Should().Be("Error");
+    }
+
+    [Fact]
     public void Reuses_VAL_TABLE_Reference_For_Signal()
     {
         var src = """
