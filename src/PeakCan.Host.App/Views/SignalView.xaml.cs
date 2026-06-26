@@ -49,13 +49,22 @@ public partial class SignalView : UserControl
     /// selection. <see cref="OnCellEditEnding"/> is kept as a
     /// belt-and-braces fallback for any future scenario where
     /// WPF's edit lifecycle does fire (e.g. keyboard activation).
+    /// <para>
+    /// v1.2.10: read the CheckBox.IsChecked UI value (just toggled by
+    /// the click) instead of SignalEntry.IsSelected. The source-side
+    /// IsSelected can lag or be stale because DrainPending replaces
+    /// the entry in Latest[i] every frame (Upsert creates a new
+    /// SignalEntry and rebinds the row's DataContext). The UI-side
+    /// IsChecked is the user's intent at the moment of the click.
+    /// </para>
     /// </summary>
     private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
     {
-        if (sender is CheckBox { DataContext: SignalEntry entry }
+        if (sender is CheckBox { IsChecked: bool isChecked } cb
+            && cb.DataContext is SignalEntry entry
             && DataContext is SignalViewModel vm)
         {
-            vm.OnSignalSelectionChanged(entry.Message, entry.Signal, entry.IsSelected);
+            vm.HandlePlotCheckboxClick(entry, isChecked);
         }
     }
 }

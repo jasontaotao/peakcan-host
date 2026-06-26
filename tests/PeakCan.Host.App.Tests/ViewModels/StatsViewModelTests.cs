@@ -1,5 +1,6 @@
 using FluentAssertions;
 using OxyPlot;
+using OxyPlot.Legends;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.Infrastructure.Statistics;
@@ -138,5 +139,40 @@ public class StatsViewModelTests
         // No exception + totals updated = inline path worked.
         vm.TotalFrames.Should().Be(100);
         vm.FpsSeries[^1].Should().Be(50.0);
+    }
+
+    [Fact]
+    public void Apply_Increments_InvalidatePlotCallCount()
+    {
+        // v1.2.10 PATCH: v1.2.9 fixed the X-index collapse but missed
+        // PlotModel.InvalidatePlot(updateData: true) at the end of
+        // Apply. OxyPlot 2.2.0 WPF does NOT auto-redraw on a manual
+        // LineSeries.Points.Clear+Add, so the chart stays frozen on
+        // the first render even though new samples stream in. The
+        // Updated event is a no-op from InvalidatePlot without an
+        // attached IPlotView, so we use a deterministic internal
+        // counter — mirrors the project's existing test-hook pattern
+        // (SignalViewModel.FilterRebuildCount / DrainCount).
+        var vm = new StatsViewModel();
+        Assert.Equal(0, vm.InvalidatePlotCallCount);
+
+        // Inline Apply path: test context has no Application, so
+        // RunOnUiPost falls through to the synchronous Action invoke.
+        vm.Push(MakeSnap(total: 1, errors: 0, fps: 100.0, bytes: 0, bps: 0, load: 5.0));
+
+        Assert.True(vm.InvalidatePlotCallCount >= 1,
+            $"Expected Apply to call InvalidatePlot at least once; got {vm.InvalidatePlotCallCount}.");
+    }
+
+    [Fact]
+    public void Constructor_Adds_Legend_To_PlotModel()
+    {
+        // Arrange + Act
+        var vm = new StatsViewModel();
+
+        // Assert
+        Assert.NotEmpty(vm.PlotModel.Legends);
+        var legend = vm.PlotModel.Legends[0];
+        Assert.Equal(LegendPlacement.Outside, legend.LegendPlacement);
     }
 }
