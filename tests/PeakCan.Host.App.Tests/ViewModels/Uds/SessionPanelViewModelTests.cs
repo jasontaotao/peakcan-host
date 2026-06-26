@@ -132,6 +132,26 @@ public sealed class SessionPanelViewModelTests
     }
 
     [Fact]
+    public void Dispose_Resets_TesterPresentActive_To_False()
+    {
+        // Bug (v1.2.x PATCH backlog): Dispose() cancels and disposes the CTS
+        // but leaves the public TesterPresentActive flag stuck at true. After
+        // disposal, downstream observers see a stale "running" state even
+        // though the background loop has been cancelled. Fix: Dispose() must
+        // also reset TesterPresentActive to false.
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        // Start the tester-present loop so TesterPresentActive flips to true.
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue();
+
+        vm.Dispose();
+
+        vm.TesterPresentActive.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task SecurityAccessCommand_With_Placeholder_Algorithm_Logs_HintMessage_DoesNotCrash()
     {
         var fake = new RecordingUdsClient { SecurityAccessThrowsInvalidOp = true };

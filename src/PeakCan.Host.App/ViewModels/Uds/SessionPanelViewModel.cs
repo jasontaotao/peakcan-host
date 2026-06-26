@@ -136,6 +136,11 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
 
     public void Dispose()
     {
+        // Reset the public flag BEFORE cancelling the CTS so observers see
+        // TesterPresentActive flip to false before the background loop
+        // observes cancellation. Without this, callers that read the flag
+        // after Dispose would see a stale "running" state.
+        TesterPresentActive = false;
         _testerPresentCts?.Cancel();
         _testerPresentCts?.Dispose();
         _testerPresentCts = null;
