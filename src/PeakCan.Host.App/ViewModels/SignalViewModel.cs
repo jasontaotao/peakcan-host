@@ -194,21 +194,36 @@ public sealed partial class SignalViewModel : ObservableObject, IDisposable
         var pending = new List<SignalEntry>(msg.Signals.Count);
 
         // v0.6.0: extract multiplexor value if present.
+        //
+        // v1.2.8: multiplexor matching must use the wire-level raw
+        // bit pattern, not the scaled engineering value. The previous
+        // code cast the physical (factor+offset applied) to ushort,
+        // which broke multiplexing on any signal with non-default
+        // factor/offset (e.g. Factor=0.1, Offset=0 → physical=0 for
+        // raw=0, but raw=0 is the only valid mux value 0; for
+        // raw=5, physical=0.5, casting to ushort = 0, which would
+        // erroneously match a mux=0 sub-signal). Use DecodeRaw
+        // (returns the bit pattern) for mux comparison.
         ushort? muxValue = null;
         if (msg.MultiplexorSignalIndex is { } muxIdx && muxIdx < msg.Signals.Count)
         {
             var muxSig = msg.Signals[muxIdx];
-            muxValue = (ushort)SignalDecoder.Decode(span, muxSig);
-            // Also add the multiplexor signal itself as a row.
-            var muxRaw = SignalDecoder.Decode(span, muxSig);
+            var muxRawBits = SignalDecoder.DecodeRaw(span, muxSig);
+            muxValue = (ushort)muxRawBits;
+            var muxPhysical = SignalDecoder.Decode(span, muxSig);
             pending.Add(new SignalEntry
             {
                 Message = msg.Name,
                 Signal = muxSig.Name,
-                Raw = $"0x{muxRaw.ToString("F0", CultureInfo.InvariantCulture)}",
-                Physical = muxRaw.ToString("0.###", CultureInfo.InvariantCulture),
+                // v1.2.8: Raw shows the wire bit pattern (hex), Physical
+                // shows the engineering value. Pre-1.2.8 the Raw column
+                // was bugged: it formatted the physical value as hex
+                // with F0, which rounded sub-1 physicals to "0" and
+                // mismatched the displayed Physical value.
+                Raw = FormatRawHex(muxRawBits),
+                Physical = muxPhysical.ToString("0.###", CultureInfo.InvariantCulture),
                 Unit = muxSig.Unit,
-                ValueTableName = ResolveValueTableName(muxSig, muxRaw),
+                ValueTableName = ResolveValueTableName(muxSig, (long)muxRawBits),
             });
         }
 
@@ -224,15 +239,16 @@ public sealed partial class SignalViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            var raw = SignalDecoder.Decode(span, sig);
+            var rawBits = SignalDecoder.DecodeRaw(span, sig);
+            var physical = SignalDecoder.Decode(span, sig);
             pending.Add(new SignalEntry
             {
                 Message = msg.Name,
                 Signal = sig.Name,
-                Raw = $"0x{raw.ToString("F0", CultureInfo.InvariantCulture)}",
-                Physical = raw.ToString("0.###", CultureInfo.InvariantCulture),
+                Raw = FormatRawHex(rawBits),
+                Physical = physical.ToString("0.###", CultureInfo.InvariantCulture),
                 Unit = sig.Unit,
-                ValueTableName = ResolveValueTableName(sig, raw),
+                ValueTableName = ResolveValueTableName(sig, (long)rawBits),
             });
         }
         if (pending.Count == 0) return;
@@ -383,6 +399,15 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     /// <see cref="DbcViewModel"/> after a successful DBC load.
     /// </summary>
     internal void SetDbcService(DbcService dbc) => _dbc = dbc;
+
+    /// <summary>
+    /// v1.2.8: format a <see cref="SignalDecoder.DecodeRaw"/> bit
+    /// pattern as uppercase hex. Width is the natural bit width of
+    /// the pattern (no leading zeros) — 1-2 digit values display as
+    /// "0x5", 32-bit IEEE-754 patterns display as "0x3F800000".
+    /// </summary>
+    private static string FormatRawHex(ulong rawBits)
+        => "0x" + rawBits.ToString("X", CultureInfo.InvariantCulture);
 
     private DbcService? _dbc;
 

@@ -22,6 +22,58 @@ namespace PeakCan.Host.Core.Dbc;
 public static class SignalDecoder
 {
     /// <summary>
+    /// Extract the raw bit pattern of <paramref name="signal"/> from
+    /// <paramref name="data"/> without applying the DBC <c>factor</c> /
+    /// <c>offset</c>. Use this for the "Raw" column display and for
+    /// multiplexor-value comparison (multiplexor matching must use the
+    /// wire-level bit pattern, not the scaled engineering value, per
+    /// DBC convention).
+    /// <para>
+    /// The return value is the unsigned bit pattern, masked to the
+    /// signal's bit width. For <see cref="ValueType.Signed"/> signals
+    /// the bit pattern is the two's-complement representation (e.g. an
+    /// 8-bit signed -1 returns <c>0xFF</c>); callers wanting the signed
+    /// value should cast the pattern to <c>long</c> with sign extension
+    /// or use <see cref="Decode"/> for the engineering value.
+    /// </para>
+    /// </summary>
+    /// <param name="data">CAN frame payload bytes.</param>
+    /// <param name="signal">Signal definition extracted from the DBC.</param>
+    /// <returns>Raw bit pattern (unsigned, masked to signal bit width).
+    /// For <see cref="ValueType.Float"/> the lower 32 bits are the
+    /// IEEE-754 single-precision bit pattern. Returns 0 if the signal
+    /// length is 0.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="signal"/>.Length &gt; 64.
+    /// </exception>
+    public static ulong DecodeRaw(ReadOnlySpan<byte> data, Signal signal)
+    {
+        ArgumentNullException.ThrowIfNull(signal);
+        if (signal.Length == 0) return 0UL;
+        if (signal.Length > 64)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(signal), signal.Length,
+                "Signal > 64 bits not supported in MVP (CAN FD max payload is 64 bytes).");
+        }
+
+        ulong raw = signal.Order == ByteOrder.LittleEndian
+            ? ReadLittleEndian(data, signal.StartBit, signal.Length)
+            : ReadBigEndian(data, signal.StartBit, signal.Length);
+
+        return signal.ValueType switch
+        {
+            ValueType.Unsigned => raw,
+            // Mask to the signal's bit width so a Signed 8-bit -1 returns
+            // 0xFF (the bit pattern), not 0xFFFFFFFFFFFFFFFF (sign-extended).
+            ValueType.Signed => (ulong)SignExtend(raw, signal.Length) & ((1UL << signal.Length) - 1UL),
+            ValueType.Float => raw & 0xFFFFFFFFUL,
+            ValueType.Double => raw,
+            _ => raw,
+        };
+    }
+
+    /// <summary>
     /// Decode <paramref name="signal"/> from <paramref name="data"/>.
     /// </summary>
     /// <param name="data">CAN frame payload bytes (up to 8 for classic CAN, up to 64 for CAN FD).</param>
