@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
@@ -29,7 +29,7 @@ namespace PeakCan.Host.App.Services;
 /// thread starts on <see cref="BackgroundService.StartAsync"/>).
 /// </para>
 /// </summary>
-public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
+public sealed partial class DbcDecodeBackgroundService : BackgroundService, IFrameSink
 {
     /// <summary>Bounded capacity; matches TraceService's drop semantics.</summary>
     private const int DecodeQueueCapacity = 10_000;
@@ -37,14 +37,20 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
     private readonly DbcService _dbc;
     private readonly SignalViewModel _signalVm;
     private readonly TraceViewModel _traceVm;
+    private readonly ILogger<DbcDecodeBackgroundService> _logger;
     private readonly Channel<CanFrame> _queue = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(DecodeQueueCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
 
-    public DbcDecodeBackgroundService(DbcService dbc, SignalViewModel signalVm, TraceViewModel traceVm)
+    public DbcDecodeBackgroundService(
+        DbcService dbc,
+        SignalViewModel signalVm,
+        TraceViewModel traceVm,
+        ILogger<DbcDecodeBackgroundService> logger)
     {
         _dbc = dbc ?? throw new ArgumentNullException(nameof(dbc));
         _signalVm = signalVm ?? throw new ArgumentNullException(nameof(signalVm));
         _traceVm = traceVm ?? throw new ArgumentNullException(nameof(traceVm));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -54,11 +60,10 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
     /// </summary>
     public void OnFrame(CanFrame frame) => _queue.Writer.TryWrite(frame);
 
-    /// <summary>Per-sink error hook — logged via Debug.WriteLine.</summary>
+    /// <summary>Sink-isolation hook — logs via ILogger. Debug.WriteLine stripped in Release builds; ILogger is not.</summary>
     public void OnError(Exception ex)
     {
-        Debug.WriteLine(
-            $"[DbcDecodeBackgroundService] forwarded error (no action): {ex.GetType().Name}: {ex.Message}");
+        LogSinkError(_logger, ex, nameof(DbcDecodeBackgroundService));
     }
 
     /// <summary>
@@ -154,4 +159,10 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
         }
         return string.Join(", ", parts);
     }
+
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
+    // Debug.WriteLine was stripped in Release builds, leaving production
+    // with no record of forwarded errors. EventId 6002.
+    [LoggerMessage(EventId = 6002, Level = LogLevel.Warning, Message = "{Service} OnError forwarded")]
+    private static partial void LogSinkError(ILogger logger, Exception ex, string service);
 }

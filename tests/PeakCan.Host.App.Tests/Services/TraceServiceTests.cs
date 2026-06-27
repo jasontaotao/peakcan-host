@@ -1,5 +1,7 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
@@ -237,5 +239,26 @@ public class TraceServiceTests
         var act = () => service.OnFrame(MakeFrame(0x200, 0x42));
 
         act.Should().NotThrow();
+    }
+
+    // ===== v1.2.12 PATCH Item 11: sink OnError → ILogger =====
+
+    [Fact]
+    public void OnError_Calls_ILogger_LogWarning()
+    {
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        var logger = Substitute.For<ILogger<TraceService>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+        var svc = new TraceService(new TraceViewModel(), logger);
+        var ex = new InvalidOperationException("test");
+
+        svc.OnError(ex);
+
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            ex,
+            Arg.Any<Func<object, Exception?, string>>());
     }
 }

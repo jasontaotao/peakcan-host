@@ -56,7 +56,12 @@ public static class AppHostBuilder
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
 
         // Core infrastructure
-        builder.Services.AddSingleton<ChannelRouter>();
+        // v1.2.12 PATCH Item 11: ChannelRouter now accepts an ILogger<ChannelRouter>
+        // so the secondary OnError catch (which auto-detaches misbehaving sinks)
+        // is observable in Release builds. The logger is optional in the ctor
+        // (NullLogger fallback) but production DI always wires one.
+        builder.Services.AddSingleton<ChannelRouter>(sp =>
+            new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
         builder.Services.AddSingleton<BusStatisticsCollector>();
         // Task 18: extracted PEAK SDK probe call into a swappable
         // service so the App assembly has no Peak.Can.Basic dependency
@@ -81,7 +86,15 @@ public static class AppHostBuilder
                                       PeakCan.Host.Infrastructure.Peak.PcanReader>();
 
         // App services
-        builder.Services.AddSingleton<TraceService>();
+        // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
+        // so its OnError path is observable in Release builds (Debug.WriteLine
+        // was previously stripped). Production DI resolves the logger from
+        // the host's LoggingServiceCollection; NullLogger fallback exists
+        // for tests that do not assert on log output.
+        builder.Services.AddSingleton<TraceService>(sp =>
+            new TraceService(
+                sp.GetRequiredService<TraceViewModel>(),
+                sp.GetRequiredService<ILogger<TraceService>>()));
         // TraceService is a BackgroundService; its 50ms drain loop lives in
         // ExecuteAsync and only fires when the host starts it. Without this
         // AddHostedService line, frames pile up in the bounded channel and
@@ -126,11 +139,14 @@ public static class AppHostBuilder
         // (so BackgroundService.StartAsync fires the worker loop).
         // v1.2.11 PATCH Item 2: factory takes TraceViewModel for fan-out
         // (worker fills entry.Decoded after looking up PendingDecode).
+        // v1.2.12 PATCH Item 11: factory now also takes ILogger so OnError
+        // is observable in Release builds.
         builder.Services.AddSingleton<DbcDecodeBackgroundService>(sp =>
             new DbcDecodeBackgroundService(
                 sp.GetRequiredService<DbcService>(),
                 sp.GetRequiredService<SignalViewModel>(),
-                sp.GetRequiredService<TraceViewModel>()));
+                sp.GetRequiredService<TraceViewModel>(),
+                sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
         // v1.0.0: Scripting engine.

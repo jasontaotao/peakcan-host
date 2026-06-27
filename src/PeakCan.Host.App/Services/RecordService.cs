@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
@@ -185,11 +184,10 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
         }
     }
 
-    /// <summary>Sink-isolation hook — no action needed for recording.</summary>
+    /// <summary>Sink-isolation hook — logs via ILogger. Debug.WriteLine stripped in Release builds; ILogger is not.</summary>
     public void OnError(Exception ex)
     {
-        Debug.WriteLine(
-            $"[RecordService] forwarded error (no action): {ex.GetType().Name}: {ex.Message}");
+        LogSinkError(_logger, ex, nameof(RecordService));
     }
 
     /// <summary>
@@ -340,4 +338,11 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Frame write failed (recording continues)")]
     private static partial void LogFrameWriteFailed(ILogger logger, Exception ex);
+
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
+    // Debug.WriteLine was stripped in Release builds (DEBUG not defined),
+    // leaving production with no record of forwarded errors. Per service
+    // EventId (6001) keeps the telemetry stream unambiguous.
+    [LoggerMessage(EventId = 6001, Level = LogLevel.Warning, Message = "{Service} OnError forwarded")]
+    private static partial void LogSinkError(ILogger logger, Exception ex, string service);
 }

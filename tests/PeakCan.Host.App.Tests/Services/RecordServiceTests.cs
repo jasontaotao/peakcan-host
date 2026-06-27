@@ -1,5 +1,6 @@
 using System.IO;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services;
@@ -201,6 +202,27 @@ public class RecordServiceTests : IAsyncLifetime, IDisposable
     {
         _svc.OnFrame(MakeFrame()); // must not throw
         _svc.FrameCount.Should().Be(0);
+    }
+
+    // ===== v1.2.12 PATCH Item 11: sink OnError → ILogger =====
+
+    [Fact]
+    public void OnError_Calls_ILogger_LogWarning()
+    {
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<RecordService>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+        var svc = new RecordService(logger);
+        var ex = new InvalidOperationException("test");
+
+        svc.OnError(ex);
+
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            ex,
+            Arg.Any<Func<object, Exception?, string>>());
     }
 }
 

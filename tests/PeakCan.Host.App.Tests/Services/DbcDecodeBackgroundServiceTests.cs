@@ -1,5 +1,7 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
@@ -68,7 +70,7 @@ public class DbcDecodeBackgroundServiceTests
         dbc.SetCurrentForTests(DocWithOneSignal());
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -108,7 +110,7 @@ public class DbcDecodeBackgroundServiceTests
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -175,7 +177,7 @@ public class DbcDecodeBackgroundServiceTests
         dbc.SetCurrentForTests(DocWithOneExtendedSignal());
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -231,7 +233,7 @@ public class DbcDecodeBackgroundServiceTests
         traceVm.RegisterForTesting(
             new TraceEntryKey(0x100, 0UL, 0x51), entry);
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -280,7 +282,7 @@ public class DbcDecodeBackgroundServiceTests
         traceVm.RegisterForTesting(
             new TraceEntryKey(0x555, 0UL, 0x51), entry);
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -314,7 +316,7 @@ public class DbcDecodeBackgroundServiceTests
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();   // empty — no pending entries
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -340,5 +342,29 @@ public class DbcDecodeBackgroundServiceTests
         {
             await svc.StopAsync(CancellationToken.None);
         }
+    }
+
+    // ===== v1.2.12 PATCH Item 11: sink OnError → ILogger =====
+
+    [Fact]
+    public void OnError_Calls_ILogger_LogWarning()
+    {
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        var logger = Substitute.For<ILogger<DbcDecodeBackgroundService>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, logger);
+        var ex = new InvalidOperationException("test");
+
+        svc.OnError(ex);
+
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            ex,
+            Arg.Any<Func<object, Exception?, string>>());
     }
 }

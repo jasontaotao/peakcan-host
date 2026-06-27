@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.Channel;
@@ -42,12 +44,13 @@ namespace PeakCan.Host.App.Services;
 /// frame forwarder with respect to the trace VM.
 /// </para>
 /// </summary>
-public sealed class TraceService : BackgroundService, IFrameSink
+public sealed partial class TraceService : BackgroundService, IFrameSink
 {
     /// <summary>Bounded channel capacity. At 1 Mbps / 8 byte classic, 10 000 frames ≈ 1.25 s of buffering.</summary>
     private const int BatchCapacity = 10_000;
 
     private readonly TraceViewModel _vm;
+    private readonly ILogger<TraceService> _logger;
     private readonly Channel<CanFrame> _batch = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(BatchCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
 
@@ -67,11 +70,15 @@ public sealed class TraceService : BackgroundService, IFrameSink
     /// <summary>
     /// Construct a service bound to <paramref name="vm"/>. The DBC
     /// decode fan-out is wired separately via
-    /// <see cref="DbcDecodeBackgroundService"/>.
+    /// <see cref="DbcDecodeBackgroundService"/>. <paramref name="logger"/>
+    /// is optional only for backward compatibility with existing test
+    /// fixtures that do not assert on the logger; production DI always
+    /// passes one.
     /// </summary>
-    public TraceService(TraceViewModel vm)
+    public TraceService(TraceViewModel vm, ILogger<TraceService>? logger = null)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
+        _logger = logger ?? NullLogger<TraceService>.Instance;
     }
 
     /// <summary>
@@ -145,13 +152,17 @@ public sealed class TraceService : BackgroundService, IFrameSink
     /// downstream consumer — the originating sink's failure is the
     /// router's concern, not ours. TraceService no longer participates
     /// in the DBC-decode fan-out (that work moved to
-    /// <see cref="DbcDecodeBackgroundService"/>); this hook is kept
-    /// for interface compliance and the same debug-log pattern as the
-    /// statistics collector.
+    /// <see cref="DbcDecodeBackgroundService"/>); this hook logs the
+    /// forwarded error via ILogger so Release builds have a record.
     /// </summary>
     public void OnError(Exception ex)
     {
-        Debug.WriteLine(
-            $"[TraceService] forwarded exception (informational, no action taken): {ex.GetType().Name}: {ex.Message}");
+        LogSinkError(_logger, ex, nameof(TraceService));
     }
+
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
+    // Debug.WriteLine was stripped in Release builds, leaving production
+    // with no record of forwarded errors. EventId 6003.
+    [LoggerMessage(EventId = 6003, Level = LogLevel.Warning, Message = "{Service} OnError forwarded")]
+    private static partial void LogSinkError(ILogger logger, Exception ex, string service);
 }
