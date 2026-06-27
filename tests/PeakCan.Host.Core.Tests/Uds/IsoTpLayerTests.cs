@@ -321,6 +321,17 @@ public sealed class IsoTpLayerTests
             0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5,
             0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
             0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6);
+
+        // Assert the deferred-Dispose path was actually taken at least
+        // once during this churn. The Increment in CancelReceiveWatchdog
+        // fires synchronously on every re-arm (FF1→FF2 in this test
+        // triggers at least one Cancel), so the counter must be > 0.
+        // This catches a silent regression where the test passes on
+        // timing but the deferred-Dispose code path is no longer
+        // exercised (e.g. someone replaces the ThreadPool.QueueUserWorkItem
+        // with a synchronous Dispose).
+        iso._watchdogDisposalDeferredCount.Should().BeGreaterThan(0,
+            "the watchdog CTS must have been deferred to ThreadPool for Dispose (race-fix path)");
     }
 
     // ========================================================================

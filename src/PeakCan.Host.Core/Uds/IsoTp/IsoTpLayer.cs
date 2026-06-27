@@ -52,6 +52,29 @@ public sealed partial class IsoTpLayer : IDisposable
     /// holding _rxLock when we cancel; the synchronous Dispose was
     /// racing it). Generation + RefCount let a new handle replace the
     /// old one without prematurely disposing the in-flight CTS.
+    ///
+    /// Two distinct re-arm scenarios are protected by different
+    /// mechanisms:
+    /// <list type="bullet">
+    ///   <item>CF→CF re-arm (HandleConsecutiveFrame fires
+    ///         StartReceiveWatchdog again with a NEW generation): the
+    ///         Generation check inside the Register callback prevents
+    ///         the OLD CF watchdog from clearing the NEW CF's buffer —
+    ///         each CF re-arm bumps Generation (the per-arm value comes
+    ///         from <c>_rxExpectedSequence</c>, which changes on every
+    ///         CF boundary).</item>
+    ///   <item>FF→FF interruption (HandleFirstFrame cancels the old FF
+    ///         watchdog and installs a NEW one BEFORE the old one fires):
+    ///         BOTH FFs share Generation=1 (FF always re-arms at gen 1)
+    ///         so the Generation check is a no-op here. Instead,
+    ///         CancelReceiveWatchdog sets <c>_rxWatchdog = null</c> under
+    ///         <c>_rxLock</c> BEFORE calling <c>old.Cts.Cancel()</c>; the
+    ///         old Register callback (still queued by the cancellation
+    ///         propagation) then takes <c>_rxLock</c>, finds
+    ///         <c>_rxWatchdog == null</c>, and short-circuits without
+    ///         touching <c>_rxInProgress</c> / <c>_rxBuffer</c> of the
+    ///         new FF.</item>
+    /// </list>
     /// </summary>
     private WatchdogHandle? _rxWatchdog;
 
@@ -74,6 +97,18 @@ public sealed partial class IsoTpLayer : IDisposable
 #pragma warning restore CA1001
     {
         public readonly CancellationTokenSource Cts;
+        /// <summary>
+        /// CF→CF re-arm marker. Each CF re-arm
+        /// (<see cref="HandleConsecutiveFrame"/> calling
+        /// <c>StartReceiveWatchdog</c>) bumps this to a fresh value
+        /// (sourced from <c>_rxExpectedSequence</c>) so an in-flight
+        /// Register callback for the previous CF's watchdog can tell it
+        /// has been superseded. NOTE: this Generation check is the
+        /// only protection for the CF→CF re-arm path. The FF→FF
+        /// interruption path does NOT rely on Generation (both FFs
+        /// share gen 1) — see the <c>_rxWatchdog</c> field doc for the
+        /// null-state guard that protects FF→FF.
+        /// </summary>
         public readonly int Generation;
         public int RefCount;
 
@@ -81,7 +116,11 @@ public sealed partial class IsoTpLayer : IDisposable
         {
             Cts = new CancellationTokenSource();
             Generation = generation;
-            RefCount = 1;
+            // RefCount starts at 0; CancelReceiveWatchdog does +1 (0→1) and
+            // the ThreadPool worker does -1 (1→0) then Disposes the CTS.
+            // The handle is "armed" by being published to _rxWatchdog, not
+            // by RefCount itself.
+            RefCount = 0;
         }
     }
 
