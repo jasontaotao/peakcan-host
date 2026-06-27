@@ -216,3 +216,137 @@ public sealed class UdsClientTests
         resp.Should().Equal(0xF1, 0x90, 0x41);
     }
 }
+
+/// <summary>
+/// Cross-thread visibility tests for <see cref="UdsClient"/>'s pending
+/// response correlation fields (Item 14, v1.2.12 PATCH).
+/// <para>
+/// <see cref="UdsClient"/>'s internal <c>_responseTcs</c> and
+/// <c>_responseCts</c> fields are written by the request thread and read by
+/// the <c>OnMessageReceived</c> callback thread. Without <c>volatile</c> /
+/// <see cref="Volatile.Read"/>, the JIT may hoist or cache the field across
+/// threads, causing lost wake-ups or mismatched response correlation. These
+/// tests assert the field is observable as null from a reader thread once
+/// the request has finished.
+/// </para>
+/// </summary>
+public sealed class UdsClientVolatileTests
+{
+    private const uint ReqId = 0x7E0;
+    private const uint RespId = 0x7E8;
+
+    private static (IsoTpLayer iso, ObservableCollection<byte[]> sent) NewIso()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = new IsoTpLayer(
+            new CanIdConfig { RequestId = ReqId, ResponseId = RespId },
+            frame => sent.Add(frame.Data.ToArray()));
+        return (iso, sent);
+    }
+
+    private static void EcuRespond(IsoTpLayer iso, byte[] payload)
+    {
+        var isoFrame = new IsoTpFrame(IsoTpFrameType.Single, data: payload);
+        var canData = isoFrame.Encode();
+        iso.ProcessFrame(new CanFrame(
+            new CanId(RespId, FrameFormat.Standard),
+            canData, FrameFlags.None, default, default));
+    }
+
+    private static T? ReadField<T>(UdsClient c, string name) where T : class
+    {
+        var f = typeof(UdsClient).GetField(
+            name,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        // Thread.MemoryBarrier pairs with the writer's write — without
+        // volatile / Volatile.Write, the reader can observe a stale value
+        // on weak memory models (ARM, weakly-ordered x86). With the fix,
+        // the write is released and the load acquires.
+        Thread.MemoryBarrier();
+        return (T?)f?.GetValue(c);
+    }
+
+    [Fact]
+    public async Task ResponseTcs_Assignment_Is_Visible_Across_Threads()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso);
+
+        // The reader thread must observe at least one non-null value (a
+        // request was in-flight) and then a null value after the
+        // request's finally runs. With the volatile modreq / Volatile.Write
+        // the post-finally null is released so any reader acquires it.
+        var sawNonNull = false;
+        var sawNull = false;
+        using var stop = new ManualResetEventSlim(false);
+        var reader = Task.Run(() =>
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (ReadField<TaskCompletionSource<byte[]>>(client, "_responseTcs") is null)
+                {
+                    if (sawNonNull) { sawNull = true; return; }
+                }
+                else
+                {
+                    sawNonNull = true;
+                }
+                Thread.Yield();
+            }
+            stop.Set();
+        });
+
+        // Fire a request that completes via a normal positive response.
+        var task = client.SendRequestAsync(0x22, new byte[] { 0xF1, 0x90 });
+        // Give the reader a moment to observe the non-null state.
+        await Task.Delay(50);
+        EcuRespond(iso, new byte[] { 0x62, 0xF1, 0x90, 0x41 });
+        (await task.WaitAsync(TimeSpan.FromSeconds(2))).Should().Equal(0xF1, 0x90, 0x41);
+
+        await reader.WaitAsync(TimeSpan.FromSeconds(3));
+        sawNonNull.Should().BeTrue(
+            "reader thread should have observed _responseTcs as non-null while the request was in-flight");
+        sawNull.Should().BeTrue(
+            "OnMessageReceived reads _responseTcs from the ISO-TP dispatcher thread; " +
+            "the field must be volatile so the post-finally null write is observed");
+    }
+
+    [Fact]
+    public async Task ResponseCts_Assignment_Is_Visible_Across_Threads()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var sawNonNull = false;
+        var sawNull = false;
+        var reader = Task.Run(() =>
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (ReadField<CancellationTokenSource>(client, "_responseCts") is null)
+                {
+                    if (sawNonNull) { sawNull = true; return; }
+                }
+                else
+                {
+                    sawNonNull = true;
+                }
+                Thread.Yield();
+            }
+        });
+
+        var task = client.SendRequestAsync(0x22, new byte[] { 0xF1, 0x90 });
+        await Task.Delay(50);
+        EcuRespond(iso, new byte[] { 0x62, 0xF1, 0x90, 0x41 });
+        (await task.WaitAsync(TimeSpan.FromSeconds(2))).Should().Equal(0xF1, 0x90, 0x41);
+
+        await reader.WaitAsync(TimeSpan.FromSeconds(3));
+        sawNonNull.Should().BeTrue(
+            "reader thread should have observed _responseCts as non-null while the request was in-flight");
+        sawNull.Should().BeTrue(
+            "SendRequestInternalAsync's finally writes _responseCts = null; " +
+            "the field must be volatile so the post-finally null is observable from the reader thread");
+    }
+}

@@ -17,7 +17,16 @@ public class UdsClient : IDisposable
     private readonly UdsTimer _timer;
     private readonly SemaphoreSlim _requestLock = new(1, 1);
 
-    // Response correlation
+    // Response correlation. v1.2.12 Item 14: all accesses go through
+    // Volatile.Read / Volatile.Write so the OnMessageReceived callback
+    // thread always observes the most recent value written by the
+    // request thread — without the fence the JIT may hoist or cache the
+    // read across threads, leading to lost wake-ups or mismatched
+    // response correlation. (The field is not declared `volatile` to
+    // avoid the C# CS0420 warning "a reference to a volatile field will
+    // not be treated as volatile" when the explicit Volatile.Read/Write
+    // APIs are used; either alone is sufficient, both is redundant and
+    // triggers the diagnostic.)
     private TaskCompletionSource<byte[]>? _responseTcs;
     private CancellationTokenSource? _responseCts;
 
@@ -404,7 +413,7 @@ public class UdsClient : IDisposable
     {
         _isoTp.MessageReceived -= OnMessageReceived;
         _requestLock.Dispose();
-        _responseCts?.Dispose();
+        Volatile.Read(ref _responseCts)?.Dispose();
         Session.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -412,8 +421,8 @@ public class UdsClient : IDisposable
     private async Task<byte[]> SendRequestInternalAsync(byte[] request, CancellationToken ct)
     {
         _pendingRequestSid = request[0];
-        _responseTcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _responseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Volatile.Write(ref _responseTcs, new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously));
+        Volatile.Write(ref _responseCts, CancellationTokenSource.CreateLinkedTokenSource(ct));
 
         // Register timeout
         _responseCts.CancelAfter(_timer.P2Timeout);
@@ -433,8 +442,13 @@ public class UdsClient : IDisposable
         }
         finally
         {
-            _responseCts.Dispose();
-            _responseCts = null;
+            // Item 14: Volatile.Write releases the null assignment to all
+            // reader threads (e.g. OnMessageReceived callback), even on
+            // weak memory models.
+            var cts = Volatile.Read(ref _responseCts);
+            Volatile.Write(ref _responseCts, null);
+            Volatile.Write(ref _responseTcs, null);
+            cts?.Dispose();
         }
     }
 
@@ -444,6 +458,11 @@ public class UdsClient : IDisposable
             return;
 
         byte sid = data[0];
+
+        // Item 14: acquire-load the pending response handles. Without
+        // Volatile.Read the JIT may have cached or hoisted the read.
+        var tcs = Volatile.Read(ref _responseTcs);
+        var cts = Volatile.Read(ref _responseCts);
 
         // Check for negative response (0x7F)
         if (sid == 0x7F && data.Length >= 3)
@@ -455,12 +474,12 @@ public class UdsClient : IDisposable
             if (nrc == 0x78)
             {
                 // Extend timeout to P2*
-                _responseCts?.CancelAfter(_timer.P2StarTimeout);
+                cts?.CancelAfter(_timer.P2StarTimeout);
                 return;
             }
 
             // Other NRCs: complete with error
-            _responseTcs?.TrySetException(new UdsNegativeResponseException(requestedSid, (UdsNegativeResponseCode)nrc));
+            tcs?.TrySetException(new UdsNegativeResponseException(requestedSid, (UdsNegativeResponseCode)nrc));
             return;
         }
 
@@ -474,7 +493,7 @@ public class UdsClient : IDisposable
             if (sid != expectedPositiveSid)
                 return;
 
-            _responseTcs?.TrySetResult(data[1..]);
+            tcs?.TrySetResult(data[1..]);
         }
     }
 }
