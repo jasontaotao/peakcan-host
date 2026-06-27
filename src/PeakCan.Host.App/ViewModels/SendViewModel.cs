@@ -307,11 +307,21 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         var saved = new SendFrameLibrary.SavedFrame(
             name, raw, IsExtended, IsFd, IsRtr, IsBitRateSwitch,
             Convert.ToHexString(bytes), DateTimeOffset.UtcNow);
-        var current = _libraryService.Load().ToList();
-        current.Add(saved);
-        _libraryService.Save(current);
-        RefreshLibrary();
-        Status = $"Saved '{name}' to library";
+        // v1.2.12 PATCH Item 1: route through the atomic Add so concurrent
+        // Save calls (e.g. double-clicked button) don't drop each other's
+        // read-modify-write. Catch IO / JSON exceptions and surface as a
+        // FAIL status rather than letting them escape the WPF dispatcher.
+        try
+        {
+            _libraryService.Add(saved);
+            RefreshLibrary();
+            Status = $"Saved '{name}' to library ({_libraryService.Count} frames).";
+        }
+        catch (Exception ex)
+        {
+            Status = $"FAIL: Save '{name}' to library: {ex.Message}";
+            LogSaveToLibraryFailed(_logger, ex, name);
+        }
     }
 
     [RelayCommand]
@@ -331,11 +341,27 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
     private void DeleteFromLibrary(SendFrameLibrary.SavedFrame? frame)
     {
         if (frame is null || _libraryService is null) return;
-        var current = _libraryService.Load().ToList();
-        current.RemoveAll(f => f.Name == frame.Name);
-        _libraryService.Save(current);
-        RefreshLibrary();
-        Status = $"Deleted '{frame.Name}'";
+        // v1.2.12 PATCH Item 1: route through the atomic Remove so concurrent
+        // Delete calls don't drop each other's read-modify-write. Report
+        // a friendly status when the frame was already gone (idempotent
+        // delete), and surface IO failures as FAIL.
+        try
+        {
+            if (_libraryService.Remove(frame.Name))
+            {
+                RefreshLibrary();
+                Status = $"Removed '{frame.Name}' from library.";
+            }
+            else
+            {
+                Status = $"'{frame.Name}' not found in library (already removed?).";
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"FAIL: Remove '{frame.Name}': {ex.Message}";
+            LogDeleteFromLibraryFailed(_logger, ex, frame.Name);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]
@@ -352,4 +378,13 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Send threw for {CanId}")]
     private static partial void LogSendThrew(ILogger logger, CanId canId, Exception ex);
+
+    // v1.2.12 PATCH Item 1: log IO / JSON failures from the atomic library
+    // Add/Remove path. The Status string is user-facing; these messages
+    // are the operator-facing diagnostics that survive a UI crash.
+    [LoggerMessage(EventId = 2001, Level = LogLevel.Error, Message = "Save '{Name}' to library failed")]
+    private static partial void LogSaveToLibraryFailed(ILogger logger, Exception ex, string name);
+
+    [LoggerMessage(EventId = 2002, Level = LogLevel.Error, Message = "Delete '{Name}' from library failed")]
+    private static partial void LogDeleteFromLibraryFailed(ILogger logger, Exception ex, string name);
 }

@@ -128,6 +128,23 @@ public sealed partial class SendFrameLibrary
         }
     }
 
+    /// <summary>
+    /// v1.2.12 PATCH Item 1: number of saved frames. Lock-snapshotted under
+    /// <c>_gate</c> so the value is consistent with concurrent Add/Remove.
+    /// Used by <c>SendViewModel</c> to surface a count in the post-save
+    /// status message.
+    /// </summary>
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return LoadUnlocked().Count;
+            }
+        }
+    }
+
     private IReadOnlyList<SavedFrame> LoadUnlocked()
     {
         if (!File.Exists(_path)) return Array.Empty<SavedFrame>();
