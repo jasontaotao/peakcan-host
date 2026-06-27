@@ -78,6 +78,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly StatsViewModel _statsViewModel;
     private readonly ScriptViewModel _scriptViewModel;
     private readonly UdsViewModel _udsViewModel;
+    private readonly RecordViewModel _recordViewModel;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -90,6 +91,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private StatsView? _statsView;
     private ScriptView? _scriptView;
     private UdsView? _udsView;
+    private RecordView? _recordView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -185,6 +187,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         StatsViewModel statsViewModel,
         ScriptViewModel scriptViewModel,
         UdsViewModel udsViewModel,
+        RecordViewModel recordViewModel,
         IChannelEnumerator? channelEnumerator = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
@@ -199,6 +202,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
         _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
         _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
+        _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -297,6 +301,20 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _udsView;
         }
         CurrentView = _udsView;
+    }
+
+    [RelayCommand]
+    private void ShowRecord()
+    {
+        // v1.2.11 PATCH Item 6: Recording tab. Same lazy-view pattern
+        // as the other tabs — view is constructed on first Show so the
+        // shell ctor stays STA-free.
+        if (_recordView == null)
+        {
+            _recordView = new RecordView { DataContext = _recordViewModel };
+            if (CurrentView == null) CurrentView = _recordView;
+        }
+        CurrentView = _recordView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

@@ -151,6 +151,11 @@ public class TraceViewModelTests
         string rtrFrameType = "";
         int pendingBeforeClear = -1;
         int pendingAfterClear = -1;
+        // Defensive: clear any leaked Application.Current from a prior
+        // STA test in the same xunit collection (SendViewTests). The
+        // xunit [Collection] serialization doesn't fully prevent the
+        // leaked singleton from surviving; we null it out explicitly.
+        LeakedApplicationReset.CleanupLeakedApplication();
         var thread = new Thread(() =>
         {
             try
