@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -21,10 +22,17 @@ namespace PeakCan.Host.App.ViewModels;
 /// would surface as an unhandled exception in the WPF dispatcher).
 /// </para>
 /// </summary>
-public sealed partial class SendViewModel : ObservableObject
+public sealed partial class SendViewModel : ObservableObject, IDisposable
 {
     private readonly SendService _svc;
+    private readonly ICyclicSendService _cyclic;
+    private readonly SendFrameLibrary? _libraryService;
     private readonly ILogger<SendViewModel> _logger;
+    // v1.2.11 PATCH review fix (HIGH): hold a reference to the poll timer
+    // so Dispose can stop it. Without Dispose the timer ticks for the
+    // VM lifetime and (via Tick closure over _cyclic) keeps the VM alive
+    // even after the shell navigates away.
+    private readonly System.Windows.Threading.DispatcherTimer _pollTimer;
 
     [ObservableProperty]
     private string _idText = "100";
@@ -35,16 +43,74 @@ public sealed partial class SendViewModel : ObservableObject
     [ObservableProperty]
     private bool _isFd;
 
+    // v1.2.11 PATCH Item 4: frame-level flags exposed on the Send form.
+    [ObservableProperty]
+    private bool _isRtr;
+
+    [ObservableProperty]
+    private bool _isBitRateSwitch;
+
+    [ObservableProperty]
+    private bool _isErrorStateIndicator;
+
     [ObservableProperty]
     private string _dataText = "DEADBEEF";
 
     [ObservableProperty]
     private string _status = string.Empty;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger)
+    // v1.2.11 PATCH Item 3: cyclic-send state surfaced to the SendView form.
+    [ObservableProperty]
+    private string _cyclicIntervalText = "100";
+
+    [ObservableProperty]
+    private bool _isCyclicRunning;
+
+    [ObservableProperty]
+    private long _cyclicSendCount;
+
+    // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
+    [ObservableProperty]
+    private ObservableCollection<SendFrameLibrary.SavedFrame> _library = new();
+
+    [ObservableProperty]
+    private SendFrameLibrary.SavedFrame? _selectedLibraryFrame;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cyclic = cyclic ?? throw new ArgumentNullException(nameof(cyclic));
+        // Library may be null in unit tests until Task 8 wires it up;
+        // production DI provides a singleton instance.
+        _libraryService = library;
+
+        // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
+        // the UI reflects IsRunning / SendCount without a separate event.
+        // DispatcherTimer ctor doesn't require WPF Application; in test
+        // context (no Application) the Tick simply never fires — fine.
+        _pollTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(200),
+        };
+        _pollTimer.Tick += (_, _) =>
+        {
+            IsCyclicRunning = _cyclic.IsRunning;
+            CyclicSendCount = _cyclic.SendCount;
+        };
+        _pollTimer.Start();
+    }
+
+    /// <summary>
+    /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM
+    /// can be GC'd after the shell navigates away. Production callers
+    /// should dispose the VM when the Send tab is closed; tests ignore
+    /// (timer keeps running but the xunit fixture ends before it matters).
+    /// </summary>
+    public void Dispose()
+    {
+        _pollTimer.Stop();
+        GC.SuppressFinalize(this);
     }
 
     [RelayCommand]
@@ -84,7 +150,17 @@ public sealed partial class SendViewModel : ObservableObject
             return;
         }
         var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var flags = IsFd ? FrameFlags.Fd : FrameFlags.None;
+        // v1.2.11 PATCH Item 4: RTR + FD is not a valid CAN frame per the
+        // ISO 11898-1 spec (RTR applies to classic CAN only). Reject loudly
+        // so the user fixes the input rather than seeing a silent zero-byte
+        // classic frame go out.
+        if (IsRtr && IsFd)
+        {
+            Status = "RTR is not valid for CAN FD (classic CAN only)";
+            LogInvalidId(_logger, "RTR+FD");
+            return;
+        }
+        var flags = BuildFlags();
         var frame = new CanFrame(canId, bytes, flags, ChannelId.None, default);
         try
         {
@@ -138,6 +214,128 @@ public sealed partial class SendViewModel : ObservableObject
             bytes[i] = byte.Parse(stripped.AsSpan(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         }
         return bytes;
+    }
+
+    /// <summary>
+    /// v1.2.11 PATCH Item 3: central flag builder shared by
+    /// <see cref="SendAsync"/> and <see cref="StartCyclic"/>. Single source
+    /// of truth so the manual-send path and cyclic path produce identical
+    /// bitmasks for the same checkbox state.
+    /// </summary>
+    private FrameFlags BuildFlags()
+    {
+        var flags = FrameFlags.None;
+        if (IsFd) flags |= FrameFlags.Fd;
+        if (IsRtr) flags |= FrameFlags.Rtr;
+        if (IsBitRateSwitch) flags |= FrameFlags.BitRateSwitch;
+        if (IsErrorStateIndicator) flags |= FrameFlags.ErrorStateIndicator;
+        return flags;
+    }
+
+    // v1.2.11 PATCH Item 3: cyclic-send commands exposed to SendView.xaml.
+
+    [RelayCommand]
+    private void StartCyclic()
+    {
+        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+        {
+            Status = $"Invalid ID: {IdText}";
+            return;
+        }
+        if (!int.TryParse(CyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
+            || ms < 1 || ms > 60_000)
+        {
+            Status = $"Invalid interval: {CyclicIntervalText} (must be 1..60000 ms)";
+            return;
+        }
+        if (IsRtr && IsFd)
+        {
+            Status = "RTR is not valid for CAN FD (classic CAN only)";
+            return;
+        }
+        var bytes = ParseHex(DataText);
+        var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
+        var frame = new CanFrame(canId, bytes, BuildFlags(), ChannelId.None, default);
+        _cyclic.Start(frame, TimeSpan.FromMilliseconds(ms));
+        IsCyclicRunning = _cyclic.IsRunning;
+        Status = $"Cyclic started: every {ms} ms";
+    }
+
+    [RelayCommand]
+    private void StopCyclic()
+    {
+        _cyclic.Stop();
+        IsCyclicRunning = _cyclic.IsRunning;
+        Status = $"Cyclic stopped ({CyclicSendCount} frames)";
+    }
+
+    // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.
+
+    [RelayCommand]
+    private void RefreshLibrary()
+    {
+        Library.Clear();
+        if (_libraryService is null) return;
+        foreach (var f in _libraryService.Load()) Library.Add(f);
+    }
+
+    [RelayCommand]
+    private void SaveCurrentToLibrary(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Status = "Frame name is required";
+            return;
+        }
+        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+        {
+            Status = $"Invalid ID: {IdText}";
+            return;
+        }
+        if (_libraryService is null)
+        {
+            Status = "Library unavailable";
+            return;
+        }
+        byte[] bytes;
+        try { bytes = ParseHex(DataText); }
+        catch (FormatException ex)
+        {
+            Status = $"Invalid data: {ex.Message}";
+            return;
+        }
+        var saved = new SendFrameLibrary.SavedFrame(
+            name, raw, IsExtended, IsFd, IsRtr, IsBitRateSwitch,
+            Convert.ToHexString(bytes), DateTimeOffset.UtcNow);
+        var current = _libraryService.Load().ToList();
+        current.Add(saved);
+        _libraryService.Save(current);
+        RefreshLibrary();
+        Status = $"Saved '{name}' to library";
+    }
+
+    [RelayCommand]
+    private void LoadFromLibrary(SendFrameLibrary.SavedFrame? frame)
+    {
+        if (frame is null) return;
+        IdText = frame.RawId.ToString("X", CultureInfo.InvariantCulture);
+        IsExtended = frame.IsExtended;
+        IsFd = frame.IsFd;
+        IsRtr = frame.IsRtr;
+        IsBitRateSwitch = frame.BitRateSwitch;
+        DataText = frame.DataHex;
+        Status = $"Loaded '{frame.Name}'";
+    }
+
+    [RelayCommand]
+    private void DeleteFromLibrary(SendFrameLibrary.SavedFrame? frame)
+    {
+        if (frame is null || _libraryService is null) return;
+        var current = _libraryService.Load().ToList();
+        current.RemoveAll(f => f.Name == frame.Name);
+        _libraryService.Save(current);
+        RefreshLibrary();
+        Status = $"Deleted '{frame.Name}'";
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]

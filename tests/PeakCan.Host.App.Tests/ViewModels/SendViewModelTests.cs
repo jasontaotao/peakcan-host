@@ -1,3 +1,4 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
@@ -46,7 +47,38 @@ public class SendViewModelTests
         }
     }
 
-    private static SendViewModel NewVm(SendService svc) => new(svc, NullLogger<SendViewModel>.Instance);
+    /// <summary>
+    /// v1.2.11 PATCH Item 3: in-memory fake of <see cref="ICyclicSendService"/>
+    /// for SendViewModel unit tests (and shared with sibling test classes
+    /// that also construct SendViewModel). Avoids driving real timers or
+    /// the PEAK SDK.
+    /// </summary>
+    internal sealed class FakeCyclicSendService : ICyclicSendService
+    {
+        public bool IsRunning { get; set; }
+        public long SendCount { get; set; }
+        public CanFrame? LastFrame { get; private set; }
+        public TimeSpan? LastInterval { get; private set; }
+        public bool StartCalled => LastFrame.HasValue;
+        public bool StopCalled { get; private set; }
+
+        public void Start(CanFrame frame, TimeSpan interval)
+        {
+            LastFrame = frame;
+            LastInterval = interval;
+            IsRunning = true;
+            SendCount = 0;
+        }
+
+        public void Stop()
+        {
+            StopCalled = true;
+            IsRunning = false;
+        }
+    }
+
+    private static SendViewModel NewVm(SendService svc, ICyclicSendService? cyclic = null, SendFrameLibrary? library = null)
+        => new(svc, NullLogger<SendViewModel>.Instance, cyclic ?? new FakeCyclicSendService(), library);
 
     [Fact]
     public void Default_IdText_Is_100()
@@ -268,5 +300,138 @@ public class SendViewModelTests
 
         fake.LastFrame.Should().NotBeNull();
         fake.LastFrame!.Value.Data.ToArray().Should().Equal(0xDE, 0xAD, 0xBE, 0xEF);
+    }
+
+    // --- v1.2.11 PATCH Item 4: SendViewModel flags RTR/BRS/ESI ---
+
+    [Fact]
+    public async Task Send_Rtr_Sets_Rtr_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsRtr = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.Rtr);
+    }
+
+    [Fact]
+    public async Task Send_BitRateSwitch_Sets_Brs_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsBitRateSwitch = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.BitRateSwitch);
+    }
+
+    [Fact]
+    public async Task Send_ErrorStateIndicator_Sets_Esi_Flag()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsErrorStateIndicator = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().NotBeNull();
+        fake.LastFrame!.Value.Flags.Should().HaveFlag(FrameFlags.ErrorStateIndicator);
+    }
+
+    [Fact]
+    public async Task Send_Rtr_With_Fd_Is_Rejected()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsRtr = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        fake.LastFrame.Should().BeNull("RTR + FD is not a valid CAN frame");
+        vm.Status.Should().Contain("RTR");
+    }
+
+    [Fact]
+    public async Task Send_All_Flags_Combined_Produces_Expected_Bitmask()
+    {
+        var fake = new FakeSendService();
+        var vm = NewVm(fake);
+        vm.IdText = "100"; vm.IsFd = true; vm.IsBitRateSwitch = true; vm.IsErrorStateIndicator = true; vm.DataText = "00";
+        await vm.SendCommand.ExecuteAsync(null);
+        var expected = FrameFlags.Fd | FrameFlags.BitRateSwitch | FrameFlags.ErrorStateIndicator;
+        fake.LastFrame!.Value.Flags.Should().Be(expected);
+    }
+
+    // --- v1.2.11 PATCH Item 3: cyclic send commands ---
+
+    [Fact]
+    public void StartCyclic_Parses_Interval_And_Invokes_Service()
+    {
+        var fakeSend = new FakeSendService();
+        var fakeCyclic = new FakeCyclicSendService();
+        var vm = NewVm(fakeSend, fakeCyclic);
+        vm.IdText = "100"; vm.DataText = "00"; vm.CyclicIntervalText = "200";
+        vm.StartCyclicCommand.Execute(null);
+        fakeCyclic.StartCalled.Should().BeTrue();
+        fakeCyclic.LastInterval.Should().Be(TimeSpan.FromMilliseconds(200));
+    }
+
+    [Fact]
+    public void StartCyclic_Rejects_Invalid_Interval()
+    {
+        var fakeSend = new FakeSendService();
+        var fakeCyclic = new FakeCyclicSendService();
+        var vm = NewVm(fakeSend, fakeCyclic);
+        vm.IdText = "100"; vm.DataText = "00"; vm.CyclicIntervalText = "0";
+        vm.StartCyclicCommand.Execute(null);
+        fakeCyclic.StartCalled.Should().BeFalse();
+        vm.Status.Should().Contain("interval");
+    }
+
+    [Fact]
+    public void StopCyclic_Calls_Stop_On_Service()
+    {
+        var fakeCyclic = new FakeCyclicSendService { IsRunning = true };
+        var vm = NewVm(new FakeSendService(), fakeCyclic);
+        vm.StopCyclicCommand.Execute(null);
+        fakeCyclic.StopCalled.Should().BeTrue();
+    }
+
+    // --- v1.2.11 PATCH Item 5 UI: library commands ---
+
+    [Fact]
+    public void SaveCurrentToLibrary_Appends_And_Refreshes()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.IdText = "100"; vm.DataText = "DEADBEEF";
+        vm.SaveCurrentToLibraryCommand.Execute("Door Unlock");
+        vm.Library.Should().HaveCount(1);
+        vm.Library[0].Name.Should().Be("Door Unlock");
+    }
+
+    [Fact]
+    public void LoadFromLibrary_Populates_All_Fields()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        var frame = new SendFrameLibrary.SavedFrame("X", 0x200, true, true, false, true, "AABB", DateTimeOffset.UtcNow);
+        lib.Save(new[] { frame });
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.RefreshLibraryCommand.Execute(null);
+        vm.LoadFromLibraryCommand.Execute(vm.Library[0]);
+
+        vm.IdText.Should().Be("200");
+        vm.IsExtended.Should().BeTrue();
+        vm.IsFd.Should().BeTrue();
+        vm.IsBitRateSwitch.Should().BeTrue();
+        vm.DataText.Should().Be("AABB");
+    }
+
+    [Fact]
+    public void DeleteFromLibrary_Removes_And_Refreshes()
+    {
+        var lib = new SendFrameLibrary(Path.Combine(Path.GetTempPath(), $"pch-lib-{Guid.NewGuid():N}.json"), NullLogger<SendFrameLibrary>.Instance);
+        lib.Save(new[] { new SendFrameLibrary.SavedFrame("X", 1, false, false, false, false, "AA", DateTimeOffset.UtcNow) });
+        var vm = NewVm(new FakeSendService(), new FakeCyclicSendService(), lib);
+        vm.RefreshLibraryCommand.Execute(null);
+        vm.DeleteFromLibraryCommand.Execute(vm.Library[0]);
+        vm.Library.Should().BeEmpty();
     }
 }

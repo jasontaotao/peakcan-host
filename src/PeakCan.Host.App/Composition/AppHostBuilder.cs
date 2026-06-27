@@ -98,6 +98,14 @@ public static class AppHostBuilder
         // v0.5.0: frame recording (ASC/CSV) and cyclic send.
         builder.Services.AddSingleton<RecordService>();
         builder.Services.AddSingleton<CyclicSendService>();
+        // v1.2.11 PATCH Item 3: register cyclic service as its interface
+        // so SendViewModel can be tested with a fake via ICyclicSendService.
+        builder.Services.AddSingleton<ICyclicSendService>(sp =>
+            sp.GetRequiredService<CyclicSendService>());
+        // v1.2.11 PATCH Item 5: named-frame library persistence.
+        builder.Services.AddSingleton<SendFrameLibrary>();
+        // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
+        builder.Services.AddSingleton<RecordViewModel>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -106,7 +114,13 @@ public static class AppHostBuilder
         // its own worker. Registered as both a singleton (so SinkWiringService
         // gets the same instance the host starts) and a hosted service
         // (so BackgroundService.StartAsync fires the worker loop).
-        builder.Services.AddSingleton<DbcDecodeBackgroundService>();
+        // v1.2.11 PATCH Item 2: factory takes TraceViewModel for fan-out
+        // (worker fills entry.Decoded after looking up PendingDecode).
+        builder.Services.AddSingleton<DbcDecodeBackgroundService>(sp =>
+            new DbcDecodeBackgroundService(
+                sp.GetRequiredService<DbcService>(),
+                sp.GetRequiredService<SignalViewModel>(),
+                sp.GetRequiredService<TraceViewModel>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
         // v1.0.0: Scripting engine.

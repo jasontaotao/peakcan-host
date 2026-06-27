@@ -14,3 +14,6 @@ artifacts/*
 TestResults/
 coverage/
 *.log
+# v1.2.11: ephemeral subagent-driven-development briefs / reports.
+# Not part of the repo — local scratch for the SDD workflow.
+.sdd/
