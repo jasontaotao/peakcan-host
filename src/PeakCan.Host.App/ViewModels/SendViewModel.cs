@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
@@ -21,8 +22,16 @@ namespace PeakCan.Host.App.ViewModels;
 /// "FAIL: …" status rather than propagating out of the command (which
 /// would surface as an unhandled exception in the WPF dispatcher).
 /// </para>
+/// <para>
+/// v1.2.12 PATCH Item 6: also implements <see cref="IHostedService"/>
+/// (no-op Start/Stop) so <c>AppHostBuilder</c> can register it with
+/// <c>AddHostedService</c> and the host will call <see cref="Dispose"/>
+/// on shutdown. Without this, the poll timer would keep the VM alive
+/// across STA-WPF xunit test fixtures and leak in production after
+/// the shell navigates away.
+/// </para>
 /// </summary>
-public sealed partial class SendViewModel : ObservableObject, IDisposable
+public sealed partial class SendViewModel : ObservableObject, IHostedService, IDisposable
 {
     private readonly SendService _svc;
     private readonly ICyclicSendService _cyclic;
@@ -112,6 +121,13 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         _pollTimer.Stop();
         GC.SuppressFinalize(this);
     }
+
+    // v1.2.12 PATCH Item 6: IHostedService no-op implementations. See
+    // RecordViewModel for rationale — the VM is a passive sink, the
+    // DispatcherTimer starts in the ctor, and these exist only so the
+    // host can call Dispose on shutdown.
+    Task IHostedService.StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     [RelayCommand]
     private async Task SendAsync()

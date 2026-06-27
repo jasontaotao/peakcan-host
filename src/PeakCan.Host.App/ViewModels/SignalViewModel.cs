@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
 using OxyPlot;
 using PeakCan.Host.App.Services;
@@ -45,7 +46,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// observe the post-state.
 /// </para>
 /// </summary>
-public sealed partial class SignalViewModel : ObservableObject, IDisposable
+public sealed partial class SignalViewModel : ObservableObject, IHostedService, IDisposable
 {
     private readonly SignalChartViewModel? _chartVm;
 
@@ -379,6 +380,14 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     /// cleans up cleanly on app exit.
     /// </summary>
     public void Dispose() => _drainTimer.Dispose();
+
+    // v1.2.12 PATCH Item 6: IHostedService no-op implementations. The
+    // drain timer starts in the ctor; these exist only so AppHostBuilder
+    // can register the VM as IHostedService and the host will call
+    // Dispose on shutdown. See Dispose XML doc for the timer-leak
+    // rationale.
+    Task IHostedService.StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
     /// Look up <paramref name="signal"/>'s value table entry for

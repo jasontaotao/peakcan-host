@@ -109,7 +109,13 @@ public static class AppHostBuilder
         // v1.2.11 PATCH Item 5: named-frame library persistence.
         builder.Services.AddSingleton<SendFrameLibrary>();
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes it on shutdown — the VM's DispatcherTimer would
+        // otherwise keep ticking (and keep the VM alive) until process
+        // exit, leaking in STA-WPF xunit fixtures and across shell
+        // navigation in production.
         builder.Services.AddSingleton<RecordViewModel>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordViewModel>());
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -221,11 +227,19 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<AppShellViewModel>();
         builder.Services.AddSingleton<TraceViewModel>();
         builder.Services.AddSingleton<SendViewModel>();
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes it on shutdown (same rationale as RecordViewModel).
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SendViewModel>());
         builder.Services.AddSingleton<DbcViewModel>();
         // v0.8.0: signal chart VM must be registered before SignalViewModel
         // (SignalViewModel depends on it via constructor injection).
         builder.Services.AddSingleton<SignalChartViewModel>();
         builder.Services.AddSingleton<SignalViewModel>();
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes the System.Threading.Timer drain on shutdown.
+        // Without this, the timer's strong ref to the VM keeps the VM
+        // alive across STA-WPF xunit fixtures and after shell teardown.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SignalViewModel>());
         builder.Services.AddSingleton<StatsViewModel>();
         builder.Services.AddSingleton<ScriptViewModel>();
 

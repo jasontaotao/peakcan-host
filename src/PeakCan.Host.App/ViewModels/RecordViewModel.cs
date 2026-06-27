@@ -1,6 +1,7 @@
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using PeakCan.Host.App.Services;
@@ -12,8 +13,15 @@ namespace PeakCan.Host.App.ViewModels;
 /// Recording tab. Owns a 200 ms DispatcherTimer that polls
 /// <c>IsRecording</c> + <c>FrameCount</c> from the service into
 /// bindable properties; commands Browse/Start/Stop drive the service.
+/// <para>
+/// v1.2.12 PATCH Item 6: also implements <see cref="IHostedService"/>
+/// (no-op Start/Stop) so <c>AppHostBuilder</c> can register it with
+/// <c>AddHostedService</c> and the host will call <see cref="Dispose"/>
+/// on shutdown. The timer would otherwise keep the VM alive across
+/// WPF test fixtures and leak forever in STA-WPF xunit runs.
+/// </para>
 /// </summary>
-public sealed partial class RecordViewModel : ObservableObject, IDisposable
+public sealed partial class RecordViewModel : ObservableObject, IHostedService, IDisposable
 {
     private readonly RecordService _record;
     private readonly ILogger<RecordViewModel> _logger;
@@ -59,6 +67,16 @@ public sealed partial class RecordViewModel : ObservableObject, IDisposable
         _pollTimer.Stop();
         GC.SuppressFinalize(this);
     }
+
+    // v1.2.12 PATCH Item 6: IHostedService no-op implementations. The VM
+    // is a passive sink — it doesn't start/stop background work; the
+    // DispatcherTimer runs from the constructor. These exist solely so
+    // AppHostBuilder can register the VM as IHostedService and the host
+    // will call Dispose on shutdown. The DispatcherTimer keeps ticking
+    // until Dispose (or process exit) — which is fine because the VM is
+    // a DI singleton that lives for the whole app.
+    Task IHostedService.StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
     /// v1.2.11: test-only entry to force a poll cycle. Production paths
