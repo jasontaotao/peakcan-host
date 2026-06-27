@@ -51,24 +51,35 @@ public class RecordViewModelTests
     }
 
     [Fact]
-    public void FrameCount_Polls_Service_Property()
+    public async Task FrameCount_Polls_Service_Property()
     {
         // v1.2.11: poll logic transfers service's IsRecording + FrameCount
         // to bindable properties. Tests call PollNow() directly because
         // DispatcherTimer.Tick doesn't fire on the xunit MTA threadpool
         // (no WPF Application pump).
+        // v1.2.12 PATCH Item 5: RecordService is now a BackgroundService
+        // that drains frames on a writer thread. We must start the host
+        // (StartAsync) and wait for the drain before polling.
         var rec = new RecordService(NullLogger<RecordService>.Instance);
+        await rec.StartAsync(System.Threading.CancellationToken.None);
         var recPath = Path.Combine(Path.GetTempPath(), $"pch-rec-{Guid.NewGuid():N}.asc");
         rec.StartRecording(recPath, RecordService.RecordFormat.Asc);
         rec.OnFrame(new CanFrame(new CanId(1, FrameFormat.Standard), new byte[] { 0xAA }, FrameFlags.None, new ChannelId(0x51), default));
         rec.OnFrame(new CanFrame(new CanId(2, FrameFormat.Standard), new byte[] { 0xBB }, FrameFlags.None, new ChannelId(0x51), default));
+
+        // Wait for the writer thread to drain both enqueued frames.
+        var deadline = System.Environment.TickCount + 5000;
+        while (rec.FrameCount < 2 && System.Environment.TickCount < deadline)
+        {
+            await System.Threading.Tasks.Task.Delay(10);
+        }
 
         var vm = new RecordViewModel(rec, NullLogger<RecordViewModel>.Instance) { OutputPath = recPath };
         vm.PollNow();
 
         vm.FrameCount.Should().Be(2);
         vm.IsRecording.Should().BeTrue();
-        rec.StopRecording();
+        await rec.StopAsync(System.Threading.CancellationToken.None);
     }
 
     [Fact]

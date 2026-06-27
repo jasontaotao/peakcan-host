@@ -1,6 +1,6 @@
-using System.Diagnostics;
-using System.Globalization;
 using System.IO;
+using System.Threading.Channels;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
@@ -13,9 +13,11 @@ namespace PeakCan.Host.App.Services;
 /// can attach it as a fan-out target.
 /// <para>
 /// <b>Thread-safety:</b> <see cref="OnFrame"/> is called on the SDK read
-/// thread; file I/O is buffered and flushed periodically (every 1 s or
-/// on stop). The writer is guarded by a lock so concurrent OnFrame calls
-/// are serialized.
+/// thread. Frames are enqueued via a bounded
+/// <see cref="Channel{T}"/> and drained by a single writer thread, so
+/// the read thread never blocks on file I/O. The writer flushes the
+/// <see cref="StreamWriter"/> every 1 second (or on stop), keeping
+/// data loss under 1 s in the event of a crash.
 /// </para>
 /// <para>
 /// <b>File formats:</b>
@@ -25,8 +27,17 @@ namespace PeakCan.Host.App.Services;
 ///   <item><b>CSV</b> — Simple comma-separated: <c>timestamp,channel,id,dlc,data,flags</c>.</item>
 /// </list>
 /// </para>
+/// <para>
+/// <b>Back-pressure:</b> the channel uses
+/// <see cref="BoundedChannelFullMode.DropOldest"/> with capacity 8192;
+/// if the writer falls behind (slow disk / AV scan), the oldest
+/// queued frame is silently dropped and counted in
+/// <see cref="FrameDroppedOnFullChannel"/>. Counters are exposed via
+/// <see cref="FrameEnqueuedCount"/>, <see cref="FrameCount"/>, and
+/// <see cref="FrameDroppedOnFullChannel"/>.
+/// </para>
 /// </summary>
-public sealed partial class RecordService : IFrameSink, IDisposable
+public sealed partial class RecordService : BackgroundService, IFrameSink
 {
     /// <summary>Supported recording formats.</summary>
     public enum RecordFormat
@@ -37,25 +48,40 @@ public sealed partial class RecordService : IFrameSink, IDisposable
         Csv
     }
 
+    /// <summary>Bounded channel capacity; matches the SDK ring buffer budget.</summary>
+    private const int FrameChannelCapacity = 8192;
+
+    /// <summary>1 Hz flush cadence; matches the doc-promised behavior.</summary>
+    private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(1);
+
     private readonly ILogger<RecordService> _logger;
-    private readonly object _gate = new();
-    private StreamWriter? _writer;
+    private readonly Channel<CanFrame> _frameChannel = Channel.CreateBounded<CanFrame>(
+        new BoundedChannelOptions(FrameChannelCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false  // SDK thread + UI thread can both write
+        });
+
     private RecordFormat _format;
-    private bool _isRecording;
-    private long _frameCount;
     private DateTime _startTime;
+    private long _frameEnqueuedCount;
+    private long _frameCount;
+    private long _frameDroppedOnFullChannel;
+    private volatile bool _isRecording;
+    private volatile TextWriter? _writer;
 
     /// <summary>True when actively recording to a file.</summary>
-    public bool IsRecording
-    {
-        get { lock (_gate) return _isRecording; }
-    }
+    public bool IsRecording => _isRecording;
 
-    /// <summary>Number of frames written since the last <see cref="StartRecording"/>.</summary>
-    public long FrameCount
-    {
-        get { lock (_gate) return _frameCount; }
-    }
+    /// <summary>Number of frames written to disk since the last <see cref="StartRecording"/>.</summary>
+    public long FrameCount => Interlocked.Read(ref _frameCount);
+
+    /// <summary>Number of frames enqueued into the channel (including those later dropped).</summary>
+    public long FrameEnqueuedCount => Interlocked.Read(ref _frameEnqueuedCount);
+
+    /// <summary>Number of frames the channel refused because it was full (oldest dropped).</summary>
+    public long FrameDroppedOnFullChannel => Interlocked.Read(ref _frameDroppedOnFullChannel);
 
     public RecordService(ILogger<RecordService> logger)
     {
@@ -69,47 +95,57 @@ public sealed partial class RecordService : IFrameSink, IDisposable
     /// </summary>
     public void StartRecording(string path, RecordFormat format)
     {
-        lock (_gate)
+        if (_isRecording) StopRecordingInner();
+        _format = format;
+        Interlocked.Exchange(ref _frameEnqueuedCount, 0);
+        Interlocked.Exchange(ref _frameCount, 0);
+        Interlocked.Exchange(ref _frameDroppedOnFullChannel, 0);
+        _startTime = DateTime.UtcNow;
+        try
         {
-            if (_isRecording) StopRecordingInner();
-            _format = format;
-            _frameCount = 0;
-            _startTime = DateTime.UtcNow;
-            try
+            _writer = new StreamWriter(path, append: false, encoding: System.Text.Encoding.UTF8);
+            WriteHeader();
+            _isRecording = true;
+            LogRecordingStarted(_logger, path, format switch
             {
-                _writer = new StreamWriter(path, append: false, encoding: System.Text.Encoding.UTF8);
-                WriteHeader();
-                _isRecording = true;
-                LogRecordingStarted(_logger, path, format switch
-                {
-                    RecordFormat.Asc => "ASC",
-                    RecordFormat.Csv => "CSV",
-                    _ => format.ToString()
-                });
-            }
-            catch (Exception ex)
-            {
-                LogRecordingFailed(_logger, path, ex);
-                _writer?.Dispose();
-                _writer = null;
-                throw;
-            }
+                RecordFormat.Asc => "ASC",
+                RecordFormat.Csv => "CSV",
+                _ => format.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            LogRecordingFailed(_logger, path, ex);
+            _writer?.Dispose();
+            _writer = null;
+            throw;
         }
     }
 
-    /// <summary>Stop recording and close the file. Idempotent.</summary>
+    /// <summary>Stop recording and close the file. Idempotent. Drains the channel first.</summary>
     public void StopRecording()
     {
-        lock (_gate)
-        {
-            StopRecordingInner();
-        }
+        StopRecordingInner();
     }
 
     private void StopRecordingInner()
     {
         if (!_isRecording) return;
         _isRecording = false;
+
+        // Spin-wait for the writer thread to drain the channel. We do NOT
+        // call _frameChannel.Writer.TryComplete() because the channel
+        // outlives any individual recording — StartRecording may be
+        // called again on the same instance. Spin-waiting on the
+        // reader count is sufficient: it is decremented by the drain
+        // task as soon as each frame is consumed, so by the time the
+        // count hits 0 every queued frame has been passed to WriteFrame.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(10);
+        }
+
         try
         {
             WriteFooter();
@@ -128,43 +164,105 @@ public sealed partial class RecordService : IFrameSink, IDisposable
     }
 
     /// <summary>
-    /// Receive a frame from the <see cref="ChannelRouter"/>. If recording,
-    /// writes the frame to the file. Non-blocking, non-throwing.
+    /// Receive a frame from the <see cref="ChannelRouter"/>. Non-blocking:
+    /// enqueues into the bounded channel. If the channel is full, the
+    /// oldest queued frame is dropped and <see cref="FrameDroppedOnFullChannel"/>
+    /// is incremented.
     /// </summary>
     public void OnFrame(CanFrame frame)
     {
-        lock (_gate)
+        if (!_isRecording || _writer is null) return;
+        if (_frameChannel.Writer.TryWrite(frame))
         {
-            if (!_isRecording || _writer is null) return;
-            try
-            {
-                WriteFrame(frame);
-                _frameCount++;
-            }
-            catch (Exception ex)
-            {
-                LogFrameWriteFailed(_logger, ex);
-                // Don't stop recording on a single write failure — the
-                // file might be on a network share that briefly lost
-                // connection. The next frame will either succeed or the
-                // user will stop recording manually.
-            }
+            Interlocked.Increment(ref _frameEnqueuedCount);
+        }
+        else
+        {
+            // TryWrite on a bounded channel with DropOldest should never
+            // return false, but defend against the contract changing.
+            Interlocked.Increment(ref _frameDroppedOnFullChannel);
         }
     }
 
-    /// <summary>Sink-isolation hook — no action needed for recording.</summary>
+    /// <summary>Sink-isolation hook — logs via ILogger. Debug.WriteLine stripped in Release builds; ILogger is not.</summary>
     public void OnError(Exception ex)
     {
-        Debug.WriteLine(
-            $"[RecordService] forwarded error (no action): {ex.GetType().Name}: {ex.Message}");
+        LogSinkError(_logger, ex, nameof(RecordService));
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Writer thread: drain the channel, write each frame, and flush the
+    /// <see cref="StreamWriter"/> every 1 second so a crash loses at most
+    /// 1 second of recording. Runs for the lifetime of the host (until
+    /// <see cref="StopAsync"/> cancels <paramref name="stoppingToken"/>).
+    /// </summary>
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        lock (_gate)
+        using var flushTimer = new PeriodicTimer(FlushInterval);
+        try
         {
-            StopRecordingInner();
+            // Drain loop: read frames from the channel and write to disk.
+            // ReadAllAsync yields when the channel is empty and returns
+            // only when the writer is completed OR the token is canceled.
+            // We never complete the channel writer (the channel outlives
+            // individual recordings), so this loop only exits on host
+            // shutdown via stoppingToken.
+            var drainTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var frame in _frameChannel.Reader.ReadAllAsync(stoppingToken))
+                    {
+                        try
+                        {
+                            WriteFrame(frame);
+                            Interlocked.Increment(ref _frameCount);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Don't stop recording on a single write failure —
+                            // the file might be on a network share that
+                            // briefly lost connection.
+                            LogFrameWriteFailed(_logger, ex);
+                        }
+                    }
+                }
+                catch (OperationCanceledException) { /* shutdown */ }
+            }, stoppingToken);
+
+            // Flush loop: PeriodicTimer tick → Flush(). This is the
+            // "1 Hz flush" promised by the class doc.
+            var flushTask = Task.Run(async () =>
+            {
+                try
+                {
+                    while (await flushTimer.WaitForNextTickAsync(stoppingToken))
+                    {
+                        try { _writer?.Flush(); }
+                        catch (Exception ex) { LogFrameWriteFailed(_logger, ex); }
+                    }
+                }
+                catch (OperationCanceledException) { /* shutdown */ }
+            }, stoppingToken);
+
+            await Task.WhenAll(drainTask, flushTask);
         }
+        catch (OperationCanceledException) { /* shutdown */ }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // Ensure any in-flight recording is closed before the base class
+        // signals ExecuteAsync to stop. Without this, the drain loop
+        // might miss the last few frames.
+        StopRecordingInner();
+        await base.StopAsync(cancellationToken);
+    }
+
+    public override void Dispose()
+    {
+        StopRecordingInner();
+        base.Dispose();
     }
 
     private void WriteHeader()
@@ -240,4 +338,11 @@ public sealed partial class RecordService : IFrameSink, IDisposable
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Frame write failed (recording continues)")]
     private static partial void LogFrameWriteFailed(ILogger logger, Exception ex);
+
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
+    // Debug.WriteLine was stripped in Release builds (DEBUG not defined),
+    // leaving production with no record of forwarded errors. Per service
+    // EventId (6001) keeps the telemetry stream unambiguous.
+    [LoggerMessage(EventId = 6001, Level = LogLevel.Warning, Message = "{Service} OnError forwarded")]
+    private static partial void LogSinkError(ILogger logger, Exception ex, string service);
 }

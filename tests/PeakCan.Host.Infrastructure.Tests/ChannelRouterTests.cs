@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using PeakCan.Host.Core;
@@ -153,6 +154,64 @@ public class ChannelRouterTests
         // Second call goes to no sink (snapshot is empty for this sink).
         foreverBrokenSink.Received(1).OnError(Arg.Any<Exception>());
         foreverBrokenSink.Received(1).OnFrame(Arg.Any<CanFrame>());
+    }
+
+    // --- v1.2.12 PATCH Item 11: sink OnError → ILogger on the router ---
+
+    [Fact]
+    public void OnError_From_Sink_Logged_Via_ILogger()
+    {
+        // When a sink's OnError itself throws, the router must log via
+        // ILogger (the previous Debug.WriteLine path is stripped in
+        // Release builds). The secondary exception is forwarded to the
+        // logger and the misbehaving sink is auto-detached.
+        var ch = Substitute.For<ICanChannel>();
+        var sink = Substitute.For<IFrameSink>();
+        sink.When(s => s.OnFrame(Arg.Any<CanFrame>()))
+            .Do(_ => throw new InvalidOperationException("sink explosion"));
+        sink.When(s => s.OnError(Arg.Any<Exception>()))
+            .Do(_ => throw new InvalidOperationException("onerror explosion"));
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        var logger = Substitute.For<ILogger<ChannelRouter>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+        var router = new ChannelRouter(logger);
+        router.RegisterChannel(ch);
+        router.AttachSink(sink);
+        var frame = new CanFrame(new CanId(1, FrameFormat.Standard), new byte[] { 0xAA }, FrameFlags.None, ChannelId.None, default);
+
+        ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
+
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception?, string>>());
+        sink.Received(1).OnError(Arg.Any<Exception>());
+    }
+
+    [Fact]
+    public void OnError_Logger_Null_Does_Not_Throw()
+    {
+        // The router must tolerate a null ILogger (test fixtures /
+        // backward-compat callers) and still detach the misbehaving sink
+        // so traffic for downstream sinks continues.
+        var ch = Substitute.For<ICanChannel>();
+        var sink = Substitute.For<IFrameSink>();
+        sink.When(s => s.OnFrame(Arg.Any<CanFrame>()))
+            .Do(_ => throw new InvalidOperationException("boom"));
+        sink.When(s => s.OnError(Arg.Any<Exception>()))
+            .Do(_ => throw new InvalidOperationException("onerror boom"));
+        var router = new ChannelRouter(logger: null);
+        router.RegisterChannel(ch);
+        router.AttachSink(sink);
+        var frame = new CanFrame(new CanId(1, FrameFormat.Standard), new byte[] { 0xAA }, FrameFlags.None, ChannelId.None, default);
+
+        var act = () => ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
+        act.Should().NotThrow();
+        // Auto-detach still runs even when the logger is null.
+        ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
+        sink.Received(1).OnFrame(Arg.Any<CanFrame>());   // only first call
     }
 
     [Fact]

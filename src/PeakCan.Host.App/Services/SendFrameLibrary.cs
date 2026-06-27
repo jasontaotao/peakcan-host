@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,10 @@ namespace PeakCan.Host.App.Services;
 /// v1.2.11 PATCH review fix (HIGH): <see cref="Add"/> / <see cref="Remove"/>
 /// wrap the read-modify-write in a lock so concurrent calls (e.g.
 /// double-clicked buttons) don't drop each other's changes.
+/// </para>
+/// <para>
+/// v1.2.12 PATCH Item 13: atomic save via <c>File.Replace</c> with UTF-8 BOM.
+/// On failure, tmp file cleaned and exception rethrown with context.
 /// </para>
 /// </summary>
 public sealed partial class SendFrameLibrary
@@ -96,6 +101,20 @@ public sealed partial class SendFrameLibrary
     }
 
     /// <summary>
+    /// v1.2.12 PATCH Item 13: parameterless save re-writes the current
+    /// on-disk library back to disk. Used by tests to trigger the
+    /// SaveUnlocked error path without supplying frames.
+    /// </summary>
+    public void Save()
+    {
+        lock (_gate)
+        {
+            var current = LoadUnlocked();
+            SaveUnlocked(current);
+        }
+    }
+
+    /// <summary>
     /// v1.2.11 PATCH review fix (HIGH): atomic Add. Loads the current list,
     /// appends <paramref name="frame"/>, saves — all under the gate so two
     /// callers don't drop each other's changes. Returns the new frame count.
@@ -128,6 +147,23 @@ public sealed partial class SendFrameLibrary
         }
     }
 
+    /// <summary>
+    /// v1.2.12 PATCH Item 1: number of saved frames. Lock-snapshotted under
+    /// <c>_gate</c> so the value is consistent with concurrent Add/Remove.
+    /// Used by <c>SendViewModel</c> to surface a count in the post-save
+    /// status message.
+    /// </summary>
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return LoadUnlocked().Count;
+            }
+        }
+    }
+
     private IReadOnlyList<SavedFrame> LoadUnlocked()
     {
         if (!File.Exists(_path)) return Array.Empty<SavedFrame>();
@@ -151,12 +187,19 @@ public sealed partial class SendFrameLibrary
         var tmp = _path + ".tmp";
         try
         {
-            File.WriteAllText(tmp, json);
-            File.Move(tmp, _path, overwrite: true);
+            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            // File.Replace is atomic (preserves ACL/attrs) but requires the
+            // destination to exist. Fall back to Move+overwrite for the
+            // first-save case where the file doesn't exist yet.
+            if (File.Exists(_path))
+                File.Replace(tmp, _path, destinationBackupFileName: null);
+            else
+                File.Move(tmp, _path);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             try { File.Delete(tmp); } catch { /* best effort */ }
+            LogSaveUnlockedFailed(_logger, ex, _path);
             throw;
         }
     }
@@ -169,4 +212,7 @@ public sealed partial class SendFrameLibrary
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Send library corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
+
+    [LoggerMessage(EventId = 7001, Level = LogLevel.Error, Message = "SendFrameLibrary save to {Path} failed")]
+    private static partial void LogSaveUnlockedFailed(ILogger logger, Exception ex, string path);
 }

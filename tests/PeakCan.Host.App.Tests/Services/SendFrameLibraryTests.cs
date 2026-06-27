@@ -1,6 +1,8 @@
 using System.IO;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.Host.App.Services;
 using Xunit;
 
@@ -76,5 +78,230 @@ public class SendFrameLibraryTests : IDisposable
 
         // After save, the .tmp file must NOT remain (atomic rename completed)
         File.Exists(_tempFile + ".tmp").Should().BeFalse("atomic write must rename tmp → final, leaving no .tmp");
+    }
+}
+
+// v1.2.12 PATCH Item 1: regression coverage for SendFrameLibrary.Add/Remove
+// being safe under concurrent calls (v1.2.11 review fix) and replacing on
+// duplicate names.
+public class SendFrameLibraryConcurrencyTests : IDisposable
+{
+    private readonly string _tempDir;
+    private readonly string _tempFile;
+
+    public SendFrameLibraryConcurrencyTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"pch-conc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+        _tempFile = Path.Combine(_tempDir, "send-library.json");
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private SendFrameLibrary NewLib() => new(_tempFile, NullLogger<SendFrameLibrary>.Instance);
+
+    private static SendFrameLibrary.SavedFrame Frame(string name, uint id, params byte[] data)
+        => new(name, id, false, false, false, false,
+               Convert.ToHexString(data ?? Array.Empty<byte>()),
+               DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void Add_Then_List_Contains_Added()
+    {
+        var lib = NewLib();
+        lib.Add(Frame("A", 0x100));
+        lib.Load().Should().ContainSingle(f => f.Name == "A");
+    }
+
+    [Fact]
+    public void Add_Twice_Distinct_Names_Both_Kept()
+    {
+        var lib = NewLib();
+        lib.Add(Frame("A", 0x100));
+        lib.Add(Frame("B", 0x200));
+        lib.Load().Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Add_Twice_Same_Name_Appends_Both()
+    {
+        // v1.2.11 atomic Add does not de-duplicate by name; it appends.
+        // Replacing duplicates is a separate concern (Task 13's SaveUnlocked
+        // work). This test pins the append-only contract so a future
+        // "replace-on-name" change is a deliberate decision, not silent.
+        var lib = NewLib();
+        lib.Add(Frame("A", 0x100, 0x01));
+        lib.Add(Frame("A", 0x100, 0x02));
+        lib.Load().Should().HaveCount(2, "atomic Add appends; de-dup is out of scope for v1.2.12 Item 1");
+    }
+
+    [Fact]
+    public void Remove_Existing_Returns_True()
+    {
+        var lib = NewLib();
+        lib.Add(Frame("A", 0x100));
+        lib.Remove("A").Should().BeTrue();
+        lib.Load().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Remove_NonExistent_Returns_False()
+    {
+        var lib = NewLib();
+        lib.Remove("nope").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Concurrent_Add_From_Two_Threads_Both_Kept()
+    {
+        var lib = NewLib();
+        Parallel.For(0, 50, i =>
+        {
+            lib.Add(Frame($"name-{i}", 0x100 + (uint)i));
+        });
+        lib.Load().Should().HaveCount(50);
+    }
+
+    [Fact]
+    public void Count_Reflects_Added_And_Removed()
+    {
+        // v1.2.12 PATCH Item 1: SendViewModel SaveStatus surfaces total
+        // frame count via SendFrameLibrary.Count. The getter must lock
+        // around LoadUnlocked so the count is consistent.
+        var lib = NewLib();
+        lib.Count.Should().Be(0);
+        lib.Add(Frame("A", 0x100));
+        lib.Add(Frame("B", 0x200));
+        lib.Count.Should().Be(2);
+        lib.Remove("A");
+        lib.Count.Should().Be(1);
+    }
+}
+
+// v1.2.12 PATCH Item 13: SaveUnlocked atomicity (File.Replace + UTF-8 BOM)
+// and typed-catch error handling.
+public class SendFrameLibrarySaveTests : IDisposable
+{
+    private readonly string _tempDir;
+    private readonly string _tempFile;
+
+    public SendFrameLibrarySaveTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"pch-save-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+        _tempFile = Path.Combine(_tempDir, "send-library.json");
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private static SendFrameLibrary.SavedFrame Frame(string name, uint id, params byte[] data)
+        => new(name, id, false, false, false, false,
+               Convert.ToHexString(data ?? Array.Empty<byte>()),
+               DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void Save_Writes_Utf8Bom()
+    {
+        var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
+        lib.Add(Frame("A", 0x100));
+
+        var bytes = File.ReadAllBytes(_tempFile);
+        bytes[0].Should().Be(0xEF, "UTF-8 BOM byte 0 — Notepad must recognize as UTF-8");
+        bytes[1].Should().Be(0xBB, "UTF-8 BOM byte 1");
+        bytes[2].Should().Be(0xBF, "UTF-8 BOM byte 2");
+    }
+
+    [Fact]
+    public void Save_Uses_FileReplace_Not_FileMove()
+    {
+        // Write a known file first so the second save must REPLACE it
+        // (File.Move overwrite=true vs File.Replace atomic rename semantics).
+        File.WriteAllText(_tempFile, "preexisting");
+        var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
+        lib.Add(Frame("A", 0x100));
+
+        // After save, no .tmp file should remain (File.Replace is atomic;
+        // it never leaves a visible .tmp once the swap completes).
+        var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(_tempFile) + "*.tmp*");
+        tmpFiles.Should().BeEmpty("File.Replace completes atomically — no orphan tmp");
+
+        // The file should now contain our JSON, not "preexisting".
+        var content = File.ReadAllText(_tempFile);
+        content.Should().Contain("\"frames\"", "File.Replace should have replaced the preexisting file");
+    }
+
+    [Fact]
+    public void Save_Failure_Logs_Error_And_Rethrows()
+    {
+        // Use a writable parent directory, then mark the destination file
+        // ReadOnly so SaveUnlocked fails when trying to File.Replace into
+        // it. Add must complete before we flip ReadOnly (Add itself does
+        // a load-modify-save).
+        var dir = Path.Combine(Path.GetTempPath(), $"pch-fail-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "library.json");
+
+        var logger = Substitute.For<ILogger<SendFrameLibrary>>();
+        // NSubstitute returns false for IsEnabled by default, which
+        // gates the source-generated LoggerMessage call. Force it on.
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+
+        var lib = new SendFrameLibrary(path, logger);
+        lib.Add(Frame("A", 0x100));
+
+        // Now lock the destination so the next Save fails.
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+
+        try
+        {
+            var act = () => lib.Save();
+            act.Should().Throw<Exception>()
+                .Which.Should().Match(e =>
+                    e is IOException || e is UnauthorizedAccessException);
+            logger.Received().Log(
+                LogLevel.Error,
+                Arg.Any<EventId>(),
+                Arg.Any<object>(),
+                Arg.Any<Exception>(),
+                Arg.Any<Func<object, Exception?, string>>());
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Save_Failure_Cleans_Tmp_File()
+    {
+        // Add the frame while the file is still writeable (Add does its
+        // own load-modify-save), then mark the destination ReadOnly so
+        // the subsequent explicit Save() call fails inside File.Replace.
+        var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
+        lib.Add(Frame("A", 0x100));
+
+        File.SetAttributes(_tempFile, FileAttributes.ReadOnly);
+
+        try
+        {
+            var act = () => lib.Save();
+            act.Should().Throw();
+        }
+        finally
+        {
+            File.SetAttributes(_tempFile, FileAttributes.Normal);
+        }
+
+        var tmpFiles = Directory.GetFiles(_tempDir, "*.tmp*");
+        tmpFiles.Should().BeEmpty("typed catch must delete orphaned .tmp on failure");
     }
 }

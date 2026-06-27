@@ -56,7 +56,12 @@ public static class AppHostBuilder
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
 
         // Core infrastructure
-        builder.Services.AddSingleton<ChannelRouter>();
+        // v1.2.12 PATCH Item 11: ChannelRouter now accepts an ILogger<ChannelRouter>
+        // so the secondary OnError catch (which auto-detaches misbehaving sinks)
+        // is observable in Release builds. The logger is optional in the ctor
+        // (NullLogger fallback) but production DI always wires one.
+        builder.Services.AddSingleton<ChannelRouter>(sp =>
+            new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
         builder.Services.AddSingleton<BusStatisticsCollector>();
         // Task 18: extracted PEAK SDK probe call into a swappable
         // service so the App assembly has no Peak.Can.Basic dependency
@@ -81,7 +86,15 @@ public static class AppHostBuilder
                                       PeakCan.Host.Infrastructure.Peak.PcanReader>();
 
         // App services
-        builder.Services.AddSingleton<TraceService>();
+        // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
+        // so its OnError path is observable in Release builds (Debug.WriteLine
+        // was previously stripped). Production DI resolves the logger from
+        // the host's LoggingServiceCollection; NullLogger fallback exists
+        // for tests that do not assert on log output.
+        builder.Services.AddSingleton<TraceService>(sp =>
+            new TraceService(
+                sp.GetRequiredService<TraceViewModel>(),
+                sp.GetRequiredService<ILogger<TraceService>>()));
         // TraceService is a BackgroundService; its 50ms drain loop lives in
         // ExecuteAsync and only fires when the host starts it. Without this
         // AddHostedService line, frames pile up in the bounded channel and
@@ -97,6 +110,10 @@ public static class AppHostBuilder
         builder.Services.AddHostedService(sp => sp.GetRequiredService<StatisticsService>());
         // v0.5.0: frame recording (ASC/CSV) and cyclic send.
         builder.Services.AddSingleton<RecordService>();
+        // v1.2.12 PATCH Item 5: RecordService is a BackgroundService; its
+        // writer thread + 1Hz flush need IHostedService registration.
+        // Without this, ExecuteAsync never starts and frames never reach disk.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordService>());
         builder.Services.AddSingleton<CyclicSendService>();
         // v1.2.11 PATCH Item 3: register cyclic service as its interface
         // so SendViewModel can be tested with a fake via ICyclicSendService.
@@ -105,7 +122,13 @@ public static class AppHostBuilder
         // v1.2.11 PATCH Item 5: named-frame library persistence.
         builder.Services.AddSingleton<SendFrameLibrary>();
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes it on shutdown — the VM's DispatcherTimer would
+        // otherwise keep ticking (and keep the VM alive) until process
+        // exit, leaking in STA-WPF xunit fixtures and across shell
+        // navigation in production.
         builder.Services.AddSingleton<RecordViewModel>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordViewModel>());
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -116,11 +139,14 @@ public static class AppHostBuilder
         // (so BackgroundService.StartAsync fires the worker loop).
         // v1.2.11 PATCH Item 2: factory takes TraceViewModel for fan-out
         // (worker fills entry.Decoded after looking up PendingDecode).
+        // v1.2.12 PATCH Item 11: factory now also takes ILogger so OnError
+        // is observable in Release builds.
         builder.Services.AddSingleton<DbcDecodeBackgroundService>(sp =>
             new DbcDecodeBackgroundService(
                 sp.GetRequiredService<DbcService>(),
                 sp.GetRequiredService<SignalViewModel>(),
-                sp.GetRequiredService<TraceViewModel>()));
+                sp.GetRequiredService<TraceViewModel>(),
+                sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
         // v1.0.0: Scripting engine.
@@ -166,11 +192,30 @@ public static class AppHostBuilder
                 ResponseId = 0x7E8  // Default UDS physical response ID
             };
             var sendService = sp.GetRequiredService<SendService>();
-            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, frame =>
+            // v1.2.12 PATCH Item 2: async send callback. The previous
+            // `.AsTask().Wait()` blocked the SDK read thread and deadlocked
+            // the whole UDS diagnostic surface when SendService hung.
+            // ConfigureAwait(false) avoids STA capture on the WPF UI thread;
+            // exceptions are logged and swallowed inside the layer.
+            var isoLogger = sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>();
+            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, async frame =>
             {
-                // Fire-and-forget send (simplified for MVP)
-                sendService.SendAsync(frame).AsTask().Wait();
-            });
+                try
+                {
+                    await sendService.SendAsync(frame).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // v1.2.12 PATCH review (I-3): call the layer's internal
+                    // LogIsoTpSendFailed helper so the "IsoTpSendFailed"
+                    // event id (3001) lives in one place — both the inline
+                    // exception path inside SendCanFrameAsync and this
+                    // App-factory path now share the same source-gen log
+                    // call.
+                    PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer.LogIsoTpSendFailed(
+                        isoLogger, ex, frame.Id.Raw);
+                }
+            }, isoLogger);
         });
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();
@@ -198,11 +243,19 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<AppShellViewModel>();
         builder.Services.AddSingleton<TraceViewModel>();
         builder.Services.AddSingleton<SendViewModel>();
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes it on shutdown (same rationale as RecordViewModel).
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SendViewModel>());
         builder.Services.AddSingleton<DbcViewModel>();
         // v0.8.0: signal chart VM must be registered before SignalViewModel
         // (SignalViewModel depends on it via constructor injection).
         builder.Services.AddSingleton<SignalChartViewModel>();
         builder.Services.AddSingleton<SignalViewModel>();
+        // v1.2.12 PATCH Item 6: also register as IHostedService so the
+        // host disposes the System.Threading.Timer drain on shutdown.
+        // Without this, the timer's strong ref to the VM keeps the VM
+        // alive across STA-WPF xunit fixtures and after shell teardown.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SignalViewModel>());
         builder.Services.AddSingleton<StatsViewModel>();
         builder.Services.AddSingleton<ScriptViewModel>();
 

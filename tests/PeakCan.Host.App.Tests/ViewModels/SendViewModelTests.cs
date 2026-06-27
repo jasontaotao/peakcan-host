@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
@@ -57,6 +58,8 @@ public class SendViewModelTests
     {
         public bool IsRunning { get; set; }
         public long SendCount { get; set; }
+        public long SuccessCount { get; set; }
+        public long FailureCount { get; set; }
         public CanFrame? LastFrame { get; private set; }
         public TimeSpan? LastInterval { get; private set; }
         public bool StartCalled => LastFrame.HasValue;
@@ -68,6 +71,8 @@ public class SendViewModelTests
             LastInterval = interval;
             IsRunning = true;
             SendCount = 0;
+            SuccessCount = 0;
+            FailureCount = 0;
         }
 
         public void Stop()
@@ -433,5 +438,115 @@ public class SendViewModelTests
         vm.RefreshLibraryCommand.Execute(null);
         vm.DeleteFromLibraryCommand.Execute(vm.Library[0]);
         vm.Library.Should().BeEmpty();
+    }
+}
+
+// v1.2.12 PATCH Item 1: regression — SendViewModel must route through
+// the atomic Add/Remove methods on SendFrameLibrary (and surface a
+// status on failure) rather than the old Load+Save read-modify-write
+// pattern. Uses [Collection(WpfAppTestCollection.Name)] because the
+// SendViewModel ctor starts a DispatcherTimer that needs an STA.
+[Collection(WpfAppTestCollection.Name)]
+public class SendViewModelLibraryRegressionTests : IDisposable
+{
+    private readonly string _tempDir;
+    private readonly string _tempFile;
+
+    public SendViewModelLibraryRegressionTests()
+    {
+        LeakedApplicationReset.CleanupLeakedApplication();
+        _tempDir = Path.Combine(Path.GetTempPath(), $"pch-regr-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+        _tempFile = Path.Combine(_tempDir, "send-library.json");
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private SendViewModel NewVm(SendFrameLibrary? lib = null)
+    {
+        lib ??= new SendFrameLibrary(_tempFile, NullLogger<SendFrameLibrary>.Instance);
+        // Local SendService subclass + ICyclicSendService stub kept inside
+        // this class so the regression suite is self-contained (no cross-
+        // class access to the private FakeSendService in SendViewModelTests).
+        // SendService.SendAsync is virtual on the real class, so override is
+        // straightforward and returns a fresh ValueTask inline (no CA2012).
+        var svc = new StubSendService();
+        var cyclic = new StubCyclicSendService();
+        return new SendViewModel(
+            svc,
+            NullLogger<SendViewModel>.Instance,
+            cyclic,
+            lib);
+    }
+
+    private sealed class StubSendService : SendService
+    {
+        public StubSendService() : base(NullLogger<SendService>.Instance) { }
+        public override ValueTask<Result<Unit>> SendAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+    }
+
+    private sealed class StubCyclicSendService : ICyclicSendService
+    {
+        public bool IsRunning => false;
+        public long SendCount => 0L;
+        public long SuccessCount => 0L;
+        public long FailureCount => 0L;
+        public void Start(CanFrame frame, TimeSpan interval) { }
+        public void Stop() { }
+    }
+
+    [Fact]
+    public void SaveCurrentToLibrary_Adds_Via_Atomic_Method()
+    {
+        var lib = new SendFrameLibrary(_tempFile, NullLogger<SendFrameLibrary>.Instance);
+        using var vm = NewVm(lib);
+        vm.IdText = "100";
+        vm.DataText = "DE AD BE EF";
+
+        vm.SaveCurrentToLibraryCommand.Execute("test-A");
+
+        lib.Load().Should().ContainSingle(f => f.Name == "test-A");
+        vm.Status.Should().Contain("test-A").And.Contain("library");
+    }
+
+    [Fact]
+    public void DeleteFromLibrary_Removes_Via_Atomic_Method()
+    {
+        var lib = new SendFrameLibrary(_tempFile, NullLogger<SendFrameLibrary>.Instance);
+        lib.Add(new SendFrameLibrary.SavedFrame("test-B", 0x200, false, false, false, false, "AA", DateTimeOffset.UtcNow));
+        using var vm = NewVm(lib);
+        vm.RefreshLibraryCommand.Execute(null);
+        var entry = vm.Library.First(e => e.Name == "test-B");
+
+        vm.DeleteFromLibraryCommand.Execute(entry);
+
+        lib.Load().Should().BeEmpty();
+        vm.Status.Should().Contain("Removed").And.Contain("test-B");
+    }
+
+    [Fact]
+    public void SaveCurrentToLibrary_Failure_Surfaces_Status_Not_Crash()
+    {
+        // Library path whose target exists as a *directory*, so the ctor's
+        // Directory.CreateDirectory succeeds but the atomic write inside
+        // SaveUnlocked throws on File.WriteAllText. The VM must catch the
+        // IO failure and surface it as a FAIL status — never let it
+        // escape and crash the WPF dispatcher.
+        var trapDir = Path.Combine(_tempDir, "trap-as-dir");
+        Directory.CreateDirectory(trapDir);
+        var badLib = new SendFrameLibrary(trapDir, NullLogger<SendFrameLibrary>.Instance);
+        using var vm = NewVm(badLib);
+        vm.IdText = "100";
+        vm.DataText = "01";
+
+        var act = () => vm.SaveCurrentToLibraryCommand.Execute("fail");
+
+        act.Should().NotThrow();
+        vm.Status.Should().StartWith("FAIL:");
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Channel;
@@ -42,6 +43,20 @@ public sealed partial class ChannelRouter : IFrameSource
     private readonly List<ICanChannel> _channels = new();
     private ImmutableArray<IFrameSink> _sinks = ImmutableArray<IFrameSink>.Empty;
     private readonly object _gate = new();
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. Nullable for backward
+    // compatibility with test fixtures and any caller that does not yet
+    // wire an ILogger; falls back to NullLogger when omitted.
+    private readonly ILogger<ChannelRouter> _logger;
+
+    /// <summary>
+    /// Construct the router. <paramref name="logger"/> is optional only
+    /// for backward compatibility with existing test fixtures that do
+    /// not assert on the logger; production DI always passes one.
+    /// </summary>
+    public ChannelRouter(ILogger<ChannelRouter>? logger = null)
+    {
+        _logger = logger ?? NullLogger<ChannelRouter>.Instance;
+    }
 
     /// <summary>
     /// Subscribe to <paramref name="channel"/>'s <c>FrameReceived</c>.
@@ -140,14 +155,29 @@ public sealed partial class ChannelRouter : IFrameSource
                 catch (Exception onErrorEx)
                 {
                     // Per spec section 6.2 ("Never silently swallow errors"),
-                    // the secondary exception must be observable. The router
-                    // does not depend on ILogger yet; use Debug.WriteLine so
-                    // the failure is visible under a debugger-attached host.
-                    Debug.WriteLine(
-                        $"[ChannelRouter] sink {s.GetType().Name} OnError itself threw; auto-detaching. Original: {ex.GetType().Name}: {ex.Message} | Secondary: {onErrorEx.GetType().Name}: {onErrorEx.Message}");
+                    // the secondary exception must be observable. v1.2.12
+                    // PATCH Item 11: route through ILogger so Release builds
+                    // retain the record (the previous Debug.WriteLine was
+                    // stripped when DEBUG was not defined). The original
+                    // exception is captured via `when` filter + scope; the
+                    // structured exception object carries the full ToString.
+                    LogSinkOnError(_logger, onErrorEx, s.GetType().Name);
                     DetachSink(s);
                 }
             }
         }
     }
+
+    // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
+    // Debug.WriteLine was stripped in Release builds, leaving production
+    // with no record of the secondary OnError exception. EventId 6004.
+    // The trailing `Exception` is the source-gen convention for the
+    // exception attached to the log scope; the message template only
+    // references the sink type (Type.FullName of the failure is on the
+    // structured exception object, not in the formatted string).
+    [LoggerMessage(EventId = 6004, Level = LogLevel.Warning, Message = "Sink {SinkType} OnError itself threw; auto-detaching")]
+    private static partial void LogSinkOnError(
+        ILogger logger,
+        Exception secondaryEx,
+        string sinkType);
 }

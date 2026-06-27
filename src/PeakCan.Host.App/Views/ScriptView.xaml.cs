@@ -20,17 +20,39 @@ public partial class ScriptView : UserControl
         Loaded += OnLoaded;
     }
 
+    // v1.2.12 PATCH Item 7: wrap WebView2 init + NavigateToString in
+    // try/catch. A missing or broken WebView2 Evergreen Runtime used to
+    // throw into the async void sink and bubble up to
+    // App.DispatcherUnhandledException (deterministic DoS of the Scripts
+    // tab + process). We now surface the failure via IsEditorReady /
+    // EditorError so the XAML fallback TextBlock can show a message
+    // instead of crashing.
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         _viewModel = DataContext as ScriptViewModel;
         if (_viewModel is null) return;
 
-        // Initialize WebView2.
-        await EditorWebView.EnsureCoreWebView2Async();
+        try
+        {
+            await EditorWebView.EnsureCoreWebView2Async();
 
-        // Load CodeMirror editor from embedded HTML.
-        var editorHtml = GetEditorHtml();
-        EditorWebView.NavigateToString(editorHtml);
+            // Load CodeMirror editor from embedded HTML.
+            var editorHtml = GetEditorHtml();
+            EditorWebView.NavigateToString(editorHtml);
+
+            _viewModel.IsEditorReady = true;
+            _viewModel.EditorError = null;
+        }
+        catch (Exception ex)
+        {
+            // v1.2.12 PATCH Item 7 review I-2/I-3: route through VM so the
+            // exception is logged via [LoggerMessage] LogWebView2InitFailed
+            // (EventId 4001). View stays free of logger plumbing.
+            _viewModel.OnWebView2InitFailed(
+                ex,
+                $"WebView2 runtime 未安装或损坏: {ex.Message}. " +
+                "请安装 WebView2 Evergreen Runtime.");
+        }
     }
 
     private void EditorWebView_CoreWebView2InitializationCompleted(object? sender, CoreWebView2InitializationCompletedEventArgs e)

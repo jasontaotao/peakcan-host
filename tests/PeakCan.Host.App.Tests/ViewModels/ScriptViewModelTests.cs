@@ -115,6 +115,70 @@ public sealed class ScriptViewModelTests : IDisposable
         _viewModel.Dispose();
     }
 
+    // ===== v1.2.12 PATCH Item 7: WebView2 init try/catch + fallback state =====
+
+    [Fact]
+    public void IsEditorReady_Initially_False()
+    {
+        // Assert
+        Assert.False(_viewModel.IsEditorReady);
+        Assert.Null(_viewModel.EditorError);
+    }
+
+    [Fact]
+    public void SetEditorReady_Triggers_PropertyChanged()
+    {
+        // Arrange
+        var raised = new List<string>();
+        _viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
+
+        // Act
+        _viewModel.IsEditorReady = true;
+
+        // Assert
+        Assert.Contains(nameof(ScriptViewModel.IsEditorReady), raised);
+    }
+
+    [Fact]
+    public void SetEditorError_Triggers_PropertyChanged()
+    {
+        // Arrange
+        var raised = new List<string>();
+        _viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
+
+        // Act
+        _viewModel.EditorError = "WebView2 runtime 未安装";
+
+        // Assert
+        Assert.Contains(nameof(ScriptViewModel.EditorError), raised);
+    }
+
+    // ===== v1.2.12 PATCH Item 7 review I-2/I-3: VM routes exception through logger =====
+
+    [Fact]
+    public void OnWebView2InitFailed_Sets_IsEditorReady_False_And_Logs()
+    {
+        // Arrange
+        var ex = new InvalidOperationException("wv2 missing");
+        var message = "WebView2 runtime 未安装或损坏: wv2 missing. " +
+                      "请安装 WebView2 Evergreen Runtime.";
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        _logger.IsEnabled(LogLevel.Error).Returns(true);
+
+        // Act
+        _viewModel.OnWebView2InitFailed(ex, message);
+
+        // Assert
+        Assert.False(_viewModel.IsEditorReady);
+        Assert.StartsWith("WebView2 runtime", _viewModel.EditorError);
+        _logger.Received(1).Log<Arg.AnyType>(
+            LogLevel.Error,
+            Arg.Any<EventId>(),
+            Arg.Any<Arg.AnyType>(),
+            ex,
+            Arg.Any<Func<Arg.AnyType, Exception?, string>>());
+    }
+
     public void Dispose()
     {
         _viewModel.Dispose();

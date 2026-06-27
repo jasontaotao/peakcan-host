@@ -54,7 +54,7 @@ public partial class App : Application
     /// </summary>
     private IHost? _host;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         // v1.2.9: register the legacy code-page encoding provider
@@ -77,60 +77,73 @@ public partial class App : Application
         InstallStaticGlobalExceptionHandlers();
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         _host = AppHostBuilder.Build();
-        // Start hosted services (SinkWiringService, DbcDecodeBackgroundService)
-        // synchronously so their StartAsync runs before we resolve the shell.
-        // Without this, SinkWiringService.StartAsync never fires and the
-        // router only has the CanApi self-attach; Trace/Stats/Recording stay
-        // empty even though the read loop is delivering frames. Discovered
-        // 2026-06-26 via DIAG logging (sinks=1, dispatches=18000). See
-        // OnExit below for the matching StopAsync on shutdown.
-        //
-        // Sync-over-async is safe here: Microsoft.Extensions.Hosting's
-        // BackgroundService.StartAsync awaits ExecuteAsync on the
-        // threadpool without capturing the WPF Dispatcher
-        // SynchronizationContext, so the STA UI thread is never posted
-        // back to during StartAsync. No deadlock risk.
+        // v1.2.12: OnStartup is now async void so we can await
+        // IHost.StartAsync without blocking the WPF STA thread. The
+        // previous sync-over-async (GetAwaiter().GetResult()) was a
+        // latent STA deadlock: any future hosted service that captures
+        // the WPF Dispatcher SynchronizationContext in StartAsync
+        // would have posted back to the UI thread we were blocking.
+        // ConfigureAwait(false) ensures the continuation (including
+        // _shell.Show()) runs on the threadpool, not back on STA.
+        // BackgroundService.StartAsync itself awaits ExecuteAsync on
+        // the threadpool without capturing the WPF SynchronizationContext,
+        // so the STA UI thread is never posted back to during StartAsync.
         try
         {
-            _host.StartAsync().GetAwaiter().GetResult();
+            await _host.StartAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            Log.Logger.Error(ex, "IHost.StartAsync threw during OnStartup");
-            throw;
+            // Failure path: the previous implementation rethrew, which
+            // crashed the process inside OnStartup with no chance to log
+            // through the WPF dispatcher. We now log via Serilog and
+            // call Shutdown(1) so the application exits cleanly with a
+            // non-zero exit code and the failure is visible in the log.
+            Log.Logger.Fatal(ex, "IHost.StartAsync threw during OnStartup");
+            Shutdown(1);
+            return;
         }
         Services = _host.Services;
+        // _shell.Show() runs on the threadpool after the await, so we
+        // must Dispatcher.Invoke Show to guarantee the window is created
+        // on the WPF STA thread. Without this, Show() would throw on
+        // .NET 10: "The calling thread must be STA".
         var shell = new AppShell
         {
             DataContext = Services.GetRequiredService<AppShellViewModel>(),
         };
-        shell.Show();
+        Dispatcher.Invoke(() => shell.Show());
     }
 
-    protected override void OnExit(ExitEventArgs e)
+    protected override async void OnExit(ExitEventArgs e)
     {
         // Graceful shutdown: stop the IHost first so hosted services
         // (SinkWiringService, DbcDecodeBackgroundService) dispose
         // cleanly, then dispose the host to release the service
-        // provider. Use GetAwaiter().GetResult() to block the shutdown
-        // synchronously — OnExit is the only safe call site for
-        // sync-over-async during process teardown. Cap the wait at
-        // 10s so a mid-decode 64-byte FD frame or a long ChannelRouter
-        // sink teardown has time to finish; the OS reaps the process
-        // if shutdown still hangs.
-        try
+        // provider. v1.2.12: OnExit is now async void (matching
+        // OnStartup) so we can await StopAsync without blocking the
+        // WPF STA thread. ConfigureAwait(false) keeps the continuation
+        // off the dispatcher. Cap the wait at 10s so a mid-decode
+        // 64-byte FD frame or a long ChannelRouter sink teardown has
+        // time to finish; the OS reaps the process if shutdown still
+        // hangs. OnExit is the only call site where we tolerate
+        // exceptions during teardown — the process is exiting anyway.
+        if (_host is not null)
         {
-            _host?.StopAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "IHost.StopAsync threw during OnExit");
-        }
-        finally
-        {
-            _host?.Dispose();
-            _host = null;
-            Services = null!;
+            try
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(ex, "IHost.StopAsync threw during OnExit");
+            }
+            finally
+            {
+                _host.Dispose();
+                _host = null;
+                Services = null!;
+            }
         }
         base.OnExit(e);
     }

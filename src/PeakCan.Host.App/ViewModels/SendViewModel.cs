@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
@@ -21,8 +22,16 @@ namespace PeakCan.Host.App.ViewModels;
 /// "FAIL: …" status rather than propagating out of the command (which
 /// would surface as an unhandled exception in the WPF dispatcher).
 /// </para>
+/// <para>
+/// v1.2.12 PATCH Item 6: also implements <see cref="IHostedService"/>
+/// (no-op Start/Stop) so <c>AppHostBuilder</c> can register it with
+/// <c>AddHostedService</c> and the host will call <see cref="Dispose"/>
+/// on shutdown. Without this, the poll timer would keep the VM alive
+/// across STA-WPF xunit test fixtures and leak in production after
+/// the shell navigates away.
+/// </para>
 /// </summary>
-public sealed partial class SendViewModel : ObservableObject, IDisposable
+public sealed partial class SendViewModel : ObservableObject, IHostedService, IDisposable
 {
     private readonly SendService _svc;
     private readonly ICyclicSendService _cyclic;
@@ -67,7 +76,10 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
     private bool _isCyclicRunning;
 
     [ObservableProperty]
-    private long _cyclicSendCount;
+    private long _cyclicSuccessCount;
+
+    [ObservableProperty]
+    private long _cyclicFailureCount;
 
     // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
     [ObservableProperty]
@@ -86,7 +98,10 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         _libraryService = library;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
-        // the UI reflects IsRunning / SendCount without a separate event.
+        // the UI reflects IsRunning / SuccessCount / FailureCount without
+        // a separate event. v1.2.12 PATCH Item 10 split the mixed
+        // SendCount into Success + Failure so the UI shows the two
+        // outcomes separately.
         // DispatcherTimer ctor doesn't require WPF Application; in test
         // context (no Application) the Tick simply never fires — fine.
         _pollTimer = new System.Windows.Threading.DispatcherTimer
@@ -96,7 +111,8 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         _pollTimer.Tick += (_, _) =>
         {
             IsCyclicRunning = _cyclic.IsRunning;
-            CyclicSendCount = _cyclic.SendCount;
+            CyclicSuccessCount = _cyclic.SuccessCount;
+            CyclicFailureCount = _cyclic.FailureCount;
         };
         _pollTimer.Start();
     }
@@ -112,6 +128,13 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         _pollTimer.Stop();
         GC.SuppressFinalize(this);
     }
+
+    // v1.2.12 PATCH Item 6: IHostedService no-op implementations. See
+    // RecordViewModel for rationale — the VM is a passive sink, the
+    // DispatcherTimer starts in the ctor, and these exist only so the
+    // host can call Dispose on shutdown.
+    Task IHostedService.StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     [RelayCommand]
     private async Task SendAsync()
@@ -266,7 +289,7 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
     {
         _cyclic.Stop();
         IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic stopped ({CyclicSendCount} frames)";
+        Status = $"Cyclic stopped ({CyclicSuccessCount} ok / {CyclicFailureCount} fail)";
     }
 
     // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.
@@ -307,11 +330,21 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
         var saved = new SendFrameLibrary.SavedFrame(
             name, raw, IsExtended, IsFd, IsRtr, IsBitRateSwitch,
             Convert.ToHexString(bytes), DateTimeOffset.UtcNow);
-        var current = _libraryService.Load().ToList();
-        current.Add(saved);
-        _libraryService.Save(current);
-        RefreshLibrary();
-        Status = $"Saved '{name}' to library";
+        // v1.2.12 PATCH Item 1: route through the atomic Add so concurrent
+        // Save calls (e.g. double-clicked button) don't drop each other's
+        // read-modify-write. Catch IO / JSON exceptions and surface as a
+        // FAIL status rather than letting them escape the WPF dispatcher.
+        try
+        {
+            _libraryService.Add(saved);
+            RefreshLibrary();
+            Status = $"Saved '{name}' to library ({_libraryService.Count} frames).";
+        }
+        catch (Exception ex)
+        {
+            Status = $"FAIL: Save '{name}' to library: {ex.Message}";
+            LogSaveToLibraryFailed(_logger, ex, name);
+        }
     }
 
     [RelayCommand]
@@ -331,11 +364,27 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
     private void DeleteFromLibrary(SendFrameLibrary.SavedFrame? frame)
     {
         if (frame is null || _libraryService is null) return;
-        var current = _libraryService.Load().ToList();
-        current.RemoveAll(f => f.Name == frame.Name);
-        _libraryService.Save(current);
-        RefreshLibrary();
-        Status = $"Deleted '{frame.Name}'";
+        // v1.2.12 PATCH Item 1: route through the atomic Remove so concurrent
+        // Delete calls don't drop each other's read-modify-write. Report
+        // a friendly status when the frame was already gone (idempotent
+        // delete), and surface IO failures as FAIL.
+        try
+        {
+            if (_libraryService.Remove(frame.Name))
+            {
+                RefreshLibrary();
+                Status = $"Removed '{frame.Name}' from library.";
+            }
+            else
+            {
+                Status = $"'{frame.Name}' not found in library (already removed?).";
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"FAIL: Remove '{frame.Name}': {ex.Message}";
+            LogDeleteFromLibraryFailed(_logger, ex, frame.Name);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]
@@ -352,4 +401,13 @@ public sealed partial class SendViewModel : ObservableObject, IDisposable
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Send threw for {CanId}")]
     private static partial void LogSendThrew(ILogger logger, CanId canId, Exception ex);
+
+    // v1.2.12 PATCH Item 1: log IO / JSON failures from the atomic library
+    // Add/Remove path. The Status string is user-facing; these messages
+    // are the operator-facing diagnostics that survive a UI crash.
+    [LoggerMessage(EventId = 2001, Level = LogLevel.Error, Message = "Save '{Name}' to library failed")]
+    private static partial void LogSaveToLibraryFailed(ILogger logger, Exception ex, string name);
+
+    [LoggerMessage(EventId = 2002, Level = LogLevel.Error, Message = "Delete '{Name}' from library failed")]
+    private static partial void LogDeleteFromLibraryFailed(ILogger logger, Exception ex, string name);
 }

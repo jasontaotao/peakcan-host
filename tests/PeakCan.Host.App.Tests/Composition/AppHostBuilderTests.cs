@@ -149,4 +149,70 @@ public class AppHostBuilderTests
         statsHosted.Should().BeSameAs(statsSingleton,
             "StatisticsService IHostedService registration must reuse the singleton or the 1 Hz stats pump never fires");
     }
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 2: the IsoTpLayer factory must accept the new
+    /// Func&lt;CanFrame, Task&gt; send-callback signature (no longer the sync
+    /// .AsTask().Wait() deadlock pattern). Resolving the layer from the
+    /// built host is enough to prove the factory compiles and runs.
+    /// </summary>
+    [Fact]
+    public void Build_IsoTpLayer_Factory_Accepts_Async_Send_Callback()
+    {
+        using var host = AppHostBuilder.Build();
+        var layer = host.Services.GetService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
+        layer.Should().NotBeNull(
+            "IsoTpLayer factory must use the async send-callback overload (Item 2 fix)");
+    }
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 6: RecordViewModel, SendViewModel, and
+    /// SignalViewModel all implement <see cref="IDisposable"/> (v1.2.11
+    /// review fix) and own background resources (DispatcherTimer for the
+    /// first two; System.Threading.Timer for the third). The
+    /// <see cref="IHost"/> only disposes <see cref="IHostedService"/>
+    /// instances, so without an <c>AddHostedService(sp =>
+    /// sp.GetRequiredService&lt;T&gt;())</c> line for each VM the
+    /// <c>Dispose</c> method is dead code on the production path. This
+    /// test pins the registration: if a future refactor drops the
+    /// double-registration, the VM's timer (and its strong reference to
+    /// <c>this</c>) keeps the VM alive forever after the shell
+    /// navigates away — a memory leak the build-error-resolver would
+    /// not catch.
+    /// </summary>
+    [Fact]
+    public void Build_Registers_RecordViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
+    {
+        using var host = AppHostBuilder.Build();
+
+        var singleton = host.Services.GetRequiredService<RecordViewModel>();
+        var hosted = host.Services.GetServices<IHostedService>()
+            .OfType<RecordViewModel>().Single();
+        hosted.Should().BeSameAs(singleton,
+            "RecordViewModel IHostedService registration must reuse the singleton or its DispatcherTimer never disposes (Item 6 fix)");
+    }
+
+    [Fact]
+    public void Build_Registers_SendViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
+    {
+        using var host = AppHostBuilder.Build();
+
+        var singleton = host.Services.GetRequiredService<SendViewModel>();
+        var hosted = host.Services.GetServices<IHostedService>()
+            .OfType<SendViewModel>().Single();
+        hosted.Should().BeSameAs(singleton,
+            "SendViewModel IHostedService registration must reuse the singleton or its DispatcherTimer never disposes (Item 6 fix)");
+    }
+
+    [Fact]
+    public void Build_Registers_SignalViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
+    {
+        using var host = AppHostBuilder.Build();
+
+        var singleton = host.Services.GetRequiredService<SignalViewModel>();
+        var hosted = host.Services.GetServices<IHostedService>()
+            .OfType<SignalViewModel>().Single();
+        hosted.Should().BeSameAs(singleton,
+            "SignalViewModel IHostedService registration must reuse the singleton or its drain Timer never disposes (Item 6 fix)");
+    }
 }
