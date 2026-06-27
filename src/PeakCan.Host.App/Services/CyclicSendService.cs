@@ -56,10 +56,17 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     [Obsolete("Use SuccessCount + FailureCount. v1.2.12 split the mixed counter; remove in v1.2.13.")]
     public long SendCount => Interlocked.Read(ref _sendSuccessCount) + Interlocked.Read(ref _sendFailureCount);
 
-    /// <summary>Number of frames the channel reported as successfully transmitted since the last <see cref="Start"/>.</summary>
+    /// <summary>
+    /// Number of frames the channel reported as successfully transmitted
+    /// since the last <see cref="Start"/>. Reset to 0 by each new
+    /// <see cref="Start"/> call.
+    /// </summary>
     public long SuccessCount => Interlocked.Read(ref _sendSuccessCount);
 
-    /// <summary>Number of frames the channel reported as failed since the last <see cref="Start"/>.</summary>
+    /// <summary>
+    /// Number of frames the channel reported as failed since the last
+    /// <see cref="Start"/>. Reset to 0 by each new <see cref="Start"/> call.
+    /// </summary>
     public long FailureCount => Interlocked.Read(ref _sendFailureCount);
 
     public CyclicSendService(SendService sendService, ILogger<CyclicSendService> logger)
@@ -84,6 +91,12 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
             _frame = frame;
             _interval = interval;
             _isRunning = true;
+            // v1.2.12 PATCH Item 10 (Review Cycle 1 I-1): reset the split
+            // counters so "since the last Start" remains the documented
+            // contract. Without this, a second Start would carry counts
+            // from the previous cycle.
+            Interlocked.Exchange(ref _sendSuccessCount, 0);
+            Interlocked.Exchange(ref _sendFailureCount, 0);
             gen = ++_generation;
             _timer = new Timer(OnTimerTick, gen, interval, interval);
         }

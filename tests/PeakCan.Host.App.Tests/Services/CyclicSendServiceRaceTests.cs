@@ -67,14 +67,21 @@ public class CyclicSendServiceRaceTests
         int beforeStopCount = send.CallCount;
 
         // After Stop, allow plenty of wall-clock time for any already-queued
-        // tick to fire. With lock-snapshot at top of OnTimerTick, those
-        // queued ticks should observe _isRunning=false and bail. Anything
-        // significantly more than the one in-flight call is the race.
+        // tick to fire. With lock-snapshot at top of OnTimerTick, queued
+        // ticks should observe _isRunning=false and bail; and the
+        // generation bump in StopInner invalidates any tick whose body
+        // already started before Stop flipped the flag. The only
+        // acceptable leak is the single tick whose `OnTimerTick` body had
+        // already passed the lock check and is mid-await on SendAsync
+        // when Stop runs — its `await` will complete (no cancellation
+        // token is propagated to SendAsync from OnTimerTick), but that's
+        // at most 1 in-flight frame. Two or more leaks is the race
+        // regression.
         await Task.Delay(150);
         int afterStopCount = send.CallCount;
 
-        (afterStopCount - beforeStopCount).Should().BeLessThan(2,
-            "after Stop, at most one already-queued tick may still call SendAsync; any more is the race regression");
+        (afterStopCount - beforeStopCount).Should().BeLessThanOrEqualTo(1,
+            "after Stop, at most one in-flight tick may complete its SendAsync; any more is the race regression");
     }
 
     [Fact]
