@@ -277,6 +277,52 @@ public sealed class IsoTpLayerTests
         receivedPayload.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44);
     }
 
+    /// <summary>
+    /// v1.2.13 PATCH Item 1: regression test for the watchdog CTS race.
+    /// Without the WatchdogHandle ref-count fix, repeatedly restarting the
+    /// N_Cr watchdog mid-disposal could observe the watchdog callback
+    /// clearing _rxBuffer of a STILL-IN-PROGRESS reassembly, dropping the
+    /// payload and emitting MessageReceived=null. With the fix, the buffer
+    /// must survive the watchdog churn and the second message reassembles
+    /// in full.
+    /// </summary>
+    [Fact]
+    public async Task HandleConsecutiveFrame_During_Watchdog_Disposal_Does_Not_Corrupt_Buffer()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(80);
+
+        // Round 1: FF(20) with first chunk only, then quickly fire a fresh FF
+        // (also length=20). The first FF's CF1 never arrives; the first
+        // watchdog will time out at ~80ms; meanwhile the second FF races in.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // Immediately inject a SECOND FF (length=20). This forces
+        // StartReceiveWatchdog to be re-armed while the FIRST watchdog's
+        // CTS is being CancelReceiveWatchdog'd by HandleFirstFrame.
+        await Task.Delay(5);
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 });
+
+        // Subscribe to MessageReceived so we can assert the SECOND payload
+        // reassembles cleanly despite the first watchdog being in-flight.
+        byte[]? received = null;
+        var done = new TaskCompletionSource();
+        iso.MessageReceived += bytes => { received = bytes; done.TrySetResult(); };
+
+        // Complete the second message with CF1 + CF2.
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6 });
+        InjectConsecutiveFrame(iso, sequence: 2, chunk: new byte[] { 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6 });
+
+        var completed = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().Be(done.Task,
+            "the second FF must reassemble in full despite the first watchdog churn");
+        received.Should().Equal(
+            0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5,
+            0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+            0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6);
+    }
+
     // ========================================================================
     // v1.2.12 PATCH Item 2: async Task callback + SemaphoreSlim serialization.
     // The production code path now passes a Func<CanFrame, Task> to the layer
