@@ -374,6 +374,29 @@ public sealed partial class IsoTpLayer : IDisposable
 
     private void HandleFirstFrame(IsoTpFrame frame)
     {
+        // v1.2.12 PATCH Item 8: refuse FFs declaring more than MaxMessageLength
+        // bytes BEFORE allocating a 4 KB+ buffer. A malicious / fuzz ECU can
+        // otherwise drive the host into OOM by streaming crafted FFs. The
+        // Encode() method already caps the FF length field at 12 bits (4095),
+        // so this check is defense-in-depth for any future encoder change or
+        // for IsoTpFrame objects constructed directly via the public ctor.
+        if (frame.Length > MaxMessageLength)
+        {
+            if (_logger is not null)
+                LogIsoTpFfLengthTooLarge(_logger, frame.Length, MaxMessageLength);
+            // Reset state so a subsequent valid FF can be reassembled.
+            lock (_rxLock)
+            {
+                _rxInProgress = false;
+                _rxBuffer = null;
+                _rxExpectedLength = 0;
+                _rxReceivedLength = 0;
+                _rxExpectedSequence = 1;
+            }
+            CancelReceiveWatchdog();
+            return; // drop, do not throw — keep the SDK read thread alive
+        }
+
         lock (_rxLock)
         {
             _rxInProgress = true;
@@ -574,6 +597,13 @@ public sealed partial class IsoTpLayer : IDisposable
     // Single source of truth for the "handler threw" event (id 3002).
     [LoggerMessage(EventId = 3002, Level = LogLevel.Error, Message = "IsoTpLayer MessageReceived handler threw for {Length}-byte message")]
     private static partial void LogIsoTpHandlerFailed(ILogger logger, Exception ex, int length);
+
+    // v1.2.12 PATCH Item 8: log rejected FirstFrame at Warning. The frame
+    // is dropped (not propagated) so the SDK read thread stays unblocked,
+    // but operators need visibility into an ECU that's streaming malformed
+    // FFs (likely a fuzz harness or a misconfigured sender).
+    [LoggerMessage(EventId = 3003, Level = LogLevel.Warning, Message = "IsoTp FirstFrame length {Length} exceeds MaxMessageLength {Max}, dropping")]
+    private static partial void LogIsoTpFfLengthTooLarge(ILogger logger, int length, int max);
 }
 
 /// <summary>
