@@ -204,4 +204,22 @@ public sealed partial class ScriptViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Script stopped by user")]
     private static partial void LogScriptStopped(ILogger logger);
+
+    [LoggerMessage(EventId = 4001, Level = LogLevel.Error, Message = "WebView2 init failed")]
+    private static partial void LogWebView2InitFailed(ILogger logger, Exception ex);
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 7 review I-2/I-3: invoked by ScriptView.OnLoaded
+    /// when EnsureCoreWebView2Async or NavigateToString throws. Sets
+    /// IsEditorReady = false + EditorError message AND logs the underlying
+    /// exception via [LoggerMessage] LogWebView2InitFailed. Keeps the WPF
+    /// view free of logger plumbing (DI-incompatible) while satisfying
+    /// the spec's logging requirement.
+    /// </summary>
+    public void OnWebView2InitFailed(Exception ex, string message)
+    {
+        LogWebView2InitFailed(_logger, ex);
+        IsEditorReady = false;
+        EditorError = message;
+    }
 }

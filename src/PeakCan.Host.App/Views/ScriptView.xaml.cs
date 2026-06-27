@@ -45,10 +45,13 @@ public partial class ScriptView : UserControl
         }
         catch (Exception ex)
         {
-            _viewModel.IsEditorReady = false;
-            _viewModel.EditorError =
+            // v1.2.12 PATCH Item 7 review I-2/I-3: route through VM so the
+            // exception is logged via [LoggerMessage] LogWebView2InitFailed
+            // (EventId 4001). View stays free of logger plumbing.
+            _viewModel.OnWebView2InitFailed(
+                ex,
                 $"WebView2 runtime 未安装或损坏: {ex.Message}. " +
-                "请安装 WebView2 Evergreen Runtime.";
+                "请安装 WebView2 Evergreen Runtime.");
         }
     }
 

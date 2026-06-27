@@ -153,6 +153,32 @@ public sealed class ScriptViewModelTests : IDisposable
         Assert.Contains(nameof(ScriptViewModel.EditorError), raised);
     }
 
+    // ===== v1.2.12 PATCH Item 7 review I-2/I-3: VM routes exception through logger =====
+
+    [Fact]
+    public void OnWebView2InitFailed_Sets_IsEditorReady_False_And_Logs()
+    {
+        // Arrange
+        var ex = new InvalidOperationException("wv2 missing");
+        var message = "WebView2 runtime 未安装或损坏: wv2 missing. " +
+                      "请安装 WebView2 Evergreen Runtime.";
+        // Source-gen [LoggerMessage] gates Log() on IsEnabled, so stub true.
+        _logger.IsEnabled(LogLevel.Error).Returns(true);
+
+        // Act
+        _viewModel.OnWebView2InitFailed(ex, message);
+
+        // Assert
+        Assert.False(_viewModel.IsEditorReady);
+        Assert.StartsWith("WebView2 runtime", _viewModel.EditorError);
+        _logger.Received(1).Log<Arg.AnyType>(
+            LogLevel.Error,
+            Arg.Any<EventId>(),
+            Arg.Any<Arg.AnyType>(),
+            ex,
+            Arg.Any<Func<Arg.AnyType, Exception?, string>>());
+    }
+
     public void Dispose()
     {
         _viewModel.Dispose();
