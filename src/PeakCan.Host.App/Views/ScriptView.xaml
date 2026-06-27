@@ -46,6 +46,31 @@
                 <wv2:WebView2 x:Name="EditorWebView"
                               CoreWebView2InitializationCompleted="EditorWebView_CoreWebView2InitializationCompleted" />
             </Border>
+
+            <!-- v1.2.12 PATCH Item 7: fallback TextBlock shown when WebView2
+                 init fails (e.g. missing Evergreen Runtime). Visible when
+                 IsEditorReady is false (failure), collapsed when true (ok).
+                 Uses IsEditorReady rather than EditorError so the trigger
+                 is a clean bool comparison (WPF DataTrigger cannot match
+                 non-null on a string without a converter). -->
+            <TextBlock Text="{Binding EditorError}"
+                       Foreground="DarkRed"
+                       Padding="12"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Background="#1E1E1E">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsEditorReady}" Value="False">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
         </Grid>
 
         <!-- Output Panel -->

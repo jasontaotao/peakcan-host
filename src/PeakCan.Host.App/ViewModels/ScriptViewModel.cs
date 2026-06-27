@@ -42,6 +42,16 @@ public sealed partial class ScriptViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = "Ready";
 
+    // v1.2.12 PATCH Item 7: editor-ready state surfaced for the XAML fallback
+    // TextBlock. Set true by ScriptView.OnLoaded after WebView2 init succeeds;
+    // set false + EditorError message when WebView2 init or NavigateToString
+    // throws (e.g. missing WebView2 Evergreen Runtime).
+    [ObservableProperty]
+    private bool _isEditorReady;
+
+    [ObservableProperty]
+    private string? _editorError;
+
     /// <summary>Output lines displayed in the UI.</summary>
     public ObservableCollection<string> OutputLines { get; } = new();
 

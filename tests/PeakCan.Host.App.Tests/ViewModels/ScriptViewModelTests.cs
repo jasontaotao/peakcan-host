@@ -115,6 +115,44 @@ public sealed class ScriptViewModelTests : IDisposable
         _viewModel.Dispose();
     }
 
+    // ===== v1.2.12 PATCH Item 7: WebView2 init try/catch + fallback state =====
+
+    [Fact]
+    public void IsEditorReady_Initially_False()
+    {
+        // Assert
+        Assert.False(_viewModel.IsEditorReady);
+        Assert.Null(_viewModel.EditorError);
+    }
+
+    [Fact]
+    public void SetEditorReady_Triggers_PropertyChanged()
+    {
+        // Arrange
+        var raised = new List<string>();
+        _viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
+
+        // Act
+        _viewModel.IsEditorReady = true;
+
+        // Assert
+        Assert.Contains(nameof(ScriptViewModel.IsEditorReady), raised);
+    }
+
+    [Fact]
+    public void SetEditorError_Triggers_PropertyChanged()
+    {
+        // Arrange
+        var raised = new List<string>();
+        _viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
+
+        // Act
+        _viewModel.EditorError = "WebView2 runtime 未安装";
+
+        // Assert
+        Assert.Contains(nameof(ScriptViewModel.EditorError), raised);
+    }
+
     public void Dispose()
     {
         _viewModel.Dispose();
