@@ -76,7 +76,10 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     private bool _isCyclicRunning;
 
     [ObservableProperty]
-    private long _cyclicSendCount;
+    private long _cyclicSuccessCount;
+
+    [ObservableProperty]
+    private long _cyclicFailureCount;
 
     // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
     [ObservableProperty]
@@ -95,7 +98,10 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         _libraryService = library;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
-        // the UI reflects IsRunning / SendCount without a separate event.
+        // the UI reflects IsRunning / SuccessCount / FailureCount without
+        // a separate event. v1.2.12 PATCH Item 10 split the mixed
+        // SendCount into Success + Failure so the UI shows the two
+        // outcomes separately.
         // DispatcherTimer ctor doesn't require WPF Application; in test
         // context (no Application) the Tick simply never fires — fine.
         _pollTimer = new System.Windows.Threading.DispatcherTimer
@@ -105,7 +111,8 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         _pollTimer.Tick += (_, _) =>
         {
             IsCyclicRunning = _cyclic.IsRunning;
-            CyclicSendCount = _cyclic.SendCount;
+            CyclicSuccessCount = _cyclic.SuccessCount;
+            CyclicFailureCount = _cyclic.FailureCount;
         };
         _pollTimer.Start();
     }
@@ -282,7 +289,7 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     {
         _cyclic.Stop();
         IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic stopped ({CyclicSendCount} frames)";
+        Status = $"Cyclic stopped ({CyclicSuccessCount} ok / {CyclicFailureCount} fail)";
     }
 
     // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.

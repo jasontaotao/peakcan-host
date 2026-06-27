@@ -12,9 +12,21 @@ namespace PeakCan.Host.App.Services;
 /// <b>Thread-safety:</b> the timer callback runs on a ThreadPool thread;
 /// <see cref="SendService.SendAsync"/> is thread-safe (it uses
 /// <see cref="System.Threading.Volatile.Read{T}"/> on the channel ref).
-/// The frame and interval are immutable after <see cref="Start"/> — to
-/// change them, call <see cref="Stop"/> then <see cref="Start"/> with
-/// new parameters.
+/// All mutable state (<c>_isRunning</c>, <c>_frame</c>, <c>_interval</c>,
+/// <c>_generation</c>) is read under <c>lock(this)</c> at the top of
+/// <see cref="OnTimerTick"/> so that <see cref="Stop"/> and a re-entrant
+/// <see cref="Start"/> are observed atomically. To change the frame or
+/// interval, call <see cref="Stop"/> then <see cref="Start"/> with new
+/// parameters.
+/// </para>
+/// <para>
+/// v1.2.12 PATCH Item 10: each Timer carries its <c>generation</c> as
+/// the callback state; callbacks with a stale generation are dropped,
+/// which closes the Start re-entry window where an old Timer could
+/// still be queued after <c>_timer.Dispose()</c>. The single
+/// <c>_sendCount</c> counter was split into <c>SuccessCount</c> +
+/// <c>FailureCount</c> so the UI no longer reports mixed success/failure
+/// totals under the same "frames sent" label.
 /// </para>
 /// </summary>
 public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
@@ -24,7 +36,9 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     private Timer? _timer;
     private CanFrame _frame;
     private TimeSpan _interval;
-    private long _sendCount;
+    private long _generation;
+    private long _sendSuccessCount;
+    private long _sendFailureCount;
     private bool _isRunning;
 
     /// <summary>True when the cyclic send timer is active.</summary>
@@ -33,8 +47,20 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
         get { lock (this) return _isRunning; }
     }
 
-    /// <summary>Number of frames sent since the last <see cref="Start"/>.</summary>
-    public long SendCount => Interlocked.Read(ref _sendCount);
+    /// <summary>
+    /// Total frames sent since the last <see cref="Start"/> (success + failure).
+    /// Retained for backward compatibility; new consumers should prefer
+    /// <see cref="SuccessCount"/> + <see cref="FailureCount"/> so the UI can
+    /// report the two outcomes separately.
+    /// </summary>
+    [Obsolete("Use SuccessCount + FailureCount. v1.2.12 split the mixed counter; remove in v1.2.13.")]
+    public long SendCount => Interlocked.Read(ref _sendSuccessCount) + Interlocked.Read(ref _sendFailureCount);
+
+    /// <summary>Number of frames the channel reported as successfully transmitted since the last <see cref="Start"/>.</summary>
+    public long SuccessCount => Interlocked.Read(ref _sendSuccessCount);
+
+    /// <summary>Number of frames the channel reported as failed since the last <see cref="Start"/>.</summary>
+    public long FailureCount => Interlocked.Read(ref _sendFailureCount);
 
     public CyclicSendService(SendService sendService, ILogger<CyclicSendService> logger)
     {
@@ -48,16 +74,20 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     /// </summary>
     public void Start(CanFrame frame, TimeSpan interval)
     {
+        long gen;
         lock (this)
         {
-            if (_isRunning) StopInner();
+            // StopInner under the same lock so an in-flight OnTimerTick
+            // observes the _isRunning flip atomically with our _frame /
+            // _generation updates.
+            StopInner();
             _frame = frame;
             _interval = interval;
-            _sendCount = 0;
             _isRunning = true;
-            _timer = new Timer(OnTimerTick, null, interval, interval);
-            LogCyclicStarted(_logger, frame.Id, interval.TotalMilliseconds);
+            gen = ++_generation;
+            _timer = new Timer(OnTimerTick, gen, interval, interval);
         }
+        LogCyclicStarted(_logger, frame.Id, interval.TotalMilliseconds);
     }
 
     /// <summary>Stop cyclic transmission. Idempotent.</summary>
@@ -73,34 +103,55 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     {
         if (!_isRunning) return;
         _isRunning = false;
+        // Bump generation so any in-flight OnTimerTick that already passed
+        // the lock check observes a mismatch and bails before SendAsync.
+        _generation++;
         _timer?.Dispose();
         _timer = null;
-        LogCyclicStopped(_logger, _sendCount);
+        LogCyclicStopped(_logger, SuccessCount);
     }
 
     private async void OnTimerTick(object? state)
     {
-        if (!_isRunning) return;
+        CanFrame frame;
+        TimeSpan interval;
+        long generation;
+        lock (this)
+        {
+            if (!_isRunning) return;
+            frame = _frame;
+            interval = _interval;
+            generation = _generation;
+        }
+        // Stale-timer drop: if this Timer was disposed (Start re-entered)
+        // its captured generation no longer matches the service's. Bail
+        // before touching SendAsync.
+        if (state is long tickGen && tickGen != generation) return;
+
         try
         {
-            var result = await _sendService.SendAsync(_frame).ConfigureAwait(false);
+            var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
             if (result.IsSuccess)
             {
-                Interlocked.Increment(ref _sendCount);
+                Interlocked.Increment(ref _sendSuccessCount);
             }
             else
             {
                 // Don't spam logs — only log every 100th failure.
-                var count = Interlocked.Increment(ref _sendCount);
-                if (count % 100 == 0)
+                var count = Interlocked.Increment(ref _sendFailureCount);
+                if (count % 100 == 0 && _logger is not null)
                 {
-                    LogCyclicSendFailed(_logger, _frame.Id, result.Error!.Code, result.Error.Message);
+                    LogCyclicSendFailed(_logger, frame.Id, result.Error!.Code, result.Error.Message);
                 }
             }
         }
         catch (Exception ex)
         {
-            LogCyclicSendThrew(_logger, _frame.Id, ex);
+            var count = Interlocked.Increment(ref _sendFailureCount);
+            if (count % 100 == 0 && _logger is not null)
+            {
+                LogCyclicSendThrew(_logger, frame.Id, ex);
+            }
         }
     }
 

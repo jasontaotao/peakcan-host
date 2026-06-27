@@ -58,6 +58,8 @@ public class SendViewModelTests
     {
         public bool IsRunning { get; set; }
         public long SendCount { get; set; }
+        public long SuccessCount { get; set; }
+        public long FailureCount { get; set; }
         public CanFrame? LastFrame { get; private set; }
         public TimeSpan? LastInterval { get; private set; }
         public bool StartCalled => LastFrame.HasValue;
@@ -69,6 +71,8 @@ public class SendViewModelTests
             LastInterval = interval;
             IsRunning = true;
             SendCount = 0;
+            SuccessCount = 0;
+            FailureCount = 0;
         }
 
         public void Stop()
@@ -490,6 +494,8 @@ public class SendViewModelLibraryRegressionTests : IDisposable
     {
         public bool IsRunning => false;
         public long SendCount => 0L;
+        public long SuccessCount => 0L;
+        public long FailureCount => 0L;
         public void Start(CanFrame frame, TimeSpan interval) { }
         public void Stop() { }
     }

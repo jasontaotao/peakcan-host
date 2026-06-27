@@ -108,7 +108,7 @@ public class CyclicSendServiceTests
         }
         svc.Stop();
 
-        svc.SendCount.Should().BeGreaterThan(0, "cyclic send should have fired at least once");
+        svc.SuccessCount.Should().BeGreaterThan(0, "cyclic send should have fired at least once");
         channel.Written.Count.Should().BeGreaterThan(0);
     }
 

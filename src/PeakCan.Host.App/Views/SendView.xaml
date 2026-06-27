@@ -51,8 +51,10 @@
                         <Button Content="Stop" Command="{Binding StopCyclicCommand}"
                                 IsEnabled="{Binding IsCyclicRunning}" />
                         <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
-                            <Run Text="{Binding CyclicSendCount, Mode=OneWay}" />
-                            <Run Text=" frames sent" />
+                            <Run Text="{Binding CyclicSuccessCount, Mode=OneWay}" />
+                            <Run Text=" ok / " />
+                            <Run Text="{Binding CyclicFailureCount, Mode=OneWay}" />
+                            <Run Text=" fail" />
                         </TextBlock>
                     </StackPanel>
                 </StackPanel>
