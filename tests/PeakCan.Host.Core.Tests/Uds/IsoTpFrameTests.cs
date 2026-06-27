@@ -25,14 +25,21 @@ public sealed class IsoTpFrameTests
     /// fuzz sender could craft raw bytes with PCI=First and length=0 to
     /// force the layer into HandleFirstFrame with a 0-byte buffer. The
     /// decoder must reject it.
+    /// <para>
+    /// Note: this exercises the decoder's existing "length &lt; minimum FF
+    /// payload (8 bytes)" guard, NOT a "length &gt; MaxMessageLength" guard.
+    /// The latter is unreachable through <see cref="IsoTpFrame"/> because
+    /// the encoder's 12-bit length field caps at 4095 (see file-level
+    /// summary); the oversized-FF defense lives in
+    /// <c>IsoTpLayer.HandleFirstFrame</c> and is verified by
+    /// <c>IsoTpLayerTests.HandleFirstFrame_Rejects_Length_4096_No_Buffer_Allocated</c>.
+    /// </para>
     /// </summary>
     [Fact]
-    public void DecodeFirstFrame_Throws_On_Length_Exceeding_Max()
+    public void DecodeFirstFrame_Throws_On_Length_Below_Minimum()
     {
         // FF PCI: type=First (0x1), length=0 → byte 0 = 0x10, byte 1 = 0x00.
-        // (Length 0 violates the &quot;length ≥ 8&quot; rule for multi-frame FFs
-        // and is the lowest path the decoder can reject on the way to a
-        // length-overflow detection.)
+        // Length 0 violates the "length ≥ 8" rule for multi-frame FFs.
         var payload = new byte[] { 0x10, 0x00, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
 
         var act = () => IsoTpFrame.Decode(payload);

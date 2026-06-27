@@ -714,10 +714,21 @@ public sealed class IsoTpLayerTests
     }
 
     /// <summary>
-    /// RED: FF with length = 4096 (one over MaxMessageLength) must NOT allocate
-    /// a 4096-byte buffer. The fix at <see cref="IsoTpFrame.DecodeFirstFrame"/>
-    /// rejects the frame with ArgumentException so the layer never reaches
-    /// HandleFirstFrame — no buffer allocation, no state pollution.
+    /// RED: a flood of max-length FirstFrames (4095 bytes — the largest value
+    /// the 12-bit FF length field can encode) must NOT OOM the layer. Before
+    /// the HandleFirstFrame length guard landed, a flood of 4 KB FFs would
+    /// repeatedly allocate 4 KB buffers and wedge the receive state.
+    /// <para>
+    /// Note: the test name "Length_4096" reflects the attack class (one over
+    /// MaxMessageLength), but 4096 itself cannot be encoded in a 12-bit FF
+    /// length field (max 4095), so the test body uses 4095 as the largest
+    /// reachable size and repeats it. The actual "length &gt;
+    /// MaxMessageLength" guard sits in
+    /// <c>IsoTpLayer.HandleFirstFrame</c> as defense-in-depth (see
+    /// <see cref="IsoTpLayer"/>) and is not reachable through
+    /// <see cref="IsoTpFrame"/> alone; the decoder boundary test is in
+    /// <c>IsoTpFrameTests.DecodeFirstFrame_Throws_On_Length_Below_Minimum</c>.
+    /// </para>
     /// </summary>
     [Fact]
     public void HandleFirstFrame_Rejects_Length_4096_No_Buffer_Allocated()
@@ -729,7 +740,7 @@ public sealed class IsoTpLayerTests
         // attacker would craft raw bytes that the encoder refuses — to simulate
         // the threat we feed a frame with the maximum 12-bit length (4095)
         // AND verify the layer accepts without OOM. The > 4095 case is covered
-        // by IsoTpFrameTests.DecodeFirstFrame_Throws_On_Length_Exceeding_Max.
+        // by IsoTpFrameTests.DecodeFirstFrame_Throws_On_Length_Below_Minimum.
         var accepted = () => layer.ProcessFrame(MakeRawFfFrame(RespId, 4095));
         accepted.Should().NotThrow();
 
