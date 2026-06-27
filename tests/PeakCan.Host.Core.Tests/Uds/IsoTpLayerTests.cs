@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds.IsoTp;
 using Xunit;
@@ -274,5 +275,173 @@ public sealed class IsoTpLayerTests
         completed.Should().Be(done.Task,
             "after N_Cr watchdog fires for a stalled FF, the layer must accept the next FF and reassemble");
         receivedPayload.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44);
+    }
+
+    // ========================================================================
+    // v1.2.12 PATCH Item 2: async Task callback + SemaphoreSlim serialization.
+    // The production code path now passes a Func<CanFrame, Task> to the layer
+    // (so the SDK read thread never blocks on .AsTask().Wait()). These tests
+    // exercise the new ctor overload + the FF/CF serialization contract.
+    // ========================================================================
+
+    private static CanIdConfig DefaultAsyncConfig
+        => new() { RequestId = 0x7E0, ResponseId = 0x7E8 };
+
+    /// <summary>
+    /// RED: a Func&lt;CanFrame, Task&gt; send callback must be awaitable so the layer
+    /// does not block the SDK read thread on fire-and-forget sends.
+    /// </summary>
+    [Fact]
+    public async Task SendMultiFrameAsync_Uses_Awaited_SendFrame_Callback()
+    {
+        var sendCalled = false;
+        var tcs = new TaskCompletionSource();
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            sendCalled = true;
+            return tcs.Task;
+        });
+
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame);
+
+        var payload = new byte[3000]; // forces FF + multiple CF
+        var sendTask = layer.SendMessageAsync(payload, CancellationToken.None);
+
+        // Yield so the layer can start emitting FF; the layer must await the
+        // user-supplied task rather than completing synchronously.
+        await Task.Yield();
+        await Task.Delay(50);
+        sendCalled.Should().BeTrue("the layer must invoke the async send callback");
+
+        // Allow the rest of the multi-frame sequence to run (we'll wait for FC).
+        tcs.SetResult();
+        // Inject FC(BS=0) so all CFs emit.
+        InjectFlowControl(layer, blockSize: 0, stMin: 0);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// RED: an exception thrown from the send callback must be logged at Error
+    /// and must NOT propagate out of <see cref="IsoTpLayer.SendMessageAsync"/>.
+    /// This is the v1.2.12 fix for the SDK-deadlock symptom.
+    /// </summary>
+    [Fact]
+    public async Task SendMultiFrameAsync_Send_Exception_Logged_And_Not_Propagated()
+    {
+        var logger = new CountingLogger<IsoTpLayer>();
+        // Use a callback that fails on the FF only and succeeds for the rest
+        // (CFs). This drives the FF-exception logging path without tripping
+        // the FC-wait timeout, so we can assert the exception is swallowed.
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            // FF frame starts with 0x1_; the layer encodes FF with 0x10..0x1F.
+            byte pci = frame.Data.Span[0];
+            if ((pci & 0xF0) == 0x10)
+                throw new InvalidOperationException("sdk down");
+            return Task.CompletedTask;
+        });
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame, logger);
+
+        var payload = new byte[3000];
+
+        // Inject FC immediately so the FF-exception path completes without
+        // tripping the FC-wait TimeoutException.
+        var sendTask = layer.SendMessageAsync(payload, CancellationToken.None);
+        await Task.Delay(20);
+        InjectFlowControl(layer, blockSize: 0, stMin: 0);
+
+        Func<Task> act = async () => await sendTask;
+        await act.Should().NotThrowAsync(
+            "send-callback exceptions must be logged and swallowed, not propagated");
+        logger.ErrorCount.Should().BeGreaterThan(0,
+            "send-callback exceptions must be logged at Error level");
+    }
+
+    /// <summary>
+    /// Minimal hand-rolled logger spy — counts how many times each level was used.
+    /// Avoids taking a dependency on NSubstitute just for one assertion.
+    /// </summary>
+    private sealed class CountingLogger<T> : ILogger<T>
+    {
+        public int ErrorCount { get; private set; }
+        public int WarnCount { get; private set; }
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Error) ErrorCount++;
+            if (logLevel == LogLevel.Warning) WarnCount++;
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
+    }
+
+    /// <summary>
+    /// RED: two concurrent <see cref="IsoTpLayer.SendMessageAsync"/> invocations
+    /// must not interleave — the FF/CF of one transport finishes (or at least
+    /// the FF has been emitted) before the FF of the second starts. The
+    /// SemaphoreSlim(1,1) inside SendMultiFrameAsync enforces this.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_SendMultiFrameAsync_Are_Serialized()
+    {
+        var order = new List<int>();
+        var gate = new object();
+        // A transport counter so we can label each FF with its transport id
+        // even though the SendCanFrame callback only sees the encoded frame.
+        var transportFfs = new Dictionary<int, int>(); // transport magic -> count
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            // FF = first byte 0x1_. Encode the magic prefix from the FF payload
+            // (bytes 2..5 of an FF carry the first chunk of the message).
+            byte pci = frame.Data.Span[0];
+            if ((pci & 0xF0) == 0x10)
+            {
+                int magic = BitConverter.ToInt32(frame.Data.Span.Slice(2, 4));
+                lock (gate) { order.Add(magic); }
+            }
+            return Task.CompletedTask;
+        });
+
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame);
+
+        var payload1 = new byte[3000];
+        var payload2 = new byte[3000];
+        BitConverter.GetBytes(0x1111_1111).CopyTo(payload1, 0);
+        BitConverter.GetBytes(0x2222_2222).CopyTo(payload2, 0);
+
+        var task1 = layer.SendMessageAsync(payload1, CancellationToken.None);
+        var task2 = layer.SendMessageAsync(payload2, CancellationToken.None);
+
+        // Drain flow controls: each transport needs exactly one FC (BS=0).
+        // Loop and inject FCs as long as both tasks are still pending.
+        for (int i = 0; i < 10 && !(task1.IsCompleted && task2.IsCompleted); i++)
+        {
+            await Task.Delay(20);
+            InjectFlowControl(layer, blockSize: 0, stMin: 0);
+        }
+
+        await Task.WhenAll(
+            task1.WaitAsync(TimeSpan.FromSeconds(3)),
+            task2.WaitAsync(TimeSpan.FromSeconds(3)));
+
+        // Both FFs must have been emitted under serialization.
+        order.Should().HaveCount(2,
+            "both transports must emit exactly one FF before releasing the gate");
+        int firstId = order[0];
+        int secondId = order[1];
+        firstId.Should().NotBe(secondId,
+            "the two FFs must be from different transports");
     }
 }

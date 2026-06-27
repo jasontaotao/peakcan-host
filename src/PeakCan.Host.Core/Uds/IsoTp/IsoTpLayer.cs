@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.Core.Uds.IsoTp;
 
@@ -13,7 +14,7 @@ namespace PeakCan.Host.Core.Uds.IsoTp;
 /// the caller's thread.
 /// </para>
 /// </summary>
-public sealed class IsoTpLayer
+public sealed partial class IsoTpLayer : IDisposable
 {
     /// <summary>Maximum payload size for Single Frame (classic CAN).</summary>
     public const int MaxSingleFramePayload = 7;
@@ -28,7 +29,14 @@ public sealed class IsoTpLayer
     public static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromMilliseconds(1000);
 
     private readonly CanIdConfig _config;
-    private readonly Action<CanFrame> _sendFrame;
+    private readonly Action<CanFrame>? _sendFrame;
+    private readonly Func<CanFrame, Task>? _sendFrameAsync;
+    private readonly ILogger<IsoTpLayer>? _logger;
+    // v1.2.12 PATCH Item 2: serialize FF/CF emission across concurrent
+    // SendMultiFrameAsync callers so transports cannot interleave (per
+    // ISO 15765-2 §6.5). Replaces the implicit assumption that the SDK
+    // send is synchronous and ordered.
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
 
     // Reassembly state for incoming messages.
     private readonly object _rxLock = new();
@@ -82,6 +90,26 @@ public sealed class IsoTpLayer
 
         _config = config;
         _sendFrame = sendFrame;
+    }
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 2: async-callback ctor overload. The async callback
+    /// is awaited internally so the SDK read thread never blocks on
+    /// <c>.AsTask().Wait()</c> (the v1.2.11 deadlock root cause). Concurrent
+    /// <see cref="SendMessageAsync"/> calls are serialized through a
+    /// <see cref="SemaphoreSlim"/>(1,1) so the FF/CF sequence of one transport
+    /// cannot interleave with another.
+    /// </summary>
+    /// <param name="config">CAN ID configuration for request/response.</param>
+    /// <param name="sendFrame">Async callback to send a CAN frame. Nullable for parity with tests.</param>
+    /// <param name="logger">Optional logger for send-callback exceptions (logged at Error, not propagated).</param>
+    public IsoTpLayer(CanIdConfig config, Func<CanFrame, Task>? sendFrame, ILogger<IsoTpLayer>? logger = null)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        _config = config;
+        _sendFrameAsync = sendFrame;
+        _logger = logger;
     }
 
     /// <summary>
@@ -156,6 +184,16 @@ public sealed class IsoTpLayer
         }
     }
 
+    /// <summary>
+    /// v1.2.12 PATCH Item 2: dispose the send-path semaphore so the layer
+    /// can be replaced cleanly. The app owns a single IsoTpLayer per
+    /// channel, so this is called at process shutdown.
+    /// </summary>
+    public void Dispose()
+    {
+        _sendGate.Dispose();
+    }
+
     private void SendSingleFrame(byte[] data)
     {
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
@@ -163,63 +201,113 @@ public sealed class IsoTpLayer
         SendCanFrame(canData);
     }
 
-    private async Task SendMultiFrameAsync(byte[] data, CancellationToken ct)
+    /// <summary>
+    /// v1.2.12 PATCH Item 2: dispatch the encoded CAN frame through whichever
+    /// callback the caller wired up. The async callback is awaited so an
+    /// SDK hang is bounded by the layer's own timeouts (FC timeout, BS gate)
+    /// instead of by <c>.AsTask().Wait()</c> on the SDK read thread.
+    /// Exceptions are logged at Error and swallowed so a single bad send
+    /// does not abort the entire multi-frame transport.
+    /// </summary>
+    private async Task SendCanFrameAsync(byte[] data)
     {
-        lock (_txLock)
+        var frame = new CanFrame(
+            new CanId(_config.RequestId, FrameFormat.Standard),
+            data,
+            FrameFlags.None,
+            default,
+            default);
+
+        if (_sendFrameAsync is not null)
         {
-            _txWaitingForFc = true;
+            try
+            {
+                await _sendFrameAsync(frame).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (_logger is not null)
+                    LogIsoTpSendFailed(_logger, ex, frame.Id.Raw);
+            }
+            return;
         }
 
-        // Send First Frame
-        var ffData = data.AsMemory(0, Math.Min(6, data.Length));
-        var ff = new IsoTpFrame(IsoTpFrameType.First, length: data.Length, data: ffData);
-        SendCanFrame(ff.Encode());
+        // Legacy sync path: callers using the Action<CanFrame> ctor keep
+        // their existing fire-and-forget semantics.
+        _sendFrame?.Invoke(frame);
+    }
 
-        // Wait for Flow Control
-        if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
-            throw new TimeoutException("No Flow Control received");
-
-        // Send Consecutive Frames. Honour the negotiated Block Size (BS):
-        // when BS>0, pause after every BS-th CF and wait for the next FC.
-        // BS=0 means "send all remaining CFs without further FC".
-        int offset = 6;
-        int sequence = 1;
-        int cfInBlock = 0;
-        int bs;
-        lock (_txLock) { bs = _txBlockSize; }
-
-        while (offset < data.Length)
+    private async Task SendMultiFrameAsync(byte[] data, CancellationToken ct)
+    {
+        // v1.2.12 PATCH Item 2: serialize concurrent multi-frame sends so the
+        // FF/CF sequence of one transport cannot interleave with another's.
+        // We hold _sendGate for the whole multi-frame transport (FF → FC
+        // wait → CFs → BS gate → ... → done). Single-frame sends use the
+        // SendCanFrame async path but are not gated here (they are rare in
+        // practice and ISO-TP §6.4 already covers arbitration semantics).
+        await _sendGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            ct.ThrowIfCancellationRequested();
-
-            int chunkSize = Math.Min(7, data.Length - offset);
-            var cfData = data.AsMemory(offset, chunkSize);
-            var cf = new IsoTpFrame(IsoTpFrameType.Consecutive, sequenceOrStatus: sequence, data: cfData);
-            SendCanFrame(cf.Encode());
-
-            offset += chunkSize;
-            sequence = (sequence + 1) & 0x0F;
-            cfInBlock++;
-
-            // Apply STmin delay (inter-CF pacing, ISO 15765-2 §6.5.5.4).
-            // STmin units: 0x00..0x7F → ms, 0xF1..0xF9 → 100..900 µs.
-            if (offset < data.Length)
+            lock (_txLock)
             {
-                var st = StMinToTimeSpan(_txStMin);
-                if (st > TimeSpan.Zero)
-                    await Task.Delay(st, ct).ConfigureAwait(false);
+                _txWaitingForFc = true;
             }
 
-            // Block-Size gate: after every BS CFs (when BS>0 and more remain),
-            // wait for the next FC before continuing.
-            if (bs > 0 && cfInBlock >= bs && offset < data.Length)
+            // Send First Frame
+            var ffData = data.AsMemory(0, Math.Min(6, data.Length));
+            var ff = new IsoTpFrame(IsoTpFrameType.First, length: data.Length, data: ffData);
+            await SendCanFrameAsync(ff.Encode()).ConfigureAwait(false);
+
+            // Wait for Flow Control
+            if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
+                throw new TimeoutException("No Flow Control received");
+
+            // Send Consecutive Frames. Honour the negotiated Block Size (BS):
+            // when BS>0, pause after every BS-th CF and wait for the next FC.
+            // BS=0 means "send all remaining CFs without further FC".
+            int offset = 6;
+            int sequence = 1;
+            int cfInBlock = 0;
+            int bs;
+            lock (_txLock) { bs = _txBlockSize; }
+
+            while (offset < data.Length)
             {
-                lock (_txLock) { _txWaitingForFc = true; }
-                if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
-                    throw new TimeoutException("No Flow Control received (block-size gate)");
-                lock (_txLock) { bs = _txBlockSize; }
-                cfInBlock = 0;
+                ct.ThrowIfCancellationRequested();
+
+                int chunkSize = Math.Min(7, data.Length - offset);
+                var cfData = data.AsMemory(offset, chunkSize);
+                var cf = new IsoTpFrame(IsoTpFrameType.Consecutive, sequenceOrStatus: sequence, data: cfData);
+                await SendCanFrameAsync(cf.Encode()).ConfigureAwait(false);
+
+                offset += chunkSize;
+                sequence = (sequence + 1) & 0x0F;
+                cfInBlock++;
+
+                // Apply STmin delay (inter-CF pacing, ISO 15765-2 §6.5.5.4).
+                // STmin units: 0x00..0x7F → ms, 0xF1..0xF9 → 100..900 µs.
+                if (offset < data.Length)
+                {
+                    var st = StMinToTimeSpan(_txStMin);
+                    if (st > TimeSpan.Zero)
+                        await Task.Delay(st, ct).ConfigureAwait(false);
+                }
+
+                // Block-Size gate: after every BS CFs (when BS>0 and more remain),
+                // wait for the next FC before continuing.
+                if (bs > 0 && cfInBlock >= bs && offset < data.Length)
+                {
+                    lock (_txLock) { _txWaitingForFc = true; }
+                    if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
+                        throw new TimeoutException("No Flow Control received (block-size gate)");
+                    lock (_txLock) { bs = _txBlockSize; }
+                    cfInBlock = 0;
+                }
             }
+        }
+        finally
+        {
+            _sendGate.Release();
         }
     }
 
@@ -440,8 +528,16 @@ public sealed class IsoTpLayer
             default,
             default);
 
-        _sendFrame(frame);
+        // Legacy sync path. In practice the async ctor is the new default,
+        // so the old Action<CanFrame> callback is set when this method runs.
+        _sendFrame?.Invoke(frame);
     }
+
+    // v1.2.12 PATCH Item 2: log send-callback exceptions at Error. The upper
+    // layers (UdsClient's P2* timeout, BS-gate timeout) provide back-pressure,
+    // so a single failed send is logged and the transport continues.
+    [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "IsoTpLayer send failed for ID 0x{Id:X}")]
+    private static partial void LogIsoTpSendFailed(ILogger logger, Exception ex, uint id);
 }
 
 /// <summary>

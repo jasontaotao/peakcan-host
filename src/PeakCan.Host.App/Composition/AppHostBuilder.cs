@@ -166,11 +166,23 @@ public static class AppHostBuilder
                 ResponseId = 0x7E8  // Default UDS physical response ID
             };
             var sendService = sp.GetRequiredService<SendService>();
-            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, frame =>
+            // v1.2.12 PATCH Item 2: async send callback. The previous
+            // `.AsTask().Wait()` blocked the SDK read thread and deadlocked
+            // the whole UDS diagnostic surface when SendService hung.
+            // ConfigureAwait(false) avoids STA capture on the WPF UI thread;
+            // exceptions are logged and swallowed inside the layer.
+            var isoLogger = sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>();
+            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, async frame =>
             {
-                // Fire-and-forget send (simplified for MVP)
-                sendService.SendAsync(frame).AsTask().Wait();
-            });
+                try
+                {
+                    await sendService.SendAsync(frame).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    IsoTpSendFailedLog.Log(isoLogger, ex, frame.Id.Raw);
+                }
+            }, isoLogger);
         });
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();

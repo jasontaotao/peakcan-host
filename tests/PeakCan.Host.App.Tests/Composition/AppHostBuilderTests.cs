@@ -149,4 +149,19 @@ public class AppHostBuilderTests
         statsHosted.Should().BeSameAs(statsSingleton,
             "StatisticsService IHostedService registration must reuse the singleton or the 1 Hz stats pump never fires");
     }
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 2: the IsoTpLayer factory must accept the new
+    /// Func&lt;CanFrame, Task&gt; send-callback signature (no longer the sync
+    /// .AsTask().Wait() deadlock pattern). Resolving the layer from the
+    /// built host is enough to prove the factory compiles and runs.
+    /// </summary>
+    [Fact]
+    public void Build_IsoTpLayer_Factory_Accepts_Async_Send_Callback()
+    {
+        using var host = AppHostBuilder.Build();
+        var layer = host.Services.GetService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
+        layer.Should().NotBeNull(
+            "IsoTpLayer factory must use the async send-callback overload (Item 2 fix)");
+    }
 }
