@@ -13,10 +13,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// <c>IsRecording</c> + <c>FrameCount</c> from the service into
 /// bindable properties; commands Browse/Start/Stop drive the service.
 /// </summary>
-public sealed partial class RecordViewModel : ObservableObject
+public sealed partial class RecordViewModel : ObservableObject, IDisposable
 {
     private readonly RecordService _record;
     private readonly ILogger<RecordViewModel> _logger;
+    // v1.2.11 PATCH review fix (HIGH): hold a reference to the poll timer
+    // so Dispose can stop it. See SendViewModel for full rationale.
+    private readonly System.Windows.Threading.DispatcherTimer _pollTimer;
 
     [ObservableProperty]
     private string _outputPath = DefaultPath();
@@ -42,12 +45,19 @@ public sealed partial class RecordViewModel : ObservableObject
         // IsRecording + FrameCount without a separate event. Timer ctor
         // doesn't require WPF Application; in test context (no Application)
         // the Tick simply never fires — tests call PollNow() directly.
-        var timer = new System.Windows.Threading.DispatcherTimer
+        _pollTimer = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(200),
         };
-        timer.Tick += (_, _) => PollNow();
-        timer.Start();
+        _pollTimer.Tick += (_, _) => PollNow();
+        _pollTimer.Start();
+    }
+
+    /// <summary>v1.2.11 PATCH review fix: stop the poll timer on dispose.</summary>
+    public void Dispose()
+    {
+        _pollTimer.Stop();
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>

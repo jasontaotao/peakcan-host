@@ -113,13 +113,12 @@ public sealed partial class TraceViewModel : ObservableObject
     // Per-message-ID counter. Key = raw CAN ID.
     private readonly Dictionary<uint, long> _messageCounts = new();
 
-    // v1.2.11: pending entries awaiting DBC decode. Read by
-    // DbcDecodeBackgroundService; mutated only on the UI thread inside
-    // AppendBatchAsync's dispatcher action. Bounded by MaxRows (default
-    // 1_000) since each entry is removed on Clear() but not on FIFO trim;
-    // the leak per trimmed row is short-lived (~200 ms before the worker
-    // fills Decoded) and acceptable for the PATCH.
-    private readonly Dictionary<TraceEntryKey, TraceEntry> _pendingDecode = new();
+    // v1.2.11: pending entries awaiting DBC decode. ConcurrentDictionary
+    // because DbcDecodeBackgroundService worker reads (TryCompletePending)
+    // from its own thread while the UI thread mutates (AppendBatchAsync
+    // Register, Clear, FIFO trim). The original Dictionary had a
+    // cross-thread race per the v1.2.11 code review.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<TraceEntryKey, TraceEntry> _pendingDecode = new();
 
     /// <summary>
     /// Read-only view of entries awaiting DBC decode. Consumed by
@@ -137,6 +136,16 @@ public sealed partial class TraceViewModel : ObservableObject
     /// </summary>
     internal void RegisterForTesting(TraceEntryKey key, TraceEntry entry)
         => _pendingDecode[key] = entry;
+
+    /// <summary>
+    /// v1.2.11 PATCH review fix: atomic check-and-remove. The worker calls
+    /// this after successfully filling <see cref="TraceEntry.Decoded"/> so
+    /// the entry stops occupying the pending map. Returning false means
+    /// another worker (or a Clear()) already removed it; the caller should
+    /// not double-write Decoded in that case.
+    /// </summary>
+    internal bool TryCompletePending(TraceEntryKey key, out TraceEntry? entry)
+        => _pendingDecode.TryRemove(key, out entry);
 
     /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to

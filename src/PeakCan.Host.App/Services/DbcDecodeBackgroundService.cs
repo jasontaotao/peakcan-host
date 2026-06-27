@@ -110,7 +110,10 @@ public sealed class DbcDecodeBackgroundService : BackgroundService, IFrameSink
                         frame.Id.Raw,
                         frame.Timestamp.TotalMicroseconds,
                         frame.Channel.Handle);
-                    if (_traceVm.PendingDecode.TryGetValue(pendingKey, out var traceEntry))
+                    // TryCompletePending atomically removes the entry on
+                    // success so it doesn't linger in the pending map for
+                    // the lifetime of the trace (v1.2.11 code review HIGH).
+                    if (_traceVm.TryCompletePending(pendingKey, out var traceEntry) && traceEntry is not null)
                     {
                         var decoded = FormatDecoded(msg, frame);
                         // Marshal to UI thread when Application is up so the

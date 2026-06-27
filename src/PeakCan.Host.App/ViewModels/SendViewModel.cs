@@ -22,12 +22,17 @@ namespace PeakCan.Host.App.ViewModels;
 /// would surface as an unhandled exception in the WPF dispatcher).
 /// </para>
 /// </summary>
-public sealed partial class SendViewModel : ObservableObject
+public sealed partial class SendViewModel : ObservableObject, IDisposable
 {
     private readonly SendService _svc;
     private readonly ICyclicSendService _cyclic;
     private readonly SendFrameLibrary? _libraryService;
     private readonly ILogger<SendViewModel> _logger;
+    // v1.2.11 PATCH review fix (HIGH): hold a reference to the poll timer
+    // so Dispose can stop it. Without Dispose the timer ticks for the
+    // VM lifetime and (via Tick closure over _cyclic) keeps the VM alive
+    // even after the shell navigates away.
+    private readonly System.Windows.Threading.DispatcherTimer _pollTimer;
 
     [ObservableProperty]
     private string _idText = "100";
@@ -84,16 +89,28 @@ public sealed partial class SendViewModel : ObservableObject
         // the UI reflects IsRunning / SendCount without a separate event.
         // DispatcherTimer ctor doesn't require WPF Application; in test
         // context (no Application) the Tick simply never fires — fine.
-        var timer = new System.Windows.Threading.DispatcherTimer
+        _pollTimer = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(200),
         };
-        timer.Tick += (_, _) =>
+        _pollTimer.Tick += (_, _) =>
         {
             IsCyclicRunning = _cyclic.IsRunning;
             CyclicSendCount = _cyclic.SendCount;
         };
-        timer.Start();
+        _pollTimer.Start();
+    }
+
+    /// <summary>
+    /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM
+    /// can be GC'd after the shell navigates away. Production callers
+    /// should dispose the VM when the Send tab is closed; tests ignore
+    /// (timer keeps running but the xunit fixture ends before it matters).
+    /// </summary>
+    public void Dispose()
+    {
+        _pollTimer.Stop();
+        GC.SuppressFinalize(this);
     }
 
     [RelayCommand]
