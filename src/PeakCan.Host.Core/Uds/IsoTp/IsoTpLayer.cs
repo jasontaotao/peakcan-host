@@ -101,11 +101,12 @@ public sealed partial class IsoTpLayer : IDisposable
     /// cannot interleave with another.
     /// </summary>
     /// <param name="config">CAN ID configuration for request/response.</param>
-    /// <param name="sendFrame">Async callback to send a CAN frame. Nullable for parity with tests.</param>
+    /// <param name="sendFrame">Async callback to send a CAN frame.</param>
     /// <param name="logger">Optional logger for send-callback exceptions (logged at Error, not propagated).</param>
-    public IsoTpLayer(CanIdConfig config, Func<CanFrame, Task>? sendFrame, ILogger<IsoTpLayer>? logger = null)
+    public IsoTpLayer(CanIdConfig config, Func<CanFrame, Task> sendFrame, ILogger<IsoTpLayer>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(sendFrame);
 
         _config = config;
         _sendFrameAsync = sendFrame;
@@ -126,8 +127,11 @@ public sealed partial class IsoTpLayer : IDisposable
 
         if (data.Length <= MaxSingleFramePayload)
         {
-            // Single Frame
-            SendSingleFrame(data);
+            // Single Frame — route through the async send helper so the
+            // async-ctor path actually delivers frames. The previous sync
+            // SendCanFrame path silently dropped SF frames when only the
+            // async callback was wired (v1.2.12 latent production bug M-6).
+            await SendSingleFrameAsync(data).ConfigureAwait(false);
         }
         else
         {
@@ -194,11 +198,11 @@ public sealed partial class IsoTpLayer : IDisposable
         _sendGate.Dispose();
     }
 
-    private void SendSingleFrame(byte[] data)
+    private Task SendSingleFrameAsync(byte[] data)
     {
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
         var canData = frame.Encode();
-        SendCanFrame(canData);
+        return SendCanFrameAsync(canData);
     }
 
     /// <summary>
@@ -536,8 +540,13 @@ public sealed partial class IsoTpLayer : IDisposable
     // v1.2.12 PATCH Item 2: log send-callback exceptions at Error. The upper
     // layers (UdsClient's P2* timeout, BS-gate timeout) provide back-pressure,
     // so a single failed send is logged and the transport continues.
+    //
+    // `internal` (not `private`) so the App factory can call this directly
+    // instead of maintaining a duplicate log helper (single source of truth
+    // for the event id). Core grants InternalsVisibleTo("PeakCan.Host.App")
+    // in AssemblyInfo.cs.
     [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "IsoTpLayer send failed for ID 0x{Id:X}")]
-    private static partial void LogIsoTpSendFailed(ILogger logger, Exception ex, uint id);
+    internal static partial void LogIsoTpSendFailed(ILogger logger, Exception ex, uint id);
 }
 
 /// <summary>

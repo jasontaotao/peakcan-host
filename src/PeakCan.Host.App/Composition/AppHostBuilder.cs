@@ -180,7 +180,14 @@ public static class AppHostBuilder
                 }
                 catch (Exception ex)
                 {
-                    IsoTpSendFailedLog.Log(isoLogger, ex, frame.Id.Raw);
+                    // v1.2.12 PATCH review (I-3): call the layer's internal
+                    // LogIsoTpSendFailed helper so the "IsoTpSendFailed"
+                    // event id (3001) lives in one place — both the inline
+                    // exception path inside SendCanFrameAsync and this
+                    // App-factory path now share the same source-gen log
+                    // call.
+                    PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer.LogIsoTpSendFailed(
+                        isoLogger, ex, frame.Id.Raw);
                 }
             }, isoLogger);
         });

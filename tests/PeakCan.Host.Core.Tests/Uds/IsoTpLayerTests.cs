@@ -389,29 +389,58 @@ public sealed class IsoTpLayerTests
 
     /// <summary>
     /// RED: two concurrent <see cref="IsoTpLayer.SendMessageAsync"/> invocations
-    /// must not interleave — the FF/CF of one transport finishes (or at least
-    /// the FF has been emitted) before the FF of the second starts. The
-    /// SemaphoreSlim(1,1) inside SendMultiFrameAsync enforces this.
+    /// must not interleave — the FF of the first transport is observed before
+    /// the FF of the second transport is observed. The SemaphoreSlim(1,1)
+    /// inside <c>SendMultiFrameAsync</c> enforces this. The test is
+    /// deterministic: it blocks the first FF callback on a TCS and asserts
+    /// the second FF has NOT been observed while the first is still gated.
+    /// If the SemaphoreSlim is removed, the second FF will be observed
+    /// concurrently with the first and the test will FAIL.
     /// </summary>
     [Fact]
     public async Task Concurrent_SendMultiFrameAsync_Are_Serialized()
     {
-        var order = new List<int>();
-        var gate = new object();
-        // A transport counter so we can label each FF with its transport id
-        // even though the SendCanFrame callback only sees the encoded frame.
-        var transportFfs = new Dictionary<int, int>(); // transport magic -> count
+        // TCS that gates the first FF callback. The first transport parks
+        // here until we explicitly release it.
+        var firstFfRelease = new TaskCompletionSource();
+        // TCS that lets the second transport's FF callback signal its
+        // observation back to the test.
+        var secondFfSeenTcs = new TaskCompletionSource();
+
+        bool firstFfObserved = false;
+        bool secondFfObserved = false;
+        var ffOrderGate = new object();
+
         var sendFrame = new Func<CanFrame, Task>(frame =>
         {
-            // FF = first byte 0x1_. Encode the magic prefix from the FF payload
-            // (bytes 2..5 of an FF carry the first chunk of the message).
+            // FF = first byte 0x1_. Encode the magic from the FF payload
+            // bytes 2..5 (first chunk of the user message).
             byte pci = frame.Data.Span[0];
-            if ((pci & 0xF0) == 0x10)
+            if ((pci & 0xF0) != 0x10)
+                return Task.CompletedTask;
+
+            int magic = BitConverter.ToInt32(frame.Data.Span.Slice(2, 4));
+
+            if (magic == unchecked((int)0x1111_1111))
             {
-                int magic = BitConverter.ToInt32(frame.Data.Span.Slice(2, 4));
-                lock (gate) { order.Add(magic); }
+                // First transport's FF: set the flag and park on TCS so the
+                // second transport's FF callback has a window to run.
+                lock (ffOrderGate)
+                {
+                    firstFfObserved = true;
+                }
+                return firstFfRelease.Task;
             }
-            return Task.CompletedTask;
+            else
+            {
+                // Second transport's FF: record observation and signal.
+                lock (ffOrderGate)
+                {
+                    secondFfObserved = true;
+                }
+                secondFfSeenTcs.TrySetResult();
+                return Task.CompletedTask;
+            }
         });
 
         var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame);
@@ -424,24 +453,126 @@ public sealed class IsoTpLayerTests
         var task1 = layer.SendMessageAsync(payload1, CancellationToken.None);
         var task2 = layer.SendMessageAsync(payload2, CancellationToken.None);
 
-        // Drain flow controls: each transport needs exactly one FC (BS=0).
-        // Loop and inject FCs as long as both tasks are still pending.
-        for (int i = 0; i < 10 && !(task1.IsCompleted && task2.IsCompleted); i++)
+        // Wait until the first FF callback has been entered. Both tasks are
+        // racing for the gate; the first to grab it parks on firstFfRelease.
+        var firstDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < firstDeadline)
         {
-            await Task.Delay(20);
-            InjectFlowControl(layer, blockSize: 0, stMin: 0);
+            lock (ffOrderGate)
+            {
+                if (firstFfObserved) break;
+            }
+            await Task.Delay(5);
+        }
+        lock (ffOrderGate)
+        {
+            firstFfObserved.Should().BeTrue(
+                "first transport's FF callback must be invoked (it parked on firstFfRelease)");
         }
 
-        await Task.WhenAll(
-            task1.WaitAsync(TimeSpan.FromSeconds(3)),
-            task2.WaitAsync(TimeSpan.FromSeconds(3)));
+        // Give the second task enough wall-clock time to acquire the gate
+        // (if it ever will) and run its FF callback. Without serialization,
+        // the second FF fires here and secondFfObserved becomes true.
+        // With serialization, the second task is blocked at _sendGate and
+        // the FF callback never runs.
+        await Task.Delay(300);
+        lock (ffOrderGate)
+        {
+            secondFfObserved.Should().BeFalse(
+                "while the first transport is parked in its FF callback, the second transport's FF must NOT yet be observed (the SemaphoreSlim gate is the only thing serializing them)");
+        }
 
-        // Both FFs must have been emitted under serialization.
-        order.Should().HaveCount(2,
-            "both transports must emit exactly one FF before releasing the gate");
-        int firstId = order[0];
-        int secondId = order[1];
-        firstId.Should().NotBe(secondId,
-            "the two FFs must be from different transports");
+        // Release the first transport; the gate releases and the second
+        // transport's FF fires. Simultaneously start pumping FCs so the
+        // first transport doesn't time out (DefaultFlowControlTimeout=1s).
+        firstFfRelease.SetResult();
+
+        // Wait until second FF is observed (the gate released + FF callback
+        // ran). Cap at 2s.
+        var secondDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < secondDeadline)
+        {
+            lock (ffOrderGate)
+            {
+                if (secondFfObserved) break;
+            }
+            await Task.Delay(5);
+            // Pump FCs concurrently so the first transport can complete
+            // its multi-frame sequence while we wait for the second FF.
+            InjectFlowControl(layer, blockSize: 0, stMin: 0);
+        }
+        lock (ffOrderGate)
+        {
+            secondFfObserved.Should().BeTrue(
+                "after releasing the first transport's FF gate, the second transport's FF must be observed");
+        }
+
+        // Drain FCs so both transports complete cleanly (BS=0, one FC each).
+        // We give the loop a generous budget and a per-iteration FC injection;
+        // whichever transport is next through the gate gets the FC it needs.
+        // WaitAsync returns a task that faults on timeout (TimeoutException);
+        // we surface that as a test failure rather than a confusing
+        // RanToCompletion-vs-Faulted mismatch.
+        try
+        {
+            // Drive the loop until both transports finish. The test's main
+            // assertion is the serialization gate above; this is cleanup.
+            var drainDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            while (DateTime.UtcNow < drainDeadline
+                && (!task1.IsCompleted || !task2.IsCompleted))
+            {
+                await Task.Delay(10);
+                InjectFlowControl(layer, blockSize: 0, stMin: 0);
+            }
+
+            await task1.WaitAsync(TimeSpan.FromSeconds(5));
+            await task2.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            // Surface the underlying task exception if any.
+            if (task1.IsFaulted) throw task1.Exception!;
+            if (task2.IsFaulted) throw task2.Exception!;
+            throw new TimeoutException(
+                $"drain loop exceeded 30s budget: task1.IsCompleted={task1.IsCompleted}, task2.IsCompleted={task2.IsCompleted}");
+        }
+
+        task1.Status.Should().Be(TaskStatus.RanToCompletion);
+        task2.Status.Should().Be(TaskStatus.RanToCompletion);
+    }
+
+    /// <summary>
+    /// RED (review finding M-6): a small (≤7 byte) payload sent through the
+    /// async-callback constructor must go through the async send path. The
+    /// previous <c>SendSingleFrame</c> → <c>SendCanFrame</c> sync path
+    /// silently dropped SF frames when only the async callback was wired
+    /// (<c>_sendFrame</c> was null, <c>_sendFrame?.Invoke()</c> was a no-op).
+    /// </summary>
+    [Fact]
+    public async Task SingleFrame_Via_AsyncCtor_Goes_Through_SendCanFrameAsync()
+    {
+        var sendCalled = false;
+        var observedIds = new List<uint>();
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            sendCalled = true;
+            lock (observedIds) { observedIds.Add(frame.Id.Raw); }
+            return Task.CompletedTask;
+        });
+
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame);
+
+        // 4 bytes → single frame path (<=7).
+        var payload = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
+        await layer.SendMessageAsync(payload, CancellationToken.None);
+
+        sendCalled.Should().BeTrue(
+            "the single-frame async ctor path must invoke the async send callback (M-6 regression guard)");
+        lock (observedIds)
+        {
+            observedIds.Should().HaveCount(1);
+            observedIds[0].Should().Be(0x7E0,
+                "single-frame send must use the configured RequestId");
+        }
     }
 }
