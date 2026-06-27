@@ -97,6 +97,10 @@ public static class AppHostBuilder
         builder.Services.AddHostedService(sp => sp.GetRequiredService<StatisticsService>());
         // v0.5.0: frame recording (ASC/CSV) and cyclic send.
         builder.Services.AddSingleton<RecordService>();
+        // v1.2.12 PATCH Item 5: RecordService is a BackgroundService; its
+        // writer thread + 1Hz flush need IHostedService registration.
+        // Without this, ExecuteAsync never starts and frames never reach disk.
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordService>());
         builder.Services.AddSingleton<CyclicSendService>();
         // v1.2.11 PATCH Item 3: register cyclic service as its interface
         // so SendViewModel can be tested with a fake via ICyclicSendService.
