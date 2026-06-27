@@ -379,7 +379,11 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     /// prevents the VM from being collected in test contexts and
     /// cleans up cleanly on app exit.
     /// </summary>
-    public void Dispose() => _drainTimer.Dispose();
+    public void Dispose()
+    {
+        _drainTimer.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     // v1.2.12 PATCH Item 6: IHostedService no-op implementations. The
     // drain timer starts in the ctor; these exist only so AppHostBuilder
