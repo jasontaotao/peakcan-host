@@ -575,4 +575,97 @@ public sealed class IsoTpLayerTests
                 "single-frame send must use the configured RequestId");
         }
     }
+
+    // ========================================================================
+    // v1.2.12 PATCH Item 3: try/catch around MessageReceived invoke.
+    // The previous HandleConsecutiveFrame released _rxLock via Monitor.Exit
+    // before invoking the handler, then re-entered via Monitor.Enter in finally.
+    // When the handler threw, the exception propagated AND the lock-state
+    // (already nulled in the lock-protected block) was inconsistent. The fix
+    // is to NOT release the lock; instead, snapshot the assembled message
+    // under the lock and invoke the handler outside the lock with try/catch.
+    // ========================================================================
+
+    private static CanFrame MakeFfFrame(uint id, int totalLength, byte[] firstChunk)
+        => new(new CanId(id, FrameFormat.Standard),
+               new IsoTpFrame(IsoTpFrameType.First, length: totalLength, data: firstChunk).Encode(),
+               FrameFlags.None, default, default);
+
+    private static CanFrame MakeCfFrame(uint id, byte sequence, byte[] chunk)
+        => new(new CanId(id, FrameFormat.Standard),
+               new IsoTpFrame(IsoTpFrameType.Consecutive, sequenceOrStatus: sequence, data: chunk).Encode(),
+               FrameFlags.None, default, default);
+
+    /// <summary>
+    /// Build a layer that uses the async ctor (so the logger is wired) with
+    /// a no-op send callback. Receive-path tests don't actually send.
+    /// </summary>
+    private static IsoTpLayer NewAsyncLayer(ILogger<IsoTpLayer> logger, uint respId = RespId)
+        => new(new CanIdConfig { RequestId = ReqId, ResponseId = respId },
+               _ => Task.CompletedTask,
+               logger);
+
+    [Fact]
+    public void MessageReceived_Handler_Throws_Does_Not_Corrupt_State()
+    {
+        // CountingLogger tracks ErrorCount without an NSubstitute dependency.
+        var logger = new CountingLogger<IsoTpLayer>();
+        var layer = NewAsyncLayer(logger);
+        layer.MessageReceived += new Action<byte[]>(_ => throw new InvalidOperationException("subscriber down"));
+
+        // Drive an FF(50) + enough CFs to complete the first message.
+        // FF carries 6 bytes, each CF up to 7 bytes. For 50 bytes:
+        // 6 + 7*6 + 2 = 50 → 6 full CFs (SN 1..6) + 1 short CF (SN 7, 2 bytes).
+        // First CF after FF must use sequence number 1 (per the layer's
+        // `_rxExpectedSequence = 1` initialization in HandleFirstFrame).
+        layer.ProcessFrame(MakeFfFrame(RespId, 50, new byte[] { 1, 2, 3, 4, 5, 6 }));
+        for (byte sn = 1; sn <= 6; sn++)
+            layer.ProcessFrame(MakeCfFrame(RespId, sn, new byte[7]));
+        layer.ProcessFrame(MakeCfFrame(RespId, 7, new byte[2])); // completes; handler throws
+
+        // Subsequent frame must NOT throw (state not corrupt — _rxInProgress was reset).
+        Action act = () => layer.ProcessFrame(MakeFfFrame(RespId, 8, new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF }));
+        act.Should().NotThrow(
+            "after handler throw on the previous complete message, the layer must accept a fresh FF (lock state must not be wedged)");
+    }
+
+    [Fact]
+    public void MessageReceived_Handler_Throws_Is_Logged_And_Not_Propagated()
+    {
+        var logger = new CountingLogger<IsoTpLayer>();
+        var layer = NewAsyncLayer(logger);
+        layer.MessageReceived += new Action<byte[]>(_ => throw new InvalidOperationException("subscriber down"));
+
+        // 8-byte message: FF(6) + 1 CF(2) — single CF (SN 1) completes reassembly.
+        layer.ProcessFrame(MakeFfFrame(RespId, 8, new byte[] { 1, 2, 3, 4, 5, 6 }));
+        Action act = () => layer.ProcessFrame(MakeCfFrame(RespId, 1, new byte[] { 0xAA, 0xBB }));
+        act.Should().NotThrow(
+            "handler exceptions must be caught and logged, not propagated to the receive thread");
+        logger.ErrorCount.Should().BeGreaterThan(0,
+            "the handler exception must be logged at Error level (event id 3002)");
+    }
+
+    [Fact]
+    public void MessageReceived_Next_Frame_After_Handler_Throw_Works()
+    {
+        var logger = new CountingLogger<IsoTpLayer>();
+        var layer = NewAsyncLayer(logger);
+        var calls = 0;
+        layer.MessageReceived += _ =>
+        {
+            calls++;
+            if (calls == 1) throw new InvalidOperationException("first subscriber down");
+        };
+
+        // First message: 8-byte payload → handler throws on first invocation.
+        layer.ProcessFrame(MakeFfFrame(RespId, 8, new byte[] { 1, 2, 3, 4, 5, 6 }));
+        layer.ProcessFrame(MakeCfFrame(RespId, 1, new byte[] { 0xAA, 0xBB })); // completes; throws
+
+        // Second message: 8-byte payload → handler called the second time.
+        layer.ProcessFrame(MakeFfFrame(RespId, 8, new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF }));
+        layer.ProcessFrame(MakeCfFrame(RespId, 1, new byte[] { 0x11, 0x22 })); // completes; no throw
+
+        calls.Should().Be(2,
+            "the handler must be invoked for both reassembled messages despite throwing on the first");
+    }
 }

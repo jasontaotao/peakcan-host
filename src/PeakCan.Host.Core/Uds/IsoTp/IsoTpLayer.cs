@@ -444,10 +444,44 @@ public sealed partial class IsoTpLayer : IDisposable
 
     private void HandleConsecutiveFrame(IsoTpFrame frame)
     {
+        // v1.2.12 PATCH Item 3: do all state mutation under _rxLock and
+        // return the reassembled message (if any) to the caller. The
+        // MessageReceived handler is then invoked OUTSIDE the lock, wrapped
+        // in try/catch, so a buggy subscriber cannot corrupt ISO-TP
+        // reassembly state nor propagate exceptions onto the SDK read
+        // thread.
+        byte[]? complete = HandleConsecutiveFrameLocked(frame);
+        if (complete is null)
+            return;
+
+        try
+        {
+            MessageReceived?.Invoke(complete);
+        }
+        catch (Exception ex)
+        {
+            // Single source of truth for the "handler threw" event (id 3002).
+            if (_logger is not null)
+                LogIsoTpHandlerFailed(_logger, ex, complete.Length);
+        }
+    }
+
+    /// <summary>
+    /// v1.2.12 PATCH Item 3: lock-protected half of
+    /// <see cref="HandleConsecutiveFrame"/>. Performs the sequence check
+    /// and copies the new CF chunk into the reassembly buffer; if the
+    /// message is complete, transfers ownership of the buffer to the
+    /// caller (clearing <c>_rxBuffer</c> / <c>_rxInProgress</c>) and
+    /// returns the assembled byte array. The lock is held for the
+    /// duration of this method; the returned buffer is intended to be
+    /// consumed AFTER the caller's lock scope ends.
+    /// </summary>
+    private byte[]? HandleConsecutiveFrameLocked(IsoTpFrame frame)
+    {
         lock (_rxLock)
         {
             if (!_rxInProgress || _rxBuffer is null)
-                return;
+                return null;
 
             // Validate sequence number
             if (frame.SequenceOrStatus != _rxExpectedSequence)
@@ -456,7 +490,7 @@ public sealed partial class IsoTpLayer : IDisposable
                 _rxInProgress = false;
                 _rxBuffer = null;
                 CancelReceiveWatchdog();
-                return;
+                return null;
             }
 
             // Copy data
@@ -473,27 +507,12 @@ public sealed partial class IsoTpLayer : IDisposable
                 _rxInProgress = false;
                 _rxBuffer = null;
                 CancelReceiveWatchdog();
+                return complete;
+            }
 
-                // Snapshot the handler under the lock; invoke outside the lock
-                // so a subscriber that re-enters ProcessFrame (e.g. UdsClient
-                // dispatching the next request on the same instance) does not
-                // re-enter this critical section in an interleaved state.
-                var handler = MessageReceived;
-                Monitor.Exit(_rxLock);
-                try
-                {
-                    handler?.Invoke(complete);
-                }
-                finally
-                {
-                    Monitor.Enter(_rxLock);
-                }
-            }
-            else
-            {
-                // Re-arm the N_Cr watchdog for the next CF slot.
-                StartReceiveWatchdog();
-            }
+            // Re-arm the N_Cr watchdog for the next CF slot.
+            StartReceiveWatchdog();
+            return null;
         }
     }
 
@@ -547,6 +566,14 @@ public sealed partial class IsoTpLayer : IDisposable
     // in AssemblyInfo.cs.
     [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "IsoTpLayer send failed for ID 0x{Id:X}")]
     internal static partial void LogIsoTpSendFailed(ILogger logger, Exception ex, uint id);
+
+    // v1.2.12 PATCH Item 3: log MessageReceived subscriber exceptions at Error.
+    // The receive handler is invoked outside the lock so the layer's
+    // reassembly state remains intact; a throwing subscriber must NOT
+    // propagate onto the SDK read thread nor poison subsequent frames.
+    // Single source of truth for the "handler threw" event (id 3002).
+    [LoggerMessage(EventId = 3002, Level = LogLevel.Error, Message = "IsoTpLayer MessageReceived handler threw for {Length}-byte message")]
+    private static partial void LogIsoTpHandlerFailed(ILogger logger, Exception ex, int length);
 }
 
 /// <summary>
