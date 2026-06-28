@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -179,6 +180,74 @@ public class SendFrameLibraryConcurrencyTests : IDisposable
         lib.Count.Should().Be(2);
         lib.Remove("A");
         lib.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void Count_After_N_Adds_Equals_N_Concurrent_With_Count()
+    {
+        // v1.2.13 PATCH Item 7: Count must be O(1) and consistent with
+        // concurrent Add/Remove. Hammer 200 mixed ops across 4 threads
+        // and check that the cache stays in sync with on-disk state.
+        var lib = NewLib();
+        Parallel.For(0, 200, i =>
+        {
+            var op = i % 4;
+            switch (op)
+            {
+                case 0:
+                    lib.Add(Frame($"add-{i}", 0x100 + (uint)(i & 0xFF)));
+                    break;
+                case 1:
+                    _ = lib.Count;
+                    break;
+                case 2:
+                    lib.Add(Frame($"add2-{i}", 0x200 + (uint)(i & 0xFF)));
+                    break;
+                case 3:
+                    lib.Remove($"add-{i - 1}");
+                    break;
+            }
+        });
+
+        // Final ground-truth read via Load (bypasses cache on purpose) so
+        // the test asserts cache correctness, not self-consistency with
+        // the cache it is verifying.
+        var groundTruth = lib.Load().Count;
+        lib.Count.Should().Be(groundTruth,
+            "cached Count must stay in sync with the on-disk library after mixed ops");
+    }
+
+    [Fact]
+    public void Count_Before_Any_Mutation_Loads_File_Once()
+    {
+        // v1.2.13 PATCH Item 7: Count should use a lazy cached field
+        // populated by EnsureLoaded. The first read on a fresh instance
+        // is the only cache miss; subsequent reads reuse the cached value.
+        File.WriteAllText(_tempFile,
+            "{\"version\":1,\"frames\":[" +
+            "{\"Name\":\"A\",\"RawId\":256,\"IsExtended\":false,\"IsFd\":false," +
+            "\"IsRtr\":false,\"BitRateSwitch\":false,\"DataHex\":\"01\",\"SavedAt\":\"2026-01-01T00:00:00+00:00\"}]}");
+
+        var lib = NewLib();
+        lib.CacheMissesForTesting.Should().Be(0,
+            "no method has been called yet, so EnsureLoaded has not run");
+
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1, "first Count must lazy-load from disk");
+
+        _ = lib.Count;
+        _ = lib.Count;
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1,
+            "subsequent Counts must hit the cache without re-reading disk");
+
+        lib.Add(Frame("B", 0x200));
+        lib.CacheMissesForTesting.Should().Be(1,
+            "Add must keep the cache warm and not re-load from disk");
+
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1,
+            "Count after Add must still be served from the warm cache");
     }
 }
 

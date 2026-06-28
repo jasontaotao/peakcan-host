@@ -1,7 +1,9 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.App.Services;
@@ -63,6 +65,16 @@ public sealed partial class SendFrameLibrary
     // because Load+Save from multiple threads would otherwise corrupt the
     // tmp+rename atomic-replace pattern.
     private readonly object _gate = new();
+    // v1.2.13 PATCH Item 7: cached frame count. -1 is the unloaded sentinel —
+    // an empty library legitimately has count 0, so 0 cannot serve as
+    // "needs-load". Lazy-initialized by EnsureLoaded under _gate; kept in
+    // sync by every public mutator.
+    private int _cachedCount = -1;
+    // v1.2.13 PATCH Item 7: counts how many times EnsureLoaded had to fall
+    // through to LoadUnlocked (i.e. was a true cache miss). Interlocked for
+    // diagnostic visibility under concurrency; the actual cache invariant
+    // is preserved by _gate.
+    internal int CacheMissesForTesting;
 
     /// <summary>Production ctor — uses <c>%APPDATA%\PeakCan.Host\send-library.json</c>.</summary>
     public SendFrameLibrary(ILogger<SendFrameLibrary> logger)
@@ -86,7 +98,11 @@ public sealed partial class SendFrameLibrary
     /// </summary>
     public IReadOnlyList<SavedFrame> Load()
     {
-        lock (_gate) return LoadUnlocked();
+        lock (_gate)
+        {
+            EnsureLoaded();
+            return LoadUnlocked();
+        }
     }
 
     /// <summary>
@@ -97,7 +113,14 @@ public sealed partial class SendFrameLibrary
     /// </summary>
     public void Save(IEnumerable<SavedFrame> frames)
     {
-        lock (_gate) SaveUnlocked(frames);
+        // v1.2.13 PATCH Item 7: caller-supplied list is authoritative for
+        // both on-disk state and the cached count.
+        var snapshot = frames.ToList();
+        lock (_gate)
+        {
+            SaveUnlocked(snapshot);
+            _cachedCount = snapshot.Count;
+        }
     }
 
     /// <summary>
@@ -109,8 +132,10 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
-            var current = LoadUnlocked();
+            EnsureLoaded();
+            var current = LoadUnlocked().ToList();
             SaveUnlocked(current);
+            _cachedCount = current.Count;
         }
     }
 
@@ -123,10 +148,12 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
+            EnsureLoaded();
             var current = LoadUnlocked().ToList();
             current.Add(frame);
             SaveUnlocked(current);
-            return current.Count;
+            _cachedCount = current.Count;
+            return _cachedCount;
         }
     }
 
@@ -138,11 +165,13 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
+            EnsureLoaded();
             var current = LoadUnlocked().ToList();
             int before = current.Count;
             current.RemoveAll(f => f.Name == name);
             if (current.Count == before) return false;
             SaveUnlocked(current);
+            _cachedCount = current.Count;
             return true;
         }
     }
@@ -159,9 +188,21 @@ public sealed partial class SendFrameLibrary
         {
             lock (_gate)
             {
-                return LoadUnlocked().Count;
+                EnsureLoaded();
+                return _cachedCount;
             }
         }
+    }
+
+    private void EnsureLoaded()
+    {
+        // v1.2.13 PATCH Item 7: warm the cache exactly once per library
+        // instance. -1 sentinel means "never loaded"; subsequent calls
+        // after any mutator (which sets _cachedCount to current.Count)
+        // are no-ops.
+        if (_cachedCount >= 0) return;
+        Interlocked.Increment(ref CacheMissesForTesting);
+        _cachedCount = LoadUnlocked().Count;
     }
 
     private IReadOnlyList<SavedFrame> LoadUnlocked()
