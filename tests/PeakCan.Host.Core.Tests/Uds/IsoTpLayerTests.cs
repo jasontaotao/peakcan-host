@@ -496,6 +496,10 @@ public sealed class IsoTpLayerTests
             "send-callback exceptions on the FF must propagate as IsoTpSendFailedException");
         logger.ErrorCount.Should().BeGreaterThan(0,
             "send-callback exceptions must still be logged at Error level");
+
+        // v1.2.14 PATCH Task 2: close the producer-only gap on SendFailureCount.
+        // v1.2.13 PATCH Item 5 spec'd this assert but the ship commit omitted it.
+        Assert.Equal(1, layer.SendFailureCount);
     }
 
     /// <summary>
