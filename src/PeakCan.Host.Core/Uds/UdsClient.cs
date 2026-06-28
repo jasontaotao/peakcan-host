@@ -113,7 +113,14 @@ public class UdsClient : IDisposable
     /// <param name="data">Service data (excluding SID).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Response bytes (excluding SID + 0x40).</returns>
-    public async Task<byte[]> SendRequestAsync(byte serviceId, byte[]? data = null, CancellationToken ct = default)
+    /// <remarks>
+    /// v1.2.14 PATCH Item 4: marked <c>virtual</c> so test doubles can
+    /// intercept wire-level frame emit without subclassing the entire
+    /// <see cref="UdsClient"/>. Visibility stays <c>public</c> for
+    /// backwards compatibility with existing direct callers
+    /// (e.g. <c>UdsClientTests</c>).
+    /// </remarks>
+    public virtual async Task<byte[]> SendRequestAsync(byte serviceId, byte[]? data = null, CancellationToken ct = default)
     {
         // Build request: SID + data
         byte[] request;
@@ -297,7 +304,14 @@ public class UdsClient : IDisposable
     /// TesterPresent (0x3E).
     /// </summary>
     /// <param name="ct">Cancellation token.</param>
-    public async Task TesterPresentAsync(CancellationToken ct = default)
+    /// <remarks>
+    /// v1.2.14 PATCH Item 4: virtual seam so end-to-end test doubles can
+    /// intercept wire-level CAN frame emit via the override of
+    /// <see cref="SendRequestAsync"/>. S3 keepalive tests in
+    /// <c>UdsSessionTests</c> previously relied on the same seam — this
+    /// method was the undeclared one they couldn't override.
+    /// </remarks>
+    public virtual async Task TesterPresentAsync(CancellationToken ct = default)
     {
         await SendRequestAsync(0x3E, [0x00], ct).ConfigureAwait(false);
         Session.ResetS3Timer();

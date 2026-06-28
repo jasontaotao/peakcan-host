@@ -508,6 +508,53 @@ public sealed class UdsClientVolatileTests
     }
 
     /// <summary>
+    /// v1.2.14 PATCH Item 4: virtual dispatch through TesterPresentAsync must
+    /// reach the overridable SendRequestAsync. Without virtual, end-to-end
+    /// test doubles (S3 keepalive tests, OEM-specific TesterPresent handlers)
+    /// cannot intercept wire-level frame emit without subclassing the entire
+    /// UdsClient machinery.
+    /// </summary>
+    [Fact]
+    public async Task TesterPresentAsync_Dispatches_To_SendRequestAsync_Virtual()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClient(iso);
+
+        await spy.TesterPresentAsync(CancellationToken.None);
+
+        spy.LastSendRequestCall.Should().NotBeNull(
+            "TesterPresentAsync must call SendRequestAsync to emit the 0x3E frame");
+        spy.LastSendRequestCall!.Value.ServiceId.Should().Be(0x3E,
+            "TesterPresent uses SID 0x3E (ISO 14229)");
+        spy.LastSendRequestCall.Value.Data.Should().Equal(new byte[] { 0x00 },
+            "TesterPresent zero sub-function (no response required)");
+        spy.LastSendRequestCall.Value.Cancelled.Should().BeFalse(
+            "default CancellationToken is not cancelled");
+    }
+
+    /// <summary>
+    /// v1.2.14 PATCH Item 4: minimal spy that overrides SendRequestAsync to
+    /// record the call arguments instead of going through the ISO-TP wire.
+    /// Mirrors the role of existing loggers spies in UdsClientTests — no
+    /// NSubstitute dependency.
+    /// </summary>
+    private sealed class SpyUdsClient : UdsClient
+    {
+        public (byte ServiceId, byte[]? Data, bool Cancelled)? LastSendRequestCall { get; private set; }
+
+        public SpyUdsClient(IsoTpLayer isoTp) : base(isoTp) { }
+
+        public override Task<byte[]> SendRequestAsync(
+            byte serviceId, byte[]? data = null, CancellationToken ct = default)
+        {
+            LastSendRequestCall = (serviceId, data, ct.IsCancellationRequested);
+            // Return empty positive response so TesterPresent's
+            // Session.ResetS3Timer() runs cleanly without an actual ECU reply.
+            return Task.FromResult(Array.Empty<byte>());
+        }
+    }
+
+    /// <summary>
     /// Minimal hand-rolled logger spy — same shape as the one in
     /// <c>UdsSessionTests</c>/<c>IsoTpLayerTests</c>. Kept private here
     /// because it is only used by the Item 2 wire-up tests.
