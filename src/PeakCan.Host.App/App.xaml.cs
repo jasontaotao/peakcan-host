@@ -76,7 +76,7 @@ public partial class App : Application
         // (not in the static helper).
         InstallStaticGlobalExceptionHandlers();
         DispatcherUnhandledException += OnDispatcherUnhandledException;
-        _host = AppHostBuilder.Build();
+        _host = new AppHostBuilder().Build();
         // v1.2.12: OnStartup is now async void so we can await
         // IHost.StartAsync without blocking the WPF STA thread. The
         // previous sync-over-async (GetAwaiter().GetResult()) was a

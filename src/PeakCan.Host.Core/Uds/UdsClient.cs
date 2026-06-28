@@ -107,6 +107,35 @@ public class UdsClient : IDisposable
     }
 
     /// <summary>
+    /// v1.3.0 MINOR Item 5: create a new UDS client with an OEM-specific
+    /// key derivation algorithm AND a custom SecurityAccess lockout policy.
+    /// <para>
+    /// Existing ctors keep the default <see cref="UdsSecurityLockoutConfig.Default"/>
+    /// (3 attempts / 5 s). This overload lets <c>AppHostBuilder</c> thread
+    /// an OEM-overridable policy through DI without changing the lockout
+    /// state-machine semantics.
+    /// </para>
+    /// </summary>
+    /// <param name="isoTp">ISO-TP transport layer.</param>
+    /// <param name="keyAlgorithm">OEM key algorithm. Must not be null.</param>
+    /// <param name="lockoutConfig">
+    /// Lockout policy applied to <see cref="Security"/>'s
+    /// <see cref="UdsSecurity.LockoutConfig"/> post-construction.
+    /// Must not be null.
+    /// </param>
+    /// <param name="timer">Optional UDS timer. Defaults to a fresh <see cref="UdsTimer"/>.</param>
+    /// <param name="sessionLogger">
+    /// Optional logger threaded into <see cref="UdsSession"/>. Defaults
+    /// to <c>null</c> for backward compatibility with v1.2.x callers.
+    /// </param>
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsSecurityLockoutConfig lockoutConfig, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
+        : this(isoTp, keyAlgorithm, timer, sessionLogger)
+    {
+        ArgumentNullException.ThrowIfNull(lockoutConfig);
+        Security.LockoutConfig = lockoutConfig;
+    }
+
+    /// <summary>
     /// Send a UDS service request and wait for response.
     /// </summary>
     /// <param name="serviceId">Service ID (SID).</param>

@@ -24,14 +24,14 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Returns_Host_With_ServiceProvider()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         host.Services.Should().NotBeNull();
     }
 
     [Fact]
     public void Build_Registers_ChannelRouter_As_Singleton()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         var a = host.Services.GetService<ChannelRouter>();
         var b = host.Services.GetService<ChannelRouter>();
         a.Should().NotBeNull();
@@ -41,7 +41,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_BusStatisticsCollector_As_Singleton()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         var a = host.Services.GetService<BusStatisticsCollector>();
         var b = host.Services.GetService<BusStatisticsCollector>();
         a.Should().NotBeNull();
@@ -51,7 +51,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_All_App_Services_As_Singletons()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         host.Services.GetService<TraceService>().Should().NotBeNull();
         host.Services.GetService<SendService>().Should().NotBeNull();
         host.Services.GetService<DbcService>().Should().NotBeNull();
@@ -61,7 +61,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_All_ViewModels_As_Singletons()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         host.Services.GetService<AppShellViewModel>().Should().NotBeNull();
         host.Services.GetService<TraceViewModel>().Should().NotBeNull();
         host.Services.GetService<SendViewModel>().Should().NotBeNull();
@@ -74,7 +74,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_UdsViewModel_And_PanelVMs_As_Singletons()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         host.Services.GetService<UdsViewModel>().Should().NotBeNull();
         host.Services.GetService<SessionPanelViewModel>().Should().NotBeNull();
         host.Services.GetService<DidPanelViewModel>().Should().NotBeNull();
@@ -92,7 +92,7 @@ public class AppHostBuilderTests
         // using a private thread; the alternative is a separate test
         // fixture. For the MVP we wrap the resolution in an STA thread
         // so the test stays a plain [Fact].
-        var appShell = RunSta(() => AppHostBuilder.Build().Services.GetService<AppShell>());
+        var appShell = RunSta(() => new AppHostBuilder().Build().Services.GetService<AppShell>());
         appShell.Should().NotBeNull();
     }
 
@@ -122,7 +122,7 @@ public class AppHostBuilderTests
         // Constructor injects ChannelRouter + ILogger<AppShellViewModel>;
         // a successful resolve proves both were registered (logger is
         // automatically supplied by Microsoft.Extensions.Hosting).
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         var vm = host.Services.GetService<AppShellViewModel>();
         vm.Should().NotBeNull();
     }
@@ -138,7 +138,7 @@ public class AppHostBuilderTests
         // instance), SinkWiringService attaches instance A and the
         // hosted-service worker runs on instance B — the v1.2.3 bug
         // returns silently and all 535+ existing tests stay green.
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
 
         var traceSingleton = host.Services.GetRequiredService<TraceService>();
         var traceHosted = host.Services.GetServices<IHostedService>()
@@ -162,7 +162,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_IsoTpLayer_Factory_Accepts_Async_Send_Callback()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         var layer = host.Services.GetService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
         layer.Should().NotBeNull(
             "IsoTpLayer factory must use the async send-callback overload (Item 2 fix)");
@@ -186,7 +186,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_RecordViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
 
         var singleton = host.Services.GetRequiredService<RecordViewModel>();
         var hosted = host.Services.GetServices<IHostedService>()
@@ -198,7 +198,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_SendViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
 
         var singleton = host.Services.GetRequiredService<SendViewModel>();
         var hosted = host.Services.GetServices<IHostedService>()
@@ -210,7 +210,7 @@ public class AppHostBuilderTests
     [Fact]
     public void Build_Registers_SignalViewModel_As_Both_Singleton_And_HostedService_Same_Instance()
     {
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
 
         var singleton = host.Services.GetRequiredService<SignalViewModel>();
         var hosted = host.Services.GetServices<IHostedService>()
@@ -225,7 +225,7 @@ public class AppHostBuilderTests
         // v1.2.13 PATCH Item 2: AppHostBuilder DI must thread
         // ILogger<UdsSession> through UdsClient into UdsSession so S3
         // keepalive failures are observable in production.
-        using var host = AppHostBuilder.Build();
+        using var host = new AppHostBuilder().Build();
         var udsClient = host.Services.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
 
         udsClient.Session.SessionLogger.Should().NotBeNull(
@@ -292,5 +292,33 @@ public class AppHostBuilderTests
             default, default, default, default, default!);
 #pragma warning restore CA1848
 #pragma warning restore CA2254
+    }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 5: <c>WithUdsSecurityLockoutConfig</c> on
+    /// <see cref="AppHostBuilder"/> must thread a custom lockout policy
+    /// into <see cref="PeakCan.Host.Core.Uds.UdsClient"/>'s
+    /// <see cref="PeakCan.Host.Core.Uds.UdsSecurity.LockoutConfig"/>.
+    /// <para>
+    /// Regression: this is the production-side wiring for the v1.3.0
+    /// SecurityAccess lockout feature (Task 1 state + Task 2 wire
+    /// integration). Without this, every production host hard-codes the
+    /// default 3 attempts / 5 s policy and OEM override is impossible
+    /// without forking the host composition.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void WithUdsSecurityLockoutConfig_Injects_To_UdsSecurity()
+    {
+        var builder = new AppHostBuilder()
+            .WithUdsSecurityLockoutConfig(new PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig(
+                MaxAttempts: 5,
+                LockoutDuration: TimeSpan.FromSeconds(10)));
+
+        using var host = builder.Build();
+        var udsClient = host.Services.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
+
+        udsClient.Security.LockoutConfig.MaxAttempts.Should().Be(5);
+        udsClient.Security.LockoutConfig.LockoutDuration.Should().Be(TimeSpan.FromSeconds(10));
     }
 }
