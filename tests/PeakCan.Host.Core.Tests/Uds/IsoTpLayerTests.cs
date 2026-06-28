@@ -499,6 +499,42 @@ public sealed class IsoTpLayerTests
     }
 
     /// <summary>
+    /// v1.2.14 PATCH Task 1: regression test for the _txWaitingForFc leak
+    /// introduced by v1.2.13 PATCH Item 5 throw path. The flag is set to
+    /// true at the start of SendMultiFrameAsync (line 367) and only cleared
+    /// by HandleFlowControl on FC arrival — but with the v1.2.13 throw path,
+    /// any SendCanFrameAsync failure escapes via finally without clearing
+    /// the flag. The flag's only behavioral reader is WaitForFlowControlAsync's
+    /// fast-path early-return (line 471), which SendMultiFrameAsync
+    /// neutralizes by setting the flag right before calling. The leak is
+    /// therefore defensive correctness: it preserves an invariant
+    /// ("flag accurately reflects transport state") that future refactors may
+    /// rely on. Without the finally reset, the flag stays true across
+    /// throws; with it, the flag returns to false and the layer is fully
+    /// reset for the next transport.
+    /// </summary>
+    [Fact]
+    public async Task SendMultiFrameAsync_After_SendFailure_Resets_TxWaitingForFc()
+    {
+        // Use a callback that always fails on FF. _sendGate is released
+        // by the finally, but _txWaitingForFc is NOT cleared by current
+        // (pre-fix) production code — that's the leak we're testing for.
+        var sendFrame = new Func<CanFrame, Task>(_ =>
+            throw new InvalidOperationException("sdk down"));
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame, NullLogger<IsoTpLayer>.Instance);
+
+        var payload = new byte[3000]; // forces multi-frame
+        Func<Task> act = () => layer.SendMessageAsync(payload, CancellationToken.None);
+        await act.Should().ThrowAsync<IsoTpSendFailedException>();
+
+        // Assert the invariant: after a failing SendMultiFrameAsync, the
+        // transport is fully reset and _txWaitingForFc is false. With the
+        // bug, this assertion fails (flag is still true from the throw path).
+        Assert.False(layer.TxWaitingForFcForTesting,
+            "after SendMultiFrameAsync throws, _txWaitingForFc must be reset to false");
+    }
+
+    /// <summary>
     /// v1.2.13 PATCH Item 5: once the FF send fails, the CF burst must NOT
     /// continue. Without this, a bus-off mid-FF silently drops all subsequent
     /// CFs and the FC-wait timeout surfaces the failure (with a misleading

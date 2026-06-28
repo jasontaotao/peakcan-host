@@ -43,6 +43,21 @@ public sealed partial class IsoTpLayer : IDisposable
     internal int SendFailureCount;
 
     /// <summary>
+    /// v1.2.14 PATCH Task 1: read-only accessor for the internal
+    /// <see cref="_txWaitingForFc"/> flag, exposed via <c>InternalsVisibleTo</c>
+    /// to test assemblies. Used by tests to assert that the flag is
+    /// cleared after SendMultiFrameAsync throws (closes the leak
+    /// introduced by v1.2.13 PATCH Item 5 throw path).
+    /// </summary>
+    internal bool TxWaitingForFcForTesting
+    {
+        get
+        {
+            lock (_txLock) { return _txWaitingForFc; }
+        }
+    }
+
+    /// <summary>
     /// v1.2.13 PATCH Item 5: transient counter of consecutive frames sent
     /// in the current multi-frame transport. Reset at the start of every
     /// transport (SendMultiFrameAsync). The _sendGate serializes transports
@@ -431,6 +446,18 @@ public sealed partial class IsoTpLayer : IDisposable
         }
         finally
         {
+            // v1.2.14 PATCH Task 1: close the _txWaitingForFc leak introduced
+            // by v1.2.13 PATCH Item 5 throw path. Previously the inner catch
+            // swallowed SendCanFrameAsync failures, so _txWaitingForFc was
+            // eventually cleared by the next real FC arrival in
+            // HandleFlowControl. Now that Item 5 propagates IsoTpSendFailed-
+            // Exception out, the finally must own the reset. Must hold
+            // _txLock because the flag is also written under that lock in
+            // line 367/424 (initial true + BS-gate re-true) and Reset() (line 281).
+            lock (_txLock)
+            {
+                _txWaitingForFc = false;
+            }
             _sendGate.Release();
         }
     }
