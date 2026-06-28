@@ -27,6 +27,32 @@ namespace PeakCan.Host.App.Composition;
 /// reset it themselves; the production app does not care.
 /// </para>
 /// </summary>
+/// <remarks>
+/// v1.3.1 PATCH Item 3: <see cref="AppHostBuilder"/> is an instance class
+/// (not static) so it can carry optional configuration state across
+/// fluent builder method calls. v1.3.0 MINOR Item 5 introduced
+/// <see cref="WithUdsSecurityLockoutConfig"/>, the first fluent setter
+/// requiring per-builder state. Future setters will follow the same
+/// pattern.
+/// <para>
+/// <b>Lifecycle:</b> create one builder per application instance. Call
+/// <see cref="Build"/> exactly once. The returned <see cref="IHost"/>
+/// owns the Serilog lifetime and the DI container; dispose the host
+/// (not the builder) when the app shuts down. Do not reuse a builder
+/// after <see cref="Build"/> has been called.
+/// </para>
+/// <para>
+/// <b>Pattern alignment:</b> follows the
+/// <see href="https://learn.microsoft.com/en-us/dotnet/core/extensions/generic-host">
+/// Microsoft.Extensions.Hosting IHost builder pattern</see>. The fluent
+/// <c>With*</c> setters configure optional services; <see cref="Build"/>
+/// resolves them into the DI container and starts the host. The DI
+/// factory branches on optional state (e.g.
+/// <c>_udsSecurityLockoutConfig is { } lockoutConfig</c>) to preserve
+/// the default policy for legacy callers that do not invoke the
+/// corresponding <c>With*</c> setter.
+/// </para>
+/// </remarks>
 public class AppHostBuilder
 {
     /// <summary>
