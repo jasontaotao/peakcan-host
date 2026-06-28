@@ -266,8 +266,11 @@ public sealed class UdsClientTests
             "P2 timeout must surface as UdsException, not hang forever");
         stopwatch.Stop();
 
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2),
-            "P2 timeout must fire within the configured P2 + epsilon");
+        // The configured P2 in MakeClientWithMockedTransport is 50 ms.
+        // Budget = 500 ms (~10× P2) so a hang in the fix surfaces fast but
+        // CI jitter on a loaded agent doesn't false-positive the test.
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(500),
+            "P2 timeout must fire within ~10× the configured P2 (50 ms), not hang for seconds");
 
         (await Task.WhenAny(p2FiredTcs.Task, Task.Delay(500)))
             .Should().Be(p2FiredTcs.Task,
@@ -282,20 +285,40 @@ public sealed class UdsClientTests
     /// IsCancellationRequested checks plus a try/catch ObjectDisposedException.
     /// </summary>
     [Fact]
-    public void OnMessageReceived_After_Dispose_DoesNot_Throw()
+    public async Task OnMessageReceived_After_Dispose_DoesNot_Throw()
     {
-        var (client, transport) = MakeClientWithMockedTransport();
+        var (client, _) = MakeClientWithMockedTransport();
 
         // Drive a full request cycle (no response → P2 timeout → finally disposes CTS).
+        // We await the timeout path end-to-end so the CTS is genuinely disposed
+        // BEFORE we drive the late response — otherwise we'd assert against a
+        // still-alive CTS and the test would silently pass even if the guard
+        // regressed.
+        var p2FiredTcs = new TaskCompletionSource();
+        client.OnP2TimeoutFiredForTesting = () => p2FiredTcs.TrySetResult();
         Func<Task> driveTimeout = () => client.SendRequestAsync(0x22, [0x00, 0x01]);
-        driveTimeout.Should().ThrowAsync<UdsException>()
+        await driveTimeout.Should().ThrowAsync<UdsException>()
             .WaitAsync(TimeSpan.FromSeconds(2));
 
-        // Simulate a late-arriving response after the cts is gone.
-        Action act = () => client.PublicOnMessageReceivedForTesting([0x62, 0x00, 0x01]);
+        // Wait for the timeout hook to fire (proves the CTS dispose finally
+        // block has run and the linked CTS is now disposed). Cap at 500 ms
+        // so a regression surfaces quickly instead of hanging.
+        (await Task.WhenAny(p2FiredTcs.Task, Task.Delay(500)))
+            .Should().Be(p2FiredTcs.Task,
+                "OnP2TimeoutFiredForTesting hook must fire so SendRequestInternalAsync's " +
+                "finally has disposed the linked CTS by the time we drive the late response");
+
+        // Simulate a late-arriving NRC 0x78 (requestCorrectlyReceivedResponsePending)
+        // after the cts is gone. NRC 0x78 is the path that calls cts.CancelAfter(P2*)
+        // — that's the call that throws ObjectDisposedException if the CTS has
+        // been disposed by SendRequestInternalAsync's finally. A positive response
+        // ([0x62, ...]) wouldn't exercise the guard because that path only calls
+        // tcs?.TrySetResult (safe no-op when tcs is null after finally).
+        Action act = () => client.PublicOnMessageReceivedForTesting([0x7F, 0x22, 0x78]);
 
         act.Should().NotThrow(
-            "OnMessageReceived must tolerate late responses after CTS dispose");
+            "OnMessageReceived must tolerate late NRC 0x78 after CTS dispose " +
+            "(cts.CancelAfter is the actual throw site)");
     }
 
     /// <summary>
