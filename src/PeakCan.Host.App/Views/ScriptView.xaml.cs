@@ -13,12 +13,38 @@ namespace PeakCan.Host.App.Views;
 public partial class ScriptView : UserControl
 {
     private ScriptViewModel? _viewModel;
+    // v1.2.13 PATCH Item 6: guard against post-await side effects after the
+    // view is unloaded. WPF may re-fire Loaded after Unloaded during
+    // navigation; without this guard the post-await continuation writes
+    // to a VM that may already have been replaced.
+    private bool _isLoaded;
 
     public ScriptView()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        // v1.2.13 PATCH Item 6: also subscribe Unloaded so we can dispose
+        // the WebView2 host. Without this the CoreWebView2 process leaks
+        // across tab navigations (the previous view's process keeps running
+        // until process exit).
+        Unloaded += OnUnloaded;
     }
+
+    // v1.2.13 PATCH Item 6: Unloaded must set _isLoaded = false so any
+    // in-flight OnLoaded continuation short-circuits, and must Dispose
+    // the EditorWebView so its CoreWebView2 native process is reaped.
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _isLoaded = false;
+        EditorWebView?.Dispose();
+        EditorWebView = null!;
+    }
+
+    // v1.2.13 PATCH Item 6: test helpers — drive Loaded / Unloaded events
+    // synchronously from unit tests without instantiating a full WPF
+    // visual tree. Visible to App.Tests via InternalsVisibleTo.
+    internal void RaiseLoadedForTesting() => OnLoaded(this, new RoutedEventArgs());
+    internal void RaiseUnloadedForTesting() => OnUnloaded(this, new RoutedEventArgs());
 
     // v1.2.12 PATCH Item 7: wrap WebView2 init + NavigateToString in
     // try/catch. A missing or broken WebView2 Evergreen Runtime used to
@@ -31,20 +57,27 @@ public partial class ScriptView : UserControl
     {
         _viewModel = DataContext as ScriptViewModel;
         if (_viewModel is null) return;
+        _isLoaded = true;
 
         try
         {
             await EditorWebView.EnsureCoreWebView2Async();
 
+            // v1.2.13 PATCH Item 6: guard post-await VM writes.
+            if (!_isLoaded) return;
+
             // Load CodeMirror editor from embedded HTML.
             var editorHtml = GetEditorHtml();
             EditorWebView.NavigateToString(editorHtml);
 
+            if (!_isLoaded) return;
             _viewModel.IsEditorReady = true;
             _viewModel.EditorError = null;
         }
         catch (Exception ex)
         {
+            // v1.2.13 PATCH Item 6: guard post-await VM writes.
+            if (!_isLoaded) return;
             // v1.2.12 PATCH Item 7 review I-2/I-3: route through VM so the
             // exception is logged via [LoggerMessage] LogWebView2InitFailed
             // (EventId 4001). View stays free of logger plumbing.
