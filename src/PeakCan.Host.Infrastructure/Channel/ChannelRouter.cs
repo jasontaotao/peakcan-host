@@ -37,6 +37,21 @@ namespace PeakCan.Host.Infrastructure.Channel;
 /// hardware device in the MVP and RegisterChannel runs once at
 /// startup, so the per-frame allocation there is negligible.
 /// </para>
+/// <para>
+/// <b>Exception ordering on misbehaving sinks:</b> when a sink throws on
+/// <see cref="IFrameSink.OnFrame"/>, the original exception is logged at
+/// Warning (EventId 6010) <i>before</i> <see cref="IFrameSink.OnError"/>
+/// is invoked, so the root cause survives even if the sink's
+/// <see cref="IFrameSink.OnError"/> subsequently throws. The secondary
+/// exception (if <see cref="IFrameSink.OnError"/> itself throws) is
+/// logged at Warning (EventId 6004) and the sink is auto-detached. The
+/// detach happens <i>outside</i> the inner catch so a throw during
+/// detach can still propagate to the channel read loop rather than
+/// masking the secondary. Do not reorder these calls — swapping the
+/// two log emissions would silently swallow the root cause; moving
+/// <see cref="DetachSink"/> inside the inner catch would re-mask the
+/// secondary on detach failure.
+/// </para>
 /// </summary>
 public sealed partial class ChannelRouter : IFrameSource
 {
