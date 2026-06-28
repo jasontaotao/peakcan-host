@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.IsoTp;
+using System.Reflection;
 using Xunit;
 
 namespace PeakCan.Host.Core.Tests.Uds;
@@ -156,5 +157,61 @@ public sealed class UdsSessionTests
 
         session.S3FailureCount.Should().Be(0,
             "StopS3KeepAlive must reset the failure counter so a fresh window starts on next StartS3KeepAlive");
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 3: the OCE catch arm in the S3 keepalive timer
+    /// callback must NOT swallow silently and must NOT increment the
+    /// failure counter, but it MUST log at Debug (EventId 5002) so that
+    /// shutdown race conditions are observable in diagnostic logs without
+    /// polluting the Warning channel with expected shutdown-time
+    /// exceptions.
+    /// <para>
+    /// Note: <see cref="UdsClient.TesterPresentAsync"/> is not
+    /// <c>virtual</c> and <see cref="UdsClient.SendRequestAsync"/>
+    /// wraps inner OCEs as <c>UdsException</c>, so OCE does not propagate
+    /// from any current production code path into the S3 timer's OCE arm.
+    /// This test therefore validates the OCE arm contract directly via
+    /// the source-gen log helper (it must exist, be reachable from the
+    /// class, and emit Debug + EventId 5002).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void S3_KeepAlive_OCE_Catch_Helper_Emits_Debug_5002()
+    {
+        // Verify the LoggerMessage source-gen helper exists and is wired
+        // correctly: it must emit LogLevel.Debug with EventId 5002. We
+        // verify via reflection on the private static partial method,
+        // which is sufficient to prove the source-gen declaration is
+        // present and matches the spec.
+        var helper = typeof(UdsSession).GetMethod(
+            "LogS3KeepAliveShutdown",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        helper.Should().NotBeNull(
+            "UdsSession must declare LogS3KeepAliveShutdown as a private static partial helper");
+        helper!.IsStatic.Should().BeTrue("LogS3KeepAliveShutdown must be static for source-gen LoggerMessage");
+
+        // Verify EventId 5002 on the LoggerMessage attribute.
+        var attr = helper.GetCustomAttribute<LoggerMessageAttribute>();
+        attr.Should().NotBeNull("LogS3KeepAliveShutdown must have a [LoggerMessage] attribute");
+        attr!.EventId.Should().Be(5002,
+            "LogS3KeepAliveShutdown must use EventId 5002 (5001 is taken by LogS3KeepAliveFailed)");
+        attr.Level.Should().Be(LogLevel.Debug,
+            "LogS3KeepAliveShutdown must log at Debug (not Warning) — shutdown is expected, not a failure");
+
+        // Drive the helper through the CountingLogger spy to prove the
+        // emitted record reaches a logger correctly (this is the same path
+        // the S3 timer takes when the OCE catch arm fires).
+        var logger = new CountingLogger<UdsSession>();
+        // Use the public internal accessor to invoke the private helper via
+        // a delegate bound through reflection. This is equivalent to what
+        // the S3 timer's OCE arm executes.
+        var del = (Action<ILogger<UdsSession>>)Delegate.CreateDelegate(
+            typeof(Action<ILogger<UdsSession>>), helper);
+        del(logger);
+
+        logger.Records.Should().ContainSingle(r =>
+            r.Level == LogLevel.Debug && r.EventId.Id == 5002,
+            "LogS3KeepAliveShutdown must emit a single Debug record with EventId 5002");
     }
 }

@@ -107,9 +107,18 @@ public sealed partial class UdsSession : IDisposable
             }
             catch (OperationCanceledException)
             {
-                // Shutdown path: do not log or count — the timer is being
-                // disposed and the exception is expected when the host tears
-                // down the session.
+                // v1.2.13 PATCH Item 3: shutdown path. Previously this arm
+                // was a silent no-op (dead-code trap — it neither logged
+                // nor counted, making it indistinguishable from "no
+                // failure" in observability). Now: log at Debug so the
+                // shutdown race is visible in diagnostic logs without
+                // polluting the Warning channel, and keep _s3Failures at 0
+                // because OCE is an expected shutdown signal, not a
+                // TesterPresent failure.
+                if (_logger is not null)
+                {
+                    LogS3KeepAliveShutdown(_logger);
+                }
             }
             catch (Exception ex)
             {
@@ -145,4 +154,12 @@ public sealed partial class UdsSession : IDisposable
     // null check), so the call site guards with `if (_logger is not null)`.
     [LoggerMessage(EventId = 5001, Level = LogLevel.Warning, Message = "UdsSession S3 keepalive TesterPresent failed")]
     private static partial void LogS3KeepAliveFailed(ILogger logger, Exception ex);
+
+    // v1.2.13 PATCH Item 3: source-generated log helper for the OCE catch
+    // arm. Emits at Debug (not Warning) so the shutdown race is observable
+    // in diagnostic logs without polluting the Warning channel with
+    // expected shutdown-time exceptions. Source-gen requires a non-null
+    // ILogger argument; the call site guards with `if (_logger is not null)`.
+    [LoggerMessage(EventId = 5002, Level = LogLevel.Debug, Message = "UdsSession S3 keepalive cancelled during shutdown")]
+    private static partial void LogS3KeepAliveShutdown(ILogger logger);
 }
