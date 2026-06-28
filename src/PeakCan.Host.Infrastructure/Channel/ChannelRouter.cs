@@ -45,12 +45,12 @@ namespace PeakCan.Host.Infrastructure.Channel;
 /// <see cref="IFrameSink.OnError"/> subsequently throws. The secondary
 /// exception (if <see cref="IFrameSink.OnError"/> itself throws) is
 /// logged at Warning (EventId 6004) and the sink is auto-detached. The
-/// detach happens <i>outside</i> the inner catch so a throw during
-/// detach can still propagate to the channel read loop rather than
-/// masking the secondary. Do not reorder these calls — swapping the
-/// two log emissions would silently swallow the root cause; moving
-/// <see cref="DetachSink"/> inside the inner catch would re-mask the
-/// secondary on detach failure.
+/// detach is not itself wrapped in an additional try/catch, so a throw
+/// during <see cref="DetachSink"/> can still propagate to the channel
+/// read loop rather than mask the secondary. Do not reorder these
+/// calls — swapping the two log emissions would silently swallow the
+/// root cause; wrapping <see cref="DetachSink"/> in another try/catch
+/// would re-mask the secondary on detach failure.
 /// </para>
 /// </summary>
 public sealed partial class ChannelRouter : IFrameSource
