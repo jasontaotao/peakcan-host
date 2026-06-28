@@ -31,6 +31,14 @@ public class UdsClient : IDisposable
     private TaskCompletionSource<byte[]>? _responseTcs;
     private CancellationTokenSource? _responseCts;
 
+    /// <summary>
+    /// v1.2.13 PATCH Item 4: test-visible hook fired when P2 timeout
+    /// auto-cancels the in-flight response TCS. Production code never
+    /// reads this; tests use it to assert the timeout fired without
+    /// waiting the full P2 ms in the test wall-clock.
+    /// </summary>
+    internal Action? OnP2TimeoutFiredForTesting { get; set; }
+
     // C-8 fix: the SID of the in-flight request, used to validate that an
     // incoming positive response (SID+0x40) actually echoes our SID. Without
     // this guard, stale or out-of-sequence frames are accepted as the result.
@@ -439,6 +447,15 @@ public class UdsClient : IDisposable
         Volatile.Write(ref _responseTcs, new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously));
         Volatile.Write(ref _responseCts, CancellationTokenSource.CreateLinkedTokenSource(ct));
 
+        // v1.2.13 PATCH Item 4: register a callback so P2 timeout unblocks
+        // await _responseTcs.Task. Without this registration the linked CTS
+        // cancel only fires OperationCanceledException for whoever awaits the
+        // token directly — and nothing does. P2 timeout would silently hang
+        // the caller. The callback TrySetCancels the TCS so the await resumes
+        // with TaskCanceledException → caught below → rethrown as UdsException.
+        var registration = _responseCts.Token.Register(
+            static state => ((UdsClient)state!).OnP2TimeoutFired(), this);
+
         // Register timeout
         _responseCts.CancelAfter(_timer.P2Timeout);
 
@@ -457,14 +474,28 @@ public class UdsClient : IDisposable
         }
         finally
         {
-            // Item 14: Volatile.Write releases the null assignment to all
-            // reader threads (e.g. OnMessageReceived callback), even on
-            // weak memory models.
+            // v1.2.13 PATCH Item 4 (Phase 2.5 new finding): strict ordering
+            // matters here. Disposal sequence:
+            //   1. registration.Dispose()  — unhook the Token.Register callback
+            //                                so it cannot fire during/after Dispose
+            //   2. Volatile.Write(_responseTcs, null) — OnMessageReceived sees no TCS
+            //   3. Volatile.Write(_responseCts, null) — OnMessageReceived sees no CTS
+            //   4. cts?.Dispose()           — last; no in-flight reference remains
+            // Without this ordering OnMessageReceived may cts?.CancelAfter on a
+            // disposed CTS (ObjectDisposedException propagates onto the SDK
+            // read thread — process crash on graceful shutdown).
+            registration.Dispose();
             var cts = Volatile.Read(ref _responseCts);
-            Volatile.Write(ref _responseCts, null);
             Volatile.Write(ref _responseTcs, null);
+            Volatile.Write(ref _responseCts, null);
             cts?.Dispose();
         }
+    }
+
+    private void OnP2TimeoutFired()
+    {
+        OnP2TimeoutFiredForTesting?.Invoke();
+        Volatile.Read(ref _responseTcs)?.TrySetCanceled();
     }
 
     private void OnMessageReceived(byte[] data)
@@ -488,8 +519,18 @@ public class UdsClient : IDisposable
             // Handle NRC 0x78 (requestCorrectlyReceivedResponsePending)
             if (nrc == 0x78)
             {
-                // Extend timeout to P2*
-                cts?.CancelAfter(_timer.P2StarTimeout);
+                // v1.2.13 PATCH Item 4 (Phase 2.5): guard against disposed
+                // CTS. After SendRequestInternalAsync's finally has nulled
+                // the fields and disposed cts, a late-arriving response
+                // (already in flight on the SDK read thread) would crash
+                // here. The IsCancellationRequested check is the cheap
+                // fast-path; the try/catch handles the disposed-after-read
+                // race window.
+                if (cts is not null && !cts.IsCancellationRequested)
+                {
+                    try { cts.CancelAfter(_timer.P2StarTimeout); }
+                    catch (ObjectDisposedException) { /* shutdown race */ }
+                }
                 return;
             }
 
@@ -511,6 +552,13 @@ public class UdsClient : IDisposable
             tcs?.TrySetResult(data[1..]);
         }
     }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 4: test-only public surface for OnMessageReceived.
+    /// Allows tests to drive late-arriving-response paths without standing
+    /// up an IsoTpLayer + ICanChannel.
+    /// </summary>
+    internal void PublicOnMessageReceivedForTesting(byte[] data) => OnMessageReceived(data);
 }
 
 /// <summary>DiagnosticSessionControl response.</summary>
