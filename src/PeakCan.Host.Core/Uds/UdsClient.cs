@@ -321,9 +321,17 @@ public class UdsClient : IDisposable
             }
         }
         catch (UdsNegativeResponseException nrc)
-            when ((byte)nrc.ResponseCode == 0x35 || (byte)nrc.ResponseCode == 0x36 || (byte)nrc.ResponseCode == 0x37)
+            when (key is not null
+                  && ((byte)nrc.ResponseCode == 0x35
+                      || (byte)nrc.ResponseCode == 0x36
+                      || (byte)nrc.ResponseCode == 0x37))
         {
-            // v1.3.0 MINOR Item 1: track failed authentication attempt
+            // v1.3.1 PATCH Item 1: lockout counter only counts SendKey
+            // (key is not null) failures. RequestSeed failures are not
+            // authentication policy violations — they are flow-control
+            // signals (e.g. ECU not in Programming session, conditions
+            // not correct for SecurityAccess). Recording them as host-side
+            // auth failures would let a benign NRC 0x22 trip lockout.
             Security.RecordFailedAttempt(level);
             throw;
         }

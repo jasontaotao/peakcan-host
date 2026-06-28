@@ -367,6 +367,102 @@ public sealed class UdsClientTests
         // 通过 sent sink 的实际计数来证明这一点，而不是依赖异常类型或超时。
         sent.Should().BeEmpty("locked SecurityAccessAsync must not touch the wire");
     }
+
+    // ========================================================================
+    // v1.3.1 PATCH Item 1: lockout counter scope to SendKey leg only.
+    // RequestSeed (key is null) receiving NRC 0x35 must NOT increment
+    // AttemptCount — failing to obtain a seed is not a security policy
+    // violation, only a SendKey auth failure is.
+    // ========================================================================
+
+    /// <summary>
+    /// v1.3.1 PATCH Item 1: RequestSeed (key=null) NRC 0x35 must not
+    /// increment the lockout counter. Lockout is host-side enforcement of
+    /// authentication policy; an unsuccessful seed request is not an
+    /// authentication attempt.
+    /// <para>
+    /// Drive RequestSeed three times with NRC 0x35 each time. With v1.3.0
+    /// behavior the third attempt trips lockout (AttemptCount hits 3 = the
+    /// default <c>MaxAttempts</c>). With the v1.3.1 PATCH the RequestSeed
+    /// path is excluded from the counter so the level stays unlocked.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task SecurityAccessAsync_RequestSeed_Nrc_35_DoesNot_Increment_AttemptCount()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        // Drive three RequestSeed (key=null) cycles, each returning NRC 0x35.
+        // For each cycle: kick the request task, yield once so
+        // SendRequestAsync registers its pending _responseTcs, then inject
+        // the NRC, then await the task and assert UdsNegativeResponseException.
+        for (var i = 0; i < 3; i++)
+        {
+            var requestTask = client.SecurityAccessAsync(level: 0x01, key: null, CancellationToken.None);
+            await Task.Yield();
+            client.PublicOnMessageReceivedForTesting(
+                new byte[] { 0x7F, 0x27, 0x35 });
+            Func<Task> act = () => requestTask;
+            await act.Should().ThrowAsync<UdsNegativeResponseException>(
+                $"the ECU returned NRC 0x35 on RequestSeed attempt {i + 1}");
+        }
+
+        // Item 1 invariant: three RequestSeed failures do NOT trip lockout.
+        // v1.3.0 would have locked at the 3rd attempt because the catch arm
+        // counted every NRC 0x35 regardless of leg. v1.3.1 PATCH excludes
+        // RequestSeed (key=null) so the counter stays at 0 and the level
+        // remains unlocked.
+        client.Security.IsLocked(0x01).Should().BeFalse(
+            "RequestSeed failures must not increment host-side lockout counter; " +
+            "3 RequestSeed failures should leave the level unlocked");
+
+        // Wire-level side effect: each RequestSeed leg emits exactly one
+        // outbound frame (the seed request).
+        sent.Should().HaveCount(3, "RequestSeed leg emits one frame per attempt");
+    }
+
+    /// <summary>
+    /// v1.3.1 PATCH Item 1 (regression guard): SendKey (key!=null) NRC
+    /// 0x35 must STILL increment the lockout counter. Only the
+    /// RequestSeed path is excluded; the SendKey path keeps existing
+    /// semantics from v1.3.0.
+    /// <para>
+    /// Drive SendKey three times with NRC 0x35 each time. After the third
+    /// attempt the level should be locked — this is the pre-fix baseline
+    /// preserved by the v1.3.1 PATCH (lockout scope narrowed, but SendKey
+    /// leg still counts). Without this regression guard a future refactor
+    /// could drop the SendKey path from the counter by accident.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task SecurityAccessAsync_SendKey_Nrc_35_Still_Increments_AttemptCount()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        // Drive three SendKey cycles, each returning NRC 0x35.
+        for (var i = 0; i < 3; i++)
+        {
+            var requestTask = client.SecurityAccessAsync(level: 0x01, key: new byte[] { 0xAA }, CancellationToken.None);
+            await Task.Yield();
+            client.PublicOnMessageReceivedForTesting(
+                new byte[] { 0x7F, 0x27, 0x35 });
+            Func<Task> act = () => requestTask;
+            await act.Should().ThrowAsync<UdsNegativeResponseException>(
+                $"the ECU returned NRC 0x35 on SendKey attempt {i + 1}");
+        }
+
+        // Regression guard: SendKey failures still count toward lockout.
+        // 3 SendKey failures should hit the default MaxAttempts threshold
+        // and lock the level — preserving v1.3.0 semantics for the
+        // authentication leg.
+        client.Security.IsLocked(0x01).Should().BeTrue(
+            "3 SendKey failures hit the default MaxAttempts threshold of 3; " +
+            "SendKey leg must still count toward lockout");
+
+        sent.Should().HaveCount(3, "SendKey leg emits one frame per attempt");
+    }
 }
 
 /// <summary>
