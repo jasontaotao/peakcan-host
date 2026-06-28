@@ -289,22 +289,31 @@ public class SendFrameLibrarySaveTests : IDisposable
     }
 
     [Fact]
-    public void Save_Uses_FileReplace_Not_FileMove()
+    public void Save_Uses_FileMove_Overwrite_True()
     {
-        // Write a known file first so the second save must REPLACE it
-        // (File.Move overwrite=true vs File.Replace atomic rename semantics).
-        File.WriteAllText(_tempFile, "preexisting");
-        var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
-        lib.Add(Frame("A", 0x100));
+        // v1.2.13 PATCH Item 8: v1.2.12 used File.Replace with an
+        // Exists-then-Move fallback for first save. Phase 2.5 identified
+        // the Exists→Move/Replace branch as a real (small) TOCTOU window.
+        // .NET 5+ File.Move with overwrite:true is atomic on POSIX (rename)
+        // and Windows (MoveFileEx with MOVEFILE_REPLACE_EXISTING) — single
+        // API, no Exists branch.
+        var path = Path.Combine(_tempDir, "atomic-save-" + Guid.NewGuid().ToString("N") + ".json");
+        File.Delete(path); // ensure the "destination does not exist" branch
+        var lib = new SendFrameLibrary(path, Substitute.For<ILogger<SendFrameLibrary>>());
 
-        // After save, no .tmp file should remain (File.Replace is atomic;
-        // it never leaves a visible .tmp once the swap completes).
-        var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(_tempFile) + "*.tmp*");
-        tmpFiles.Should().BeEmpty("File.Replace completes atomically — no orphan tmp");
+        // First save — file did not exist before, must succeed and create it.
+        lib.Add(Frame("F1", 0x100));
+        File.Exists(path).Should().BeTrue("Save must create the destination even when missing");
 
-        // The file should now contain our JSON, not "preexisting".
-        var content = File.ReadAllText(_tempFile);
-        content.Should().Contain("\"frames\"", "File.Replace should have replaced the preexisting file");
+        // Second save — file exists, must still atomically replace.
+        Action act = () => lib.Add(Frame("F2", 0x200));
+        act.Should().NotThrow("Save must overwrite an existing destination atomically");
+        var frames = lib.Load();
+        frames.Should().ContainSingle(f => f.Name == "F2", "second save must overwrite, not append");
+
+        // No orphan .tmp file should remain after either save.
+        var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(path) + "*.tmp*");
+        tmpFiles.Should().BeEmpty("File.Move overwrite:true completes atomically — no orphan tmp");
     }
 
     [Fact]

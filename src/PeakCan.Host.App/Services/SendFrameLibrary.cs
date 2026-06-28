@@ -19,8 +19,11 @@ namespace PeakCan.Host.App.Services;
 /// double-clicked buttons) don't drop each other's changes.
 /// </para>
 /// <para>
-/// v1.2.12 PATCH Item 13: atomic save via <c>File.Replace</c> with UTF-8 BOM.
-/// On failure, tmp file cleaned and exception rethrown with context.
+/// v1.2.13 PATCH Item 8: atomic save via <c>File.Move(src, dst, overwrite: true)</c>
+/// with UTF-8 BOM. .NET 5+ API is atomic on POSIX (rename) and Windows
+/// (MoveFileEx MOVEFILE_REPLACE_EXISTING) — single call, no
+/// Exists→Replace/Move TOCTOU branch. On failure, tmp file cleaned and
+/// exception rethrown with context.
 /// </para>
 /// </summary>
 public sealed partial class SendFrameLibrary
@@ -229,13 +232,12 @@ public sealed partial class SendFrameLibrary
         try
         {
             File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            // File.Replace is atomic (preserves ACL/attrs) but requires the
-            // destination to exist. Fall back to Move+overwrite for the
-            // first-save case where the file doesn't exist yet.
-            if (File.Exists(_path))
-                File.Replace(tmp, _path, destinationBackupFileName: null);
-            else
-                File.Move(tmp, _path);
+            // v1.2.13 PATCH Item 8: File.Move with overwrite:true is atomic
+            // on POSIX (rename) and Windows (MoveFileEx with
+            // MOVEFILE_REPLACE_EXISTING). Replaces the v1.2.12
+            // Exists→Replace/Move branch which had a small TOCTOU window
+            // between the Exists check and the actual move.
+            File.Move(tmp, _path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
