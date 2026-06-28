@@ -126,6 +126,12 @@ public static class AscParser
             data.Add(b);
         }
 
+        // Invariant: byte count must match declared DLC. Truncated user-imported
+        // ASC lines (e.g. DLC=8 but only 2 bytes) are treated as malformed and
+        // skipped per spec Decision 3 (logged + skipped, not thrown).
+        if (data.Count != dlc)
+            return false;
+
         frame = new ReplayFrame(ts, id, dlc, data.ToArray(), flags);
         return true;
     }

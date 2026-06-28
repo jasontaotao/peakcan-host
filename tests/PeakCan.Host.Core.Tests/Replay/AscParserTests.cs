@@ -142,4 +142,30 @@ also garbage
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(500,
             "parsing 10k frames should be well under 500ms");
     }
+
+    /// <summary>
+    /// v1.4.0 MINOR: truncated data line (DLC=8, only 2 data bytes) is
+    /// treated as malformed and skipped per spec Decision 3. The mixed-line
+    /// fixture keeps the >50% malformed threshold satisfied so the file
+    /// parses successfully (2 valid frames, 1 skipped) rather than throwing.
+    /// </summary>
+    [Fact]
+    public async Task Parse_TruncatedData_NotEqualToDlc_IsSkipped()
+    {
+        const string asc = @"
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 0.500000 51  200  8  11 22
+ 1.000000 51  300  2  01 02
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        // Truncated line is skipped; the 2 well-formed lines are returned.
+        frames.Should().HaveCount(2);
+        frames[0].Id.Should().Be(0x100u);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[1].Id.Should().Be(0x300u);
+        frames[1].Dlc.Should().Be(2);
+    }
 }
