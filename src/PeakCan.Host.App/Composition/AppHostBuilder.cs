@@ -27,7 +27,7 @@ namespace PeakCan.Host.App.Composition;
 /// reset it themselves; the production app does not care.
 /// </para>
 /// </summary>
-public static class AppHostBuilder
+public class AppHostBuilder
 {
     /// <summary>
     /// PEAK PCAN-USB FD first-channel handle. Per the inline amendment to
@@ -36,7 +36,32 @@ public static class AppHostBuilder
     /// </summary>
     public const ushort PcanUsbFdFirstHandle = 0x51;
 
-    public static IHost Build()
+    // v1.3.0 MINOR Item 5: optional UDS SecurityAccess lockout policy.
+    // Set via WithUdsSecurityLockoutConfig; null means use the default
+    // (UdsSecurityLockoutConfig.Default = 3 attempts / 5 s) inside the
+    // UdsClient ctor.
+    private PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig? _udsSecurityLockoutConfig;
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 5: configure the UDS SecurityAccess lockout
+    /// policy. Must be called before <see cref="Build"/>.
+    /// <para>
+    /// When this builder method is not called, the default policy
+    /// (<see cref="PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig.Default"/>:
+    /// 3 attempts / 5 s) is used. This preserves backward compatibility
+    /// with v1.2.x callers.
+    /// </para>
+    /// </summary>
+    /// <param name="config">Lockout policy (MaxAttempts + LockoutDuration).</param>
+    /// <returns>The same builder, for fluent chaining.</returns>
+    public AppHostBuilder WithUdsSecurityLockoutConfig(PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        _udsSecurityLockoutConfig = config;
+        return this;
+    }
+
+    public IHost Build()
     {
         var logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -228,11 +253,20 @@ public static class AppHostBuilder
         // v1.2.13 PATCH Item 2: also pass ILogger<UdsSession> so S3 keepalive
         // failures are observable in production (logger-aware ctor was added
         // in v1.2.12 but never wired — this closes the known-deferred item).
+        // v1.3.0 MINOR Item 5: when WithUdsSecurityLockoutConfig was called,
+        // thread the policy through the new lockout-config ctor overload;
+        // otherwise fall through to the legacy 3-arg ctor (defaults preserved).
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>(sp =>
         {
             var isoTp = sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
             var keyAlgorithm = sp.GetRequiredService<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm>();
             var sessionLogger = sp.GetService<ILogger<PeakCan.Host.Core.Uds.UdsSession>>();
+            if (_udsSecurityLockoutConfig is { } lockoutConfig)
+            {
+                return new PeakCan.Host.Core.Uds.UdsClient(
+                    isoTp, keyAlgorithm, lockoutConfig,
+                    timer: null, sessionLogger: sessionLogger);
+            }
             return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm, sessionLogger: sessionLogger);
         });
         // v1.2.0: 4-panel orchestrator holds Session/Did/Routine/Dtc panel VMs;

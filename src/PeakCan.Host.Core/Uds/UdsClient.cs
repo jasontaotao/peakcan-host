@@ -107,6 +107,35 @@ public class UdsClient : IDisposable
     }
 
     /// <summary>
+    /// v1.3.0 MINOR Item 5: create a new UDS client with an OEM-specific
+    /// key derivation algorithm AND a custom SecurityAccess lockout policy.
+    /// <para>
+    /// Existing ctors keep the default <see cref="UdsSecurityLockoutConfig.Default"/>
+    /// (3 attempts / 5 s). This overload lets <c>AppHostBuilder</c> thread
+    /// an OEM-overridable policy through DI without changing the lockout
+    /// state-machine semantics.
+    /// </para>
+    /// </summary>
+    /// <param name="isoTp">ISO-TP transport layer.</param>
+    /// <param name="keyAlgorithm">OEM key algorithm. Must not be null.</param>
+    /// <param name="lockoutConfig">
+    /// Lockout policy applied to <see cref="Security"/>'s
+    /// <see cref="UdsSecurity.LockoutConfig"/> post-construction.
+    /// Must not be null.
+    /// </param>
+    /// <param name="timer">Optional UDS timer. Defaults to a fresh <see cref="UdsTimer"/>.</param>
+    /// <param name="sessionLogger">
+    /// Optional logger threaded into <see cref="UdsSession"/>. Defaults
+    /// to <c>null</c> for backward compatibility with v1.2.x callers.
+    /// </param>
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsSecurityLockoutConfig lockoutConfig, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
+        : this(isoTp, keyAlgorithm, timer, sessionLogger)
+    {
+        ArgumentNullException.ThrowIfNull(lockoutConfig);
+        Security.LockoutConfig = lockoutConfig;
+    }
+
+    /// <summary>
     /// Send a UDS service request and wait for response.
     /// </summary>
     /// <param name="serviceId">Service ID (SID).</param>
@@ -184,11 +213,27 @@ public class UdsClient : IDisposable
     /// </summary>
     /// <param name="resetType">Reset type (1=Hard, 2=KeyOff, 3=Soft).</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
+    /// <remarks>
+    /// v1.3.0 MINOR Item 2: marked <c>virtual</c> for consistency with 7
+    /// sibling UDS methods. Tests can override to intercept wire emit.
+    /// Defensive length check on <c>response[0]</c> prevents
+    /// <see cref="IndexOutOfRangeException"/> if <see cref="SendRequestAsync"/>
+    /// returns an empty payload.
+    /// </remarks>
+    public virtual async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
     {
         var response = await SendRequestAsync(0x11, new byte[] { resetType }, ct).ConfigureAwait(false);
-        return response[0];
+        return response.Length > 0 ? response[0] : (byte)0;
     }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 2/4: type-safe enum overload.
+    /// </summary>
+    /// <param name="resetType">ISO 14229-1 §10.2 standard reset sub-function.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The echoed sub-function byte from the positive response.</returns>
+    public Task<byte> EcuResetAsync(UdsResetType resetType, CancellationToken ct = default)
+        => EcuResetAsync((byte)resetType, ct);
 
     /// <summary>
     /// ReadDataByIdentifier (0x22).
@@ -233,6 +278,12 @@ public class UdsClient : IDisposable
     /// <returns>Seed bytes (for RequestSeed) or success (for SendKey).</returns>
     public virtual async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
     {
+        // v1.3.0 MINOR Item 1: lockout check before wire emit.
+        // Lockout state is independent of session state — even if a session
+        // reset was attempted, the lockout window persists (D8).
+        if (Security.IsLocked(level))
+            throw new UdsSecurityLockedException(level, Security.RemainingLockoutDelay(level));
+
         byte[] requestData;
         byte subFunction;
 
@@ -251,19 +302,30 @@ public class UdsClient : IDisposable
             Array.Copy(key, 0, requestData, 1, key.Length);
         }
 
-        var response = await SendRequestAsync(0x27, requestData, ct).ConfigureAwait(false);
+        try
+        {
+            var response = await SendRequestAsync(0x27, requestData, ct).ConfigureAwait(false);
 
-        if (key is null)
-        {
-            // Seed response: [level, seed...]
-            Security.SetSeed(level, response[1..]);
-            return response[1..];
+            if (key is null)
+            {
+                // Seed response: [level, seed...]
+                Security.SetSeed(level, response[1..]);
+                return response[1..];
+            }
+            else
+            {
+                // Key response: success (empty or level)
+                Security.SetAuthenticated(level);
+                Security.ResetLockout(level);  // v1.3.0 MINOR Item 1: clear on successful auth
+                return response;
+            }
         }
-        else
+        catch (UdsNegativeResponseException nrc)
+            when ((byte)nrc.ResponseCode == 0x35 || (byte)nrc.ResponseCode == 0x36 || (byte)nrc.ResponseCode == 0x37)
         {
-            // Key response: success (empty or level)
-            Security.SetAuthenticated(level);
-            return response;
+            // v1.3.0 MINOR Item 1: track failed authentication attempt
+            Security.RecordFailedAttempt(level);
+            throw;
         }
     }
 
@@ -342,6 +404,19 @@ public class UdsClient : IDisposable
 
         return response[3..];
     }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 3/4: type-safe enum overload.
+    /// </summary>
+    /// <param name="routineControlType">ISO 14229-1 §10.4 standard sub-function.</param>
+    /// <param name="routineId">Routine identifier (2 bytes).</param>
+    /// <param name="data">Optional routine data.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Routine result bytes (after the [sub, routineIdHigh, routineIdLow] prefix).</returns>
+    public Task<byte[]> RoutineControlAsync(
+        RoutineControlType routineControlType, ushort routineId,
+        byte[]? data = null, CancellationToken ct = default)
+        => RoutineControlAsync((byte)routineControlType, routineId, data, ct);
 
     /// <summary>
     /// RequestDownload (0x34).

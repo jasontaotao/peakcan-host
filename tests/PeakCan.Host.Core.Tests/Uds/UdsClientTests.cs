@@ -333,6 +333,40 @@ public sealed class UdsClientTests
         public IsoTpLayer Iso { get; }
         public MockTransport(IsoTpLayer iso) { Iso = iso; }
     }
+
+    // ========================================================================
+    // v1.3.0 MINOR Item 1 (part 2): UdsClient.SecurityAccessAsync must
+    // enforce the lockout state set by UdsSecurity. When the level is
+    // locked, the call must throw UdsSecurityLockedException WITHOUT
+    // touching the wire.
+    // ========================================================================
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 1: when the security level is locked, the call
+    /// must throw UdsSecurityLockedException WITHOUT touching the wire.
+    /// </summary>
+    [Fact]
+    public async Task SecurityAccessAsync_WhenLocked_ThrowsBeforeWireEmit()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+        // Force lockout for level 0x01 (3 attempts threshold from Default config)
+        client.Security.RecordFailedAttempt(0x01);
+        client.Security.RecordFailedAttempt(0x01);
+        client.Security.RecordFailedAttempt(0x01);
+        client.Security.IsLocked(0x01).Should().BeTrue("setup precondition");
+
+        Func<Task> act = () => client.SecurityAccessAsync(level: 0x01, key: null, CancellationToken.None);
+        var ex = await act.Should().ThrowAsync<UdsSecurityLockedException>(
+            "the level is locked; SecurityAccessAsync must throw before any wire emit");
+        ex.Which.SecurityLevel.Should().Be(0x01);
+        ex.Which.RemainingDelay.Should().BeGreaterThan(TimeSpan.Zero);
+
+        // 业务保证：locked 状态下调用 SecurityAccessAsync 必须先抛异常，
+        // 不应触达 wire（SendRequestAsync → _isoTp.SendMessageAsync → sink.Add）。
+        // 通过 sent sink 的实际计数来证明这一点，而不是依赖异常类型或超时。
+        sent.Should().BeEmpty("locked SecurityAccessAsync must not touch the wire");
+    }
 }
 
 /// <summary>
@@ -577,6 +611,258 @@ public sealed class UdsClientVolatileTests
         {
             public static readonly NullScope Instance = new();
             public void Dispose() { }
+        }
+    }
+
+    // ========================================================================
+    // v1.3.0 MINOR Item 2 + Item 4: EcuResetAsync (0x11) direct tests.
+    // Before this task the method had zero direct tests. The three ISO
+    // 14229-1 §10.2 standard sub-functions (0x01 HardReset, 0x02
+    // KeyOffOnReset, 0x03 SoftReset) must each produce the correct wire
+    // frame and return the echoed sub-function. Negative responses must
+    // propagate as UdsNegativeResponseException. The enum overload must
+    // dispatch to the byte overload with the right cast. The virtual
+    // override must be interceptable for test-double scenarios.
+    // ========================================================================
+
+    [Fact]
+    public async Task EcuResetAsync_HardReset_0x01_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x01);  // HardReset
+        EcuRespond(iso, new byte[] { 0x51, 0x01 });  // positive response
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x01, "ECU positive response echoes sub-function 0x01");
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x01,
+            "the wire must carry ISO-TP SF with SID 0x11 + sub 0x01 (HardReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_KeyOffOnReset_0x02_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x51, 0x02 });
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x02);
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x02,
+            "wire must carry ISO-TP SF with SID 0x11 + sub 0x02 (KeyOffOnReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_SoftReset_0x03_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x03);
+        EcuRespond(iso, new byte[] { 0x51, 0x03 });
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x03);
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x03,
+            "wire must carry ISO-TP SF with SID 0x11 + sub 0x03 (SoftReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_NegativeResponse_Propagates()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x01);
+        EcuRespond(iso, new byte[] { 0x7F, 0x11, 0x12 });  // NRC 0x12 subFunctionNotSupported
+
+        Func<Task> act = async () => await task;
+        await act.Should().ThrowAsync<UdsNegativeResponseException>(
+            "NRC 0x12 from ECU must propagate as UdsNegativeResponseException");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_EnumOverload_DispatchesToByte()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(UdsResetType.HardReset);
+        EcuRespond(iso, new byte[] { 0x51, 0x01 });
+
+        await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == (byte)UdsResetType.HardReset,
+            "enum overload must call byte overload with correct cast");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_VirtualOverride_Interceptable()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClientForEcuReset(iso);
+
+        var resetType = await spy.EcuResetAsync(0x01);
+
+        spy.LastEcuResetCall.Should().Be(0x01,
+            "the virtual override on SpyUdsClientForEcuReset must intercept EcuResetAsync");
+        resetType.Should().Be(0xFF,
+            "spy returns 0xFF without touching the wire");
+    }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 2: minimal spy that overrides EcuResetAsync to
+    /// verify virtual dispatch. Mirrors the role of existing SpyUdsClient
+    /// (line 537) for TesterPresentAsync / SendRequestAsync.
+    /// </summary>
+    private sealed class SpyUdsClientForEcuReset : UdsClient
+    {
+        public byte? LastEcuResetCall { get; private set; }
+
+        public SpyUdsClientForEcuReset(IsoTpLayer isoTp) : base(isoTp) { }
+
+        public override Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
+        {
+            LastEcuResetCall = resetType;
+            return Task.FromResult<byte>(0xFF);
+        }
+    }
+
+    // ========================================================================
+    // v1.3.0 MINOR Item 3: RoutineControlAsync (0x31) direct tests.
+    // Before this task the method had only VM-level coverage via
+    // RoutinePanelViewModelTests. The three ISO 14229-1 §10.4 standard
+    // sub-functions (0x01 StartRoutine, 0x02 StopRoutine, 0x03
+    // RequestRoutineResults) must each produce the correct wire frame and
+    // return the result bytes (after the [sub, routineIdHigh, routineIdLow]
+    // prefix). Short responses must throw UdsException. The enum overload
+    // must dispatch to the byte overload with the right cast. The virtual
+    // override must be interceptable for test-double scenarios.
+    // ========================================================================
+
+    [Fact]
+    public async Task RoutineControlAsync_StartRoutine_0x01_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RoutineControlAsync(0x01, routineId: 0x1234);
+        EcuRespond(iso, new byte[] { 0x71, 0x01, 0x12, 0x34, 0xAA, 0xBB });  // positive + results
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        result.Should().Equal(new byte[] { 0xAA, 0xBB },
+            "RoutineControl result bytes (after SID/sub/routineId prefix)");
+        sent.Should().ContainSingle(
+            f => f.Length >= 4 && f[1] == 0x31 && f[2] == 0x01 && f[3] == 0x12 && f[4] == 0x34,
+            "wire must carry ISO-TP SF with SID 0x31 + sub 0x01 + routineId 0x1234 (StartRoutine)");
+    }
+
+    [Fact]
+    public async Task RoutineControlAsync_StopRoutine_0x02_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RoutineControlAsync(0x02, routineId: 0xFF00);
+        EcuRespond(iso, new byte[] { 0x71, 0x02, 0xFF, 0x00 });  // positive, no result data
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        result.Should().BeEmpty("StopRoutine response carries no result data");
+        sent.Should().ContainSingle(
+            f => f.Length >= 4 && f[1] == 0x31 && f[2] == 0x02 && f[3] == 0xFF && f[4] == 0x00,
+            "wire must carry ISO-TP SF with SID 0x31 + sub 0x02 + routineId 0xFF00 (StopRoutine)");
+    }
+
+    [Fact]
+    public async Task RoutineControlAsync_RequestRoutineResults_0x03_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RoutineControlAsync(0x03, routineId: 0x0203);
+        EcuRespond(iso, new byte[] { 0x71, 0x03, 0x02, 0x03, 0x11, 0x22, 0x33 });
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        result.Should().Equal(new byte[] { 0x11, 0x22, 0x33 });
+        sent.Should().ContainSingle(
+            f => f.Length >= 4 && f[1] == 0x31 && f[2] == 0x03 && f[3] == 0x02 && f[4] == 0x03,
+            "wire must carry ISO-TP SF with SID 0x31 + sub 0x03 + routineId 0x0203 (RequestRoutineResults)");
+    }
+
+    [Fact]
+    public async Task RoutineControlAsync_ShortResponse_ThrowsUdsException()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RoutineControlAsync(0x01, routineId: 0x0001);
+        EcuRespond(iso, new byte[] { 0x71 });  // too short, missing sub + routineId
+
+        Func<Task> act = async () => await task;
+        await act.Should().ThrowAsync<UdsException>(
+            "responses < 3 bytes are invalid RoutineControl replies and must throw");
+    }
+
+    [Fact]
+    public async Task RoutineControlAsync_EnumOverload_DispatchesToByte()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RoutineControlAsync(RoutineControlType.StopRoutine, routineId: 0x0001);
+        EcuRespond(iso, new byte[] { 0x71, 0x02, 0x00, 0x01 });
+
+        await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        sent.Should().ContainSingle(
+            f => f.Length >= 4 && f[1] == 0x31 && f[2] == (byte)RoutineControlType.StopRoutine,
+            "enum overload must call byte overload with correct cast");
+    }
+
+    [Fact]
+    public async Task RoutineControlAsync_VirtualOverride_Interceptable()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClientForRoutineControl(iso);
+
+        var result = await spy.RoutineControlAsync(0x01, routineId: 0x1234);
+
+        spy.LastRoutineControlCall!.Value.Should().Be((0x01, (ushort)0x1234),
+            "the virtual override must intercept RoutineControlAsync");
+        result.Should().Equal(new byte[] { 0xDE, 0xAD },
+            "spy returns canned result without touching the wire");
+    }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 3: minimal spy that overrides RoutineControlAsync
+    /// to verify virtual dispatch. Mirrors the role of SpyUdsClientForEcuReset
+    /// (above) for EcuResetAsync.
+    /// </summary>
+    private sealed class SpyUdsClientForRoutineControl : UdsClient
+    {
+        public (byte Sub, ushort RoutineId)? LastRoutineControlCall { get; private set; }
+
+        public SpyUdsClientForRoutineControl(IsoTpLayer isoTp) : base(isoTp) { }
+
+        public override Task<byte[]> RoutineControlAsync(
+            byte routineControlType, ushort routineId,
+            byte[]? data = null, CancellationToken ct = default)
+        {
+            LastRoutineControlCall = (routineControlType, routineId);
+            return Task.FromResult(new byte[] { 0xDE, 0xAD });
         }
     }
 }
