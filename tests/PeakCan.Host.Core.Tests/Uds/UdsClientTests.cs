@@ -613,4 +613,128 @@ public sealed class UdsClientVolatileTests
             public void Dispose() { }
         }
     }
+
+    // ========================================================================
+    // v1.3.0 MINOR Item 2 + Item 4: EcuResetAsync (0x11) direct tests.
+    // Before this task the method had zero direct tests. The three ISO
+    // 14229-1 §10.2 standard sub-functions (0x01 HardReset, 0x02
+    // KeyOffOnReset, 0x03 SoftReset) must each produce the correct wire
+    // frame and return the echoed sub-function. Negative responses must
+    // propagate as UdsNegativeResponseException. The enum overload must
+    // dispatch to the byte overload with the right cast. The virtual
+    // override must be interceptable for test-double scenarios.
+    // ========================================================================
+
+    [Fact]
+    public async Task EcuResetAsync_HardReset_0x01_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x01);  // HardReset
+        EcuRespond(iso, new byte[] { 0x51, 0x01 });  // positive response
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x01, "ECU positive response echoes sub-function 0x01");
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x01,
+            "the wire must carry ISO-TP SF with SID 0x11 + sub 0x01 (HardReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_KeyOffOnReset_0x02_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x51, 0x02 });
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x02);
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x02,
+            "wire must carry ISO-TP SF with SID 0x11 + sub 0x02 (KeyOffOnReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_SoftReset_0x03_Writes_Correct_SID()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x03);
+        EcuRespond(iso, new byte[] { 0x51, 0x03 });
+
+        var resetType = await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        resetType.Should().Be(0x03);
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == 0x03,
+            "wire must carry ISO-TP SF with SID 0x11 + sub 0x03 (SoftReset)");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_NegativeResponse_Propagates()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(0x01);
+        EcuRespond(iso, new byte[] { 0x7F, 0x11, 0x12 });  // NRC 0x12 subFunctionNotSupported
+
+        Func<Task> act = async () => await task;
+        await act.Should().ThrowAsync<UdsNegativeResponseException>(
+            "NRC 0x12 from ECU must propagate as UdsNegativeResponseException");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_EnumOverload_DispatchesToByte()
+    {
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.EcuResetAsync(UdsResetType.HardReset);
+        EcuRespond(iso, new byte[] { 0x51, 0x01 });
+
+        await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        sent.Should().ContainSingle(
+            f => f.Length >= 3 && f[1] == 0x11 && f[2] == (byte)UdsResetType.HardReset,
+            "enum overload must call byte overload with correct cast");
+    }
+
+    [Fact]
+    public async Task EcuResetAsync_VirtualOverride_Interceptable()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClientForEcuReset(iso);
+
+        var resetType = await spy.EcuResetAsync(0x01);
+
+        spy.LastEcuResetCall.Should().Be(0x01,
+            "the virtual override on SpyUdsClientForEcuReset must intercept EcuResetAsync");
+        resetType.Should().Be(0xFF,
+            "spy returns 0xFF without touching the wire");
+    }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 2: minimal spy that overrides EcuResetAsync to
+    /// verify virtual dispatch. Mirrors the role of existing SpyUdsClient
+    /// (line 537) for TesterPresentAsync / SendRequestAsync.
+    /// </summary>
+    private sealed class SpyUdsClientForEcuReset : UdsClient
+    {
+        public byte? LastEcuResetCall { get; private set; }
+
+        public SpyUdsClientForEcuReset(IsoTpLayer isoTp) : base(isoTp) { }
+
+        public override Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
+        {
+            LastEcuResetCall = resetType;
+            return Task.FromResult<byte>(0xFF);
+        }
+    }
 }

@@ -184,11 +184,27 @@ public class UdsClient : IDisposable
     /// </summary>
     /// <param name="resetType">Reset type (1=Hard, 2=KeyOff, 3=Soft).</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
+    /// <remarks>
+    /// v1.3.0 MINOR Item 2: marked <c>virtual</c> for consistency with 7
+    /// sibling UDS methods. Tests can override to intercept wire emit.
+    /// Defensive length check on <c>response[0]</c> prevents
+    /// <see cref="IndexOutOfRangeException"/> if <see cref="SendRequestAsync"/>
+    /// returns an empty payload.
+    /// </remarks>
+    public virtual async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default)
     {
         var response = await SendRequestAsync(0x11, new byte[] { resetType }, ct).ConfigureAwait(false);
-        return response[0];
+        return response.Length > 0 ? response[0] : (byte)0;
     }
+
+    /// <summary>
+    /// v1.3.0 MINOR Item 2/4: type-safe enum overload.
+    /// </summary>
+    /// <param name="resetType">ISO 14229-1 §10.2 standard reset sub-function.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The echoed sub-function byte from the positive response.</returns>
+    public Task<byte> EcuResetAsync(UdsResetType resetType, CancellationToken ct = default)
+        => EcuResetAsync((byte)resetType, ct);
 
     /// <summary>
     /// ReadDataByIdentifier (0x22).
