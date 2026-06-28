@@ -233,6 +233,12 @@ public class UdsClient : IDisposable
     /// <returns>Seed bytes (for RequestSeed) or success (for SendKey).</returns>
     public virtual async Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
     {
+        // v1.3.0 MINOR Item 1: lockout check before wire emit.
+        // Lockout state is independent of session state — even if a session
+        // reset was attempted, the lockout window persists (D8).
+        if (Security.IsLocked(level))
+            throw new UdsSecurityLockedException(level, Security.RemainingLockoutDelay(level));
+
         byte[] requestData;
         byte subFunction;
 
@@ -251,19 +257,30 @@ public class UdsClient : IDisposable
             Array.Copy(key, 0, requestData, 1, key.Length);
         }
 
-        var response = await SendRequestAsync(0x27, requestData, ct).ConfigureAwait(false);
+        try
+        {
+            var response = await SendRequestAsync(0x27, requestData, ct).ConfigureAwait(false);
 
-        if (key is null)
-        {
-            // Seed response: [level, seed...]
-            Security.SetSeed(level, response[1..]);
-            return response[1..];
+            if (key is null)
+            {
+                // Seed response: [level, seed...]
+                Security.SetSeed(level, response[1..]);
+                return response[1..];
+            }
+            else
+            {
+                // Key response: success (empty or level)
+                Security.SetAuthenticated(level);
+                Security.ResetLockout(level);  // v1.3.0 MINOR Item 1: clear on successful auth
+                return response;
+            }
         }
-        else
+        catch (UdsNegativeResponseException nrc)
+            when ((byte)nrc.ResponseCode == 0x35 || (byte)nrc.ResponseCode == 0x36 || (byte)nrc.ResponseCode == 0x37)
         {
-            // Key response: success (empty or level)
-            Security.SetAuthenticated(level);
-            return response;
+            // v1.3.0 MINOR Item 1: track failed authentication attempt
+            Security.RecordFailedAttempt(level);
+            throw;
         }
     }
 
