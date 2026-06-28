@@ -156,6 +156,47 @@ public class ChannelRouterTests
         foreverBrokenSink.Received(1).OnFrame(Arg.Any<CanFrame>());
     }
 
+    // --- v1.2.13 PATCH Item 9: log original OnFrame exception before OnError inner catch ---
+
+    [Fact]
+    public void OnFrame_Exception_Logged_With_Original_Exception_Before_OnError()
+    {
+        // v1.2.13 PATCH Item 9: the operator investigating "why did sink X
+        // misbehave" needs the OnFrame-thrown exception in the structured
+        // exception field, not just the OnError-thrown exception. The router
+        // already logs the inner exception (LogSinkOnError id 6004) but the
+        // ORIGINAL OnFrame exception was lost — only its ToString() leaked
+        // via the message context. Now LogChannelRouterSinkOnFrameFailed
+        // (id 6010) records the original exception as the structured
+        // exception of a Warning log BEFORE the inner-catch path runs.
+        var logger = Substitute.For<ILogger<ChannelRouter>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+        var router = new ChannelRouter(logger);
+
+        var channel = Substitute.For<ICanChannel>();
+        var sink = Substitute.For<IFrameSink>();
+        var originalException = new InvalidOperationException("onframe-root-cause");
+        var onErrorException = new InvalidOperationException("onerror-threw");
+
+        sink.When(s => s.OnFrame(Arg.Any<CanFrame>())).Do(_ => throw originalException);
+        sink.When(s => s.OnError(Arg.Any<Exception>())).Do(_ => throw onErrorException);
+
+        router.RegisterChannel(channel);
+        router.AttachSink(sink);
+
+        // Drive a frame through the router.
+        var frame = new CanFrame(new CanId(0x100, FrameFormat.Standard), new byte[] { 0xAA }, FrameFlags.None, ChannelId.None, default);
+        channel.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
+
+        // Assert the ORIGINAL exception was logged at Warning (id 6010).
+        logger.Received().Log(
+            LogLevel.Warning,
+            Arg.Is<EventId>(e => e.Id == 6010),
+            Arg.Any<object>(),
+            originalException,  // <-- the structured exception field carries the original
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
     // --- v1.2.12 PATCH Item 11: sink OnError → ILogger on the router ---
 
     [Fact]
@@ -181,9 +222,19 @@ public class ChannelRouterTests
 
         ch.FrameReceived += Raise.Event<Action<CanFrame>>(frame);
 
-        logger.Received(1).Log(
+        // v1.2.13 PATCH Item 9: 2 Warning logs now expected — id 6010 for
+        // the original OnFrame exception (before delegation to OnError)
+        // and id 6004 for the inner OnError exception. Pre-Item 9 only
+        // the id 6004 path existed.
+        logger.Received().Log(
             LogLevel.Warning,
-            Arg.Any<EventId>(),
+            Arg.Is<EventId>(e => e.Id == 6010),
+            Arg.Any<object>(),
+            Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception?, string>>());
+        logger.Received().Log(
+            LogLevel.Warning,
+            Arg.Is<EventId>(e => e.Id == 6004),
             Arg.Any<object>(),
             Arg.Any<Exception>(),
             Arg.Any<Func<object, Exception?, string>>());
