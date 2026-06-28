@@ -204,14 +204,16 @@ public static class AppHostBuilder
                 {
                     await sendService.SendAsync(frame).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!(ex is PeakCan.Host.Core.Uds.IsoTp.IsoTpSendFailedException))
                 {
-                    // v1.2.12 PATCH review (I-3): call the layer's internal
-                    // LogIsoTpSendFailed helper so the "IsoTpSendFailed"
-                    // event id (3001) lives in one place — both the inline
-                    // exception path inside SendCanFrameAsync and this
-                    // App-factory path now share the same source-gen log
-                    // call.
+                    // v1.2.13 PATCH Item 5: the layer's SendCanFrameAsync now
+                    // throws IsoTpSendFailedException itself (after logging
+                    // via LogIsoTpSendFailed). Skip the duplicate log here
+                    // so each send failure is recorded exactly once (id
+                    // 3001). The `when` filter is defense-in-depth for the
+                    // (rare) case where SendService.SendAsync itself raises
+                    // an IsoTpSendFailedException that the layer has not
+                    // seen.
                     PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer.LogIsoTpSendFailed(
                         isoLogger, ex, frame.Id.Raw);
                 }

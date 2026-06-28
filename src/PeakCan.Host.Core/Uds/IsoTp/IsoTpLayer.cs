@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.Core.Uds.IsoTp;
@@ -32,6 +33,22 @@ public sealed partial class IsoTpLayer : IDisposable
     private readonly Action<CanFrame>? _sendFrame;
     private readonly Func<CanFrame, Task>? _sendFrameAsync;
     private readonly ILogger<IsoTpLayer>? _logger;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: number of multi-frame send failures since
+    /// process start. Incremented when SendCanFrameAsync's catch arm fires
+    /// AND we throw out (not the swallow path which no longer exists for
+    /// multi-frame sends). Used by tests to assert regression behaviour.
+    /// </summary>
+    internal int SendFailureCount;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: transient counter of consecutive frames sent
+    /// in the current multi-frame transport. Reset at the start of every
+    /// transport (SendMultiFrameAsync). The _sendGate serializes transports
+    /// so this field is not shared across concurrent ones.
+    /// </summary>
+    private int _cfCounter;
     // v1.2.12 PATCH Item 2: serialize FF/CF emission across concurrent
     // SendMultiFrameAsync callers so transports cannot interleave (per
     // ISO 15765-2 §6.5). Replaces the implicit assumption that the SDK
@@ -279,18 +296,28 @@ public sealed partial class IsoTpLayer : IDisposable
     {
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
         var canData = frame.Encode();
-        return SendCanFrameAsync(canData);
+        return SendCanFrameAsync(canData, frameIndex: 0);
     }
 
     /// <summary>
-    /// v1.2.12 PATCH Item 2: dispatch the encoded CAN frame through whichever
+    /// v1.2.13 PATCH Item 5: dispatch the encoded CAN frame through whichever
     /// callback the caller wired up. The async callback is awaited so an
     /// SDK hang is bounded by the layer's own timeouts (FC timeout, BS gate)
     /// instead of by <c>.AsTask().Wait()</c> on the SDK read thread.
-    /// Exceptions are logged at Error and swallowed so a single bad send
-    /// does not abort the entire multi-frame transport.
+    /// <para>
+    /// On send-callback failure: log at Error (preserves the v1.2.12
+    /// behaviour), increment <see cref="SendFailureCount"/>, and throw
+    /// <see cref="IsoTpSendFailedException"/>. The throw propagates up
+    /// through <see cref="SendMultiFrameAsync"/>, aborting the CF burst on
+    /// the first failure (so a bus-off mid-FF no longer silently drops
+    /// all subsequent CFs). The single-frame (TesterPresent) path passes
+    /// <c>frameIndex: 0</c> and is allowed to throw; UdsClient / App
+    /// factory catch sites handle it.
+    /// </para>
     /// </summary>
-    private async Task SendCanFrameAsync(byte[] data)
+    /// <param name="data">Encoded ISO-TP frame payload.</param>
+    /// <param name="frameIndex">Position in the multi-frame burst (0 for FF/SF, 1..N for CF).</param>
+    private async Task SendCanFrameAsync(byte[] data, int frameIndex)
     {
         var frame = new CanFrame(
             new CanId(_config.RequestId, FrameFormat.Standard),
@@ -307,8 +334,14 @@ public sealed partial class IsoTpLayer : IDisposable
             }
             catch (Exception ex)
             {
+                // v1.2.13 PATCH Item 5: propagate as IsoTpSendFailedException
+                // so the caller (multi-frame transport, UDS layer, App
+                // factory) can abort on the first failure instead of
+                // silently dropping all subsequent CFs.
                 if (_logger is not null)
                     LogIsoTpSendFailed(_logger, ex, frame.Id.Raw);
+                Interlocked.Increment(ref SendFailureCount);
+                throw new IsoTpSendFailedException(frame.Id.Raw, frameIndex, ex);
             }
             return;
         }
@@ -333,11 +366,16 @@ public sealed partial class IsoTpLayer : IDisposable
             {
                 _txWaitingForFc = true;
             }
+            // v1.2.13 PATCH Item 5: reset the per-transport CF counter so
+            // frameIndex starts at 1 for the first CF in this transport.
+            // _sendGate serializes transports so this is safe (no other
+            // transport can be in flight).
+            _cfCounter = 0;
 
-            // Send First Frame
+            // Send First Frame (frameIndex=0 by convention for FF).
             var ffData = data.AsMemory(0, Math.Min(6, data.Length));
             var ff = new IsoTpFrame(IsoTpFrameType.First, length: data.Length, data: ffData);
-            await SendCanFrameAsync(ff.Encode()).ConfigureAwait(false);
+            await SendCanFrameAsync(ff.Encode(), frameIndex: 0).ConfigureAwait(false);
 
             // Wait for Flow Control
             if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
@@ -359,7 +397,12 @@ public sealed partial class IsoTpLayer : IDisposable
                 int chunkSize = Math.Min(7, data.Length - offset);
                 var cfData = data.AsMemory(offset, chunkSize);
                 var cf = new IsoTpFrame(IsoTpFrameType.Consecutive, sequenceOrStatus: sequence, data: cfData);
-                await SendCanFrameAsync(cf.Encode()).ConfigureAwait(false);
+                // v1.2.13 PATCH Item 5: increment _cfCounter before each
+                // CF send so frameIndex is 1-based. If the send throws,
+                // the IsoTpSendFailedException aborts the burst and
+                // _sendGate.Release runs in the finally.
+                _cfCounter++;
+                await SendCanFrameAsync(cf.Encode(), frameIndex: _cfCounter).ConfigureAwait(false);
 
                 offset += chunkSize;
                 sequence = (sequence + 1) & 0x0F;

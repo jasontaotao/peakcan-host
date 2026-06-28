@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds.IsoTp;
 using Xunit;
@@ -378,17 +379,20 @@ public sealed class IsoTpLayerTests
     }
 
     /// <summary>
-    /// RED: an exception thrown from the send callback must be logged at Error
-    /// and must NOT propagate out of <see cref="IsoTpLayer.SendMessageAsync"/>.
-    /// This is the v1.2.12 fix for the SDK-deadlock symptom.
+    /// v1.2.13 PATCH Item 5: a send-callback failure on the FF must
+    /// (a) log at Error (preserves the v1.2.12 Item 2 behaviour) and
+    /// (b) propagate as IsoTpSendFailedException so the caller (UDS layer
+    /// or AppHostBuilder outer catch) can distinguish send-failure from
+    /// transport/routing-failure. The Exception arm now throws instead of
+    /// swallowing.
     /// </summary>
     [Fact]
-    public async Task SendMultiFrameAsync_Send_Exception_Logged_And_Not_Propagated()
+    public async Task SendMultiFrameAsync_Send_Exception_Propagates_As_IsoTpSendFailedException()
     {
         var logger = new CountingLogger<IsoTpLayer>();
         // Use a callback that fails on the FF only and succeeds for the rest
         // (CFs). This drives the FF-exception logging path without tripping
-        // the FC-wait timeout, so we can assert the exception is swallowed.
+        // the FC-wait timeout.
         var sendFrame = new Func<CanFrame, Task>(frame =>
         {
             // FF frame starts with 0x1_; the layer encodes FF with 0x10..0x1F.
@@ -401,17 +405,45 @@ public sealed class IsoTpLayerTests
 
         var payload = new byte[3000];
 
-        // Inject FC immediately so the FF-exception path completes without
-        // tripping the FC-wait TimeoutException.
-        var sendTask = layer.SendMessageAsync(payload, CancellationToken.None);
-        await Task.Delay(20);
-        InjectFlowControl(layer, blockSize: 0, stMin: 0);
-
-        Func<Task> act = async () => await sendTask;
-        await act.Should().NotThrowAsync(
-            "send-callback exceptions must be logged and swallowed, not propagated");
+        Func<Task> act = () => layer.SendMessageAsync(payload, CancellationToken.None);
+        await act.Should().ThrowAsync<IsoTpSendFailedException>(
+            "send-callback exceptions on the FF must propagate as IsoTpSendFailedException");
         logger.ErrorCount.Should().BeGreaterThan(0,
-            "send-callback exceptions must be logged at Error level");
+            "send-callback exceptions must still be logged at Error level");
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: once the FF send fails, the CF burst must NOT
+    /// continue. Without this, a bus-off mid-FF silently drops all subsequent
+    /// CFs and the FC-wait timeout surfaces the failure (with a misleading
+    /// "no FC received" diagnosis). With the fix, the FF throw aborts the
+    /// multi-frame transport immediately; no CF is sent.
+    /// </summary>
+    [Fact]
+    public async Task SendMultiFrameAsync_FirstFrame_Failure_Aborts_CF_Burst()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var ffFailure = new InvalidOperationException("sdk down");
+
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            sink.Add(frame.Data.ToArray());
+            byte pci = frame.Data.Span[0];
+            if ((pci & 0xF0) == 0x10) throw ffFailure; // FF only
+            return Task.CompletedTask; // CF (would normally succeed)
+        });
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame, NullLogger<IsoTpLayer>.Instance);
+
+        var payload = new byte[3000]; // forces FF + ~429 CFs
+        Func<Task> act = () => layer.SendMessageAsync(payload, CancellationToken.None);
+        await act.Should().ThrowAsync<IsoTpSendFailedException>();
+
+        // The single sent frame must be the FF (PCI 0x10..0x1F); no CFs (PCI 0x20..0x2F).
+        sink.Should().ContainSingle(
+            f => (f[0] & 0xF0) == 0x10,
+            "only the FF should have hit the wire; the FF failure aborts before any CF");
+        sink.Should().NotContain(f => (f[0] & 0xF0) == 0x20,
+            "no CF must be sent after the FF failed");
     }
 
     /// <summary>
