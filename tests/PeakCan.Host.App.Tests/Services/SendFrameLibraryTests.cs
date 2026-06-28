@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -180,9 +181,77 @@ public class SendFrameLibraryConcurrencyTests : IDisposable
         lib.Remove("A");
         lib.Count.Should().Be(1);
     }
+
+    [Fact]
+    public void Count_After_N_Adds_Equals_N_Concurrent_With_Count()
+    {
+        // v1.2.13 PATCH Item 7: Count must be O(1) and consistent with
+        // concurrent Add/Remove. Hammer 200 mixed ops across 4 threads
+        // and check that the cache stays in sync with on-disk state.
+        var lib = NewLib();
+        Parallel.For(0, 200, i =>
+        {
+            var op = i % 4;
+            switch (op)
+            {
+                case 0:
+                    lib.Add(Frame($"add-{i}", 0x100 + (uint)(i & 0xFF)));
+                    break;
+                case 1:
+                    _ = lib.Count;
+                    break;
+                case 2:
+                    lib.Add(Frame($"add2-{i}", 0x200 + (uint)(i & 0xFF)));
+                    break;
+                case 3:
+                    lib.Remove($"add-{i - 1}");
+                    break;
+            }
+        });
+
+        // Final ground-truth read via Load (bypasses cache on purpose) so
+        // the test asserts cache correctness, not self-consistency with
+        // the cache it is verifying.
+        var groundTruth = lib.Load().Count;
+        lib.Count.Should().Be(groundTruth,
+            "cached Count must stay in sync with the on-disk library after mixed ops");
+    }
+
+    [Fact]
+    public void Count_Before_Any_Mutation_Loads_File_Once()
+    {
+        // v1.2.13 PATCH Item 7: Count should use a lazy cached field
+        // populated by EnsureLoaded. The first read on a fresh instance
+        // is the only cache miss; subsequent reads reuse the cached value.
+        File.WriteAllText(_tempFile,
+            "{\"version\":1,\"frames\":[" +
+            "{\"Name\":\"A\",\"RawId\":256,\"IsExtended\":false,\"IsFd\":false," +
+            "\"IsRtr\":false,\"BitRateSwitch\":false,\"DataHex\":\"01\",\"SavedAt\":\"2026-01-01T00:00:00+00:00\"}]}");
+
+        var lib = NewLib();
+        lib.CacheMissesForTesting.Should().Be(0,
+            "no method has been called yet, so EnsureLoaded has not run");
+
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1, "first Count must lazy-load from disk");
+
+        _ = lib.Count;
+        _ = lib.Count;
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1,
+            "subsequent Counts must hit the cache without re-reading disk");
+
+        lib.Add(Frame("B", 0x200));
+        lib.CacheMissesForTesting.Should().Be(1,
+            "Add must keep the cache warm and not re-load from disk");
+
+        _ = lib.Count;
+        lib.CacheMissesForTesting.Should().Be(1,
+            "Count after Add must still be served from the warm cache");
+    }
 }
 
-// v1.2.12 PATCH Item 13: SaveUnlocked atomicity (File.Replace + UTF-8 BOM)
+// v1.2.12 PATCH Item 13: SaveUnlocked atomicity (File.Move overwrite:true + UTF-8 BOM)
 // and typed-catch error handling.
 public class SendFrameLibrarySaveTests : IDisposable
 {
@@ -220,29 +289,51 @@ public class SendFrameLibrarySaveTests : IDisposable
     }
 
     [Fact]
-    public void Save_Uses_FileReplace_Not_FileMove()
+    public void Save_Uses_FileMove_Overwrite_True()
     {
-        // Write a known file first so the second save must REPLACE it
-        // (File.Move overwrite=true vs File.Replace atomic rename semantics).
-        File.WriteAllText(_tempFile, "preexisting");
-        var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
-        lib.Add(Frame("A", 0x100));
+        // v1.2.13 PATCH Item 8: v1.2.12 used File.Replace with an
+        // Exists-then-Move fallback for first save. Phase 2.5 identified
+        // the Exists→Move/Replace branch as a real (small) TOCTOU window.
+        // .NET 5+ File.Move with overwrite:true is atomic on POSIX (rename)
+        // and Windows (MoveFileEx with MOVEFILE_REPLACE_EXISTING) — single
+        // API, no Exists branch.
+        // Snapshot the counter before the test runs so other tests in the
+        // collection that also trigger saves don't false-fail the delta
+        // check (AtomicSaveMoveCallCount is static — shared across instances).
+        var beforeCount = SendFrameLibrary.AtomicSaveMoveCallCount;
 
-        // After save, no .tmp file should remain (File.Replace is atomic;
-        // it never leaves a visible .tmp once the swap completes).
-        var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(_tempFile) + "*.tmp*");
-        tmpFiles.Should().BeEmpty("File.Replace completes atomically — no orphan tmp");
+        var path = Path.Combine(_tempDir, "atomic-save-" + Guid.NewGuid().ToString("N") + ".json");
+        File.Delete(path); // ensure the "destination does not exist" branch
+        var lib = new SendFrameLibrary(path, Substitute.For<ILogger<SendFrameLibrary>>());
 
-        // The file should now contain our JSON, not "preexisting".
-        var content = File.ReadAllText(_tempFile);
-        content.Should().Contain("\"frames\"", "File.Replace should have replaced the preexisting file");
+        // First save — file did not exist before, must succeed and create it.
+        lib.Add(Frame("F1", 0x100));
+        File.Exists(path).Should().BeTrue("Save must create the destination even when missing");
+
+        // Second save — file exists, must still atomically replace.
+        Action act = () => lib.Add(Frame("F2", 0x200));
+        act.Should().NotThrow("Save must overwrite an existing destination atomically");
+        var frames = lib.Load();
+        frames.Should().ContainSingle(f => f.Name == "F2", "second save must overwrite, not append");
+
+        // No orphan .tmp file should remain after either save.
+        var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(path) + "*.tmp*");
+        tmpFiles.Should().BeEmpty("File.Move overwrite:true completes atomically — no orphan tmp");
+
+        // Behavioral assertions above would also pass with the old
+        // File.Replace + Exists branch — this counter check is what
+        // actually pins the implementation to File.Move overwrite:true
+        // and catches a regression that reverts to the TOCTOU-prone pattern.
+        SendFrameLibrary.AtomicSaveMoveCallCount.Should().BeGreaterThan((int)beforeCount,
+            "SaveUnlocked must call File.Move with overwrite:true (not File.Replace + Exists branch); " +
+            "this counter guards against regression to the old TOCTOU-prone pattern");
     }
 
     [Fact]
     public void Save_Failure_Logs_Error_And_Rethrows()
     {
         // Use a writable parent directory, then mark the destination file
-        // ReadOnly so SaveUnlocked fails when trying to File.Replace into
+        // ReadOnly so SaveUnlocked fails when trying to File.Move overwrite:true into
         // it. Add must complete before we flip ReadOnly (Add itself does
         // a load-modify-save).
         var dir = Path.Combine(Path.GetTempPath(), $"pch-fail-{Guid.NewGuid():N}");
@@ -285,7 +376,7 @@ public class SendFrameLibrarySaveTests : IDisposable
     {
         // Add the frame while the file is still writeable (Add does its
         // own load-modify-save), then mark the destination ReadOnly so
-        // the subsequent explicit Save() call fails inside File.Replace.
+        // the subsequent explicit Save() call fails inside File.Move overwrite:true.
         var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
         lib.Add(Frame("A", 0x100));
 

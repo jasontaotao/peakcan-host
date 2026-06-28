@@ -145,6 +145,12 @@ public sealed partial class ChannelRouter : IFrameSource
             // and rerouted to OnError for per-sink isolation.
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // v1.2.13 PATCH Item 9: log the ORIGINAL OnFrame exception BEFORE
+                // delegating to OnError. The inner OnError exception (logged by
+                // LogSinkOnError below) is the secondary; operators need the root
+                // cause from OnFrame to diagnose misbehaving sinks.
+                LogChannelRouterSinkOnFrameFailed(_logger, ex, s.GetType().Name);
+
                 // Per-sink isolation: surface the failure to the same sink
                 // so it can log. Do not propagate to the channel's read
                 // loop (that would silently kill traffic for all sinks).
@@ -179,5 +185,15 @@ public sealed partial class ChannelRouter : IFrameSource
     private static partial void LogSinkOnError(
         ILogger logger,
         Exception secondaryEx,
+        string sinkType);
+
+    // v1.2.13 PATCH Item 9: log the ORIGINAL OnFrame exception at Warning
+    // before delegating to sink.OnError. EventId 6010. Single source of
+    // truth for the "sink OnFrame threw" event so operators can trace the
+    // root cause even when OnError itself subsequently throws.
+    [LoggerMessage(EventId = 6010, Level = LogLevel.Warning, Message = "Sink {SinkType} OnFrame threw; forwarding to OnError")]
+    private static partial void LogChannelRouterSinkOnFrameFailed(
+        ILogger logger,
+        Exception originalException,
         string sinkType);
 }

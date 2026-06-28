@@ -10,3 +10,12 @@ using System.Runtime.CompilerServices;
 // Task 20). InternalsVisibleTo must use the actual assembly name, not the
 // project/namespace name — `PeakCan.Host.App` would silently no-op.
 [assembly: InternalsVisibleTo("PeakCan.Host")]
+// v1.2.13 PATCH Item 1 review fix: expose the internal
+// _watchdogDisposalDeferredCount counter so the IsoTpLayerTests
+// watchdog-churn regression test can assert the deferred-Dispose
+// path was actually taken.
+[assembly: InternalsVisibleTo("PeakCan.Host.Core.Tests")]
+// v1.2.13 PATCH Item 2: expose UdsSession.SessionLogger so
+// AppHostBuilderTests can assert the production DI graph threads
+// ILogger<UdsSession> all the way through to UdsSession.
+[assembly: InternalsVisibleTo("PeakCan.Host.App.Tests")]

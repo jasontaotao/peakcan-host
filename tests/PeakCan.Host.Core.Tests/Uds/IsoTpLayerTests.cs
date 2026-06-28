@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds.IsoTp;
 using Xunit;
@@ -277,6 +278,149 @@ public sealed class IsoTpLayerTests
         receivedPayload.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44);
     }
 
+    /// <summary>
+    /// v1.2.13 PATCH Item 1: regression test for the watchdog CTS race.
+    /// Without the WatchdogHandle ref-count fix, repeatedly restarting the
+    /// N_Cr watchdog mid-disposal could observe the watchdog callback
+    /// clearing _rxBuffer of a STILL-IN-PROGRESS reassembly, dropping the
+    /// payload and emitting MessageReceived=null. With the fix, the buffer
+    /// must survive the watchdog churn and the second message reassembles
+    /// in full.
+    /// </summary>
+    [Fact]
+    public async Task HandleConsecutiveFrame_During_Watchdog_Disposal_Does_Not_Corrupt_Buffer()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(80);
+
+        // Round 1: FF(20) with first chunk only, then quickly fire a fresh FF
+        // (also length=20). The first FF's CF1 never arrives; the first
+        // watchdog will time out at ~80ms; meanwhile the second FF races in.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // Immediately inject a SECOND FF (length=20). This forces
+        // StartReceiveWatchdog to be re-armed while the FIRST watchdog's
+        // CTS is being CancelReceiveWatchdog'd by HandleFirstFrame.
+        await Task.Delay(5);
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 });
+
+        // Subscribe to MessageReceived so we can assert the SECOND payload
+        // reassembles cleanly despite the first watchdog being in-flight.
+        byte[]? received = null;
+        var done = new TaskCompletionSource();
+        iso.MessageReceived += bytes => { received = bytes; done.TrySetResult(); };
+
+        // Complete the second message with CF1 + CF2.
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6 });
+        InjectConsecutiveFrame(iso, sequence: 2, chunk: new byte[] { 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6 });
+
+        var completed = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().Be(done.Task,
+            "the second FF must reassemble in full despite the first watchdog churn");
+        received.Should().Equal(
+            0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5,
+            0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+            0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6);
+
+        // Assert the deferred-Dispose path was actually taken at least
+        // once during this churn. The Increment in CancelReceiveWatchdog
+        // fires synchronously on every re-arm (FF1→FF2 in this test
+        // triggers at least one Cancel), so the counter must be > 0.
+        // This catches a silent regression where the test passes on
+        // timing but the deferred-Dispose code path is no longer
+        // exercised (e.g. someone replaces the ThreadPool.QueueUserWorkItem
+        // with a synchronous Dispose).
+        iso._watchdogDisposalDeferredCount.Should().BeGreaterThan(0,
+            "the watchdog CTS must have been deferred to ThreadPool for Dispose (race-fix path)");
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH (pre-ship review HIGH — code clarity, not bug repro):
+    /// CONTRACT test for the FF→FF reassembly-after-Timer scenario.
+    /// <para>
+    /// The pre-ship code-reviewer flagged that the Register callback's
+    /// Generation-only check was a potential FF→FF race. After code
+    /// exploration we found this is not a live bug: CancellationToken.Register
+    /// callbacks fire SYNCHRONOUSLY inside <c>CancellationTokenSource.Cancel()</c>,
+    /// so when HandleFirstFrame's CancelReceiveWatchdog cancels the old FF's
+    /// CTS, the late callback runs immediately on the calling thread with
+    /// <c>_rxWatchdog == null</c> (already nulled under _rxLock before Cancel).
+    /// The existing <c>_rxWatchdog?.Generation</c> check correctly short-circuits
+    /// via the null-conditional operator.
+    /// </para>
+    /// <para>
+    /// However the production code now uses explicit
+    /// <c>_rxWatchdog is null</c> + <c>Generation != expectedGeneration</c>
+    /// guards (more readable than the implicit <c>?.</c> short-circuit and
+    /// makes the FF→FF vs CF→CF distinction explicit per the field doc).
+    /// This test pins the contract that FF2 reassembles in full after the
+    /// FF1 Timer has fired — i.e. the layer survives the FF→FF Timer churn
+    /// and accepts a fresh FF without state corruption. If a future change
+    /// removes the null/Generation guards entirely (e.g. someone replaces the
+    /// combined check with a single boolean that does NOT honour the null
+    /// short-circuit), the test will catch the regression.
+    /// </para>
+    /// <para>
+    /// Test timeline: T=0 inject FF1 (Timer fires at T=50ms); T=5ms inject FF2
+    /// (CancelReceiveWatchdog nulls _rxWatchdog, cancels H1.CTS — callback
+    /// fires synchronously with null short-circuit); T≈85ms (after FF1's
+    /// natural Timer fire window) inject FF2's completing CFs. FF2 must
+    /// reassemble with byte-exact payload.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HandleFirstFrame_After_FirstFrame_Timer_Fired_Does_Not_Get_Buffer_Cleared_By_Late_Timer_Callback()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        // Short N_Cr so the Timer reliably fires inside the test budget.
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(50);
+
+        // T=0: inject FF1 (length=20). FF1's N_Cr watchdog is armed as
+        // H1 (Gen=1). No CF arrives — Timer will fire at ~50ms.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // T=5ms: Timer has NOT yet fired (50ms timeout). Inject FF2.
+        // HandleFirstFrame → CancelReceiveWatchdog sets _rxWatchdog=null,
+        // then Cancel(H1.Cts) synchronously fires H1's Register callback on
+        // the test thread (callback takes _rxLock, sees _rxWatchdog=null,
+        // short-circuits per the explicit null-state guard). HandleFirstFrame
+        // then installs H2 (Gen=1) under _rxLock.
+        await Task.Delay(5);
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5 });
+
+        byte[]? received = null;
+        var done = new TaskCompletionSource();
+        iso.MessageReceived += bytes => { received = bytes; done.TrySetResult(); };
+
+        // Wait past FF1's natural Timer fire window (T=50ms from FF1, which
+        // is T=45ms from FF2's HandleFirstFrame). FF1's Timer fires on a
+        // threadpool thread at T=50ms and attempts to Cancel H1.Cts — but
+        // H1.Cts is already cancelled (by HandleFirstFrame at T=5ms), so
+        // Cancel is a no-op and the callback does NOT re-fire. This is the
+        // safe path: the production callback only ever runs once per H1,
+        // synchronously inside HandleFirstFrame's Cancel().
+        await Task.Delay(80);
+
+        // Complete FF2: CF1 (7 bytes) + CF2 (7 bytes) = 14 more bytes. With
+        // FF2's first chunk (6) the total is 20. If FF2's state was corrupted
+        // by an out-of-spec callback path (e.g. someone refactors the
+        // Register/Dispose ordering), HandleConsecutiveFrameLocked returns
+        // null and MessageReceived never fires.
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6 });
+        InjectConsecutiveFrame(iso, sequence: 2, chunk: new byte[] { 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6 });
+
+        var completed = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().Be(done.Task,
+            "FF2 must reassemble in full after FF1's Timer has fired: the null-state guard in the Register callback must prevent the late callback from disturbing the new FF's _rxInProgress / _rxBuffer");
+
+        received.Should().Equal(
+            0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5,
+            0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6,
+            0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6);
+    }
+
     // ========================================================================
     // v1.2.12 PATCH Item 2: async Task callback + SemaphoreSlim serialization.
     // The production code path now passes a Func<CanFrame, Task> to the layer
@@ -321,17 +465,20 @@ public sealed class IsoTpLayerTests
     }
 
     /// <summary>
-    /// RED: an exception thrown from the send callback must be logged at Error
-    /// and must NOT propagate out of <see cref="IsoTpLayer.SendMessageAsync"/>.
-    /// This is the v1.2.12 fix for the SDK-deadlock symptom.
+    /// v1.2.13 PATCH Item 5: a send-callback failure on the FF must
+    /// (a) log at Error (preserves the v1.2.12 Item 2 behaviour) and
+    /// (b) propagate as IsoTpSendFailedException so the caller (UDS layer
+    /// or AppHostBuilder outer catch) can distinguish send-failure from
+    /// transport/routing-failure. The Exception arm now throws instead of
+    /// swallowing.
     /// </summary>
     [Fact]
-    public async Task SendMultiFrameAsync_Send_Exception_Logged_And_Not_Propagated()
+    public async Task SendMultiFrameAsync_Send_Exception_Propagates_As_IsoTpSendFailedException()
     {
         var logger = new CountingLogger<IsoTpLayer>();
         // Use a callback that fails on the FF only and succeeds for the rest
         // (CFs). This drives the FF-exception logging path without tripping
-        // the FC-wait timeout, so we can assert the exception is swallowed.
+        // the FC-wait timeout.
         var sendFrame = new Func<CanFrame, Task>(frame =>
         {
             // FF frame starts with 0x1_; the layer encodes FF with 0x10..0x1F.
@@ -344,17 +491,45 @@ public sealed class IsoTpLayerTests
 
         var payload = new byte[3000];
 
-        // Inject FC immediately so the FF-exception path completes without
-        // tripping the FC-wait TimeoutException.
-        var sendTask = layer.SendMessageAsync(payload, CancellationToken.None);
-        await Task.Delay(20);
-        InjectFlowControl(layer, blockSize: 0, stMin: 0);
-
-        Func<Task> act = async () => await sendTask;
-        await act.Should().NotThrowAsync(
-            "send-callback exceptions must be logged and swallowed, not propagated");
+        Func<Task> act = () => layer.SendMessageAsync(payload, CancellationToken.None);
+        await act.Should().ThrowAsync<IsoTpSendFailedException>(
+            "send-callback exceptions on the FF must propagate as IsoTpSendFailedException");
         logger.ErrorCount.Should().BeGreaterThan(0,
-            "send-callback exceptions must be logged at Error level");
+            "send-callback exceptions must still be logged at Error level");
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: once the FF send fails, the CF burst must NOT
+    /// continue. Without this, a bus-off mid-FF silently drops all subsequent
+    /// CFs and the FC-wait timeout surfaces the failure (with a misleading
+    /// "no FC received" diagnosis). With the fix, the FF throw aborts the
+    /// multi-frame transport immediately; no CF is sent.
+    /// </summary>
+    [Fact]
+    public async Task SendMultiFrameAsync_FirstFrame_Failure_Aborts_CF_Burst()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var ffFailure = new InvalidOperationException("sdk down");
+
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            sink.Add(frame.Data.ToArray());
+            byte pci = frame.Data.Span[0];
+            if ((pci & 0xF0) == 0x10) throw ffFailure; // FF only
+            return Task.CompletedTask; // CF (would normally succeed)
+        });
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame, NullLogger<IsoTpLayer>.Instance);
+
+        var payload = new byte[3000]; // forces FF + ~429 CFs
+        Func<Task> act = () => layer.SendMessageAsync(payload, CancellationToken.None);
+        await act.Should().ThrowAsync<IsoTpSendFailedException>();
+
+        // The single sent frame must be the FF (PCI 0x10..0x1F); no CFs (PCI 0x20..0x2F).
+        sink.Should().ContainSingle(
+            f => (f[0] & 0xF0) == 0x10,
+            "only the FF should have hit the wire; the FF failure aborts before any CF");
+        sink.Should().NotContain(f => (f[0] & 0xF0) == 0x20,
+            "no CF must be sent after the FF failed");
     }
 
     /// <summary>

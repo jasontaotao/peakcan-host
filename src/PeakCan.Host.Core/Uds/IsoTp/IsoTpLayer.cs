@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.Core.Uds.IsoTp;
@@ -32,6 +33,22 @@ public sealed partial class IsoTpLayer : IDisposable
     private readonly Action<CanFrame>? _sendFrame;
     private readonly Func<CanFrame, Task>? _sendFrameAsync;
     private readonly ILogger<IsoTpLayer>? _logger;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: number of multi-frame send failures since
+    /// process start. Incremented when SendCanFrameAsync's catch arm fires
+    /// AND we throw out (not the swallow path which no longer exists for
+    /// multi-frame sends). Used by tests to assert regression behaviour.
+    /// </summary>
+    internal int SendFailureCount;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 5: transient counter of consecutive frames sent
+    /// in the current multi-frame transport. Reset at the start of every
+    /// transport (SendMultiFrameAsync). The _sendGate serializes transports
+    /// so this field is not shared across concurrent ones.
+    /// </summary>
+    private int _cfCounter;
     // v1.2.12 PATCH Item 2: serialize FF/CF emission across concurrent
     // SendMultiFrameAsync callers so transports cannot interleave (per
     // ISO 15765-2 §6.5). Replaces the implicit assumption that the SDK
@@ -45,7 +62,84 @@ public sealed partial class IsoTpLayer : IDisposable
     private int _rxReceivedLength;
     private int _rxExpectedSequence;
     private bool _rxInProgress;
-    private CancellationTokenSource? _rxWatchdog;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 1: opaque handle so cancel + Dispose can be
+    /// decoupled from CTS lifecycle (the Register callback may still be
+    /// holding _rxLock when we cancel; the synchronous Dispose was
+    /// racing it). Generation + RefCount let a new handle replace the
+    /// old one without prematurely disposing the in-flight CTS.
+    ///
+    /// Two distinct re-arm scenarios are protected by different
+    /// mechanisms:
+    /// <list type="bullet">
+    ///   <item>CF→CF re-arm (HandleConsecutiveFrame fires
+    ///         StartReceiveWatchdog again with a NEW generation): the
+    ///         Generation check inside the Register callback prevents
+    ///         the OLD CF watchdog from clearing the NEW CF's buffer —
+    ///         each CF re-arm bumps Generation (the per-arm value comes
+    ///         from <c>_rxExpectedSequence</c>, which changes on every
+    ///         CF boundary).</item>
+    ///   <item>FF→FF interruption (HandleFirstFrame cancels the old FF
+    ///         watchdog and installs a NEW one BEFORE the old one fires):
+    ///         BOTH FFs share Generation=1 (FF always re-arms at gen 1)
+    ///         so the Generation check is a no-op here. Instead,
+    ///         CancelReceiveWatchdog sets <c>_rxWatchdog = null</c> under
+    ///         <c>_rxLock</c> BEFORE calling <c>old.Cts.Cancel()</c>; the
+    ///         old Register callback (still queued by the cancellation
+    ///         propagation) then takes <c>_rxLock</c>, finds
+    ///         <c>_rxWatchdog == null</c>, and short-circuits without
+    ///         touching <c>_rxInProgress</c> / <c>_rxBuffer</c> of the
+    ///         new FF.</item>
+    /// </list>
+    /// </summary>
+    private WatchdogHandle? _rxWatchdog;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 1: test-visible count of how many times
+    /// CancelReceiveWatchdog deferred a Dispose to the threadpool.
+    /// Used by tests to assert that the deferred-Dispose path is taken
+    /// (and not a synchronous one).
+    /// </summary>
+    internal long _watchdogDisposalDeferredCount;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 1: sealed nested class — see field doc above.
+    /// The CTS field is intentionally not exposed via IDisposable:
+    /// ownership is delegated to <see cref="CancelReceiveWatchdog"/>
+    /// which defers Dispose to the threadpool once RefCount hits 0.
+    /// </summary>
+#pragma warning disable CA1001
+    private sealed class WatchdogHandle
+#pragma warning restore CA1001
+    {
+        public readonly CancellationTokenSource Cts;
+        /// <summary>
+        /// CF→CF re-arm marker. Each CF re-arm
+        /// (<see cref="HandleConsecutiveFrame"/> calling
+        /// <c>StartReceiveWatchdog</c>) bumps this to a fresh value
+        /// (sourced from <c>_rxExpectedSequence</c>) so an in-flight
+        /// Register callback for the previous CF's watchdog can tell it
+        /// has been superseded. NOTE: this Generation check is the
+        /// only protection for the CF→CF re-arm path. The FF→FF
+        /// interruption path does NOT rely on Generation (both FFs
+        /// share gen 1) — see the <c>_rxWatchdog</c> field doc for the
+        /// null-state guard that protects FF→FF.
+        /// </summary>
+        public readonly int Generation;
+        public int RefCount;
+
+        public WatchdogHandle(int generation)
+        {
+            Cts = new CancellationTokenSource();
+            Generation = generation;
+            // RefCount starts at 0; CancelReceiveWatchdog does +1 (0→1) and
+            // the ThreadPool worker does -1 (1→0) then Disposes the CTS.
+            // The handle is "armed" by being published to _rxWatchdog, not
+            // by RefCount itself.
+            RefCount = 0;
+        }
+    }
 
     // Transmission state for outgoing messages.
     private readonly object _txLock = new();
@@ -202,18 +296,28 @@ public sealed partial class IsoTpLayer : IDisposable
     {
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
         var canData = frame.Encode();
-        return SendCanFrameAsync(canData);
+        return SendCanFrameAsync(canData, frameIndex: 0);
     }
 
     /// <summary>
-    /// v1.2.12 PATCH Item 2: dispatch the encoded CAN frame through whichever
+    /// v1.2.13 PATCH Item 5: dispatch the encoded CAN frame through whichever
     /// callback the caller wired up. The async callback is awaited so an
     /// SDK hang is bounded by the layer's own timeouts (FC timeout, BS gate)
     /// instead of by <c>.AsTask().Wait()</c> on the SDK read thread.
-    /// Exceptions are logged at Error and swallowed so a single bad send
-    /// does not abort the entire multi-frame transport.
+    /// <para>
+    /// On send-callback failure: log at Error (preserves the v1.2.12
+    /// behaviour), increment <see cref="SendFailureCount"/>, and throw
+    /// <see cref="IsoTpSendFailedException"/>. The throw propagates up
+    /// through <see cref="SendMultiFrameAsync"/>, aborting the CF burst on
+    /// the first failure (so a bus-off mid-FF no longer silently drops
+    /// all subsequent CFs). The single-frame (TesterPresent) path passes
+    /// <c>frameIndex: 0</c> and is allowed to throw; UdsClient / App
+    /// factory catch sites handle it.
+    /// </para>
     /// </summary>
-    private async Task SendCanFrameAsync(byte[] data)
+    /// <param name="data">Encoded ISO-TP frame payload.</param>
+    /// <param name="frameIndex">Position in the multi-frame burst (0 for FF/SF, 1..N for CF).</param>
+    private async Task SendCanFrameAsync(byte[] data, int frameIndex)
     {
         var frame = new CanFrame(
             new CanId(_config.RequestId, FrameFormat.Standard),
@@ -230,8 +334,14 @@ public sealed partial class IsoTpLayer : IDisposable
             }
             catch (Exception ex)
             {
+                // v1.2.13 PATCH Item 5: propagate as IsoTpSendFailedException
+                // so the caller (multi-frame transport, UDS layer, App
+                // factory) can abort on the first failure instead of
+                // silently dropping all subsequent CFs.
                 if (_logger is not null)
                     LogIsoTpSendFailed(_logger, ex, frame.Id.Raw);
+                Interlocked.Increment(ref SendFailureCount);
+                throw new IsoTpSendFailedException(frame.Id.Raw, frameIndex, ex);
             }
             return;
         }
@@ -256,11 +366,16 @@ public sealed partial class IsoTpLayer : IDisposable
             {
                 _txWaitingForFc = true;
             }
+            // v1.2.13 PATCH Item 5: reset the per-transport CF counter so
+            // frameIndex starts at 1 for the first CF in this transport.
+            // _sendGate serializes transports so this is safe (no other
+            // transport can be in flight).
+            _cfCounter = 0;
 
-            // Send First Frame
+            // Send First Frame (frameIndex=0 by convention for FF).
             var ffData = data.AsMemory(0, Math.Min(6, data.Length));
             var ff = new IsoTpFrame(IsoTpFrameType.First, length: data.Length, data: ffData);
-            await SendCanFrameAsync(ff.Encode()).ConfigureAwait(false);
+            await SendCanFrameAsync(ff.Encode(), frameIndex: 0).ConfigureAwait(false);
 
             // Wait for Flow Control
             if (!await WaitForFlowControlAsync(ct).ConfigureAwait(false))
@@ -282,7 +397,12 @@ public sealed partial class IsoTpLayer : IDisposable
                 int chunkSize = Math.Min(7, data.Length - offset);
                 var cfData = data.AsMemory(offset, chunkSize);
                 var cf = new IsoTpFrame(IsoTpFrameType.Consecutive, sequenceOrStatus: sequence, data: cfData);
-                await SendCanFrameAsync(cf.Encode()).ConfigureAwait(false);
+                // v1.2.13 PATCH Item 5: increment _cfCounter before each
+                // CF send so frameIndex is 1-based. If the send throws,
+                // the IsoTpSendFailedException aborts the burst and
+                // _sendGate.Release runs in the finally.
+                _cfCounter++;
+                await SendCanFrameAsync(cf.Encode(), frameIndex: _cfCounter).ConfigureAwait(false);
 
                 offset += chunkSize;
                 sequence = (sequence + 1) & 0x0F;
@@ -415,7 +535,7 @@ public sealed partial class IsoTpLayer : IDisposable
 
             // Start the N_Cr watchdog: if the next CF doesn't arrive in time,
             // abort reassembly so a fresh FF can be processed.
-            StartReceiveWatchdog();
+            StartReceiveWatchdog(expectedGeneration: 1);
         }
     }
 
@@ -424,45 +544,79 @@ public sealed partial class IsoTpLayer : IDisposable
     /// On expiry it clears _rxInProgress / _rxBuffer so the next FF starts a
     /// fresh reassembly (rather than silently wedging the receive state).
     /// </summary>
-    private void StartReceiveWatchdog()
+    private void StartReceiveWatchdog(int expectedGeneration)
     {
         CancelReceiveWatchdog();
 
         var timeout = _receiveTimeout;
-        var cts = new CancellationTokenSource();
-        cts.CancelAfter(timeout);
-        var token = cts.Token;
+        var handle = new WatchdogHandle(expectedGeneration);
+        var token = handle.Cts.Token;
         token.Register(() =>
         {
+            // Two distinct re-arm scenarios — both checked separately so the
+            // guard is explicit (not a single AND that conflates them):
+            //
+            //   1. FF→FF interruption: CancelReceiveWatchdog (called by
+            //      HandleFirstFrame before installing the new FF's watchdog)
+            //      sets _rxWatchdog = null under _rxLock BEFORE calling
+            //      old.Cts.Cancel(). The OLD FF's Register callback (queued
+            //      by the cancellation propagation) then takes _rxLock and
+            //      finds _rxWatchdog == null: short-circuit without touching
+            //      _rxInProgress / _rxBuffer — the NEW FF owns them.
+            //      BOTH FFs share Generation=1 (FF always re-arms at gen 1)
+            //      so the Generation check below is a no-op here; the null
+            //      guard is the only protection.
+            //
+            //   2. CF→CF re-arm: HandleConsecutiveFrame re-arms the watchdog
+            //      with a NEW generation (sourced from _rxExpectedSequence,
+            //      which advances on every CF boundary). The OLD CF's
+            //      callback then sees _rxWatchdog.Generation != expectedGen
+            //      and short-circuits without disturbing the NEW CF.
             lock (_rxLock)
             {
-                if (_rxInProgress)
-                {
-                    // Watchdog fires → reassembly stalled at any stage. Clear
-                    // state so a fresh FF can take over (covers the FF → no-CF1
-                    // case where the sequence number never advanced past 1).
-                    _rxInProgress = false;
-                    _rxBuffer = null;
-                }
+                if (_rxWatchdog is null)
+                    return; // FF→FF: we were superseded; new FF owns _rxLock state
+                if (_rxWatchdog.Generation != expectedGeneration)
+                    return; // CF→CF: generation advanced past us
+                if (!_rxInProgress)
+                    return;
+                _rxInProgress = false;
+                _rxBuffer = null;
             }
         });
 
-        lock (_rxLock) { _rxWatchdog = cts; }
+        lock (_rxLock)
+        {
+            // Caller invariant: StartReceiveWatchdog is only called while
+            // _rxInProgress is true, so the generation ALWAYS advances.
+            _rxWatchdog = handle;
+        }
     }
 
     private void CancelReceiveWatchdog()
     {
-        CancellationTokenSource? old;
+        WatchdogHandle? old;
         lock (_rxLock)
         {
             old = _rxWatchdog;
             _rxWatchdog = null;
         }
-        if (old is not null)
+        if (old is null) return;
+
+        try { old.Cts.Cancel(); }
+        catch (ObjectDisposedException) { /* already disposed */ }
+
+        // Defer Dispose to the threadpool so any in-flight Register
+        // callback (still holding _rxLock) finishes first. RefCount
+        // protects against double-decrement from a future Start/Cancel pair.
+        Interlocked.Increment(ref old.RefCount);
+        Interlocked.Increment(ref _watchdogDisposalDeferredCount);
+        ThreadPool.QueueUserWorkItem(static state =>
         {
-            try { old.Cancel(); } catch (ObjectDisposedException) { }
-            old.Dispose();
-        }
+            var h = (WatchdogHandle)state!;
+            if (Interlocked.Decrement(ref h.RefCount) == 0)
+                h.Cts.Dispose();
+        }, old);
     }
 
     private void HandleConsecutiveFrame(IsoTpFrame frame)
@@ -534,7 +688,7 @@ public sealed partial class IsoTpLayer : IDisposable
             }
 
             // Re-arm the N_Cr watchdog for the next CF slot.
-            StartReceiveWatchdog();
+            StartReceiveWatchdog(expectedGeneration: _rxExpectedSequence);
             return null;
         }
     }

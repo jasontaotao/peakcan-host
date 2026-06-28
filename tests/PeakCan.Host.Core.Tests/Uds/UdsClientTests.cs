@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -215,6 +217,122 @@ public sealed class UdsClientTests
         var resp = await task.WaitAsync(TimeSpan.FromSeconds(1));
         resp.Should().Equal(0xF1, 0x90, 0x41);
     }
+
+    // ========================================================================
+    // v1.2.13 PATCH Item 4: P2 timeout must unblock await _responseTcs.Task
+    // and dispose-guard must tolerate late-arriving responses.
+    // ========================================================================
+
+    /// <summary>
+    /// Build a UdsClient backed by a real IsoTpLayer whose outbound sink
+    /// discards frames (no real CAN bus) and whose MessageReceived is
+    /// never raised by external traffic. Returns the client plus a
+    /// <see cref="MockTransport"/> wrapper so tests can drive
+    /// <see cref="UdsClient.PublicOnMessageReceivedForTesting"/> directly.
+    /// </summary>
+    private static (UdsClient client, MockTransport transport) MakeClientWithMockedTransport()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = new IsoTpLayer(
+            new CanIdConfig { RequestId = ReqId, ResponseId = RespId },
+            frame => sent.Add(frame.Data.ToArray()));
+        var timer = new UdsTimer
+        {
+            P2Timeout = TimeSpan.FromMilliseconds(50),
+            P2StarTimeout = TimeSpan.FromMilliseconds(5000),
+        };
+        var client = new UdsClient(iso, timer);
+        return (client, new MockTransport(iso));
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 4: P2 timeout must unblock await _responseTcs.Task
+    /// (currently only cancels the linked CTS token, which nothing awaits).
+    /// Without this fix, the caller hangs forever waiting for a response
+    /// that will never arrive. The fix registers a Token.Register callback
+    /// that calls _responseTcs.TrySetCanceled on P2 timeout.
+    /// </summary>
+    [Fact]
+    public async Task SendRequestAsync_P2Timeout_TriesSetCanceled_ResponseTcs()
+    {
+        var (client, _) = MakeClientWithMockedTransport();
+        // Drive a request but never send a response.
+        var p2FiredTcs = new TaskCompletionSource();
+        client.OnP2TimeoutFiredForTesting = () => p2FiredTcs.TrySetResult();
+
+        Func<Task> act = () => client.SendRequestAsync(0x22, [0x00, 0x01]);
+        var stopwatch = Stopwatch.StartNew();
+        await act.Should().ThrowAsync<UdsException>(
+            "P2 timeout must surface as UdsException, not hang forever");
+        stopwatch.Stop();
+
+        // The configured P2 in MakeClientWithMockedTransport is 50 ms.
+        // Budget = 500 ms (~10× P2) so a hang in the fix surfaces fast but
+        // CI jitter on a loaded agent doesn't false-positive the test.
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(500),
+            "P2 timeout must fire within ~10× the configured P2 (50 ms), not hang for seconds");
+
+        (await Task.WhenAny(p2FiredTcs.Task, Task.Delay(500)))
+            .Should().Be(p2FiredTcs.Task,
+                "OnP2TimeoutFiredForTesting hook must fire on auto-timeout");
+    }
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 4 (Phase 2.5 new finding): a late-arriving
+    /// response on the SDK read thread must NOT throw ObjectDisposedException
+    /// when the in-flight CTS has been Dispose'd by SendRequestInternalAsync's
+    /// finally block. The cts?.CancelAfter call is guarded with null +
+    /// IsCancellationRequested checks plus a try/catch ObjectDisposedException.
+    /// </summary>
+    [Fact]
+    public async Task OnMessageReceived_After_Dispose_DoesNot_Throw()
+    {
+        var (client, _) = MakeClientWithMockedTransport();
+
+        // Drive a full request cycle (no response → P2 timeout → finally disposes CTS).
+        // We await the timeout path end-to-end so the CTS is genuinely disposed
+        // BEFORE we drive the late response — otherwise we'd assert against a
+        // still-alive CTS and the test would silently pass even if the guard
+        // regressed.
+        var p2FiredTcs = new TaskCompletionSource();
+        client.OnP2TimeoutFiredForTesting = () => p2FiredTcs.TrySetResult();
+        Func<Task> driveTimeout = () => client.SendRequestAsync(0x22, [0x00, 0x01]);
+        await driveTimeout.Should().ThrowAsync<UdsException>()
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        // Wait for the timeout hook to fire (proves the CTS dispose finally
+        // block has run and the linked CTS is now disposed). Cap at 500 ms
+        // so a regression surfaces quickly instead of hanging.
+        (await Task.WhenAny(p2FiredTcs.Task, Task.Delay(500)))
+            .Should().Be(p2FiredTcs.Task,
+                "OnP2TimeoutFiredForTesting hook must fire so SendRequestInternalAsync's " +
+                "finally has disposed the linked CTS by the time we drive the late response");
+
+        // Simulate a late-arriving NRC 0x78 (requestCorrectlyReceivedResponsePending)
+        // after the cts is gone. NRC 0x78 is the path that calls cts.CancelAfter(P2*)
+        // — that's the call that throws ObjectDisposedException if the CTS has
+        // been disposed by SendRequestInternalAsync's finally. A positive response
+        // ([0x62, ...]) wouldn't exercise the guard because that path only calls
+        // tcs?.TrySetResult (safe no-op when tcs is null after finally).
+        Action act = () => client.PublicOnMessageReceivedForTesting([0x7F, 0x22, 0x78]);
+
+        act.Should().NotThrow(
+            "OnMessageReceived must tolerate late NRC 0x78 after CTS dispose " +
+            "(cts.CancelAfter is the actual throw site)");
+    }
+
+    /// <summary>
+    /// Thin wrapper exposing the ISO-TP layer's ProcessFrame path so tests
+    /// can synthesize late-arriving responses via
+    /// <see cref="UdsClient.PublicOnMessageReceivedForTesting"/> without
+    /// standing up a fake ICanChannel. The SendFrame callback is captured
+    /// here purely so the helper can return both halves.
+    /// </summary>
+    private sealed class MockTransport
+    {
+        public IsoTpLayer Iso { get; }
+        public MockTransport(IsoTpLayer iso) { Iso = iso; }
+    }
 }
 
 /// <summary>
@@ -270,7 +388,13 @@ public sealed class UdsClientVolatileTests
     public async Task ResponseTcs_Assignment_Is_Visible_Across_Threads()
     {
         var (iso, _) = NewIso();
-        using var client = new UdsClient(iso);
+        // v1.2.13 PATCH Item 4: bump P2 so the test's Task.Delay(50) +
+        // EcuRespond path doesn't race against the new (correct) P2-timeout
+        // cancel-callback that fires TrySetCanceled on _responseTcs.
+        // Pre-fix this timeout was silently swallowed; post-fix it
+        // unblocks await _responseTcs.Task, which is what we want.
+        var timer = new UdsTimer { P2Timeout = TimeSpan.FromSeconds(5) };
+        using var client = new UdsClient(iso, timer);
 
         // The reader thread must observe at least one non-null value (a
         // request was in-flight) and then a null value after the
@@ -316,7 +440,9 @@ public sealed class UdsClientVolatileTests
     public async Task ResponseCts_Assignment_Is_Visible_Across_Threads()
     {
         var (iso, _) = NewIso();
-        using var client = new UdsClient(iso);
+        // See ResponseTcs_Assignment_Is_Visible_Across_Threads above.
+        var timer = new UdsTimer { P2Timeout = TimeSpan.FromSeconds(5) };
+        using var client = new UdsClient(iso, timer);
 
         var sawNonNull = false;
         var sawNull = false;
@@ -348,5 +474,62 @@ public sealed class UdsClientVolatileTests
         sawNull.Should().BeTrue(
             "SendRequestInternalAsync's finally writes _responseCts = null; " +
             "the field must be volatile so the post-finally null is observable from the reader thread");
+    }
+
+    // ========================================================================
+    // v1.2.13 PATCH Item 2: production wire-up. The logger-aware ctor must
+    // thread ILogger<UdsSession> into the new UdsSession so S3 keepalive
+    // failures surface in the production diagnostic log. Legacy 2-arg ctor
+    // must keep using parameterless UdsSession (backward compat).
+    // ========================================================================
+
+    [Fact]
+    public void Ctor_With_SessionLogger_Wires_To_UdsSession()
+    {
+        // CountingLogger spy — same pattern as UdsSessionTests / IsoTpLayerTests;
+        // avoids pulling NSubstitute into Core.Tests.
+        var logger = new CountingLogger<UdsSession>();
+        var (iso, _) = NewIso();
+        var client = new UdsClient(iso, sessionLogger: logger);
+
+        client.Session.SessionLogger.Should().BeSameAs(logger,
+            "UdsClient's ILogger<UdsSession> ctor arg must thread into UdsSession");
+    }
+
+    [Fact]
+    public void Ctor_Without_SessionLogger_Leaves_UdsSession_Logger_Null()
+    {
+        var (iso, _) = NewIso();
+        var client = new UdsClient(iso);
+
+        client.Session.SessionLogger.Should().BeNull(
+            "the legacy 2-arg ctor must continue using parameterless UdsSession " +
+            "for backward compatibility with v1.2.x callers");
+    }
+
+    /// <summary>
+    /// Minimal hand-rolled logger spy — same shape as the one in
+    /// <c>UdsSessionTests</c>/<c>IsoTpLayerTests</c>. Kept private here
+    /// because it is only used by the Item 2 wire-up tests.
+    /// </summary>
+    private sealed class CountingLogger<T> : ILogger<T>
+    {
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }

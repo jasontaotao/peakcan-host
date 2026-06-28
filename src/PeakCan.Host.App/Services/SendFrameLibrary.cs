@@ -1,7 +1,9 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.App.Services;
@@ -17,8 +19,11 @@ namespace PeakCan.Host.App.Services;
 /// double-clicked buttons) don't drop each other's changes.
 /// </para>
 /// <para>
-/// v1.2.12 PATCH Item 13: atomic save via <c>File.Replace</c> with UTF-8 BOM.
-/// On failure, tmp file cleaned and exception rethrown with context.
+/// v1.2.13 PATCH Item 8: atomic save via <c>File.Move(src, dst, overwrite: true)</c>
+/// with UTF-8 BOM. .NET 5+ API is atomic on POSIX (rename) and Windows
+/// (MoveFileEx MOVEFILE_REPLACE_EXISTING) — single call, no
+/// Exists→Replace/Move TOCTOU branch. On failure, tmp file cleaned and
+/// exception rethrown with context.
 /// </para>
 /// </summary>
 public sealed partial class SendFrameLibrary
@@ -63,6 +68,27 @@ public sealed partial class SendFrameLibrary
     // because Load+Save from multiple threads would otherwise corrupt the
     // tmp+rename atomic-replace pattern.
     private readonly object _gate = new();
+    // v1.2.13 PATCH Item 7: cached frame count. -1 is the unloaded sentinel —
+    // an empty library legitimately has count 0, so 0 cannot serve as
+    // "needs-load". Lazy-initialized by EnsureLoaded under _gate; kept in
+    // sync by every public mutator.
+    private int _cachedCount = -1;
+    // v1.2.13 PATCH Item 7: counts how many times EnsureLoaded had to fall
+    // through to LoadUnlocked (i.e. was a true cache miss). Interlocked for
+    // diagnostic visibility under concurrency; the actual cache invariant
+    // is preserved by _gate.
+    internal int CacheMissesForTesting;
+
+    /// <summary>
+    /// v1.2.13 PATCH Item 8 test hook: increments every time
+    /// <c>SaveUnlocked</c> uses <c>File.Move</c> with <c>overwrite:true</c>.
+    /// Tests assert this counter increments to guard against any regression
+    /// that reverts to the old <c>File.Replace</c> + <c>Exists</c> branch
+    /// (which would satisfy the behavioral tests but reintroduce the
+    /// TOCTOU window). Static so it survives across instances; Interlocked
+    /// for atomic increment under the documented concurrency.
+    /// </summary>
+    internal static int AtomicSaveMoveCallCount;
 
     /// <summary>Production ctor — uses <c>%APPDATA%\PeakCan.Host\send-library.json</c>.</summary>
     public SendFrameLibrary(ILogger<SendFrameLibrary> logger)
@@ -86,7 +112,11 @@ public sealed partial class SendFrameLibrary
     /// </summary>
     public IReadOnlyList<SavedFrame> Load()
     {
-        lock (_gate) return LoadUnlocked();
+        lock (_gate)
+        {
+            EnsureLoaded();
+            return LoadUnlocked();
+        }
     }
 
     /// <summary>
@@ -97,7 +127,14 @@ public sealed partial class SendFrameLibrary
     /// </summary>
     public void Save(IEnumerable<SavedFrame> frames)
     {
-        lock (_gate) SaveUnlocked(frames);
+        // v1.2.13 PATCH Item 7: caller-supplied list is authoritative for
+        // both on-disk state and the cached count.
+        var snapshot = frames.ToList();
+        lock (_gate)
+        {
+            SaveUnlocked(snapshot);
+            _cachedCount = snapshot.Count;
+        }
     }
 
     /// <summary>
@@ -109,8 +146,10 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
-            var current = LoadUnlocked();
+            EnsureLoaded();
+            var current = LoadUnlocked().ToList();
             SaveUnlocked(current);
+            _cachedCount = current.Count;
         }
     }
 
@@ -123,10 +162,12 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
+            EnsureLoaded();
             var current = LoadUnlocked().ToList();
             current.Add(frame);
             SaveUnlocked(current);
-            return current.Count;
+            _cachedCount = current.Count;
+            return _cachedCount;
         }
     }
 
@@ -138,11 +179,13 @@ public sealed partial class SendFrameLibrary
     {
         lock (_gate)
         {
+            EnsureLoaded();
             var current = LoadUnlocked().ToList();
             int before = current.Count;
             current.RemoveAll(f => f.Name == name);
             if (current.Count == before) return false;
             SaveUnlocked(current);
+            _cachedCount = current.Count;
             return true;
         }
     }
@@ -159,9 +202,21 @@ public sealed partial class SendFrameLibrary
         {
             lock (_gate)
             {
-                return LoadUnlocked().Count;
+                EnsureLoaded();
+                return _cachedCount;
             }
         }
+    }
+
+    private void EnsureLoaded()
+    {
+        // v1.2.13 PATCH Item 7: warm the cache exactly once per library
+        // instance. -1 sentinel means "never loaded"; subsequent calls
+        // after any mutator (which sets _cachedCount to current.Count)
+        // are no-ops.
+        if (_cachedCount >= 0) return;
+        Interlocked.Increment(ref CacheMissesForTesting);
+        _cachedCount = LoadUnlocked().Count;
     }
 
     private IReadOnlyList<SavedFrame> LoadUnlocked()
@@ -188,13 +243,17 @@ public sealed partial class SendFrameLibrary
         try
         {
             File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            // File.Replace is atomic (preserves ACL/attrs) but requires the
-            // destination to exist. Fall back to Move+overwrite for the
-            // first-save case where the file doesn't exist yet.
-            if (File.Exists(_path))
-                File.Replace(tmp, _path, destinationBackupFileName: null);
-            else
-                File.Move(tmp, _path);
+            // v1.2.13 PATCH Item 8: File.Move with overwrite:true is atomic
+            // on POSIX (rename) and Windows (MoveFileEx with
+            // MOVEFILE_REPLACE_EXISTING). Replaces the v1.2.12
+            // Exists→Replace/Move branch which had a small TOCTOU window
+            // between the Exists check and the actual move.
+            // The counter below is incremented ONLY on this path — if anyone
+            // reverts to File.Replace + Exists (or any other save mechanism),
+            // this increment is gone and Save_Uses_FileMove_Overwrite_True
+            // fails on the counter assertion.
+            Interlocked.Increment(ref AtomicSaveMoveCallCount);
+            File.Move(tmp, _path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
