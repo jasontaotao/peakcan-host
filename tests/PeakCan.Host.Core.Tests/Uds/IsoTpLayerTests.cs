@@ -335,6 +335,92 @@ public sealed class IsoTpLayerTests
             "the watchdog CTS must have been deferred to ThreadPool for Dispose (race-fix path)");
     }
 
+    /// <summary>
+    /// v1.2.13 PATCH (pre-ship review HIGH — code clarity, not bug repro):
+    /// CONTRACT test for the FF→FF reassembly-after-Timer scenario.
+    /// <para>
+    /// The pre-ship code-reviewer flagged that the Register callback's
+    /// Generation-only check was a potential FF→FF race. After code
+    /// exploration we found this is not a live bug: CancellationToken.Register
+    /// callbacks fire SYNCHRONOUSLY inside <c>CancellationTokenSource.Cancel()</c>,
+    /// so when HandleFirstFrame's CancelReceiveWatchdog cancels the old FF's
+    /// CTS, the late callback runs immediately on the calling thread with
+    /// <c>_rxWatchdog == null</c> (already nulled under _rxLock before Cancel).
+    /// The existing <c>_rxWatchdog?.Generation</c> check correctly short-circuits
+    /// via the null-conditional operator.
+    /// </para>
+    /// <para>
+    /// However the production code now uses explicit
+    /// <c>_rxWatchdog is null</c> + <c>Generation != expectedGeneration</c>
+    /// guards (more readable than the implicit <c>?.</c> short-circuit and
+    /// makes the FF→FF vs CF→CF distinction explicit per the field doc).
+    /// This test pins the contract that FF2 reassembles in full after the
+    /// FF1 Timer has fired — i.e. the layer survives the FF→FF Timer churn
+    /// and accepts a fresh FF without state corruption. If a future change
+    /// removes the null/Generation guards entirely (e.g. someone replaces the
+    /// combined check with a single boolean that does NOT honour the null
+    /// short-circuit), the test will catch the regression.
+    /// </para>
+    /// <para>
+    /// Test timeline: T=0 inject FF1 (Timer fires at T=50ms); T=5ms inject FF2
+    /// (CancelReceiveWatchdog nulls _rxWatchdog, cancels H1.CTS — callback
+    /// fires synchronously with null short-circuit); T≈85ms (after FF1's
+    /// natural Timer fire window) inject FF2's completing CFs. FF2 must
+    /// reassemble with byte-exact payload.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task HandleFirstFrame_After_FirstFrame_Timer_Fired_Does_Not_Get_Buffer_Cleared_By_Late_Timer_Callback()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        // Short N_Cr so the Timer reliably fires inside the test budget.
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(50);
+
+        // T=0: inject FF1 (length=20). FF1's N_Cr watchdog is armed as
+        // H1 (Gen=1). No CF arrives — Timer will fire at ~50ms.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // T=5ms: Timer has NOT yet fired (50ms timeout). Inject FF2.
+        // HandleFirstFrame → CancelReceiveWatchdog sets _rxWatchdog=null,
+        // then Cancel(H1.Cts) synchronously fires H1's Register callback on
+        // the test thread (callback takes _rxLock, sees _rxWatchdog=null,
+        // short-circuits per the explicit null-state guard). HandleFirstFrame
+        // then installs H2 (Gen=1) under _rxLock.
+        await Task.Delay(5);
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5 });
+
+        byte[]? received = null;
+        var done = new TaskCompletionSource();
+        iso.MessageReceived += bytes => { received = bytes; done.TrySetResult(); };
+
+        // Wait past FF1's natural Timer fire window (T=50ms from FF1, which
+        // is T=45ms from FF2's HandleFirstFrame). FF1's Timer fires on a
+        // threadpool thread at T=50ms and attempts to Cancel H1.Cts — but
+        // H1.Cts is already cancelled (by HandleFirstFrame at T=5ms), so
+        // Cancel is a no-op and the callback does NOT re-fire. This is the
+        // safe path: the production callback only ever runs once per H1,
+        // synchronously inside HandleFirstFrame's Cancel().
+        await Task.Delay(80);
+
+        // Complete FF2: CF1 (7 bytes) + CF2 (7 bytes) = 14 more bytes. With
+        // FF2's first chunk (6) the total is 20. If FF2's state was corrupted
+        // by an out-of-spec callback path (e.g. someone refactors the
+        // Register/Dispose ordering), HandleConsecutiveFrameLocked returns
+        // null and MessageReceived never fires.
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6 });
+        InjectConsecutiveFrame(iso, sequence: 2, chunk: new byte[] { 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6 });
+
+        var completed = await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().Be(done.Task,
+            "FF2 must reassemble in full after FF1's Timer has fired: the null-state guard in the Register callback must prevent the late callback from disturbing the new FF's _rxInProgress / _rxBuffer");
+
+        received.Should().Equal(
+            0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5,
+            0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6,
+            0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6);
+    }
+
     // ========================================================================
     // v1.2.12 PATCH Item 2: async Task callback + SemaphoreSlim serialization.
     // The production code path now passes a Func<CanFrame, Task> to the layer

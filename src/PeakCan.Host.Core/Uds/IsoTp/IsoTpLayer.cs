@@ -553,16 +553,35 @@ public sealed partial class IsoTpLayer : IDisposable
         var token = handle.Cts.Token;
         token.Register(() =>
         {
-            // Generation check: only clear _rxInProgress if THIS handle's
-            // generation still matches. A newer StartReceiveWatchdog has
-            // replaced us; let it own the cancellation.
+            // Two distinct re-arm scenarios — both checked separately so the
+            // guard is explicit (not a single AND that conflates them):
+            //
+            //   1. FF→FF interruption: CancelReceiveWatchdog (called by
+            //      HandleFirstFrame before installing the new FF's watchdog)
+            //      sets _rxWatchdog = null under _rxLock BEFORE calling
+            //      old.Cts.Cancel(). The OLD FF's Register callback (queued
+            //      by the cancellation propagation) then takes _rxLock and
+            //      finds _rxWatchdog == null: short-circuit without touching
+            //      _rxInProgress / _rxBuffer — the NEW FF owns them.
+            //      BOTH FFs share Generation=1 (FF always re-arms at gen 1)
+            //      so the Generation check below is a no-op here; the null
+            //      guard is the only protection.
+            //
+            //   2. CF→CF re-arm: HandleConsecutiveFrame re-arms the watchdog
+            //      with a NEW generation (sourced from _rxExpectedSequence,
+            //      which advances on every CF boundary). The OLD CF's
+            //      callback then sees _rxWatchdog.Generation != expectedGen
+            //      and short-circuits without disturbing the NEW CF.
             lock (_rxLock)
             {
-                if (_rxWatchdog?.Generation == expectedGeneration && _rxInProgress)
-                {
-                    _rxInProgress = false;
-                    _rxBuffer = null;
-                }
+                if (_rxWatchdog is null)
+                    return; // FF→FF: we were superseded; new FF owns _rxLock state
+                if (_rxWatchdog.Generation != expectedGeneration)
+                    return; // CF→CF: generation advanced past us
+                if (!_rxInProgress)
+                    return;
+                _rxInProgress = false;
+                _rxBuffer = null;
             }
         });
 
