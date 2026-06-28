@@ -45,7 +45,7 @@ v1.2.13 + v1.2.14 PATCH ship notes §"Non-Goals" + §"Known issues (deferred to 
 
 | # | ID | 组件 | 修复 / 增强 | 来源 | Severity |
 |---|----|------|------------|------|----------|
-| 1 | I1 | UdsSecurity + UdsClient | `SecurityAccessAsync` 加 lockout state: `_attemptCount`, `_lockedUntilUtc`, `IsLocked`, `WaitForUnlockAsync`. Default 3 attempts / 5s lockout. ECU NRC 0x35/0x36/0x37 → increment + check threshold. Successful auth → reset counter. | Phase 2.5 actual — `UdsSecurity` 现有字段, 无 lockout | MEDIUM |
+| 1 | I1 | UdsSecurity + UdsClient | `SecurityAccessAsync` 加 lockout state: `_attemptCount`, `_lockedUntilUtc`, `IsLocked`, `RemainingLockoutDelay`, `ResetLockout`, `RecordFailedAttempt`. Default 3 attempts / 5s lockout. ECU NRC 0x35/0x36/0x37 → increment + check threshold. Successful auth → reset counter. _Note: `WaitForUnlockAsync` 异步等待 API deferred 到 future release — 同步 query (`IsLocked` + `RemainingLockoutDelay`) 已足够 current use case._ | Phase 2.5 actual — `UdsSecurity` 现有字段, 无 lockout | MEDIUM |
 | 2 | I2 | UdsClient | `EcuResetAsync` 加 `virtual` 关键字（7 sibling UDS methods 已 virtual, 一致性）+ add tests (positive, negative response, invalid sub) | Phase 2.5 actual — 已存在 `line 187` 但 non-virtual + 零测试 | LOW |
 | 3 | I3 | UdsClient | `RoutineControlAsync` add direct tests (currently only VM-level via `RoutinePanelViewModelTests` line 86/97); existing virtual signature 保留 | Phase 2.5 actual — 已存在 `line 328` 已 virtual 但零直接测试 | LOW |
 | 4 | I4 | 新文件 | `UdsResetType` enum (HardReset=0x01, KeyOffOnReset=0x02, SoftReset=0x03); `RoutineControlType` enum (StartRoutine=0x01, StopRoutine=0x02, RequestRoutineResults=0x03). 提供 enum 重载方法. | Phase 2.5 actual — 当前 `byte` 参数无 type-safety | LOW |
