@@ -352,6 +352,32 @@ public class UdsClient : IDisposable
     ///   The injected algorithm's placeholder has not been replaced with an
     ///   OEM-specific implementation.
     /// </exception>
+    /// <exception cref="UdsSecurityLockedException">
+    ///   The level is locked (either already-locked at entry, or
+    ///   mid-handshake lockout triggered by a concurrent
+    ///   <c>SecurityAccessAsync</c> call exhausting the failure counter
+    ///   between RequestSeed and SendKey legs).
+    /// </exception>
+    /// <remarks>
+    /// v1.3.1 PATCH Item 2: the 2-arg overload adds an explicit pre-check
+    /// at entry to fail-fast on already-locked levels without touching
+    /// the wire. This is defensive coding — the 3-arg overload's entry
+    /// check (called transitively for the RequestSeed leg) already
+    /// provides this; the explicit check makes the intent visible at
+    /// the 2-arg signature boundary.
+    /// <para>
+    /// <b>Mid-handshake lockout race (TOCTOU window):</b> between the
+    /// RequestSeed leg completing and the SendKey leg starting, a
+    /// concurrent caller may exhaust the lockout counter on the same
+    /// level. In that case, the SendKey leg's entry check
+    /// (<see cref="UdsSecurityLockedException"/>) fires from inside this
+    /// 2-arg call. This is intentional behavior — the entry check at the
+    /// 3-arg SendKey call is the source of truth for lockout state. The
+    /// 2-arg overload surfaces the same exception type with the actual
+    /// remaining delay; callers should treat the handshake as failed
+    /// and wait for the lockout window to expire before retrying.
+    /// </para>
+    /// </remarks>
     public virtual async Task<byte[]> SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)
     {
         if (_keyAlgorithm is null)
@@ -360,13 +386,24 @@ public class UdsClient : IDisposable
                 "Use the (IsoTpLayer, IKeyDerivationAlgorithm, UdsTimer?) constructor " +
                 "or call SecurityAccessAsync(byte level, byte[] key, CancellationToken) directly.");
 
+        // v1.3.1 PATCH Item 2: fail-fast pre-check. The 3-arg overload's
+        // entry check (transitive via RequestSeed leg below) would also
+        // catch this; the explicit check makes the intent visible at the
+        // 2-arg signature boundary and avoids wire-allocate for the
+        // RequestSeed frame when the level is already locked.
+        if (Security.IsLocked(requestLevel))
+            throw new UdsSecurityLockedException(requestLevel, Security.RemainingLockoutDelay(requestLevel));
+
         // RequestSeed leg via the existing 3-arg method (key=null returns seed bytes).
         byte[] seed = await SecurityAccessAsync(requestLevel, key: null, ct).ConfigureAwait(false);
 
         // SECURITY: never log seed bytes — see commit a9fe443 (C-2 fix).
         byte[] key = _keyAlgorithm.ComputeKey(seed, requestLevel);
 
-        // SendKey leg via the existing 3-arg method.
+        // SendKey leg via the existing 3-arg method. If a concurrent
+        // caller triggers lockout between the RequestSeed and SendKey
+        // legs, the SendKey leg's entry check throws
+        // UdsSecurityLockedException — see <remarks> above.
         return await SecurityAccessAsync(requestLevel, key, ct).ConfigureAwait(false);
     }
 
