@@ -377,6 +377,19 @@ public class UdsClient : IDisposable
     }
 
     /// <summary>
+    /// v1.3.0 MINOR Item 3/4: type-safe enum overload.
+    /// </summary>
+    /// <param name="routineControlType">ISO 14229-1 §10.4 standard sub-function.</param>
+    /// <param name="routineId">Routine identifier (2 bytes).</param>
+    /// <param name="data">Optional routine data.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Routine result bytes (after the [sub, routineIdHigh, routineIdLow] prefix).</returns>
+    public Task<byte[]> RoutineControlAsync(
+        RoutineControlType routineControlType, ushort routineId,
+        byte[]? data = null, CancellationToken ct = default)
+        => RoutineControlAsync((byte)routineControlType, routineId, data, ct);
+
+    /// <summary>
     /// RequestDownload (0x34).
     /// </summary>
     /// <param name="address">Memory address.</param>
