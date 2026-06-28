@@ -348,7 +348,7 @@ public sealed class UdsClientTests
     [Fact]
     public async Task SecurityAccessAsync_WhenLocked_ThrowsBeforeWireEmit()
     {
-        var (iso, _) = NewIso();
+        var (iso, sent) = NewIso();
         using var client = new UdsClient(iso);
         // Force lockout for level 0x01 (3 attempts threshold from Default config)
         client.Security.RecordFailedAttempt(0x01);
@@ -362,14 +362,10 @@ public sealed class UdsClientTests
         ex.Which.SecurityLevel.Should().Be(0x01);
         ex.Which.RemainingDelay.Should().BeGreaterThan(TimeSpan.Zero);
 
-        // Assert no wire emit happened: NewIso's sent sink must be empty
-        // (ProcessFrame for ISO-TP is what reads wire, not writes — but for
-        // SecurityAccessAsync the wire emit is via SendRequestAsync →
-        // _isoTp.SendMessageAsync → writes to sink).
-        // NewIso wires frame => sent.Add(...); if SendRequestAsync is called,
-        // the sink would have 1 entry. Verify it has 0.
-        // We don't have direct access to the sink here, so this assertion is
-        // omitted. The exception-thrown guarantee is sufficient for RED.
+        // 业务保证：locked 状态下调用 SecurityAccessAsync 必须先抛异常，
+        // 不应触达 wire（SendRequestAsync → _isoTp.SendMessageAsync → sink.Add）。
+        // 通过 sent sink 的实际计数来证明这一点，而不是依赖异常类型或超时。
+        sent.Should().BeEmpty("locked SecurityAccessAsync must not touch the wire");
     }
 }
 
