@@ -215,4 +215,18 @@ public class AppHostBuilderTests
         hosted.Should().BeSameAs(singleton,
             "SignalViewModel IHostedService registration must reuse the singleton or its drain Timer never disposes (Item 6 fix)");
     }
+
+    [Fact]
+    public void UdsClient_Resolution_Passes_SessionLogger()
+    {
+        // v1.2.13 PATCH Item 2: AppHostBuilder DI must thread
+        // ILogger<UdsSession> through UdsClient into UdsSession so S3
+        // keepalive failures are observable in production.
+        using var host = AppHostBuilder.Build();
+        var udsClient = host.Services.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
+
+        udsClient.Session.SessionLogger.Should().NotBeNull(
+            "AppHostBuilder must wire ILogger<UdsSession> into UdsClient so " +
+            "production S3 keepalive failures are logged at Warning level");
+    }
 }

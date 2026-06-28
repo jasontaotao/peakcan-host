@@ -15,3 +15,7 @@ using System.Runtime.CompilerServices;
 // watchdog-churn regression test can assert the deferred-Dispose
 // path was actually taken.
 [assembly: InternalsVisibleTo("PeakCan.Host.Core.Tests")]
+// v1.2.13 PATCH Item 2: expose UdsSession.SessionLogger so
+// AppHostBuilderTests can assert the production DI graph threads
+// ILogger<UdsSession> all the way through to UdsSession.
+[assembly: InternalsVisibleTo("PeakCan.Host.App.Tests")]

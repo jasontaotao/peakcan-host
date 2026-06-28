@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -348,5 +349,62 @@ public sealed class UdsClientVolatileTests
         sawNull.Should().BeTrue(
             "SendRequestInternalAsync's finally writes _responseCts = null; " +
             "the field must be volatile so the post-finally null is observable from the reader thread");
+    }
+
+    // ========================================================================
+    // v1.2.13 PATCH Item 2: production wire-up. The logger-aware ctor must
+    // thread ILogger<UdsSession> into the new UdsSession so S3 keepalive
+    // failures surface in the production diagnostic log. Legacy 2-arg ctor
+    // must keep using parameterless UdsSession (backward compat).
+    // ========================================================================
+
+    [Fact]
+    public void Ctor_With_SessionLogger_Wires_To_UdsSession()
+    {
+        // CountingLogger spy — same pattern as UdsSessionTests / IsoTpLayerTests;
+        // avoids pulling NSubstitute into Core.Tests.
+        var logger = new CountingLogger<UdsSession>();
+        var (iso, _) = NewIso();
+        var client = new UdsClient(iso, sessionLogger: logger);
+
+        client.Session.SessionLogger.Should().BeSameAs(logger,
+            "UdsClient's ILogger<UdsSession> ctor arg must thread into UdsSession");
+    }
+
+    [Fact]
+    public void Ctor_Without_SessionLogger_Leaves_UdsSession_Logger_Null()
+    {
+        var (iso, _) = NewIso();
+        var client = new UdsClient(iso);
+
+        client.Session.SessionLogger.Should().BeNull(
+            "the legacy 2-arg ctor must continue using parameterless UdsSession " +
+            "for backward compatibility with v1.2.x callers");
+    }
+
+    /// <summary>
+    /// Minimal hand-rolled logger spy — same shape as the one in
+    /// <c>UdsSessionTests</c>/<c>IsoTpLayerTests</c>. Kept private here
+    /// because it is only used by the Item 2 wire-up tests.
+    /// </summary>
+    private sealed class CountingLogger<T> : ILogger<T>
+    {
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 }

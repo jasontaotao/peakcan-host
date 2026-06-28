@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.Core.Uds;
@@ -42,7 +43,7 @@ public class UdsClient : IDisposable
     private readonly IKeyDerivationAlgorithm? _keyAlgorithm;
 
     /// <summary>Current diagnostic session.</summary>
-    public UdsSession Session { get; } = new();
+    public UdsSession Session { get; }
 
     /// <summary>Security access state.</summary>
     public UdsSecurity Security { get; }
@@ -50,12 +51,19 @@ public class UdsClient : IDisposable
     /// <summary>Create a new UDS client.</summary>
     /// <param name="isoTp">ISO-TP transport layer.</param>
     /// <param name="timer">UDS timer for timeout management.</param>
-    public UdsClient(IsoTpLayer isoTp, UdsTimer? timer = null)
+    /// <param name="sessionLogger">
+    /// Optional logger threaded into <see cref="UdsSession"/> so S3
+    /// keepalive failures surface in production (v1.2.13 PATCH Item 2).
+    /// Defaults to <c>null</c> for backward compatibility with v1.2.x
+    /// callers.
+    /// </param>
+    public UdsClient(IsoTpLayer isoTp, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
     {
         ArgumentNullException.ThrowIfNull(isoTp);
 
         _isoTp = isoTp;
         _timer = timer ?? new UdsTimer();
+        Session = new UdsSession(sessionLogger);
         Security = new UdsSecurity();
 
         // Subscribe to ISO-TP messages
@@ -69,7 +77,13 @@ public class UdsClient : IDisposable
     /// <param name="isoTp">ISO-TP transport layer.</param>
     /// <param name="keyAlgorithm">OEM key algorithm. Must not be null.</param>
     /// <param name="timer">Optional UDS timer. Defaults to a fresh <see cref="UdsTimer"/>.</param>
-    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null)
+    /// <param name="sessionLogger">
+    /// Optional logger threaded into <see cref="UdsSession"/> so S3
+    /// keepalive failures surface in production (v1.2.13 PATCH Item 2).
+    /// Defaults to <c>null</c> for backward compatibility with v1.2.x
+    /// callers.
+    /// </param>
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
     {
         ArgumentNullException.ThrowIfNull(isoTp);
         ArgumentNullException.ThrowIfNull(keyAlgorithm);
@@ -77,6 +91,7 @@ public class UdsClient : IDisposable
         _isoTp = isoTp;
         _keyAlgorithm = keyAlgorithm;
         _timer = timer ?? new UdsTimer();
+        Session = new UdsSession(sessionLogger);
         Security = new UdsSecurity();
 
         // Subscribe to ISO-TP messages

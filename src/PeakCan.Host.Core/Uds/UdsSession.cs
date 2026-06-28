@@ -48,6 +48,14 @@ public sealed partial class UdsSession : IDisposable
     public long S3FailureCount => Interlocked.Read(ref _s3Failures);
 
     /// <summary>
+    /// v1.2.13 PATCH Item 2: production wire-up test accessor. Returns
+    /// the logger passed to the logger-aware ctor, or null if the
+    /// parameterless ctor was used. Used by AppHostBuilder DI tests to
+    /// assert the wiring reaches UdsSession via UdsClient.
+    /// </summary>
+    internal ILogger<UdsSession>? SessionLogger => _logger;
+
+    /// <summary>
     /// Create a new UdsSession without a logger (legacy callers).
     /// </summary>
     public UdsSession()

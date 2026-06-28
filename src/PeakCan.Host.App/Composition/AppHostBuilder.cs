@@ -223,11 +223,15 @@ public static class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DidDatabase>();
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.RoutineDatabase>();
         // v1.1.0: UdsClient now requires an IKeyDerivationAlgorithm via the 3-arg ctor.
+        // v1.2.13 PATCH Item 2: also pass ILogger<UdsSession> so S3 keepalive
+        // failures are observable in production (logger-aware ctor was added
+        // in v1.2.12 but never wired — this closes the known-deferred item).
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>(sp =>
         {
             var isoTp = sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
             var keyAlgorithm = sp.GetRequiredService<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm>();
-            return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm);
+            var sessionLogger = sp.GetService<ILogger<PeakCan.Host.Core.Uds.UdsSession>>();
+            return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm, sessionLogger: sessionLogger);
         });
         // v1.2.0: 4-panel orchestrator holds Session/Did/Routine/Dtc panel VMs;
         // each panel VM is registered as a singleton below and DI auto-resolves
