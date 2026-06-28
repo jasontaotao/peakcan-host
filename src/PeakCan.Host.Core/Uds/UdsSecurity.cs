@@ -12,7 +12,7 @@ public sealed class UdsSecurity
     /// v1.3.0 MINOR Item 1: lockout policy. Defaults to 3 attempts / 5 s.
     /// Settable via <c>UdsClient</c> DI or directly for tests.
     /// </summary>
-    public UdsSecurityLockoutConfig LockoutConfig { get; set; } =
+    public UdsSecurityLockoutConfig LockoutConfig { get; internal set; } =
         UdsSecurityLockoutConfig.Default;
 
     /// <summary>Get the current seed for a security level.</summary>
