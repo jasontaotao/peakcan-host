@@ -251,7 +251,7 @@ public class SendFrameLibraryConcurrencyTests : IDisposable
     }
 }
 
-// v1.2.12 PATCH Item 13: SaveUnlocked atomicity (File.Replace + UTF-8 BOM)
+// v1.2.12 PATCH Item 13: SaveUnlocked atomicity (File.Move overwrite:true + UTF-8 BOM)
 // and typed-catch error handling.
 public class SendFrameLibrarySaveTests : IDisposable
 {
@@ -297,6 +297,11 @@ public class SendFrameLibrarySaveTests : IDisposable
         // .NET 5+ File.Move with overwrite:true is atomic on POSIX (rename)
         // and Windows (MoveFileEx with MOVEFILE_REPLACE_EXISTING) — single
         // API, no Exists branch.
+        // Snapshot the counter before the test runs so other tests in the
+        // collection that also trigger saves don't false-fail the delta
+        // check (AtomicSaveMoveCallCount is static — shared across instances).
+        var beforeCount = SendFrameLibrary.AtomicSaveMoveCallCount;
+
         var path = Path.Combine(_tempDir, "atomic-save-" + Guid.NewGuid().ToString("N") + ".json");
         File.Delete(path); // ensure the "destination does not exist" branch
         var lib = new SendFrameLibrary(path, Substitute.For<ILogger<SendFrameLibrary>>());
@@ -314,13 +319,21 @@ public class SendFrameLibrarySaveTests : IDisposable
         // No orphan .tmp file should remain after either save.
         var tmpFiles = Directory.GetFiles(_tempDir, Path.GetFileName(path) + "*.tmp*");
         tmpFiles.Should().BeEmpty("File.Move overwrite:true completes atomically — no orphan tmp");
+
+        // Behavioral assertions above would also pass with the old
+        // File.Replace + Exists branch — this counter check is what
+        // actually pins the implementation to File.Move overwrite:true
+        // and catches a regression that reverts to the TOCTOU-prone pattern.
+        SendFrameLibrary.AtomicSaveMoveCallCount.Should().BeGreaterThan((int)beforeCount,
+            "SaveUnlocked must call File.Move with overwrite:true (not File.Replace + Exists branch); " +
+            "this counter guards against regression to the old TOCTOU-prone pattern");
     }
 
     [Fact]
     public void Save_Failure_Logs_Error_And_Rethrows()
     {
         // Use a writable parent directory, then mark the destination file
-        // ReadOnly so SaveUnlocked fails when trying to File.Replace into
+        // ReadOnly so SaveUnlocked fails when trying to File.Move overwrite:true into
         // it. Add must complete before we flip ReadOnly (Add itself does
         // a load-modify-save).
         var dir = Path.Combine(Path.GetTempPath(), $"pch-fail-{Guid.NewGuid():N}");
@@ -363,7 +376,7 @@ public class SendFrameLibrarySaveTests : IDisposable
     {
         // Add the frame while the file is still writeable (Add does its
         // own load-modify-save), then mark the destination ReadOnly so
-        // the subsequent explicit Save() call fails inside File.Replace.
+        // the subsequent explicit Save() call fails inside File.Move overwrite:true.
         var lib = new SendFrameLibrary(_tempFile, Substitute.For<ILogger<SendFrameLibrary>>());
         lib.Add(Frame("A", 0x100));
 

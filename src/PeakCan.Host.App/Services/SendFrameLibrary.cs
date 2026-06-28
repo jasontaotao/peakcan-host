@@ -79,6 +79,17 @@ public sealed partial class SendFrameLibrary
     // is preserved by _gate.
     internal int CacheMissesForTesting;
 
+    /// <summary>
+    /// v1.2.13 PATCH Item 8 test hook: increments every time
+    /// <c>SaveUnlocked</c> uses <c>File.Move</c> with <c>overwrite:true</c>.
+    /// Tests assert this counter increments to guard against any regression
+    /// that reverts to the old <c>File.Replace</c> + <c>Exists</c> branch
+    /// (which would satisfy the behavioral tests but reintroduce the
+    /// TOCTOU window). Static so it survives across instances; Interlocked
+    /// for atomic increment under the documented concurrency.
+    /// </summary>
+    internal static int AtomicSaveMoveCallCount;
+
     /// <summary>Production ctor — uses <c>%APPDATA%\PeakCan.Host\send-library.json</c>.</summary>
     public SendFrameLibrary(ILogger<SendFrameLibrary> logger)
         : this(DefaultPath(), logger) { }
@@ -237,6 +248,11 @@ public sealed partial class SendFrameLibrary
             // MOVEFILE_REPLACE_EXISTING). Replaces the v1.2.12
             // Exists→Replace/Move branch which had a small TOCTOU window
             // between the Exists check and the actual move.
+            // The counter below is incremented ONLY on this path — if anyone
+            // reverts to File.Replace + Exists (or any other save mechanism),
+            // this increment is gone and Save_Uses_FileMove_Overwrite_True
+            // fails on the counter assertion.
+            Interlocked.Increment(ref AtomicSaveMoveCallCount);
             File.Move(tmp, _path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
