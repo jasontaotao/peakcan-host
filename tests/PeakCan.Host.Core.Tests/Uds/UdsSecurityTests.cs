@@ -102,4 +102,62 @@ public sealed class UdsSecurityTests
         sut.IsLocked(0x03).Should().BeFalse(
             "0x03 was not locked before reset, still not locked after");
     }
+
+    // ---------- v1.4.2 PATCH Item 1: SetSeed preserves lockout state (D8) ----------
+
+    /// <summary>
+    /// v1.4.2 PATCH: SetSeed on a level that has already had a failed
+    /// attempt must preserve the existing lockout state. Aligned to the
+    /// D8 invariant that lockout is independent of session state — the
+    /// same pattern as <see cref="UdsSecurity.Reset"/>.
+    /// <para>
+    /// RED-then-GREEN: this test FAILS on v1.4.1-shipped code (SetSeed
+    /// creates fresh <c>SecurityLevelState</c>, wiping <c>AttemptCount</c>
+    /// and clearing <c>LockedUntilUtc</c>). It PASSES after the v1.4.2
+    /// PATCH fix mutates the existing state in place.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void SetSeed_PreservesLockoutState_OnExistingLevel()
+    {
+        // Arrange — MaxAttempts=1, lockout already triggered
+        var sut = new UdsSecurity { LockoutConfig = new(MaxAttempts: 1, TimeSpan.FromSeconds(5)) };
+
+        sut.RecordFailedAttempt(level: 0x01);  // locks the level
+        sut.IsLocked(0x01).Should().BeTrue("just locked, lockout is active");
+
+        // Act — SetSeed on the locked level
+        sut.SetSeed(0x01, new byte[] { 0xAA, 0xBB });
+
+        // Assert — lockout state preserved (the bug was: SetSeed wiped
+        //   AttemptCount + LockedUntilUtc, defeating concurrent-access
+        //   lockout)
+        sut.IsLocked(0x01).Should().BeTrue(
+            "SetSeed must preserve existing lockout state per D8 invariant (align to Reset() behavior)");
+        sut.RemainingLockoutDelay(0x01).Should().BeGreaterThan(TimeSpan.Zero,
+            "lockout window must still be active after SetSeed");
+    }
+
+    /// <summary>
+    /// v1.4.2 PATCH: SetSeed on a never-seen level creates fresh state.
+    /// Sanity check that the else-branch (first observation) still works
+    /// after the mutate-in-place fix for the if-branch.
+    /// </summary>
+    [Fact]
+    public void SetSeed_OnNewLevel_CreatesFreshState()
+    {
+        // Arrange — fresh UdsSecurity, no prior state for level 0x03
+        var sut = new UdsSecurity { LockoutConfig = new(MaxAttempts: 1, TimeSpan.FromSeconds(5)) };
+
+        // Act — SetSeed on a never-seen level
+        sut.SetSeed(0x03, new byte[] { 0xCC, 0xDD });
+
+        // Assert — fresh state: seed stored, no lockout (else-branch)
+        sut.GetSeed(0x03).Should().BeEquivalentTo(new byte[] { 0xCC, 0xDD },
+            "SetSeed on new level creates fresh state with the provided seed");
+        sut.IsLocked(0x03).Should().BeFalse(
+            "fresh state has no lockout");
+        sut.IsAuthenticated(0x03).Should().BeFalse(
+            "SetSeed marks level as not yet authenticated");
+    }
 }
