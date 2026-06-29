@@ -57,7 +57,17 @@ public interface ICanChannel : IAsyncDisposable
 /// corresponding <c>PCAN_BAUD_*</c> enum value. The pre-canned constants
 /// below assume a 20 MHz nominal clock (typical for PCAN-USB FD);
 /// other clocks require a different descriptor — use
-/// <see cref="FromDescriptor"/> to build a custom rate for FD mode.
+/// <see cref="FromFdDescriptor"/> to build a custom rate for FD mode.
+/// </para>
+/// <para>
+/// <b>Custom classic rates:</b> cannot be constructed here — Core has
+/// no PEAK SDK dependency (NetArchTest rule 2), so a
+/// <c>TPCANBaudrate?</c> field cannot be added to <see cref="BaudRate"/>.
+/// The full <c>FromDescriptor(descriptor, name, classicCode)</c> overload
+/// awaits a Core-safe PEAK-code mapping (planned for v1.6.x MINOR; see
+/// <c>PeakCanChannel.ResolveClassicCode</c> in Infrastructure for the
+/// current name-based mapping covering the four Can*kbps presets).
+/// For custom FD rates use <see cref="FromFdDescriptor"/>.
 /// </para>
 /// </summary>
 public readonly record struct BaudRate(
@@ -108,16 +118,6 @@ public readonly record struct BaudRate(
     /// <c>classicCode</c> parameter rather than guessing <c>isFd</c>.
     /// </para>
     /// </summary>
-    // TODO: reintroduce the (string, string, TPCANBaudrate?) overload when
-    // a Core-safe PEAK classic-code mapping exists. Today the only
-    // callers are inside the four Can*kbps / CanFd*Mbps presets above,
-    // so the constraint is invisible to consumers — but a future
-    // third-party extension wanting a custom classic rate will hit
-    // this and need a clear path. The Obsolete attribute on this
-    // signature is the only compile-time signal we can offer until
-    // then; remove it together with this TODO when the new overload
-    // ships.
-    [Obsolete("Custom classic-CAN rates are not representable in Core (no PEAK SDK dependency). Use the four Can*kbps presets, or the CanFd*Mbps presets for FD. If a Core-safe PEAK code mapping is added later, this method will be replaced by a (descriptor, name, classicCode) overload.")]
-    public static BaudRate FromDescriptor(string descriptor, string name)
+    public static BaudRate FromFdDescriptor(string descriptor, string name)
         => new(descriptor, name, true);
 }
