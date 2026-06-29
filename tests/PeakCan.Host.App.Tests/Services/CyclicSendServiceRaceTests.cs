@@ -103,7 +103,10 @@ public class CyclicSendServiceRaceTests
 
         // First generation: id=0x100
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        await Task.Delay(60);
+        // v1.6.2 PATCH Item 2b: fire-timer → predicate-based migration.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
         // Let any old-generation in-flight callbacks finish so they don't
         // get misattributed to the second-generation cycle.
@@ -113,7 +116,10 @@ public class CyclicSendServiceRaceTests
         // Second generation: id=0x200 — bumps the generation counter so
         // queued callbacks from gen=1 with stale snapshots are dropped.
         svc.Start(BuildFrame(0x200), TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        // v1.6.2 PATCH Item 2b: wait until ≥1 frame with id=0x200 sent.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.SentIds.Any(id => id == 0x200u),
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         // After the second Start, only 0x200 frames should reach SendAsync.
@@ -133,7 +139,10 @@ public class CyclicSendServiceRaceTests
         };
         var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        // v1.6.2 PATCH Item 2b: wait until failures accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.FailureCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.FailureCount.Should().BeGreaterThan(0);
@@ -146,7 +155,10 @@ public class CyclicSendServiceRaceTests
         var send = new CountingSendService { NextResult = Result<Unit>.Ok(default) };
         var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        // v1.6.2 PATCH Item 2b: wait until successes accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.SuccessCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.SuccessCount.Should().BeGreaterThan(0);
