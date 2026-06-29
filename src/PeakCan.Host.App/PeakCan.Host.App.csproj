@@ -44,4 +44,13 @@
     <RootNamespace>PeakCan.Host.App</RootNamespace>
   </PropertyGroup>
 
+  <!-- v1.5.0 MINOR: Host.CreateApplicationBuilder automatically loads
+       appsettings.json from the application base directory. Copy the
+       file to bin/Debug/... so the host can find it at runtime. -->
+  <ItemGroup>
+    <None Update="..\..\appsettings.json" Link="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

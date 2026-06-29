@@ -27,7 +27,7 @@ public class RoutineDatabaseNreTests
 
         // Act
         Action act = () => _ = new RoutineDatabase(
-            userJsonPath: Path.Combine(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
+            userJsonPath: System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
             logger: null);
 
         // Assert: no exception thrown.

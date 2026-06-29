@@ -8,7 +8,7 @@ public class DidDatabaseTests
 {
     private static string TempJson(string contents)
     {
-        var path = Path.Combine(Path.GetTempPath(),
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
             $"uds-dids-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, contents);
         return path;
@@ -112,7 +112,7 @@ public class DidDatabaseTests
     public void UserJson_Missing_File_Falls_Back_To_BuiltIn()
     {
         var sut = new DidDatabase(
-            userJsonPath: Path.Combine(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
+            userJsonPath: System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
             logger: NullLogger<DidDatabase>.Instance);
 
         Assert.Equal(5, sut.All.Count);

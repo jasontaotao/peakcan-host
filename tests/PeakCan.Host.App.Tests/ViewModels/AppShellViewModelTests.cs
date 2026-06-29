@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Scripting;
@@ -777,16 +778,37 @@ public class AppShellViewModelTests
     /// </summary>
     private sealed class FakeChannelEnumerator : Core.IChannelEnumerator
     {
-        public IReadOnlyList<ChannelInfo> Channels { get; set; } = Array.Empty<ChannelInfo>();
+        // CA1859: concrete ChannelInfo[] avoids virtual dispatch through
+        // IReadOnlyList<T> when callers iterate.
+        public ChannelInfo[] Channels { get; set; } = Array.Empty<ChannelInfo>();
         public IReadOnlyList<ChannelInfo> Enumerate() => Channels;
     }
 
+    /// <summary>
+    /// Build a writable empty <see cref="IConfiguration"/> backed by an
+    /// in-memory provider. Required because an empty
+    /// <c>ConfigurationBuilder().Build()</c> root has no providers and its
+    /// indexer SETTER throws <c>InvalidOperationException("A configuration
+    /// source is not registered")</c>. Every test that exercises the
+    /// persistence write path needs this helper.
+    /// </summary>
+    private static IConfiguration WritableEmptyConfig() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
+
     private static AppShellViewModel NewVmWithEnumerator(
         Core.IChannelEnumerator enumerator,
-        IChannelFactory? factory = null)
+        IChannelFactory? factory = null,
+        IConfiguration? config = null)
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
+        // v1.5.0 MINOR: an empty ConfigurationBuilder().Build() returns an
+        // IConfigurationRoot with no providers — its indexer SETTER throws
+        // "A configuration source is not registered". Add a memory provider
+        // so tests can write back the persisted SelectedHandle.
+        var writableConfig = config ?? WritableEmptyConfig();
         return new AppShellViewModel(
             new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
@@ -808,7 +830,8 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-            enumerator);
+            enumerator,
+            writableConfig);
     }
 
     [Fact]
@@ -866,6 +889,148 @@ public class AppShellViewModelTests
         vm.IsConnected.Should().BeTrue();
         factory.LastCreated!.Id.Handle.Should().Be(0x52,
             "ConnectAsync must use SelectedChannel handle");
+    }
+
+    // ──────────────────────────────────────────────
+    // v1.5.0: appsettings.json persistence for SelectedChannel
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public void Ctor_EmptyConfig_SelectedChannel_Defaults_To_First_Channel()
+    {
+        // v1.5.0: when appsettings.json has no Channel:SelectedHandle, the
+        // post-enumerate behavior matches v0.4.0 — SelectedChannel = channels[0].
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[] { new ChannelInfo(0x51, "PCAN-USB 1") }
+        };
+        // InMemory provider required — an empty ConfigurationBuilder().Build()
+        // root has no providers and its indexer setter throws.
+        var config = WritableEmptyConfig();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        vm.SelectedChannel.Should().NotBeNull();
+        vm.SelectedChannel!.Handle.Should().Be(0x51);
+    }
+
+    [Fact]
+    public void Ctor_ConfigHasSelectedHandle_Restores_Channel()
+    {
+        // v1.5.0: when appsettings.json has Channel:SelectedHandle = "52", the
+        // post-enumerate SelectedChannel must be the channel with handle 0x52,
+        // not the default first channel.
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[]
+            {
+                new ChannelInfo(0x51, "PCAN-USB 1"),
+                new ChannelInfo(0x52, "PCAN-USB 2"),
+            }
+        };
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Channel:SelectedHandle"] = "52",
+            })
+            .Build();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        vm.SelectedChannel?.Handle.Should().Be(0x52,
+            "Should restore previously selected channel from config");
+    }
+
+    [Fact]
+    public void Ctor_PersistedHandleNoMatch_DoesNotOverwriteConfig()
+    {
+        // v1.5.0 review fix (Important #1): when EnumerateChannels runs and the
+        // persisted handle does not match any enumerated channel, the
+        // post-enumerate auto-select (channels[0]) must NOT trigger a write
+        // that overwrites the user's original persisted value. The user's
+        // intent ("99" — maybe a future handle they expected to plug in)
+        // must survive the hardware mismatch so when the right hardware
+        // shows up, the app can still restore their preference.
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[] { new ChannelInfo(0x51, "PCAN-USB 1") }
+        };
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Channel:SelectedHandle"] = "99",
+            })
+            .Build();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        // Persisted handle "99" did not match any enumerated channel;
+        // auto-selected channels[0] = 0x51 — VM should show that on screen.
+        vm.SelectedChannel?.Handle.Should().Be(0x51,
+            "fallback to channels[0] when persisted handle does not match");
+
+        // But the config key must still report the user's original intent,
+        // NOT the auto-selected fallback. Without the _suppressNextPersist
+        // flag, OnSelectedChannelChanged would have written "51" back and
+        // permanently lost "99".
+        config["Channel:SelectedHandle"].Should().Be("99",
+            "persisted handle should NOT be overwritten by post-enumerate auto-select");
+
+        // After the suppressed write, subsequent user-driven selections
+        // MUST persist normally. Verifies the flag is single-shot.
+        vm.SelectedChannel = null;
+        config["Channel:SelectedHandle"].Should().BeNull(
+            "user-driven null set must persist after the suppressed auto-select");
+        vm.SelectedChannel = enumerator.Channels[0];
+        config["Channel:SelectedHandle"].Should().Be("51",
+            "user-driven channel set must persist after the suppressed auto-select");
+    }
+
+    [Fact]
+    public void SelectedChannel_Set_PersistsToConfig()
+    {
+        // v1.5.0: changing SelectedChannel must write the new handle to
+        // Channel:SelectedHandle in the IConfiguration instance.
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[]
+            {
+                new ChannelInfo(0x51, "PCAN-USB 1"),
+                new ChannelInfo(0x52, "PCAN-USB 2"),
+            }
+        };
+        // InMemory provider required — an empty ConfigurationBuilder().Build()
+        // root has no providers and its indexer setter throws.
+        var config = WritableEmptyConfig();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.SelectedChannel = vm.AvailableChannels[1]; // 0x52
+
+        config["Channel:SelectedHandle"].Should().Be("52",
+            "Setter must persist new handle as uppercase hex without 0x prefix");
+    }
+
+    [Fact]
+    public void SelectedChannel_SetNull_PersistsNull()
+    {
+        // v1.5.0: clearing SelectedChannel (e.g. user disconnected) must
+        // clear Channel:SelectedHandle so the next startup has no
+        // restored channel.
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[] { new ChannelInfo(0x51, "PCAN-USB 1") }
+        };
+        var config = WritableEmptyConfig();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.SelectedChannel = null;
+
+        config["Channel:SelectedHandle"].Should().BeNull();
     }
 
     // --- v1.2.11 PATCH Item 6 UI: ShowRecord routing ---

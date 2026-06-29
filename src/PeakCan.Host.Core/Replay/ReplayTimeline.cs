@@ -12,21 +12,38 @@ internal sealed class ReplayTimeline
 {
     private readonly object _lock = new();
     private readonly Action<ReplayFrame> _emit;
+    private readonly Action? _onPlaybackEnded;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
     private int _nextFrameIndex;
     private double _currentTimestamp;
     private double _speed = 1.0;
     private bool _isPlaying;
     private bool _hasStarted; // true once Play() has been called with frames loaded; resets only via Stop()
+    private bool _loop;
     private DateTime _playStartWallClock;
     private double _playStartTimestamp;
     private Timer? _timer;
 
-    public ReplayTimeline(Action<ReplayFrame> emit) { _emit = emit; }
+    public ReplayTimeline(Action<ReplayFrame> emit, Action? onPlaybackEnded = null)
+    {
+        _emit = emit;
+        _onPlaybackEnded = onPlaybackEnded;
+    }
 
     public double CurrentTimestamp { get { lock (_lock) return _currentTimestamp; } }
     public double Speed { get { lock (_lock) return _speed; } }
     public bool IsPlaying { get { lock (_lock) return _isPlaying; } }
+
+    /// <summary>
+    /// If true, playback restarts from t=0 upon reaching the last frame's
+    /// timestamp. If false (default), playback auto-stops and the
+    /// <c>onPlaybackEnded</c> ctor callback is raised exactly once.
+    /// </summary>
+    public bool Loop
+    {
+        get { lock (_lock) return _loop; }
+        set { lock (_lock) _loop = value; }
+    }
 
     /// <summary>
     /// True once <see cref="Play"/> has been called with frames loaded, since
@@ -129,6 +146,7 @@ internal sealed class ReplayTimeline
     private void OnTick(object? state)
     {
         List<ReplayFrame>? toEmit = null;
+        bool endReached = false;
         lock (_lock)
         {
             if (!_isPlaying) return;
@@ -140,6 +158,24 @@ internal sealed class ReplayTimeline
                 _currentTimestamp = _frames[_nextFrameIndex].Timestamp;
                 _nextFrameIndex++;
             }
+            // Detect EOF this tick: cursor walked off the end while still playing.
+            // Loop=true → rewind to t=0 and continue. Loop=false → stop and raise
+            // the playback-ended callback exactly once.
+            if (_nextFrameIndex >= _frames.Count && _frames.Count > 0)
+            {
+                if (_loop)
+                {
+                    _nextFrameIndex = 0;
+                    _currentTimestamp = 0.0;
+                    _playStartTimestamp = 0.0;
+                    _playStartWallClock = DateTime.UtcNow;
+                }
+                else
+                {
+                    _isPlaying = false;
+                    endReached = true;
+                }
+            }
         }
         if (toEmit != null)
         {
@@ -149,5 +185,8 @@ internal sealed class ReplayTimeline
                 catch { /* sink errors must not stall playback */ }
             }
         }
+        // Raise callback OUTSIDE the lock so subscribers can call back into the
+        // service without deadlocking.
+        if (endReached) _onPlaybackEnded?.Invoke();
     }
 }

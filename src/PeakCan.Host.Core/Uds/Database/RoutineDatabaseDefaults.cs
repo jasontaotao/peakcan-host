@@ -11,7 +11,7 @@ public static class RoutineDatabaseDefaults
     /// File is optional; routines are 100% OEM-defined so an empty list is
     /// the correct state when no file is present.
     /// </summary>
-    public static string DefaultJsonPath { get; } = Path.Combine(
+    public static string DefaultJsonPath { get; } = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PeakCan.Host", "uds-routines.json");
 }

@@ -25,6 +25,34 @@ public interface IReplayService
     /// </remarks>
     event Action<ReplayFrame>? FrameEmitted;
 
+    /// <summary>
+    /// If true, playback restarts from t=0 upon reaching <see cref="TotalDuration"/>.
+    /// If false (default), playback auto-stops and <see cref="PlaybackEnded"/> is raised.
+    /// </summary>
+    bool Loop { get; set; }
+
+    /// <summary>
+    /// Tri-state CAN-ID filter applied at the emit boundary:
+    /// <list type="bullet">
+    ///   <item><description><c>null</c> (default) — all frames pass through.</description></item>
+    ///   <item><description>Empty set — no frames pass through (distinct from null).</description></item>
+    ///   <item><description>Non-empty set — only frames whose <see cref="ReplayFrame.Id"/> is in the set pass through.</description></item>
+    /// </list>
+    /// Filter changes take effect on the next emit (no buffering of stale decisions).
+    /// </summary>
+    IReadOnlySet<uint>? CanIdFilter { get; set; }
+
+    /// <summary>
+    /// Raised once when playback reaches <see cref="TotalDuration"/> with
+    /// <see cref="Loop"/> == false. UI listens to reset the scrubber, show
+    /// "Playback ended" hint, etc. Not raised when <see cref="Loop"/> is true.
+    /// </summary>
+    /// <remarks>
+    /// Fired on the timer callback thread, NOT the calling thread. UI subscribers
+    /// must marshal to the UI thread (e.g., Dispatcher.InvokeAsync).
+    /// </remarks>
+    event EventHandler? PlaybackEnded;
+
     /// <summary>Load and parse an ASC file from disk.</summary>
     /// <exception cref="ReplayLoadException">File not found or IO error.</exception>
     /// <exception cref="ReplayFormatException">File contents cannot be parsed.</exception>

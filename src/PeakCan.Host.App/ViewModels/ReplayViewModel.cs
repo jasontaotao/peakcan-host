@@ -69,6 +69,29 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isLoaded;
 
+    // v1.5.0 MINOR Task 5: Loop is a proxy to the service. The CheckBox
+    // binding sets Loop=true/false on the VM; the setter writes through to
+    // _service.Loop and raises PropertyChanged so the binding re-reads the
+    // canonical value. Source-gen generates the public Loop from this
+    // backing field; we cannot replace the auto-property with a manual one
+    // without breaking the generated setter, so we hook the source-gen
+    // partial callback OnLoopChanged instead of using a custom setter.
+    [ObservableProperty]
+    private bool _loop;
+
+    // v1.5.0 MINOR Task 5: free-form text the user types into the
+    // CAN-ID filter TextBox. The OnCanIdFilterTextChanged partial
+    // callback parses this string into the HashSet<uint> assigned to
+    // _service.CanIdFilter.
+    [ObservableProperty]
+    private string _canIdFilterText = string.Empty;
+
+    // v1.5.0 MINOR Task 5: inline error shown next to the TextBox when
+    // the parser hits invalid tokens. Null when the input is valid (or
+    // cleared).
+    [ObservableProperty]
+    private string? _canIdFilterError;
+
     /// <summary>Inverse of <see cref="IsLoaded"/>. Convenience for XAML <c>IsEnabled</c> bindings.</summary>
     public bool IsNotLoaded => !IsLoaded;
 
@@ -83,6 +106,115 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         _fileDialog = fileDialog ?? throw new ArgumentNullException(nameof(fileDialog));
         _syncContext = SynchronizationContext.Current;
         _service.FrameEmitted += OnFrameEmitted;
+        // v1.5.0 MINOR Task 5: seed Loop from the service so the CheckBox
+        // reflects the current state at startup (and after a future
+        // LoadAsync that may reset it).
+        _loop = _service.Loop;
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 5: Loop source-gen partial callback. Forward
+    /// the new value to the underlying <see cref="IReplayService.Loop"/>
+    /// so the timeline actually starts looping (or stops). The service
+    /// is the source of truth for playback behavior.
+    /// </summary>
+    partial void OnLoopChanged(bool value)
+    {
+        if (_service.Loop != value)
+        {
+            _service.Loop = value;
+        }
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 5: CanIdFilterText source-gen partial callback.
+    /// Parses the free-form text into a <see cref="HashSet{T}"/> of CAN
+    /// IDs and pushes it onto <see cref="IReplayService.CanIdFilter"/>.
+    /// <para>
+    /// Token syntax: comma- or whitespace-separated. Each token is
+    /// trimmed. <c>0x</c> / <c>0X</c> prefix means hex; otherwise
+    /// decimal. Empty / whitespace input clears the filter to
+    /// <c>null</c> (all frames pass). Invalid tokens are collected and
+    /// surfaced via <see cref="CanIdFilterError"/> without discarding
+    /// the valid ones, so a single typo doesn't wipe the user's work.
+    /// </para>
+    /// </summary>
+    partial void OnCanIdFilterTextChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _service.CanIdFilter = null;
+            CanIdFilterError = null;
+            return;
+        }
+
+        var tokens = value.Split(
+            new[] { ',', ' ', '\t', '\n', '\r' },
+            StringSplitOptions.RemoveEmptyEntries);
+        var ids = new HashSet<uint>();
+        var errors = new List<string>();
+        foreach (var raw in tokens)
+        {
+            var token = raw.Trim();
+            if (token.Length == 0)
+            {
+                continue;
+            }
+
+            uint parsed;
+            bool ok;
+            if (token.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                ok = uint.TryParse(
+                    token.AsSpan(2),
+                    System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out parsed);
+            }
+            else
+            {
+                ok = uint.TryParse(
+                    token,
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out parsed);
+            }
+
+            if (ok)
+            {
+                ids.Add(parsed);
+            }
+            else
+            {
+                errors.Add(token);
+            }
+        }
+
+        // v1.5.0 MINOR Task 5 tri-state semantics:
+        //   ids.Count > 0 -> whitelist of valid IDs (including
+        //                    partial-valid parses where some tokens failed)
+        //   ids.Count == 0 && errors.Count == 0 -> user typed only
+        //                    whitespace/comma separators after split;
+        //                    treat as "clear filter" to match the empty-string path.
+        //   ids.Count == 0 && errors.Count > 0 -> everything the user
+        //                    typed was invalid; push empty set so the
+        //                    timeline emits nothing, surface error.
+        if (ids.Count > 0)
+        {
+            _service.CanIdFilter = ids;
+        }
+        else if (errors.Count == 0)
+        {
+            _service.CanIdFilter = null;
+        }
+        else
+        {
+            _service.CanIdFilter = new HashSet<uint>();
+        }
+
+        CanIdFilterError = errors.Count > 0
+            ? $"Invalid token(s): {string.Join(", ", errors)}"
+            : null;
     }
 
     /// <summary>

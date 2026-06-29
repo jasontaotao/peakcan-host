@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.Core.Uds.Database;
 
@@ -69,7 +70,7 @@ public sealed partial class DidDatabase
 
             try
             {
-                var json = File.ReadAllText(path);
+                var json = File.ReadAllText(PathNormalizer.Normalize(path));
                 var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
                 return dto?.Dids;
             }
@@ -93,7 +94,7 @@ public sealed partial class DidDatabase
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = File.ReadAllText(PathNormalizer.Normalize(path));
             var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
             return dto?.Dids;
         }

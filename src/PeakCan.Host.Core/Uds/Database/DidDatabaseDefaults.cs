@@ -11,7 +11,7 @@ public static class DidDatabaseDefaults
     /// File is optional; if missing or malformed, <see cref="DidDatabase"/>
     /// falls back to built-in defaults.
     /// </summary>
-    public static string DefaultJsonPath { get; } = Path.Combine(
+    public static string DefaultJsonPath { get; } = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PeakCan.Host", "uds-dids.json");
 }
