@@ -204,4 +204,44 @@ base 0x7e0 500k
             File.Delete(path);
         }
     }
+
+    // ---------- v1.5.0 MINOR Task 4: Loop + CanIdFilter + PlaybackEnded ----------
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 4: Setting <see cref="IReplayService.Loop"/> propagates to
+    /// the internal timeline so EOF behavior changes.
+    /// </summary>
+    [Fact]
+    public void SetLoop_True_PropagatesToTimeline()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.Loop.Should().BeFalse("Loop defaults to false");
+        service.Loop = true;
+        service.Loop.Should().BeTrue("Loop setter stores the value");
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 4: Setting <see cref="IReplayService.CanIdFilter"/> stores
+    /// the filter and exposes it back. Filter tri-state semantics: null=all pass,
+    /// empty=nothing passes, non-empty=only matching IDs.
+    /// </summary>
+    [Fact]
+    public void SetCanIdFilter_UpdatesService()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.CanIdFilter.Should().BeNull("CanIdFilter defaults to null (all pass)");
+
+        var filter = new HashSet<uint> { 0x100u, 0x200u };
+        service.CanIdFilter = filter;
+        service.CanIdFilter.Should().BeSameAs(filter, "setter stores the same instance");
+
+        // Empty set is distinct from null — must be preserved as non-null empty.
+        service.CanIdFilter = new HashSet<uint>();
+        service.CanIdFilter.Should().NotBeNull("empty set is preserved as non-null");
+        service.CanIdFilter.Should().BeEmpty("empty set semantics: no frames pass");
+    }
 }

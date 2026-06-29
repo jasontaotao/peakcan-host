@@ -19,7 +19,9 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     {
         _sink = sink;
         _logger = logger;
-        _timeline = new ReplayTimeline(EmitFrame);
+        // The timeline raises the playback-ended callback on its timer thread;
+        // we forward to the public PlaybackEnded event from there.
+        _timeline = new ReplayTimeline(EmitFrame, onPlaybackEnded: RaisePlaybackEnded);
     }
 
     public ReplayState State => !_timeline.HasStarted
@@ -29,6 +31,22 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     public double TotalDuration => _frames.Count > 0 ? _frames[^1].Timestamp : 0.0;
     public double Speed => _timeline.Speed;
     public event Action<ReplayFrame>? FrameEmitted;
+
+    public bool Loop
+    {
+        get => _timeline.Loop;
+        set => _timeline.Loop = value;
+    }
+
+    public IReadOnlySet<uint>? CanIdFilter { get; set; }
+
+    public event EventHandler? PlaybackEnded;
+
+    /// <summary>
+    /// Forwards the timeline's playback-ended callback to the public event.
+    /// Invoked on the timer thread; UI subscribers must marshal to the UI thread.
+    /// </summary>
+    private void RaisePlaybackEnded() => PlaybackEnded?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
     /// Disposes the playback timer. Safe to call multiple times.
@@ -65,6 +83,14 @@ public sealed partial class ReplayService : IReplayService, IDisposable
 
     private void EmitFrame(ReplayFrame frame)
     {
+        // v1.5.0 MINOR Task 4: tri-state CAN-ID filter. null = pass all;
+        // empty set = pass none; non-empty = only matching IDs.
+        var filter = CanIdFilter;
+        if (filter is not null && !filter.Contains(frame.Id))
+        {
+            return; // filter rejects this frame; no sink call, no event raise
+        }
+
         // Timer callback is sync; sink is fire-and-forget. Errors must not stall
         // playback — the timeline swallows them in its outer try/catch, but we
         // log here so the warning reaches the user's logger even if the timeline
