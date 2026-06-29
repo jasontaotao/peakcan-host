@@ -48,11 +48,11 @@ PATCH 纪律保持：除 Item 4 的 rename + Item 1/2 的 surgical production fi
 
 | Assumption | Phase 2.5 actual |
 |---|---|
-| `OnTimerTick` lock 释放点在 line 135（读 state snapshot 之后） | **确认**。Line 132-137: `lock (this) { if (!_isRunning) return; provider = _frameProvider; ... generation = _generation; }`。Lock 释放在 line 137 后。 |
-| encode 调用在 lock 外 | **确认**。Line 178-184: `byte[] payload; try { payload = _encoder.Encode(snapshot.message, snapshot.values); }` — 完全在 lock 外。 |
-| send 调用在 lock 外且 async | **确认**。Line 197-203: `var result = await _sendService.SendAsync(frame).ConfigureAwait(false);` — lock 外 + async await。 |
-| `_isRunning` field 是 bool，由 `Stop()` 在 lock 内 flip 到 false | **确认**。`StopInner` (line 105-115) `_isRunning = false; _generation++; _timer?.Dispose();`。 |
-| `_isRunning` getter 已经在 `lock(this)` 内读 (line 56-58) | **确认**。`public bool IsRunning { get { lock (this) return _isRunning; } }`。新增的 re-check 复用同一 pattern。 |
+| `OnTimerTick` lock 释放点在 `OnTimerTick` 内部第一段 lock 后 | **确认**。`src/PeakCan.Host.App/Services/CyclicDbcSendService.cs:151-159`: `lock (this) { if (!_isRunning) return; provider = _frameProvider; ... generation = _generation; }` — lock 释放在 line 159 后。 |
+| encode 调用在 lock 外 | **确认**。Line 208: `payload = _encoder.Encode(snapshot.message, snapshot.values);` — 在第二段 `lock (this)` (line 186-199, `Message.Id` check) 之后，完全在 lock 外。 |
+| send 调用在 lock 外且 async | **确认**。Line 236: `var result = await _sendService.SendAsync(frame).ConfigureAwait(false);` — lock 外 + async await。 |
+| `_isRunning` field 是 bool，由 `Stop()` 在 lock 内 flip 到 false | **确认**。`StopInner` (line 134-145) `_isRunning = false; _generation++; _timer?.Dispose();`。 |
+| `_isRunning` getter 已经在 `lock(this)` 内读 | **确认**。`public bool IsRunning { get { lock (this) return _isRunning; } }` (line 63-66)。新增的 re-check 复用同一 pattern。 |
 | CyclicSendService 没有同款 re-check（已知 race window） | **确认**。`CyclicSendService.OnTimerTick` (line 128-152) 同样 lock + encode + send 模式，无 re-check。**但 v1.6.1 PATCH 不动 CyclicSendService**（保持 v1.5.1 Decision 7 的 production 独立性；如果改 CyclicSendService 就跨进 2 个 service，scope creep）。 |
 | encode 本身是同步 CPU-bound | **确认**。`DbcEncodeService.Encode` (line 24-81) 是 sync method。Lock 持有时间 < 1ms；Stop 在 encode 中发生 race window 极短，但仍存在。 |
 | SendAsync 的 in-flight await 期间 `Stop()` 已生效，service 不会重置 send result | **确认**。`SendService.SendAsync` 不接受 CancellationToken；`Stop()` 仅 `Dispose` Timer + flip _isRunning，不 abort in-flight await。 |
@@ -61,14 +61,14 @@ PATCH 纪律保持：除 Item 4 的 rename + Item 1/2 的 surgical production fi
 
 | Assumption | Phase 2.5 actual |
 |---|---|
-| `[ObservableProperty] private double? _startTimestamp;` 是 source-gen | **确认**。Line 116-117: `[ObservableProperty] private double? _startTimestamp;` + line 124 `[ObservableProperty] private double? _endTimestamp;`。Source-gen 生成 `StartTimestamp` / `EndTimestamp` property + raise `OnStartTimestampChanged` / `OnEndTimestampChanged` partial callback。 |
+| `[ObservableProperty] private double? _startTimestamp;` 是 source-gen | **确认**。Line 101: `[ObservableProperty]` + line 102: `private double? _startTimestamp;` + line 108 `[ObservableProperty] private double? _endTimestamp;`。Source-gen 生成 `StartTimestamp` / `EndTimestamp` property + raise `OnStartTimestampChanged` / `OnEndTimestampChanged` partial callback。 |
 | source-gen setter 顺序：先写 backing field，再 raise partial callback | **确认**（CommunityToolkit.Mvvm 8+ 文档保证 + 实际行为）。Partial `return` 拒绝时 backing field 已被覆盖，UI binding 读到新值。 |
-| `OnStartTimestampChanged` (line 256-264) 拒绝时只 set `RangeFilterError`，不恢复 backing field | **确认**。Line 261-263: `if (value > EndTimestamp) { RangeFilterError = "Start must be ≤ End"; return; }` — `return` 不影响 backing field。 |
-| `OnEndTimestampChanged` (line 266-275) 同样 pattern | **确认**。Line 272-273 mirror。 |
+| `OnStartTimestampChanged` (line 255-265) 拒绝时只 set `RangeFilterError`，不恢复 backing field | **确认**。Line 258-260: `if (value.HasValue && EndTimestamp.HasValue && value > EndTimestamp) { RangeFilterError = "Start must be ≤ End"; return; }` — `return` 不影响 backing field。 |
+| `OnEndTimestampChanged` (line 271-280) 同样 pattern | **确认**。Line 274-276 mirror。 |
 | validator 逻辑 Start/End 各写一份（DRY violation） | **确认**。两个 partial method 各自写 `value > EndTimestamp` / `value < StartTimestamp` 重复。可以抽 static `IsValidRange(double? start, double? end)`。 |
-| `CommunityToolkit.Mvvm` 提供 `SetProperty(ref _, value, validator)` overload | **确认**。`ObservableObject.SetProperty<T>(ref T field, T newValue, Func<T, T, bool> validator)` 在 CT.Mvvm 8.4+ 引入（项目当前版本待 PR plan 验证）。 |
+| `CommunityToolkit.Mvvm` 提供 `SetProperty(ref _, value, validator)` overload | **确认**。`ObservableObject.SetProperty<T>(ref T field, T newValue, Func<T, T, bool> validator)` 在 CT.Mvvm 8.4+ 引入，**项目当前版本 = 8.4.2** (`Directory.Packages.props:7`)。无 fallback 需求。 |
 | XAML binding 在 `ReplayView.xaml` Row 5 用 TwoWay binding | **确认**。spec 写作时未实际 grep XAML，但 release notes line 49-58 描述 Row 5 有 2 TextBox + error TextBlock；TwoWay 是 XAML 默认 for `TextBox.Text` + `Binding Mode` 默认。**PR plan 必须 grep `ReplayView.xaml` 确认 TwoWay + UpdateSourceTrigger**。 |
-| `OpenAsync` (line 283-307) 成功 load 后 `StartTimestamp = null; EndTimestamp = null;` | **确认**。Line 295-298: `StartTimestamp = null; EndTimestamp = null; RangeFilterError = null;`。**改用 SetProperty 后此 pattern 仍有效**（setter 接受 null + 接受无其他端点的空 range）。 |
+| `OpenAsync` 成功 load 后 `StartTimestamp = null; EndTimestamp = null;` | **确认**。Line 310-312: `StartTimestamp = null; EndTimestamp = null; RangeFilterError = null;` (在 `OpenAsync` line 291-321 内)。**改用 SetProperty 后此 pattern 仍有效**（setter 接受 null + 接受无其他端点的空 range）。 |
 
 ### Item 3 — CyclicTimerTestHarness (test-only)
 
@@ -103,7 +103,7 @@ PATCH 纪律保持：除 Item 4 的 rename + Item 1/2 的 surgical production fi
 6. **CyclicSendService 现状 race window 同样存在**（不只 CyclicDbcSendService），但本 spec **不**改 CyclicSendService。**理由**：(a) 项目惯例 (v1.5.1 ship-new follow-up line 109 提过 "CyclicSendService transient-flaky" 但未 ship 修复)；(b) v1.2.12 PATCH Item 10 race fix 已 ship 关键 invariant（lock + generation + stale-timer drop），新 race window 是 "Stop 后 in-flight tick 仍 send 1 frame" 的 UX 问题（不丢 frame，不破坏 invariant）；(c) 改 CyclicSendService 需要 race test 改写（mirror Dbc），但 `CyclicSendServiceRaceTests` 是 stable 测试集，**改 test = scope creep**。本 spec Item 3 的 `CyclicTimerTestHarness` 设计**允许**未来 PATCH 把 re-check 加到 `CyclicSendService`，但**不在本 PATCH 实施**。
 7. **v1.6.0 MINOR scope 不进 PATCH**: V8 sandbox + CanApi rate limit + DBC size/token + path root + OEM `IKeyDerivationAlgorithm` 5 项明确 deferred。**DO NOT** scope-creep。
 8. **Path normalization / IO 不动**: Item 1/2/3/4 均不涉及 IO call。`BaudRate.FromFdDescriptor` 只在内存创建 record struct，`CyclicTimerTestHarness` 是 test-only static。
-9. **`CommunityToolkit.Mvvm` `SetProperty` validator overload 存在性**: PR plan 必须验证项目当前 `CommunityToolkit.Mvvm` 版本 ≥ 8.4。**降级方案**（如版本 < 8.4）: 手写 `SetProperty` 重载，签名 mirror 8.4 版本（`<T>(ref T, T, Func<T,T,bool>) bool`），内部是 `if (validator(field, newValue)) { field = newValue; OnPropertyChanged(...); return true; } return false;`。`PR plan §` Item 2 必须包含版本验证 + 降级代码。
+9. **`CommunityToolkit.Mvvm` `SetProperty` validator overload 存在性**: 已确认 `Directory.Packages.props:7` 锁 `CommunityToolkit.Mvvm 8.4.2`，8.4.0 release 引入 `SetProperty(ref, value, validator)` overload。**无 fallback 需求**。PR plan §` Item 2 必须 `dotnet build` 验证 import 解析。
 
 ## Scope
 
@@ -162,7 +162,7 @@ PATCH 纪律保持：除 Item 4 的 rename + Item 1/2 的 surgical production fi
 
 **决策**: A. 理由: (a) 选项 B 在 partial 内回写 backing field 是 hack，违反 source-gen 设计意图；(b) 选项 C 引入整套 validation framework，scope creep；(c) 选项 A 是 CommunityToolkit.Mvvm 8.4+ 官方推荐的 "rejected update" pattern。`SetProperty` overload 签名 `<T>(ref T field, T newValue, Func<T, T, bool> validator)`：当 validator 接受 (returns true) 时正常 set；拒绝 (returns false) 时不写 backing field、不 raise PropertyChanged，UI binding 读到旧值，service 保留旧值 — 自动同步。
 
-**Fallback (if `CommunityToolkit.Mvvm` < 8.4)**: 手写 `protected bool SetProperty<T>(ref T field, T newValue, Func<T, T, bool> validator)` overload 在 `ReplayViewModel` 内（partial class）。项目惯例允许 partial extension。PR plan §` Item 2 必须包含版本验证。
+**版本确认 (Phase 2.5)**: `Directory.Packages.props:7` 显示 `CommunityToolkit.Mvvm 8.4.2` — `SetProperty(ref, value, validator)` overload 在 8.4.0 release 引入，**项目当前已支持**，无 fallback 需求。PR plan §` Item 2 必须 `dotnet build` 验证 import 解析（不引新 dependency）。
 
 ### Decision 4: Item 2 — validator 抽 static helper（DRY）
 
@@ -247,19 +247,21 @@ public static async Task AssertWithinAsync(Func<bool> predicate, TimeSpan timeou
 ```csharp
 // src/PeakCan.Host.App/Services/CyclicDbcSendService.cs (modify OnTimerTick)
 
-// Existing (line 170-184):
-byte[] payload;
-try
-{
-    payload = _encoder.Encode(snapshot.message, snapshot.values);
-}
-catch (DbcSignalEncodeException ex) { ... return; }
+// 现有 OnTimerTick 结构 (line 151-247):
+//   line 151-159: lock(this) → 读 state snapshot
+//   line 162: state is long tickGen && tickGen != generation → stale drop
+//   line 167-173: provider() invoke (try/catch)
+//   line 186-199: lock(this) → Message.Id check (Decision 9)
+//   line 208-220: encode (try/catch DbcSignalEncodeException)
+//   line 236-247: send (try/catch + Interlocked.Increment)
 
-// NEW (insert between line 168 Message.Id check and line 170 encode):
+// NEW (insert line 207 前, encode 前 re-check):
 lock (this)
 {
     if (!_isRunning) return;  // re-check after provider() invoke
 }
+
+// 现有 line 208-220:
 byte[] payload;
 try
 {
@@ -267,38 +269,31 @@ try
 }
 catch (DbcSignalEncodeException ex) { ... return; }
 
-// Existing (line 197-203):
+// NEW (insert line 235 前, send 前 re-check):
+lock (this)
+{
+    if (!_isRunning) return;  // re-check before send (encode 后 race window 关闭)
+}
+
+// 现有 line 236-247:
 try
 {
     var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
     if (result.IsSuccess) { ... }
     else { ... }
 }
-
-// NEW (insert line 197 前):
-lock (this)
-{
-    if (!_isRunning) return;  // re-check before send (encode 后 race window 关闭)
-}
-try
-{
-    var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
-    ...
-}
 ```
 
 ### Item 2 — ReplayViewModel property 重构 (production 改动)
 
 ```csharp
-// src/PeakCan.Host.App/ViewModels/ReplayViewModel.cs (replace lines 116-117 + 124 + 256-275)
+// src/PeakCan.Host.App/ViewModels/ReplayViewModel.cs (replace lines 101-109 + 245-280)
 
 // REMOVE:
-//   [ObservableProperty]
-//   private double? _startTimestamp;
-//   [ObservableProperty]
-//   private double? _endTimestamp;
-//   partial void OnStartTimestampChanged(double? value) { ... }
-//   partial void OnEndTimestampChanged(double? value) { ... }
+//   line 101-105: [ObservableProperty] private double? _startTimestamp; (+ XML doc above)
+//   line 107-109: [ObservableProperty] private double? _endTimestamp;
+//   line 245-265: partial void OnStartTimestampChanged(double? value) { ... }
+//   line 267-280: partial void OnEndTimestampChanged(double? value) { ... }
 
 // ADD (replacement manual properties):
 private double? _startTimestamp;
@@ -504,10 +499,10 @@ public static BaudRate FromFdDescriptor(string descriptor, string name)
 | Suite | v1.5.1 baseline | v1.6.1 PATCH | Delta |
 |---|---|---|---|
 | Core | 335 | 338 | +3 (Item 4: `FromFdDescriptor` 3 tests) |
-| App | 395 | 436 | +41 (Item 1: 2, Item 2: 4, Item 3 race-test migration: ~35) |
+| App | 395 | 401 | +6 (Item 1: 2, Item 2: 4; Item 3 race-test migration is **replacement, not addition**) |
 | Harness (新 suite) | 0 | 4 | +4 (Item 3 helper tests) |
 | Infra | 84 | 84 | 0 |
-| **Total** | **814** | **862** | **+48** |
+| **Total** | **814** | **827** | **+13** |
 
 ### Item 1 tests (2 new)
 
@@ -540,7 +535,7 @@ public static BaudRate FromFdDescriptor(string descriptor, string name)
 - **MEDIUM**: 真正 abort in-flight send 需要 CancellationToken,**本 PATCH 不实现**;用户 click Stop 后 1 个 frame 仍会 send (已知行为,UI 可接受)。Mitigated by PR description 明文。
 
 ### Item 2
-- **LOW**: `SetProperty(ref, value, validator)` 是 CommunityToolkit.Mvvm 8.4+ API;项目当前版本 < 8.4 需手写 fallback (Decision 3 Fallback)。Mitigated by PR plan 版本验证 first action。
+- **LOW**: `SetProperty(ref, value, validator)` 是 CommunityToolkit.Mvvm 8.4+ API;**项目当前版本 = 8.4.2** (`Directory.Packages.props:7`)，已支持，无 fallback。Mitigated by PR plan `dotnet build` 验证 import 解析。
 - **LOW**: validator static helper 1 行逻辑,不单测,靠 property setter tests 覆盖。
 - **MEDIUM**: source-gen `[ObservableProperty]` 移除后,`OpenAsync` 内的 `StartTimestamp = null;` (line 295) 必须确认走新 property setter 路径(自动,确认 OK)。Mitigated by manual review OpenAsync in plan §3 + integration test。
 - **MEDIUM**: 现有 `RangeFilterError` 单一 property 保持 (Start/End 共享);XAML 行为不变。
