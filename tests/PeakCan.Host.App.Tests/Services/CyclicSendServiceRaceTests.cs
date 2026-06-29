@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Tests.TestHelpers;
 using PeakCan.Host.Core;
 using Xunit;
 
@@ -60,8 +61,13 @@ public class CyclicSendServiceRaceTests
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
 
         // Let the timer fire a few times so we have a non-zero baseline.
-        await Task.Delay(60);
-        send.CallCount.Should().BeGreaterThan(0, "the timer should have ticked at least once before Stop");
+        // v1.6.1 PATCH Item 3: harness wraps the wait with 3 internal
+        // retries (5ms polling per attempt) so transient CI flakes no
+        // longer depend on human re-trigger.
+        await CyclicTimerTestHarness.AssertWithinAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500),
+            "timer ticks at least once before Stop");
 
         svc.Stop();
         int beforeStopCount = send.CallCount;
