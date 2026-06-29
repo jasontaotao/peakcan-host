@@ -43,6 +43,7 @@ public class SendServiceTests
         { IsConnected = false; return Task.CompletedTask; }
         public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
             Written.Add(frame);
             return ValueTask.FromResult(NextResult);
         }
@@ -50,6 +51,39 @@ public class SendServiceTests
     }
 
     private static SendService NewSvc() => new(NullLogger<SendService>.Instance);
+
+    /// <summary>
+    /// Channel fixture that unconditionally throws
+    /// <see cref="OperationCanceledException"/> with a caller-supplied
+    /// CT on every <see cref="WriteAsync"/>. Used by
+    /// <see cref="SendAsync_channel_WriteAsync_OCE_with_unrelated_CT_does_not_swallow"/>
+    /// to verify that SendService does NOT rewrite or swallow an OCE
+    /// that originated from the channel layer with an unrelated CT.
+    /// Mirrors v1.6.2 PATCH process lesson 4: do not mask unrelated
+    /// cancellations.
+    /// </summary>
+    private sealed class OceFakeChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+        private readonly CancellationToken _oceToken;
+        public OceFakeChannel(ChannelId id, CancellationToken oceToken)
+        {
+            Id = id;
+            IsConnected = true;
+            _oceToken = oceToken;
+        }
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+#pragma warning restore CS0067
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        { IsConnected = true; return Task.FromResult(Result<Unit>.Ok(default)); }
+        public Task DisconnectAsync(CancellationToken ct = default)
+        { IsConnected = false; return Task.CompletedTask; }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => throw new OperationCanceledException(_oceToken);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     [Fact]
     public void ActiveChannel_Defaults_To_Null()
@@ -179,5 +213,40 @@ public class SendServiceTests
 
         var assertion = await act.Should().ThrowAsync<OperationCanceledException>();
         assertion.Which.CancellationToken.Should().Be(preCancelledCts.Token);
+    }
+
+    [Fact]
+    public async Task SendAsync_channel_WriteAsync_OCE_with_unrelated_CT_does_not_swallow()
+    {
+        // v1.6.3 PATCH Item 1 (defensive): SendService must NOT rewrite
+        // or filter an OperationCanceledException that originated from
+        // the channel layer. If the channel throws OCE with a CT that
+        // differs from the caller-supplied CT (e.g. an internal network
+        // timeout, hardware shutdown, downstream ISO-TP cancellation),
+        // SendService must let the OCE propagate untouched, preserving
+        // the channel's original CT on ex.CancellationToken. This guards
+        // against a future regression where someone "helpfully" adds a
+        // catch (OperationCanceledException) without a `when` filter
+        // (v1.6.2 PATCH process lesson 4: always pair `catch (OCE)` with
+        // `when (ct.IsCancellationRequested)`).
+        using var unrelatedCts = new CancellationTokenSource();
+        unrelatedCts.Cancel();
+        var unrelatedCt = unrelatedCts.Token;
+
+        var channel = new OceFakeChannel(new ChannelId(0x51), unrelatedCt);
+        var svc = NewSvc();
+        svc.ActiveChannel = channel;
+        var frame = new CanFrame(
+            new CanId(0x100, FrameFormat.Standard),
+            ReadOnlyMemory<byte>.Empty,
+            FrameFlags.None,
+            ChannelId.None,
+            default);
+        using var freshCts = new CancellationTokenSource();
+
+        Func<Task> act = async () => { await svc.SendAsync(frame, freshCts.Token); };
+
+        var assertion = await act.Should().ThrowAsync<OperationCanceledException>();
+        assertion.Which.CancellationToken.Should().Be(unrelatedCt);
     }
 }
