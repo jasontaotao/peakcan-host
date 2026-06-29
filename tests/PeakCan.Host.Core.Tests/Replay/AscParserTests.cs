@@ -144,6 +144,37 @@ also garbage
     }
 
     /// <summary>
+    /// v1.4.0 MINOR final-review fix: AscParser must handle RecordService's
+    /// concatenated-hex output format (Convert.ToHexString). End-to-end
+    /// round-trip with the actual producer.
+    /// </summary>
+    [Fact]
+    public async Task Parse_RecordServiceConcatenatedHexFormat_RoundTrip()
+    {
+        // Exact format produced by RecordService.cs:312-313:
+        //   {elapsed:F6} {channelHandle:X2}  {idHex:X}  {dlc}  {dataHex}{fdFlag}{brsFlag}{esiFlag}{errFlag}
+        // where dataHex = Convert.ToHexString(frame.Data.Span) — NO spaces.
+        const string asc = @"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  1122334455667788
+ 0.500000 51  200  4  AABBCCDD
+ 1.000000 51  300  2  0102
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(3);
+        frames[0].Id.Should().Be(0x100u);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
+        frames[1].Id.Should().Be(0x200u);
+        frames[1].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD);
+        frames[2].Id.Should().Be(0x300u);
+        frames[2].Data.Should().Equal(0x01, 0x02);
+    }
+
+    /// <summary>
     /// v1.4.0 MINOR: truncated data line (DLC=8, only 2 data bytes) is
     /// treated as malformed and skipped per spec Decision 3. The mixed-line
     /// fixture keeps the >50% malformed threshold satisfied so the file
@@ -169,3 +200,4 @@ also garbage
         frames[1].Dlc.Should().Be(2);
     }
 }
+

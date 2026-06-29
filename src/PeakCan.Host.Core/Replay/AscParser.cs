@@ -89,10 +89,10 @@ public static class AscParser
     {
         frame = default!;
         // Format: {timestamp:F6} {channel:X2}  {id:X}  {dlc}  {dataBytes...} {flags...}
-        // Real-world ASC uses space-separated hex bytes (Vector convention);
-        // RecordService concatenates bytes via Convert.ToHexString. The parser
-        // collects tokens from index 4, classifying each as a flag or a 1-2
-        // char hex byte, accepting either layout.
+        // Data bytes may be either space-separated (Vector ASC convention) or
+        // concatenated (RecordService's Convert.ToHexString output). Each post-DLC
+        // token is classified as either a flag keyword or a hex byte (or
+        // concatenation of 2-char hex bytes).
         var tokens = line.Split(WhitespaceSeparators, StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length < 4) return false;
 
@@ -117,13 +117,35 @@ public static class AscParser
                 case "esi": flags |= FrameFlags.ErrorStateIndicator; continue;
                 case "error": flags |= FrameFlags.ErrFrame; continue;
             }
-            // Not a flag → must be a hex byte (1 or 2 chars). 2-char hex bytes
-            // are concatenated in RecordService output (e.g. "11"+"22" → 0x11, 0x22).
-            if (t.Length == 0 || t.Length > 2)
+            // Not a flag → must be hex bytes. Tokens may be either:
+            // - Space-separated 1-2 char hex bytes (Vector ASC convention)
+            // - Concatenated 2*N chars (RecordService uses Convert.ToHexString,
+            //   producing e.g. "1122334455667788" for DLC=8)
+            // Slice longer tokens into 2-char chunks; odd-length tokens are
+            // malformed (return false).
+            if (t.Length == 0)
                 return false;
-            if (!byte.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+            if (t.Length == 1)
+            {
+                if (!byte.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+                    return false;
+                data.Add(b);
+            }
+            else if (t.Length % 2 != 0)
+            {
+                // Odd length: ambiguous, treat as malformed
                 return false;
-            data.Add(b);
+            }
+            else
+            {
+                // Even length 2+: slice into 2-char hex bytes
+                for (int j = 0; j < t.Length; j += 2)
+                {
+                    if (!byte.TryParse(t.AsSpan(j, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+                        return false;
+                    data.Add(b);
+                }
+            }
         }
 
         // Invariant: byte count must match declared DLC. Truncated user-imported
@@ -136,3 +158,4 @@ public static class AscParser
         return true;
     }
 }
+
