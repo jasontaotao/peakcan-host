@@ -320,4 +320,80 @@ public class ReplayViewModelTests : IDisposable
         // any leftover load-time error. (To clear it, the user must
         // re-open a file, which goes through OpenAsync that resets it.)
     }
+
+    // ---------- v1.5.1 PATCH Task 2: time-range filter ----------
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: setting <c>StartTimestamp</c> on the VM proxies
+    /// through to <see cref="IReplayService.StartTimestamp"/>. The service
+    /// is the source of truth; the VM is a two-way binding proxy.
+    /// </summary>
+    [Fact]
+    public void StartTimestamp_Set_PropagatesToService()
+    {
+        _sut.StartTimestamp = 1.5;
+
+        _service.Received(1).StartTimestamp = 1.5;
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: setting <c>StartTimestamp</c> to null propagates
+    /// to the service as null (unbounded below). The VM does not silently
+    /// coerce to 0.
+    /// </summary>
+    [Fact]
+    public void StartTimestamp_Null_ClearsToService()
+    {
+        _sut.StartTimestamp = 1.5;
+        _sut.StartTimestamp = null;
+
+        _service.Received(1).StartTimestamp = null;
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: setting <c>StartTimestamp</c> greater than the
+    /// current <c>EndTimestamp</c> sets <c>RangeFilterError</c> and refuses
+    /// to push the value to the service. This protects the WPF two-way
+    /// binding path from <see cref="ArgumentException"/> (Decision 4).
+    /// </summary>
+    [Fact]
+    public void StartTimestamp_GreaterThanEndTimestamp_SetsRangeFilterError()
+    {
+        _sut.EndTimestamp = 1.0;
+        _sut.StartTimestamp = 2.0;  // 2.0 > 1.0 → invalid
+
+        _sut.RangeFilterError.Should().NotBeNullOrEmpty();
+        _sut.RangeFilterError.Should().Contain("Start");
+        // The invalid value must NOT reach the service.
+        _service.DidNotReceive().StartTimestamp = 2.0;
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <c>OpenAsync</c> clears the range filter after
+    /// a successful load. A new file has a different timestamp range; the
+    /// old bounds (e.g. End=60 on a 5-second file) would silently filter
+    /// out everything (Decision 5).
+    /// </summary>
+    [Fact]
+    public async Task OpenAsync_ClearsRangeFilter()
+    {
+        // Arrange — pre-set range and a non-null RangeFilterError to prove
+        // the clear path runs unconditionally on a successful load.
+        _sut.StartTimestamp = 1.0;
+        _sut.EndTimestamp = 2.0;
+        _sut.RangeFilterError = "stale prior error";
+
+        _fileDialog.ShowOpenDialog(Arg.Any<string>()).Returns("/tmp/clear-range.asc");
+        _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _service.TotalDuration.Returns(5.0);
+
+        // Act
+        await _sut.OpenCommand.ExecuteAsync(null);
+
+        // Assert — the three range-related properties are all null after load.
+        _sut.StartTimestamp.Should().BeNull("OpenAsync clears StartTimestamp");
+        _sut.EndTimestamp.Should().BeNull("OpenAsync clears EndTimestamp");
+        _sut.RangeFilterError.Should().BeNull("OpenAsync clears RangeFilterError");
+    }
 }
