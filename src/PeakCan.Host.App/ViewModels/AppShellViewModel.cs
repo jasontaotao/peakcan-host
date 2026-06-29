@@ -85,6 +85,13 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
     private ushort? _persistedHandleOnStartup;
+    // v1.5.0 MINOR: when EnumerateChannels auto-selects a fallback because
+    // the persisted handle did not match any enumerated channel, suppress
+    // the subsequent OnSelectedChannelChanged write so we do not clobber
+    // the user's original persisted value (e.g. "99" if the hardware no
+    // longer matches). Cleared by the next real OnSelectedChannelChanged
+    // invocation (which always persists user intent).
+    private bool _suppressNextPersist;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -184,9 +191,23 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// after EnumerateChannels populates <see cref="AvailableChannels"/>.
     /// Handle format is uppercase hex without 0x prefix (matches PEAK
     /// convention: 0x51 → "51"). A null SelectedChannel clears the key.
+    /// <para>
+    /// v1.5.0 review fix: when <see cref="EnumerateChannels"/> auto-selects
+    /// a fallback (the persisted handle did not match any enumerated channel),
+    /// <see cref="_suppressNextPersist"/> is set so this write is skipped,
+    /// preserving the user's original persisted value across the hardware
+    /// mismatch. Any subsequent user-driven selection always persists.
+    /// </para>
     /// </summary>
     partial void OnSelectedChannelChanged(ChannelInfo? value)
     {
+        if (_suppressNextPersist)
+        {
+            // Consume the flag for this single auto-select event; the very
+            // next user-driven change will persist normally.
+            _suppressNextPersist = false;
+            return;
+        }
         _configuration["Channel:SelectedHandle"] = value?.Handle.ToString("X2");
     }
 
@@ -377,6 +398,16 @@ public sealed partial class AppShellViewModel : ObservableObject
                 var match = persisted.HasValue
                     ? channels.FirstOrDefault(c => c.Handle == persisted.Value)
                     : null;
+                // v1.5.0 review fix: when the persisted handle did not
+                // match any enumerated channel (e.g. "99" but only 0x51/0x52
+                // present), the auto-select below would otherwise trigger
+                // OnSelectedChannelChanged and overwrite the user's persisted
+                // "99" with "51". Suppress that one write so the user's
+                // original intent survives across hardware changes.
+                if (persisted.HasValue && match is null)
+                {
+                    _suppressNextPersist = true;
+                }
                 SelectedChannel = match ?? channels[0];
                 ChannelList = $"{SelectedChannel.Name} ({SelectedBaudRate.Name})";
                 StatusMessage = $"Detected {channels.Count} channel(s)";

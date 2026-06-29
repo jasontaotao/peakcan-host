@@ -778,9 +778,24 @@ public class AppShellViewModelTests
     /// </summary>
     private sealed class FakeChannelEnumerator : Core.IChannelEnumerator
     {
-        public IReadOnlyList<ChannelInfo> Channels { get; set; } = Array.Empty<ChannelInfo>();
+        // CA1859: concrete ChannelInfo[] avoids virtual dispatch through
+        // IReadOnlyList<T> when callers iterate.
+        public ChannelInfo[] Channels { get; set; } = Array.Empty<ChannelInfo>();
         public IReadOnlyList<ChannelInfo> Enumerate() => Channels;
     }
+
+    /// <summary>
+    /// Build a writable empty <see cref="IConfiguration"/> backed by an
+    /// in-memory provider. Required because an empty
+    /// <c>ConfigurationBuilder().Build()</c> root has no providers and its
+    /// indexer SETTER throws <c>InvalidOperationException("A configuration
+    /// source is not registered")</c>. Every test that exercises the
+    /// persistence write path needs this helper.
+    /// </summary>
+    private static IConfiguration WritableEmptyConfig() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
 
     private static AppShellViewModel NewVmWithEnumerator(
         Core.IChannelEnumerator enumerator,
@@ -793,9 +808,7 @@ public class AppShellViewModelTests
         // IConfigurationRoot with no providers — its indexer SETTER throws
         // "A configuration source is not registered". Add a memory provider
         // so tests can write back the persisted SelectedHandle.
-        var writableConfig = config ?? new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
-            .Build();
+        var writableConfig = config ?? WritableEmptyConfig();
         return new AppShellViewModel(
             new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
@@ -893,9 +906,7 @@ public class AppShellViewModelTests
         };
         // InMemory provider required — an empty ConfigurationBuilder().Build()
         // root has no providers and its indexer setter throws.
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
-            .Build();
+        var config = WritableEmptyConfig();
         var vm = NewVmWithEnumerator(enumerator, config: config);
 
         vm.EnumerateChannelsCommand.Execute(null);
@@ -933,6 +944,52 @@ public class AppShellViewModelTests
     }
 
     [Fact]
+    public void Ctor_PersistedHandleNoMatch_DoesNotOverwriteConfig()
+    {
+        // v1.5.0 review fix (Important #1): when EnumerateChannels runs and the
+        // persisted handle does not match any enumerated channel, the
+        // post-enumerate auto-select (channels[0]) must NOT trigger a write
+        // that overwrites the user's original persisted value. The user's
+        // intent ("99" — maybe a future handle they expected to plug in)
+        // must survive the hardware mismatch so when the right hardware
+        // shows up, the app can still restore their preference.
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = new[] { new ChannelInfo(0x51, "PCAN-USB 1") }
+        };
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Channel:SelectedHandle"] = "99",
+            })
+            .Build();
+        var vm = NewVmWithEnumerator(enumerator, config: config);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        // Persisted handle "99" did not match any enumerated channel;
+        // auto-selected channels[0] = 0x51 — VM should show that on screen.
+        vm.SelectedChannel?.Handle.Should().Be(0x51,
+            "fallback to channels[0] when persisted handle does not match");
+
+        // But the config key must still report the user's original intent,
+        // NOT the auto-selected fallback. Without the _suppressNextPersist
+        // flag, OnSelectedChannelChanged would have written "51" back and
+        // permanently lost "99".
+        config["Channel:SelectedHandle"].Should().Be("99",
+            "persisted handle should NOT be overwritten by post-enumerate auto-select");
+
+        // After the suppressed write, subsequent user-driven selections
+        // MUST persist normally. Verifies the flag is single-shot.
+        vm.SelectedChannel = null;
+        config["Channel:SelectedHandle"].Should().BeNull(
+            "user-driven null set must persist after the suppressed auto-select");
+        vm.SelectedChannel = enumerator.Channels[0];
+        config["Channel:SelectedHandle"].Should().Be("51",
+            "user-driven channel set must persist after the suppressed auto-select");
+    }
+
+    [Fact]
     public void SelectedChannel_Set_PersistsToConfig()
     {
         // v1.5.0: changing SelectedChannel must write the new handle to
@@ -947,9 +1004,7 @@ public class AppShellViewModelTests
         };
         // InMemory provider required — an empty ConfigurationBuilder().Build()
         // root has no providers and its indexer setter throws.
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
-            .Build();
+        var config = WritableEmptyConfig();
         var vm = NewVmWithEnumerator(enumerator, config: config);
 
         vm.EnumerateChannelsCommand.Execute(null);
@@ -969,9 +1024,7 @@ public class AppShellViewModelTests
         {
             Channels = new[] { new ChannelInfo(0x51, "PCAN-USB 1") }
         };
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
-            .Build();
+        var config = WritableEmptyConfig();
         var vm = NewVmWithEnumerator(enumerator, config: config);
 
         vm.EnumerateChannelsCommand.Execute(null);
