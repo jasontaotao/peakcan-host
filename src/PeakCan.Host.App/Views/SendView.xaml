@@ -105,6 +105,14 @@
                 through the shared SendService. ErrorMessage shows
                 range / not-found / configuration errors from the
                 encoder.
+                <para>
+                v1.5.1 PATCH Item 2 (Periodic DBC send): the
+                <c>DbcCyclicSubPanel</c> after the one-shot Send row
+                provides Start/Stop + interval TextBox + live success /
+                failure counters. Mirror of the raw-frame
+                <c>CyclicExpander</c> pattern above (line 42-61) for UI
+                symmetry.
+                </para>
             -->
             <Expander x:Name="DbcModeExpander" Header="DBC mode" Margin="0,4,0,0" IsExpanded="False">
                 <StackPanel Orientation="Vertical" Margin="6"
@@ -128,6 +136,25 @@
                         <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
                         <TextBlock Text="{Binding ErrorMessage}" Foreground="Red"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+                    <!-- v1.5.1 PATCH Item 2: periodic DBC send UI. -->
+                    <StackPanel x:Name="DbcCyclicSubPanel" Orientation="Vertical" Margin="0,8,0,0">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Cyclic interval (ms):" Width="140" VerticalAlignment="Center" />
+                            <TextBox Text="{Binding DbcCyclicIntervalText, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Start cyclic" Command="{Binding StartDbcCyclicCommand}" Width="100"
+                                    IsEnabled="{Binding IsDbcCyclicRunning, Converter={StaticResource InverseBool}}" />
+                            <Button Content="Stop" Command="{Binding StopDbcCyclicCommand}" Width="60"
+                                    IsEnabled="{Binding IsDbcCyclicRunning}" />
+                            <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
+                                <Run Text="{Binding DbcCyclicSuccessCount, Mode=OneWay}" />
+                                <Run Text=" ok / " />
+                                <Run Text="{Binding DbcCyclicFailureCount, Mode=OneWay}" />
+                                <Run Text=" fail" />
+                            </TextBlock>
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Expander>

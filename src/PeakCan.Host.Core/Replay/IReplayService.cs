@@ -43,6 +43,35 @@ public interface IReplayService
     IReadOnlySet<uint>? CanIdFilter { get; set; }
 
     /// <summary>
+    /// Inclusive lower bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>
+    /// (seconds from recording start). <c>null</c> (default) means unbounded below.
+    /// <para>
+    /// The range filter is enforced at the timeline iteration boundary
+    /// (NOT the emit boundary), so the cursor skips frames outside the
+    /// window — <see cref="CurrentTimestamp"/> advances only across
+    /// in-range frames. Composes with <see cref="CanIdFilter"/>: range
+    /// filter is applied first at the iteration boundary, CAN-ID filter
+    /// second at the emit boundary. Re-applied after <see cref="Loop"/>
+    /// rewind — a loop rewind to t=0 walks the cursor forward through
+    /// the start bound before emitting again.
+    /// </para>
+    /// <para>
+    /// Changes take effect on the next emit (no buffering of stale
+    /// decisions). The service does NOT validate <c>Start &lt;= End</c> —
+    /// the VM is responsible for that to keep the WPF two-way binding
+    /// path free of exceptions.
+    /// </para>
+    /// </summary>
+    double? StartTimestamp { get; set; }
+
+    /// <summary>
+    /// Inclusive upper bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>
+    /// (seconds from recording start). <c>null</c> (default) means unbounded above.
+    /// Same composition + re-application semantics as <see cref="StartTimestamp"/>.
+    /// </summary>
+    double? EndTimestamp { get; set; }
+
+    /// <summary>
     /// Raised once when playback reaches <see cref="TotalDuration"/> with
     /// <see cref="Loop"/> == false, OR when playback is aborted due to a
     /// sink failure (e.g. <see cref="ReplaySendException"/>). UI listens

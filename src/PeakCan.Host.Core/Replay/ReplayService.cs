@@ -50,6 +50,26 @@ public sealed partial class ReplayService : IReplayService, IDisposable
 
     public IReadOnlySet<uint>? CanIdFilter { get; set; }
 
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: proxies to <see cref="ReplayTimeline.StartTimestamp"/>.
+    /// See <see cref="IReplayService.StartTimestamp"/> for the full contract.
+    /// </summary>
+    public double? StartTimestamp
+    {
+        get => _timeline.StartTimestamp;
+        set => _timeline.StartTimestamp = value;
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: proxies to <see cref="ReplayTimeline.EndTimestamp"/>.
+    /// See <see cref="IReplayService.EndTimestamp"/> for the full contract.
+    /// </summary>
+    public double? EndTimestamp
+    {
+        get => _timeline.EndTimestamp;
+        set => _timeline.EndTimestamp = value;
+    }
+
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
 
     /// <summary>

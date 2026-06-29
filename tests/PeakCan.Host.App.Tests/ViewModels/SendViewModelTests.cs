@@ -57,7 +57,6 @@ public class SendViewModelTests
     internal sealed class FakeCyclicSendService : ICyclicSendService
     {
         public bool IsRunning { get; set; }
-        public long SendCount { get; set; }
         public long SuccessCount { get; set; }
         public long FailureCount { get; set; }
         public CanFrame? LastFrame { get; private set; }
@@ -70,7 +69,6 @@ public class SendViewModelTests
             LastFrame = frame;
             LastInterval = interval;
             IsRunning = true;
-            SendCount = 0;
             SuccessCount = 0;
             FailureCount = 0;
         }
@@ -493,7 +491,6 @@ public class SendViewModelLibraryRegressionTests : IDisposable
     private sealed class StubCyclicSendService : ICyclicSendService
     {
         public bool IsRunning => false;
-        public long SendCount => 0L;
         public long SuccessCount => 0L;
         public long FailureCount => 0L;
         public void Start(CanFrame frame, TimeSpan interval) { }

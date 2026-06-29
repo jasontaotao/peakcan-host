@@ -12,6 +12,9 @@ public class ReplayTimelineTests
     // Reused across multiple tests; CA1861 prefers static readonly for array args.
     private static readonly uint[] AllThreeIds = { 0x100u, 0x200u, 0x300u };
     private static readonly uint[] FilteredTwoIds = { 0x100u, 0x200u };
+    private static readonly uint[] InRangeAtBoundary = { 0x200u, 0x300u };
+    private static readonly uint[] SubCaseAUnboundedBelow = { 0x100u, 0x200u };
+    private static readonly uint[] SubCaseBUnboundedAbove = { 0x200u, 0x300u };
 
     /// <summary>
     /// v1.4.0 MINOR Replay: Play emits frames at correct timestamps (within timer resolution).
@@ -373,5 +376,257 @@ public class ReplayTimelineTests
 
         emitCount.Should().Be(1, "1st frame attempted, threw, no further emits");
         countAfterAbort.Should().Be(emitCount, "playback halted after throw, no more emits");
+    }
+
+    // ---------- v1.5.1 PATCH Task 2: time-range filter (StartTimestamp/EndTimestamp) ----------
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <see cref="ReplayTimeline.StartTimestamp"/> set
+    /// to 1.5 means frames with <c>Timestamp &lt; 1.5</c> are skipped at the
+    /// OnTick iteration boundary. Cursor still walks to EOF; emitted list
+    /// contains only frames at t ≥ 1.5.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_StartTimestampSet_SkipsFramesBeforeStart()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
+        var emitted = new List<ReplayFrame>();
+        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        timeline.StartTimestamp = 1.5;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(3500);  // give cursor enough wall-clock to walk past last frame
+        timeline.Stop();
+
+        emitted.Should().HaveCount(2, "frames at t=2.0 and t=3.0 are in range");
+        emitted[0].Id.Should().Be(0x300u);
+        emitted[1].Id.Should().Be(0x400u);
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <see cref="ReplayTimeline.EndTimestamp"/> set
+    /// to 1.5 means frames with <c>Timestamp &gt; 1.5</c> are skipped.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_EndTimestampSet_SkipsFramesAfterEnd()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
+        var emitted = new List<ReplayFrame>();
+        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        timeline.EndTimestamp = 1.5;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(3500);
+        timeline.Stop();
+
+        emitted.Should().HaveCount(2, "frames at t=0 and t=1.0 are in range");
+        emitted[0].Id.Should().Be(0x100u);
+        emitted[1].Id.Should().Be(0x200u);
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: both Start and End set restrict the emit window
+    /// to the closed interval [Start, End].
+    /// </summary>
+    [Fact]
+    public async Task OnTick_StartAndEndTimestampSet_EmitsOnlyFramesInRange()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400), (4.0, 0x500));
+        var emitted = new List<ReplayFrame>();
+        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        timeline.StartTimestamp = 1.5;
+        timeline.EndTimestamp = 2.5;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(4500);
+        timeline.Stop();
+
+        emitted.Should().HaveCount(1, "only the frame at t=2.0 is in [1.5, 2.5]");
+        emitted[0].Id.Should().Be(0x300u);
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: the range filter boundary is inclusive. A frame
+    /// whose timestamp exactly equals Start AND a frame whose timestamp
+    /// exactly equals End must both be emitted.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_BoundaryInclusive()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
+        var emitted = new List<ReplayFrame>();
+        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        timeline.StartTimestamp = 1.0;
+        timeline.EndTimestamp = 2.0;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(3500);
+        timeline.Stop();
+
+        emitted.Should().HaveCount(2, "frames at t=1.0 (== Start) and t=2.0 (== End) are inclusive");
+        emitted.Select(f => f.Id).Should().BeEquivalentTo(InRangeAtBoundary);
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: a null bound on either side means unbounded on
+    /// that side. Verifies via two sub-cases (Start=null, End=set) and
+    /// (Start=set, End=null).
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_NullMeansUnbounded()
+    {
+        // Sub-case A: Start=null, End=1.0 → only frames at t ≤ 1.0 pass
+        {
+            var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
+            var emitted = new List<ReplayFrame>();
+            var timeline = new ReplayTimeline(f => emitted.Add(f));
+            timeline.EndTimestamp = 1.0;
+            timeline.SetFrames(frames);
+
+            timeline.Play();
+            await Task.Delay(2500);
+            timeline.Stop();
+
+            emitted.Should().HaveCount(2, "Start=null means unbounded below");
+            emitted.Select(f => f.Id).Should().BeEquivalentTo(SubCaseAUnboundedBelow);
+        }
+
+        // Sub-case B: Start=1.0, End=null → only frames at t ≥ 1.0 pass
+        {
+            var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
+            var emitted = new List<ReplayFrame>();
+            var timeline = new ReplayTimeline(f => emitted.Add(f));
+            timeline.StartTimestamp = 1.0;
+            timeline.SetFrames(frames);
+
+            timeline.Play();
+            await Task.Delay(2500);
+            timeline.Stop();
+
+            emitted.Should().HaveCount(2, "End=null means unbounded above");
+            emitted.Select(f => f.Id).Should().BeEquivalentTo(SubCaseBUnboundedAbove);
+        }
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: with <see cref="ReplayTimeline.Loop"/>=true and
+    /// <see cref="ReplayTimeline.StartTimestamp"/>=1.5, after the loop rewinds
+    /// to t=0 the cursor walks forward and emits the first in-range frame,
+    /// not frame 0. Range filter is re-applied after the rewind.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_LoopRewindReappliesRange()
+    {
+        var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (1.5, 0x300), (1.55, 0x400));
+        var emitted = new List<ReplayFrame>();
+        var endedCount = 0;
+        var timeline = new ReplayTimeline(
+            emit: f => emitted.Add(f),
+            onPlaybackEnded: _ => endedCount++);
+        timeline.Loop = true;
+        timeline.StartTimestamp = 1.5;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(3500);  // first cycle: emit 0x300 + 0x400; rewind; second cycle: 0x300 + 0x400 again
+        timeline.Stop();
+
+        // After loop rewind, cursor walks to t=1.5 again, skipping 0x100 and 0x200.
+        // Each cycle emits 0x300 + 0x400; over 3.5s wall-clock with frames ending at 1.55s,
+        // we expect at least 2 full cycles.
+        emitted.Should().HaveCountGreaterThanOrEqualTo(4,
+            "loop rewind must re-apply range filter; in-range frames emit per cycle");
+        // First two emits in the first cycle must be 0x300 and 0x400 (NOT 0x100 or 0x200).
+        emitted[0].Id.Should().Be(0x300u,
+            "first frame after Play (or after rewind) must be the first in-range frame, not frame 0");
+        emitted[1].Id.Should().Be(0x400u);
+        endedCount.Should().Be(0, "Loop=true must NOT raise onPlaybackEnded");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: when the range filter excludes all frames (Start
+    /// is beyond the last frame), playback still walks to EOF and raises
+    /// <c>onPlaybackEnded</c> with no error — "ended normally, nothing to emit".
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_EmptiesAllFrames_StillRaisesPlaybackEndedOnEof()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
+        var emitted = new List<ReplayFrame>();
+        PlaybackEndedEventArgs? endedArgs = null;
+        var timeline = new ReplayTimeline(
+            emit: f => emitted.Add(f),
+            onPlaybackEnded: args => endedArgs = args);
+        // StartTimestamp=5.0 is past the last frame (t=2.0) — no frames in range.
+        timeline.StartTimestamp = 5.0;
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(2500);
+        timeline.Stop();
+
+        emitted.Should().BeEmpty("no frames in range");
+        timeline.IsPlaying.Should().BeFalse("EOF still auto-stops when Loop=false");
+        endedArgs.Should().NotBeNull("onPlaybackEnded fires on EOF even with zero emits");
+        endedArgs!.Error.Should().BeNull("normal EOF — no error payload");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <see cref="ReplayTimeline.Seek"/> advances the
+    /// cursor; combined with a range that excludes the seek target, no
+    /// frames emit and EOF still raises. The Seek does NOT enforce the
+    /// range — that's a deliberate Decision 5 (Seek is cursor move, not emit).
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_SeekOutsideRange_EmitsNothingOnPlay()
+    {
+        var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
+        var emitted = new List<ReplayFrame>();
+        var endedCount = 0;
+        var timeline = new ReplayTimeline(
+            emit: f => emitted.Add(f),
+            onPlaybackEnded: _ => endedCount++);
+        timeline.StartTimestamp = 5.0;  // excludes every frame
+        timeline.SetFrames(frames);
+        timeline.Seek(0.0);  // seek to t=0 (out of range)
+
+        timeline.Play();
+        await Task.Delay(2500);
+        timeline.Stop();
+
+        emitted.Should().BeEmpty("Seek outside range + Play → nothing emits");
+        endedCount.Should().Be(1, "EOF still raises onPlaybackEnded");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: changing <see cref="ReplayTimeline.StartTimestamp"/>
+    /// at runtime takes effect on the very next emit (no buffering of stale
+    /// decisions — same semantics as <c>CanIdFilter</c>).
+    /// </summary>
+    [Fact]
+    public async Task OnTick_RangeFilter_ChangedAtRuntime_TakesEffectImmediately()
+    {
+        var frames = MakeFrames((0.0, 0x100), (0.3, 0x200), (0.6, 0x300), (0.9, 0x400));
+        var emitted = new List<ReplayFrame>();
+        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        // Start with no range — all frames pass initially.
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(100);  // emit 0x100 only
+        timeline.StartTimestamp = 0.5;  // hot-swap: only frames at t ≥ 0.5
+        await Task.Delay(900);  // cursor walks through 0.6 → emit 0x300
+        timeline.Stop();
+
+        emitted.Should().Contain(f => f.Id == 0x100u,
+            "0x100 emitted before the hot-swap");
+        emitted.Should().Contain(f => f.Id == 0x300u,
+            "0x300 emitted after the hot-swap narrowed the range");
+        emitted.Should().NotContain(f => f.Id == 0x200u,
+            "0x200 (at t=0.3) is below the new Start=0.5 and must be skipped");
     }
 }

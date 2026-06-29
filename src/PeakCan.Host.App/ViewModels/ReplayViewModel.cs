@@ -92,6 +92,27 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _canIdFilterError;
 
+    // v1.5.1 PATCH Task 2: inclusive lower bound on emitted frames'
+    // timestamp. Proxied to IReplayService.StartTimestamp. null =
+    // unbounded below. The OnStartTimestampChanged partial callback
+    // validates against EndTimestamp (Decision 4) and refuses the
+    // change with an inline error if Start > End.
+    [ObservableProperty]
+    private double? _startTimestamp;
+
+    // v1.5.1 PATCH Task 2: inclusive upper bound on emitted frames'
+    // timestamp. Proxied to IReplayService.EndTimestamp. null =
+    // unbounded above. Mirrors StartTimestamp validation.
+    [ObservableProperty]
+    private double? _endTimestamp;
+
+    // v1.5.1 PATCH Task 2: inline error shown next to the range
+    // TextBoxes when Start > End. Null when the range is valid (or
+    // both bounds are null / Start ≤ End). Single shared error
+    // property for both boxes — same conceptual error class.
+    [ObservableProperty]
+    private string? _rangeFilterError;
+
     /// <summary>Inverse of <see cref="IsLoaded"/>. Convenience for XAML <c>IsEnabled</c> bindings.</summary>
     public bool IsNotLoaded => !IsLoaded;
 
@@ -223,6 +244,42 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// v1.5.1 PATCH Task 2: StartTimestamp source-gen partial callback.
+    /// Validates <c>value &lt;= EndTimestamp</c> before pushing to the
+    /// service (Decision 4 — VM-side validation keeps the WPF two-way
+    /// binding path free of <see cref="ArgumentException"/>). If
+    /// invalid, sets <see cref="RangeFilterError"/> and refuses the
+    /// change (the invalid value is dropped; the prior VM value is
+    /// retained via the source-gen property semantics).
+    /// </summary>
+    partial void OnStartTimestampChanged(double? value)
+    {
+        if (value.HasValue && EndTimestamp.HasValue && value > EndTimestamp)
+        {
+            RangeFilterError = "Start must be ≤ End";
+            return;
+        }
+        _service.StartTimestamp = value;
+        RangeFilterError = null;
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: EndTimestamp source-gen partial callback.
+    /// Mirrors <see cref="OnStartTimestampChanged"/> but validates
+    /// against <see cref="StartTimestamp"/>.
+    /// </summary>
+    partial void OnEndTimestampChanged(double? value)
+    {
+        if (value.HasValue && StartTimestamp.HasValue && value < StartTimestamp)
+        {
+            RangeFilterError = "Start must be ≤ End";
+            return;
+        }
+        _service.EndTimestamp = value;
+        RangeFilterError = null;
+    }
+
+    /// <summary>
     /// Open an ASC file via <see cref="IFileDialogService.ShowOpenDialog"/>,
     /// load it through <see cref="IReplayService.LoadAsync"/>, and copy
     /// the parsed duration into the slider's max value. Catches
@@ -244,6 +301,15 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             ScrubberMaxValue = TotalDuration;
             CurrentTimestamp = 0.0;
             IsLoaded = true;
+            // v1.5.1 PATCH Task 2 (Decision 5): clear the range filter
+            // after a successful load. A new file's timestamps are
+            // unlikely to match the prior bounds (e.g. old End=60 on
+            // a 5-second file silently filters out everything). Unlike
+            // CanIdFilter, CAN IDs are content-stable across files, so
+            // the ID filter is intentionally NOT cleared.
+            StartTimestamp = null;
+            EndTimestamp = null;
+            RangeFilterError = null;
         }
         catch (ReplayException ex)
         {

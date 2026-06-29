@@ -33,6 +33,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -100,7 +101,34 @@
                        TextWrapping="Wrap"/>
         </StackPanel>
 
-        <TextBlock Grid.Row="4"
+        <!-- v1.5.1 PATCH Task 2: time-range filter (From/To TextBoxes + inline
+             error). UpdateSourceTrigger=PropertyChanged fires the validator
+             on every keystroke; StringFormat=F3 matches TotalDuration's
+             display precision. The range filter is applied at the timeline
+             iteration boundary, not the emit boundary. -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="From:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,4,0"/>
+            <TextBox Text="{Binding StartTimestamp, StringFormat=F3, TargetNullValue='', UpdateSourceTrigger=PropertyChanged}"
+                     Width="80"
+                     VerticalAlignment="Center"
+                     ToolTip="Inclusive lower bound on emitted frames' timestamp (seconds from recording start). Empty = unbounded below."/>
+            <TextBlock Text="To:"
+                       VerticalAlignment="Center"
+                       Margin="12,0,4,0"/>
+            <TextBox Text="{Binding EndTimestamp, StringFormat=F3, TargetNullValue='', UpdateSourceTrigger=PropertyChanged}"
+                     Width="80"
+                     VerticalAlignment="Center"
+                     ToolTip="Inclusive upper bound on emitted frames' timestamp (seconds from recording start). Empty = unbounded above."/>
+            <TextBlock Text="{Binding RangeFilterError}"
+                       Foreground="Red"
+                       VerticalAlignment="Center"
+                       Margin="12,0,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="5"
                    Text="{Binding ErrorMessage}"
                    Foreground="Red"
                    Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
