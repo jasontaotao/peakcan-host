@@ -227,8 +227,9 @@ public class SendServiceTests
         // the channel's original CT on ex.CancellationToken. This guards
         // against a future regression where someone "helpfully" adds a
         // catch (OperationCanceledException) without a `when` filter
-        // (v1.6.2 PATCH process lesson 4: always pair `catch (OCE)` with
-        // `when (ct.IsCancellationRequested)`).
+        // (v1.6.2 PATCH process lesson 4 — release notes line 81
+        // "audit the catch chain for OCE" + MEMORY.md recap
+        // "always pair `catch (OCE)` with `when (ct.IsCancellationRequested)`").
         using var unrelatedCts = new CancellationTokenSource();
         unrelatedCts.Cancel();
         var unrelatedCt = unrelatedCts.Token;

@@ -3,7 +3,7 @@
 **Date:** 2026-06-30
 **Version:** v1.6.3 (PATCH)
 **Previous:** v1.6.2 (PATCH)
-**Commits since v1.6.2 (`17006b4`):** 2 (RED test + GREEN impl)
+**Commits since v1.6.2 (`17006b4`):** 3 (RED test + GREEN impl + docs)
 
 ## 概述
 
@@ -51,7 +51,7 @@ The **real gap** uncovered by the source-read was that `SendServiceTests.cs` had
 
 3. **New test `SendAsync_propagates_cancelled_CT_to_channel_WriteAsync` (lines 190-216)**: pre-cancelled CTS → `SendAsync` → asserts `OperationCanceledException` thrown with `preCancelledCts.Token` on `ex.CancellationToken`.
 
-4. **New test `SendAsync_channel_WriteAsync_OCE_with_unrelated_CT_does_not_swallow` (lines 218-251)**: channel throws OCE with `unrelatedCt` regardless of input CT → asserts OCE propagates with `unrelatedCt` preserved. Guards against a future regression where someone adds `catch (OperationCanceledException)` without a `when (ct.IsCancellationRequested)` filter (v1.6.2 PATCH process lesson 4: always pair `catch (OCE)` with `when` filter).
+4. **New test `SendAsync_channel_WriteAsync_OCE_with_unrelated_CT_does_not_swallow` (lines 218-251)**: channel throws OCE with `unrelatedCt` regardless of input CT → asserts OCE propagates with `unrelatedCt` preserved. Guards against a future regression where someone adds `catch (OperationCanceledException)` without a `when (ct.IsCancellationRequested)` filter (v1.6.2 PATCH process lesson 4 — release notes line 81: "audit the catch chain for OCE" + MEMORY.md recap: "always pair `catch (OCE)` with `when (ct.IsCancellationRequested)` filter").
 
 ### Item 2 — Convention documentation (docs-only)
 
