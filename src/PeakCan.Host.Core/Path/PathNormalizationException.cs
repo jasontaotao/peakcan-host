@@ -8,13 +8,17 @@ namespace PeakCan.Host.Core.Path;
 /// </summary>
 public sealed class PathNormalizationException : ArgumentException
 {
-    public string? AttemptedPath { get; }
+    /// <summary>
+    /// The path that was attempted. Empty string (<c>""</c>) when no path was
+    /// attempted (e.g. <see cref="PathNormalizationReason.NullPath"/>).
+    /// </summary>
+    public string Path { get; }
     public PathNormalizationReason Reason { get; }
 
-    public PathNormalizationException(string message, string? attemptedPath, PathNormalizationReason reason)
+    public PathNormalizationException(string message, string path, PathNormalizationReason reason)
         : base(message)
     {
-        AttemptedPath = attemptedPath;
+        Path = path;
         Reason = reason;
     }
 }
