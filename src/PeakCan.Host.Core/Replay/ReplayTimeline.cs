@@ -17,7 +17,7 @@ internal sealed class ReplayTimeline
     private double _currentTimestamp;
     private double _speed = 1.0;
     private bool _isPlaying;
-    private bool _hasStarted; // true once Play() has been called; resets only via Stop()
+    private bool _hasStarted; // true once Play() has been called with frames loaded; resets only via Stop()
     private DateTime _playStartWallClock;
     private double _playStartTimestamp;
     private Timer? _timer;
@@ -29,17 +29,11 @@ internal sealed class ReplayTimeline
     public bool IsPlaying { get { lock (_lock) return _isPlaying; } }
 
     /// <summary>
-    /// True once frames have been supplied via <see cref="SetFrames"/>.
-    /// Used by <see cref="ReplayService"/> to distinguish Stopped (no
-    /// frames / never played) from Paused (frames were playing, now halted).
-    /// </summary>
-    public bool HasFrames { get { lock (_lock) return _frames.Count > 0; } }
-
-    /// <summary>
-    /// True once <see cref="Play"/> has been called at least once since the
-    /// last <see cref="Stop"/>. Used by <see cref="ReplayService"/> to
-    /// distinguish Stopped (loaded but never played) from Paused (was
-    /// playing, now halted).
+    /// True once <see cref="Play"/> has been called with frames loaded, since
+    /// the last <see cref="Stop"/>. Used by <see cref="ReplayService"/> to
+    /// distinguish Stopped (no frames or never played) from Paused (was
+    /// playing, now halted). Play() on an empty timeline leaves this false
+    /// — there is nothing to play back, so the state stays Stopped.
     /// </summary>
     public bool HasStarted { get { lock (_lock) return _hasStarted; } }
 
@@ -58,6 +52,7 @@ internal sealed class ReplayTimeline
         lock (_lock)
         {
             if (_isPlaying) return;
+            if (_frames.Count == 0) return; // nothing to play; leave state as Stopped
             _playStartWallClock = DateTime.UtcNow;
             _playStartTimestamp = _currentTimestamp;
             _isPlaying = true;

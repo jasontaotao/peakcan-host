@@ -19,6 +19,10 @@ public interface IReplayService
     double Speed { get; }
 
     /// <summary>Fired when a frame is emitted during playback.</summary>
+    /// <remarks>
+    /// Fired on the timer callback thread, NOT the calling thread. UI subscribers
+    /// must marshal to the UI thread (e.g., Dispatcher.InvokeAsync).
+    /// </remarks>
     event Action<ReplayFrame>? FrameEmitted;
 
     /// <summary>Load and parse an ASC file from disk.</summary>
@@ -35,7 +39,7 @@ public interface IReplayService
     /// <summary>Resume from paused state.</summary>
     void Resume();
 
-    /// <summary>Jump to the specified timestamp; resumes position but not state.</summary>
+    /// <summary>Jump to the specified timestamp. Does not change the playing/paused state.</summary>
     void Seek(double timestamp);
 
     /// <summary>Change playback speed multiplier. Must be > 0.</summary>
