@@ -3,7 +3,9 @@
 **Release date:** 2026-06-29
 **Branch:** `feature/v1-5-0-minor` (cut from main @ v1.4.1 `cbd17f5`)
 **Base:** main @ v1.4.1 `cbd17f5`
-**Squash SHA:** (filled at ship)
+**Squash SHA:** `9f0bb9e`
+**Tag:** v1.5.0
+**PR:** #11
 
 ## 概述
 
