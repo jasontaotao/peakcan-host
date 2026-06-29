@@ -202,6 +202,17 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
             return;
         }
 
+        // v1.6.1 PATCH Item 1: defensive _isRunning re-check after the
+        // Message.Id lock and before encode. Closes the race window
+        // where Stop() can be called between the snapshot lock and
+        // encode, allowing an in-flight tick to complete even though
+        // Stop was requested. The re-check is cheap (< 1μs) and
+        // reuses the existing lock(this) pattern.
+        lock (this)
+        {
+            if (!_isRunning) return;
+        }
+
         byte[] payload;
         try
         {
@@ -230,6 +241,16 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
         var raw = isExtended ? (id & 0x1FFFFFFFu) : (id & 0x7FFu);
         var canId = new CanId(raw, isExtended ? FrameFormat.Extended : FrameFormat.Standard);
         var frame = new CanFrame(canId, payload, FrameFlags.None, ChannelId.None, default);
+
+        // v1.6.1 PATCH Item 1: defensive _isRunning re-check after
+        // encode and before send. Closes the second race window
+        // (encode → send await) where Stop() can be called while a
+        // tick is mid-flight. The first re-check covers the snapshot
+        // → encode window; this one covers encode → send.
+        lock (this)
+        {
+            if (!_isRunning) return;
+        }
 
         try
         {
