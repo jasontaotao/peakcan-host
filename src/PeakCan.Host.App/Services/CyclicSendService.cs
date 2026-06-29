@@ -48,15 +48,6 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     }
 
     /// <summary>
-    /// Total frames sent since the last <see cref="Start"/> (success + failure).
-    /// Retained for backward compatibility; new consumers should prefer
-    /// <see cref="SuccessCount"/> + <see cref="FailureCount"/> so the UI can
-    /// report the two outcomes separately.
-    /// </summary>
-    [Obsolete("Use SuccessCount + FailureCount. v1.2.12 split the mixed counter; remove in v1.2.13.")]
-    public long SendCount => Interlocked.Read(ref _sendSuccessCount) + Interlocked.Read(ref _sendFailureCount);
-
-    /// <summary>
     /// Number of frames the channel reported as successfully transmitted
     /// since the last <see cref="Start"/>. Reset to 0 by each new
     /// <see cref="Start"/> call.
