@@ -92,19 +92,79 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _canIdFilterError;
 
-    // v1.5.1 PATCH Task 2: inclusive lower bound on emitted frames'
-    // timestamp. Proxied to IReplayService.StartTimestamp. null =
-    // unbounded below. The OnStartTimestampChanged partial callback
-    // validates against EndTimestamp (Decision 4) and refuses the
-    // change with an inline error if Start > End.
-    [ObservableProperty]
+    // v1.6.1 PATCH Item 2: manual properties replace the v1.5.1
+    // [ObservableProperty] source-gen pattern. SetProperty(ref, value,
+    // validator) from CommunityToolkit.Mvvm 8.4+ does NOT write the
+    // backing field when the validator returns false, which closes the
+    // UX gap where a rejected Start > End update left the VM property
+    // holding the new (invalid) value while the service retained the
+    // old value. Now both stay in sync: rejected update = no field
+    // change = UI TextBox reads old value via binding.
+
     private double? _startTimestamp;
 
-    // v1.5.1 PATCH Task 2: inclusive upper bound on emitted frames'
-    // timestamp. Proxied to IReplayService.EndTimestamp. null =
-    // unbounded above. Mirrors StartTimestamp validation.
-    [ObservableProperty]
+    /// <summary>
+    /// Inclusive lower bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>.
+    /// null = unbounded below. Setter validates against <see cref="EndTimestamp"/>;
+    /// rejected updates keep the prior value and surface
+    /// <see cref="RangeFilterError"/>.
+    /// </summary>
+    public double? StartTimestamp
+    {
+        get => _startTimestamp;
+        set
+        {
+            if (!IsValidRange(value, _endTimestamp))
+            {
+                // Rejected: do NOT touch backing field, do NOT push to
+                // service. UI binding reads back the old value via the
+                // unchanged getter. RangeFilterError surfaces the reason.
+                RangeFilterError = "Start must be ≤ End";
+                return;
+            }
+            if (!EqualityComparer<double?>.Default.Equals(_startTimestamp, value))
+            {
+                _startTimestamp = value;
+                OnPropertyChanged();
+            }
+            _service.StartTimestamp = value;
+            RangeFilterError = null;
+        }
+    }
+
     private double? _endTimestamp;
+
+    /// <summary>
+    /// Inclusive upper bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>.
+    /// null = unbounded above. Mirrors <see cref="StartTimestamp"/> validation.
+    /// </summary>
+    public double? EndTimestamp
+    {
+        get => _endTimestamp;
+        set
+        {
+            if (!IsValidRange(_startTimestamp, value))
+            {
+                RangeFilterError = "Start must be ≤ End";
+                return;
+            }
+            if (!EqualityComparer<double?>.Default.Equals(_endTimestamp, value))
+            {
+                _endTimestamp = value;
+                OnPropertyChanged();
+            }
+            _service.EndTimestamp = value;
+            RangeFilterError = null;
+        }
+    }
+
+    /// <summary>
+    /// Range constraint validator shared by <see cref="StartTimestamp"/>
+    /// and <see cref="EndTimestamp"/> setters. Returns true when at least
+    /// one endpoint is null, or when start &lt;= end.
+    /// </summary>
+    private static bool IsValidRange(double? start, double? end)
+        => !(start.HasValue && end.HasValue && start > end);
 
     // v1.5.1 PATCH Task 2: inline error shown next to the range
     // TextBoxes when Start > End. Null when the range is valid (or
@@ -241,42 +301,6 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         CanIdFilterError = errors.Count > 0
             ? $"Invalid token(s): {string.Join(", ", errors)}"
             : null;
-    }
-
-    /// <summary>
-    /// v1.5.1 PATCH Task 2: StartTimestamp source-gen partial callback.
-    /// Validates <c>value &lt;= EndTimestamp</c> before pushing to the
-    /// service (Decision 4 — VM-side validation keeps the WPF two-way
-    /// binding path free of <see cref="ArgumentException"/>). If
-    /// invalid, sets <see cref="RangeFilterError"/> and refuses the
-    /// change (the invalid value is dropped; the prior VM value is
-    /// retained via the source-gen property semantics).
-    /// </summary>
-    partial void OnStartTimestampChanged(double? value)
-    {
-        if (value.HasValue && EndTimestamp.HasValue && value > EndTimestamp)
-        {
-            RangeFilterError = "Start must be ≤ End";
-            return;
-        }
-        _service.StartTimestamp = value;
-        RangeFilterError = null;
-    }
-
-    /// <summary>
-    /// v1.5.1 PATCH Task 2: EndTimestamp source-gen partial callback.
-    /// Mirrors <see cref="OnStartTimestampChanged"/> but validates
-    /// against <see cref="StartTimestamp"/>.
-    /// </summary>
-    partial void OnEndTimestampChanged(double? value)
-    {
-        if (value.HasValue && StartTimestamp.HasValue && value < StartTimestamp)
-        {
-            RangeFilterError = "Start must be ≤ End";
-            return;
-        }
-        _service.EndTimestamp = value;
-        RangeFilterError = null;
     }
 
     /// <summary>

@@ -396,4 +396,75 @@ public class ReplayViewModelTests : IDisposable
         _sut.EndTimestamp.Should().BeNull("OpenAsync clears EndTimestamp");
         _sut.RangeFilterError.Should().BeNull("OpenAsync clears RangeFilterError");
     }
+
+    /// <summary>
+    /// v1.6.1 PATCH Item 2: source-gen setter wrote the backing field
+    /// before the partial callback could reject. The new SetProperty
+    /// with validator prevents the field from being touched on rejection,
+    /// so the UI TextBox reads the prior value (not the rejected one)
+    /// and the service retains the prior value.
+    /// </summary>
+    [Fact]
+    public void StartTimestamp_set_above_End_reverts_to_previous_value()
+    {
+        var service = Substitute.For<IReplayService>();
+        var fileDialog = Substitute.For<IFileDialogService>();
+        var sut = new ReplayViewModel(service, fileDialog);
+
+        sut.EndTimestamp = 10.0;
+
+        sut.StartTimestamp = 20.0;  // violates Start <= End
+
+        sut.StartTimestamp.Should().BeNull(
+            "rejected update must not change the VM property; UI binding will see the old value");
+        sut.RangeFilterError.Should().Be("Start must be ≤ End");
+        service.DidNotReceive().StartTimestamp = Arg.Any<double?>();
+    }
+
+    [Fact]
+    public void StartTimestamp_set_below_End_pushes_to_service_and_clears_error()
+    {
+        var service = Substitute.For<IReplayService>();
+        var fileDialog = Substitute.For<IFileDialogService>();
+        var sut = new ReplayViewModel(service, fileDialog);
+
+        sut.StartTimestamp = 5.0;
+        sut.EndTimestamp = 10.0;
+
+        sut.RangeFilterError.Should().BeNull();
+        service.Received(1).StartTimestamp = 5.0;
+        service.Received(1).EndTimestamp = 10.0;
+    }
+
+    [Fact]
+    public void EndTimestamp_set_below_Start_reverts_to_previous_value()
+    {
+        var service = Substitute.For<IReplayService>();
+        var fileDialog = Substitute.For<IFileDialogService>();
+        var sut = new ReplayViewModel(service, fileDialog);
+
+        sut.StartTimestamp = 10.0;
+
+        sut.EndTimestamp = 5.0;  // violates Start <= End
+
+        sut.EndTimestamp.Should().BeNull();
+        sut.RangeFilterError.Should().Be("Start must be ≤ End");
+        service.DidNotReceive().EndTimestamp = Arg.Any<double?>();
+    }
+
+    [Fact]
+    public void SetProperty_with_null_end_clears_constraint()
+    {
+        // When one endpoint is null, the other is unconstrained.
+        var service = Substitute.For<IReplayService>();
+        var fileDialog = Substitute.For<IFileDialogService>();
+        var sut = new ReplayViewModel(service, fileDialog);
+
+        sut.EndTimestamp = null;
+        sut.StartTimestamp = 1_000_000.0;  // huge value, no End to violate
+
+        sut.StartTimestamp.Should().Be(1_000_000.0);
+        sut.RangeFilterError.Should().BeNull();
+        service.Received(1).StartTimestamp = 1_000_000.0;
+    }
 }
