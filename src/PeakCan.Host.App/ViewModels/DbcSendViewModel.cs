@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
@@ -54,6 +55,51 @@ public sealed partial class DbcSendViewModel : ObservableObject
         {
             DbcMessages.Add(msg);
         }
+
+        // v1.4.1 PATCH Item 3: subscribe to DbcLoaded so that a DBC
+        // loaded AFTER the VM is constructed (e.g. user opens SendView
+        // before loading DBC) repopulates DbcMessages. Per spec Decision 6:
+        // match DbcViewModel precedent — do NOT implement IDisposable.
+        // Both DbcService and DbcSendViewModel are app-lifetime DI
+        // singletons that die together at process exit, so GC + finalizer
+        // pass handles cleanup. See DbcViewModel.cs class doc for the
+        // latent-footgun rationale (a previous IDisposable implementation
+        // was a latent footgun per review Task 15 fix-history).
+        _dbcService.DbcLoaded += OnLoaded;
+    }
+
+    /// <summary>
+    /// v1.4.1 PATCH Item 3: repopulate <see cref="DbcMessages"/> when a
+    /// new DBC document is loaded after this VM was constructed.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DbcService.LoadAsync"/> raises this event on its worker
+    /// thread (see <c>DbcService.cs:17-22</c> class doc). The handler
+    /// body mutates <see cref="ObservableCollection{T}"/> instances bound
+    /// to WPF <c>ItemsControl</c>s, which throws
+    /// <see cref="NotSupportedException"/> on cross-thread mutation. The
+    /// <see cref="DispatcherExtensions.RunOnUi"/> chokepoint marshals the
+    /// body to the UI dispatcher. Mirrors the <see cref="DbcViewModel.OnLoaded"/>
+    /// pattern (lines 112-147) which uses the same chokepoint.
+    /// </remarks>
+    private void OnLoaded(DbcDocument doc)
+    {
+        ((Action)(() =>
+        {
+            // Reset selection FIRST so OnSelectedDbcMessageChanged(null)
+            // clears SignalRows via the partial method. Without this, the
+            // old selection's Signal objects (now stale) would persist
+            // until the user manually changes selection.
+            SelectedDbcMessage = null;
+            DbcMessages.Clear();
+            foreach (var msg in doc.Messages)
+            {
+                DbcMessages.Add(msg);
+            }
+            // Reset prior error so a stale failure from a previous
+            // message selection doesn't linger into the new document.
+            ErrorMessage = null;
+        })).RunOnUi();
     }
 
     /// <summary>
