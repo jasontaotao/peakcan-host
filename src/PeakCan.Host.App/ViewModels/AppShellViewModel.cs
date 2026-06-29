@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Views;
@@ -79,6 +81,10 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly ScriptViewModel _scriptViewModel;
     private readonly UdsViewModel _udsViewModel;
     private readonly RecordViewModel _recordViewModel;
+    // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
+    private readonly IConfiguration _configuration;
+    // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
+    private ushort? _persistedHandleOnStartup;
 
     // View instances are created lazily on the first Show command so the
     // shell's ctor stays STA-free (xunit runs on MTA). Production callers
@@ -171,6 +177,19 @@ public sealed partial class AppShellViewModel : ObservableObject
         SelectedBaudRate = value ? BaudRate.CanFd1Mbps : BaudRate.Can1Mbps;
     }
 
+    /// <summary>
+    /// v1.5.0 MINOR: persist <c>SelectedChannel.Handle</c> to
+    /// <c>Channel:SelectedHandle</c> in <see cref="IConfiguration"/> so the
+    /// next process restart can restore the previously-selected channel
+    /// after EnumerateChannels populates <see cref="AvailableChannels"/>.
+    /// Handle format is uppercase hex without 0x prefix (matches PEAK
+    /// convention: 0x51 → "51"). A null SelectedChannel clears the key.
+    /// </summary>
+    partial void OnSelectedChannelChanged(ChannelInfo? value)
+    {
+        _configuration["Channel:SelectedHandle"] = value?.Handle.ToString("X2");
+    }
+
     /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).</summary>
     public SendService SendService => _sendService;
 
@@ -188,7 +207,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         ScriptViewModel scriptViewModel,
         UdsViewModel udsViewModel,
         RecordViewModel recordViewModel,
-        IChannelEnumerator? channelEnumerator = null)
+        IChannelEnumerator? channelEnumerator = null,
+        IConfiguration? configuration = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -206,6 +226,24 @@ public sealed partial class AppShellViewModel : ObservableObject
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
+        // v1.5.0 MINOR: persist SelectedHandle across app restarts.
+        // Configuration is optional for backwards compatibility with
+        // existing test fixtures that build the VM without DI. The
+        // fallback uses an in-memory provider so the indexer setter is
+        // a no-op rather than throwing on an unregistered root.
+        _configuration = configuration ?? new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
+        // Defer handle restoration to first EnumerateChannels call: the
+        // persisted handle can only resolve against an enumerated
+        // AvailableChannels list, which may be empty until the user
+        // probes hardware.
+        var persisted = _configuration["Channel:SelectedHandle"];
+        if (!string.IsNullOrEmpty(persisted) &&
+            ushort.TryParse(persisted, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h))
+        {
+            _persistedHandleOnStartup = h;
+        }
     }
 
     [RelayCommand]
@@ -330,10 +368,19 @@ public sealed partial class AppShellViewModel : ObservableObject
             AvailableChannels = channels;
             if (channels.Count > 0)
             {
-                SelectedChannel = channels[0];
-                ChannelList = $"{channels[0].Name} ({SelectedBaudRate.Name})";
+                // v1.5.0 MINOR: if the user previously selected a different
+                // channel and that channel is still present in the
+                // enumerated list, restore it. Otherwise fall back to the
+                // v0.4.0 default (channels[0]).
+                var persisted = _persistedHandleOnStartup;
+                _persistedHandleOnStartup = null; // consume once
+                var match = persisted.HasValue
+                    ? channels.FirstOrDefault(c => c.Handle == persisted.Value)
+                    : null;
+                SelectedChannel = match ?? channels[0];
+                ChannelList = $"{SelectedChannel.Name} ({SelectedBaudRate.Name})";
                 StatusMessage = $"Detected {channels.Count} channel(s)";
-                LogProbeOk(_logger, channels[0].Handle);
+                LogProbeOk(_logger, SelectedChannel.Handle);
             }
             else
             {

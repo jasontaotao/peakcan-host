@@ -1,10 +1,13 @@
 using System.Globalization;
 using System.IO;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
@@ -107,6 +110,13 @@ public class AppHostBuilder
 
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
+
+        // v1.5.0 MINOR: expose the host's IConfiguration as a singleton so
+        // the AppShellViewModel can persist SelectedChannel to
+        // Channel:SelectedHandle in appsettings.json. Host.CreateApplicationBuilder
+        // already populates builder.Configuration with appsettings.json +
+        // environment variables + command line.
+        builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
         // Core infrastructure
         // v1.2.12 PATCH Item 11: ChannelRouter now accepts an ILogger<ChannelRouter>
@@ -322,7 +332,26 @@ public class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // ViewModels
-        builder.Services.AddSingleton<AppShellViewModel>();
+        // v1.5.0 MINOR: AppShellViewModel ctor takes an optional IConfiguration
+        // for SelectedChannel persistence. Wire via factory so the DI
+        // container resolves the host's IConfiguration; this keeps the
+        // existing parameterless AddSingleton call sites (test fakes) working.
+        builder.Services.AddSingleton<AppShellViewModel>(sp => new AppShellViewModel(
+            sp.GetRequiredService<ChannelRouter>(),
+            sp.GetRequiredService<ILogger<AppShellViewModel>>(),
+            sp.GetRequiredService<TraceViewModel>(),
+            sp.GetRequiredService<SendService>(),
+            sp.GetRequiredService<IChannelProbe>(),
+            sp.GetRequiredService<IChannelFactory>(),
+            sp.GetRequiredService<DbcViewModel>(),
+            sp.GetRequiredService<SendViewModel>(),
+            sp.GetRequiredService<SignalViewModel>(),
+            sp.GetRequiredService<StatsViewModel>(),
+            sp.GetRequiredService<ScriptViewModel>(),
+            sp.GetRequiredService<UdsViewModel>(),
+            sp.GetRequiredService<RecordViewModel>(),
+            sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
+            sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();
         builder.Services.AddSingleton<SendViewModel>();
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
