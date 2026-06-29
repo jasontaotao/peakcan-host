@@ -208,6 +208,14 @@ internal sealed class ReplayTimeline
             // After the pre-skip, the existing while-loop runs as before
             // — the cursor's wall-clock "now" naturally catches up to
             // the first in-range frame's Timestamp over time.
+            //
+            // Above-bound case (cursor past endOrMax, e.g. Seek past End):
+            // not pre-skipped here — the main while-loop predicate filters
+            // such frames out (Timestamp <= endOrMax fails), so no emit
+            // happens. EOF eventually fires when wall-clock now exceeds
+            // TotalDuration AND _nextFrameIndex has walked off the end.
+            // See Decision 6: range excluding all frames → PlaybackEnded
+            // still fires with Error=null on EOF.
             while (_nextFrameIndex < _frames.Count
                 && _frames[_nextFrameIndex].Timestamp < startOrMin)
             {

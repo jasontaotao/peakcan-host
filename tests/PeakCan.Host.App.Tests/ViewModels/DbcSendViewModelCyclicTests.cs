@@ -76,12 +76,13 @@ public class DbcSendViewModelCyclicTests
         sut.DbcCyclicIntervalText = "100";
         sut.StartDbcCyclicCommand.Execute(null);
 
-        // TimeSpan.TryParse("100") produces 100 days (default TimeSpan format, not ms).
-        // The service receives this verbatim and forwards it to the Timer ctor;
-        // the user-typed "100" is the canonical ms default per DbcCyclicIntervalText = "100".
-        // Assert on the Days equivalent (100 days == 100 * 86_400_000 ms).
+        // v1.5.1 PATCH Item 2 (review fix MEDIUM #1): the TextBox label
+        // says "Cyclic interval (ms):" and the default value is "100".
+        // The VM parses with int.TryParse + bounds 1..60000, converts to
+        // TimeSpan.FromMilliseconds(100). Pre-fix this asserted on
+        // TimeSpan.FromDays(100) (TimeSpan.TryParse silent footgun).
         cyclic.Received(1).Start(Arg.Any<Func<(Message, IReadOnlyDictionary<string, double>)>>(),
-                                  Arg.Is<TimeSpan>(t => t == TimeSpan.FromDays(100)));
+                                  Arg.Is<TimeSpan>(t => t == TimeSpan.FromMilliseconds(100)));
         sut.IsDbcCyclicRunning.Should().BeTrue();
     }
 

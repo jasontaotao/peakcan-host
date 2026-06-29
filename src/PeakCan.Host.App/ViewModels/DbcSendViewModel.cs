@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -244,7 +245,17 @@ public sealed partial class DbcSendViewModel : ObservableObject
     private void StartDbcCyclic()
     {
         if (SelectedDbcMessage is null) return;
-        if (!TimeSpan.TryParse(DbcCyclicIntervalText, out var interval)) return;
+        // v1.5.1 PATCH Item 2: interval is MILLISECONDS (UI label says so),
+        // not a TimeSpan string. TimeSpan.TryParse("100") returns 100 days,
+        // which would silently make the periodic send a 100-day timer.
+        // Mirror SendViewModel.cs:279-282 pattern: int.TryParse + bounds 1..60000.
+        if (!int.TryParse(DbcCyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
+            || ms < 1 || ms > 60_000)
+        {
+            ErrorMessage = $"Invalid interval: '{DbcCyclicIntervalText}' (must be 1..60000 ms)";
+            return;
+        }
+        var interval = TimeSpan.FromMilliseconds(ms);
         _cyclicDbc.Start(
             () => (SelectedDbcMessage!, BuildCurrentSignalValues()),
             interval);
@@ -262,7 +273,8 @@ public sealed partial class DbcSendViewModel : ObservableObject
     private bool CanStartDbcCyclic() =>
         SelectedDbcMessage is not null
         && !IsDbcCyclicRunning
-        && TimeSpan.TryParse(DbcCyclicIntervalText, out _);
+        && int.TryParse(DbcCyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
+        && ms >= 1 && ms <= 60_000;
 
     private bool CanStopDbcCyclic() => IsDbcCyclicRunning;
 
