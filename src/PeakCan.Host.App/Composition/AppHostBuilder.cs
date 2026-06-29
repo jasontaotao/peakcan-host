@@ -198,6 +198,14 @@ public class AppHostBuilder
         // v1.4.0 MINOR Send DBC: stateless DbcEncodeService singleton
         // shared by DbcSendViewModel.
         builder.Services.AddSingleton<DbcEncodeService>();
+        // v1.5.1 PATCH Item 2 (Periodic DBC send): independent service
+        // per Decision 7 — does NOT share code with CyclicSendService.
+        // Register concrete type first so the IReplayService-style
+        // "interface and concrete resolve to same instance" pattern is
+        // preserved.
+        builder.Services.AddSingleton<CyclicDbcSendService>();
+        builder.Services.AddSingleton<ICyclicDbcSendService>(sp =>
+            sp.GetRequiredService<CyclicDbcSendService>());
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would

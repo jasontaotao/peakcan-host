@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
@@ -85,7 +86,8 @@ public class DbcSendViewModelTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         dbcService.SetCurrentForTests(doc);
         var sendService = new FakeSendService();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService,
+            Substitute.For<ICyclicDbcSendService>());
 
         sut.SelectedDbcMessage = doc.Messages[0];
 
@@ -111,7 +113,8 @@ public class DbcSendViewModelTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         dbcService.SetCurrentForTests(doc);
         var sendService = new FakeSendService();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService,
+            Substitute.For<ICyclicDbcSendService>());
         sut.SelectedDbcMessage = doc.Messages[0];
         sut.SignalRows[0].Value = 0x42;
 
@@ -156,7 +159,8 @@ public class DbcSendViewModelTests
                 new[] { MakeSignal("LateSig") },
                 IsMultiplexed: false, MultiplexorSignalIndex: null));
         var sendService = new FakeSendService();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService,
+            Substitute.For<ICyclicDbcSendService>());
 
         // Pre-condition: DbcMessages empty (Current was null at ctor time).
         sut.DbcMessages.Should().BeEmpty(

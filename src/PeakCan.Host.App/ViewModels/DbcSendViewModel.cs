@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Composition;
@@ -14,6 +15,15 @@ namespace PeakCan.Host.App.ViewModels;
 /// signal's engineering value, and send the resulting CAN frame through
 /// the shared <see cref="SendService"/>.
 /// <para>
+/// v1.5.1 PATCH Item 2 (Periodic DBC send): adds
+/// <c>StartDbcCyclicCommand</c> + <c>StopDbcCyclicCommand</c> +
+/// <see cref="IsDbcCyclicRunning"/> + success / failure counters driven by
+/// polling <c>ICyclicDbcSendService.SuccessCount</c> +
+/// <c>ICyclicDbcSendService.FailureCount</c> via
+/// <see cref="DispatcherTimer"/> at 200 ms cadence (mirror
+/// <c>SendViewModel.cs:118-128</c> periodic polling pattern).
+/// </para>
+/// <para>
 /// <b>Threading:</b> all mutations happen on the UI thread via WPF
 /// bindings. <see cref="SendAsync"/> awaits the PEAK SDK on a worker
 /// thread and resumes back on the UI context (CommunityToolkit's
@@ -25,7 +35,8 @@ namespace PeakCan.Host.App.ViewModels;
 /// <b>Null/empty handling:</b> the VM tolerates <see cref="DbcService.Current"/>
 /// being <c>null</c> (no DBC loaded) — <see cref="DbcMessages"/> stays
 /// empty and <see cref="SelectedDbcMessage"/> stays <c>null</c>. The Send
-/// command is a no-op when no message is selected.
+/// command is a no-op when no message is selected. Same null-tolerance
+/// applies to <see cref="StartDbcCyclicCommand"/>.
 /// </para>
 /// </summary>
 public sealed partial class DbcSendViewModel : ObservableObject
@@ -33,6 +44,8 @@ public sealed partial class DbcSendViewModel : ObservableObject
     private readonly DbcEncodeService _encoder;
     private readonly SendService _sendService;
     private readonly DbcService _dbcService;
+    private readonly ICyclicDbcSendService _cyclicDbc;
+    private readonly DispatcherTimer _cyclicPollTimer;
 
     /// <summary>All DBC messages from the loaded document. Empty if no DBC loaded.</summary>
     public ObservableCollection<Message> DbcMessages { get; } = new();
@@ -46,15 +59,58 @@ public sealed partial class DbcSendViewModel : ObservableObject
     [ObservableProperty]
     private string? _errorMessage;
 
-    public DbcSendViewModel(DbcEncodeService encoder, SendService sendService, DbcService dbcService)
+    /// <summary>User-editable cyclic interval in milliseconds (default 100).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartDbcCyclicCommand))]
+    private string? _dbcCyclicIntervalText = "100";
+
+    /// <summary>True when the cyclic DBC send is currently active (mirrors service state via poll timer).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartDbcCyclicCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopDbcCyclicCommand))]
+    private bool _isDbcCyclicRunning;
+
+    /// <summary>Cyclic DBC send success count, polled from <see cref="ICyclicDbcSendService.SuccessCount"/>.</summary>
+    [ObservableProperty]
+    private long _dbcCyclicSuccessCount;
+
+    /// <summary>Cyclic DBC send failure count, polled from <see cref="ICyclicDbcSendService.FailureCount"/>.</summary>
+    [ObservableProperty]
+    private long _dbcCyclicFailureCount;
+
+    public DbcSendViewModel(
+        DbcEncodeService encoder,
+        SendService sendService,
+        DbcService dbcService,
+        ICyclicDbcSendService cyclicDbc)
     {
         _encoder = encoder ?? throw new ArgumentNullException(nameof(encoder));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
+        _cyclicDbc = cyclicDbc ?? throw new ArgumentNullException(nameof(cyclicDbc));
         foreach (var msg in _dbcService.Current?.Messages ?? Enumerable.Empty<Message>())
         {
             DbcMessages.Add(msg);
         }
+
+        // v1.5.1 PATCH Item 2: poll the cyclic service's state at 200 ms
+        // cadence. Per CommunityToolkit.Mvvm precedent, the counters +
+        // IsRunning are UI-bindable ObservableProperty. The service
+        // itself exposes getter properties only (no events) to keep
+        // the implementation minimal — the VM bridges via polling, same
+        // pattern as SendViewModel's SuccessCount/FailureCount polling
+        // (line 118-128).
+        _cyclicPollTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        _cyclicPollTimer.Tick += (s, e) =>
+        {
+            IsDbcCyclicRunning = _cyclicDbc.IsRunning;
+            DbcCyclicSuccessCount = _cyclicDbc.SuccessCount;
+            DbcCyclicFailureCount = _cyclicDbc.FailureCount;
+        };
+        _cyclicPollTimer.Start();
 
         // v1.4.1 PATCH Item 3: subscribe to DbcLoaded so that a DBC
         // loaded AFTER the VM is constructed (e.g. user opens SendView
@@ -106,15 +162,30 @@ public sealed partial class DbcSendViewModel : ObservableObject
     /// Selection-change hook (CommunityToolkit.Mvvm source generator).
     /// Clears the previous signal rows and rebuilds from the new
     /// message's signal list. Null selection leaves the rows empty.
+    /// <para>
+    /// v1.5.1 PATCH Item 2 (Periodic DBC send): if the user changes the
+    /// selected DBC message while periodic send is running, auto-stop the
+    /// periodic send first. Allowing the periodic send to continue with
+    /// stale SignalRows + a new Message would cause encode failures every
+    /// tick (the service's Message-id auto-stop would catch this anyway,
+    /// but a clean explicit stop + service call is more obvious to debug).
+    /// </para>
     /// </summary>
     partial void OnSelectedDbcMessageChanged(Message? value)
     {
+        if (IsDbcCyclicRunning)
+        {
+            _cyclicDbc.Stop();
+            IsDbcCyclicRunning = false;
+        }
         SignalRows.Clear();
         if (value is null) return;
         foreach (var sig in value.Signals)
         {
             SignalRows.Add(new DbcSignalRowViewModel(sig));
         }
+        // StartDbcCyclic's CanExecute depends on SelectedDbcMessage.
+        StartDbcCyclicCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -160,6 +231,56 @@ public sealed partial class DbcSendViewModel : ObservableObject
             // input without consulting logs.
             ErrorMessage = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Item 2: start periodic DBC transmission on the
+    /// selected message at <see cref="DbcCyclicIntervalText"/> ms.
+    /// The frame provider supplies the current <see cref="SelectedDbcMessage"/>
+    /// + per-signal values, so user edits to the SignalRows DataGrid
+    /// flow into the periodic send path on the next tick (Decision 8).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStartDbcCyclic))]
+    private void StartDbcCyclic()
+    {
+        if (SelectedDbcMessage is null) return;
+        if (!TimeSpan.TryParse(DbcCyclicIntervalText, out var interval)) return;
+        _cyclicDbc.Start(
+            () => (SelectedDbcMessage!, BuildCurrentSignalValues()),
+            interval);
+        IsDbcCyclicRunning = true;
+    }
+
+    /// <summary>v1.5.1 PATCH Item 2: stop the periodic DBC transmission.</summary>
+    [RelayCommand(CanExecute = nameof(CanStopDbcCyclic))]
+    private void StopDbcCyclic()
+    {
+        _cyclicDbc.Stop();
+        IsDbcCyclicRunning = false;
+    }
+
+    private bool CanStartDbcCyclic() =>
+        SelectedDbcMessage is not null
+        && !IsDbcCyclicRunning
+        && TimeSpan.TryParse(DbcCyclicIntervalText, out _);
+
+    private bool CanStopDbcCyclic() => IsDbcCyclicRunning;
+
+    /// <summary>
+    /// v1.5.1 PATCH Item 2: capture the current per-signal values into
+    /// a fresh dictionary snapshot. The Func&lt;...&gt; provided to
+    /// <see cref="CyclicDbcSendService.Start"/> invokes this on each
+    /// tick, so user edits to the SignalRows DataGrid flow into the
+    /// periodic encode path naturally.
+    /// </summary>
+    private Dictionary<string, double> BuildCurrentSignalValues()
+    {
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var row in SignalRows)
+        {
+            if (row.Value.HasValue) values[row.Signal.Name] = row.Value.Value;
+        }
+        return values;
     }
 }
 
