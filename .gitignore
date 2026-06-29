@@ -17,3 +17,21 @@ coverage/
 # v1.2.11: ephemeral subagent-driven-development briefs / reports.
 # Not part of the repo — local scratch for the SDD workflow.
 .sdd/
+
+# Session-local artifacts (v1.5.0 ship cleanup):
+# - .claude/agent-memory/ = pkm-capture agent working dir (transient)
+# - .claude/vault-tmp/, vault-ttmp/ = vault-pkm temp dirs (transient)
+# - .claude/transcript_tail.jsonl = session scratch (transient)
+# - .claude/new_entry*.md = pkm-capture pre-format entries (transient)
+# - docs/devlog.md = session work log, never committed (intentional)
+# - mutate, release-lock, run-other-cleanup = 0-byte tool markers (transient)
+.claude/agent-memory/
+.claude/vault-tmp/
+.claude/vault-ttmp/
+.claude/transcript_tail.jsonl
+.claude/new_entry.md
+.claude/new_entry_v1_4_0.md
+docs/devlog.md
+mutate
+release-lock
+run-other-cleanup
