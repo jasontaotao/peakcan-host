@@ -152,4 +152,32 @@ public class SendServiceTests
         result.Error!.Code.Should().Be(ErrorCode.HardwareNotAvailable);
         result.Error.Message.Should().Be("USB unplugged");
     }
+
+    [Fact]
+    public async Task SendAsync_propagates_cancelled_CT_to_channel_WriteAsync()
+    {
+        // v1.6.3 PATCH Item 1 (RED): SendService.SendAsync must
+        // propagate the caller-supplied CancellationToken to
+        // ICanChannel.WriteAsync. When the CT is already cancelled,
+        // the channel layer must observe a cancelled CT and throw OCE;
+        // SendService must not suppress it. This is the most
+        // fundamental behavior of the CT parameter on SendAsync and was
+        // uncovered prior to v1.6.3.
+        var channel = new FakeChannel(new ChannelId(0x51));
+        var svc = NewSvc();
+        svc.ActiveChannel = channel;
+        var frame = new CanFrame(
+            new CanId(0x100, FrameFormat.Standard),
+            new byte[] { 0xDE, 0xAD, 0xBE, 0xEF },
+            FrameFlags.None,
+            ChannelId.None,
+            default);
+        using var preCancelledCts = new CancellationTokenSource();
+        preCancelledCts.Cancel();
+
+        Func<Task> act = async () => { await svc.SendAsync(frame, preCancelledCts.Token); };
+
+        var assertion = await act.Should().ThrowAsync<OperationCanceledException>();
+        assertion.Which.CancellationToken.Should().Be(preCancelledCts.Token);
+    }
 }
