@@ -37,11 +37,16 @@ public class CyclicDbcSendServiceRaceTests
         public Result<Unit> NextResult { get; set; } = Result<Unit>.Ok(default);
         public int CallCount { get; private set; }
         public List<uint> SentIds { get; } = new();
+        // v1.6.2 PATCH Item 1b: track the CT observed by the most recent SendAsync
+        // invocation. After Stop(), production should pass a cancelled token; this
+        // property is the assertion target.
+        public CancellationToken LastObservedCt { get; private set; }
 
         public override ValueTask<Result<Unit>> SendAsync(CanFrame frame, CancellationToken ct = default)
         {
             CallCount++;
             SentIds.Add(frame.Id.Raw);
+            LastObservedCt = ct;
             return ValueTask.FromResult(NextResult);
         }
     }
@@ -93,7 +98,11 @@ public class CyclicDbcSendServiceRaceTests
         // First generation: id=0x100
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(60);
+        // v1.6.2 PATCH Item 2a: fire-timer → predicate-based migration.
+        // Wait until ≥1 frame sent (instead of heuristic 60ms sleep).
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
         await Task.Delay(40);
         int beforeSecondStart = send.CallCount;
@@ -102,7 +111,10 @@ public class CyclicDbcSendServiceRaceTests
         // queued callbacks from gen=1 with stale snapshots are dropped.
         svc.Start(() => (MakeMessage(0x200), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        // v1.6.2 PATCH Item 2a: wait until ≥1 frame with id=0x200 sent.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.SentIds.Any(id => id == 0x200u),
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         var idsFromSecondCycle = send.SentIds.Skip(beforeSecondStart).ToList();
@@ -122,7 +134,10 @@ public class CyclicDbcSendServiceRaceTests
         // Out-of-range value (200.0 vs [0, 100]) → DbcEncodeException
         svc.Start(() => (msg, new Dictionary<string, double> { ["S"] = 200.0 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until encode failures accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.FailureCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.FailureCount.Should().BeGreaterThan(0);
@@ -138,7 +153,10 @@ public class CyclicDbcSendServiceRaceTests
             new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until successes accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.SuccessCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.SuccessCount.Should().BeGreaterThan(0);
@@ -156,11 +174,51 @@ public class CyclicDbcSendServiceRaceTests
             new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until failures accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.FailureCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.FailureCount.Should().BeGreaterThan(0);
         svc.SuccessCount.Should().Be(0);
+    }
+
+    /// <summary>
+    /// v1.6.2 PATCH Item 1b: verifies that <see cref="CyclicDbcSendService.Stop"/>
+    /// cancels the in-flight <see cref="SendService.SendAsync"/> via the
+    /// <see cref="CancellationToken"/> it passes to the underlying channel.
+    /// <para>
+    /// After <see cref="CyclicDbcSendService.Start"/>, the timer fires every
+    /// 20ms and the encode + send path runs each tick; we wait for at least
+    /// one tick (so <c>SendAsync</c> has been called once with a non-cancelled
+    /// token), then call <see cref="CyclicDbcSendService.Stop"/>. A brief drain
+    /// (50ms) lets any in-flight tick reach its <c>await SendAsync</c> with the
+    /// cancelled token. The last observed CT must be cancelled.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Stop_during_inflight_tick_cancels_SendAsync_via_ct()
+    {
+        var send = new CountingSendService();
+        var svc = new CyclicDbcSendService(
+            new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
+        svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
+                  TimeSpan.FromMilliseconds(20));
+
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500));
+
+        svc.Stop();
+
+        // Drain briefly so any in-flight SendAsync callback completes its
+        // observation of _cts.Token. 50ms is more than enough — our
+        // CountingSendService returns synchronously.
+        await Task.Delay(50);
+
+        send.LastObservedCt.IsCancellationRequested.Should().BeTrue(
+            "Stop() must cancel the CTS so in-flight SendAsync receives a cancelled token");
     }
 
     [Fact]

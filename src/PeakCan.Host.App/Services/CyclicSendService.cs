@@ -40,6 +40,11 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     private long _sendSuccessCount;
     private long _sendFailureCount;
     private bool _isRunning;
+    // v1.6.2 PATCH Item 1a: per-Start CancellationTokenSource. Stop() cancels
+    // this source so in-flight SendAsync receives a cancelled CT — true abort
+    // of the channel write, not just "prevent new ticks". Disposed in Start
+    // (when replaced) and in Dispose (final cleanup).
+    private CancellationTokenSource? _cts;
 
     /// <summary>True when the cyclic send timer is active.</summary>
     public bool IsRunning
@@ -88,6 +93,11 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
             // from the previous cycle.
             Interlocked.Exchange(ref _sendSuccessCount, 0);
             Interlocked.Exchange(ref _sendFailureCount, 0);
+            // v1.6.2 PATCH Item 1a: dispose previous CTS (if any) and create
+            // a fresh one. Without this, a second Start would inherit a
+            // cancelled token and every tick would throw OCE on SendAsync.
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
             gen = ++_generation;
             _timer = new Timer(OnTimerTick, gen, interval, interval);
         }
@@ -112,6 +122,11 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
         _generation++;
         _timer?.Dispose();
         _timer = null;
+        // v1.6.2 PATCH Item 1a: cancel in-flight SendAsync. The CTS was
+        // snapshotted by OnTimerTick under the lock above; cancelling here
+        // propagates through _sendService.SendAsync(frame, ct) into
+        // ch.WriteAsync(frame, ct) which honors the token.
+        _cts?.Cancel();
         LogCyclicStopped(_logger, SuccessCount);
     }
 
@@ -120,12 +135,19 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
         CanFrame frame;
         TimeSpan interval;
         long generation;
+        CancellationToken ct;
         lock (this)
         {
             if (!_isRunning) return;
             frame = _frame;
             interval = _interval;
             generation = _generation;
+            // v1.6.2 PATCH Item 1a: snapshot CTS.Token under the same lock
+            // as _isRunning + _frame + _generation so the tick sees a
+            // coherent view. If Start replaced _cts after the timer fired
+            // but before we acquired the lock, the snapshot reflects the
+            // current CTS — Stop on the new CTS will cancel this tick.
+            ct = _cts?.Token ?? CancellationToken.None;
         }
         // Stale-timer drop: if this Timer was disposed (Start re-entered)
         // its captured generation no longer matches the service's. Bail
@@ -134,7 +156,10 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
 
         try
         {
-            var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
+            // v1.6.2 PATCH Item 1a: pass CT so Stop() can abort the in-flight
+            // channel write. _sendService.SendAsync forwards ct to
+            // ch.WriteAsync(frame, ct) which honors the token.
+            var result = await _sendService.SendAsync(frame, ct).ConfigureAwait(false);
             if (result.IsSuccess)
             {
                 Interlocked.Increment(ref _sendSuccessCount);
@@ -148,6 +173,13 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
                     LogCyclicSendFailed(_logger, frame.Id, result.Error!.Code, result.Error.Message);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // v1.6.2 PATCH Item 1a: expected on Stop(). async void timer
+            // callback would crash the process if OCE propagated uncaught.
+            // Do NOT increment FailureCount — Stop is user-initiated, not
+            // a hardware failure.
         }
         catch (Exception ex)
         {
@@ -164,6 +196,11 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
         lock (this)
         {
             StopInner();
+            // v1.6.2 PATCH Item 1a: dispose the CTS to release its internal
+            // ManualResetEvent handle. Without this, repeated Start/Stop
+            // cycles leak native resources.
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 
