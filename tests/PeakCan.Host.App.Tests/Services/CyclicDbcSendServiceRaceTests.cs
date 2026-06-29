@@ -37,11 +37,16 @@ public class CyclicDbcSendServiceRaceTests
         public Result<Unit> NextResult { get; set; } = Result<Unit>.Ok(default);
         public int CallCount { get; private set; }
         public List<uint> SentIds { get; } = new();
+        // v1.6.2 PATCH Item 1b: track the CT observed by the most recent SendAsync
+        // invocation. After Stop(), production should pass a cancelled token; this
+        // property is the assertion target.
+        public CancellationToken LastObservedCt { get; private set; }
 
         public override ValueTask<Result<Unit>> SendAsync(CanFrame frame, CancellationToken ct = default)
         {
             CallCount++;
             SentIds.Add(frame.Id.Raw);
+            LastObservedCt = ct;
             return ValueTask.FromResult(NextResult);
         }
     }
@@ -161,6 +166,43 @@ public class CyclicDbcSendServiceRaceTests
 
         svc.FailureCount.Should().BeGreaterThan(0);
         svc.SuccessCount.Should().Be(0);
+    }
+
+    /// <summary>
+    /// v1.6.2 PATCH Item 1b: verifies that <see cref="CyclicDbcSendService.Stop"/>
+    /// cancels the in-flight <see cref="SendService.SendAsync"/> via the
+    /// <see cref="CancellationToken"/> it passes to the underlying channel.
+    /// <para>
+    /// After <see cref="CyclicDbcSendService.Start"/>, the timer fires every
+    /// 20ms and the encode + send path runs each tick; we wait for at least
+    /// one tick (so <c>SendAsync</c> has been called once with a non-cancelled
+    /// token), then call <see cref="CyclicDbcSendService.Stop"/>. A brief drain
+    /// (50ms) lets any in-flight tick reach its <c>await SendAsync</c> with the
+    /// cancelled token. The last observed CT must be cancelled.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Stop_during_inflight_tick_cancels_SendAsync_via_ct()
+    {
+        var send = new CountingSendService();
+        var svc = new CyclicDbcSendService(
+            new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
+        svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
+                  TimeSpan.FromMilliseconds(20));
+
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500));
+
+        svc.Stop();
+
+        // Drain briefly so any in-flight SendAsync callback completes its
+        // observation of _cts.Token. 50ms is more than enough — our
+        // CountingSendService returns synchronously.
+        await Task.Delay(50);
+
+        send.LastObservedCt.IsCancellationRequested.Should().BeTrue(
+            "Stop() must cancel the CTS so in-flight SendAsync receives a cancelled token");
     }
 
     [Fact]
