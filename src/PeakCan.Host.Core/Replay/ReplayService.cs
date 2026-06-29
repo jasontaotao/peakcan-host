@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.Core.Replay;
 
@@ -40,7 +41,7 @@ public sealed partial class ReplayService : IReplayService, IDisposable
         // ParseExceptions propagate; FileNotFound/IO wrap into ReplayLoadException.
         try
         {
-            await using var fs = File.OpenRead(path);
+            await using var fs = File.OpenRead(PathNormalizer.Normalize(path));
             _frames = await AscParser.ParseAsync(fs, ct).ConfigureAwait(false);
         }
         catch (ReplayException) { throw; }

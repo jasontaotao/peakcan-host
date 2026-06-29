@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.Core.Uds.Database;
 
@@ -57,7 +58,7 @@ public sealed partial class RoutineDatabase
 
             try
             {
-                var json = File.ReadAllText(path);
+                var json = File.ReadAllText(PathNormalizer.Normalize(path));
                 var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
                 return dto?.Routines ?? new List<RoutineDefinition>();
             }
@@ -81,7 +82,7 @@ public sealed partial class RoutineDatabase
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = File.ReadAllText(PathNormalizer.Normalize(path));
             var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
             return dto?.Routines ?? new List<RoutineDefinition>();
         }

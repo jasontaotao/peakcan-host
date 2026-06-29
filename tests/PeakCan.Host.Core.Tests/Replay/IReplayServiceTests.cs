@@ -20,7 +20,7 @@ public class IReplayServiceTests
 {
     private static string WriteTempAsc(string content)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"test-{Guid.NewGuid():N}.asc");
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"test-{Guid.NewGuid():N}.asc");
         File.WriteAllText(path, content);
         return path;
     }

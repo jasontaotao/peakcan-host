@@ -142,7 +142,7 @@ public class UdsClientSecurityAccessOverloadTests
         // <remarks> block documents the mid-handshake race. We slice
         // out the method's XML doc region by finding the method
         // signature and walking back to the preceding '///' comments.
-        var sourcePath = Path.Combine(
+        var sourcePath = System.IO.Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "..", "..",
             "src", "PeakCan.Host.Core", "Uds", "UdsClient.cs");

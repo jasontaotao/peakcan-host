@@ -5,6 +5,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.App.Services;
 
@@ -146,7 +147,7 @@ public partial class DbcService
     {
         // Read raw bytes first so we can detect the BOM and feed
         // the exact byte sequence to the right decoder.
-        var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        var bytes = await File.ReadAllBytesAsync(PathNormalizer.Normalize(path), ct).ConfigureAwait(false);
 
         // BOM detection. Strip the BOM before decoding.
         Encoding encoding;

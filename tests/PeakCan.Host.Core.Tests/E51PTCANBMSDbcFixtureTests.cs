@@ -19,7 +19,7 @@ namespace PeakCan.Host.Core.Tests;
 public class E51PTCANBMSDbcFixtureTests
 {
     private static string FixturePath =>
-        Path.Combine(AppContext.BaseDirectory, "E51_PT_CAN-BMS.dbc");
+        System.IO.Path.Combine(AppContext.BaseDirectory, "E51_PT_CAN-BMS.dbc");
 
     [Fact]
     public void Loads_E51_PT_CAN_BMS_Dbc_Successfully()

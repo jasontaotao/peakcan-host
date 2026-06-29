@@ -8,7 +8,7 @@ public class RoutineDatabaseTests
 {
     private static string TempJson(string contents)
     {
-        var path = Path.Combine(Path.GetTempPath(),
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
             $"uds-routines-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, contents);
         return path;
@@ -27,7 +27,7 @@ public class RoutineDatabaseTests
     public void DefaultCtor_NoUserFile_Returns_Empty()
     {
         var sut = new RoutineDatabase(
-            userJsonPath: Path.Combine(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
+            userJsonPath: System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.json"),
             logger: NullLogger<RoutineDatabase>.Instance);
 
         Assert.Empty(sut.All);
