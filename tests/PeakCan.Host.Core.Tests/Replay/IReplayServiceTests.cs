@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core.Replay;
 using System.Globalization;
+using System.Reflection;
 using Xunit;
 
 namespace PeakCan.Host.Core.Tests.Replay;
@@ -208,11 +209,13 @@ base 0x7e0 500k
     // ---------- v1.5.0 MINOR Task 4: Loop + CanIdFilter + PlaybackEnded ----------
 
     /// <summary>
-    /// v1.5.0 MINOR Task 4: Setting <see cref="IReplayService.Loop"/> propagates to
-    /// the internal timeline so EOF behavior changes.
+    /// v1.5.0 MINOR Task 4: <see cref="IReplayService.Loop"/> getter returns
+    /// the value previously stored by the setter. (Honest round-trip; does
+    /// NOT assert propagation to the internal <see cref="ReplayTimeline"/> —
+    /// see <see cref="SetLoop_PropagatesToInternalTimeline"/> for that.)
     /// </summary>
     [Fact]
-    public void SetLoop_True_PropagatesToTimeline()
+    public void SetLoop_GetterReturnsWhatWasSet()
     {
         var sink = new FakeReplayFrameSink();
         using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
@@ -220,6 +223,43 @@ base 0x7e0 500k
         service.Loop.Should().BeFalse("Loop defaults to false");
         service.Loop = true;
         service.Loop.Should().BeTrue("Loop setter stores the value");
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 4 (review I-1): Setting
+    /// <see cref="IReplayService.Loop"/> must propagate to the internal
+    /// <see cref="ReplayTimeline"/> so that EOF behavior actually changes.
+    /// Verifies propagation by reflection into the real service's private
+    /// <c>_timeline</c> field — catches a future refactor that decouples
+    /// <c>ReplayService.Loop</c> from <c>ReplayTimeline.Loop</c>.
+    /// </summary>
+    [Fact]
+    public void SetLoop_PropagatesToInternalTimeline()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        // Grab the real internal timeline the service owns.
+        var timelineField = typeof(ReplayService).GetField(
+            "_timeline",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        timelineField.Should().NotBeNull("ReplayService must own a private _timeline field");
+        var timeline = (ReplayTimeline)timelineField!.GetValue(service)!;
+
+        // Defaults: service.Loop == false → timeline.Loop == false.
+        service.Loop.Should().BeFalse("Loop defaults to false");
+        timeline.Loop.Should().BeFalse("internal timeline inherits the default");
+
+        // Set service.Loop = true; the underlying timeline must reflect it.
+        service.Loop = true;
+        timeline.Loop.Should().BeTrue(
+            "ReplayService.Loop must propagate to the internal ReplayTimeline.Loop " +
+            "so that OnTick rewinds to frame 0 on EOF instead of stopping");
+
+        // And toggling back must also propagate.
+        service.Loop = false;
+        timeline.Loop.Should().BeFalse(
+            "setter must keep the two properties in sync in both directions");
     }
 
     /// <summary>
