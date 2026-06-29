@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using PeakCan.Host.Core.Replay;
 using Xunit;
 
@@ -198,6 +200,97 @@ base 0x7e0 500k
         frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
         frames[1].Id.Should().Be(0x300u);
         frames[1].Dlc.Should().Be(2);
+    }
+
+    /// <summary>
+    /// v1.4.1 PATCH Item 2: each skipped malformed line must be logged at
+    /// <see cref="LogLevel.Warning"/> with the 1-based stream line number,
+    /// the raw line content, and a human-readable reason. Without
+    /// production-grade logging, operators have no signal that an ASC file
+    /// had corrupted lines that were silently skipped.
+    /// <para>
+    /// Per spec §Decision 5 Test 1: 3 valid + 2 malformed (well under 50%
+    /// threshold) → 2 log calls at Warning with line numbers + raw lines + reasons.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Parse_MalformedLines_LogsEachWithLineNumberAndReason()
+    {
+        // Arrange — 3 valid + 2 malformed data lines. Line numbers below are
+        // 1-based physical stream line numbers (operators can `texteditor ASC.asc +N`).
+        const string asc =
+            " 0.000000 51  100  8  AA BB CC DD EE FF 00 11\n" +  // line 1: valid
+            "garbage here\n" +                                 // line 2: malformed (not enough tokens)
+            " 1.000000 51  200  4  01 02 03 04\n" +             // line 3: valid
+            " 2.000000 also_garbage\n" +                       // line 4: malformed (bad timestamp)
+            " 3.000000 51  300  2  AA BB\n";                   // line 5: valid
+        using var stream = MakeAscStream(asc);
+        var logger = Substitute.For<ILogger>();
+        // [LoggerMessage] source-gen gates Log() on IsEnabled; stub true.
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+
+        // Act
+        var frames = await AscParser.ParseAsync(stream, logger);
+
+        // Assert — 3 valid frames
+        frames.Should().HaveCount(3);
+        frames[0].Id.Should().Be(0x100u);
+        frames[1].Id.Should().Be(0x200u);
+        frames[2].Id.Should().Be(0x300u);
+
+        // Assert — 2 log calls at Warning level with line numbers + raw lines + reasons.
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(o => o.ToString()!.Contains("line 2")
+                              && o.ToString()!.Contains("garbage here")),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+        logger.Received(1).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(o => o.ToString()!.Contains("line 4")
+                              && o.ToString()!.Contains("also_garbage")),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    /// <summary>
+    /// v1.4.1 PATCH Item 2: when the >50% malformed threshold is breached,
+    /// the parser throws <see cref="ReplayFormatException"/> — but the per-line
+    /// log calls must still happen BEFORE the throw, so the operator sees
+    /// which lines triggered the corruption report.
+    /// <para>
+    /// Per spec §Decision 5 Test 2: 1 valid + 4 malformed (&gt;50%) → 4 logs
+    /// then throw with the 4/5 = 80% message.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Parse_HighMalformedRatio_ThrowsAfterLoggingAll()
+    {
+        // Arrange — 1 valid + 4 malformed (80% malformed, exceeds 50% threshold).
+        const string asc =
+            " 0.000000 51  100  8  AA BB CC DD EE FF 00 11\n" +  // line 1: valid
+            "garbage1\n" +                                     // line 2: malformed
+            "garbage2\n" +                                     // line 3: malformed
+            "garbage3\n" +                                     // line 4: malformed
+            "garbage4\n";                                      // line 5: malformed
+        using var stream = MakeAscStream(asc);
+        var logger = Substitute.For<ILogger>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+
+        // Act + Assert — throws ReplayFormatException with the malformed ratio message.
+        Func<Task> act = () => AscParser.ParseAsync(stream, logger);
+        await act.Should().ThrowAsync<ReplayFormatException>()
+            .WithMessage("*4/5 = 80%*");
+
+        // Assert — all 4 malformed lines were logged at Warning BEFORE the throw.
+        logger.Received(4).Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
     }
 }
 
