@@ -95,6 +95,42 @@
                     </DataGrid>
                 </StackPanel>
             </Expander>
+
+            <!--
+                v1.4.0 MINOR Send DBC: DBC mode sub-panel. The user picks
+                a DBC message from the dropdown; the per-signal DataGrid
+                below is repopulated by the VM on selection change. Each
+                row's Value column is editable; the Send button encodes
+                the values via DbcEncodeService + dispatches the frame
+                through the shared SendService. ErrorMessage shows
+                range / not-found / configuration errors from the
+                encoder.
+            -->
+            <Expander x:Name="DbcModeExpander" Header="DBC mode" Margin="0,4,0,0" IsExpanded="False">
+                <StackPanel Orientation="Vertical" Margin="6"
+                            DataContext="{Binding DbcSend}">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Message:" Width="80" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding DbcMessages}"
+                                  SelectedItem="{Binding SelectedDbcMessage, Mode=TwoWay}"
+                                  DisplayMemberPath="Name" Width="200" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding SignalRows}"
+                              AutoGenerateColumns="False"
+                              MaxHeight="200" Margin="0,0,0,4">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Signal" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding ValueType}" IsReadOnly="True" Width="80" />
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value, Mode=TwoWay, TargetNullValue=''}" Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
+                        <TextBlock Text="{Binding ErrorMessage}" Foreground="Red"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

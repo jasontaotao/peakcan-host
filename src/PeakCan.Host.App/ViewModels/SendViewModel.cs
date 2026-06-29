@@ -88,7 +88,15 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     [ObservableProperty]
     private SendFrameLibrary.SavedFrame? _selectedLibraryFrame;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library)
+    // v1.4.0 MINOR Send DBC: the DBC-mode sub-panel. Resolved from DI
+    // (AppHostBuilder registers DbcSendViewModel as a singleton); the
+    // SendView XAML binds its child controls to this property so the
+    // message dropdown, signal DataGrid, and Send button stay in sync
+    // with the rest of the Send tab.
+    [ObservableProperty]
+    private DbcSendViewModel? _dbcSend;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -96,6 +104,9 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         // Library may be null in unit tests until Task 8 wires it up;
         // production DI provides a singleton instance.
         _libraryService = library;
+        // DBC sub-panel may be null in unit tests that pre-date
+        // DbcSendViewModel registration; production DI always provides it.
+        _dbcSend = dbcSend;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
         // the UI reflects IsRunning / SuccessCount / FailureCount without

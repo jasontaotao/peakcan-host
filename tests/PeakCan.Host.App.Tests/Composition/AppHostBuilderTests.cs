@@ -8,6 +8,8 @@ using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
@@ -320,5 +322,28 @@ public class AppHostBuilderTests
 
         udsClient.Security.LockoutConfig.MaxAttempts.Should().Be(5);
         udsClient.Security.LockoutConfig.LockoutDuration.Should().Be(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
+    /// v1.4.0 MINOR: <see cref="AppHostBuilder"/> registers the three new
+    /// v1.4.0 services (<see cref="IReplayService"/>,
+    /// <see cref="IReplayFrameSink"/>, <see cref="DbcEncodeService"/>) as
+    /// DI singletons. The <c>BeSameAs</c> assertion pins the singleton
+    /// lifetime: a future refactor that drops the explicit
+    /// <c>AddSingleton</c> would resolve a fresh instance per call and
+    /// replay state would leak across consumers.
+    /// </summary>
+    [Fact]
+    public void Build_Registers_ReplayAndDbcEncodeServices()
+    {
+        var builder = new AppHostBuilder();
+        using var host = builder.Build();
+
+        host.Services.GetService<IReplayService>().Should().NotBeNull();
+        host.Services.GetService<DbcEncodeService>().Should().NotBeNull();
+        host.Services.GetService<IReplayFrameSink>().Should().NotBeNull();
+        host.Services.GetService<IReplayService>()
+            .Should().BeSameAs(host.Services.GetService<IReplayService>(),
+                "IReplayService is registered as singleton");
     }
 }

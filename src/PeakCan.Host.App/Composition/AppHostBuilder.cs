@@ -5,6 +5,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 using Serilog;
@@ -172,6 +174,20 @@ public class AppHostBuilder
             sp.GetRequiredService<CyclicSendService>());
         // v1.2.11 PATCH Item 5: named-frame library persistence.
         builder.Services.AddSingleton<SendFrameLibrary>();
+
+        // v1.4.0 MINOR Replay: ReplayFrameSinkAdapter wraps SendService so
+        // replay frames traverse the same outbound path as the SendView
+        // (the adapter's XML doc explains why SendService and not
+        // ChannelRouter — ChannelRouter is receive-only fan-out).
+        // Register the concrete type first so the IReplayFrameSink factory
+        // and any direct IReplayService consumer share the same instance.
+        builder.Services.AddSingleton<ReplayFrameSinkAdapter>();
+        builder.Services.AddSingleton<IReplayFrameSink>(sp =>
+            sp.GetRequiredService<ReplayFrameSinkAdapter>());
+        builder.Services.AddSingleton<IReplayService, ReplayService>();
+        // v1.4.0 MINOR Send DBC: stateless DbcEncodeService singleton
+        // shared by DbcSendViewModel.
+        builder.Services.AddSingleton<DbcEncodeService>();
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would
