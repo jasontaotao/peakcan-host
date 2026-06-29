@@ -98,7 +98,11 @@ public class CyclicDbcSendServiceRaceTests
         // First generation: id=0x100
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(60);
+        // v1.6.2 PATCH Item 2a: fire-timer → predicate-based migration.
+        // Wait until ≥1 frame sent (instead of heuristic 60ms sleep).
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.CallCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
         await Task.Delay(40);
         int beforeSecondStart = send.CallCount;
@@ -107,7 +111,10 @@ public class CyclicDbcSendServiceRaceTests
         // queued callbacks from gen=1 with stale snapshots are dropped.
         svc.Start(() => (MakeMessage(0x200), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        // v1.6.2 PATCH Item 2a: wait until ≥1 frame with id=0x200 sent.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => send.SentIds.Any(id => id == 0x200u),
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         var idsFromSecondCycle = send.SentIds.Skip(beforeSecondStart).ToList();
@@ -127,7 +134,10 @@ public class CyclicDbcSendServiceRaceTests
         // Out-of-range value (200.0 vs [0, 100]) → DbcEncodeException
         svc.Start(() => (msg, new Dictionary<string, double> { ["S"] = 200.0 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until encode failures accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.FailureCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.FailureCount.Should().BeGreaterThan(0);
@@ -143,7 +153,10 @@ public class CyclicDbcSendServiceRaceTests
             new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until successes accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.SuccessCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.SuccessCount.Should().BeGreaterThan(0);
@@ -161,7 +174,10 @@ public class CyclicDbcSendServiceRaceTests
             new DbcEncodeService(), send, NullLogger<CyclicDbcSendService>.Instance);
         svc.Start(() => (MakeMessage(0x100), new Dictionary<string, double> { ["S"] = 1 }),
                   TimeSpan.FromMilliseconds(20));
-        await Task.Delay(120);
+        // v1.6.2 PATCH Item 2a: wait until failures accumulate.
+        await CyclicTimerTestHarness.WaitUntilAsync(
+            () => svc.FailureCount > 0,
+            TimeSpan.FromMilliseconds(500));
         svc.Stop();
 
         svc.FailureCount.Should().BeGreaterThan(0);
