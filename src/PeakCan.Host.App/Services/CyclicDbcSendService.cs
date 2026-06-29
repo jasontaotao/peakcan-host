@@ -54,6 +54,11 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
     private long _sendSuccessCount;
     private long _sendFailureCount;
     private bool _isRunning;
+    // v1.6.2 PATCH Item 1b: per-Start CancellationTokenSource. Stop() cancels
+    // this source so in-flight SendAsync receives a cancelled CT — true abort
+    // of the channel write, not just "prevent new ticks". Disposed in Start
+    // (when replaced) and in Dispose (final cleanup).
+    private CancellationTokenSource? _cts;
     // Captured on first tick; subsequent ticks compare provider's current
     // Message.Id to detect "user switched message mid-run" (Decision 9).
     private uint? _capturedMessageId;
@@ -116,6 +121,11 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
             // documented contract (mirror CyclicSendService).
             Interlocked.Exchange(ref _sendSuccessCount, 0);
             Interlocked.Exchange(ref _sendFailureCount, 0);
+            // v1.6.2 PATCH Item 1b: dispose previous CTS (if any) and create
+            // a fresh one. Without this, a second Start would inherit a
+            // cancelled token and every tick would throw OCE on SendAsync.
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
             gen = ++_generation;
             _timer = new Timer(OnTimerTick, gen, interval, interval);
         }
@@ -140,6 +150,11 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
         _generation++;
         _timer?.Dispose();
         _timer = null;
+        // v1.6.2 PATCH Item 1b: cancel in-flight SendAsync. The CTS was
+        // snapshotted by OnTimerTick under the lock above; cancelling here
+        // propagates through _sendService.SendAsync(frame, ct) into
+        // ch.WriteAsync(frame, ct) which honors the token.
+        _cts?.Cancel();
         LogCyclicDbcStopped(_logger, SuccessCount);
     }
 
@@ -148,12 +163,19 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
         Func<(Message message, IReadOnlyDictionary<string, double> values)>? provider;
         TimeSpan interval;
         long generation;
+        CancellationToken ct;
         lock (this)
         {
             if (!_isRunning) return;
             provider = _frameProvider;
             interval = _interval;
             generation = _generation;
+            // v1.6.2 PATCH Item 1b: snapshot CTS.Token under the same lock
+            // as _isRunning + _frameProvider + _generation so the tick sees
+            // a coherent view. Stop() flips _isRunning + cancels _cts under
+            // the same lock, so this snapshot is consistent with the
+            // isRunning snapshot above.
+            ct = _cts?.Token ?? CancellationToken.None;
         }
         // Stale-timer drop: if this Timer was disposed (Start re-entered)
         // its captured generation no longer matches the service's. Bail
@@ -254,7 +276,10 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
 
         try
         {
-            var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
+            // v1.6.2 PATCH Item 1b: pass CT so Stop() can abort the in-flight
+            // channel write. _sendService.SendAsync forwards ct to
+            // ch.WriteAsync(frame, ct) which honors the token.
+            var result = await _sendService.SendAsync(frame, ct).ConfigureAwait(false);
             if (result.IsSuccess)
             {
                 Interlocked.Increment(ref _sendSuccessCount);
@@ -267,6 +292,13 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
                     LogCyclicDbcSendFailed(_logger, frame.Id, result.Error!.Code, result.Error.Message);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // v1.6.2 PATCH Item 1b: expected on Stop(). async void timer
+            // callback would crash the process if OCE propagated uncaught.
+            // Do NOT increment FailureCount — Stop is user-initiated, not
+            // a hardware failure.
         }
         catch (Exception ex)
         {
@@ -283,6 +315,11 @@ public sealed partial class CyclicDbcSendService : ICyclicDbcSendService, IDispo
         lock (this)
         {
             StopInner();
+            // v1.6.2 PATCH Item 1b: dispose the CTS to release its internal
+            // ManualResetEvent handle. Without this, repeated Start/Stop
+            // cycles leak native resources.
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 
