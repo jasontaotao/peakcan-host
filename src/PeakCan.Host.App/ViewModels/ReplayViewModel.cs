@@ -106,6 +106,11 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         _fileDialog = fileDialog ?? throw new ArgumentNullException(nameof(fileDialog));
         _syncContext = SynchronizationContext.Current;
         _service.FrameEmitted += OnFrameEmitted;
+        // v1.4.2 PATCH Item 3: subscribe to PlaybackEnded so sink failures
+        // (e.g. ReplaySendException) surface as ErrorMessage in the UI.
+        // Previously no consumer subscribed to this event (Phase 2.5 finding
+        // in the v1.4.2 PATCH spec).
+        _service.PlaybackEnded += OnPlaybackEnded;
         // v1.5.0 MINOR Task 5: seed Loop from the service so the CheckBox
         // reflects the current state at startup (and after a future
         // LoadAsync that may reset it).
@@ -337,6 +342,37 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// v1.4.2 PATCH Item 3: invoked on the timer callback thread when
+    /// playback ends (EOF or sink failure). Surfaces sink failures in
+    /// <see cref="ErrorMessage"/>; on normal EOF, just resets
+    /// <see cref="IsPlaying"/>. Marshals to the captured
+    /// <see cref="SynchronizationContext"/> like <see cref="OnFrameEmitted"/>.
+    /// </summary>
+    private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
+    {
+        if (_syncContext is not null)
+        {
+            _syncContext.Post(_ => ApplyPlaybackEnded(e), null);
+        }
+        else
+        {
+            // Test path: no SynchronizationContext. Direct call is safe
+            // because tests assert on the state immediately after the event.
+            ApplyPlaybackEnded(e);
+        }
+    }
+
+    private void ApplyPlaybackEnded(PlaybackEndedEventArgs e)
+    {
+        if (e.Error is not null)
+        {
+            ErrorMessage = $"Replay aborted: {e.Error.Message}";
+        }
+        // Whether the end was normal (EOF) or error, stop playing.
+        IsPlaying = false;
+    }
+
+    /// <summary>
     /// Unsubscribe from <see cref="IReplayService.FrameEmitted"/> and
     /// stop playback. Safe to call multiple times — the service is
     /// thread-safe and <see cref="ReplayService.Stop"/> is idempotent.
@@ -344,6 +380,7 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _service.FrameEmitted -= OnFrameEmitted;
+        _service.PlaybackEnded -= OnPlaybackEnded;
         _service.Stop();
         GC.SuppressFinalize(this);
     }

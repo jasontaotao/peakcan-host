@@ -14,14 +14,24 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     private readonly ILogger<ReplayService> _logger;
     private readonly ReplayTimeline _timeline;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
+    // v1.4.2 PATCH Item 3: captured first sink exception. Set once; surfaced
+    // via PlaybackEndedEventArgs.Error. Set-only-once so first-failure wins.
+    private Exception? _sinkException;
+    internal Exception? SinkExceptionForTesting => _sinkException;
 
     public ReplayService(IReplayFrameSink sink, ILogger<ReplayService> logger)
     {
         _sink = sink;
         _logger = logger;
         // The timeline raises the playback-ended callback on its timer thread;
-        // we forward to the public PlaybackEnded event from there.
-        _timeline = new ReplayTimeline(EmitFrame, onPlaybackEnded: RaisePlaybackEnded);
+        // we forward to the public PlaybackEnded event from there. The
+        // onSinkThrew callback carries sink exceptions out of the timeline
+        // (which would otherwise be swallowed by OnTick's catch block) so
+        // we can populate PlaybackEndedEventArgs.Error. v1.4.2 PATCH Item 3.
+        _timeline = new ReplayTimeline(
+            EmitFrame,
+            onPlaybackEnded: RaisePlaybackEnded,
+            onSinkThrew: OnSinkThrewFromTimeline);
     }
 
     public ReplayState State => !_timeline.HasStarted
@@ -40,13 +50,32 @@ public sealed partial class ReplayService : IReplayService, IDisposable
 
     public IReadOnlySet<uint>? CanIdFilter { get; set; }
 
-    public event EventHandler? PlaybackEnded;
+    public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
 
     /// <summary>
     /// Forwards the timeline's playback-ended callback to the public event.
     /// Invoked on the timer thread; UI subscribers must marshal to the UI thread.
+    /// v1.4.2 PATCH Item 3: carries <see cref="PlaybackEndedEventArgs.Error"/>
+    /// from the timeline so UI can surface sink failures.
     /// </summary>
-    private void RaisePlaybackEnded() => PlaybackEnded?.Invoke(this, EventArgs.Empty);
+    private void RaisePlaybackEnded(PlaybackEndedEventArgs args)
+        => PlaybackEnded?.Invoke(this, args);
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: invoked by the timeline when a sink callback
+    /// throws (e.g. <see cref="ReplaySendException"/> from a failed
+    /// <c>SendService.SendAsync</c>). Captures the first exception, pauses
+    /// the timeline, and raises <see cref="PlaybackEnded"/> with the error.
+    /// </summary>
+    private void OnSinkThrewFromTimeline(Exception ex)
+    {
+        if (_sinkException is null)
+        {
+            _sinkException = ex;
+            _timeline.Pause();  // ensure _isPlaying=false
+            RaisePlaybackEnded(new PlaybackEndedEventArgs(ex));
+        }
+    }
 
     /// <summary>
     /// Disposes the playback timer. Safe to call multiple times.
@@ -91,13 +120,19 @@ public sealed partial class ReplayService : IReplayService, IDisposable
             return; // filter rejects this frame; no sink call, no event raise
         }
 
-        // Timer callback is sync; sink is fire-and-forget. Errors must not stall
-        // playback — the timeline swallows them in its outer try/catch, but we
-        // log here so the warning reaches the user's logger even if the timeline
-        // catch is hit.
+        // v1.4.2 PATCH Item 3: block on the sink so a first-failure
+        // (ReplaySendException) propagates to the timeline's foreach catch.
+        // CAN bus writes are bounded (<1 ms typical), so blocking the 1 ms
+        // timer thread is acceptable. ReplaySendException is rethrown to
+        // surface via onSinkThrew; other exceptions are logged and swallowed
+        // (preserves the v1.4.0 tolerance for non-send failures).
         try
         {
-            _ = EmitFrameToSinkAsync(frame);
+            EmitFrameToSinkAsync(frame).GetAwaiter().GetResult();
+        }
+        catch (ReplaySendException)
+        {
+            throw;  // propagate to OnTick foreach catch → OnSinkThrewFromTimeline
         }
         catch (Exception ex)
         {

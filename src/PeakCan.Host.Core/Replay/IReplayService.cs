@@ -44,14 +44,17 @@ public interface IReplayService
 
     /// <summary>
     /// Raised once when playback reaches <see cref="TotalDuration"/> with
-    /// <see cref="Loop"/> == false. UI listens to reset the scrubber, show
-    /// "Playback ended" hint, etc. Not raised when <see cref="Loop"/> is true.
+    /// <see cref="Loop"/> == false, OR when playback is aborted due to a
+    /// sink failure (e.g. <see cref="ReplaySendException"/>). UI listens
+    /// to reset the scrubber, show "Playback ended" hint, or surface the
+    /// error via <see cref="PlaybackEndedEventArgs.Error"/>. Not raised
+    /// when <see cref="Loop"/> is true.
     /// </summary>
     /// <remarks>
     /// Fired on the timer callback thread, NOT the calling thread. UI subscribers
     /// must marshal to the UI thread (e.g., Dispatcher.InvokeAsync).
     /// </remarks>
-    event EventHandler? PlaybackEnded;
+    event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
 
     /// <summary>Load and parse an ASC file from disk.</summary>
     /// <exception cref="ReplayLoadException">File not found or IO error.</exception>

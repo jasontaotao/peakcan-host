@@ -269,4 +269,55 @@ public class ReplayViewModelTests : IDisposable
         _sut.CanIdFilterError.Should().Contain("garbage");
         _service.Received().CanIdFilter = Arg.Is<IReadOnlySet<uint>>(s => s.Contains(0x100) && s.Count == 1);
     }
+
+    // ---------- v1.4.2 PATCH Item 3: PlaybackEnded subscription + ErrorMessage ----------
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: when the service raises <c>PlaybackEnded</c>
+    /// with a non-null <c>Error</c> (e.g. <see cref="ReplaySendException"/>
+    /// from a failed sink), the VM surfaces it via <c>ErrorMessage</c>
+    /// and sets <c>IsPlaying = false</c>. Previously no consumer
+    /// subscribed to <c>PlaybackEnded</c> so the user got no feedback
+    /// when playback ran on a disconnected channel.
+    /// </summary>
+    [Fact]
+    public void OnPlaybackEnded_WithError_SetsErrorMessageAndIsPlayingFalse()
+    {
+        // Arrange
+        _sut.IsPlaying = true;
+        var ex = new ReplaySendException("no active channel");
+
+        // Act — raise PlaybackEnded with error
+        _service.PlaybackEnded += Raise.Event<EventHandler<PlaybackEndedEventArgs>>(
+            this, new PlaybackEndedEventArgs(ex));
+
+        // Assert
+        _sut.ErrorMessage.Should().NotBeNullOrEmpty();
+        _sut.ErrorMessage.Should().Contain("Replay aborted");
+        _sut.ErrorMessage.Should().Contain("no active channel");
+        _sut.IsPlaying.Should().BeFalse("playback halted on error");
+    }
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: a normal EOF (Error == null) clears
+    /// <c>IsPlaying</c> but does not set <c>ErrorMessage</c>.
+    /// </summary>
+    [Fact]
+    public void OnPlaybackEnded_NormalEnd_DoesNotSetErrorMessage()
+    {
+        // Arrange
+        _sut.IsPlaying = true;
+        _sut.ErrorMessage = "stale prior error";
+
+        // Act — raise PlaybackEnded with no error (normal EOF)
+        _service.PlaybackEnded += Raise.Event<EventHandler<PlaybackEndedEventArgs>>(
+            this, new PlaybackEndedEventArgs(null));
+
+        // Assert
+        _sut.IsPlaying.Should().BeFalse("playback stopped on EOF");
+        // ErrorMessage is not overwritten by a normal-end event; the
+        // prior "stale prior error" stays so the user can still see
+        // any leftover load-time error. (To clear it, the user must
+        // re-open a file, which goes through OpenAsync that resets it.)
+    }
 }

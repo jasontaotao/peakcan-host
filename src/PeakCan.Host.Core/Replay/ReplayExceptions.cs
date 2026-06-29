@@ -19,3 +19,17 @@ public sealed class ReplayFormatException : ReplayException
 {
     public ReplayFormatException(string message) : base(message) { }
 }
+
+/// <summary>
+/// v1.4.2 PATCH Item 3: thrown by <c>ReplayFrameSinkAdapter</c> when
+/// <c>SendService.SendAsync</c> returns <c>Result&lt;Unit&gt;.Fail</c>
+/// (e.g. no active channel, PEAK error). Surfaces the first-failure
+/// reason up to <c>ReplayService</c>, which raises
+/// <c>PlaybackEnded</c> with <c>Error</c> populated so the UI can
+/// display the failure to the user.
+/// </summary>
+public sealed class ReplaySendException : ReplayException
+{
+    public ReplaySendException(string message) : base(message) { }
+    public ReplaySendException(string message, Exception inner) : base(message, inner) { }
+}
