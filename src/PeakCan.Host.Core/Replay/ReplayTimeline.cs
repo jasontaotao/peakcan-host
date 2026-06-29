@@ -21,6 +21,13 @@ internal sealed class ReplayTimeline
     private bool _isPlaying;
     private bool _hasStarted; // true once Play() has been called with frames loaded; resets only via Stop()
     private bool _loop;
+    // v1.5.1 PATCH Task 2: inclusive timestamp window applied at the
+    // OnTick iteration boundary. null = unbounded on that side. Persist
+    // across SetFrames (range is a user choice about the timeline, not
+    // the loaded file) — the VM clears via OpenAsync when a new file is
+    // loaded because a new file's timestamps likely differ.
+    private double? _startTimestamp;
+    private double? _endTimestamp;
     private DateTime _playStartWallClock;
     private double _playStartTimestamp;
     private Timer? _timer;
@@ -52,6 +59,31 @@ internal sealed class ReplayTimeline
     {
         get { lock (_lock) return _loop; }
         set { lock (_lock) _loop = value; }
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: inclusive lower bound on emitted frames'
+    /// timestamp. <c>null</c> = unbounded below. Range filter is enforced
+    /// at the OnTick iteration boundary (composed with the existing
+    /// <c>frame.Timestamp &lt;= now</c> predicate), NOT at the emit
+    /// boundary — the cursor skips frames before Start. Re-applied after
+    /// a Loop rewind. Thread-safe via the timeline's internal lock.
+    /// </summary>
+    public double? StartTimestamp
+    {
+        get { lock (_lock) return _startTimestamp; }
+        set { lock (_lock) _startTimestamp = value; }
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: inclusive upper bound on emitted frames'
+    /// timestamp. <c>null</c> = unbounded above. Same composition +
+    /// re-application semantics as <see cref="StartTimestamp"/>.
+    /// </summary>
+    public double? EndTimestamp
+    {
+        get { lock (_lock) return _endTimestamp; }
+        set { lock (_lock) _endTimestamp = value; }
     }
 
     /// <summary>
@@ -160,7 +192,31 @@ internal sealed class ReplayTimeline
         {
             if (!_isPlaying) return;
             var now = PlayedTimestamp;
-            while (_nextFrameIndex < _frames.Count && _frames[_nextFrameIndex].Timestamp <= now)
+            // v1.5.1 PATCH Task 2: range filter at the iteration boundary.
+            // null on either side means unbounded on that side. The filter
+            // is composed with the existing timestamp predicate so the
+            // cursor only walks across in-range frames; CanIdFilter is
+            // applied later at the emit boundary by ReplayService.
+            var startOrMin = _startTimestamp ?? double.NegativeInfinity;
+            var endOrMax = _endTimestamp ?? double.PositiveInfinity;
+            // Pre-skip: if the cursor sits in the "before start" region,
+            // walk _nextFrameIndex forward past every out-of-range frame
+            // WITHOUT emitting. The main while-loop predicate only fires
+            // for in-range frames; without this pre-skip, the cursor
+            // would stay stuck on the first out-of-range frame because
+            // the while-loop body never runs to advance _nextFrameIndex.
+            // After the pre-skip, the existing while-loop runs as before
+            // — the cursor's wall-clock "now" naturally catches up to
+            // the first in-range frame's Timestamp over time.
+            while (_nextFrameIndex < _frames.Count
+                && _frames[_nextFrameIndex].Timestamp < startOrMin)
+            {
+                _nextFrameIndex++;
+            }
+            while (_nextFrameIndex < _frames.Count
+                && _frames[_nextFrameIndex].Timestamp <= now
+                && _frames[_nextFrameIndex].Timestamp >= startOrMin
+                && _frames[_nextFrameIndex].Timestamp <= endOrMax)
             {
                 toEmit ??= new List<ReplayFrame>();
                 toEmit.Add(_frames[_nextFrameIndex]);

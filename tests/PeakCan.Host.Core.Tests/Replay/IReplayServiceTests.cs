@@ -340,4 +340,123 @@ base 0x7e0 500k
         public ValueTask SendFrameAsync(ReplayFrame frame, CancellationToken ct = default)
             => ValueTask.FromException(_ex);
     }
+
+    // ---------- v1.5.1 PATCH Task 2: time-range filter (StartTimestamp/EndTimestamp) ----------
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <see cref="IReplayService.StartTimestamp"/> getter
+    /// returns the value previously stored by the setter. (Honest round-trip;
+    /// does NOT assert propagation to the internal <see cref="ReplayTimeline"/>.)
+    /// </summary>
+    [Fact]
+    public void SetStartTimestamp_GetterReturnsWhatWasSet()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.StartTimestamp.Should().BeNull("StartTimestamp defaults to null (unbounded below)");
+        service.StartTimestamp = 1.5;
+        service.StartTimestamp.Should().Be(1.5, "StartTimestamp setter stores the value");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: <see cref="IReplayService.EndTimestamp"/> getter
+    /// returns the value previously stored by the setter.
+    /// </summary>
+    [Fact]
+    public void SetEndTimestamp_GetterReturnsWhatWasSet()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.EndTimestamp.Should().BeNull("EndTimestamp defaults to null (unbounded above)");
+        service.EndTimestamp = 2.5;
+        service.EndTimestamp.Should().Be(2.5, "EndTimestamp setter stores the value");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: setting <see cref="IReplayService.StartTimestamp"/>
+    /// must propagate to the internal <see cref="ReplayTimeline"/> so that
+    /// the OnTick while-loop predicate actually skips frames before start.
+    /// Verifies propagation by reflection into the real service's private
+    /// <c>_timeline</c> field — same pattern as
+    /// <see cref="SetLoop_PropagatesToInternalTimeline"/>.
+    /// </summary>
+    [Fact]
+    public void SetStartTimestamp_PropagatesToInternalTimeline()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        // Grab the real internal timeline the service owns.
+        var timelineField = typeof(ReplayService).GetField(
+            "_timeline",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        timelineField.Should().NotBeNull("ReplayService must own a private _timeline field");
+        var timeline = (ReplayTimeline)timelineField!.GetValue(service)!;
+
+        // Defaults: service.StartTimestamp == null → timeline.StartTimestamp == null.
+        service.StartTimestamp.Should().BeNull("StartTimestamp defaults to null");
+        timeline.StartTimestamp.Should().BeNull("internal timeline inherits the default");
+
+        // Set service.StartTimestamp = 1.5; the underlying timeline must reflect it.
+        service.StartTimestamp = 1.5;
+        timeline.StartTimestamp.Should().Be(1.5,
+            "ReplayService.StartTimestamp must propagate to internal ReplayTimeline.StartTimestamp");
+
+        // And clearing back to null must also propagate.
+        service.StartTimestamp = null;
+        timeline.StartTimestamp.Should().BeNull(
+            "setter must keep the two properties in sync in both directions");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: setting <see cref="IReplayService.EndTimestamp"/>
+    /// must propagate to the internal <see cref="ReplayTimeline"/> (mirror of
+    /// <see cref="SetStartTimestamp_PropagatesToInternalTimeline"/>).
+    /// </summary>
+    [Fact]
+    public void SetEndTimestamp_PropagatesToInternalTimeline()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        var timelineField = typeof(ReplayService).GetField(
+            "_timeline",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        timelineField.Should().NotBeNull();
+        var timeline = (ReplayTimeline)timelineField!.GetValue(service)!;
+
+        service.EndTimestamp.Should().BeNull("EndTimestamp defaults to null");
+        timeline.EndTimestamp.Should().BeNull("internal timeline inherits the default");
+
+        service.EndTimestamp = 2.5;
+        timeline.EndTimestamp.Should().Be(2.5,
+            "ReplayService.EndTimestamp must propagate to internal ReplayTimeline.EndTimestamp");
+
+        service.EndTimestamp = null;
+        timeline.EndTimestamp.Should().BeNull(
+            "setter must keep the two properties in sync in both directions");
+    }
+
+    /// <summary>
+    /// v1.5.1 PATCH Task 2: a null <see cref="IReplayService.StartTimestamp"/>
+    /// means "unbounded below" — all frames pass on that side. The service
+    /// does not validate; the VM does (per spec Decision 4 — VM-side
+    /// validation keeps WPF two-way binding clean).
+    /// </summary>
+    [Fact]
+    public void SetStartTimestamp_Null_MeansUnbounded()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.StartTimestamp = 1.5;
+        service.StartTimestamp.Should().Be(1.5);
+
+        // Setting back to null restores unbounded-below semantics.
+        service.StartTimestamp = null;
+        service.StartTimestamp.Should().BeNull(
+            "null means unbounded below; service does not validate Start <= End (VM does)");
+    }
 }
