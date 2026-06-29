@@ -1,6 +1,11 @@
 namespace PeakCan.Host.Core.Dbc;
 
-/// <summary>Base for all DBC encoding errors.</summary>
+/// <summary>
+/// Base for all DBC encoding errors. <see cref="MessageName"/> identifies the
+/// DBC message associated with the error when available; for configuration
+/// errors without message context (e.g. Factor=0 detected in a helper that
+/// only sees the signal), this is the signal name.
+/// </summary>
 public abstract class DbcSignalEncodeException : Exception
 {
     public string MessageName { get; }

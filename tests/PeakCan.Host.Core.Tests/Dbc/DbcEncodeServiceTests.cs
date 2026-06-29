@@ -226,4 +226,42 @@ public class DbcEncodeServiceTests
         // Allow tiny rounding error (0.1 factor × 0.5 raw step = 0.05 engineering)
         decoded.Should().BeApproximately(73.5, 0.05);
     }
+
+    /// <summary>
+    /// v1.4.0 MINOR ROUND-TRIP with rounding (review finding M-2): exercises the
+    /// Math.Round path. physical=73.55, Factor=0.1, Offset=-40 → raw=1135.5 → rounds
+    /// to 1136 (round half away from zero) → decode → 73.6, within ±0.05 tolerance.
+    /// </summary>
+    [Fact]
+    public void Encode_Decode_Roundtrip_WithRounding_PreservesValue()
+    {
+        var sig = SignalUnsigned("RoundtripSig2", start: 0, length: 16, factor: 0.1, offset: -40, min: 0, max: 1000);
+        var msg = MakeMessage(sig);
+        var values = new Dictionary<string, double> { ["RoundtripSig2"] = 73.55 };
+
+        var bytes = _sut.Encode(msg, values);
+        var decoded = SignalDecoder.Decode(bytes, sig);
+
+        // 73.55 → raw 1135.5 → rounds to 1136 → decode: 1136 * 0.1 + (-40) = 73.6
+        decoded.Should().BeApproximately(73.6, 0.05);
+    }
+
+    /// <summary>
+    /// v1.4.0 MINOR overflow guard (review finding I-2): physical value that
+    /// produces raw > long.MaxValue via Factor must throw
+    /// <see cref="DbcSignalValueOutOfRangeException"/>, not leak an
+    /// <see cref="OverflowException"/> from the (long) cast.
+    /// </summary>
+    [Fact]
+    public void Encode_OverflowingPhysical_Throws()
+    {
+        // Factor=1e-10, physical=1e15 → raw = 1e25, far above long.MaxValue (~9.22e18)
+        var sig = SignalUnsigned("TinSig", start: 0, length: 16, factor: 1e-10, offset: 0, min: 0, max: 1e16);
+        var msg = MakeMessage(sig);
+        var values = new Dictionary<string, double> { ["TinSig"] = 1e15 };
+
+        Func<byte[]> act = () => _sut.Encode(msg, values);
+        act.Should().Throw<DbcSignalValueOutOfRangeException>()
+            .Which.SignalName.Should().Be("TinSig");
+    }
 }

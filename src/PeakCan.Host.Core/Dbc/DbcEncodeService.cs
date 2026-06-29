@@ -93,9 +93,21 @@ public sealed class DbcEncodeService
     {
         if (signal.Factor == 0)
         {
-            throw new DbcSignalConfigurationException(string.Empty, signal.Name, "Factor=0 (divide by zero)");
+            throw new DbcSignalConfigurationException(signal.Name, signal.Name, "Factor=0 (divide by zero)");
         }
         var raw = (physical - signal.Offset) / signal.Factor;
+
+        // Guard against physical values that map to raw bits outside the
+        // long range (e.g. Factor=1e-10 with physical=1e15 → raw=1e25). The
+        // downstream `(ulong)(long)Math.Round(...)` cast would silently
+        // overflow. Surface as a range exception instead. Signal.Name is
+        // used for both message and signal because the configuration error
+        // is tied to the signal definition (and `PhysicalToRawBits` does
+        // not take a message parameter).
+        if (raw > (double)long.MaxValue || raw < (double)long.MinValue)
+        {
+            throw new DbcSignalValueOutOfRangeException(signal.Name, signal.Name, physical, signal.Min, signal.Max);
+        }
 
         return signal.ValueType switch
         {
@@ -114,7 +126,7 @@ public sealed class DbcEncodeService
             // apply, but the wire value is the float bits.)
             ValueType.Float => (ulong)BitConverter.SingleToInt32Bits((float)raw) & 0xFFFFFFFFUL,
             ValueType.Double => (ulong)BitConverter.DoubleToInt64Bits(raw),
-            _ => (ulong)Math.Round(raw, MidpointRounding.AwayFromZero),
+            _ => throw new DbcSignalConfigurationException(signal.Name, signal.Name, $"Unsupported ValueType: {signal.ValueType}"),
         };
     }
 
