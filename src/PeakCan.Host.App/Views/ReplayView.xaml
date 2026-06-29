@@ -8,9 +8,9 @@
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              mc:Ignorable="d">
     <!--
-        v1.4.0 MINOR Task 4: minimal Replay tab scaffold. Production
-        polish (column headers, frame table, error retry button, etc.)
-        is deferred per plan §文件结构.
+        v1.4.0 MINOR Task 4 + v1.5.0 MINOR Task 5: minimal Replay tab
+        scaffold. Production polish (column headers, frame table, error
+        retry button, etc.) is deferred per plan §文件结构.
         Bindings:
           OpenCommand / PlayCommand / PauseCommand / StopCommand /
           SetSpeedCommand / SeekToCommand are RelayCommands on
@@ -21,9 +21,15 @@
           IsLoaded gates Play + the scrubber so the transport bar is
           inert before a file is loaded. Stop and Pause remain enabled
           after Stop (Stop resets IsLoaded? — no, only Open clears it).
+          Loop CheckBox + CanIdFilter TextBox (v1.5.0 MINOR Task 5):
+          Loop proxies through to IReplayService.Loop. CanIdFilterText
+          uses UpdateSourceTrigger=PropertyChanged so the parser runs
+          on every keystroke; CanIdFilterError surfaces inline parse
+          failures without blocking valid tokens.
     -->
     <Grid Margin="10">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -73,7 +79,28 @@
             </ComboBox>
         </Grid>
 
-        <TextBlock Grid.Row="3"
+        <!-- v1.5.0 MINOR Task 5: Loop CheckBox + CAN ID filter TextBox + inline error.
+             UpdateSourceTrigger=PropertyChanged fires the parser on every keystroke. -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,10">
+            <CheckBox Content="Loop"
+                      IsChecked="{Binding Loop}"
+                      VerticalAlignment="Center"
+                      Margin="0,0,8,0"/>
+            <TextBlock Text="CAN ID filter:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,4,0"/>
+            <TextBox Text="{Binding CanIdFilterText, UpdateSourceTrigger=PropertyChanged}"
+                     Width="200"
+                     VerticalAlignment="Center"
+                     ToolTip="Comma-separated. Supports 0x prefix hex (e.g. 0x100) and decimal (e.g. 256). Empty = all pass."/>
+            <TextBlock Text="{Binding CanIdFilterError}"
+                       Foreground="Red"
+                       VerticalAlignment="Center"
+                       Margin="4,0,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="4"
                    Text="{Binding ErrorMessage}"
                    Foreground="Red"
                    Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>

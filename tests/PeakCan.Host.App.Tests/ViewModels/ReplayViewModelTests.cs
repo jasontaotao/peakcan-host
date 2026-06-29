@@ -202,4 +202,71 @@ public class ReplayViewModelTests : IDisposable
         _service.DidNotReceive().SetSpeed(Arg.Any<double>());
         _sut.Speed.Should().Be(1.0);
     }
+
+    // ---------- v1.5.0 MINOR Task 5: Loop proxy + CanIdFilterText parser ----------
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 5: <c>CanIdFilterText</c> setter with an empty
+    /// or whitespace string clears the service filter to <c>null</c>
+    /// (meaning "all frames pass") and clears the inline error message.
+    /// The brief's tri-state contract: null = all pass, empty set =
+    /// nothing passes, non-empty = whitelist.
+    /// </summary>
+    [Fact]
+    public void CanIdFilterText_Empty_ClearsFilter()
+    {
+        // Arrange — start with a non-null filter and a non-empty text
+        // value so we can observe the clearing transition. The source-gen
+        // setter skips OnXxxChanged when the value is unchanged, so we
+        // seed a value first to force a real setter call on empty.
+        _service.CanIdFilter.Returns(new HashSet<uint> { 0x100 });
+        _sut.CanIdFilterText = "0x100";
+
+        // Act
+        _sut.CanIdFilterText = string.Empty;
+
+        // Assert
+        _service.Received().CanIdFilter = null;
+        _sut.CanIdFilterError.Should().BeNullOrEmpty();
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 5: parser handles a mixed hex (0x prefix) and
+    /// decimal token stream. Whitespace / commas are separators; tokens
+    /// are individually trimmed. The resulting set is pushed to the
+    /// service's <c>CanIdFilter</c> property and the inline error is
+    /// cleared.
+    /// </summary>
+    [Fact]
+    public void CanIdFilterText_ValidHexAndDecimal_ParsesToSet()
+    {
+        // Act — four DISTINCT IDs. (0x100 == 256 and 0x200 == 512, so we
+        // pick values whose hex and decimal forms are not redundant in the
+        // same set: 0x100=256, 0x200=512, 768, 0x1FF=511.)
+        _sut.CanIdFilterText = "0x100, 0x200, 768, 0x1FF";
+
+        // Assert
+        _service.Received().CanIdFilter = Arg.Is<IReadOnlySet<uint>>(s =>
+            s.Contains(0x100) && s.Contains(0x200) && s.Contains(768) && s.Contains(0x1FF) && s.Count == 4);
+        _sut.CanIdFilterError.Should().BeNullOrEmpty();
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR Task 5: invalid tokens (non-numeric, bad hex) populate
+    /// <c>CanIdFilterError</c> with a comma-separated list of the bad
+    /// tokens. Valid tokens still make it into the resulting set so the
+    /// user doesn't lose work by typing one typo.
+    /// </summary>
+    [Fact]
+    public void CanIdFilterText_InvalidToken_ShowsErrorKeepsPriorFilter()
+    {
+        // Act — "0x100" is valid, "0xZZZ" + "garbage" are not.
+        _sut.CanIdFilterText = "0x100, 0xZZZ, garbage";
+
+        // Assert
+        _sut.CanIdFilterError.Should().NotBeNullOrEmpty();
+        _sut.CanIdFilterError.Should().Contain("0xZZZ");
+        _sut.CanIdFilterError.Should().Contain("garbage");
+        _service.Received().CanIdFilter = Arg.Is<IReadOnlySet<uint>>(s => s.Contains(0x100) && s.Count == 1);
+    }
 }
