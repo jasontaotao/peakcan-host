@@ -125,4 +125,55 @@ public class DbcSendViewModelTests
         // First byte should be 0x42.
         frame.Data.ToArray()[0].Should().Be(0x42);
     }
+
+    /// <summary>
+    /// v1.4.1 PATCH Item 3: when the DBC is loaded AFTER the VM is constructed
+    /// (e.g. user opens the SendView before loading DBC), the VM must
+    /// repopulate <see cref="DbcSendViewModel.DbcMessages"/> via its
+    /// subscription to <see cref="DbcService.DbcLoaded"/>. Without the
+    /// subscription, the message dropdown would stay empty for the rest
+    /// of the session — a real bug in v1.4.0 (Task 7 review).
+    /// <para>
+    /// Per spec §Decision 6: match <see cref="DbcViewModel"/> precedent —
+    /// the subscription is wired in ctor and NOT unsubscribed (no
+    /// <see cref="IDisposable"/>). Both VMs are app-lifetime DI singletons
+    /// that die together at process exit.
+    /// </para>
+    /// <para>
+    /// Test uses <see cref="EventRaiseExtensions.RaiseMethod"/> to invoke
+    /// the <c>DbcLoaded</c> event via reflection (per
+    /// <c>DbcViewModelTests.cs:70-71</c> precedent — direct <c>Invoke</c>
+    /// would skip multicast delegate merging).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void DbcSendViewModel_OnDbcLoaded_RepopulatesDbcMessagesAndClearsSignalRows()
+    {
+        // Arrange — VM constructed BEFORE DBC is loaded.
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var lateDoc = MakeDoc(
+            new Message(0x200u, "LateMsg", 4, "Late",
+                new[] { MakeSignal("LateSig") },
+                IsMultiplexed: false, MultiplexorSignalIndex: null));
+        var sendService = new FakeSendService();
+        var sut = new DbcSendViewModel(new DbcEncodeService(), sendService, dbcService);
+
+        // Pre-condition: DbcMessages empty (Current was null at ctor time).
+        sut.DbcMessages.Should().BeEmpty(
+            "VM was constructed before any DBC was loaded");
+        sut.SelectedDbcMessage.Should().BeNull();
+
+        // Act — raise DbcLoaded via reflection (per DbcViewModelTests.cs:70-71).
+        dbcService.GetType().GetEvent(nameof(DbcService.DbcLoaded))!
+            .RaiseMethod(dbcService, lateDoc);
+
+        // Assert — DbcMessages populated, selection reset, SignalRows empty.
+        sut.DbcMessages.Should().HaveCount(1,
+            "the late-loaded DBC must populate the VM's message dropdown");
+        sut.DbcMessages[0].Id.Should().Be(0x200u);
+        sut.SelectedDbcMessage.Should().BeNull(
+            "selection must be reset on new DBC load so stale Signal references are cleared");
+        sut.SignalRows.Should().BeEmpty(
+            "OnSelectedDbcMessageChanged(null) clears SignalRows via the partial method");
+    }
 }
