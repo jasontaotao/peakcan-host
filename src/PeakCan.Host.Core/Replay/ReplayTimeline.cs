@@ -12,7 +12,8 @@ internal sealed class ReplayTimeline
 {
     private readonly object _lock = new();
     private readonly Action<ReplayFrame> _emit;
-    private readonly Action? _onPlaybackEnded;
+    private readonly Action<PlaybackEndedEventArgs>? _onPlaybackEnded;
+    private readonly Action<Exception>? _onSinkThrew;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
     private int _nextFrameIndex;
     private double _currentTimestamp;
@@ -23,11 +24,19 @@ internal sealed class ReplayTimeline
     private DateTime _playStartWallClock;
     private double _playStartTimestamp;
     private Timer? _timer;
+    // v1.4.2 PATCH Item 3: captured first sink exception for surfacing via
+    // PlaybackEndedEventArgs.Error. Set once; subsequent sink throws are
+    // logged but not propagated (first-failure wins per spec Decision 5).
+    private Exception? _sinkException;
 
-    public ReplayTimeline(Action<ReplayFrame> emit, Action? onPlaybackEnded = null)
+    public ReplayTimeline(
+        Action<ReplayFrame> emit,
+        Action<PlaybackEndedEventArgs>? onPlaybackEnded = null,
+        Action<Exception>? onSinkThrew = null)
     {
         _emit = emit;
         _onPlaybackEnded = onPlaybackEnded;
+        _onSinkThrew = onSinkThrew;
     }
 
     public double CurrentTimestamp { get { lock (_lock) return _currentTimestamp; } }
@@ -182,11 +191,24 @@ internal sealed class ReplayTimeline
             foreach (var frame in toEmit)
             {
                 try { _emit(frame); }
-                catch { /* sink errors must not stall playback */ }
+                catch (Exception ex)
+                {
+                    // v1.4.2 PATCH Item 3: surface first sink failure to service
+                    // (not silent drop). Capture first only; subsequent throws
+                    // are logged but not propagated.
+                    if (_sinkException is null)
+                    {
+                        _sinkException = ex;
+                        _onSinkThrew?.Invoke(ex);
+                        _isPlaying = false;  // stop playback
+                    }
+                    break;  // exit foreach; no more frames this tick
+                }
             }
         }
         // Raise callback OUTSIDE the lock so subscribers can call back into the
-        // service without deadlocking.
-        if (endReached) _onPlaybackEnded?.Invoke();
+        // service without deadlocking. Carry _sinkException (if any) for the
+        // PlaybackEndedEventArgs.Error payload (v1.4.2 PATCH Item 3).
+        if (endReached) _onPlaybackEnded?.Invoke(new PlaybackEndedEventArgs(_sinkException));
     }
 }

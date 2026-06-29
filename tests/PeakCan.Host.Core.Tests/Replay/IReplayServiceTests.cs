@@ -284,4 +284,60 @@ base 0x7e0 500k
         service.CanIdFilter.Should().NotBeNull("empty set is preserved as non-null");
         service.CanIdFilter.Should().BeEmpty("empty set semantics: no frames pass");
     }
+
+    // ---------- v1.4.2 PATCH Item 3: PlaybackEnded surfaces sink error ----------
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: when the sink throws, the service raises
+    /// <see cref="IReplayService.PlaybackEnded"/> with
+    /// <see cref="PlaybackEndedEventArgs.Error"/> populated so the UI
+    /// can surface the first-failure reason to the user. Previously
+    /// the throw was silently swallowed (user-hostile on no-channel:
+    /// 10000 frames of silent drop = no feedback).
+    /// </summary>
+    [Fact]
+    public async Task PlaybackEnded_RaisedWithError_OnFirstSinkFailure()
+    {
+        var path = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  2  AA BB
+ 0.050000 51  200  2  AA BB
+");
+        var throwingSink = new ThrowingReplayFrameSink(
+            new ReplaySendException("no active channel"));
+        using var service = new ReplayService(throwingSink, NullLogger<ReplayService>.Instance);
+
+        PlaybackEndedEventArgs? endedArgs = null;
+        service.PlaybackEnded += (_, e) => endedArgs = e;
+
+        try
+        {
+            await service.LoadAsync(path);
+            service.Play();
+            await Task.Delay(200);  // let timer tick + first frame throw
+
+            endedArgs.Should().NotBeNull("PlaybackEnded must fire after sink throw");
+            endedArgs!.Error.Should().NotBeNull("Error must carry the sink exception");
+            endedArgs.Error.Should().BeOfType<ReplaySendException>(
+                "original exception type preserved");
+            endedArgs.Error!.Message.Should().Contain("no active channel");
+
+            // SinkExceptionForTesting exposes the captured first exception
+            // for test introspection (memory v1.2.14 PATCH pattern).
+            service.SinkExceptionForTesting.Should().BeSameAs(endedArgs.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private sealed class ThrowingReplayFrameSink : IReplayFrameSink
+    {
+        private readonly Exception _ex;
+        public ThrowingReplayFrameSink(Exception ex) { _ex = ex; }
+        public ValueTask SendFrameAsync(ReplayFrame frame, CancellationToken ct = default)
+            => ValueTask.FromException(_ex);
+    }
 }

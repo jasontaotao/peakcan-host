@@ -49,9 +49,13 @@ public sealed class ReplayFrameSinkAdapter : IReplayFrameSink
     /// <summary>
     /// Convert <paramref name="frame"/> into a <see cref="CanFrame"/> and
     /// forward to the active channel via <see cref="SendService.SendAsync"/>.
-    /// Result is intentionally discarded: playback continues even if a
-    /// single frame send fails (mirrors the <see cref="ReplayService"/>
-    /// sink-throw tolerance added in Task 2 I-1).
+    /// v1.4.2 PATCH Item 3: on a failed <c>Result&lt;Unit&gt;</c> (no
+    /// active channel, PEAK error), throw <see cref="ReplaySendException"/>
+    /// so the caller (<see cref="ReplayService"/> via
+    /// <see cref="ReplayTimeline"/>) can surface the first-failure to the
+    /// UI via <c>PlaybackEndedEventArgs.Error</c>. Previously the result
+    /// was silently dropped (user-hostile on no-channel: 10000 frames of
+    /// silent drop = no feedback).
     /// </summary>
     public async ValueTask SendFrameAsync(ReplayFrame frame, CancellationToken ct = default)
     {
@@ -61,11 +65,12 @@ public sealed class ReplayFrameSinkAdapter : IReplayFrameSink
             Flags: frame.Flags,
             Channel: ChannelId.None,
             Timestamp: default);
-        // SendAsync returns Result<Unit>; a failed result (no channel,
-        // PEAK error) is silently dropped here. Playback continues with
-        // the next frame; the underlying SendService logger records the
-        // failure. This matches the design intent of IReplayFrameSink:
-        // "the timer callback cannot await user error policy".
-        await _send.SendAsync(canFrame, ct).ConfigureAwait(false);
+        var result = await _send.SendAsync(canFrame, ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new ReplaySendException(
+                $"Replay frame send failed at t={frame.Timestamp}s, id=0x{frame.Id:X}: " +
+                $"{result.Error?.Message ?? "unknown error"}");
+        }
     }
 }

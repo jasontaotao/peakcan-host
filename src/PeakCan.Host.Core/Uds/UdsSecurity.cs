@@ -25,15 +25,37 @@ public sealed class UdsSecurity
     }
 
     /// <summary>Set the seed received from ECU.</summary>
+    /// <remarks>
+    /// v1.4.2 PATCH: mutates existing <see cref="SecurityLevelState"/> in place
+    /// when one already exists, preserving <c>AttemptCount</c> and
+    /// <c>LockedUntilUtc</c>. This aligns to the D8 invariant that lockout
+    /// is independent of session state (see <see cref="Reset"/> for the same
+    /// pattern). Without this preservation, concurrent
+    /// <c>SecurityAccessAsync</c> callers can wipe the accumulated failure
+    /// counter between <c>RequestSeed</c> and <c>SendKey</c> legs, defeating
+    /// the v1.3.0 lockout feature under concurrent access — exactly the
+    /// scenario lockout is designed to defend against.
+    /// </remarks>
     public void SetSeed(byte level, byte[] seed)
     {
         lock (_levels)
         {
-            _levels[level] = new SecurityLevelState
+            if (_levels.TryGetValue(level, out var state))
             {
-                Seed = seed,
-                IsAuthenticated = false
-            };
+                // Mutate in place: preserve AttemptCount + LockedUntilUtc
+                // (D8 invariant, same as Reset() at line 66-80).
+                state.Seed = seed;
+                state.IsAuthenticated = false;
+            }
+            else
+            {
+                // First observation of this level: create fresh state.
+                _levels[level] = new SecurityLevelState
+                {
+                    Seed = seed,
+                    IsAuthenticated = false
+                };
+            }
         }
     }
 

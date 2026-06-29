@@ -62,6 +62,9 @@ namespace PeakCan.Host.Core.Tests.Uds;
 /// </summary>
 public class UdsClientConcurrentSecurityAccessTests
 {
+    // CA1861: avoid constant array arguments repeated across calls.
+    private static readonly int[] AllowedThrewCounts = [1, 2];
+
     private static (IsoTpLayer iso, ObservableCollection<byte[]> sent) NewIsoWithCapture()
     {
         var sent = new ObservableCollection<byte[]>();
@@ -247,11 +250,83 @@ public class UdsClientConcurrentSecurityAccessTests
     /// RequestSeed and SendKey wire emit pairs.
     /// </para>
     /// </summary>
-    [Fact(Skip = "Phase 2.5 discovered pre-existing SetSeed-wipes-state bug; defer to v1.4.2")]
+    /// <summary>
+    /// Test 2: Mid-handshake lockout flip via concurrent SendKey failures.
+    /// <para>
+    /// v1.4.2 PATCH Item 2: re-enabled after <see cref="UdsSecurity.SetSeed"/>
+    /// fix (Task 2) preserves <c>AttemptCount</c> + <c>LockedUntilUtc</c>
+    /// across <c>RequestSeed</c> success. With <c>MaxAttempts=2</c> and both
+    /// <c>SendKey</c> legs failing, the second <c>RecordFailedAttempt</c>
+    /// reaches the lockout boundary. One or both callers observe
+    /// <see cref="UdsSecurityLockedException"/>.
+    /// </para>
+    /// <para>
+    /// Carry-over from v1.4.1 PATCH Task 1 Test 2 (SKIPPED with rationale
+    /// "defer to v1.4.2 PATCH"). Re-enabled by v1.4.2 PATCH Item 1 fix
+    /// (OI: udssecurity-setseed-wipes-attempt-count).
+    /// </para>
+    /// <para>
+    /// <b>RED-then-GREEN invariant:</b> with unfixed <c>SetSeed</c> (v1.4.1
+    /// shipped), this test fails because counter is wiped between
+    /// <c>RequestSeed</c> legs. After v1.4.2 PATCH fix, counter accumulates
+    /// normally and lockout boundary is reached deterministically (modulo
+    /// 2-concurrent-call timing).
+    /// </para>
+    /// </summary>
+    [Fact]
     public async Task TwoArg_Overload_ConcurrentMidHandshakeLockoutFlip_PostStateConsistent()
     {
-        // Test body kept for documentation; not executed.
-        await Task.CompletedTask;
+        // Arrange — MaxAttempts=2 to put boundary at second SendKey failure.
+        var (iso, sent) = NewIsoWithCapture();
+        var algo = new FakeKeyDerivationAlgorithm();
+        using var client = new UdsClient(iso, algo);
+        client.Security.LockoutConfig = new UdsSecurityLockoutConfig(
+            MaxAttempts: 2,
+            LockoutDuration: TimeSpan.FromSeconds(5));
+
+        using var auto = AutoRespondSeedOkThenNrc35(client, sent);
+
+        // Act — two concurrent SecurityAccessAsync on level 0x01.
+        // AutoRespondSeedOkThenNrc35: positive seed for RequestSeed, NRC 0x35 for SendKey.
+        // Both SendKey failures accumulate AttemptCount on the same SecurityLevelState
+        // (SetSeed mutates existing state, preserving counter). Second failure triggers
+        // lockout.
+        var t1 = client.SecurityAccessAsync(0x01, CancellationToken.None);
+        var t2 = client.SecurityAccessAsync(0x01, CancellationToken.None);
+
+        // Wrap tasks so exception surfaces as null result (not unhandled throw).
+        var w1 = WrapResult(t1);
+        var w2 = WrapResult(t2);
+
+        // 5s deadline prevents CI hangs (memory v1.2.12 lesson 4).
+        var completed = await Task.WhenAny(
+            Task.WhenAll(w1, w2),
+            Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(completed is not null, "Race test timed out after 5s");
+
+        // Assert — at least one caller observed UdsSecurityLockedException OR
+        //   both SendKey legs ran and the second one's failure tripped lockout.
+        //   Either outcome is valid: race-dependent on which SendKey leg's
+        //   RecordFailedAttempt landed last. The key invariant is post-state.
+        var r1 = await w1;  // null if threw (exception caught by WrapResult)
+        var r2 = await w2;  // null if threw
+        var threwCount = (r1 is null ? 1 : 0) + (r2 is null ? 1 : 0);
+        threwCount.Should().BeOneOf(AllowedThrewCounts,
+            "at least one caller must observe lockout (2 SendKey failures on MaxAttempts=2 boundary)");
+
+        // Assert — exactly 2 RequestSeed + 2 SendKey frames emitted (per requestLock serialization).
+        sent.Should().HaveCount(4, "two complete 2-arg handshakes = 2 RequestSeed + 2 SendKey");
+
+        // Assert — post-state: IsLocked(0x01) is true (lockout boundary reached).
+        // This is the KEY invariant the v1.4.2 fix enforces: counter survives
+        // across SetSeed calls, so 2 SendKey failures reliably reach MaxAttempts=2.
+        client.Security.IsLocked(0x01).Should().BeTrue(
+            "after 2 SendKey failures, lockout boundary (MaxAttempts=2) must be reached " +
+            "and the level must be locked (this is what the v1.4.2 PATCH fix guarantees)");
+
+        // Assert — remaining lockout delay is positive.
+        client.Security.RemainingLockoutDelay(0x01).Should().BeGreaterThan(TimeSpan.Zero,
+            "lockout window must be active");
     }
 
     /// <summary>

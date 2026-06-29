@@ -136,7 +136,7 @@ public class ReplayTimelineTests
         var endedCount = 0;
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: () => endedCount++);
+            onPlaybackEnded: _ => endedCount++);
         timeline.SetFrames(frames);
 
         timeline.Play();
@@ -166,7 +166,7 @@ public class ReplayTimelineTests
         var endedCount = 0;
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: () => endedCount++);
+            onPlaybackEnded: _ => endedCount++);
         timeline.Loop = true;
         timeline.SetFrames(frames);
 
@@ -192,7 +192,7 @@ public class ReplayTimelineTests
         var endedCount = 0;
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: () => endedCount++);
+            onPlaybackEnded: _ => endedCount++);
         // Loop defaults to false.
         timeline.SetFrames(frames);
 
@@ -308,5 +308,70 @@ public class ReplayTimelineTests
         emitted.Select(f => f.Id).Should().Contain(0x200u);
         emitted.Select(f => f.Id).Should().NotContain(0x300u,
             "filter was changed to 0x200 before 0x300's emit window");
+    }
+
+    // ---------- v1.4.2 PATCH Item 3: sink-throw surfaces via onSinkThrew ----------
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: when the emit callback throws, the timeline
+    /// captures the first exception via the <c>onSinkThrew</c> callback
+    /// and sets <c>IsPlaying = false</c> to stop playback. The captured
+    /// exception is later surfaced via the <c>onPlaybackEnded</c> event
+    /// args.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_SinkThrows_AbortsPlaybackAndRaisesPlaybackEndedWithError()
+    {
+        var sinkException = new ReplaySendException("send failed");
+        Exception? capturedSink = null;
+        PlaybackEndedEventArgs? endedArgs = null;
+        var emitted = new List<ReplayFrame>();
+
+        var timeline = new ReplayTimeline(
+            emit: f =>
+            {
+                emitted.Add(f);
+                throw sinkException;
+            },
+            onPlaybackEnded: args => endedArgs = args,
+            onSinkThrew: ex => capturedSink = ex);
+        var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (0.1, 0x300));
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(300);  // first emit throws, playback aborts
+
+        timeline.IsPlaying.Should().BeFalse("sink throw must stop playback");
+        capturedSink.Should().BeSameAs(sinkException,
+            "first sink exception must be forwarded to onSinkThrew");
+        emitted.Should().HaveCount(1, "only the first frame was attempted before throw");
+    }
+
+    /// <summary>
+    /// v1.4.2 PATCH Item 3: after a sink throw, subsequent OnTick calls
+    /// must not emit any more frames (playback is halted).
+    /// </summary>
+    [Fact]
+    public async Task OnTick_SinkThrows_DoesNotEmitFurtherFrames()
+    {
+        var emitCount = 0;
+        var timeline = new ReplayTimeline(
+            emit: _ =>
+            {
+                emitCount++;
+                throw new InvalidOperationException("fail");
+            },
+            onPlaybackEnded: _ => { },
+            onSinkThrew: _ => { });
+        var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (0.1, 0x300));
+        timeline.SetFrames(frames);
+
+        timeline.Play();
+        await Task.Delay(200);
+        var countAfterAbort = emitCount;
+        await Task.Delay(200);  // more time — must NOT emit further
+
+        emitCount.Should().Be(1, "1st frame attempted, threw, no further emits");
+        countAfterAbort.Should().Be(emitCount, "playback halted after throw, no more emits");
     }
 }
