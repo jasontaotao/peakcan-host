@@ -19,7 +19,7 @@ namespace PeakCan.Host.Core.Path;
 /// Forwarded to <see cref="PathNormalizer.NormalizeRestricted"/>'s
 /// <c>IReadOnlyCollection&lt;string&gt;</c> parameter.
 /// </param>
-internal sealed record PathOptions(IReadOnlyList<string> AllowedRoots)
+public sealed record PathOptions(IReadOnlyList<string> AllowedRoots)
 {
     /// <summary>
     /// v1.6.4 PATCH back-compat default: only
