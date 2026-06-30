@@ -70,7 +70,7 @@ public sealed partial class DidDatabase
 
             try
             {
-                var json = File.ReadAllText(PathNormalizer.Normalize(path));
+                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
                 var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
                 return dto?.Dids;
             }
@@ -94,7 +94,7 @@ public sealed partial class DidDatabase
 
         try
         {
-            var json = File.ReadAllText(PathNormalizer.Normalize(path));
+            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
             var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
             return dto?.Dids;
         }

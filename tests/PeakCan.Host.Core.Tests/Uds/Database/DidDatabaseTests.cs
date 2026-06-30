@@ -8,7 +8,13 @@ public class DidDatabaseTests
 {
     private static string TempJson(string contents)
     {
-        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+        // v1.6.4 PATCH: DidDatabase now routes user-JSON reads through
+        // PathNormalizer.NormalizeRestricted with the %LOCALAPPDATA%\PeakCan.Host
+        // allowlist. Test fixtures must therefore live under that root.
+        var path = System.IO.Path.Combine(
+            System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PeakCan.Host"),
             $"uds-dids-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, contents);
         return path;
