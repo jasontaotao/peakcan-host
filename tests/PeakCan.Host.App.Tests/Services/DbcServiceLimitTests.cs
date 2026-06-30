@@ -8,20 +8,20 @@ using PeakCan.Host.Core.Dbc;
 namespace PeakCan.Host.App.Tests.Services;
 
 /// <summary>
-/// v1.6.6 PATCH Item 1: verifies the <see cref="DbcService"/>
-/// in-service caps for file size and message count. Mirrors
-/// v1.6.5 PATCH's opt-in config schema; both caps default to
-/// <see cref="DbcOptions.Unlimited"/>.
+/// v1.6.6 PATCH Item 1 + v1.6.7 PATCH Item 1: verifies the
+/// <see cref="DbcService"/> in-service caps for file size and
+/// message count. Mirrors v1.6.5 PATCH's opt-in config schema;
+/// both caps default to <see cref="DbcOptions.Unlimited"/>.
 /// <para>
-/// Cap rejections surface as <c>ErrorCode.ParseFailure</c> via the
-/// shared <see cref="Error"/> envelope (matches existing
-/// <c>DbcService.LoadAsync</c> pattern). The internal
-/// <c>DbcErrorCode.FileTooLarge</c> slot at <c>DbcErrorCode.cs</c>
-/// is intentionally unwired (its ctor shape doesn't fit the
-/// <see cref="Error"/> record) — the canonical error channel is
-/// <see cref="ErrorCode"/>. The disambiguating <c>Message</c>
-/// string ("exceeds MaxFileSizeBytes N" / "exceeds MaxMessageCount N")
-/// identifies which cap fired.
+/// Cap rejections surface via the shared <see cref="Error"/>
+/// envelope. v1.6.7 PATCH adds <c>ErrorCode.DbcFileTooLarge</c>
+/// for the size-cap path (categorical code distinct from generic
+/// <c>ParseFailure</c>). The message-count cap path retains
+/// <see cref="ErrorCode.ParseFailure"/> (mid-parse reuse, matches
+/// v1.6.6 design doc Decision 3 spirit). Both paths additionally
+/// carry the disambiguating <c>Message</c> string
+/// ("exceeds MaxFileSizeBytes N" / "exceeds MaxMessageCount N")
+/// to identify which cap fired.
 /// </para>
 /// </summary>
 public class DbcServiceLimitTests
@@ -62,7 +62,7 @@ public class DbcServiceLimitTests
             """;
 
     [Fact]
-    public async Task LoadAsync_File_Above_MaxFileSize_Fires_LoadFailed_With_ParseFailure_Message()
+    public async Task LoadAsync_File_Above_MaxFileSize_Fires_LoadFailed_With_DbcFileTooLarge_Error_Code()
     {
         // Arrange — one-message DBC padded to > 512 bytes; cap at 512.
         var padded = string.Concat(OneMessageDbc, new string(' ', 1000));
@@ -78,10 +78,11 @@ public class DbcServiceLimitTests
             // Act
             await svc.LoadAsync(path);
 
-            // Assert — size cap fires via the shared ErrorCode.ParseFailure
-            // envelope. Disambiguating Message identifies which cap fired.
+            // Assert — size cap fires via ErrorCode.DbcFileTooLarge
+            // (v1.6.7 PATCH Item 1 categorical error code). Disambiguating
+            // Message identifies the cap value.
             captured.Should().NotBeNull("size cap should fire LoadFailed");
-            captured!.Code.Should().Be(ErrorCode.ParseFailure);
+            captured!.Code.Should().Be(ErrorCode.DbcFileTooLarge);
             captured.Message.Should().Contain("exceeds MaxFileSizeBytes 512");
             loadedDoc.Should().BeNull("DbcLoaded must NOT fire when LoadFailed fires");
         }
@@ -182,9 +183,53 @@ public class DbcServiceLimitTests
         // Assert — either size cap or message-count cap fires first.
         captured.Should().NotBeNull(
             "E51_PT_CAN-BMS.dbc (256 messages / ~77 KB) should reject when both caps are at 10 KB / 100 msgs");
-        // Both caps surface via ErrorCode.ParseFailure + disambiguating message.
-        captured!.Code.Should().Be(ErrorCode.ParseFailure);
+        // v1.6.7 PATCH: size cap emits ErrorCode.DbcFileTooLarge; message-count
+        // cap emits ErrorCode.ParseFailure. Either path is acceptable for this
+        // combined-cap test (file trips both, whichever fires first wins).
+        captured!.Code.Should().Match(c =>
+            c == ErrorCode.DbcFileTooLarge || c == ErrorCode.ParseFailure);
         captured.Message.Should().Match(m =>
             m.Contains("MaxFileSizeBytes") || m.Contains("MaxMessageCount"));
+    }
+
+    // v1.6.7 PATCH Item 3: concurrent caller test characterizing the as-built
+    // last-write-wins concurrency model for DbcService.LoadAsync. No locking;
+    // see v1.6.7 design doc Decision 6.
+    [Fact]
+    public async Task LoadAsync_Concurrent_Calls_All_Converge_Without_Race_Or_Exception()
+    {
+        // Arrange — single DbcService with unlimited caps. Multiple concurrent
+        // LoadAsync calls on different temp DBC files. Each LoadAsync call uses
+        // an independent file so cap mechanics don't matter; this test only
+        // verifies the concurrency surface (no exceptions, last-write-wins).
+        var svc = NewUnlimited();
+        var failCount = 0;
+        var loadCount = 0;
+        var failLock = new object();
+        var loadLock = new object();
+        svc.LoadFailed += _ => { lock (failLock) failCount++; };
+        svc.DbcLoaded += _ => { lock (loadLock) loadCount++; };
+
+        var paths = Enumerable.Range(0, 10)
+            .Select(_ => WriteTempDbc(OneMessageDbc))
+            .ToList();
+
+        try
+        {
+            // Act — fire 10 concurrent LoadAsync calls (Task.WhenAll per
+            // UdsClientConcurrentSecurityAccessTests precedent).
+            await Task.WhenAll(paths.Select(p => svc.LoadAsync(p)));
+
+            // Assert — for unlimited-cap path with valid 1-message DBCs,
+            // every call should succeed: DbcLoaded fires 10 times, LoadFailed 0.
+            // No exception should bubble to the caller.
+            loadCount.Should().Be(paths.Count);
+            failCount.Should().Be(0);
+            svc.Current.Should().NotBeNull("last-write-wins leaves Current with one of the loaded docs");
+        }
+        finally
+        {
+            foreach (var p in paths) File.Delete(p);
+        }
     }
 }

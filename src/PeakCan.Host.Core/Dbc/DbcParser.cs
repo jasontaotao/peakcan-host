@@ -27,29 +27,28 @@ public static class DbcParser
     /// Parse <paramref name="text"/> into a <see cref="DbcDocument"/>.
     /// </summary>
     public static Result<DbcDocument> Parse(string text, CancellationToken ct = default)
-        => Parse(text, maxMessageCount: int.MaxValue, ct);
+        => Parse(text, maxMessageCount: 0, ct);
 
     /// <summary>
-    /// v1.6.6 PATCH Item 1: parse with a hard cap on top-level
-    /// <c>BO_</c> message count. Throws <see cref="DbcParseException"/>
+    /// v1.6.6 PATCH Item 1 + v1.6.7 PATCH Item 2: parse with a hard cap on
+    /// top-level <c>BO_</c> message count. Throws <see cref="DbcParseException"/>
     /// (caught and wrapped in <see cref="Result{T}.Fail"/> with
     /// <see cref="ErrorCode.ParseFailure"/>) if the cap is exceeded.
-    /// <paramref name="maxMessageCount"/> &lt;= 0 disables the cap.
+    /// <paramref name="maxMessageCount"/> = 0 (or any non-positive value)
+    /// disables the cap (treated as unlimited).
     /// </summary>
     public static Result<DbcDocument> Parse(string text, int maxMessageCount, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(text);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxMessageCount);
 
-        // 0 (or any value <= 0) disables the cap — convert to int.MaxValue so
-        // ParserState's mid-parse check is a no-op. Negative already throws above;
-        // we treat 0 as "unlimited" per opt-in config convention.
-        var effectiveCap = maxMessageCount <= 0 ? int.MaxValue : maxMessageCount;
-
+        // v1.6.7 PATCH Item 2: 0 = unlimited at every seam. No conversion
+        // indirection. Negative values also treated as unlimited (no longer
+        // throw ArgumentOutOfRangeException at this seam — opt-in config
+        // convention applied uniformly).
         try
         {
             var tokens = new DbcTokenizer().Tokenize(text);
-            var state = new ParserState(tokens, effectiveCap);
+            var state = new ParserState(tokens, maxMessageCount);
             var docResult = state.ParseDocument();
             ct.ThrowIfCancellationRequested();
             if (docResult.IsSuccess)
@@ -83,11 +82,12 @@ public static class DbcParser
         // now resolves to the actual (int -> text) map.
         private readonly Dictionary<string, ValueTable> _pendingValueTables = new();
 
-        // v1.6.6 PATCH Item 1: max-message-count cap, threaded from DbcParser.Parse.
-        // int.MaxValue = effectively unlimited (default for back-compat 2-arg Parse overload).
+        // v1.6.6 PATCH Item 1 + v1.6.7 PATCH Item 2: max-message-count cap,
+        // threaded from DbcParser.Parse. 0 = effectively unlimited (default for
+        // back-compat 2-arg Parse overload; sentinel unified across all seams).
         private readonly int _maxMessageCount;
 
-        public ParserState(IReadOnlyList<Token> tokens, int maxMessageCount = int.MaxValue)
+        public ParserState(IReadOnlyList<Token> tokens, int maxMessageCount = 0)
         {
             _tokens = tokens;
             _maxMessageCount = maxMessageCount;
@@ -146,10 +146,10 @@ public static class DbcParser
                             }
                             _pendingMessages.Add(msg);
                             _pendingMessagesById[msg.Id] = msg;
-                            // v1.6.6 PATCH Item 1: enforce mid-parse after each BO_ accept.
-                            // Use > not >= so the (N+1)th message triggers a more
-                            // informative diagnostic ("saw N+1, cap was N").
-                            if (_maxMessageCount < _pendingMessages.Count)
+                            // v1.6.6 PATCH Item 1 + v1.6.7 PATCH Item 2: enforce mid-parse
+                            // after each BO_ accept. Cap = 0 disables the check (unlimited
+                            // sentinel unified across all seams per v1.6.7 PATCH Decision 2).
+                            if (_maxMessageCount > 0 && _pendingMessages.Count > _maxMessageCount)
                             {
                                 throw new DbcParseException(
                                     $"message count {_pendingMessages.Count} exceeds MaxMessageCount {_maxMessageCount}",

@@ -131,13 +131,13 @@ public sealed partial class DbcSendViewModel : ObservableObject
     /// </summary>
     /// <remarks>
     /// <see cref="DbcService.LoadAsync"/> raises this event on its worker
-    /// thread (see <c>DbcService.cs:17-22</c> class doc). The handler
+    /// thread (see the threading remarks on <see cref="DbcService"/>). The handler
     /// body mutates <see cref="ObservableCollection{T}"/> instances bound
     /// to WPF <c>ItemsControl</c>s, which throws
     /// <see cref="NotSupportedException"/> on cross-thread mutation. The
     /// <see cref="DispatcherExtensions.RunOnUi"/> chokepoint marshals the
     /// body to the UI dispatcher. Mirrors the <see cref="DbcViewModel.OnLoaded"/>
-    /// pattern (lines 112-147) which uses the same chokepoint.
+    /// pattern which uses the same chokepoint.
     /// </remarks>
     private void OnLoaded(DbcDocument doc)
     {

@@ -20,17 +20,16 @@ namespace PeakCan.Host.App.Services;
 /// </para>
 /// <para>
 /// <b>Failure envelope:</b> caps reject by firing
-/// <see cref="DbcService.LoadAsync"/>'s <c>LoadFailed</c> event with
-/// <see cref="ErrorCode.ParseFailure"/> + a disambiguating message
-/// string ("exceeds MaxFileSizeBytes N" or "exceeds MaxMessageCount N").
-/// The internal <c>DbcErrorCode</c> enum (declares <c>FileTooLarge</c> as
-/// forward-compat) is intentionally unwired here — the
-/// <see cref="Error"/> struct's record shape (Code: <see cref="ErrorCode"/>)
-/// doesn't accept <c>DbcErrorCode</c>, so routing errors through the
-/// shared <see cref="ErrorCode"/> envelope is the only viable option
-/// for v1.6.6 PATCH. If a future PATCH needs categorical DBC errors,
-/// wire <c>DbcErrorCode.FileTooLarge</c> via <c>ErrorCode</c> enum
-/// extension or a separate error payload field.
+/// <see cref="DbcService.LoadAsync"/>'s <c>LoadFailed</c> event:
+/// size cap rejects with <see cref="ErrorCode.DbcFileTooLarge"/>
+/// (v1.6.7 PATCH added this categorical code) + a disambiguating
+/// message string ("exceeds MaxFileSizeBytes N"); message-count
+/// cap rejects with <see cref="ErrorCode.ParseFailure"/> + a
+/// disambiguating message string ("exceeds MaxMessageCount N").
+/// The internal <c>DbcErrorCode</c> enum's <c>FileTooLarge</c> slot
+/// is now a forward-compat duplicate of
+/// <c>ErrorCode.DbcFileTooLarge</c>; canonical error channel is
+/// <see cref="ErrorCode"/>.
 /// </para>
 /// </summary>
 /// <param name="MaxFileSizeBytes">

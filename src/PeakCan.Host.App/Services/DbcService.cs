@@ -120,7 +120,7 @@ public partial class DbcService
             // actually have in hand.
             if (_options.MaxFileSizeBytes > 0 && bytes.Length > _options.MaxFileSizeBytes)
             {
-                var err = new Error(ErrorCode.ParseFailure,
+                var err = new Error(ErrorCode.DbcFileTooLarge,
                     $"file size {bytes.Length} bytes exceeds MaxFileSizeBytes {_options.MaxFileSizeBytes} at {path}");
                 LogLoadSizeFailed(_logger, path, _options.MaxFileSizeBytes, bytes.Length);
                 LoadFailed?.Invoke(err);
