@@ -14,21 +14,28 @@ namespace PeakCan.Host.Core.Uds.Database;
 public sealed partial class RoutineDatabase
 {
     private readonly ILogger<RoutineDatabase>? _logger;
+    private readonly PathOptions _options;
 
     /// <summary>All known routines. Empty if no user file is present.</summary>
     public IReadOnlyList<RoutineDefinition> All { get; }
 
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public RoutineDatabase(ILogger<RoutineDatabase>? logger = null)
-        : this(RoutineDatabaseDefaults.DefaultJsonPath, logger) { }
+        : this(RoutineDatabaseDefaults.DefaultJsonPath, logger, PathOptions.Default) { }
 
     /// <summary>
     /// Create a database reading from <paramref name="userJsonPath"/>.
     /// Pass <c>null</c> for an empty database (no file IO).
     /// </summary>
     public RoutineDatabase(string? userJsonPath, ILogger<RoutineDatabase>? logger = null)
+        : this(userJsonPath, logger, PathOptions.Default) { }
+
+    // v1.6.10 PATCH Item 2: opt-in extension to allow config-driven
+    // allowlist (replaces v1.6.4 PATCH hardcoded [LocalAppDataPeakCanRoot]).
+    public RoutineDatabase(string? userJsonPath, ILogger<RoutineDatabase>? logger, PathOptions options)
     {
         _logger = logger;
+        _options = options;
         All = LoadUserFile(userJsonPath).ToArray();
     }
 
@@ -58,7 +65,7 @@ public sealed partial class RoutineDatabase
 
             try
             {
-                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
+                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
                 var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
                 return dto?.Routines ?? new List<RoutineDefinition>();
             }
@@ -82,7 +89,7 @@ public sealed partial class RoutineDatabase
 
         try
         {
-            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
+            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
             var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
             return dto?.Routines ?? new List<RoutineDefinition>();
         }

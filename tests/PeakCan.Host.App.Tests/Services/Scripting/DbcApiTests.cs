@@ -203,4 +203,77 @@ public class DbcApiTests
         public override Task LoadAsync(string path, CancellationToken ct = default)
             => Task.CompletedTask;
     }
+
+    // ===== v1.6.10 PATCH Item 1: RED tests =====
+    // Both tests use reflection to read private volatile fields after
+    // Dispose. Mirrors the v1.6.4 PATCH reflection-based regression
+    // pattern (the fields are not observable through any public API).
+    // Production DbcApi.Dispose() currently does NOT clear
+    // _currentDocument or _lastLoadError, so both tests must FAIL
+    // until the GREEN step (Task 3) adds Volatile.Write(ref
+    // _currentDocument, null) + _lastLoadError = null.
+
+    [Fact]
+    public void Dispose_Clears_LastLoadError_After_Failure()
+    {
+        // Arrange — populate _lastLoadError directly via reflection on
+        // the private OnLoadFailed handler. Cleaner than depending on a
+        // real IO failure (FakeDbcService silently completes → would set
+        // "Cancelled" code without populating the field we care about).
+        var fakeSvc = new FakeDbcService();
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, fakeSvc);
+        var onLoadFailed = typeof(DbcApi).GetMethod(
+            "OnLoadFailed",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        onLoadFailed!.Invoke(api, new object?[] { new Error(ErrorCode.IoError, "test failure") });
+
+        // Sanity — field is populated pre-Dispose (otherwise the test
+        // would be meaningless).
+        var lastLoadErrorField = typeof(DbcApi).GetField(
+            "_lastLoadError",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        lastLoadErrorField!.GetValue(api).Should().NotBeNull(
+            "Arrange: OnLoadFailed must populate _lastLoadError via Volatile.Write");
+
+        // Act
+        api.Dispose();
+
+        // Assert — _lastLoadError field cleared by Dispose
+        lastLoadErrorField.GetValue(api).Should().BeNull(
+            "Dispose must clear _lastLoadError to mirror OnDbcLoaded's success-side clearing (v1.6.8 PATCH DbcApi.cs:228)");
+    }
+
+    [Fact]
+    public void Dispose_Clears_CurrentDocument_After_Success()
+    {
+        // Arrange — populate _currentDocument directly via reflection on
+        // the private OnDbcLoaded handler. Cleaner than going through a
+        // real DbcService.LoadAsync (would require a real .dbc file,
+        // LogDbcLoadedViaScript side effects, etc.).
+        var fakeSvc = new FakeDbcService();
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, fakeSvc);
+        var syntheticDoc = new DbcDocument(
+            Version: "",
+            Nodes: Array.Empty<Node>(),
+            Messages: Array.Empty<Message>(),
+            MessagesById: new Dictionary<uint, Message>(),
+            ValueTables: new Dictionary<string, ValueTable>());
+        var onDbcLoaded = typeof(DbcApi).GetMethod(
+            "OnDbcLoaded",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        onDbcLoaded!.Invoke(api, new object?[] { syntheticDoc });
+
+        var currentDocumentField = typeof(DbcApi).GetField(
+            "_currentDocument",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        currentDocumentField!.GetValue(api).Should().NotBeNull(
+            "Arrange: OnDbcLoaded must populate _currentDocument via Volatile.Write");
+
+        // Act
+        api.Dispose();
+
+        // Assert — _currentDocument field cleared by Dispose
+        currentDocumentField.GetValue(api).Should().BeNull(
+            "Dispose must clear _currentDocument (defensive state cleanup; mirrors v1.6.8 PATCH D4 success-side clearing)");
+    }
 }

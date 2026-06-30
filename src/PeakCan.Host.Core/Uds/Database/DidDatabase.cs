@@ -16,21 +16,28 @@ namespace PeakCan.Host.Core.Uds.Database;
 public sealed partial class DidDatabase
 {
     private readonly ILogger<DidDatabase>? _logger;
+    private readonly PathOptions _options;
 
     /// <summary>All known DIDs (built-in + user), with user overrides applied.</summary>
     public IReadOnlyList<DidDefinition> All { get; }
 
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public DidDatabase(ILogger<DidDatabase>? logger = null)
-        : this(DidDatabaseDefaults.DefaultJsonPath, logger) { }
+        : this(DidDatabaseDefaults.DefaultJsonPath, logger, PathOptions.Default) { }
 
     /// <summary>
     /// Create a database reading from <paramref name="userJsonPath"/>.
     /// Pass <c>null</c> to skip user-JSON entirely (built-in only).
     /// </summary>
     public DidDatabase(string? userJsonPath, ILogger<DidDatabase>? logger = null)
+        : this(userJsonPath, logger, PathOptions.Default) { }
+
+    // v1.6.10 PATCH Item 2: opt-in extension to allow config-driven
+    // allowlist (replaces v1.6.4 PATCH hardcoded [LocalAppDataPeakCanRoot]).
+    public DidDatabase(string? userJsonPath, ILogger<DidDatabase>? logger, PathOptions options)
     {
         _logger = logger;
+        _options = options;
         var builtIn = BuiltInDefaults();
         var user = LoadUserFile(userJsonPath);
         All = MergeBuiltInAndUser(builtIn, user);
@@ -70,7 +77,7 @@ public sealed partial class DidDatabase
 
             try
             {
-                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
+                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
                 var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
                 return dto?.Dids;
             }
@@ -94,7 +101,7 @@ public sealed partial class DidDatabase
 
         try
         {
-            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
+            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
             var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
             return dto?.Dids;
         }
