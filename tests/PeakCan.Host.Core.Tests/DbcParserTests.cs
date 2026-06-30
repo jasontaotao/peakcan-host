@@ -727,4 +727,58 @@ public class DbcParserTests
         r.IsSuccess.Should().BeTrue();
         r.Value!.Messages.Should().HaveCount(3);
     }
+
+    // v1.6.7 PATCH Item 2: 0 (and negative) values for maxMessageCount
+    // are treated as unlimited at every seam — no longer throw
+    // ArgumentOutOfRangeException; no longer convert 0 → int.MaxValue.
+    [Fact]
+    public void Parse_With_MaxMessageCount_Zero_Treats_As_Unlimited()
+    {
+        // Arrange — 5 messages, cap at 0 (unlimited sentinel). v1.6.6
+        // implementation passed this because 0 ≤ 0 converted to int.MaxValue.
+        // v1.6.7 PATCH removes the conversion; cap is now "0 = unlimited"
+        // at every seam.
+        var src = """
+            VERSION ""
+            NS_ :
+            BS_ :
+            BU_: ECU1
+            BO_ 256 M0: 8 ECU1
+            BO_ 257 M1: 8 ECU1
+            BO_ 258 M2: 8 ECU1
+            BO_ 259 M3: 8 ECU1
+            BO_ 260 M4: 8 ECU1
+            """;
+
+        // Act
+        var r = DbcParser.Parse(src, maxMessageCount: 0);
+
+        // Assert
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.Messages.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void Parse_With_MaxMessageCount_Negative_Treats_As_Unlimited()
+    {
+        // Arrange — 3 messages, cap at -1 (unlimited sentinel). v1.6.6
+        // implementation threw ArgumentOutOfRangeException; v1.6.7 PATCH
+        // removes the validation and treats negative as unlimited.
+        var src = """
+            VERSION ""
+            NS_ :
+            BS_ :
+            BU_: ECU1
+            BO_ 256 M0: 8 ECU1
+            BO_ 257 M1: 8 ECU1
+            BO_ 258 M2: 8 ECU1
+            """;
+
+        // Act
+        var r = DbcParser.Parse(src, maxMessageCount: -1);
+
+        // Assert
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.Messages.Should().HaveCount(3);
+    }
 }
