@@ -35,6 +35,12 @@ public partial class DbcService
 {
     private readonly ILogger<DbcService> _logger;
 
+    // v1.6.6 PATCH Item 1: opt-in caps applied at LoadAsync entry (size,
+    // pre-read) and inside DbcParser.Parse (message-count, mid-parse).
+    // Back-compat: 1-arg ctor delegates with DbcOptions.Unlimited so all
+    // existing callers and tests see no behavior change.
+    private readonly DbcOptions _options;
+
     /// <summary>The most recently successfully parsed DBC, or null.</summary>
     /// <remarks>
     /// Thread-safety: written on a Task.Run worker (LoadAsync) and read
@@ -56,9 +62,33 @@ public partial class DbcService
     /// <summary>Raised on IO error or parse failure; never raised on cancellation.</summary>
     public event Action<Error>? LoadFailed;
 
+    /// <summary>
+    /// Back-compat constructor. Equivalent to passing
+    /// <see cref="DbcOptions.Unlimited"/>; delegates to the 2-arg ctor so
+    /// existing callers and tests see no behavior change.
+    /// </summary>
     public DbcService(ILogger<DbcService> logger)
+        : this(logger, DbcOptions.Unlimited)
+    {
+    }
+
+    /// <summary>
+    /// v1.6.6 PATCH Item 1: full-fidelity constructor with opt-in
+    /// <see cref="DbcOptions"/>. Bound at DI registration from
+    /// <c>appsettings.json:Dbc</c> section.
+    /// <para>
+    /// <c>internal</c> because <see cref="DbcOptions"/> is internal
+    /// (no public API justification for exposing the limit knobs to
+    /// downstream consumers — DI configuration binding is the only
+    /// entry point). Visible to test project via
+    /// <c>InternalsVisibleTo PeakCan.Host.App.Tests</c>.
+    /// </para>
+    /// </summary>
+    internal DbcService(ILogger<DbcService> logger, DbcOptions options)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options;
     }
 
     /// <summary>
@@ -80,6 +110,25 @@ public partial class DbcService
     {
         try
         {
+            // v1.6.6 PATCH Item 1: enforce file-size cap BEFORE allocating any
+            // byte[]. Cheapest possible chokepoint — kill ZIP-bomb-shaped DBCs
+            // before ReadDbcTextAsync allocates a string of their content.
+            // FileInfo.Length throws FileNotFoundException if missing, which
+            // falls through to the existing IO catch block below — same UX.
+            if (_options.MaxFileSizeBytes > 0)
+            {
+                var actualLength = new FileInfo(path).Length;
+                if (actualLength > _options.MaxFileSizeBytes)
+                {
+                    var err = new Error(ErrorCode.ParseFailure,
+                        $"file size {actualLength} bytes exceeds MaxFileSizeBytes {_options.MaxFileSizeBytes} at {path}");
+                    LogLoadSizeFailed(_logger, path, _options.MaxFileSizeBytes, actualLength);
+                    LoadFailed?.Invoke(err);
+                    return;
+                }
+            }
+
+
             // v1.2.8: read the DBC with the right encoding. DBC files in
             // the wild are commonly UTF-8, but Chinese / Japanese
             // /Korean users typically save them in the system
@@ -96,7 +145,8 @@ public partial class DbcService
             // fallback handles zh-CN (GBK/CP936), ja-JP (CP932),
             // ko-KR (CP949) without requiring a UI prompt.
             var text = await ReadDbcTextAsync(path, ct).ConfigureAwait(false);
-            var r = await Task.Run(() => DbcParser.Parse(text, ct), ct).ConfigureAwait(false);
+            // v1.6.6 PATCH Item 1: thread message-count cap into the parser.
+            var r = await Task.Run(() => DbcParser.Parse(text, _options.MaxMessageCount, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             if (r.IsSuccess)
             {
@@ -234,6 +284,10 @@ public partial class DbcService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "DBC parse failed for {Path}: {Code} {Message}")]
     private static partial void LogLoadParseFailed(ILogger logger, string path, ErrorCode code, string message);
+
+    // v1.6.6 PATCH Item 1: emitted when the file-size cap rejects the load.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "DBC size cap rejected {Path} ({Size} bytes > MaxFileSizeBytes {Cap})")]
+    private static partial void LogLoadSizeFailed(ILogger logger, string path, long cap, long size);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "DBC IO failed for {Path}")]
     private static partial void LogLoadIoFailed(ILogger logger, string path, Exception ex);

@@ -177,7 +177,20 @@ public class AppHostBuilder
             maxFramesPerSecond: sp.GetRequiredService<IConfiguration>()
                 .GetValue<int>("Send:MaxFramesPerSecond"),
             logger: sp.GetRequiredService<ILogger<RateLimitedSendService>>()));
-        builder.Services.AddSingleton<DbcService>();
+        // v1.6.6 PATCH Item 1: DBC size + message-count caps, opt-in via
+        // appsettings.json:Dbc section. DbcOptions.Unlimited when both
+        // caps are 0 or absent — back-compat baseline preserved.
+        builder.Services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>().GetSection("Dbc");
+            return new DbcOptions(
+                MaxFileSizeBytes: config.GetValue<long>("MaxFileSizeBytes"),
+                MaxMessageCount: config.GetValue<int>("MaxMessageCount"));
+        });
+        builder.Services.AddSingleton<DbcService>(sp =>
+            new DbcService(
+                sp.GetRequiredService<ILogger<DbcService>>(),
+                sp.GetRequiredService<DbcOptions>()));
         builder.Services.AddSingleton<StatisticsService>();
         // StatisticsService is a BackgroundService; its 1Hz snapshot loop
         // needs IHostedService registration too. Without this, Stats view
