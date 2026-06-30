@@ -19,20 +19,25 @@ namespace PeakCan.Host.App.Services;
 /// on PEAK SDK; option records are part of the App-layer DI seam).
 /// </para>
 /// <para>
-/// <b>Failure envelope:</b> caps reject by failing the load via
-/// <see cref="Result{T}.Fail(ErrorCode.ParseFailure, ...)"/> with a
-/// disambiguating message string ("exceeds MaxFileSizeBytes N" or
-/// "exceeds MaxMessageCount N"). The internal
-/// <c>DbcErrorCode.FileTooLarge</c> slot at
-/// <c>DbcErrorCode.cs:19</c> is intentionally unused — the shared
-/// <c>ErrorCode</c> envelope is the canonical error channel (see
-/// <c>DbcService.cs:120,129</c>).
+/// <b>Failure envelope:</b> caps reject by firing
+/// <see cref="DbcService.LoadAsync"/>'s <c>LoadFailed</c> event with
+/// <see cref="ErrorCode.ParseFailure"/> + a disambiguating message
+/// string ("exceeds MaxFileSizeBytes N" or "exceeds MaxMessageCount N").
+/// The internal <c>DbcErrorCode</c> enum (declares <c>FileTooLarge</c> as
+/// forward-compat) is intentionally unwired here — the
+/// <see cref="Error"/> struct's record shape (Code: <see cref="ErrorCode"/>)
+/// doesn't accept <c>DbcErrorCode</c>, so routing errors through the
+/// shared <see cref="ErrorCode"/> envelope is the only viable option
+/// for v1.6.6 PATCH. If a future PATCH needs categorical DBC errors,
+/// wire <c>DbcErrorCode.FileTooLarge</c> via <c>ErrorCode</c> enum
+/// extension or a separate error payload field.
 /// </para>
 /// </summary>
 /// <param name="MaxFileSizeBytes">
-/// Maximum raw byte length of the DBC file on disk. Checked before
-/// <c>File.ReadAllBytesAsync</c> at <c>DbcService.LoadAsync</c> entry.
-/// <c>0</c> = unlimited. Negative values treated as 0.
+/// Maximum raw byte length of the DBC file on disk. Checked post-read
+/// against the just-read byte array (TOCTOU-free — see
+/// <see cref="DbcService.LoadAsync"/>). <c>0</c> = unlimited.
+/// Negative values treated as 0.
 /// </param>
 /// <param name="MaxMessageCount">
 /// Maximum number of top-level <c>BO_</c> messages per parse.

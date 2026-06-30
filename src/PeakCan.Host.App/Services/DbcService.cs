@@ -110,22 +110,21 @@ public partial class DbcService
     {
         try
         {
-            // v1.6.6 PATCH Item 1: enforce file-size cap BEFORE allocating any
-            // byte[]. Cheapest possible chokepoint — kill ZIP-bomb-shaped DBCs
-            // before ReadDbcTextAsync allocates a string of their content.
-            // FileInfo.Length throws FileNotFoundException if missing, which
-            // falls through to the existing IO catch block below — same UX.
-            if (_options.MaxFileSizeBytes > 0)
+            // v1.6.6 PATCH Item 1: read bytes first so the cap check uses the
+            // actual byte count (closes the TOCTOU window between a pre-read
+            // FileInfo.Length and a subsequent File.ReadAllBytesAsync).
+            var bytes = await ReadDbcBytesAsync(path, ct).ConfigureAwait(false);
+
+            // v1.6.6 PATCH Item 1: enforce file-size cap against the just-read
+            // byte count. No TOCTOU window — `bytes.Length` is the bytes we
+            // actually have in hand.
+            if (_options.MaxFileSizeBytes > 0 && bytes.Length > _options.MaxFileSizeBytes)
             {
-                var actualLength = new FileInfo(path).Length;
-                if (actualLength > _options.MaxFileSizeBytes)
-                {
-                    var err = new Error(ErrorCode.ParseFailure,
-                        $"file size {actualLength} bytes exceeds MaxFileSizeBytes {_options.MaxFileSizeBytes} at {path}");
-                    LogLoadSizeFailed(_logger, path, _options.MaxFileSizeBytes, actualLength);
-                    LoadFailed?.Invoke(err);
-                    return;
-                }
+                var err = new Error(ErrorCode.ParseFailure,
+                    $"file size {bytes.Length} bytes exceeds MaxFileSizeBytes {_options.MaxFileSizeBytes} at {path}");
+                LogLoadSizeFailed(_logger, path, _options.MaxFileSizeBytes, bytes.Length);
+                LoadFailed?.Invoke(err);
+                return;
             }
 
 
@@ -144,7 +143,7 @@ public partial class DbcService
             // system's active OEM code page on decode failure. The
             // fallback handles zh-CN (GBK/CP936), ja-JP (CP932),
             // ko-KR (CP949) without requiring a UI prompt.
-            var text = await ReadDbcTextAsync(path, ct).ConfigureAwait(false);
+            var text = ReadDbcText(bytes);
             // v1.6.6 PATCH Item 1: thread message-count cap into the parser.
             var r = await Task.Run(() => DbcParser.Parse(text, _options.MaxMessageCount, ct), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -193,11 +192,26 @@ public partial class DbcService
     /// exception is rethrown — better a clear UTF-8 decoder failure
     /// than a silent misread.
     /// </summary>
-    private static async Task<string> ReadDbcTextAsync(string path, CancellationToken ct)
+    /// <summary>
+    /// v1.6.6 PATCH Item 1 (refactor): split off the bytes-read step from the
+    /// decoding step so the post-read size cap at <c>LoadAsync</c> can use the
+    /// actual byte count without an extra <c>FileInfo.Length</c> probe. Returns
+    /// raw bytes; decoding happens in <see cref="ReadDbcText"/>.
+    /// </summary>
+    private static async Task<byte[]> ReadDbcBytesAsync(string path, CancellationToken ct)
     {
-        // Read raw bytes first so we can detect the BOM and feed
-        // the exact byte sequence to the right decoder.
-        var bytes = await File.ReadAllBytesAsync(PathNormalizer.Normalize(path), ct).ConfigureAwait(false);
+        // Read raw bytes — caller checks MaxFileSizeBytes against the returned
+        // array's Length before decoding.
+        return await File.ReadAllBytesAsync(PathNormalizer.Normalize(path), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// v1.6.6 PATCH Item 1 (refactor): pure decode — bytes in, string out.
+    /// No file I/O here; <see cref="ReadDbcBytesAsync"/> handles the read and
+    /// the size cap.
+    /// </summary>
+    private static string ReadDbcText(byte[] bytes)
+    {
 
         // BOM detection. Strip the BOM before decoding.
         Encoding encoding;

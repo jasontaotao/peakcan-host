@@ -13,9 +13,15 @@ namespace PeakCan.Host.App.Tests.Services;
 /// v1.6.5 PATCH's opt-in config schema; both caps default to
 /// <see cref="DbcOptions.Unlimited"/>.
 /// <para>
-/// Compile-time RED until the production code (DbcOptions +
-/// DbcService 2-arg ctor + DbcErrorCode.FileTooLarge emitter)
-/// ships in Task 2 GREEN.
+/// Cap rejections surface as <c>ErrorCode.ParseFailure</c> via the
+/// shared <see cref="Error"/> envelope (matches existing
+/// <c>DbcService.LoadAsync</c> pattern). The internal
+/// <c>DbcErrorCode.FileTooLarge</c> slot at <c>DbcErrorCode.cs</c>
+/// is intentionally unwired (its ctor shape doesn't fit the
+/// <see cref="Error"/> record) — the canonical error channel is
+/// <see cref="ErrorCode"/>. The disambiguating <c>Message</c>
+/// string ("exceeds MaxFileSizeBytes N" / "exceeds MaxMessageCount N")
+/// identifies which cap fired.
 /// </para>
 /// </summary>
 public class DbcServiceLimitTests
@@ -56,10 +62,9 @@ public class DbcServiceLimitTests
             """;
 
     [Fact]
-    public async Task LoadAsync_File_Above_MaxFileSize_Fires_LoadFailed_With_FileTooLarge()
+    public async Task LoadAsync_File_Above_MaxFileSize_Fires_LoadFailed_With_ParseFailure_Message()
     {
-        // Arrange — one-message DBC, cap at 512 bytes (file is much smaller than 512 bytes? no — we want it ABOVE 512 bytes).
-        // Strategy: write a DBC and assert file size > 512. (One message is ~80 bytes; to exceed 512 we pad.)
+        // Arrange — one-message DBC padded to > 512 bytes; cap at 512.
         var padded = string.Concat(OneMessageDbc, new string(' ', 1000));
         var path = WriteTempDbc(padded);
         try
@@ -73,12 +78,9 @@ public class DbcServiceLimitTests
             // Act
             await svc.LoadAsync(path);
 
-            // Assert — size cap fires, DbcLoaded does NOT fire.
+            // Assert — size cap fires via the shared ErrorCode.ParseFailure
+            // envelope. Disambiguating Message identifies which cap fired.
             captured.Should().NotBeNull("size cap should fire LoadFailed");
-            // v1.6.6 PATCH design choice: cap rejection surfaces via the shared
-            // ErrorCode.ParseFailure envelope (matches existing DbcService.cs:120
-            // pattern that uses ErrorCode.* not DbcErrorCode.*). The Message
-            // string disambiguates which cap fired.
             captured!.Code.Should().Be(ErrorCode.ParseFailure);
             captured.Message.Should().Contain("exceeds MaxFileSizeBytes 512");
             loadedDoc.Should().BeNull("DbcLoaded must NOT fire when LoadFailed fires");
@@ -157,10 +159,13 @@ public class DbcServiceLimitTests
     public async Task LoadAsync_Low_Both_Caps_Rejects_Large_Real_Fixture()
     {
         // Arrange — use the E51_PT_CAN-BMS.dbc real fixture (77 KB, 256 messages).
-        // BOTH caps below fixture size/count.
-        var fixturePath = Path.Combine(
+        // BOTH caps below fixture size/count. Path.GetFullPath resolves the
+        // `../../../../../tests/...` segments to a canonical absolute path
+        // so PathNormalizer.Normalize (defense-in-depth in DbcService.LoadAsync
+        // + ReadAllBytesAsync) doesn't reject the `..` segments.
+        var fixturePath = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..",
-            "tests", "PeakCan.Host.Core.Tests", "E51_PT_CAN-BMS.dbc");
+            "tests", "PeakCan.Host.Core.Tests", "E51_PT_CAN-BMS.dbc"));
         if (!File.Exists(fixturePath))
         {
             // Skip if fixture not found (CI without fixture copy).
