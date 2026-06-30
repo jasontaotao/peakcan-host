@@ -17,4 +17,6 @@ public enum ErrorCode
     HardwareBusy,
     HardwareParameter,
     Cancelled,
+    /// <summary>DBC file exceeds the configured MaxFileSizeBytes cap (v1.6.7 PATCH Item 1).</summary>
+    DbcFileTooLarge,
 }
