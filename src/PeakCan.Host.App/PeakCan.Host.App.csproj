@@ -53,4 +53,12 @@
     </None>
   </ItemGroup>
 
+  <!-- v1.6.5 PATCH: RateLimitedSendService decorator is `internal sealed class`;
+       test project needs `InternalsVisibleTo` to construct it directly.
+       Convention mirrors PeakCan.Host.Core.csproj which has the same
+       attribute for Core.Tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PeakCan.Host.App.Tests" />
+  </ItemGroup>
+
 </Project>
