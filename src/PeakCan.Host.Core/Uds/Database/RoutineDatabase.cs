@@ -58,7 +58,7 @@ public sealed partial class RoutineDatabase
 
             try
             {
-                var json = File.ReadAllText(PathNormalizer.Normalize(path));
+                var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
                 var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
                 return dto?.Routines ?? new List<RoutineDefinition>();
             }
@@ -82,7 +82,7 @@ public sealed partial class RoutineDatabase
 
         try
         {
-            var json = File.ReadAllText(PathNormalizer.Normalize(path));
+            var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [PathNormalizer.LocalAppDataPeakCanRoot]));
             var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
             return dto?.Routines ?? new List<RoutineDefinition>();
         }

@@ -4,7 +4,9 @@ namespace PeakCan.Host.Core.Path;
 
 /// <summary>
 /// Thrown when a file-system path is invalid per <see cref="PathNormalizer"/> rules
-/// (relative, contains traversal segments, contains null bytes, or is null/empty).
+/// (relative, contains traversal segments, contains null bytes, is null/empty, or
+/// — via <see cref="PathNormalizer.NormalizeRestricted(string?, IReadOnlyCollection{string})"/> —
+/// is outside the caller's allowed-root allowlist).
 /// </summary>
 public sealed class PathNormalizationException : ArgumentException
 {
@@ -30,4 +32,10 @@ public enum PathNormalizationReason
     RelativePath,
     TraversalSegment,
     NullByte,
+    /// <summary>
+    /// (v1.6.4 PATCH) The path canonicalizes successfully but does not start
+    /// with any of the allowed roots passed to
+    /// <see cref="PathNormalizer.NormalizeRestricted(string?, IReadOnlyCollection{string})"/>.
+    /// </summary>
+    OutsideAllowedRoot,
 }

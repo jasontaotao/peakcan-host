@@ -169,7 +169,9 @@ public class PathNormalizerTests
         var result = PathNormalizer.NormalizeRestricted(input, allowedRoots);
 
         // Assert — canonical form is returned (case-preserved from input on Windows).
-        result.Should().StartWith(@"C:\AppData\PeakCan.Host", StringComparison.OrdinalIgnoreCase);
+        // Use Match() with OrdinalIgnoreCase since FluentAssertions StartWith has
+        // no StringComparison overload.
+        result.Should().Match(s => s.StartsWith(@"C:\AppData\PeakCan.Host", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

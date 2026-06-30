@@ -17,8 +17,14 @@ public sealed class RoutineDatabaseFixture : IDisposable
 
     public RoutineDatabaseFixture()
     {
+        // v1.6.4 PATCH: RoutineDatabase now routes user-JSON reads through
+        // PathNormalizer.NormalizeRestricted with the %LOCALAPPDATA%\PeakCan.Host
+        // allowlist. The collection fixture's shared temp file must therefore
+        // live under that root.
         TempJsonPath = Path.Combine(
-            Path.GetTempPath(),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PeakCan.Host"),
             $"uds-rt-collection-{Guid.NewGuid():N}.json");
         File.WriteAllText(TempJsonPath,
             "{\"routines\":[{\"id\":\"0xFF00\",\"name\":\"Erase\",\"description\":\"d\",\"startable\":true,\"stoppable\":true}]}");
