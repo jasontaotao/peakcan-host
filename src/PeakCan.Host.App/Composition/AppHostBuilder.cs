@@ -164,7 +164,19 @@ public class AppHostBuilder
         // TotalFrameCount stays 0 even though fan-out delivers them. Same
         // bug pattern as the IHost.StartAsync miss in App.xaml.cs.
         builder.Services.AddHostedService(sp => sp.GetRequiredService<TraceService>());
-        builder.Services.AddSingleton<SendService>();
+        // v1.6.5 PATCH Item 1: token-bucket send-rate-limit decorator.
+        // Register CoreSendService (raw, exempt from rate-limit) and a
+        // SendService factory that wraps it with RateLimitedSendService.
+        // UI callers (CanApi, SendViewModel, DbcSendViewModel,
+        // CyclicSendService, CyclicDbcSendService) resolve SendService
+        // via C# polymorphism and receive the decorator; Replay +
+        // IsoTp resolve CoreSendService directly (see below).
+        builder.Services.AddSingleton<CoreSendService>();
+        builder.Services.AddSingleton<SendService>(sp => new RateLimitedSendService(
+            inner: sp.GetRequiredService<CoreSendService>(),
+            maxFramesPerSecond: sp.GetRequiredService<IConfiguration>()
+                .GetValue<int>("Send:MaxFramesPerSecond"),
+            logger: sp.GetRequiredService<ILogger<RateLimitedSendService>>()));
         builder.Services.AddSingleton<DbcService>();
         builder.Services.AddSingleton<StatisticsService>();
         // StatisticsService is a BackgroundService; its 1Hz snapshot loop
@@ -189,9 +201,15 @@ public class AppHostBuilder
         // replay frames traverse the same outbound path as the SendView
         // (the adapter's XML doc explains why SendService and not
         // ChannelRouter — ChannelRouter is receive-only fan-out).
+        // v1.6.5 PATCH Item 1: REPLAY IS EXEMPT from rate-limit —
+        // timeline-driven playback must honor ASC timestamps; gating
+        // it would scramble the timeline. Inject CoreSendService (raw)
+        // instead of letting DI auto-resolve SendService (which would
+        // be the RateLimitedSendService decorator).
         // Register the concrete type first so the IReplayFrameSink factory
         // and any direct IReplayService consumer share the same instance.
-        builder.Services.AddSingleton<ReplayFrameSinkAdapter>();
+        builder.Services.AddSingleton<ReplayFrameSinkAdapter>(sp =>
+            new ReplayFrameSinkAdapter(sp.GetRequiredService<CoreSendService>()));
         builder.Services.AddSingleton<IReplayFrameSink>(sp =>
             sp.GetRequiredService<ReplayFrameSinkAdapter>());
         builder.Services.AddSingleton<IReplayService, ReplayService>();
@@ -276,7 +294,12 @@ public class AppHostBuilder
                 RequestId = 0x7E0,  // Default UDS physical request ID
                 ResponseId = 0x7E8  // Default UDS physical response ID
             };
-            var sendService = sp.GetRequiredService<SendService>();
+            // v1.6.5 PATCH Item 1: IsoTpLayer IS EXEMPT from rate-limit.
+            // ISO 15765-2 has its own STmin pacing (consecutive-frame
+            // transmit timing) that the protocol layer enforces; gating
+            // it via the rate-limit decorator would break the transport
+            // state machine. Inject CoreSendService (raw) directly.
+            var sendService = sp.GetRequiredService<CoreSendService>();
             // v1.2.12 PATCH Item 2: async send callback. The previous
             // `.AsTask().Wait()` blocked the SDK read thread and deadlocked
             // the whole UDS diagnostic surface when SendService hung.
