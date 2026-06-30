@@ -246,6 +246,10 @@ public sealed partial class DbcApi
         _dbcService.DbcLoaded -= OnDbcLoaded;
         _dbcService.LoadFailed -= OnLoadFailed;  // v1.6.8 PATCH
         _signalValues.Clear();
+        // v1.6.10 PATCH Item 1: clear stale state on Dispose (mirror
+        // OnDbcLoaded's success-side clearing at line 228).
+        Volatile.Write(ref _currentDocument, null);
+        _lastLoadError = null;
     }
 
     /// <summary>
