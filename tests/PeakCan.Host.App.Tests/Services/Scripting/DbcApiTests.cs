@@ -158,4 +158,49 @@ public class DbcApiTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public async Task Load_After_FakeDbcService_Silent_Cancel_Returns_Cancelled_Code()
+    {
+        // Arrange — FakeDbcService.LoadAsync returns Task.CompletedTask
+        // (no DbcLoaded, no LoadFailed fire). Mirrors the silent-cancel
+        // branch in DbcService.cs:162-165 catch (OperationCanceledException).
+        var fakeSvc = new FakeDbcService();
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, fakeSvc);
+
+        // Act
+        var r = Unload(await api.Load("/some/path"));
+
+        // Assert
+        r.Success.Should().BeFalse();
+        r.MessageCount.Should().Be(0);
+        r.ErrorCode.Should().Be("Cancelled");
+        r.Error.Should().Be("Load was cancelled");
+    }
+
+    /// <summary>
+    /// Test double for <see cref="DbcService"/>: overrides
+    /// <see cref="DbcService.LoadAsync"/> to silently complete without
+    /// firing <see cref="DbcService.DbcLoaded"/> or
+    /// <see cref="DbcService.LoadFailed"/>. Mirrors the silent-cancel
+    /// branch in <c>DbcService.cs:162-165</c>
+    /// (<c>catch (OperationCanceledException) { }</c>) so Test 6 can
+    /// exercise the "Cancelled" code path in
+    /// <see cref="DbcApi.Load"/> without a real cancellation token.
+    /// <para>
+    /// Same pattern as
+    /// <c>AppShellViewModelTests.cs:54-59</c> — each test file owns its
+    /// own private nested <c>FakeDbcService</c> per established convention.
+    /// </para>
+    /// </summary>
+    private sealed class FakeDbcService : DbcService
+    {
+        public FakeDbcService()
+            : base(NullLogger<DbcService>.Instance)
+        {
+        }
+
+        public override Task LoadAsync(string path, CancellationToken ct = default)
+            => Task.CompletedTask;
+    }
 }

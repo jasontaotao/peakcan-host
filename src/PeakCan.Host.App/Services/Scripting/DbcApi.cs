@@ -29,7 +29,7 @@ public sealed partial class DbcApi
 
     // v1.6.8 PATCH: capture last LoadFailed payload so Load() can surface
     // ErrorCode + Message to the ClearScript V8 caller. Volatile for
-    // cross-thread visibility (LoadFailed fires on Task.Run worker per
+    // cross-thread visibility (LoadFailed fires from inside LoadAsync per
     // DbcService contract).
     private volatile Error? _lastLoadError;
 
