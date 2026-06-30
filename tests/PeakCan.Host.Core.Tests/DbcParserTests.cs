@@ -678,4 +678,53 @@ public class DbcParserTests
         r.IsSuccess.Should().BeTrue();
         r.Value!.MessagesById[100u].Signals.Should().BeEmpty();
     }
+
+    // v1.6.6 PATCH Item 1: tests for the new Parse(string text, int maxMessageCount, CancellationToken)
+    // overload on DbcParser. Compile-time RED until the overload is added in Task 2 GREEN.
+    [Fact]
+    public void Parse_With_MaxMessageCount_Below_Actual_Returns_ParseFailure()
+    {
+        // Arrange — 5 messages, cap at 3 → reject on the 4th.
+        var src = """
+            VERSION ""
+            NS_ :
+            BS_ :
+            BU_: ECU1
+            BO_ 256 M0: 8 ECU1
+            BO_ 257 M1: 8 ECU1
+            BO_ 258 M2: 8 ECU1
+            BO_ 259 M3: 8 ECU1
+            BO_ 260 M4: 8 ECU1
+            """;
+
+        // Act
+        var r = DbcParser.Parse(src, maxMessageCount: 3);
+
+        // Assert
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.ParseFailure);
+        r.Error.Message.Should().Contain("exceeds MaxMessageCount 3");
+    }
+
+    [Fact]
+    public void Parse_With_MaxMessageCount_Above_Actual_Returns_Success()
+    {
+        // Arrange — 3 messages, cap at 100 → all accepted.
+        var src = """
+            VERSION ""
+            NS_ :
+            BS_ :
+            BU_: ECU1
+            BO_ 256 M0: 8 ECU1
+            BO_ 257 M1: 8 ECU1
+            BO_ 258 M2: 8 ECU1
+            """;
+
+        // Act
+        var r = DbcParser.Parse(src, maxMessageCount: 100);
+
+        // Assert
+        r.IsSuccess.Should().BeTrue();
+        r.Value!.Messages.Should().HaveCount(3);
+    }
 }
