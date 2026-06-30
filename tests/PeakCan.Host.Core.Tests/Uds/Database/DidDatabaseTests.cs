@@ -1,4 +1,7 @@
+using System;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Uds.Database;
 using Xunit;
 
@@ -138,5 +141,31 @@ public class DidDatabaseTests
         var sut = new DidDatabase(logger: NullLogger<DidDatabase>.Instance);
 
         Assert.Null(sut.Find(0xABCD));
+    }
+
+    [Fact]
+    public void DidDatabase_With_Custom_AllowedRoots_Rejects_Path_Outside_List()
+    {
+        // Arrange — write a temp file under %TEMP% (outside any custom allowlist)
+        // then construct DidDatabase with a custom allowlist that doesn't include %TEMP%.
+        // The file should NOT be loaded (LoadUserFile's NormalizeRestricted throws
+        // PathNormalizationException, which is NOT caught → exception escapes).
+        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"peakcan-did-allowlist-test-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(tempPath, "{ \"dids\": [] }");
+            var customOptions = new PathOptions(new List<string> { @"C:\Nonexistent\Root" });
+
+            // Act — should throw because tempPath is outside the custom allowlist
+            Action act = () => _ = new DidDatabase(tempPath, NullLogger<DidDatabase>.Instance, customOptions);
+
+            // Assert — PathNormalizationException thrown (OutsideAllowedRoot reason)
+            act.Should().Throw<PathNormalizationException>()
+                .Where(ex => ex.Reason == PathNormalizationReason.OutsideAllowedRoot);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 }

@@ -1,4 +1,7 @@
+using System;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Uds.Database;
 using Xunit;
 
@@ -89,5 +92,28 @@ public class RoutineDatabaseTests
         var sut = new RoutineDatabase(logger: NullLogger<RoutineDatabase>.Instance);
 
         Assert.Null(sut.Find(0xABCD));
+    }
+
+    [Fact]
+    public void RoutineDatabase_With_Custom_AllowedRoots_Rejects_Path_Outside_List()
+    {
+        // Arrange
+        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"peakcan-rt-allowlist-test-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(tempPath, "{ \"routines\": [] }");
+            var customOptions = new PathOptions(new List<string> { @"C:\Nonexistent\Root" });
+
+            // Act
+            Action act = () => _ = new RoutineDatabase(tempPath, NullLogger<RoutineDatabase>.Instance, customOptions);
+
+            // Assert
+            act.Should().Throw<PathNormalizationException>()
+                .Where(ex => ex.Reason == PathNormalizationReason.OutsideAllowedRoot);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 }

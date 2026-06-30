@@ -9,6 +9,7 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
@@ -191,6 +192,15 @@ public class AppHostBuilder
             new DbcService(
                 sp.GetRequiredService<ILogger<DbcService>>(),
                 sp.GetRequiredService<DbcOptions>()));
+        // v1.6.10 PATCH Item 2: opt-in extension of v1.6.4 PATCH hardcoded
+        // allowlist — config-driven via Path:AllowedRoots:[] in appsettings.json.
+        builder.Services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>().GetSection("Path");
+            var allowedRoots = config.GetSection("AllowedRoots").Get<string[]>()
+                ?? new[] { PathNormalizer.LocalAppDataPeakCanRoot };
+            return new PathOptions(allowedRoots);
+        });
         builder.Services.AddSingleton<StatisticsService>();
         // StatisticsService is a BackgroundService; its 1Hz snapshot loop
         // needs IHostedService registration too. Without this, Stats view
@@ -343,8 +353,19 @@ public class AppHostBuilder
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();
         // v1.1.0: DID + Routine databases (load from %APPDATA%\PeakCan.Host\ on construction).
-        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DidDatabase>();
-        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.RoutineDatabase>();
+        // v1.6.10 PATCH Item 2: factory wires PathOptions so the 3-arg ctor
+        // (Task 5) receives the config-driven allowlist instead of the
+        // hardcoded Default.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DidDatabase>(sp =>
+            new PeakCan.Host.Core.Uds.Database.DidDatabase(
+                PeakCan.Host.Core.Uds.Database.DidDatabaseDefaults.DefaultJsonPath,
+                sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.Database.DidDatabase>>(),
+                sp.GetRequiredService<PathOptions>()));
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.RoutineDatabase>(sp =>
+            new PeakCan.Host.Core.Uds.Database.RoutineDatabase(
+                PeakCan.Host.Core.Uds.Database.RoutineDatabaseDefaults.DefaultJsonPath,
+                sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.Database.RoutineDatabase>>(),
+                sp.GetRequiredService<PathOptions>()));
         // v1.1.0: UdsClient now requires an IKeyDerivationAlgorithm via the 3-arg ctor.
         // v1.2.13 PATCH Item 2: also pass ILogger<UdsSession> so S3 keepalive
         // failures are observable in production (logger-aware ctor was added
