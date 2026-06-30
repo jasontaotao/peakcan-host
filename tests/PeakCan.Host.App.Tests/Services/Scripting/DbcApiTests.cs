@@ -158,4 +158,23 @@ public class DbcApiTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public async Task Load_After_FakeDbcService_Silent_Cancel_Returns_Cancelled_Code()
+    {
+        // Arrange — FakeDbcService.LoadAsync returns Task.CompletedTask
+        // (no DbcLoaded, no LoadFailed fire). Mirrors the silent-cancel
+        // branch in DbcService.cs:162-165 catch (OperationCanceledException).
+        var fakeSvc = new FakeDbcService();
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, fakeSvc);
+
+        // Act
+        var r = Unload(await api.Load("/some/path"));
+
+        // Assert
+        r.Success.Should().BeFalse();
+        r.MessageCount.Should().Be(0);
+        r.ErrorCode.Should().Be("Cancelled");
+        r.Error.Should().Be("Load was cancelled");
+    }
 }
