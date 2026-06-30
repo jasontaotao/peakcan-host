@@ -27,6 +27,12 @@ public sealed partial class DbcApi
 
     private DbcDocument? _currentDocument;
 
+    // v1.6.8 PATCH: capture last LoadFailed payload so Load() can surface
+    // ErrorCode + Message to the ClearScript V8 caller. Volatile for
+    // cross-thread visibility (LoadFailed fires on Task.Run worker per
+    // DbcService contract).
+    private volatile Error? _lastLoadError;
+
     public DbcApi(
         ILogger<DbcApi> logger,
         DbcService dbcService)
@@ -39,18 +45,35 @@ public sealed partial class DbcApi
 
         // Subscribe to DBC load events to keep our local reference in sync.
         _dbcService.DbcLoaded += OnDbcLoaded;
+        // v1.6.8 PATCH: subscribe to LoadFailed so Load() can surface
+        // its payload to the script caller.
+        _dbcService.LoadFailed += OnLoadFailed;
     }
 
     /// <summary>
     /// Load and parse a DBC file.
     /// </summary>
     /// <param name="path">Absolute path to the .dbc file.</param>
-    /// <returns>Result object with success status, message count, and optional error.</returns>
+    /// <returns>
+    /// Result object with <c>success</c>, <c>messageCount</c>,
+    /// <c>errorCode</c>, and <c>error</c> fields. On success,
+    /// <c>errorCode</c> and <c>error</c> are null. On failure,
+    /// <c>errorCode</c> is the <see cref="ErrorCode"/> name
+    /// (e.g. "IoError", "ParseFailure", "DbcFileTooLarge") and
+    /// <c>error</c> is the disambiguating message. On
+    /// cancellation, <c>errorCode</c> is "Cancelled".
+    /// </returns>
     public async Task<object> Load(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            return new { success = false, messageCount = 0, error = "Path is empty" };
+            return new
+            {
+                success = false,
+                messageCount = 0,
+                errorCode = "EmptyPath",
+                error = "Path is empty",
+            };
         }
 
         try
@@ -61,16 +84,56 @@ public sealed partial class DbcApi
             if (doc is not null)
             {
                 LogDbcLoadedViaScript(_logger, path, doc.Messages.Count);
-                return new { success = true, messageCount = doc.Messages.Count, error = (string?)null };
+                return new
+                {
+                    success = true,
+                    messageCount = doc.Messages.Count,
+                    errorCode = (string?)null,
+                    error = (string?)null,
+                };
             }
 
-            // LoadAsync completed but Current is still null — should not happen.
-            return new { success = false, messageCount = 0, error = "Load completed but no document available" };
+            // LoadAsync returned without a document. Either:
+            // - LoadFailed fired (DbcService swallows IO/parse to event):
+            //   surface its Error.Code + Error.Message.
+            // - Cancellation (silent per DbcService contract): no
+            //   LoadFailed fired, _lastLoadError stays null.
+            //   Report as "Cancelled" so scripts can distinguish
+            //   "I cancelled this" from "this failed with reason X".
+            var err = _lastLoadError;
+            if (err is not null)
+            {
+                return new
+                {
+                    success = false,
+                    messageCount = 0,
+                    errorCode = err.Code.ToString(),
+                    error = err.Message,
+                };
+            }
+
+            return new
+            {
+                success = false,
+                messageCount = 0,
+                errorCode = "Cancelled",
+                error = "Load was cancelled",
+            };
         }
         catch (Exception ex)
         {
+            // Defensive — DbcService normally fires LoadFailed instead
+            // of throwing. Only reachable for non-IO/parse exceptions
+            // that escape DbcService's catch-all (e.g. assertion
+            // failures in test stubs).
             LogDbcLoadFailed(_logger, ex, path);
-            return new { success = false, messageCount = 0, error = ex.Message };
+            return new
+            {
+                success = false,
+                messageCount = 0,
+                errorCode = "Exception",
+                error = ex.Message,
+            };
         }
     }
 
@@ -159,6 +222,20 @@ public sealed partial class DbcApi
     {
         Volatile.Write(ref _currentDocument, doc);
         _signalValues.Clear();
+        // v1.6.8 PATCH (D4): clear any stale error from a previous
+        // failed load so it doesn't leak into the next successful
+        // load's return value.
+        _lastLoadError = null;
+    }
+
+    /// <summary>
+    /// v1.6.8 PATCH: capture the last <see cref="DbcService.LoadFailed"/>
+    /// payload so <see cref="Load"/> can surface its
+    /// <see cref="ErrorCode"/> + message to the script caller.
+    /// </summary>
+    private void OnLoadFailed(Error error)
+    {
+        _lastLoadError = error;
     }
 
     /// <summary>
@@ -167,6 +244,7 @@ public sealed partial class DbcApi
     public void Dispose()
     {
         _dbcService.DbcLoaded -= OnDbcLoaded;
+        _dbcService.LoadFailed -= OnLoadFailed;  // v1.6.8 PATCH
         _signalValues.Clear();
     }
 
