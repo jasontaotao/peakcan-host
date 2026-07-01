@@ -21,13 +21,22 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// <c>V8RuntimeConstraints.MaxOldSpaceSize</c>. Default 48 MiB.
 /// </param>
 /// <remarks>
-/// Units distinction (verified against ClearScript 7.4.5 XML docs):
+/// Enforcement layers (verified against ClearScript 7.4.5 XML docs):
 /// <list type="bullet">
-/// <item><c>V8RuntimeConstraints.Max*SpaceSize</c> use MiB.</item>
-/// <item><c>V8ScriptEngine.MaxRuntimeHeapSize</c> uses bytes.</item>
+/// <item><c>MaxNewSpaceSizeMB</c> + <c>MaxOldSpaceSizeMB</c> are <b>hard
+/// generation caps</b> via <c>V8RuntimeConstraints.Max*SpaceSize</c> in MiB.</item>
+/// <item><c>MaxHeapSizeMB</c> is the <b>heap-size monitor</b> via
+/// <c>V8ScriptEngine.MaxRuntimeHeapSize</c> in bytes. With ClearScript's
+/// default <c>HeapSizePolicy.Interrupt</c>, exceeding it surfaces a
+/// catchable JS exception (NOT a native crash).</item>
 /// </list>
 /// <c>MaxNewSpaceSizeMB + MaxOldSpaceSizeMB</c> should sum to roughly
 /// <paramref name="MaxHeapSizeMB"/> for coherent budgeting.
+/// <para>Units distinction:
+/// <list type="bullet">
+/// <item><c>V8RuntimeConstraints.Max*SpaceSize</c> use MiB.</item>
+/// <item><c>V8ScriptEngine.MaxRuntimeHeapSize</c> uses bytes.</item>
+/// </list></para>
 /// </remarks>
 internal sealed record ScriptEngineOptions(
     int MaxHeapSizeMB = 64,
