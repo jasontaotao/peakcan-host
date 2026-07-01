@@ -121,6 +121,40 @@ public sealed class ScriptEngineTests : IDisposable
         _engine.Dispose();
     }
 
+    /// <summary>
+    /// v1.7.0 MINOR Item 2: declarative verification that IScriptCanApi
+    /// does not expose <c>Dispose</c> to scripts.
+    /// </summary>
+    [Fact]
+    public void IScriptCanApi_Omits_Dispose_Method()
+    {
+        // Arrange / Act
+        var disposeMethod = typeof(IScriptCanApi).GetMethod(
+            "Dispose",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+
+        // Assert
+        Assert.Null(
+            disposeMethod);
+    }
+
+    /// <summary>
+    /// v1.7.0 MINOR Item 2: declarative verification that IScriptDbcApi
+    /// does not expose <c>Dispose</c> to scripts.
+    /// </summary>
+    [Fact]
+    public void IScriptDbcApi_Omits_Dispose_Method()
+    {
+        // Arrange / Act
+        var disposeMethod = typeof(IScriptDbcApi).GetMethod(
+            "Dispose",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+
+        // Assert
+        Assert.Null(
+            disposeMethod);
+    }
+
     public void Dispose()
     {
         _engine.Dispose();

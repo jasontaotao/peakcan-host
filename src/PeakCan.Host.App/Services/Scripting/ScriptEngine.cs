@@ -240,16 +240,19 @@ public sealed partial class ScriptEngine : IDisposable
             };
         ");
 
-        // Inject can.* API (if available).
+        // Inject can.* API (if available). v1.7.0 MINOR Item 2: cast to
+        // IScriptCanApi so scripts see only the minimal surface (no Dispose,
+        // no IFrameSink members).
         if (_canApi is not null)
         {
-            engine.AddHostObject("can", _canApi);
+            engine.AddHostObject("can", (IScriptCanApi)_canApi);
         }
 
-        // Inject dbc.* API (if available).
+        // Inject dbc.* API (if available). v1.7.0 MINOR Item 2: cast to
+        // IScriptDbcApi so scripts see only the minimal surface (no Dispose).
         if (_dbcApi is not null)
         {
-            engine.AddHostObject("dbc", _dbcApi);
+            engine.AddHostObject("dbc", (IScriptDbcApi)_dbcApi);
         }
 
         // Inject utility functions (if available).
