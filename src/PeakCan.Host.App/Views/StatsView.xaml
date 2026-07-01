@@ -1,0 +1,19 @@
+<UserControl x:Class="PeakCan.Host.App.Views.StatsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:oxy="http://oxyplot.org/wpf"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             d:DataContext="{d:DesignInstance Type=vm:StatsViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <DockPanel Margin="8">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Total frames: " FontWeight="SemiBold" />
+            <TextBlock Text="{Binding TotalFrames}" Margin="0,0,24,0" />
+            <TextBlock Text="Error frames: " FontWeight="SemiBold" />
+            <TextBlock Text="{Binding ErrorFrames}" />
+        </StackPanel>
+        <oxy:PlotView Model="{Binding PlotModel}" />
+    </DockPanel>
+</UserControl>

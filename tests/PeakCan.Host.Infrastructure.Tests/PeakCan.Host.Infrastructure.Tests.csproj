@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Task 19: collect cobertura coverage report (see Core.Tests for
+         the rationale on not setting a hard <Threshold> here). -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../..//coverage/infra-coverage</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
+    <!-- Task 18: NetArchTest rule 3 inspects the App assembly; the test
+         class only needs to see the AppHostBuilder type as a probe. -->
+    <ProjectReference Include="..\..\src\PeakCan.Host.App\PeakCan.Host.App.csproj" />
+  </ItemGroup>
+
+</Project>

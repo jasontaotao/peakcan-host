@@ -1,0 +1,17 @@
+<Application x:Class="PeakCan.Host.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:PeakCan.Host.App"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters">
+    <Application.Resources>
+        <!--
+            v1.4.0 MINOR Task 4: registered here so any view (ReplayView +
+            future VMs) can bind Visibility on a nullable string without
+            re-declaring the converter locally. SendView registers
+            InverseBooleanConverter inline in its own Resources block —
+            keeping inverse-Boolean as a per-view resource since it is
+            used only there.
+        -->
+        <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+    </Application.Resources>
+</Application>

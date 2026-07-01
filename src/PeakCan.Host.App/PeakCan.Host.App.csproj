@@ -1,0 +1,64 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
+    <ProjectReference Include="..\PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="OxyPlot.Wpf" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <!-- v1.2.9: non-UTF-8 DBC files (GBK/CP936 on zh-CN, etc.) need
+         legacy code-page encodings, which the DBC loader's
+         OEM-fallback path requests via Encoding.GetEncoding(oem).
+         On .NET 10 the System.Text.Encoding.CodePages package is
+         provided transitively by the shared framework, so no
+         explicit PackageReference is required. If a future .NET
+         version moves the package out of the shared framework,
+         add it back here as a central package-version entry. -->
+    <!-- (intentionally empty: code page encoding is transitive) -->
+    <!-- Scripting engine: V8 via ClearScript -->
+    <PackageReference Include="Microsoft.ClearScript.V8" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" />
+    <!-- WebView2 for CodeMirror editor -->
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Task 20: brand the published exe as PeakCan.Host.exe (instead
+         of PeakCan.Host.App.exe). The assembly name is also renamed
+         from PeakCan.Host.App to PeakCan.Host — the .NET SDK
+         resolves ProjectReferences by file path, not by name, so the
+         test projects still link. The default namespace remains
+         PeakCan.Host.App.* (defined per .cs file). -->
+    <AssemblyName>PeakCan.Host</AssemblyName>
+    <RootNamespace>PeakCan.Host.App</RootNamespace>
+  </PropertyGroup>
+
+  <!-- v1.5.0 MINOR: Host.CreateApplicationBuilder automatically loads
+       appsettings.json from the application base directory. Copy the
+       file to bin/Debug/... so the host can find it at runtime. -->
+  <ItemGroup>
+    <None Update="..\..\appsettings.json" Link="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- v1.6.5 PATCH: RateLimitedSendService decorator is `internal sealed class`;
+       test project needs `InternalsVisibleTo` to construct it directly.
+       Convention mirrors PeakCan.Host.Core.csproj which has the same
+       attribute for Core.Tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PeakCan.Host.App.Tests" />
+  </ItemGroup>
+
+</Project>

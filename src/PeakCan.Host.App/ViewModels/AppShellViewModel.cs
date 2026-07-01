@@ -1,0 +1,580 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Views;
+using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.Channel;
+
+namespace PeakCan.Host.App.ViewModels;
+
+/// <summary>
+/// Top-level shell view model: status bar, channel-probe / connect toolbar,
+/// the Open-DBC menu command, and the per-tab view cache that drives the
+/// <c>MainArea</c> <see cref="System.Windows.Controls.ContentControl"/>.
+/// <para>
+/// <b>View caching (Task 15):</b> the three tab views (<see cref="TraceView"/>,
+/// <see cref="DbcView"/>, <see cref="SendView"/>) are instantiated once in
+/// the constructor and swapped via <see cref="CurrentView"/>. Reusing the
+/// view instances preserves DataGrid virtualization state across switches
+/// (scroll position, selection) and avoids paying the DataGrid layout cost
+/// on every menu click. Each view's <c>DataContext</c> is bound at
+/// construction time so XAML bindings resolve without any per-click
+/// DataContext plumbing.
+/// </para>
+/// <para>
+/// <b>Hardware probe (MVP):</b> per the inline amendment, this class
+/// hard-codes handle <c>0x51</c> (PCAN-USB FD first channel) and probes
+/// it with <c>PCANBasic.Initialize</c>. A non-error status means the
+/// channel is reachable and <see cref="ConnectCommand"/> is enabled.
+/// Full multi-channel enumeration is v1.1.
+/// </para>
+/// <para>
+/// <b>Thread-safety:</b> <see cref="ConnectAsync"/> captures the WPF
+/// <c>DispatcherSynchronizationContext</c> at the await site via
+/// <c>ConfigureAwait(true)</c>; the property setters below it run on the
+/// UI thread because the await resumed there. CommunityToolkit.Mvvm's
+/// generated <c>SetProperty</c> itself does NOT marshal — it just fires
+/// <c>PropertyChanged</c>. The dispatcher affinity comes from the captured
+/// context, not from the source generator.
+/// </para>
+/// </summary>
+public sealed partial class AppShellViewModel : ObservableObject
+{
+    /// <summary>
+    /// PEAK PCAN-USB FD first channel handle. Mirrors
+    /// <see cref="Composition.AppHostBuilder.PcanUsbFdFirstHandle"/>; kept
+    /// here as a local constant so the VM does not pull in App composition
+    /// for a single number.
+    /// </summary>
+    private const ushort PcanUsbFdFirstHandle = 0x51;
+
+    /// <summary>窗口标题，含版本号（从 AssemblyInformationalVersion 读取）。</summary>
+    public string WindowTitle { get; } = $"PeakCan Host v{Assembly.GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+        .InformationalVersion ?? "0.0.0"}";
+
+    /// <summary>Classic CAN 预设列表（125 / 250 / 500 / 1000 kbps）。</summary>
+    public static readonly IReadOnlyList<BaudRate> ClassicBaudRates =
+        new[] { BaudRate.Can125kbps, BaudRate.Can250kbps, BaudRate.Can500kbps, BaudRate.Can1Mbps };
+
+    /// <summary>CAN FD 预设列表（1 / 2 / 5 Mbps data phase）。</summary>
+    public static readonly IReadOnlyList<BaudRate> FdBaudRates =
+        new[] { BaudRate.CanFd1Mbps, BaudRate.CanFd2Mbps, BaudRate.CanFd5Mbps };
+
+    private readonly ChannelRouter _router;
+    private readonly ILogger<AppShellViewModel> _logger;
+    private readonly SendService _sendService;
+    private readonly IChannelProbe _channelProbe;
+    private readonly IChannelFactory _channelFactory;
+    private readonly IChannelEnumerator? _channelEnumerator;
+    private readonly TraceViewModel _traceViewModel;
+    private readonly DbcViewModel _dbcViewModel;
+    private readonly SendViewModel _sendViewModel;
+    private readonly SignalViewModel _signalViewModel;
+    private readonly StatsViewModel _statsViewModel;
+    private readonly ScriptViewModel _scriptViewModel;
+    private readonly UdsViewModel _udsViewModel;
+    private readonly RecordViewModel _recordViewModel;
+    // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
+    private readonly IConfiguration _configuration;
+    // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
+    private ushort? _persistedHandleOnStartup;
+    // v1.5.0 MINOR: when EnumerateChannels auto-selects a fallback because
+    // the persisted handle did not match any enumerated channel, suppress
+    // the subsequent OnSelectedChannelChanged write so we do not clobber
+    // the user's original persisted value (e.g. "99" if the hardware no
+    // longer matches). Cleared by the next real OnSelectedChannelChanged
+    // invocation (which always persists user intent).
+    private bool _suppressNextPersist;
+
+    // View instances are created lazily on the first Show command so the
+    // shell's ctor stays STA-free (xunit runs on MTA). Production callers
+    // always resolve the VM from the WPF STA thread (App.OnStartup), so
+    // the first Show happens on STA and the WPF UserControl ctor succeeds.
+    private TraceView? _traceView;
+    private DbcView? _dbcView;
+    private SendView? _sendView;
+    private SignalView? _signalView;
+    private StatsView? _statsView;
+    private ScriptView? _scriptView;
+    private UdsView? _udsView;
+    private RecordView? _recordView;
+
+    /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
+    private ICanChannel? _activeChannel;
+
+    /// <summary>Last known probe result. Connect is enabled only when this is "USB1 ...".</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    private string _channelList = "(click Probe to detect)";
+
+    /// <summary>
+    /// v0.4.0: detected channels from the last EnumerateChannels call.
+    /// Empty before the first probe. The toolbar ComboBox binds to this.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    private IReadOnlyList<ChannelInfo> _availableChannels = Array.Empty<ChannelInfo>();
+
+    /// <summary>
+    /// v0.4.0: the channel the user selected from the toolbar ComboBox.
+    /// Null before the first probe or if no channels were detected.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    private ChannelInfo? _selectedChannel;
+
+    [ObservableProperty]
+    private string _statusMessage = "Ready";
+
+    [ObservableProperty]
+    private string _connectionState = "Disconnected";
+
+    /// <summary>
+    /// True after a successful Connect until a future Disconnect (v1.1).
+    /// The toolbar binds to this for the enabled state of the
+    /// Connect button; bound via the partial property generated by
+    /// CommunityToolkit.Mvvm.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DisconnectCommand))]
+    [NotifyPropertyChangedFor(nameof(IsDisconnected))]
+    private bool _isConnected;
+
+    /// <summary>
+    /// 与 <see cref="IsConnected"/> 相反，供工具栏 CAN FD / 波特率控件的
+    /// <c>IsEnabled</c> 绑定——连接状态下禁用，断开后恢复。
+    /// </summary>
+    public bool IsDisconnected => !IsConnected;
+
+    /// <summary>CAN FD 模式开关。切换时自动将 SelectedBaudRate 重置为对应列表首项。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AvailableBaudRates))]
+    private bool _isFd = true;
+
+    /// <summary>当前选中的波特率预设。工具栏 ComboBox 绑定此属性。</summary>
+    [ObservableProperty]
+    private BaudRate _selectedBaudRate = BaudRate.CanFd1Mbps;
+
+    /// <summary>
+    /// The view currently shown in <c>AppShell.xaml</c>'s <c>MainArea</c>.
+    /// Switched by the View menu (Trace / DBC / Send) and by the
+    /// Open-DBC menu command. The instance is cached — see class doc.
+    /// </summary>
+    [ObservableProperty]
+    private object? _currentView;
+
+    /// <summary>根据 IsFd 动态返回可用波特率预设列表。ComboBox ItemsSource 绑定此属性。</summary>
+    public IReadOnlyList<BaudRate> AvailableBaudRates => IsFd ? FdBaudRates : ClassicBaudRates;
+
+    /// <summary>
+    /// IsFd 属性变更回调：切换模式时自动将 SelectedBaudRate 重置为对应列表首项，
+    /// 避免用户在 Classic 模式下残留一个 FD 预设（或反之）。
+    /// CommunityToolkit.Mvvm 源生成器会将此方法注册到 IsFd 的 setter 中。
+    /// </summary>
+    partial void OnIsFdChanged(bool value)
+    {
+        SelectedBaudRate = value ? BaudRate.CanFd1Mbps : BaudRate.Can1Mbps;
+    }
+
+    /// <summary>
+    /// v1.5.0 MINOR: persist <c>SelectedChannel.Handle</c> to
+    /// <c>Channel:SelectedHandle</c> in <see cref="IConfiguration"/> so the
+    /// next process restart can restore the previously-selected channel
+    /// after EnumerateChannels populates <see cref="AvailableChannels"/>.
+    /// Handle format is uppercase hex without 0x prefix (matches PEAK
+    /// convention: 0x51 → "51"). A null SelectedChannel clears the key.
+    /// <para>
+    /// v1.5.0 review fix: when <see cref="EnumerateChannels"/> auto-selects
+    /// a fallback (the persisted handle did not match any enumerated channel),
+    /// <see cref="_suppressNextPersist"/> is set so this write is skipped,
+    /// preserving the user's original persisted value across the hardware
+    /// mismatch. Any subsequent user-driven selection always persists.
+    /// </para>
+    /// </summary>
+    partial void OnSelectedChannelChanged(ChannelInfo? value)
+    {
+        if (_suppressNextPersist)
+        {
+            // Consume the flag for this single auto-select event; the very
+            // next user-driven change will persist normally.
+            _suppressNextPersist = false;
+            return;
+        }
+        _configuration["Channel:SelectedHandle"] = value?.Handle.ToString("X2");
+    }
+
+    /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).</summary>
+    public SendService SendService => _sendService;
+
+    public AppShellViewModel(
+        ChannelRouter router,
+        ILogger<AppShellViewModel> logger,
+        TraceViewModel traceViewModel,
+        SendService sendService,
+        IChannelProbe channelProbe,
+        IChannelFactory channelFactory,
+        DbcViewModel dbcViewModel,
+        SendViewModel sendViewModel,
+        SignalViewModel signalViewModel,
+        StatsViewModel statsViewModel,
+        ScriptViewModel scriptViewModel,
+        UdsViewModel udsViewModel,
+        RecordViewModel recordViewModel,
+        IChannelEnumerator? channelEnumerator = null,
+        IConfiguration? configuration = null)
+    {
+        _router = router ?? throw new ArgumentNullException(nameof(router));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
+        _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
+        _channelProbe = channelProbe ?? throw new ArgumentNullException(nameof(channelProbe));
+        _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
+        _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
+        _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
+        _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
+        _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
+        _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
+        _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
+        _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
+        // v0.4.0: optional multi-channel enumerator. When null, the
+        // single-channel probe path (IChannelProbe) is used instead.
+        _channelEnumerator = channelEnumerator;
+        // v1.5.0 MINOR: persist SelectedHandle across app restarts.
+        // Configuration is optional for backwards compatibility with
+        // existing test fixtures that build the VM without DI. The
+        // fallback uses an in-memory provider so the indexer setter is
+        // a no-op rather than throwing on an unregistered root.
+        _configuration = configuration ?? new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
+        // Defer handle restoration to first EnumerateChannels call: the
+        // persisted handle can only resolve against an enumerated
+        // AvailableChannels list, which may be empty until the user
+        // probes hardware.
+        var persisted = _configuration["Channel:SelectedHandle"];
+        if (!string.IsNullOrEmpty(persisted) &&
+            ushort.TryParse(persisted, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h))
+        {
+            _persistedHandleOnStartup = h;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenDbc()
+    {
+        // Task 15: the File ▸ Open DBC... menu item routes into the DBC
+        // tab. The actual file-open dialog is owned by the per-view
+        // Open button inside DbcViewModel.OpenAsync; the menu item
+        // only navigates so the user sees the right surface.
+        CurrentView = GetOrCreateDbcView();
+        LogOpenDbcInvoked(_logger);
+    }
+
+    [RelayCommand]
+    private void ShowTrace()
+    {
+        if (_traceView == null)
+        {
+            _traceView = new TraceView { DataContext = _traceViewModel };
+            // First-show sets the default tab so the very first render
+            // after VM construction lands on the trace grid.
+            if (CurrentView == null) CurrentView = _traceView;
+        }
+        CurrentView = _traceView;
+    }
+
+    [RelayCommand]
+    private void ShowDbc() => CurrentView = GetOrCreateDbcView();
+
+    [RelayCommand]
+    private void ShowSend()
+    {
+        if (_sendView == null)
+        {
+            _sendView = new SendView { DataContext = _sendViewModel };
+            if (CurrentView == null) CurrentView = _sendView;
+        }
+        CurrentView = _sendView;
+    }
+
+    [RelayCommand]
+    private void ShowSignals()
+    {
+        // Task 16: Signal tab (DBC-decoded live signals). Mirrors
+        // ShowSend: lazily create the view on first Show so the shell
+        // ctor stays STA-free; reuse the same instance thereafter so
+        // DataGrid virtualization state survives menu round-trips.
+        if (_signalView == null)
+        {
+            _signalView = new SignalView { DataContext = _signalViewModel };
+            if (CurrentView == null) CurrentView = _signalView;
+        }
+        CurrentView = _signalView;
+    }
+
+    [RelayCommand]
+    private void ShowStats()
+    {
+        // Task 17: Stats tab (1 Hz OxyPlot charts). Same lazy-view
+        // pattern as ShowSignals / ShowSend. The StatsView hosts an
+        // OxyPlot.PlotView bound to StatsViewModel.PlotModel; the
+        // StatisticsService pushes snapshots at 1 Hz on its own thread
+        // and the VM marshals to the UI dispatcher.
+        if (_statsView == null)
+        {
+            _statsView = new StatsView { DataContext = _statsViewModel };
+            if (CurrentView == null) CurrentView = _statsView;
+        }
+        CurrentView = _statsView;
+    }
+
+    [RelayCommand]
+    private void ShowScript()
+    {
+        // v1.0.0: Script tab (JavaScript automation). Same lazy-view
+        // pattern as ShowStats / ShowSignals. The ScriptView hosts a
+        // WebView2 with CodeMirror 6 editor and an output panel.
+        if (_scriptView == null)
+        {
+            _scriptView = new ScriptView { DataContext = _scriptViewModel };
+            if (CurrentView == null) CurrentView = _scriptView;
+        }
+        CurrentView = _scriptView;
+    }
+
+    [RelayCommand]
+    private void ShowUds()
+    {
+        // v1.1.0: UDS diagnostic tab. Same lazy-view pattern.
+        if (_udsView == null)
+        {
+            _udsView = new UdsView { DataContext = _udsViewModel };
+            if (CurrentView == null) CurrentView = _udsView;
+        }
+        CurrentView = _udsView;
+    }
+
+    [RelayCommand]
+    private void ShowRecord()
+    {
+        // v1.2.11 PATCH Item 6: Recording tab. Same lazy-view pattern
+        // as the other tabs — view is constructed on first Show so the
+        // shell ctor stays STA-free.
+        if (_recordView == null)
+        {
+            _recordView = new RecordView { DataContext = _recordViewModel };
+            if (CurrentView == null) CurrentView = _recordView;
+        }
+        CurrentView = _recordView;
+    }
+
+    private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };
+
+    [RelayCommand(CanExecute = nameof(CanEnumerateChannels))]
+    private void EnumerateChannels()
+    {
+        // v0.4.0: if IChannelEnumerator is available, probe all channels;
+        // otherwise fall back to the single-channel IChannelProbe path.
+        if (_channelEnumerator is not null)
+        {
+            var channels = _channelEnumerator.Enumerate();
+            AvailableChannels = channels;
+            if (channels.Count > 0)
+            {
+                // v1.5.0 MINOR: if the user previously selected a different
+                // channel and that channel is still present in the
+                // enumerated list, restore it. Otherwise fall back to the
+                // v0.4.0 default (channels[0]).
+                var persisted = _persistedHandleOnStartup;
+                _persistedHandleOnStartup = null; // consume once
+                var match = persisted.HasValue
+                    ? channels.FirstOrDefault(c => c.Handle == persisted.Value)
+                    : null;
+                // v1.5.0 review fix: when the persisted handle did not
+                // match any enumerated channel (e.g. "99" but only 0x51/0x52
+                // present), the auto-select below would otherwise trigger
+                // OnSelectedChannelChanged and overwrite the user's persisted
+                // "99" with "51". Suppress that one write so the user's
+                // original intent survives across hardware changes.
+                if (persisted.HasValue && match is null)
+                {
+                    _suppressNextPersist = true;
+                }
+                SelectedChannel = match ?? channels[0];
+                ChannelList = $"{SelectedChannel.Name} ({SelectedBaudRate.Name})";
+                StatusMessage = $"Detected {channels.Count} channel(s)";
+                LogProbeOk(_logger, SelectedChannel.Handle);
+            }
+            else
+            {
+                SelectedChannel = null;
+                ChannelList = "No PEAK hardware detected";
+                StatusMessage = "No channels found";
+                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                    new InvalidOperationException("No channels found"));
+            }
+        }
+        else
+        {
+            // Legacy single-channel path (tests without IChannelEnumerator).
+            var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
+            if (result.Ok)
+            {
+                ChannelList = $"USB1 ({SelectedBaudRate.Name})";
+                StatusMessage = result.Message;
+                LogProbeOk(_logger, PcanUsbFdFirstHandle);
+            }
+            else
+            {
+                ChannelList = $"No PEAK hardware detected: {result.Message}";
+                StatusMessage = result.Message;
+                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                    new InvalidOperationException(result.Message));
+            }
+        }
+    }
+
+    private bool CanEnumerateChannels() => !IsConnected;
+
+    // v0.4.0: CanConnect now checks SelectedChannel when available,
+    // falling back to the legacy ChannelList string check.
+    private bool CanConnect() => !IsConnected && (
+        SelectedChannel is not null
+        || ChannelList.StartsWith("USB1", StringComparison.Ordinal));
+
+    [RelayCommand(CanExecute = nameof(CanConnect))]
+    private async Task ConnectAsync()
+    {
+        // v0.4.0: use SelectedChannel handle when available.
+        var handle = SelectedChannel?.Handle ?? PcanUsbFdFirstHandle;
+        ConnectionState = "Connecting...";
+        StatusMessage = $"Connecting to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+        var channel = _channelFactory.Create(new ChannelId(handle));
+        try
+        {
+            var result = await channel.ConnectAsync(SelectedBaudRate, fd: IsFd).ConfigureAwait(true);
+            if (result.IsSuccess)
+            {
+                _activeChannel = channel;
+                _router.RegisterChannel(channel);
+                // Set IsConnected=true BEFORE publishing the channel to
+                // SendService so that any binding observer sees "connected"
+                // and an available channel atomically — no window where
+                // Send can fire against a channel the UI still considers
+                // disconnected. [ObservableProperty] setters fire
+                // PropertyChanged in order; this ordering keeps the
+                // Send button's CanExecute (when wired) consistent.
+                IsConnected = true;
+                ConnectionState = $"Connected to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+                StatusMessage = "Connected";
+                _sendService.ActiveChannel = channel;
+                LogConnectOk(_logger, handle);
+            }
+            else
+            {
+                ConnectionState = "Disconnected";
+                _sendService.ActiveChannel = null;
+                var err = result.Error!;
+                StatusMessage = $"Connect failed: {err.Code} {err.Message}";
+                LogConnectFailed(_logger, handle, err.Code, err.Message);
+                // PeakCanChannel ctor allocates a CancellationTokenSource
+                // (used by the read loop). On a failed Connect the channel
+                // never acquires the hardware, so the safe teardown is to
+                // dispose it now rather than wait for GC.
+                await channel.DisposeAsync().ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ConnectionState = "Disconnected";
+            StatusMessage = $"Connect exception: {ex.GetType().Name}";
+            LogConnectThrew(_logger, handle, ex);
+            // M1 fix: dispose the channel if RegisterChannel or any
+            // subsequent step threw after ConnectAsync succeeded. Without
+            // this, the channel (and its CTS + read-loop task) leaks until
+            // the next GC cycle.
+            await channel.DisposeAsync().ConfigureAwait(true);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDisconnect))]
+    private async Task DisconnectAsync()
+    {
+        if (!IsConnected || _activeChannel is null) return;
+        StatusMessage = $"Disconnecting from {SelectedBaudRate.Name}";
+        ConnectionState = "Disconnecting...";
+        try
+        {
+            await _activeChannel.DisconnectAsync().ConfigureAwait(true);
+            _router.UnregisterChannel(_activeChannel);
+            _sendService.ActiveChannel = null;
+            IsConnected = false;
+            ConnectionState = "Disconnected";
+            StatusMessage = "Disconnected";
+            LogDisconnectOk(_logger, PcanUsbFdFirstHandle);
+        }
+        catch (Exception ex)
+        {
+            // DisconnectAsync swallows hardware failures per its own contract;
+            // any exception here is therefore unexpected. Surface it as a
+            // status message so the operator is not stuck in "Disconnecting".
+            // Reset every piece of state the success path resets: leaving
+            // IsConnected=true keeps the Disconnect button enabled against a
+            // dead channel; leaving the channel on the router keeps frames
+            // being routed to it; leaving SendService.ActiveChannel set
+            // targets the next manual send at a dead channel. Order matches
+            // the success path (UnregisterChannel → ActiveChannel=null →
+            // IsConnected=false) so the two paths produce identical state
+            // transitions from an observer's point of view.
+            _router.UnregisterChannel(_activeChannel);
+            _sendService.ActiveChannel = null;
+            IsConnected = false;
+            ConnectionState = "Disconnected";
+            StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
+            LogDisconnectThrew(_logger, PcanUsbFdFirstHandle, ex);
+        }
+        finally
+        {
+            _activeChannel = null;
+        }
+    }
+
+    private bool CanDisconnect() => IsConnected;
+
+    // LoggerMessage source-generated helpers silence CA1848 (use LoggerMessage
+    // source generators) and CA1873 (avoid expensive arg computation in
+    // disabled loggers). The methods are deliberately not called from hot
+    // paths; their only call site is the VM commands.
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Open DBC menu invoked")]
+    private static partial void LogOpenDbcInvoked(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Probe OK on handle 0x{Handle:X2}")]
+    private static partial void LogProbeOk(ILogger logger, ushort handle);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Probe threw on handle 0x{Handle:X2}")]
+    private static partial void LogProbeThrew(ILogger logger, ushort handle, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Connect OK on handle 0x{Handle:X2}")]
+    private static partial void LogConnectOk(ILogger logger, ushort handle);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Connect failed on handle 0x{Handle:X2}: {Code} {Message}")]
+    private static partial void LogConnectFailed(ILogger logger, ushort handle, ErrorCode code, string message);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Connect threw on handle 0x{Handle:X2}")]
+    private static partial void LogConnectThrew(ILogger logger, ushort handle, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Disconnect OK on handle 0x{Handle:X2}")]
+    private static partial void LogDisconnectOk(ILogger logger, ushort handle);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Disconnect threw on handle 0x{Handle:X2}")]
+    private static partial void LogDisconnectThrew(ILogger logger, ushort handle, Exception ex);
+}

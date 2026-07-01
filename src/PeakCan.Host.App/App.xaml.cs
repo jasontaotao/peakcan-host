@@ -1,0 +1,195 @@
+using System.Windows;
+using System.Windows.Threading;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using PeakCan.Host.App.Composition;
+using PeakCan.Host.App.ViewModels;
+using Serilog;
+
+namespace PeakCan.Host.App;
+
+/// <summary>
+/// WPF application bootstrap. Builds the DI host in <see cref="OnStartup"/>,
+/// stores the <see cref="IServiceProvider"/> on a static for ad-hoc resolution,
+/// installs global exception handlers, and shows the <see cref="AppShell"/>
+/// window with the <see cref="AppShellViewModel"/> resolved from DI.
+/// <para>
+/// We intentionally do <i>not</i> set <c>StartupUri</c> in <c>App.xaml</c>:
+/// the shell's <c>DataContext</c> must come from the DI container so that
+/// its constructor (ChannelRouter, ILogger, …) is invoked.
+/// </para>
+/// <para>
+/// <b>Global exception handling:</b> every unhandled exception from the
+/// .NET threadpool (<c>AppDomain.CurrentDomain.UnhandledException</c>),
+/// the WPF dispatcher (<c>DispatcherUnhandledException</c>), and
+/// unobserved task failures (<c>TaskScheduler.UnobservedTaskException</c>)
+/// is logged at error / critical level through Serilog. The dispatcher
+/// exception is intentionally <i>not</i> marked handled — a UI exception
+/// has already corrupted the dispatcher loop, so a controlled crash with
+/// a log line is safer than continuing in an undefined state.
+/// </para>
+/// <para>
+/// <b>Host lifecycle:</b> the <see cref="IHost"/> is stored as
+/// <see cref="_host"/> and disposed in <see cref="OnExit"/>. The previous
+/// implementation leaked the host (local variable in OnStartup) so
+/// hosted services like <c>SinkWiringService</c> never had
+/// <c>StopAsync</c> called on application exit.
+/// </para>
+/// </summary>
+public partial class App : Application
+{
+    /// <summary>
+    /// Process-wide DI service provider, set during <see cref="OnStartup"/>.
+    /// Exposed for view-model code that needs ad-hoc resolution (rare —
+    /// prefer constructor injection). Never null after startup.
+    /// </summary>
+    public static IServiceProvider Services { get; private set; } = null!;
+
+    /// <summary>
+    /// The composition root <see cref="IHost"/>. Stored so <see cref="OnExit"/>
+    /// can call <c>StopAsync</c> + <c>Dispose</c> to gracefully shut down
+    /// hosted services. Was previously a local variable in OnStartup,
+    /// which meant the host (and every BackgroundService inside it) was
+    /// never disposed on application exit.
+    /// </summary>
+    private IHost? _host;
+
+    protected override async void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+        // v1.2.9: register the legacy code-page encoding provider
+        // (GBK/CP936, CP932, CP949, etc.) before any DBC load
+        // attempt. .NET Core / .NET 5+ only ships UTF-8/16/32 by
+        // default; the DbcService.ReadDbcTextAsync helper falls
+        // back to the system OEM code page on UTF-8 decode
+        // failure, which throws NotSupportedException if the
+        // provider isn't registered. Registration is idempotent
+        // and process-global; safe to call here before DI
+        // container construction.
+        System.Text.Encoding.RegisterProvider(
+            System.Text.CodePagesEncodingProvider.Instance);
+        // Install the global handlers BEFORE we touch the DI host, so
+        // any failure during host construction is captured. The static
+        // method is also exposed for test verification of the
+        // subscription side-effect. The dispatcher handler is an
+        // instance event on Application, so it is registered here
+        // (not in the static helper).
+        InstallStaticGlobalExceptionHandlers();
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        _host = new AppHostBuilder().Build();
+        // v1.2.12: OnStartup is now async void so we can await
+        // IHost.StartAsync without blocking the WPF STA thread. The
+        // previous sync-over-async (GetAwaiter().GetResult()) was a
+        // latent STA deadlock: any future hosted service that captures
+        // the WPF Dispatcher SynchronizationContext in StartAsync
+        // would have posted back to the UI thread we were blocking.
+        // ConfigureAwait(false) ensures the continuation (including
+        // _shell.Show()) runs on the threadpool, not back on STA.
+        // BackgroundService.StartAsync itself awaits ExecuteAsync on
+        // the threadpool without capturing the WPF SynchronizationContext,
+        // so the STA UI thread is never posted back to during StartAsync.
+        try
+        {
+            await _host.StartAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Failure path: the previous implementation rethrew, which
+            // crashed the process inside OnStartup with no chance to log
+            // through the WPF dispatcher. We now log via Serilog and
+            // call Shutdown(1) so the application exits cleanly with a
+            // non-zero exit code and the failure is visible in the log.
+            Log.Logger.Fatal(ex, "IHost.StartAsync threw during OnStartup");
+            Shutdown(1);
+            return;
+        }
+        Services = _host.Services;
+        // _shell.Show() runs on the threadpool after the await, so we
+        // must Dispatcher.Invoke Show to guarantee the window is created
+        // on the WPF STA thread. Without this, Show() would throw on
+        // .NET 10: "The calling thread must be STA".
+        var shell = new AppShell
+        {
+            DataContext = Services.GetRequiredService<AppShellViewModel>(),
+        };
+        Dispatcher.Invoke(() => shell.Show());
+    }
+
+    protected override async void OnExit(ExitEventArgs e)
+    {
+        // Graceful shutdown: stop the IHost first so hosted services
+        // (SinkWiringService, DbcDecodeBackgroundService) dispose
+        // cleanly, then dispose the host to release the service
+        // provider. v1.2.12: OnExit is now async void (matching
+        // OnStartup) so we can await StopAsync without blocking the
+        // WPF STA thread. ConfigureAwait(false) keeps the continuation
+        // off the dispatcher. Cap the wait at 10s so a mid-decode
+        // 64-byte FD frame or a long ChannelRouter sink teardown has
+        // time to finish; the OS reaps the process if shutdown still
+        // hangs. OnExit is the only call site where we tolerate
+        // exceptions during teardown — the process is exiting anyway.
+        if (_host is not null)
+        {
+            try
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(ex, "IHost.StopAsync threw during OnExit");
+            }
+            finally
+            {
+                _host.Dispose();
+                _host = null;
+                Services = null!;
+            }
+        }
+        base.OnExit(e);
+    }
+
+    /// <summary>
+    /// Wire up the static global exception handlers (AppDomain +
+    /// TaskScheduler). The dispatcher handler is registered in
+    /// <see cref="OnStartup"/> because it is an instance event.
+    /// Public for test seam — production callers should let
+    /// <see cref="OnStartup"/> invoke it. Idempotent (uses a static
+    /// guard) so a unit test can re-invoke without doubling the
+    /// subscription.
+    /// </summary>
+    internal static void InstallStaticGlobalExceptionHandlers()
+    {
+        if (_handlersInstalled) return;
+        _handlersInstalled = true;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+    private static bool _handlersInstalled;
+
+    private static void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        var ex = e.ExceptionObject as Exception;
+        Log.Logger.Error(ex,
+            "AppDomain.CurrentDomain.UnhandledException (terminating={Terminating})",
+            e.IsTerminating);
+    }
+
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        Log.Logger.Error(e.Exception,
+            "DispatcherUnhandledException on thread {Thread}",
+            System.Threading.Thread.CurrentThread.Name ?? "<unnamed>");
+        // Do not mark Handled: the dispatcher loop is already in an
+        // undefined state. Let WPF terminate the process — the log
+        // gives us the diagnostic info the user previously had no
+        // way to obtain.
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Logger.Error(e.Exception, "UnobservedTaskException");
+        // Mark observed so the process does not crash; the log line
+        // is the diagnostic surface.
+        e.SetObserved();
+    }
+}

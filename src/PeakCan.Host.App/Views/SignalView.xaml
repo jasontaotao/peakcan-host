@@ -1,0 +1,133 @@
+<UserControl x:Class="PeakCan.Host.App.Views.SignalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:oxy="http://oxyplot.org/wpf"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             d:DataContext="{d:DesignInstance Type=vm:SignalViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisConverter" />
+    </UserControl.Resources>
+    <DockPanel>
+        <!-- Chart toolbar (visible when chart VM is available) -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,0"
+                    Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}">
+            <Button Content="Plot All" Command="{Binding PlotAllCommand}"
+                    Padding="8,2" Margin="0,0,4,0" />
+            <Button Content="Plot None" Command="{Binding PlotNoneCommand}"
+                    Padding="8,2" Margin="0,0,16,0" />
+            <Button Content="Export CSV" Command="{Binding ExportChartCsvCommand}"
+                    Padding="8,2" Margin="0,0,8,0" />
+            <TextBlock Text="Charted: " FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding ChartStatistics.Count}" VerticalAlignment="Center" Margin="0,0,16,0" />
+        </StackPanel>
+
+        <!-- Signal search bar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding FilteredSignals.Count}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text=" shown" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="120" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" MinHeight="150" />
+            </Grid.RowDefinitions>
+
+            <!-- Signal DataGrid with checkbox column for chart selection -->
+            <DataGrid Grid.Row="0"
+                      ItemsSource="{Binding FilteredSignals}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
+                      RowHeight="20"
+                      AlternatingRowBackground="#F8F8F8"
+                      CellEditEnding="OnCellEditEnding">
+                <DataGrid.Columns>
+                    <!-- v1.2.7: was DataGridCheckBoxColumn, but
+                         WPF's edit lifecycle (CellEditEnding) is
+                         unreliable for DataGridCheckBoxColumn
+                         under DataGrid IsReadOnly=True + column
+                         IsReadOnly=False — clicks did not raise
+                         CellEditEnding on the .NET 10 / OxyPlot
+                         2.2.0 build, so the chart VM AddSignal
+                         was never called from the checkbox path
+                         (Plot All button worked because it
+                         bypasses the DataGrid entirely).
+                         Switched to DataGridTemplateColumn +
+                         explicit CheckBox + Click handler: the
+                         Click event fires reliably regardless of
+                         DataGrid edit-mode state. -->
+                    <DataGridTemplateColumn Header="Plot" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Click="OnPlotCheckboxClick"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
+                    <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
+                    <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
+                    <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
+                    <DataGridTextColumn Header="Value"     Binding="{Binding ValueTableName}" Width="120" />
+                    <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- GridSplitter between table and chart -->
+            <GridSplitter Grid.Row="1" Height="5"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          Background="#CCCCCC"
+                          Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
+
+            <!-- OxyPlot signal chart (hidden when no chart VM) -->
+            <oxy:PlotView Grid.Row="2"
+                          Model="{Binding ChartModel}"
+                          Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
+        </Grid>
+
+        <!-- Signal statistics panel (bottom) -->
+        <ItemsControl DockPanel.Dock="Bottom"
+                      ItemsSource="{Binding ChartStatistics}"
+                      Margin="4,4,4,0"
+                      Visibility="{Binding HasChartedSignals, Converter={StaticResource BoolToVisConverter}}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3"
+                            Padding="6,3" Margin="0,0,6,4" Background="#F8F8F8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                            <TextBlock Text="  min=" />
+                            <TextBlock Text="{Binding Min, StringFormat=F1}" />
+                            <TextBlock Text="  max=" />
+                            <TextBlock Text="{Binding Max, StringFormat=F1}" />
+                            <TextBlock Text="  avg=" />
+                            <TextBlock Text="{Binding Average, StringFormat=F1}" />
+                            <TextBlock Text="  n=" />
+                            <TextBlock Text="{Binding SampleCount}" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </DockPanel>
+</UserControl>

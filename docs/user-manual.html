@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PeakCan Host 用户使用手册 (v1.2.5)</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #d0d7de;
+    --accent: #1f77b4;
+    --accent2: #d62728;
+    --muted: #6e7781;
+    --code-bg: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #bf8700;
+    --err: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: #1f2328; font-family: "Microsoft YaHei", "PingFang SC", -apple-system, Segoe UI, sans-serif; line-height: 1.65; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 28px 80px; }
+  header.cover { background: linear-gradient(135deg, #0b3d91 0%, #1f77b4 100%); color: #fff; padding: 40px 32px; border-radius: 12px; margin-bottom: 32px; }
+  header.cover h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0.5px; }
+  header.cover .sub { opacity: 0.92; font-size: 15px; }
+  header.cover .meta { margin-top: 16px; font-size: 13px; opacity: 0.85; }
+  header.cover .meta span { margin-right: 18px; }
+  nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 26px; margin-bottom: 32px; }
+  nav.toc h2 { margin: 0 0 12px; font-size: 17px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  nav.toc ol { columns: 2; column-gap: 36px; padding-left: 20px; margin: 0; }
+  nav.toc li { margin: 4px 0; break-inside: avoid; }
+  nav.toc a { color: #1f2328; text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+  h2 { font-size: 23px; margin-top: 44px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); color: #0b3d91; }
+  h3 { font-size: 18px; margin-top: 26px; margin-bottom: 10px; color: #0b3d91; }
+  h4 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; color: #444; }
+  p, li { font-size: 14.5px; }
+  code, pre { font-family: "Cascadia Code", "Consolas", "JetBrains Mono", monospace; font-size: 13px; }
+  code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: #cf222e; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+  pre code { background: transparent; border: 0; padding: 0; color: #1f2328; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 14px; background: var(--panel); }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #eef2f7; font-weight: 600; color: #0b3d91; }
+  blockquote { border-left: 4px solid var(--accent); background: #eef4fa; margin: 12px 0; padding: 10px 16px; color: #1f2328; border-radius: 0 6px 6px 0; }
+  blockquote.warn { border-left-color: var(--warn); background: #fff8e1; }
+  blockquote.err { border-left-color: var(--err); background: #fdecea; }
+  .figure { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin: 18px 0; }
+  .figure .caption { margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; }
+  .figure svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { nav.toc ol { columns: 1; } .two-col { grid-template-columns: 1fr; } }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+  .badge.ok { background: #dafbe1; color: var(--ok); border: 1px solid #1a7f3733; }
+  .badge.warn { background: #fff8c5; color: #7d4e00; border: 1px solid #d4a72c33; }
+  .badge.info { background: #ddf4ff; color: #0550ae; border: 1px solid #54aeff33; }
+  footer { margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); text-align: center; }
+  .kbd { display: inline-block; padding: 1px 6px; border: 1px solid #c8c8c8; border-bottom-width: 2px; border-radius: 4px; font-family: Consolas, monospace; font-size: 12px; background: #f5f5f5; color: #333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <h1>PeakCan Host — 用户使用手册</h1>
+  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机</div>
+  <div class="meta">
+    <span>版本：<strong>v1.2.5</strong></span>
+    <span>框架：WPF · .NET 10</span>
+    <span>平台：Windows 10 1809+ / Windows 11</span>
+    <span>更新日期：2026-06-26</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#intro">产品简介</a></li>
+    <li><a href="#install">安装与前置条件</a></li>
+    <li><a href="#quickstart">快速开始（5 分钟跑通）</a></li>
+    <li><a href="#shell">主窗口总览</a></li>
+    <li><a href="#trace">Trace（实时帧追踪）</a></li>
+    <li><a href="#dbc">DBC（DBC 文件载入）</a></li>
+    <li><a href="#signal">Signals（信号解码视图）</a></li>
+    <li><a href="#send">Send（手动发送帧）</a></li>
+    <li><a href="#stats">Stats（总线统计）</a></li>
+    <li><a href="#script">Script（脚本自动化）</a></li>
+    <li><a href="#uds">UDS（UDS 诊断栈）</a></li>
+    <li><a href="#dbc-scope">DBC 解析器支持范围</a></li>
+    <li><a href="#logs">日志与故障排查</a></li>
+    <li><a href="#faq">FAQ &amp; 已知限制</a></li>
+    <li><a href="#appendix">附录 A — 架构与关键决策</a></li>
+  </ol>
+</nav>
+
+<!-- =========================================================== -->
+<h2 id="intro">1. 产品简介</h2>
+<!-- =========================================================== -->
+
+<p><strong>PeakCan Host</strong> 是一款运行在 Windows 上的 WPF 桌面应用，用于对接
+<strong>PEAK PCAN-USB FD</strong>（或 Pro FD）CAN/CAN-FD 硬件，提供通用的
+CAN 总线监控、解码、手动发送与总线负载统计能力。</p>
+
+<h3>核心能力</h3>
+<table>
+  <tr><th>能力</th><th>说明</th></tr>
+  <tr><td>多通道探测 &amp; 连接</td><td>枚举 PCAN-USB 1–16 通道，用户可选择任意通道连接</td></tr>
+  <tr><td>Trace 视图</td><td>虚拟化 DataGrid 滚动展示所有接收到的帧（时间戳 / 通道 / ID / DLC / 十六进制数据 / 解析结果），支持 ID 前缀过滤</td></tr>
+  <tr><td>DBC 解码</td><td>解析 <code>.dbc</code> 文件并填充消息表（发送方 / DLC / 信号列表），支持多路复用信号解码</td></tr>
+  <tr><td>Signals 视图</td><td>对收到帧按 DBC 解码信号，实时显示原始值、物理值、Value-Table 解码名称</td></tr>
+  <tr><td>手动发送</td><td>输入 CAN ID + 十六进制数据发送；支持 CAN-FD 与 11/29-bit 切换；支持周期性发送</td></tr>
+  <tr><td>帧录制</td><td>将接收到的帧录制到 ASC（Vector ASCII）或 CSV 文件</td></tr>
+  <tr><td>Stats 视图</td><td>1 Hz OxyPlot 折线图，显示每秒帧数与总线负载百分比，含总帧 / 错误帧计数</td></tr>
+  <tr><td><strong>Script 视图</strong> <span class="badge info">v1.2.0</span></td><td>CodeMirror 6 脚本引擎 + Roslyn 沙箱，可在 UI 内编写/运行 C# 脚本自动化测试场景</td></tr>
+  <tr><td><strong>UDS 诊断栈</strong> <span class="badge info">v1.2.0</span></td><td>4 面板 UDS 诊断 UI（Session / DID / Routine / DTC），含 DataGrid 绑定的 JSON 配置 DID/Routine 库与共享彩色 OutputLog</td></tr>
+  <tr><td>滚动日志</td><td>Serilog 按天滚动写入 <code>%LocalAppData%\PeakCan.Host\logs\</code>，保留 14 天</td></tr>
+</table>
+
+<!-- =========================================================== -->
+<h2 id="install">2. 安装与前置条件</h2>
+<!-- =========================================================== -->
+
+<h3>2.1 运行已发布的 EXE（推荐）</h3>
+<p>无需任何额外依赖：</p>
+<ul>
+  <li>操作系统：<strong>Windows 10 (1809 及以上)</strong> 或 <strong>Windows 11</strong></li>
+  <li>PEAK PCAN 驱动（<a href="https://www.peak-system.com/PCAN-USB-FD.366.0.html" target="_blank">官方下载页</a>）</li>
+  <li>PCAN-USB FD（或 Pro FD）硬件一台</li>
+</ul>
+<p>下载 <code>PeakCan.Host.exe</code>（约 66 MB，包含 .NET 10 运行时）后双击即可启动。</p>
+
+<h3>2.2 从源码运行 / 编译</h3>
+<ul>
+  <li><strong>.NET 10 SDK</strong>（<a href="https://dotnet.microsoft.com/download/dotnet/10.0" target="_blank">官方下载</a>）</li>
+  <li>同上：Windows 10/11 + PEAK 驱动 + PCAN-USB FD 硬件</li>
+</ul>
+<p>克隆源码后：</p>
+<pre><code>dotnet build PeakCan.Host.slnx -c Release
+dotnet run --project src/PeakCan.Host.App</code></pre>
+
+<h3>2.3 生成自包含单文件 EXE</h3>
+<pre><code>dotnet publish src/PeakCan.Host.App -c Release -r win-x64 \
+    --self-contained true \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:EnableCompressionInSingleFile=true \
+    -o artifacts/win-x64/
+
+artifacts/win-x64/PeakCan.Host.exe</code></pre>
+
+<!-- =========================================================== -->
+<h2 id="quickstart">3. 快速开始（5 分钟跑通）</h2>
+<!-- =========================================================== -->
+
+<ol>
+  <li><strong>插上 PCAN-USB FD</strong>，确认 PEAK 驱动已正确安装（设备管理器可见"PEAK-System PCAN-USB FD"）。</li>
+  <li><strong>启动 PeakCan.Host.exe</strong>，主窗口默认打开 <strong>Trace</strong> 标签页。</li>
+  <li>点击工具栏上的 <strong>Probe</strong> 按钮 → 状态栏应显示
+      <code>"Detected N channel(s)"</code>，通道下拉列表显示检测到的通道。</li>
+  <li>从通道下拉列表选择要连接的通道，点击 <strong>Connect</strong> → 状态变为 <code>"Connected"</code>。</li>
+  <li>（可选）菜单 <strong>File ▸ Open DBC...</strong> 选择 <code>.dbc</code> 文件 →
+      <strong>Signals</strong> 标签页将随帧到达实时显示解码结果。</li>
+  <li>切到 <strong>Stats</strong> 标签页，可观察 1 Hz 折线图。</li>
+  <li>切到 <strong>Send</strong> 标签页，输入 ID 与数据，点击 <strong>Send</strong> 发送一帧。</li>
+</ol>
+
+<blockquote>
+<strong>没插硬件时 Probe 会怎样？</strong>通道列表显示
+<code>"No PEAK hardware detected: ..."</code>，<strong>Connect</strong> 按钮自动禁用。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="shell">4. 主窗口总览</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 470" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <!-- window frame -->
+  <rect x="2" y="2" width="1076" height="466" rx="6" fill="#f4f4f4" stroke="#888" stroke-width="1"/>
+  <rect x="2" y="2" width="1076" height="28" rx="6" fill="#e8e8e8" stroke="#888"/>
+  <text x="14" y="20" fill="#222" font-weight="600">PeakCan Host</text>
+  <circle cx="1054" cy="16" r="5" fill="#ff5f56"/>
+  <circle cx="1040" cy="16" r="5" fill="#ffbd2e"/>
+  <circle cx="1026" cy="16" r="5" fill="#27c93f"/>
+  <!-- menu -->
+  <rect x="10" y="34" width="1060" height="26" fill="#ffffff" stroke="#cccccc"/>
+  <text x="22" y="52" fill="#222" font-weight="600">File</text>
+  <text x="60" y="52" fill="#222" font-weight="600">View</text>
+  <!-- File sub-menu -->
+  <rect x="10" y="60" width="120" height="60" fill="#ffffff" stroke="#bbbbbb"/>
+  <text x="22" y="78" fill="#222">Open DBC...</text>
+  <line x1="14" y1="86" x2="126" y2="86" stroke="#dddddd"/>
+  <text x="22" y="104" fill="#222">Exit</text>
+
+  <!-- View sub-menu (7 items) -->
+  <rect x="60" y="60" width="92" height="160" fill="#ffffff" stroke="#bbbbbb"/>
+  <text x="72" y="78" fill="#222">Trace</text>
+  <text x="72" y="98" fill="#222">DBC</text>
+  <text x="72" y="118" fill="#222">Send</text>
+  <text x="72" y="138" fill="#222">Signals</text>
+  <text x="72" y="158" fill="#222">Stats</text>
+  <text x="72" y="178" fill="#222">Script</text>
+  <text x="72" y="198" fill="#222">UDS</text>
+  <!-- toolbar (v1.1+ with channel selector, baud rate, CAN FD) -->
+  <rect x="10" y="226" width="1060" height="34" fill="#fafafa" stroke="#cccccc"/>
+  <text x="22" y="248" fill="#444">USB1 (1 Mbps)</text>
+  <line x1="120" y1="232" x2="120" y2="254" stroke="#cccccc"/>
+  <rect x="128" y="234" width="56" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="142" y="249" fill="#222">Probe</text>
+  <rect x="192" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="200" y="249" fill="#666">▾ USB1, FD</text>
+  <line x1="320" y1="232" x2="320" y2="254" stroke="#cccccc"/>
+  <rect x="328" y="237" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <path d="M331 246 L335 250 L344 240" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <text x="350" y="249" fill="#222">CAN FD</text>
+  <rect x="410" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="418" y="249" fill="#666">▾ 1 Mbps</text>
+  <line x1="538" y1="232" x2="538" y2="254" stroke="#cccccc"/>
+  <rect x="546" y="234" width="68" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="560" y="249" fill="#222">Connect</text>
+  <rect x="622" y="234" width="84" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="634" y="249" fill="#222">Disconnect</text>
+  <line x1="714" y1="232" x2="714" y2="254" stroke="#cccccc"/>
+  <text x="722" y="248" fill="#444">Connected to USB1 (CAN FD 1 Mbps)</text>
+  <!-- main content area placeholder -->
+  <rect x="10" y="264" width="1060" height="158" fill="#ffffff" stroke="#cccccc"/>
+  <text x="22" y="284" fill="#888" font-style="italic">主内容区（ContentControl，根据 View 菜单切换 Trace / DBC / Send / Signals / Stats / Script / UDS）</text>
+  <!-- status bar -->
+  <rect x="10" y="426" width="1060" height="34" fill="#f0f0f0" stroke="#cccccc"/>
+  <text x="22" y="448" fill="#222">Connected</text>
+  <!-- callouts -->
+  <line x1="120" y1="52" x2="180" y2="20" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="190" y="20" fill="#1f77b4" font-size="12">① File 菜单</text>
+  <line x1="100" y1="52" x2="180" y2="50" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="280" y="50" fill="#1f77b4" font-size="12">② View 菜单（7 个标签）</text>
+  <line x1="156" y1="248" x2="220" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="230" y="195" fill="#1f77b4" font-size="12">③ Probe + 通道下拉</text>
+  <line x1="350" y1="248" x2="430" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="440" y="195" fill="#1f77b4" font-size="12">④ CAN FD + 波特率</text>
+  <line x1="580" y1="248" x2="650" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="660" y="195" fill="#1f77b4" font-size="12">⑤ Connect / Disconnect</text>
+  <line x1="780" y1="248" x2="860" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="870" y="195" fill="#1f77b4" font-size="12">⑥ 连接状态</text>
+  <line x1="540" y1="448" x2="640" y2="380" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="650" y="375" fill="#1f77b4" font-size="12">⑦ 状态栏（Serilog 日志同步）</text>
+</svg>
+<div class="caption">图 1 — 主窗口布局（菜单、工具栏、状态栏）。View 菜单在 7 个视图间切换。</div>
+</div>
+
+<h3>4.1 工具栏说明</h3>
+<table>
+  <tr><th>控件</th><th>行为</th></tr>
+  <tr><td>通道列表（左侧文本）</td><td>显示最近一次 Probe 的结果。初始为 <code>"(click Probe to detect)"</code>；成功时显示通道名（如 <code>"USB1 (1 Mbps)"</code>）；失败时变为 <code>"No PEAK hardware detected: ..."</code>。</td></tr>
+  <tr><td><strong>Probe</strong> 按钮</td><td>检测 PCAN-USB FD 1–16 通道是否在线。仅在未连接时可用（<code>!IsConnected</code>）。v1.1 起支持多通道探测。</td></tr>
+  <tr><td><strong>通道下拉</strong> <span class="badge info">v1.1</span></td><td>Probe 成功后填充所有检测到的通道（<code>DisplayMemberPath="Name"</code>），可选择任意通道连接。仅在未连接时可用。</td></tr>
+  <tr><td><strong>CAN FD</strong> 复选框</td><td>勾选 = 设置 FDF 标志位（CAN-FD，DLC 可达 64）；不勾 = 经典 CAN（DLC 0-8）。仅在未连接时可用。</td></tr>
+  <tr><td><strong>波特率下拉</strong> <span class="badge info">v1.1</span></td><td>选择通道比特率（1 Mbps / 500 kbps / 250 kbps / 125 kbps / 100 kbps / 50 kbps 等），列表由 <code>AvailableBaudRates</code> 提供。仅在未连接时可用。</td></tr>
+  <tr><td><strong>Connect</strong> 按钮</td><td>以选定通道 + CAN-FD/CAN 模式 + 波特率打开。仅在 Probe 成功且未连接时可用。</td></tr>
+  <tr><td><strong>Disconnect</strong> 按钮 <span class="badge info">v0.2.0</span></td><td>释放硬件（<code>PCANBasic.Uninitialize</code>），从 <code>ChannelRouter</code> 注销通道，清空 <code>SendService.ActiveChannel</code>。仅在已连接时可用。幂等（重复点击为 no-op）。</td></tr>
+  <tr><td>连接状态文本</td><td>实时显示 <code>"Disconnected"</code> / <code>"Connecting..."</code> / <code>"Connected to USB1 (CAN FD 1 Mbps)"</code> / <code>"Disconnecting..."</code>（断开过程中）。</td></tr>
+</table>
+
+<h3>4.2 状态栏说明</h3>
+<p>底部状态栏显示当前操作的简短反馈（如 <code>"Connected"</code>、<code>"FAIL: ..."</code>）。
+完整的诊断信息写入 Serilog 滚动文件，详见 <a href="#logs">第 12 节</a>。</p>
+
+<h3>4.3 View 菜单</h3>
+<p>7 个标签对应 7 个视图（Trace / DBC / Send / Signals / Stats / Script / UDS，详见后续章节）。视图实例被<strong>缓存</strong>——重复切换不会丢失滚动位置或选中行。</p>
+
+<!-- =========================================================== -->
+<h2 id="trace">5. Trace（实时帧追踪）</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 360" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="356" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">Trace View — DataGrid（虚拟化）</text>
+  <!-- header row -->
+  <rect x="10" y="30" width="1060" height="26" fill="#e8eef4" stroke="#aaa"/>
+  <text x="22" y="48" fill="#222" font-weight="600">Time</text>
+  <line x1="130" y1="30" x2="130" y2="56" stroke="#bbb"/>
+  <text x="148" y="48" fill="#222" font-weight="600">Ch</text>
+  <line x1="190" y1="30" x2="190" y2="56" stroke="#bbb"/>
+  <text x="208" y="48" fill="#222" font-weight="600">ID</text>
+  <line x1="310" y1="30" x2="310" y2="56" stroke="#bbb"/>
+  <text x="328" y="48" fill="#222" font-weight="600">DLC</text>
+  <line x1="360" y1="30" x2="360" y2="56" stroke="#bbb"/>
+  <text x="378" y="48" fill="#222" font-weight="600">Data</text>
+  <line x1="780" y1="30" x2="780" y2="56" stroke="#bbb"/>
+  <text x="800" y="48" fill="#222" font-weight="600">Decoded</text>
+  <!-- sample rows -->
+  <g font-family="Consolas, monospace" font-size="12">
+    <rect x="10" y="56" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="72" fill="#222">12:34:56.123456</text>
+    <text x="148" y="72" fill="#222">USB1</text>
+    <text x="208" y="72" fill="#222">0x100</text>
+    <text x="328" y="72" fill="#222">8</text>
+    <text x="378" y="72" fill="#222">DE AD BE EF 00 11 22 33</text>
+    <text x="800" y="72" fill="#222" font-family="Microsoft YaHei">Engine_RPM=2340</text>
+
+    <rect x="10" y="78" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="94" fill="#222">12:34:56.124512</text>
+    <text x="148" y="94" fill="#222">USB1</text>
+    <text x="208" y="94" fill="#222">0x101</text>
+    <text x="328" y="94" fill="#222">4</text>
+    <text x="378" y="94" fill="#222">12 34 56 78</text>
+    <text x="800" y="94" fill="#222" font-family="Microsoft YaHei">Vehicle_Speed=46.5</text>
+
+    <rect x="10" y="100" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="116" fill="#222">12:34:56.125844</text>
+    <text x="148" y="116" fill="#222">USB1</text>
+    <text x="208" y="116" fill="#222">0x18FEF100</text>
+    <text x="328" y="116" fill="#222">8</text>
+    <text x="378" y="116" fill="#222">FF FF FF FF FF FF FF FF</text>
+    <text x="800" y="116" fill="#222" font-family="Microsoft YaHei">—</text>
+
+    <rect x="10" y="122" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="138" fill="#222">12:34:56.126390</text>
+    <text x="148" y="138" fill="#222">USB1</text>
+    <text x="208" y="138" fill="#222">0x100</text>
+    <text x="328" y="138" fill="#222">8</text>
+    <text x="378" y="138" fill="#222">DE AD BE EF 00 11 22 33</text>
+    <text x="800" y="138" fill="#222" font-family="Microsoft YaHei">Engine_RPM=2340</text>
+
+    <rect x="10" y="144" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="160" fill="#222">12:34:56.127933</text>
+    <text x="148" y="160" fill="#222">USB1</text>
+    <text x="208" y="160" fill="#222">0x200</text>
+    <text x="328" y="160" fill="#222">2</text>
+    <text x="378" y="160" fill="#222">AA BB</text>
+    <text x="800" y="160" fill="#222" font-family="Microsoft YaHei">—</text>
+  </g>
+  <!-- scrollbar -->
+  <rect x="1050" y="56" width="14" height="200" fill="#e8e8e8" stroke="#bbb"/>
+  <rect x="1052" y="60" width="10" height="60" fill="#aaa"/>
+  <text x="1000" y="280" fill="#888" font-size="11">... 10000 行 FIFO 上限 ...</text>
+  <!-- annotation -->
+  <text x="540" y="320" fill="#1f77b4" font-size="12" text-anchor="middle">↑ 虚拟化 DataGrid：行高 20px，自动滚动，FIFO 10 000 行上限</text>
+</svg>
+<div class="caption">图 2 — Trace 视图（默认标签）。每行对应一帧接收事件。</div>
+</div>
+
+<h3>5.1 字段含义</h3>
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>Time</strong></td><td>帧接收时刻（本地时间，<code>HH:mm:ss.ffffff</code>）。</td></tr>
+  <tr><td><strong>Ch</strong></td><td>硬件通道名（如 <code>USB1</code> / <code>USB2</code> / <code>PCAN_PCIE_1</code>），由通道下拉的选择决定。</td></tr>
+  <tr><td><strong>ID</strong></td><td>CAN ID。Standard 11-bit 显示为 <code>0xNNN</code>（≤ 0x7FF）；Extended 29-bit 显示为 <code>0xNNNNNNNN</code>。</td></tr>
+  <tr><td><strong>DLC</strong></td><td>数据长度码（0-8 为经典 CAN；CAN-FD 可达 64）。</td></tr>
+  <tr><td><strong>Data</strong></td><td>十六进制字节序列（无分隔符）。</td></tr>
+  <tr><td><strong>Decoded</strong></td><td>若该帧 ID 命中已加载 DBC 中某条消息，且当前帧不是错误帧，则显示"信号名=物理值"的简短摘要；否则显示 <code>—</code>。</td></tr>
+</table>
+
+<h3>5.2 行为细节</h3>
+<ul>
+  <li><strong>行上限</strong>：<code>MaxRows = 10 000</code>。超出后从顶部 FIFO 丢弃最旧的帧。</li>
+  <li><strong>虚拟化</strong>：行/列均启用虚拟化（<code>Recycling</code>），10 k 行滚动无明显卡顿。</li>
+  <li><strong>性能</strong>：典型 1 Mbps 总线下帧率约 4 000 fps 时仍能稳定滚动；超过 8 000 fps 经典上限时可能略有延迟。</li>
+  <li><strong>错误帧</strong>：错误帧也会出现在列表（<code>IsError</code> 标志内部可见），但默认 <code>Decoded</code> 列对错误帧显示 <code>—</code>。</li>
+</ul>
+
+<blockquote>
+<strong>提示：</strong>使用滚轮或 Page Down 键快速跳到最新帧。DataGrid 选中行不会自动跟随——这避免了视觉跳动。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="dbc">6. DBC（DBC 文件载入）</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 320" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="316" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">DBC View</text>
+  <!-- toolbar -->
+  <rect x="10" y="30" width="1060" height="34" fill="#ffffff" stroke="#cccccc"/>
+  <rect x="20" y="38" width="100" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="36" y="53" fill="#222">Open DBC...</text>
+  <text x="134" y="53" fill="#1a7f37">Loaded 47 messages from engine_v3.dbc</text>
+  <!-- header row -->
+  <rect x="10" y="68" width="1060" height="26" fill="#e8eef4" stroke="#aaa"/>
+  <text x="22" y="86" fill="#222" font-weight="600">ID</text>
+  <line x1="130" y1="68" x2="130" y2="94" stroke="#bbb"/>
+  <text x="148" y="86" fill="#222" font-weight="600">Name</text>
+  <line x1="700" y1="68" x2="700" y2="94" stroke="#bbb"/>
+  <text x="718" y="86" fill="#222" font-weight="600">DLC</text>
+  <line x1="760" y1="68" x2="760" y2="94" stroke="#bbb"/>
+  <text x="778" y="86" fill="#222" font-weight="600">Sender</text>
+  <line x1="900" y1="68" x2="900" y2="94" stroke="#bbb"/>
+  <text x="918" y="86" fill="#222" font-weight="600">Signals</text>
+  <!-- sample rows -->
+  <g font-family="Consolas, monospace" font-size="12">
+    <rect x="10" y="94" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="110" fill="#222">0x100</text>
+    <text x="148" y="110" fill="#222" font-family="Microsoft YaHei">Engine_State</text>
+    <text x="718" y="110" fill="#222">8</text>
+    <text x="778" y="110" fill="#222" font-family="Microsoft YaHei">ECM</text>
+    <text x="918" y="110" fill="#222">4</text>
+
+    <rect x="10" y="116" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="132" fill="#222">0x101</text>
+    <text x="148" y="132" fill="#222" font-family="Microsoft YaHei">Vehicle_Speed</text>
+    <text x="718" y="132" fill="#222">4</text>
+    <text x="778" y="132" fill="#222" font-family="Microsoft YaHei">ESC</text>
+    <text x="918" y="132" fill="#222">2</text>
+
+    <rect x="10" y="138" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="154" fill="#222">0x200</text>
+    <text x="148" y="154" fill="#222" font-family="Microsoft YaHei">Body_Control</text>
+    <text x="718" y="154" fill="#222">2</text>
+    <text x="778" y="154" fill="#222" font-family="Microsoft YaHei">BCM</text>
+    <text x="918" y="154" fill="#222">6</text>
+
+    <rect x="10" y="160" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="176" fill="#222">0x18FEF100</text>
+    <text x="148" y="176" fill="#222" font-family="Microsoft YaHei">J1939_Primary</text>
+    <text x="718" y="176" fill="#222">8</text>
+    <text x="778" y="176" fill="#222" font-family="Microsoft YaHei">Gateway</text>
+    <text x="918" y="176" fill="#222">12</text>
+  </g>
+  <text x="14" y="290" fill="#888" font-size="11" font-style="italic">支持关键字：VERSION / NS_ / BS_ / BU_ / BO_ / SG_ / VAL_ / VAL_TABLE_ / CM_ / BA_DEF_ / BA_ / SIG_GROUP_ / EV_</text>
+</svg>
+<div class="caption">图 3 — DBC 视图（菜单 File ▸ Open DBC... 或本页 Open DBC... 按钮触发文件对话框）。</div>
+</div>
+
+<h3>6.1 操作流程</h3>
+<ol>
+  <li>点击 <strong>Open DBC...</strong> 按钮 → 弹出文件选择对话框（过滤器：<code>*.dbc</code>）。</li>
+  <li>选择文件后，解析在<strong>后台线程</strong>执行，状态文本显示 <code>"Parsing..."</code>。</li>
+  <li>解析成功后：
+    <ul>
+      <li>消息列表被清空并填充新内容（每个 <code>BO_</code> 一行）。</li>
+      <li>状态文本变为 <code>"Loaded N messages from &lt;filename&gt;"</code>。</li>
+      <li>Signals 视图的旧条目被自动清除（避免与新 DBC 不一致）。</li>
+    </ul>
+  </li>
+  <li>解析失败时，状态文本显示 <code>"FAIL: &lt;Code&gt; &lt;Message&gt;"</code>。</li>
+</ol>
+
+<h3>6.2 字段含义</h3>
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>ID</strong></td><td>消息的 CAN ID（来自 <code>BO_</code> 行）。</td></tr>
+  <tr><td><strong>Name</strong></td><td>消息名称。</td></tr>
+  <tr><td><strong>DLC</strong></td><td><code>BO_</code> 行声明的数据长度。</td></tr>
+  <tr><td><strong>Sender</strong></td><td>发送节点（来自 <code>BO_</code> 第二个 token）。</td></tr>
+  <tr><td><strong>Signals</strong></td><td>该消息下信号总数（不含多路复用/被多路复用信号之外的复用关系——即 DBC 中 <code>SG_</code> 行计数）。</td></tr>
+</table>
+
+<blockquote class="warn">
+<strong>注意：</strong>重复加载同一 DBC 文件是允许的；每次都会触发完整重解析并清空 Signals 视图。
+不支持热重载——如需重新加载需重新打开文件。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="signal">7. Signals（信号解码视图）</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 320" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="316" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">Signal View（DBC 解码后的最新物理值）</text>
+  <!-- header row -->
+  <rect x="10" y="30" width="1060" height="26" fill="#e8eef4" stroke="#aaa"/>
+  <text x="22" y="48" fill="#222" font-weight="600">Message</text>
+  <line x1="180" y1="30" x2="180" y2="56" stroke="#bbb"/>
+  <text x="198" y="48" fill="#222" font-weight="600">Signal</text>
+  <line x1="340" y1="30" x2="340" y2="56" stroke="#bbb"/>
+  <text x="358" y="48" fill="#222" font-weight="600">Raw</text>
+  <line x1="450" y1="30" x2="450" y2="56" stroke="#bbb"/>
+  <text x="468" y="48" fill="#222" font-weight="600">Physical</text>
+  <line x1="560" y1="30" x2="560" y2="56" stroke="#bbb"/>
+  <text x="578" y="48" fill="#222" font-weight="600">Unit</text>
+  <!-- rows -->
+  <g font-family="Consolas, monospace" font-size="12">
+    <rect x="10" y="56" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="72" fill="#222" font-family="Microsoft YaHei">Engine_State</text>
+    <text x="198" y="72" fill="#222" font-family="Microsoft YaHei">Engine_RPM</text>
+    <text x="358" y="72" fill="#222">0x924</text>
+    <text x="468" y="72" fill="#222">2340</text>
+    <text x="578" y="72" fill="#222" font-family="Microsoft YaHei">rpm</text>
+
+    <rect x="10" y="78" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="94" fill="#222" font-family="Microsoft YaHei">Engine_State</text>
+    <text x="198" y="94" fill="#222" font-family="Microsoft YaHei">Coolant_Temp</text>
+    <text x="358" y="94" fill="#222">0x5A</text>
+    <text x="468" y="94" fill="#222">90.0</text>
+    <text x="578" y="94" fill="#222" font-family="Microsoft YaHei">°C</text>
+
+    <rect x="10" y="100" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="116" fill="#222" font-family="Microsoft YaHei">Vehicle_Speed</text>
+    <text x="198" y="116" fill="#222" font-family="Microsoft YaHei">Speed</text>
+    <text x="358" y="116" fill="#222">0x5D</text>
+    <text x="468" y="116" fill="#222">46.5</text>
+    <text x="578" y="116" fill="#222" font-family="Microsoft YaHei">km/h</text>
+
+    <rect x="10" y="122" width="1060" height="22" fill="#f8f8f8"/>
+    <text x="22" y="138" fill="#222" font-family="Microsoft YaHei">Vehicle_Speed</text>
+    <text x="198" y="138" fill="#222" font-family="Microsoft YaHei">Odometer</text>
+    <text x="358" y="138" fill="#222">0x1E240</text>
+    <text x="468" y="138" fill="#222">123456</text>
+    <text x="578" y="138" fill="#222" font-family="Microsoft YaHei">km</text>
+
+    <rect x="10" y="144" width="1060" height="22" fill="#ffffff"/>
+    <text x="22" y="160" fill="#222" font-family="Microsoft YaHei">Body_Control</text>
+    <text x="198" y="160" fill="#222" font-family="Microsoft YaHei">Headlight_On</text>
+    <text x="358" y="160" fill="#222">0x1</text>
+    <text x="468" y="160" fill="#222">1</text>
+    <text x="578" y="160" fill="#222" font-family="Microsoft YaHei">—</text>
+  </g>
+  <text x="14" y="290" fill="#888" font-size="11" font-style="italic">Upsert 策略：按 (Message, Signal) 键匹配，新帧同键则原地替换，不引发 DataGrid 重排。</text>
+</svg>
+<div class="caption">图 4 — Signals 视图：每帧解码后按 (Message, Signal) upsert，保证滚动状态稳定。</div>
+</div>
+
+<h3>7.1 字段含义</h3>
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>Message</strong></td><td>所属消息名（来自 DBC <code>BO_</code>）。</td></tr>
+  <tr><td><strong>Signal</strong></td><td>信号名（来自 <code>SG_</code>）。</td></tr>
+  <tr><td><strong>Raw</strong></td><td>未应用 factor/offset 的整数值（<code>0xN</code> 格式）。</td></tr>
+  <tr><td><strong>Physical</strong></td><td>应用 factor/offset 后的物理值（最多 3 位小数）。</td></tr>
+  <tr><td><strong>Unit</strong></td><td>信号单位（来自 DBC <code>SG_</code> 的单位 token；若为空则显示 <code>—</code>）。</td></tr>
+</table>
+
+<h3>7.2 行为细节</h3>
+<ul>
+  <li><strong>前提</strong>：必须先在 DBC 视图加载一个 DBC 文件，否则 Signals 视图始终为空。</li>
+  <li><strong>解码规则</strong>：<code>physical = raw * factor + offset</code>。Intel/ Motorola 字节序、signed/unsigned、有符号数都按 DBC 规则解码。</li>
+  <li><strong>多路复用</strong>：<code>M</code> / <code>m</code> 多路复用信号在 v1.1.0 起完整解码；当前多路复用器值下激活的子信号会显示在 Signals 视图。</li>
+  <li><strong>更新频率</strong>：随帧到达实时更新；满负载下界面帧率受 WPF DataGrid 限制。</li>
+  <li><strong>跨线程</strong>：SDK 读线程触发解码，结果通过 WPF Dispatcher 投递到 UI 线程（你不会看到 <code>NotSupportedException</code>）。</li>
+</ul>
+
+<blockquote>
+<strong>为什么每行"原地更新"而不是追加？</strong>追加会让 DataGrid 反复创建/销毁行容器，引发滚动跳变与回收抖动。按 (Message, Signal) 原地替换既保留了最新值，又避免了视觉抖动。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="send">8. Send（手动发送帧）</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="716" height="276" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">Send View（手动发送一帧）</text>
+  <!-- row 1: ID + checkboxes -->
+  <text x="22" y="56" fill="#222">ID (hex):</text>
+  <rect x="100" y="40" width="100" height="26" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="110" y="58" fill="#222" font-family="Consolas, monospace">100</text>
+
+  <rect x="218" y="44" width="18" height="18" rx="2" fill="#ffffff" stroke="#999"/>
+  <text x="244" y="58" fill="#222">Extended</text>
+
+  <rect x="328" y="44" width="18" height="18" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <path d="M331 53 L335 57 L344 47" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <text x="354" y="58" fill="#222">CAN FD</text>
+  <!-- row 2: Data -->
+  <text x="22" y="104" fill="#222">Data (hex):</text>
+  <rect x="100" y="88" width="300" height="26" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="110" y="106" fill="#222" font-family="Consolas, monospace">DEADBEEF 00 11-22</text>
+  <!-- row 3: send + status -->
+  <rect x="22" y="138" width="80" height="28" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="50" y="157" fill="#222">Send</text>
+  <text x="118" y="157" fill="#1a7f37">Sent 8 bytes @ 0x100</text>
+
+  <!-- annotation -->
+  <line x1="200" y1="58" x2="280" y2="20" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="290" y="20" fill="#1f77b4" font-size="12">① 帧 ID（11/29 位）</text>
+
+  <line x1="280" y1="58" x2="380" y2="50" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="430" y="48" fill="#1f77b4" font-size="12">② Extended 切换：勾上后 ID 允许 0..0x1FFFFFFF</text>
+
+  <line x1="370" y1="58" x2="500" y2="80" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="540" y="84" fill="#1f77b4" font-size="12">③ CAN FD 切换：FDF 标志位</text>
+
+  <line x1="240" y1="114" x2="380" y2="160" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="430" y="170" fill="#1f77b4" font-size="12">④ 十六进制数据（支持空格 / 连字符 / 奇数长度自动补 0）</text>
+
+  <line x1="60" y1="160" x2="160" y2="220" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="180" y="232" fill="#1f77b4" font-size="12">⑤ 发送按钮</text>
+</svg>
+<div class="caption">图 5 — Send 视图。ID 与 Data 均接受空格 / 连字符 / 大小写不敏感。</div>
+</div>
+
+<h3>8.1 输入规则</h3>
+<table>
+  <tr><th>字段</th><th>规则</th></tr>
+  <tr><td><strong>ID (hex)</strong></td><td>十六进制；非 Extended 模式最大 <code>0x7FF</code>（11 位），Extended 模式最大 <code>0x1FFFFFFF</code>（29 位）。越界或非十六进制时 <strong>Send</strong> 仍可点，但状态行显示 <code>"Invalid ID: ..."</code>，<strong>不会</strong>真的发送到总线。</td></tr>
+  <tr><td><strong>Extended</strong></td><td>勾选 = 29-bit 帧格式；不勾 = 11-bit。</td></tr>
+  <tr><td><strong>CAN FD</strong></td><td>勾选 = 设置 FDF 标志位（DLC 可达 64）；不勾 = 经典 CAN（DLC 0-8）。</td></tr>
+  <tr><td><strong>Data (hex)</strong></td><td>十六进制字节序列；允许插入空格与连字符作分隔符（<code>"DE AD-BE EF"</code> 等价于 <code>"DEADBEEF"</code>）；奇数长度自动前补 <code>0</code>（<code>"ABC"</code> = <code>{0x0A, 0xBC}</code>）；空字符串或纯分隔符会被<strong>拒绝</strong>（显示 <code>"Invalid data: ..."</code>）。</td></tr>
+</table>
+
+<h3>8.2 操作流程</h3>
+<ol>
+  <li>确保状态栏显示 <code>"Connected"</code>——未连接时 <strong>Send</strong> 仍可点但发送会失败。</li>
+  <li>填写 ID 与 Data，必要时切换 Extended / CAN FD。</li>
+  <li>点击 <strong>Send</strong>。</li>
+  <li>状态行更新：
+    <ul>
+      <li>成功 → <code>"Sent N bytes @ 0x&lt;CanId&gt;"</code>（深绿）。</li>
+      <li>失败 → <code>"FAIL: &lt;Code&gt; &lt;Message&gt;"</code>（深红）。</li>
+    </ul>
+  </li>
+</ol>
+
+<blockquote class="warn">
+<strong>安全提示：</strong>手动发送会真实地发到 CAN 总线上。请确认已连接目标 ECU 的总线或具备终止电阻的总线段，避免对真实车辆/设备造成意外干扰。
+</blockquote>
+
+<h3>8.3 错误码示例</h3>
+<table>
+  <tr><th>场景</th><th>状态行输出</th></tr>
+  <tr><td>未连接就点 Send</td><td><code>FAIL: NotConnected ...</code></td></tr>
+  <tr><td>硬件错误（线缆断开等）</td><td><code>FAIL: BusOff ...</code> 或 <code>FAIL: DriverError ...</code></td></tr>
+  <tr><td>DLC 越界（经典 CAN DLC > 8）</td><td><code>FAIL: ParameterInvalid ...</code></td></tr>
+</table>
+
+<!-- =========================================================== -->
+<h2 id="stats">9. Stats（总线统计）</h2>
+<!-- =========================================================== -->
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 460" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="456" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">Stats View（1 Hz OxyPlot，60 样本滚动窗口）</text>
+  <!-- header line -->
+  <rect x="10" y="30" width="1060" height="34" fill="#ffffff" stroke="#cccccc"/>
+  <text x="22" y="52" fill="#222" font-weight="600">Total frames:</text>
+  <text x="118" y="52" fill="#222">128 432</text>
+  <text x="200" y="52" fill="#222" font-weight="600">Error frames:</text>
+  <text x="296" y="52" fill="#222">7</text>
+
+  <!-- chart area -->
+  <rect x="10" y="68" width="1060" height="370" fill="#ffffff" stroke="#cccccc"/>
+  <text x="540" y="92" fill="#222" text-anchor="middle" font-weight="600">Bus statistics (1 Hz, 60-sample rolling window)</text>
+
+  <!-- axes -->
+  <line x1="60" y1="120" x2="60" y2="400" stroke="#333"/>
+  <line x1="60" y1="400" x2="1040" y2="400" stroke="#333"/>
+  <!-- Y axis labels -->
+  <text x="48" y="404" text-anchor="end" fill="#444" font-size="11">0</text>
+  <text x="48" y="354" text-anchor="end" fill="#444" font-size="11">25</text>
+  <text x="48" y="304" text-anchor="end" fill="#444" font-size="11">50</text>
+  <text x="48" y="254" text-anchor="end" fill="#444" font-size="11">75</text>
+  <text x="48" y="204" text-anchor="end" fill="#444" font-size="11">100</text>
+  <text x="20" y="260" fill="#444" font-size="11" transform="rotate(-90 20 260)">FPS / Load %</text>
+  <!-- X axis labels -->
+  <text x="60" y="420" fill="#444" font-size="11">0</text>
+  <text x="240" y="420" fill="#444" font-size="11">10</text>
+  <text x="420" y="420" fill="#444" font-size="11">20</text>
+  <text x="600" y="420" fill="#444" font-size="11">30</text>
+  <text x="780" y="420" fill="#444" font-size="11">40</text>
+  <text x="960" y="420" fill="#444" font-size="11">50</text>
+  <text x="540" y="440" fill="#444" font-size="11" text-anchor="middle">Sample (1 Hz)</text>
+
+  <!-- FPS line (blue) -->
+  <polyline fill="none" stroke="#1f77b4" stroke-width="1.5"
+    points="60,360 100,348 140,352 180,300 220,310 260,260 300,268 340,240 380,248 420,232 460,236 500,228 540,232 580,210 620,218 660,200 700,210 740,180 780,196 820,184 860,192 900,176 940,180 980,170 1020,176"/>
+  <!-- Load line (red) -->
+  <polyline fill="none" stroke="#d62728" stroke-width="1.5"
+    points="60,395 100,392 140,393 180,386 220,388 260,376 300,378 340,370 380,372 420,366 460,368 500,364 540,366 580,358 620,360 660,354 700,356 740,348 780,352 820,346 860,348 900,344 940,346 980,342 1020,344"/>
+
+  <!-- legend -->
+  <rect x="800" y="100" width="240" height="50" fill="#fafafa" stroke="#bbb"/>
+  <line x1="816" y1="118" x2="846" y2="118" stroke="#1f77b4" stroke-width="2"/>
+  <text x="854" y="122" fill="#222">Frames / sec</text>
+  <line x1="816" y1="138" x2="846" y2="138" stroke="#d62728" stroke-width="2"/>
+  <text x="854" y="142" fill="#222">Bus load %</text>
+
+  <!-- annotation -->
+  <text x="540" y="455" fill="#888" font-size="11" text-anchor="middle" font-style="italic">滚动 60 样本 = 1 分钟历史；图表随 1 Hz 计时器刷新</text>
+</svg>
+<div class="caption">图 6 — Stats 视图。蓝色 = FPS，红色 = 总线负载百分比；上为标题，下为 Sample 索引。</div>
+</div>
+
+<h3>9.1 字段含义</h3>
+<table>
+  <tr><th>元素</th><th>含义</th></tr>
+  <tr><td><strong>Total frames</strong></td><td>自连接以来累计收到的所有帧数（含错误帧）。</td></tr>
+  <tr><td><strong>Error frames</strong></td><td>上述累计中被标记为 <code>IsError = true</code> 的子集。</td></tr>
+  <tr><td><strong>Frames / sec</strong>（蓝线）</td><td>过去 1 秒内收到的帧数。1 Hz 采样。</td></tr>
+  <tr><td><strong>Bus load %</strong>（红线）</td><td>过去 1 秒内总线占用率（由 PEAK SDK 报告）。</td></tr>
+</table>
+
+<h3>9.2 行为细节</h3>
+<ul>
+  <li><strong>刷新频率</strong>：1 Hz（<code>StatisticsService</code> 后台定时器）。</li>
+  <li><strong>窗口大小</strong>：60 个样本 = 1 分钟历史；超出后丢弃最旧样本。</li>
+  <li><strong>Y 轴</strong>：0..100（统一量程方便比对；FPS 在满负载时会"贴顶"，但用于看趋势而非绝对值）。</li>
+  <li><strong>跨线程</strong>：定时器线程产生快照，通过 Dispatcher 跳到 UI 线程更新集合，WPF 自动刷新图表。</li>
+</ul>
+
+<blockquote>
+<strong>提示：</strong>典型 1 Mbps 总线理论上限约 8000 fps；超过 50% 负载意味着总线接近饱和，需要注意响应延迟。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="script">10. Script（脚本自动化）</h2>
+<!-- =========================================================== -->
+
+<p><strong>Script 视图</strong>（v1.2.0 起）内嵌 <strong>CodeMirror 6</strong> 编辑器 + <strong>Roslyn 沙箱</strong>，允许在 UI 内编写/运行 C# 脚本，自动化重复的 CAN 总线测试场景（例：周期发帧、断言特定帧到达、清空 DTC）。</p>
+
+<h3>10.1 典型用法</h3>
+<ul>
+  <li><strong>周期性发送</strong>：<code>Send.PeriodicAsync(canId, data, intervalMs)</code> 启动后台定时器。</li>
+  <li><strong>帧断言</strong>：订阅 <code>Trace.Frames</code> 集合变更，在指定时间窗内断言期望帧到达。</li>
+  <li><strong>UDS 流程编排</strong>：调用 <code>UdsClient.DiagnosticSessionControlAsync</code> / <code>ReadDataByIdentifierAsync</code> 等，与 <a href="#uds">UDS 视图</a>共享同一个 <code>UdsClient</code> 实例。</li>
+</ul>
+
+<h3>10.2 沙箱约束</h3>
+<blockquote class="warn">
+<strong>安全模型：</strong>脚本在独立 <code>AssemblyLoadContext</code> + 受限 <code>Permissionset</code> 中执行，<strong>无法</strong>访问文件系统、网络、注册表。允许的 API：<code>Send</code> / <code>Uds</code> / <code>Trace</code> / <code>Stats</code> / <code>Script</code> 命名空间下的命令对象。
+</blockquote>
+
+<p>脚本的写入/读取位于 <code>%LocalAppData%\PeakCan.Host\scripts\</code>，文件名 <code>*.csx</code>。运行结果实时回写到右下角的输出面板（与 UDS 视图的 RichTextBox OutputLog 风格一致）。</p>
+
+<!-- =========================================================== -->
+<h2 id="uds">11. UDS（UDS 诊断栈）</h2>
+<!-- =========================================================== -->
+
+<p><strong>UDS 视图</strong>（v1.2.0 起）是 PeakCan Host 的核心诊断 UI，按 ISO 14229（UDS-on-IP）实现应用层协议，运行在 CAN 之上。所有命令通过当前连接（<code>UdsClient</code> 单例）发往 ECU。</p>
+
+<div class="figure">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 540" font-family="Microsoft YaHei, sans-serif" font-size="13">
+  <rect x="2" y="2" width="1076" height="536" rx="6" fill="#f4f4f4" stroke="#888"/>
+  <text x="14" y="22" fill="#222" font-weight="600">UDS View — 4 面板诊断 UI</text>
+
+  <!-- Session strip -->
+  <rect x="10" y="30" width="1060" height="40" fill="#F0F0F0" stroke="#bbb"/>
+  <rect x="18" y="40" width="62" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="34" y="56" fill="#222">Default</text>
+  <rect x="86" y="40" width="74" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="104" y="56" fill="#222">Extended</text>
+  <rect x="166" y="40" width="98" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="184" y="56" fill="#222">Programming</text>
+  <line x1="270" y1="34" x2="270" y2="66" stroke="#ccc"/>
+  <rect x="280" y="44" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <path d="M283 53 L287 57 L296 47" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <text x="302" y="56" fill="#222">TesterPresent</text>
+  <line x1="408" y1="34" x2="408" y2="66" stroke="#ccc"/>
+  <rect x="416" y="40" width="180" height="22" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="432" y="56" fill="#222">SecurityAccess (Level 1)</text>
+  <text x="612" y="56" fill="#222">Session: Default</text>
+  <text x="752" y="56" fill="#222">Level: 0x01</text>
+
+  <!-- TabControl -->
+  <rect x="10" y="74" width="1060" height="280" fill="#ffffff" stroke="#bbb"/>
+  <rect x="10" y="74" width="80" height="24" fill="#e8eef4" stroke="#bbb"/>
+  <text x="22" y="91" fill="#0b3d91" font-weight="600">DIDs</text>
+  <text x="100" y="91" fill="#666">Routines</text>
+  <text x="180" y="91" fill="#666">DTCs</text>
+  <line x1="10" y1="98" x2="1070" y2="98" stroke="#bbb"/>
+
+  <!-- DIDs DataGrid (left half) -->
+  <rect x="10" y="98" width="440" height="256" fill="#ffffff"/>
+  <rect x="10" y="98" width="440" height="22" fill="#e8eef4" stroke="#aaa"/>
+  <text x="22" y="113" fill="#222" font-weight="600" font-size="11">ID</text>
+  <text x="100" y="113" fill="#222" font-weight="600" font-size="11">Name</text>
+  <text x="220" y="113" fill="#222" font-weight="600" font-size="11">Len</text>
+  <text x="260" y="113" fill="#222" font-weight="600" font-size="11">R/W</text>
+  <text x="300" y="113" fill="#222" font-weight="600" font-size="11">Value</text>
+  <g font-size="11">
+    <rect x="10" y="120" width="440" height="20" fill="#ffffff"/>
+    <text x="22" y="134" font-family="Consolas, monospace">0xF190</text>
+    <text x="100" y="134">VIN</text>
+    <text x="220" y="134" font-family="Consolas, monospace">17</text>
+    <text x="260" y="134">R</text>
+    <text x="300" y="134" font-family="Consolas, monospace">LSV...</text>
+    <rect x="10" y="140" width="440" height="20" fill="#f8f8f8"/>
+    <text x="22" y="154" font-family="Consolas, monospace">0xF187</text>
+    <text x="100" y="154">PartNumber</text>
+    <text x="220" y="154" font-family="Consolas, monospace">10</text>
+    <text x="260" y="154">R</text>
+    <text x="300" y="154" font-family="Consolas, monospace">PN-12345</text>
+    <rect x="10" y="160" width="440" height="20" fill="#ffffff"/>
+    <text x="22" y="174" font-family="Consolas, monospace">0xF184</text>
+    <text x="100" y="174">SoftwareVersion</text>
+    <text x="220" y="174" font-family="Consolas, monospace">9</text>
+    <text x="260" y="174">R</text>
+    <text x="300" y="174" font-family="Consolas, monospace">v3.2.1</text>
+  </g>
+
+  <!-- DID action panel (right half) -->
+  <rect x="450" y="98" width="620" height="256" fill="#ffffff"/>
+  <text x="462" y="118" fill="#222" font-weight="600">Selected DID: VIN</text>
+  <text x="462" y="138" fill="#444">Length: 17 bytes</text>
+  <text x="462" y="170" fill="#444">Write value (hex)</text>
+  <rect x="462" y="176" width="400" height="26" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="472" y="194" fill="#999" font-style="italic" font-size="11">— (VIN is read-only)</text>
+  <rect x="462" y="218" width="60" height="26" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="482" y="236" fill="#222">Read</text>
+  <rect x="530" y="218" width="68" height="26" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <text x="554" y="236" fill="#444">Write</text>
+  <text x="462" y="276" fill="#1a7f37" font-family="Consolas, monospace">Last: OK 17 bytes</text>
+
+  <!-- OutputLog -->
+  <rect x="10" y="358" width="1060" height="170" fill="#1E1E1E" stroke="#888"/>
+  <text x="22" y="378" fill="#888" font-style="italic" font-size="11">OutputLog（共享彩色 RichTextBox，按 Level 染色：Info=灰 / Warn=黄 / Error=红）</text>
+  <g font-family="Consolas, monospace" font-size="11">
+    <text x="22" y="402" fill="#D4D4D4">14:23:01.105  Info   Session → Extended</text>
+    <text x="22" y="420" fill="#D4D4D4">14:23:03.422  Info   Reading DID 0xF190 (VIN)...</text>
+    <text x="22" y="438" fill="#D4D4D4">14:23:03.587  Info   Read DID 0xF190 OK (17 bytes): 4C 53 56 4F ...</text>
+    <text x="22" y="456" fill="#d4a72c">14:23:05.001  Warn   SecurityAccess 0x01 failed: NRC 0x35 (invalidKey)</text>
+    <text x="22" y="474" fill="#5b9bd5">14:23:05.002  Info   Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.</text>
+    <text x="22" y="492" fill="#D4D4D4">14:23:08.114  Info   Reading DTCs (reportByStatusMask=0xFF)...</text>
+    <text x="22" y="510" fill="#D4D4D4">14:23:08.290  Info   Found 3 DTCs</text>
+  </g>
+  <rect x="990" y="364" width="70" height="20" rx="3" fill="#3c3c3c" stroke="#666"/>
+  <text x="1014" y="378" fill="#D4D4D4">Clear</text>
+
+  <!-- annotation -->
+  <line x1="380" y1="50" x2="600" y2="20" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="610" y="20" fill="#1f77b4" font-size="12">① Session strip — 会话控制 / TP / SecAccess</text>
+  <line x1="200" y1="86" x2="280" y2="60" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="290" y="60" fill="#1f77b4" font-size="12">② 3 个诊断 Tab：DIDs / Routines / DTCs</text>
+  <line x1="540" y1="448" x2="700" y2="400" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <text x="710" y="395" fill="#1f77b4" font-size="12">③ OutputLog（4 面板共享，按 Level 染色）</text>
+</svg>
+<div class="caption">图 7 — UDS 视图：顶部 Session 条 + 3-tab TabControl + 底部共享 OutputLog。</div>
+</div>
+
+<h3>11.1 Session 条（顶部）</h3>
+<table>
+  <tr><th>控件</th><th>行为</th></tr>
+  <tr><td><strong>Default</strong> 按钮</td><td><code>DiagnosticSessionControl 0x01</code> — 切到默认会话。</td></tr>
+  <tr><td><strong>Extended</strong> 按钮</td><td><code>DiagnosticSessionControl 0x02</code> — 切到扩展诊断会话（解锁 DID Read/Write）。</td></tr>
+  <tr><td><strong>Programming</strong> 按钮</td><td><code>DiagnosticSessionControl 0x03</code> — 切到编程会话（预刷写状态）。</td></tr>
+  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。<code>Dispose</code> 被显式调用时也会停掉循环并复位标志位——但 DI 容器不调用 Dispose（单例 VM 生命周期 ≈ 进程），详见 <a href="#sec-14-2">14.2</a>。</td></tr>
+  <tr><td><strong>SecurityAccess (Level 1)</strong> 按钮</td><td>触发 <code>SecurityAccess RequestSeed 0x01</code> → 调 <code>IKeyDerivationAlgorithm.ComputeKey(...)</code> → <code>SendKey 0x02</code>。成功时 <code>Level: 0x01</code> 显示在右侧。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
+  <tr><td><strong>Session:</strong> 文本</td><td>当前会话名（Default / Extended / Programming）。</td></tr>
+  <tr><td><strong>Level: 0xNN</strong> 文本</td><td>当前认证等级。未认证时显示 <code>(not authenticated)</code>。</td></tr>
+</table>
+
+<h3>11.2 DIDs Tab</h3>
+<p>DataGrid 显示 DID 库（默认内置 5 个：<code>VIN / PartNumber / SupplierID / HardwareVersion / SoftwareVersion</code>），可由用户 JSON 文件扩展。</p>
+
+<h4>11.2.1 DID 数据源</h4>
+<p>DID 库按以下优先级合并：</p>
+<ol>
+  <li><strong>内置默认</strong>（<code>DidDatabase.BuiltInDefaults()</code>）：5 个标准 VIN/PartNumber 等。</li>
+  <li><strong>用户 JSON</strong>：<code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code>（可选）。同名 ID 覆盖内置，缺失追加。</li>
+</ol>
+
+<p>JSON 格式示例：</p>
+<pre><code>{
+  "dids": [
+    { "id": 49152, "name": "BatteryVoltage", "lengthBytes": 2, "writable": false },
+    { "id": 49153, "name": "CoolantTemp",   "lengthBytes": 1, "writable": false }
+  ]
+}</code></pre>
+
+<p>JSON 文件缺失或格式错误时<strong>不会抛异常</strong>——回退到内置默认，并在 Serilog 日志写一条 <code>Warn</code>。</p>
+
+<h4>11.2.2 DIDs Tab 字段</h4>
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>ID</strong></td><td>DID 标识符（16-bit，hex 显示 <code>0xNNNN</code>）。</td></tr>
+  <tr><td><strong>Name</strong></td><td>人类可读名。</td></tr>
+  <tr><td><strong>Length</strong></td><td>数据长度（字节）。</td></tr>
+  <tr><td><strong>R/W</strong></td><td>是否可写（来自 JSON 的 <code>writable</code> 字段，内置默认都为 <code>R</code>）。</td></tr>
+  <tr><td><strong>Value</strong></td><td>最近一次 Read 后的字节序列（首次未读取时为空）。</td></tr>
+</table>
+
+<h4>11.2.3 操作流程</h4>
+<ol>
+  <li>选择 DataGrid 中的某一行 → 右侧详情面板填充 Name / Length。</li>
+  <li>点击 <strong>Read</strong> → <code>UdsClient.ReadDataByIdentifierAsync(id)</code> → 成功后 Value 列填充十六进制字节。</li>
+  <li>若 DID 可写（<code>Writable=true</code>），可在 <strong>Write value (hex)</strong> 文本框输入字节（空格/连字符分隔），点击 <strong>Write</strong> → <code>WriteDataByIdentifierAsync(id, bytes)</code>。</li>
+  <li>每次操作的结果会追加到底部 OutputLog：<code>Info</code>（成功）/ <code>Warn</code>（NRC）/ <code>Error</code>（异常）。</li>
+</ol>
+
+<h3>11.3 Routines Tab</h3>
+<p>DataGrid 显示 Routine 库（默认内置空数组），由用户 JSON 文件 <code>%LOCALAPPDATA%\PeakCan.Host\uds-routines.json</code> 加载（结构与 DIDs 类似，字段 <code>id / name</code>）。</p>
+
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>ID</strong></td><td>Routine 标识符（16-bit hex）。</td></tr>
+  <tr><td><strong>Name</strong></td><td>Routine 名（来自 JSON）。</td></tr>
+  <tr><td><strong>Status</strong></td><td>当前状态（<code>Idle</code> / <code>Running</code> / <code>Stopped</code>）。</td></tr>
+  <tr><td><strong>Result</strong></td><td>最近一次 Query 的结果字节序列。</td></tr>
+</table>
+
+<p>操作：<strong>Start</strong>（<code>RoutineControl 0x01</code>）/ <strong>Stop</strong>（<code>0x02</code>）/ <strong>Query</strong>（<code>0x03</code>）。结果写入 OutputLog + DataGrid 的 Status / Result 列。</p>
+
+<h3>11.4 DTCs Tab</h3>
+<p>DTC <strong>不</strong>走 JSON 文件——直接通过 <code>ReadDtcInformationAsync(subFunction=0x02, statusMask=0xFF)</code> 从 ECU 拉取。</p>
+
+<table>
+  <tr><th>列</th><th>含义</th></tr>
+  <tr><td><strong>Code</strong></td><td>3 字节 DTC 代码（<code>0xNNNNNN</code>）。</td></tr>
+  <tr><td><strong>Status</strong></td><td>1 字节 DTC 状态位掩码（<code>0xNN</code>）。</td></tr>
+  <tr><td><strong>Description</strong></td><td>分类描述（Powertrain / Chassis / Body / Network / Unknown，按 ISO 15031-6 高 2 bit 分类）。</td></tr>
+</table>
+
+<p>操作：<strong>Read DTCs</strong> 拉取并填充 DataGrid；<strong>Clear DTCs</strong> 发送 <code>ClearDiagnosticInformation(0xFFFFFF)</code> 并清空本地列表。</p>
+
+<h3 id="uds-secauth">11.6 SecurityAccess 与 <code>IKeyDerivationAlgorithm</code></h3>
+
+<p><strong>SecurityAccess</strong>（Level 1）调用流程：</p>
+<ol>
+  <li>UI 点击按钮 → <code>UdsClient.SecurityAccessAsync(0x01)</code>。</li>
+  <li>Core 层先发 <code>RequestSeed 0x01</code>，收到 ECU 发的 seed。</li>
+  <li>调用<strong>已注册</strong>的 <code>IKeyDerivationAlgorithm.ComputeKey(seed, level)</code> 计算 key。</li>
+  <li>发 <code>SendKey 0x02</code>，等 ECU 响应正/负响应。</li>
+</ol>
+
+<blockquote class="warn">
+<strong>关键：</strong>当前默认注册的是 <code>PlaceholderKeyAlgorithm</code>——它<strong>原样回传 seed 作为 key</strong>，仅用于联调与冒烟测试。<strong>任何真实 ECU 都会拒绝</strong>（NRC <code>0x35 invalidKey</code>）。
+<br><br>
+OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在 <code>PeakCan.Host.Core/Uds/IKeyDerivationAlgorithm.cs</code>），并在 <code>AppHostBuilder</code> 中以单例注册替换占位实现。详见 <a href="#appendix">附录 A §A.2</a>。
+</blockquote>
+
+<p>如果未注册任何算法（或注册的是占位实现），UI 会输出：</p>
+<pre><code>14:23:05.001  Warn   Security access failed: KeyAlgorithmNotConfiguredException
+14:23:05.002  Info   Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.</code></pre>
+
+<h3>11.7 OutputLog（共享日志）</h3>
+<p>底部 RichTextBox 由 4 个面板共享，每条日志按 <code>Level</code> 染色：</p>
+<table>
+  <tr><th>Level</th><th>颜色</th><th>典型触发场景</th></tr>
+  <tr><td><code>Info</code></td><td style="color:#D4D4D4">浅灰</td><td>Session 切换成功、DID Read 返回字节数、Routine Start 收到正响应</td></tr>
+  <tr><td><code>Warn</code></td><td style="color:#d4a72c">琥珀</td><td>负响应 NRC、KeyAlgorithmNotConfiguredException</td></tr>
+  <tr><td><code>Error</code></td><td style="color:#cf222e">深红</td><td>底层异常（ISO-TP 发送失败、总线断开）</td></tr>
+</table>
+
+<p>点击右上 <strong>Clear</strong> 清空 OutputLog（<code>UdsViewModel.ClearOutputCommand</code>）。</p>
+
+<blockquote>
+<strong>已知限制：</strong>UDS 视图所有面板 VM 都是 DI 单例；切换 View 标签不会 Dispose。如果长时间运行并反复切换会话，TesterPresent 的后台循环不会自动停——切换会话前请手动取消勾选 <code>TesterPresent</code>。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="dbc-scope">12. DBC 解析器支持范围</h2>
+<!-- =========================================================== -->
+
+<p>当前 v1.2.2 支持以下 DBC 关键字与特性：</p>
+
+<table>
+  <tr><th>类别</th><th>关键字</th><th>状态</th></tr>
+  <tr><td>元数据</td><td><code>VERSION</code></td><td>解析但不显示</td></tr>
+  <tr><td>节点定义</td><td><code>NS_</code>, <code>BS_</code>, <code>BU_</code></td><td>解析；节点名用于 <strong>Sender</strong> 列</td></tr>
+  <tr><td>消息</td><td><code>BO_</code></td><td>完整支持</td></tr>
+  <tr><td>信号</td><td><code>SG_</code>（含 Intel / Motorola, signed / unsigned）</td><td>完整解码（除 M / m 多路复用）</td></tr>
+  <tr><td>值表</td><td><code>VAL_</code>, <code>VAL_TABLE_</code></td><td>解析；v1.1 在 Signals 视图显示映射名称</td></tr>
+  <tr><td>注释</td><td><code>CM_</code></td><td>解析；当前 UI 不展示</td></tr>
+  <tr><td>属性</td><td><code>BA_DEF_</code>, <code>BA_</code></td><td>接受；解码层忽略（无消费者）</td></tr>
+  <tr><td>信号组</td><td><code>SIG_GROUP_</code></td><td>解析；当前 UI 不展示</td></tr>
+  <tr><td>环境变量</td><td><code>EV_</code></td><td>解析；当前未使用</td></tr>
+  <tr><td>多路复用</td><td><code>M</code> / <code>m</code> 修饰符</td><td>解析；<strong>不在 Signals 视图解码</strong>（v1.1）</td></tr>
+  <tr><td>Vector 扩展浮点</td><td><code>IEEE float</code> / <code>IEEE double</code></td><td>接受；解码器在关键字未识别时回退为 <code>int</code></td></tr>
+</table>
+
+<blockquote>
+<strong>已知限制：</strong>非标准 / 厂商私有扩展可能被忽略。加载失败时状态行会显示具体错误码；常见错误为"<code>Parse error: unexpected token</code>"。
+</blockquote>
+
+<!-- =========================================================== -->
+<h2 id="logs">13. 日志与故障排查</h2>
+<!-- =========================================================== -->
+
+<h3>11.1 日志位置</h3>
+<p>Serilog 按天滚动写入（保留 14 天）：</p>
+<pre><code>%LocalAppData%\PeakCan.Host\logs\peak-yyyy-MM-dd.log</code></pre>
+
+<h3>11.2 常见问题对照表</h3>
+<table>
+  <tr><th>症状</th><th>可能原因</th><th>建议排查步骤</th></tr>
+  <tr><td>Probe 显示 "No PEAK hardware detected"</td><td>驱动未装 / 设备未插 / USB 接触不良</td><td>检查设备管理器；重新插拔；重装 PEAK 驱动</td></tr>
+  <tr><td>Connect 失败 "BusOff"</td><td>总线短路 / 缺少终端电阻 / 波特率不一致</td><td>检查物理接线；确认对端设备使用相同波特率</td></tr>
+  <tr><td>Signals 视图始终为空</td><td>未加载 DBC 或消息 ID 不匹配</td><td>先在 DBC 视图加载 DBC；确认 Trace 中 ID 与 DBC 一致</td></tr>
+  <tr><td>Send 状态 "FAIL: NotConnected"</td><td>未点击 Connect 或 Connect 失败</td><td>先 Probe → Connect；检查状态栏</td></tr>
+  <tr><td>DBC 加载失败 "Parse error"</td><td>DBC 含未支持的语法 / 编码</td><td>用文本编辑器打开 .dbc 检查可疑行；查看日志</td></tr>
+  <tr><td>Trace 滚动卡顿</td><td>总线负载极高（&gt;5000 fps）</td><td>预期行为；可降低总线流量或减小 MaxRows</td></tr>
+</table>
+
+<h3>11.3 如何获取完整诊断信息</h3>
+<ol>
+  <li>复现问题一次。</li>
+  <li>打开日志目录：<kbd>Win</kbd>+<kbd>R</kbd> → 输入 <code>%LocalAppData%\PeakCan.Host\logs</code>。</li>
+  <li>找到当天日期的 <code>peak-yyyy-MM-dd.log</code>，把异常堆栈 + 时间戳附在 bug 报告里。</li>
+</ol>
+
+<!-- =========================================================== -->
+<h2 id="faq">14. FAQ &amp; 已知限制</h2>
+<!-- =========================================================== -->
+
+<h3>14.1 FAQ</h3>
+
+<h4>Q1: 能否连接多块 PCAN-USB FD 或多通道?</h4>
+<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v1.2.x 范围）。</p>
+
+<h4>Q2: 能否录制总线数据供后续回放?</h4>
+<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>当前未提供（v2.0 候选）。</p>
+
+<h4>Q3: 多路复用（M / m）信号能否解码?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。Signals 视图会显示当前多路复用器值下激活的子信号。</p>
+
+<h4>Q4: 能否在后台运行脚本自动化测试?</h4>
+<p>A: <strong>可以</strong>。v1.2.0 起内置 <strong>Script 视图</strong>：CodeMirror 6 编辑器 + Roslyn 沙箱，<code>%LocalAppData%\PeakCan.Host\scripts\*.csx</code> 文件管理。详见 <a href="#script">§10</a>。</p>
+
+<h4>Q5: 程序崩溃了日志在哪?</h4>
+<p>A: <code>%LocalAppData%\PeakCan.Host\logs\peak-yyyy-MM-dd.log</code>（Serilog，保留 14 天），加上 Windows 应用事件查看器（Application Error 事件）。</p>
+
+<h4>Q6: 能否选择非 1 Mbps 的波特率?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起工具栏的波特率下拉支持 1 Mbps / 500 kbps / 250 kbps / 125 kbps / 100 kbps / 50 kbps / 等常见档位（<code>AvailableBaudRates</code> 列表由 PEAK SDK 提供）。</p>
+
+<h4>Q7: UDS SecurityAccess 直接能工作吗?</h4>
+<p>A: <strong>不能直接</strong>。v1.2.0 默认注册的是 <code>PlaceholderKeyAlgorithm</code>——原样回传 seed，仅用于联调；真实 ECU 会返回 NRC <code>0x35 invalidKey</code>。<strong>OEM 客户需要实现 <code>IKeyDerivationAlgorithm</code> 并在 <code>AppHostBuilder</code> 替换</strong>。详见 <a href="#uds-secauth">§11.6</a>。</p>
+
+<h4>Q8: DID/Routine 库能不能扩展?</h4>
+<p>A: <strong>可以</strong>。v1.1.0 起 <code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code> + <code>uds-routines.json</code> 可放置用户 JSON，缺失/格式错误时回退到内置默认。详见 <a href="#uds">§11</a>。</p>
+
+<h4>Q9: UDS 视图如何与 Trace/DBC 视图联动?</h4>
+<p>A: 通过同一个 <code>UdsClient</code> 单例（DI 注入）。UDS 视图发出的请求帧会通过底层 CAN 通道被 <code>ChannelRouter</code> 广播，Trace 视图同步看到；DBC 中已加载的消息 ID 在 UDS 响应解码时被复用（如果响应 ID 命中 DBC 中消息）。</p>
+
+<h4>Q10: 能否在 UI 关闭后保留 TesterPresent?</h4>
+<p>A: <strong>不能</strong>。TesterPresent 后台循环由 <code>SessionPanelViewModel</code> 持有，VM 是 DI 单例直到进程退出。<strong>关闭 UDS 视图标签</strong>不会停止 TesterPresent；切换会话前请手动取消勾选，或关闭整个应用。</p>
+
+<h3>14.2 v1.2.2 已知限制</h3>
+<ul>
+  <li>同一时刻单连接（多通道并行收发未实现）</li>
+  <li>无 ASC 录制回放（仅录制可，回放需 v2.0）</li>
+  <li>无 UDS SecurityAccess 默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</li>
+  <li>TesterPresent 循环无法跨 UDS 视图关闭（VM 单例生命周期）</li>
+  <li>UDS DID/Routine 仅支持 ISO 14229 简单子功能（<code>0x01 Start</code> / <code>0x02 Stop</code> / <code>0x03 QueryResults</code>）；<code>RequestCorrectlyReceived</code> 等长流程未实现</li>
+  <li>UDS 视图 <code>SessionPanelViewModel</code> 实现 <code>IDisposable</code>（v1.2.2 起）但<strong>未被 DI 容器调用 Dispose</strong>——VM 单例直到进程退出</li>
+  <li>无 J1939 / CANopen 协议层</li>
+  <li>仅 Windows 平台（依赖 WPF）</li>
+</ul>
+
+<h3>14.3 路线图</h3>
+<table>
+  <tr><th>版本</th><th>主要内容</th></tr>
+  <tr><td><strong>v1.1.0 ✅</strong></td><td>多通道枚举、ASC/CSV 录制、帧过滤、循环发送、多路复用解码、值表（VAL_）名称显示、<code>IFileDialogService</code> 抽象、波特率下拉、<code>IKeyDerivationAlgorithm</code> 抽象 + 占位实现、DidDatabase / RoutineDatabase JSON 加载</td></tr>
+  <tr><td><strong>v1.2.0 ✅</strong></td><td>实时 OxyPlot 信号曲线（v0.10.1 已含）、CodeMirror 6 脚本引擎 + Roslyn 沙箱、4 面板 UDS 诊断 UI（Session / DID / Routine / DTC）、共享彩色 OutputLog</td></tr>
+  <tr><td><strong>v1.2.1 ✅</strong></td><td>DidDatabase 2-arg ctor null-ILogger NRE 修复 + STA Dispatcher 泄漏 flake 修复（4 个测试类）</td></tr>
+  <tr><td><strong>v1.2.2 ✅</strong></td><td>RoutineDatabase NRE 修复 + SessionPanelVM.Dispose 复位 TesterPresentActive</td></tr>
+  <tr><td><strong>v1.3.0 🔜</strong></td><td>OEM-specific <code>IKeyDerivationAlgorithm</code> 实现（需 OEM 列表 / 客户触发）+ 多通道并行收发（可选）+ UDS SecurityAccess 多级支持（Level 1/3/5 按 OEM 需求）</td></tr>
+  <tr><td><strong>v2.0</strong></td><td>J1939 / CANopen 协议层、跨平台（Linux + SocketCAN）、ASC 录制回放</td></tr>
+</table>
+
+<!-- =========================================================== -->
+<h2 id="appendix">附录 A — 架构与关键决策</h2>
+<!-- =========================================================== -->
+
+<h3>A.1 三层架构</h3>
+<pre><code>   PeakCan.Host.App            (WPF · MVVM · BackgroundService · DI 组合根)
+            │
+            ▼  使用
+   PeakCan.Host.Infrastructure (PEAK SDK 适配器 · ChannelRouter · BusStatistics)
+            │
+            ▼  使用
+   PeakCan.Host.Core           (CanFrame · DBC parser · SignalDecoder · Result)</code></pre>
+
+<p>App 层被禁止直接引用 PEAK SDK（<code>LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic</code>）；
+所有硬件调用经 <code>IChannelProbe</code> 与 <code>PeakCanChannel</code> 走 Infrastructure。
+CI 会拒绝破坏此边界的 PR。</p>
+
+<h3>A.2 关键决策</h3>
+<table>
+  <tr><th>决策</th><th>理由</th></tr>
+  <tr><td><strong>.NET 10</strong>（非 8）</td><td>开发机仅有 10.0.300 SDK；自包含发布后目标机不需任何运行时。</td></tr>
+  <tr><td><strong>Peak.PCANBasic.NET 5.0.1</strong>（非 <code>Peak.Can.Basic</code>）</td><td>旧的 <code>Peak.Can.Basic</code> 在 nuget.org 上不可寻；<code>Peak.PCANBasic.NET</code> 是 PEAK 官方替代（12.7 万次下载）。</td></tr>
+  <tr><td><strong>OxyPlot.Wpf 2.2.0</strong>（非 LiveChartsCore 2.0.4）</td><td>LiveCharts 2.0.4 的原生依赖（OpenTK + SkiaSharp.Views.WPF）仅目标 .NET Framework，在 .NET 10 上启动失败。OxyPlot 是纯托管的，干净。</td></tr>
+  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发在 v2.0 候选。</td></tr>
+  <tr><td><strong>VM 部分 IDisposable（v1.2.2 起）</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，v1.2.2 起实现 <code>IDisposable</code> 复位 <code>TesterPresentActive=false</code> + Cancel/Dispose CTS。<strong>注</strong>：当前 DI 容器不调用 <code>Dispose()</code>——VM 生命周期 ≈ 进程生命周期，Dispose 仅作为防御性 API 暴露。</td></tr>
+  <tr><td><strong><code>IFileDialogService</code> 抽象（v1.1 起）</strong></td><td>v0.x <code>DbcViewModel.OpenAsync</code> 内联调用 <code>OpenFileDialog.ShowDialog</code>，用户取消路径测试为 <code>[Fact(Skip=...)]</code>。v1.1 起抽取为 <code>IFileDialogService</code> 接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
+  <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code>（v1.1 起）</strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异（典型：HMAC-SHA256、HSM 模拟、硬件安全模块等）。v1.1 抽取为接口并提供占位实现（<em>原样回传 seed</em>）让 UI 联调可跑通；OEM 客户需自行实现并替换。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
+  <tr><td><strong>UDS 4 面板 orchestrator 模式（v1.2.0 起）</strong></td><td>原 <code>UdsViewModel</code> 单体 279 行 / 8 个 <code>[RelayCommand]</code>，v1.2.0 拆为 4 个 panel VM（Session / DID / Routine / DTC） + ≤80 行 orchestrator。每个 panel VM 通过 <code>IUdsPanel.AttachLog(...)</code> 接口共享一个 <code>OutputLog</code>。</td></tr>
+</table>
+
+<h3>A.3 测试覆盖</h3>
+<ul>
+  <li><strong>523 pass + 6 SKIP + 0 fail</strong>：Core 213 + App 236 + Infrastructure 74</li>
+  <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
+  <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
+  <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
+</ul>
+
+<h3>A.4 引用文档</h3>
+<ul>
+  <li>PEAK PCAN-USB FD 驱动下载：<a href="https://www.peak-system.com/PCAN-USB-FD.366.0.html" target="_blank">https://www.peak-system.com/PCAN-USB-FD.366.0.html</a></li>
+  <li>CAN-FD 标准：ISO 11898-1:2015</li>
+  <li>DBC 文件格式参考：Vector Informatik 公开规范</li>
+  <li>UDS-on-CAN 标准：ISO 14229-1:2013 + ISO 15765-2（ISO-TP）</li>
+</ul>
+
+<footer>
+  PeakCan Host v1.2.5 用户使用手册 · 更新于 2026-06-26 ·
+  与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
+  报告问题请附当日 Serilog 日志
+</footer>
+
+</div>
+</body>
+</html>

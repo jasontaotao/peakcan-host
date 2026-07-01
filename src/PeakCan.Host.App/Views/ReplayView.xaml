@@ -1,0 +1,136 @@
+<UserControl x:Class="PeakCan.Host.App.Views.ReplayView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             d:DataContext="{d:DesignInstance Type=vm:ReplayViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             mc:Ignorable="d">
+    <!--
+        v1.4.0 MINOR Task 4 + v1.5.0 MINOR Task 5: minimal Replay tab
+        scaffold. Production polish (column headers, frame table, error
+        retry button, etc.) is deferred per plan §文件结构.
+        Bindings:
+          OpenCommand / PlayCommand / PauseCommand / StopCommand /
+          SetSpeedCommand / SeekToCommand are RelayCommands on
+          ReplayViewModel (CommunityToolkit.Mvvm source generators).
+          ErrorMessage's Visibility goes through NullToVisibilityConverter
+          (registered in App.xaml) so it collapses when the property is
+          null or empty.
+          IsLoaded gates Play + the scrubber so the transport bar is
+          inert before a file is loaded. Stop and Pause remain enabled
+          after Stop (Stop resets IsLoaded? — no, only Open clears it).
+          Loop CheckBox + CanIdFilter TextBox (v1.5.0 MINOR Task 5):
+          Loop proxies through to IReplayService.Loop. CanIdFilterText
+          uses UpdateSourceTrigger=PropertyChanged so the parser runs
+          on every keystroke; CanIdFilterError surfaces inline parse
+          failures without blocking valid tokens.
+    -->
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="Open..." Command="{Binding OpenCommand}" Margin="0,0,5,0"/>
+            <TextBlock Text="{Binding LoadedFilePath}" VerticalAlignment="Center" Margin="5,0,10,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="Play" Command="{Binding PlayCommand}" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsLoaded}"/>
+            <Button Content="Pause" Command="{Binding PauseCommand}" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsLoaded}"/>
+            <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsLoaded}"/>
+            <TextBlock Text="{Binding CurrentTimestamp, StringFormat='{}{0:F2} s'}"
+                       VerticalAlignment="Center" Margin="10,0,5,0"/>
+            <TextBlock Text="/" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBlock Text="{Binding TotalDuration, StringFormat='{}{0:F2} s'}"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Slider x:Name="Scrubber"
+                    Grid.Column="0"
+                    Minimum="0"
+                    Maximum="{Binding ScrubberMaxValue}"
+                    Value="{Binding CurrentTimestamp, Mode=TwoWay}"
+                    IsEnabled="{Binding IsLoaded}"
+                    Thumb.DragCompleted="Scrubber_DragCompleted"/>
+            <ComboBox Grid.Column="1"
+                      SelectedItem="{Binding Speed, Mode=TwoWay}"
+                      Margin="10,0,0,0"
+                      Width="80">
+                <sys:Double>0.25</sys:Double>
+                <sys:Double>0.5</sys:Double>
+                <sys:Double>1.0</sys:Double>
+                <sys:Double>2.0</sys:Double>
+                <sys:Double>4.0</sys:Double>
+            </ComboBox>
+        </Grid>
+
+        <!-- v1.5.0 MINOR Task 5: Loop CheckBox + CAN ID filter TextBox + inline error.
+             UpdateSourceTrigger=PropertyChanged fires the parser on every keystroke. -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,10">
+            <CheckBox Content="Loop"
+                      IsChecked="{Binding Loop}"
+                      VerticalAlignment="Center"
+                      Margin="0,0,8,0"/>
+            <TextBlock Text="CAN ID filter:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,4,0"/>
+            <TextBox Text="{Binding CanIdFilterText, UpdateSourceTrigger=PropertyChanged}"
+                     Width="200"
+                     VerticalAlignment="Center"
+                     ToolTip="Comma-separated. Supports 0x prefix hex (e.g. 0x100) and decimal (e.g. 256). Empty = all pass."/>
+            <TextBlock Text="{Binding CanIdFilterError}"
+                       Foreground="Red"
+                       VerticalAlignment="Center"
+                       Margin="4,0,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- v1.5.1 PATCH Task 2: time-range filter (From/To TextBoxes + inline
+             error). UpdateSourceTrigger=PropertyChanged fires the validator
+             on every keystroke; StringFormat=F3 matches TotalDuration's
+             display precision. The range filter is applied at the timeline
+             iteration boundary, not the emit boundary. -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="From:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,4,0"/>
+            <TextBox Text="{Binding StartTimestamp, StringFormat=F3, TargetNullValue='', UpdateSourceTrigger=PropertyChanged}"
+                     Width="80"
+                     VerticalAlignment="Center"
+                     ToolTip="Inclusive lower bound on emitted frames' timestamp (seconds from recording start). Empty = unbounded below."/>
+            <TextBlock Text="To:"
+                       VerticalAlignment="Center"
+                       Margin="12,0,4,0"/>
+            <TextBox Text="{Binding EndTimestamp, StringFormat=F3, TargetNullValue='', UpdateSourceTrigger=PropertyChanged}"
+                     Width="80"
+                     VerticalAlignment="Center"
+                     ToolTip="Inclusive upper bound on emitted frames' timestamp (seconds from recording start). Empty = unbounded above."/>
+            <TextBlock Text="{Binding RangeFilterError}"
+                       Foreground="Red"
+                       VerticalAlignment="Center"
+                       Margin="12,0,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="5"
+                   Text="{Binding ErrorMessage}"
+                   Foreground="Red"
+                   Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+    </Grid>
+</UserControl>

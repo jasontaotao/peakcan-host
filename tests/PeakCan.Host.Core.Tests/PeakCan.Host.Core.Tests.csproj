@@ -1,0 +1,49 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- xUnit convention: underscore-separated BDD test method names trigger CA1707. -->
+    <!-- Negative-path tests create instances purely to assert exceptions (CA1806 false-positive). -->
+    <NoWarn>$(NoWarn);CA1707;CA1014;CA1806</NoWarn>
+    <!-- Task 19: collect cobertura coverage report for CI artifact
+         upload. Per-test-project <Threshold> is intentionally not
+         set here: the coverlet.collector V3 threshold check operates
+         on the union of all referenced assemblies (e.g. Infrastructure.Tests
+         would also count Core types it transitively touches), which
+         produces a per-test-project number that is hard to reason
+         about. Instead, the CI workflow uploads the per-test-project
+         cobertura XMLs and a maintainer inspects the per-package
+         rates manually (or wires a follow-up report generator). -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../..//coverage/core-coverage</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="E51_PT_CAN-BMS.dbc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
