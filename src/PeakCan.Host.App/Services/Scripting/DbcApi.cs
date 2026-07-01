@@ -17,7 +17,7 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// Loading is async and updates the document atomically.
 /// </para>
 /// </summary>
-public sealed partial class DbcApi
+public sealed partial class DbcApi : IScriptDbcApi
 {
     private readonly ILogger<DbcApi> _logger;
     private readonly DbcService _dbcService;
