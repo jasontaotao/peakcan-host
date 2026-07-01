@@ -19,7 +19,7 @@ public sealed partial class DidDatabase
     private readonly PathOptions _options;
 
     /// <summary>All known DIDs (built-in + user), with user overrides applied.</summary>
-    public IReadOnlyList<DidDefinition> All { get; }
+    public IReadOnlyList<DidDefinition> All { get; private set; }
 
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public DidDatabase(ILogger<DidDatabase>? logger = null)
@@ -46,6 +46,38 @@ public sealed partial class DidDatabase
     /// <summary>Look up a DID by its 2-byte id. Returns null if not found.</summary>
     public DidDefinition? Find(ushort id)
         => All.FirstOrDefault(d => d.Id == id);
+
+    /// <summary>
+    /// Append ODX-imported DID definitions to the existing built-in +
+    /// user-JSON collection. Used by <c>OdxImportService</c> for
+    /// incremental ODX layering. NOT concurrency-safe — callers must
+    /// serialize. Preserves JSON-merge constructor behavior; the
+    /// appended entries appear after the JSON-loaded entries in
+    /// iteration order.
+    /// On duplicate <see cref="DidDefinition.Id"/>, last-wins +
+    /// "DuplicateId" warning emitted (mirrors spec §5 error contract).
+    /// </summary>
+    public void AddRange(IEnumerable<DidDefinition> defs, out IReadOnlyList<string> warnings)
+    {
+        ArgumentNullException.ThrowIfNull(defs);
+        var combined = All.ToList();
+        var warnList = new List<string>();
+        foreach (var d in defs)
+        {
+            var existingIdx = combined.FindIndex(x => x.Id == d.Id);
+            if (existingIdx >= 0)
+            {
+                warnList.Add($"Duplicate DID id 0x{d.Id:X4}; last value wins.");
+                combined[existingIdx] = d;
+            }
+            else
+            {
+                combined.Add(d);
+            }
+        }
+        All = combined.AsReadOnly();
+        warnings = warnList;
+    }
 
     private static DidDefinition[] BuiltInDefaults() => new DidDefinition[]
     {

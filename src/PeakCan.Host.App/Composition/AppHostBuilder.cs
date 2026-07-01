@@ -411,6 +411,15 @@ public class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DtcPanelViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
+        // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
+        // Core parser/persistence plus App-layer service + VM glue.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DtcDatabase>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Odx.OdxParser>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Odx.PdxReader>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.IOdxImportService,
+            PeakCan.Host.App.Services.OdxImportService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.OdxImportViewModel>();
+
         // ViewModels
         // v1.5.0 MINOR: AppShellViewModel ctor takes an optional IConfiguration
         // for SelectedChannel persistence. Wire via factory so the DI

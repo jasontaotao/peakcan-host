@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ODX xmlns="http://www.asam.net/xml/odx" VERSION="2.0.0">
+  <DIAG-LAYER-CONTAINER ID="DLC.complete">
+    <DIAG-LAYER ID="DL.base" SHORT-NAME="BaseVariant">
+      <DIAG-COMMS>
+        <DIAG-SERVICE ID="svc.r_vin" SHORT-NAME="ReadVIN">
+          <REQUEST-REF ID-REF="DOP.0xF190"/>
+        </DIAG-SERVICE>
+        <DIAG-SERVICE ID="svc.r_hw" SHORT-NAME="ReadHW">
+          <REQUEST-REF ID-REF="DOP.0xF191"/>
+        </DIAG-SERVICE>
+      </DIAG-COMMS>
+    </DIAG-LAYER>
+  </DIAG-LAYER-CONTAINER>
+</ODX>

@@ -17,7 +17,7 @@ public sealed partial class RoutineDatabase
     private readonly PathOptions _options;
 
     /// <summary>All known routines. Empty if no user file is present.</summary>
-    public IReadOnlyList<RoutineDefinition> All { get; }
+    public IReadOnlyList<RoutineDefinition> All { get; private set; }
 
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public RoutineDatabase(ILogger<RoutineDatabase>? logger = null)
@@ -42,6 +42,35 @@ public sealed partial class RoutineDatabase
     /// <summary>Look up a routine by its 2-byte id. Returns null if not found.</summary>
     public RoutineDefinition? Find(ushort id)
         => All.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>
+    /// Append ODX-imported routine definitions. Mirrors
+    /// <c>DidDatabase.AddRange</c>: NOT concurrency-safe; callers must
+    /// serialize. Preserves JSON-merge constructor behavior.
+    /// On duplicate <see cref="RoutineDefinition.Id"/>, last-wins +
+    /// "DuplicateId" warning emitted.
+    /// </summary>
+    public void AddRange(IEnumerable<RoutineDefinition> defs, out IReadOnlyList<string> warnings)
+    {
+        ArgumentNullException.ThrowIfNull(defs);
+        var combined = All.ToList();
+        var warnList = new List<string>();
+        foreach (var r in defs)
+        {
+            var existingIdx = combined.FindIndex(x => x.Id == r.Id);
+            if (existingIdx >= 0)
+            {
+                warnList.Add($"Duplicate Routine id 0x{r.Id:X4}; last value wins.");
+                combined[existingIdx] = r;
+            }
+            else
+            {
+                combined.Add(r);
+            }
+        }
+        All = combined.AsReadOnly();
+        warnings = warnList;
+    }
 
     private List<RoutineDefinition> LoadUserFile(string? path)
     {

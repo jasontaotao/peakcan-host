@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ODX xmlns="http://www.asam.net/xml/odx" VERSION="5.0.0">
+  <DIAG-LAYER-CONTAINER ID="DLC.future">
+    <DIAG-LAYER ID="DL.base" SHORT-NAME="BaseVariant"/>
+  </DIAG-LAYER-CONTAINER>
+</ODX>

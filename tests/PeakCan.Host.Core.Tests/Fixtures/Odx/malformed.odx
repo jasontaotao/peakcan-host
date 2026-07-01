@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ODX xmlns="http://www.asam.net/xml/odx" VERSION="2.0.0">
+  <DIAG-LAYER-CONTAINER ID="DLC.bad">
+    <DIAG-LAYER ID="DL.base" SHORT-NAME="BaseVariant"
+  <!-- missing closing > on DIAG-LAYER tag intentionally -->
+</ODX>

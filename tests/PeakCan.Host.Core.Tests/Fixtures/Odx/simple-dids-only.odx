@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ODX xmlns="http://www.asam.net/xml/odx" VERSION="2.0.0">
+  <DIAG-LAYER-CONTAINER ID="DLC.simple">
+    <DIAG-LAYER ID="DL.base" SHORT-NAME="BaseVariant">
+      <DIAG-COMMS>
+        <DIAG-SERVICE ID="svc.read_vin" SHORT-NAME="ReadDataByIdentifier_VIN">
+          <REQUEST-REF ID-REF="DOP.0xF190"/>
+        </DIAG-SERVICE>
+      </DIAG-COMMS>
+    </DIAG-LAYER>
+  </DIAG-LAYER-CONTAINER>
+</ODX>
