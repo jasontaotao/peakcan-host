@@ -31,6 +31,7 @@ public sealed partial class ScriptEngine : IDisposable
     private readonly CanApi? _canApi;
     private readonly DbcApi? _dbcApi;
     private readonly ScriptUtilities? _utilities;
+    private readonly ScriptEngineOptions _options;
 
     private V8ScriptEngine? _engine;
     private CancellationTokenSource? _executionCts;
@@ -46,11 +47,38 @@ public sealed partial class ScriptEngine : IDisposable
         get { lock (_lock) return _executionTask is { IsCompleted: false }; }
     }
 
+    /// <summary>
+    /// Back-compat constructor. Equivalent to passing
+    /// <see cref="ScriptEngineOptions.Default"/>; delegates to the
+    /// 5-arg ctor so existing callers and tests see no behavior change.
+    /// </summary>
     public ScriptEngine(
         ILogger<ScriptEngine> logger,
         CanApi? canApi,
         DbcApi? dbcApi,
         ScriptUtilities? utilities)
+        : this(logger, canApi, dbcApi, utilities, ScriptEngineOptions.Default)
+    {
+    }
+
+    /// <summary>
+    /// v1.7.0 MINOR Item 1: full-fidelity constructor with
+    /// <see cref="ScriptEngineOptions"/>. Bound at DI registration from
+    /// <c>appsettings.json:Script</c> section.
+    /// <para>
+    /// <c>internal</c> because <see cref="ScriptEngineOptions"/> is
+    /// internal (no public API justification for exposing V8 resource
+    /// cap knobs to downstream consumers — DI configuration binding is
+    /// the only entry point). Visible to test project via
+    /// <c>InternalsVisibleTo PeakCan.Host.App.Tests</c>.
+    /// </para>
+    /// </summary>
+    internal ScriptEngine(
+        ILogger<ScriptEngine> logger,
+        CanApi? canApi,
+        DbcApi? dbcApi,
+        ScriptUtilities? utilities,
+        ScriptEngineOptions options)
     {
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -58,6 +86,10 @@ public sealed partial class ScriptEngine : IDisposable
         _canApi = canApi;
         _dbcApi = dbcApi;
         _utilities = utilities;
+        // v1.7.0 MINOR Item 1: V8 isolate resource caps. Null = Default
+        // (64 MB heap / 16 MiB new / 48 MiB old) — preserves pre-v1.7.0
+        // behavior for direct-construction callers (unit tests).
+        _options = options ?? ScriptEngineOptions.Default;
     }
 
     /// <summary>
@@ -216,10 +248,34 @@ public sealed partial class ScriptEngine : IDisposable
 
     /// <summary>
     /// Create a new V8 engine with sandboxed globals.
+    /// <para>
+    /// v1.7.0 MINOR Item 1: applies <see cref="ScriptEngineOptions"/>
+    /// resource caps via <c>V8RuntimeConstraints</c> (hard generation
+    /// caps in MiB) and <c>V8ScriptEngine.MaxRuntimeHeapSize</c> (soft
+    /// monitor cap in bytes). ClearScript 7.4.5 has no
+    /// <c>V8ScriptEngine(flags, V8Runtime)</c> overload — the
+    /// V8ScriptEngine owns its V8Runtime internally, so we apply
+    /// constraints at construction + set the monitor cap afterward.
+    /// </para>
     /// </summary>
     private V8ScriptEngine CreateEngine(CancellationToken ct)
     {
-        var engine = new V8ScriptEngine(V8ScriptEngineFlags.DisableGlobalMembers);
+        // V8RuntimeConstraints properties are in MiB. Allocation
+        // (new/old/exec) is requested as-is; negative or zero values
+        // use ClearScript defaults.
+        var constraints = new V8RuntimeConstraints
+        {
+            MaxNewSpaceSize = _options.MaxNewSpaceSizeMB,
+            MaxOldSpaceSize = _options.MaxOldSpaceSizeMB,
+        };
+
+        var engine = new V8ScriptEngine(constraints, V8ScriptEngineFlags.DisableGlobalMembers);
+
+        // MaxRuntimeHeapSize is in BYTES (nuint) — convert from MB.
+        // Setting a monitor cap enables heap-size monitoring that
+        // triggers V8RuntimeViolationPolicy.Interrupt (default) when
+        // exceeded, preventing process termination on runaway scripts.
+        engine.MaxRuntimeHeapSize = (nuint)(_options.MaxHeapSizeMB * 1024L * 1024L);
 
         // Set the current engine for ScriptConsole routing.
         ScriptConsole.CurrentEngine = this;

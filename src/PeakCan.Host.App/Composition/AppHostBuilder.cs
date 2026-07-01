@@ -201,6 +201,18 @@ public class AppHostBuilder
                 ?? new[] { PathNormalizer.LocalAppDataPeakCanRoot };
             return new PathOptions(allowedRoots);
         });
+        // v1.7.0 MINOR Item 1: V8 isolate resource caps for the script
+        // engine. Bound from appsettings.json:Script section — see
+        // ScriptEngineOptions for default values (64 MB heap, 16 MiB
+        // new, 48 MiB old). Mirrors DbcOptions factory-closure pattern.
+        builder.Services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>().GetSection("Script");
+            return new PeakCan.Host.App.Services.Scripting.ScriptEngineOptions(
+                MaxHeapSizeMB: config.GetValue<int?>("MaxHeapSizeMB") ?? 64,
+                MaxNewSpaceSizeMB: config.GetValue<int?>("MaxNewSpaceSizeMB") ?? 16,
+                MaxOldSpaceSizeMB: config.GetValue<int?>("MaxOldSpaceSizeMB") ?? 48);
+        });
         builder.Services.AddSingleton<StatisticsService>();
         // StatisticsService is a BackgroundService; its 1Hz snapshot loop
         // needs IHostedService registration too. Without this, Stats view
@@ -285,9 +297,12 @@ public class AppHostBuilder
             var logger = sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptEngine>>();
             var canApi = sp.GetService<PeakCan.Host.App.Services.Scripting.CanApi>();
             var dbcApi = sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>();
+            // v1.7.0 MINOR Item 1: V8 isolate resource caps.
+            var scriptEngineOptions = sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>();
             // ScriptUtilities will be resolved lazily to break the cycle.
             PeakCan.Host.App.Services.Scripting.ScriptUtilities? utilities = null;
-            var engine = new PeakCan.Host.App.Services.Scripting.ScriptEngine(logger, canApi, dbcApi, null);
+            var engine = new PeakCan.Host.App.Services.Scripting.ScriptEngine(
+                logger, canApi, dbcApi, null, scriptEngineOptions);
             // Now create ScriptUtilities with the engine reference.
             utilities = new PeakCan.Host.App.Services.Scripting.ScriptUtilities(
                 sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptUtilities>>(),
