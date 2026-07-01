@@ -19,7 +19,7 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// <see cref="OnFrameReceived"/> is responsible for marshaling).
 /// </para>
 /// </summary>
-public sealed partial class CanApi : IFrameSink
+public sealed partial class CanApi : IFrameSink, IScriptCanApi
 {
     private readonly ILogger<CanApi> _logger;
     private readonly SendService _sendService;
