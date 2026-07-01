@@ -155,6 +155,52 @@ public sealed class ScriptEngineTests : IDisposable
             disposeMethod);
     }
 
+    /// <summary>
+    /// v1.7.1 PATCH Item 1: declarative verification that IScriptCanApi
+    /// exposes ergonomic <c>IsConnected</c> property and
+    /// <c>Send(CanFrame)</c> overload (additive on top of the
+    /// method-based surface shipped in v1.7.0).
+    /// </summary>
+    [Fact]
+    public void IScriptCanApi_Exposes_IsConnected_Property_And_Send_Overload()
+    {
+        // Arrange / Act
+        var prop = typeof(IScriptCanApi).GetProperty("IsConnected");
+        var sendOverload = typeof(IScriptCanApi).GetMethod(
+            "Send",
+            new[] { typeof(CanFrame) });
+
+        // Assert
+        Assert.NotNull(
+            prop);
+        Assert.Equal(typeof(bool), prop!.PropertyType);
+        Assert.NotNull(
+            sendOverload);
+    }
+
+    /// <summary>
+    /// v1.7.1 PATCH Item 2: onInit() throwing flips ScriptResult.Success
+    /// to false (was previously logged but ignored — script appeared
+    /// successful even when onInit had thrown).
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_OnInit_Throws_Sets_Success_False()
+    {
+        // Arrange
+        var engine = new ScriptEngine(
+            Substitute.For<ILogger<ScriptEngine>>(), null, null, null);
+        var script = "function onInit() { throw new Error('init-fail'); }";
+
+        // Act
+        var result = await engine.RunAsync(script);
+
+        // Assert
+        Assert.False(
+            result.Success);
+        Assert.Equal(ScriptErrorType.Runtime, result.ErrorType);
+        Assert.NotNull(result.Error);
+    }
+
     public void Dispose()
     {
         _engine.Dispose();

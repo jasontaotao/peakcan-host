@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.ClearScript;
 using Microsoft.ClearScript.V8;
 using Microsoft.Extensions.Logging;
 
@@ -187,19 +188,48 @@ public sealed partial class ScriptEngine : IDisposable
             // Compile and run the script.
             engine.Execute(script);
 
-            // If the script defines onInit(), call it.
+            // If the script defines onInit(), call it. v1.7.1 PATCH Item 2:
+            // onInit failure flips ScriptResult.Success to false (was
+            // previously logged but ignored — script appeared successful
+            // even when onInit had thrown).
+            var onInitFailed = false;
             try
             {
                 engine.Execute("if (typeof onInit === 'function') onInit();");
             }
             catch (Exception ex)
             {
+                onInitFailed = true;
                 LogOnInitError(_logger, ex);
                 EmitOutput(ScriptOutputLine.Error($"onInit() error: {ex.Message}"));
             }
 
-            // Script completed successfully.
-            tcs.TrySetResult(new ScriptResult(Success: true, Error: null, ErrorType: null));
+            // Script completed successfully (only if main body + onInit succeeded).
+            if (!onInitFailed)
+            {
+                tcs.TrySetResult(new ScriptResult(Success: true, Error: null, ErrorType: null));
+            }
+            else
+            {
+                tcs.TrySetResult(new ScriptResult(
+                    Success: false,
+                    Error: "onInit() threw an exception",
+                    ErrorType: ScriptErrorType.Runtime));
+            }
+        }
+        catch (ScriptInterruptedException)
+        {
+            // v1.7.1 PATCH Item 2: typed catch for V8 interrupt (was
+            // string-matched on "interrupted" message — fragile, replaced
+            // with proper typed catch). ClearScript 7.4.5 uses
+            // ScriptInterruptedException in Microsoft.ClearScript
+            // (V8ScriptInterruptedException is 7.5+). MUST come before
+            // OperationCanceledException since ScriptInterruptedException
+            // derives from it.
+            tcs.TrySetResult(new ScriptResult(
+                Success: false,
+                Error: "Script execution was interrupted",
+                ErrorType: ScriptErrorType.Timeout));
         }
         catch (OperationCanceledException)
         {
@@ -208,20 +238,28 @@ public sealed partial class ScriptEngine : IDisposable
                 Error: "Script execution was cancelled",
                 ErrorType: ScriptErrorType.Cancelled));
         }
-        catch (Exception ex)
+        catch (ScriptEngineException ex)
         {
-            // V8 exceptions (V8ScriptInterruptedException, V8Exception) are
-            // caught here since the specific types are not available without
-            // additional using directives.
-            var errorType = ex.Message.Contains("interrupted", StringComparison.OrdinalIgnoreCase)
-                ? ScriptErrorType.Timeout
-                : ScriptErrorType.Runtime;
-
+            // v1.7.1 PATCH Item 2: typed catch for all ClearScript V8
+            // script errors (base type). Includes syntax errors, runtime
+            // script exceptions, and resource violations (heap/generation
+            // caps). ClearScript 7.4.5 uses ScriptEngineException in
+            // Microsoft.ClearScript (V8Exception is 7.5+).
             LogScriptError(_logger, ex);
             tcs.TrySetResult(new ScriptResult(
                 Success: false,
                 Error: ex.Message,
-                ErrorType: errorType));
+                ErrorType: ScriptErrorType.Runtime));
+        }
+        catch (Exception ex)
+        {
+            // Fallback for non-ClearScript exceptions (e.g. AggregateException
+            // from Task.Run, or host-side errors).
+            LogScriptError(_logger, ex);
+            tcs.TrySetResult(new ScriptResult(
+                Success: false,
+                Error: ex.Message,
+                ErrorType: ScriptErrorType.Runtime));
         }
         finally
         {

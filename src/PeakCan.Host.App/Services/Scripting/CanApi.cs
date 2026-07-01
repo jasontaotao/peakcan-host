@@ -189,6 +189,38 @@ public sealed partial class CanApi : IFrameSink, IScriptCanApi
     public bool IsConnected() => _sendService.ActiveChannel is { IsConnected: true };
 
     /// <summary>
+    /// v1.7.1 PATCH Item 1: explicit interface implementation of
+    /// <see cref="IScriptCanApi.IsConnected"/> property. Forwards to
+    /// the existing <see cref="IsConnected"/> method. CanApi's public
+    /// method-based API is preserved for non-script consumers; only
+    /// scripts (which see CanApi through the IScriptCanApi interface)
+    /// access the property form.
+    /// </summary>
+    bool IScriptCanApi.IsConnected => IsConnected();
+
+    /// <summary>
+    /// v1.7.1 PATCH Item 1: explicit interface implementation of
+    /// <see cref="IScriptCanApi.Send(CanFrame)"/> overload. Extracts
+    /// <c>Id.Raw</c>, <c>Data</c>, and <c>Flags</c> from the frame and
+    /// delegates to the existing <see cref="Send(int, byte[], bool, bool)"/>
+    /// method. Additive convenience for decode-then-resend script patterns.
+    /// <para>
+    /// <c>CanFrame.Data</c> is <see cref="ReadOnlyMemory{T}"/>; the
+    /// underlying byte array is extracted via <c>ToArray()</c> to match
+    /// the public <c>Send(int, byte[], ...)</c> signature. CanFrame is a
+    /// value type (record struct) so no null check is needed.
+    /// </para>
+    /// </summary>
+    async Task<bool> IScriptCanApi.Send(CanFrame frame)
+    {
+        return await Send(
+            (int)frame.Id.Raw,
+            frame.Data.ToArray(),
+            fd: (frame.Flags & FrameFlags.Fd) != 0,
+            extended: frame.Id.Format == FrameFormat.Extended).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Get the channel ID string (e.g., "PCAN_USBBUS1").
     /// Returns null if no channel is connected.
     /// </summary>
