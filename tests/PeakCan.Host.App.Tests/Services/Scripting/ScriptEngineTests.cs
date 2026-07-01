@@ -155,6 +155,29 @@ public sealed class ScriptEngineTests : IDisposable
             disposeMethod);
     }
 
+    /// <summary>
+    /// v1.7.1 PATCH Item 1: declarative verification that IScriptCanApi
+    /// exposes ergonomic <c>IsConnected</c> property and
+    /// <c>Send(CanFrame)</c> overload (additive on top of the
+    /// method-based surface shipped in v1.7.0).
+    /// </summary>
+    [Fact]
+    public void IScriptCanApi_Exposes_IsConnected_Property_And_Send_Overload()
+    {
+        // Arrange / Act
+        var prop = typeof(IScriptCanApi).GetProperty("IsConnected");
+        var sendOverload = typeof(IScriptCanApi).GetMethod(
+            "Send",
+            new[] { typeof(CanFrame) });
+
+        // Assert
+        Assert.NotNull(
+            prop);
+        Assert.Equal(typeof(bool), prop!.PropertyType);
+        Assert.NotNull(
+            sendOverload);
+    }
+
     public void Dispose()
     {
         _engine.Dispose();
