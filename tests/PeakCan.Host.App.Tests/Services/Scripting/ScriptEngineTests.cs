@@ -178,6 +178,29 @@ public sealed class ScriptEngineTests : IDisposable
             sendOverload);
     }
 
+    /// <summary>
+    /// v1.7.1 PATCH Item 2: onInit() throwing flips ScriptResult.Success
+    /// to false (was previously logged but ignored — script appeared
+    /// successful even when onInit had thrown).
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_OnInit_Throws_Sets_Success_False()
+    {
+        // Arrange
+        var engine = new ScriptEngine(
+            Substitute.For<ILogger<ScriptEngine>>(), null, null, null);
+        var script = "function onInit() { throw new Error('init-fail'); }";
+
+        // Act
+        var result = await engine.RunAsync(script);
+
+        // Assert
+        Assert.False(
+            result.Success);
+        Assert.Equal(ScriptErrorType.Runtime, result.ErrorType);
+        Assert.NotNull(result.Error);
+    }
+
     public void Dispose()
     {
         _engine.Dispose();
