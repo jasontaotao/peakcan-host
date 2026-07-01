@@ -179,6 +179,45 @@ public class DbcApiTests
     }
 
     /// <summary>
+    /// v1.7.2 PATCH Item 2: verify that <see cref="DbcApi.Load"/> honors
+    /// a <see cref="CancellationToken"/> supplied by the caller. Real
+    /// <see cref="DbcService"/> + pre-cancelled token exercises the
+    /// production silent-cancel branch at <c>DbcService.cs:162-165</c>
+    /// (catch (OperationCanceledException) { }) combined with
+    /// <c>DbcApi.Load</c>'s post-load check at <c>DbcApi.cs:115-121</c>
+    /// (returns <c>errorCode="Cancelled"</c> when no
+    /// <c>DbcLoaded</c> / <c>LoadFailed</c> fired).
+    /// <para>
+    /// Closes the v1.6.8 PATCH carry-over: <c>DbcApi.Load</c> previously
+    /// lacked a CT parameter so script-initiated DBC loads could not
+    /// be cancelled by the host. <c>DbcService.LoadAsync</c> already
+    /// accepted CT — the gap was at the <c>DbcApi</c> script-facing
+    /// boundary.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Load_With_CancelledToken_Returns_Cancelled_Code()
+    {
+        // Arrange — real DbcService + pre-cancelled CTS. The
+        // LoadAsync call throws OperationCanceledException at the
+        // first CT check inside ReadDbcBytesAsync (DbcService.cs:116),
+        // which is caught silently by DbcService.cs:162-165.
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, dbcService);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Act
+        var r = Unload(await api.Load("/any/path", cts.Token));
+
+        // Assert
+        r.Success.Should().BeFalse();
+        r.MessageCount.Should().Be(0);
+        r.ErrorCode.Should().Be("Cancelled");
+        r.Error.Should().Be("Load was cancelled");
+    }
+
+    /// <summary>
     /// Test double for <see cref="DbcService"/>: overrides
     /// <see cref="DbcService.LoadAsync"/> to silently complete without
     /// firing <see cref="DbcService.DbcLoaded"/> or

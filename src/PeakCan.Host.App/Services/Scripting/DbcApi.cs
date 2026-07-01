@@ -51,9 +51,19 @@ public sealed partial class DbcApi : IScriptDbcApi
     }
 
     /// <summary>
-    /// Load and parse a DBC file.
+    /// Load and parse a DBC file. v1.7.2 PATCH Item 2: accepts an
+    /// optional <see cref="CancellationToken"/> so callers can cancel
+    /// an in-flight load. The token is propagated to
+    /// <see cref="DbcService.LoadAsync"/>, which already accepts CT.
+    /// Cancellation surfaces as <c>errorCode="Cancelled"</c> via the
+    /// silent-cancel branch in <c>DbcService.cs:162-165</c> combined
+    /// with the post-load check below. The ClearScript V8 binder
+    /// ignores the default-value parameter, so existing
+    /// <c>dbc.load(path)</c> script calls work bit-identically.
     /// </summary>
     /// <param name="path">Absolute path to the .dbc file.</param>
+    /// <param name="ct">Cancellation token. Pass
+    /// <see cref="CancellationToken.None"/> (default) for no cancel.</param>
     /// <returns>
     /// Result object with <c>success</c>, <c>messageCount</c>,
     /// <c>errorCode</c>, and <c>error</c> fields. On success,
@@ -63,7 +73,7 @@ public sealed partial class DbcApi : IScriptDbcApi
     /// <c>error</c> is the disambiguating message. On
     /// cancellation, <c>errorCode</c> is "Cancelled".
     /// </returns>
-    public async Task<object> Load(string path)
+    public async Task<object> Load(string path, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -78,7 +88,7 @@ public sealed partial class DbcApi : IScriptDbcApi
 
         try
         {
-            await _dbcService.LoadAsync(path).ConfigureAwait(false);
+            await _dbcService.LoadAsync(path, ct).ConfigureAwait(false);
 
             var doc = _currentDocument;
             if (doc is not null)
