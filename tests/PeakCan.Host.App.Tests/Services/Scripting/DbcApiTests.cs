@@ -184,7 +184,7 @@ public class DbcApiTests
     /// <see cref="DbcService"/> + pre-cancelled token exercises the
     /// production silent-cancel branch at <c>DbcService.cs:162-165</c>
     /// (catch (OperationCanceledException) { }) combined with
-    /// <c>DbcApi.Load</c>'s post-load check at <c>DbcApi.cs:115-121</c>
+    /// <c>DbcApi.Load</c>'s post-load check at <c>DbcApi.cs:125-131</c>
     /// (returns <c>errorCode="Cancelled"</c> when no
     /// <c>DbcLoaded</c> / <c>LoadFailed</c> fired).
     /// <para>
