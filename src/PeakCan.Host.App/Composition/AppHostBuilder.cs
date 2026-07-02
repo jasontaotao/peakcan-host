@@ -276,8 +276,19 @@ public class AppHostBuilder
         // construction requires STA + live Application, so DI
         // resolution throws on the test thread. SendViewModel
         // lazy-creates the Window on first OpenMultiFrameSend call.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>();
-        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>();
+        // v2.1.1 PATCH: SequenceSendService now also depends on
+        // DbcEncodeService + DbcService for DBC-row encoding; the
+        // MultiFrameSendViewModel depends on DbcService for the
+        // message picker. Both already registered above.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(sp =>
+            new PeakCan.Host.App.Services.MultiFrame.SequenceSendService(
+                sp.GetRequiredService<PeakCan.Host.App.Services.SendService>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Dbc.DbcEncodeService>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.MultiFrameSendViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would

@@ -164,16 +164,26 @@ public sealed class MultiFrameSendViewModelTests
     }
 
     [Fact]
-    public async Task SendCommand_InvalidHexData_AbortsBeforeAnySend()
+    public async Task SendCommand_InvalidHexData_CountsAsRowFailure_DoesNotAbortSequence()
     {
+        // v2.1.1 PATCH: the service does per-row TryBuildRow; an invalid
+        // row counts as a failure but the sequence continues with the
+        // remaining rows (per-row failure isolation). Pre-v2.1.1 the
+        // VM did upfront pre-validation and aborted on the first error;
+        // that behavior is gone because it broke mixed-raw-and-DBC
+        // sequences where some rows are intentionally DBC-encoded
+        // (no hex at all).
         var vm = NewVm(out var ch, out _);
         vm.Rows[0].DataHex = "ZZ";  // invalid hex
+        vm.AddRowCommand.Execute(null);
+        vm.Rows[1].DataHex = "AABB";  // valid
+        vm.Rows[1].Id = 0x200;
 
         await vm.SendCommand.ExecuteAsync(null);
 
-        ch.Written.Should().BeEmpty(
-            "row validation must surface before any frame goes on the wire");
-        vm.StatusText.Should().Contain("invalid");
+        ch.Written.Should().HaveCount(1,
+            "only the valid row goes on the wire; invalid row is skipped");
+        vm.StatusText.Should().Contain("failed");
     }
 
     [Fact]

@@ -53,16 +53,17 @@ public sealed class SequenceSendServiceTests
         return svc;
     }
 
-    private static CanFrame MakeFrame(ushort id) =>
-        new(new CanId(id, FrameFormat.Standard), new byte[] { 0xDE, 0xAD },
-            FrameFlags.None, ChannelId.None, default);
+    /// <summary>v2.1.1 PATCH: wrap a CanFrame id into a raw-kind row
+    /// for tests that exercise the service-level dispatch without DBC.</summary>
+    private static PeakCan.Host.App.Models.MultiFrameSequenceRow MakeRow(ushort id) =>
+        new() { RowKind = PeakCan.Host.App.Models.MultiFrameSequenceRow.Kind.Raw, Id = id, DataHex = "DEAD" };
 
     [Fact]
     public async Task SendAsync_Concurrent_FiresAllFrames()
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200), MakeFrame(0x300) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200), MakeRow(0x300) };
 
         var r = await svc.SendAsync(frames, SequenceSendService.Mode.Concurrent,
             delayMs: 0, iterations: 1);
@@ -78,7 +79,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200), MakeFrame(0x300) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200), MakeRow(0x300) };
 
         var r = await svc.SendAsync(frames, SequenceSendService.Mode.Sequential,
             delayMs: 0, iterations: 1);
@@ -94,7 +95,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200) };
 
         var r = await svc.SendAsync(frames, SequenceSendService.Mode.Concurrent,
             delayMs: 0, iterations: 5);
@@ -109,7 +110,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200), MakeFrame(0x300) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200), MakeRow(0x300) };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await svc.SendAsync(frames, SequenceSendService.Mode.Sequential,
@@ -127,7 +128,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None) { FailAll = true };
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200) };
 
         var r = await svc.SendAsync(frames, SequenceSendService.Mode.Concurrent,
             delayMs: 0, iterations: 1);
@@ -143,7 +144,7 @@ public sealed class SequenceSendServiceTests
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
 
-        var r = await svc.SendAsync(Array.Empty<CanFrame>(),
+        var r = await svc.SendAsync(Array.Empty<PeakCan.Host.App.Models.MultiFrameSequenceRow>(),
             SequenceSendService.Mode.Concurrent, delayMs: 0, iterations: 1);
 
         r.SentCount.Should().Be(0);
@@ -156,7 +157,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100), MakeFrame(0x200), MakeFrame(0x300) };
+        var frames = new[] { MakeRow(0x100), MakeRow(0x200), MakeRow(0x300) };
         var reported = new List<int>();
 
         await svc.SendAsync(frames, SequenceSendService.Mode.Sequential,
@@ -177,7 +178,7 @@ public sealed class SequenceSendServiceTests
         // frame complete in microseconds and cancel never fires.
         var ch = new RecordingChannel(ChannelId.None) { WriteDelayMs = 30 };
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100) };
+        var frames = new[] { MakeRow(0x100) };
         using var cts = new CancellationTokenSource();
 
         // Cancel after ~50ms; each iteration takes ~30ms so this fires
@@ -195,7 +196,7 @@ public sealed class SequenceSendServiceTests
     {
         var ch = new RecordingChannel(ChannelId.None);
         var svc = new SequenceSendService(NewService(ch));
-        var frames = new[] { MakeFrame(0x100) };
+        var frames = new[] { MakeRow(0x100) };
 
         // iterations < 1
         var act1 = async () => await svc.SendAsync(frames,

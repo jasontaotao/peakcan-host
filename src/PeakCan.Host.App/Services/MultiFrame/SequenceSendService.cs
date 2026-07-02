@@ -1,5 +1,7 @@
+using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.Services.MultiFrame;
 
@@ -10,9 +12,13 @@ namespace PeakCan.Host.App.Services.MultiFrame;
 /// mode. Iteration count repeats the whole sequence N times.
 ///
 /// <para>
-/// Lives in the App assembly (not Core) because it depends on
-/// <see cref="SendService"/>, an App-layer type that wraps the
-/// raw channel send with rate-limiting + Result envelopes.
+/// v2.1.1 PATCH: rows can be either <see cref="MultiFrameSequenceRow.Kind.Raw"/>
+/// (manually entered ID/Data/flags) or
+/// <see cref="MultiFrameSequenceRow.Kind.Dbc"/> (DBC message +
+/// signal values, encoded via <see cref="DbcEncodeService"/>).
+/// The service accepts <see cref="MultiFrameSequenceRow"/>s
+/// directly so it can branch on kind before building the
+/// <see cref="CanFrame"/>.
 /// </para>
 ///
 /// <para>
@@ -25,10 +31,25 @@ namespace PeakCan.Host.App.Services.MultiFrame;
 public sealed class SequenceSendService
 {
     private readonly SendService _sendService;
+    private readonly DbcEncodeService? _dbcEncodeService;
+    private readonly DbcService? _dbcService;
 
     public SequenceSendService(SendService sendService)
+        : this(sendService, null, null) { }
+
+    /// <summary>
+    /// v2.1.1 PATCH: full-fidelity ctor that injects the DBC
+    /// dependencies needed for DBC-kind rows. Production DI binds
+    /// these; tests that only exercise raw rows pass null.
+    /// </summary>
+    public SequenceSendService(
+        SendService sendService,
+        DbcEncodeService? dbcEncodeService,
+        DbcService? dbcService)
     {
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
+        _dbcEncodeService = dbcEncodeService;
+        _dbcService = dbcService;
     }
 
     /// <summary>Send mode: concurrent vs sequential.</summary>
@@ -47,24 +68,22 @@ public sealed class SequenceSendService
     }
 
     /// <summary>
-    /// Send the frames in <paramref name="frames"/> repeated
+    /// Send the rows in <paramref name="rows"/> repeated
     /// <paramref name="iterations"/> times using the chosen
-    /// <paramref name="mode"/>. <paramref name="delayMs"/> only
-    /// applies to sequential mode (delay between consecutive frames;
-    /// 0 = fire immediately).
+    /// <paramref name="mode"/>.
     /// </summary>
     public async Task<Result> SendAsync(
-        IReadOnlyList<CanFrame> frames,
+        IReadOnlyList<MultiFrameSequenceRow> rows,
         Mode mode,
         int delayMs,
         int iterations,
         IProgress<int>? progress = null,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(rows);
         ArgumentOutOfRangeException.ThrowIfLessThan(iterations, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(delayMs);
-        if (frames.Count == 0)
+        if (rows.Count == 0)
             return new Result(SentCount: 0, FailureCount: 0, IterationsCompleted: 0);
 
         var sent = 0L;
@@ -74,6 +93,37 @@ public sealed class SequenceSendService
         for (var it = 0; it < iterations; it++)
         {
             ct.ThrowIfCancellationRequested();
+            // Build all frames for this iteration up front so a
+            // misconfigured row (bad hex, missing DBC message) fails
+            // BEFORE any send in this iteration goes on the wire.
+            // Per-row build errors count as a failure of that row.
+            var frames = new List<CanFrame>(rows.Count);
+            var rowFailures = 0;
+            foreach (var row in rows)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (TryBuildRow(row, out var frame, out var buildError))
+                {
+                    frames.Add(frame);
+                }
+                else
+                {
+                    // v2.1.1 PATCH: a build failure (e.g. unknown DBC
+                    // message) counts as a per-row failure but doesn't
+                    // abort the whole sequence — continue with the
+                    // remaining rows.
+                    rowFailures++;
+                }
+            }
+
+            if (frames.Count == 0)
+            {
+                failed += rowFailures;
+                progress?.Report((int)Interlocked.Read(ref sent) + (int)Interlocked.Read(ref failed));
+                iterationsCompleted++;
+                continue;
+            }
+
             if (mode == Mode.Concurrent)
             {
                 var tasks = new Task<bool>[frames.Count];
@@ -87,8 +137,8 @@ public sealed class SequenceSendService
                 {
                     if (results[i]) Interlocked.Increment(ref sent);
                     else            Interlocked.Increment(ref failed);
-                    progress?.Report((int)Interlocked.Read(ref sent) + (int)Interlocked.Read(ref failed));
                 }
+                Interlocked.Add(ref failed, rowFailures);
             }
             else // Sequential
             {
@@ -100,9 +150,11 @@ public sealed class SequenceSendService
                     var ok = await SendOneAsync(frames[i], ct).ConfigureAwait(false);
                     if (ok) Interlocked.Increment(ref sent);
                     else    Interlocked.Increment(ref failed);
-                    progress?.Report((int)Interlocked.Read(ref sent) + (int)Interlocked.Read(ref failed));
                 }
+                Interlocked.Add(ref failed, rowFailures);
             }
+
+            progress?.Report((int)Interlocked.Read(ref sent) + (int)Interlocked.Read(ref failed));
             iterationsCompleted++;
         }
 
@@ -112,14 +164,94 @@ public sealed class SequenceSendService
             IterationsCompleted: iterationsCompleted);
     }
 
+    /// <summary>
+    /// v2.1.1 PATCH: build a <see cref="CanFrame"/> from a row,
+    /// dispatching on <see cref="MultiFrameSequenceRow.Kind"/>.
+    /// Returns false on any build error (bad hex, unknown DBC
+    /// message, encoder exception) — caller treats as a row-level
+    /// failure and continues with the rest of the sequence.
+    /// </summary>
+    private bool TryBuildRow(MultiFrameSequenceRow row, out CanFrame frame, out string? error)
+    {
+        try
+        {
+            if (row.RowKind == MultiFrameSequenceRow.Kind.Raw)
+            {
+                frame = row.Build();
+                error = null;
+                return true;
+            }
+
+            // DBC kind: look up the message in the currently-loaded
+            // DBC document and encode the per-signal values via
+            // DbcEncodeService. Any of these three steps can fail
+            // (no DBC loaded, unknown message name, encode error);
+            // we surface a single error string and skip the row.
+            if (_dbcEncodeService is null || _dbcService is null)
+            {
+                frame = default;
+                error = "DBC row requires DbcEncodeService + DbcService (not registered in DI).";
+                return false;
+            }
+            var doc = _dbcService.Current;
+            if (doc is null)
+            {
+                frame = default;
+                error = "No DBC document loaded — load a .dbc file first.";
+                return false;
+            }
+            // DbcDocument doesn't expose a name-based lookup; linear scan is
+            // fine for typical DBC sizes (≤ few hundred messages) and
+            // avoids a Core-layer API addition for a v2.1.1 PATCH.
+            Message? msg = null;
+            foreach (var m in doc.Messages)
+            {
+                if (string.Equals(m.Name, row.DbcMessageName, StringComparison.Ordinal))
+                {
+                    msg = m;
+                    break;
+                }
+            }
+            if (msg is null)
+            {
+                frame = default;
+                error = $"DBC message '{row.DbcMessageName}' not found in loaded document.";
+                return false;
+            }
+            var values = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var sv in row.DbcSignalValues)
+            {
+                if (sv.Value.HasValue && !string.IsNullOrEmpty(sv.Name))
+                    values[sv.Name] = sv.Value.Value;
+            }
+            var payload = _dbcEncodeService.Encode(msg, values);
+
+            // DBC messages use the PEAK convention: bit 31 set ⇒
+            // Extended (29-bit ID), clear ⇒ Standard (11-bit ID).
+            // Mirrors DbcSendViewModel.SendAsync logic.
+            var id = msg.Id;
+            var isExtended = (id & 0x80000000u) != 0u;
+            var raw = isExtended ? (id & 0x1FFFFFFFu) : (id & 0x7FFu);
+            var canId = new CanId(raw, isExtended ? FrameFormat.Extended : FrameFormat.Standard);
+            // DBC encoding always returns exactly Dlc bytes — no
+            // flags beyond what the DBC specifies (no FD bit, no
+            // BRS in this code path; future work).
+            frame = new CanFrame(canId, payload, FrameFlags.None, ChannelId.None, default);
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            frame = default;
+            error = ex.Message;
+            return false;
+        }
+    }
+
     private async Task<bool> SendOneAsync(CanFrame frame, CancellationToken ct)
     {
         try
         {
-            // CA2016: forward the supplied token so the underlying
-            // SendService observes cancellation when the caller stops
-            // the sequence. Pre-CA2016 fix we omitted it on purpose
-            // ("fire-and-forget") but that masks cancellation latency.
             var r = await _sendService.SendAsync(frame, ct).ConfigureAwait(false);
             return r.IsSuccess;
         }

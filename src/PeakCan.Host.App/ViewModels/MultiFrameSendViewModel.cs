@@ -5,8 +5,10 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Models;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -29,11 +31,16 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposable
 {
     private readonly SequenceSendService _service;
+    private readonly DbcService? _dbcService;
     private CancellationTokenSource? _runCts;
     private readonly DispatcherTimer _progressPollTimer;
 
     /// <summary>One row per CAN frame definition.</summary>
     public ObservableCollection<MultiFrameSequenceRow> Rows { get; } = new();
+
+    /// <summary>v2.1.1 PATCH: messages from the loaded DBC document,
+    /// for the DBC-row message picker. Empty when no DBC loaded.</summary>
+    public ObservableCollection<Message> AvailableDbcMessages { get; } = new();
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
@@ -56,11 +63,32 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     [ObservableProperty] private MultiFrameSequenceRow? _selectedRow;
 
     public MultiFrameSendViewModel(SequenceSendService service)
+        : this(service, null) { }
+
+    /// <summary>
+    /// v2.1.1 PATCH: full-fidelity ctor that wires the
+    /// <see cref="DbcService"/> for the DBC-row message picker and
+    /// subscribes to <see cref="DbcService.DbcLoaded"/> so a DBC
+    /// loaded AFTER the window opens still shows up in the picker.
+    /// Tests that don't need DBC rows pass null.
+    /// </summary>
+    public MultiFrameSendViewModel(SequenceSendService service, DbcService? dbcService)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _dbcService = dbcService;
         Rows.CollectionChanged += OnRowsChanged;
         // Seed with one empty row so the DataGrid isn't empty on first open.
         Rows.Add(new MultiFrameSequenceRow { Id = 0x100, DataHex = "DEADBEEF" });
+
+        // v2.1.1 PATCH: populate AvailableDbcMessages from the
+        // currently-loaded DBC document (if any) and subscribe to
+        // DbcLoaded so a later load updates the picker.
+        if (_dbcService is not null)
+        {
+            foreach (var msg in _dbcService.Current?.Messages ?? Enumerable.Empty<Message>())
+                AvailableDbcMessages.Add(msg);
+            _dbcService.DbcLoaded += OnDbcLoaded;
+        }
 
         // Poll the run progress from the service's cancellation state.
         // The service itself reports progress via IProgress<int> which
@@ -73,6 +101,20 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
             // use (e.g. elapsed-time display) and is cheap when idle.
         };
         _progressPollTimer.Start();
+    }
+
+    private void OnDbcLoaded(DbcDocument doc)
+    {
+        // DbcLoaded fires on a worker thread (DbcService.LoadAsync);
+        // ObservableCollection mutation must happen on the UI
+        // dispatcher. RunOnUi pattern matches DbcViewModel /
+        // DbcSendViewModel.
+        ((Action)(() =>
+        {
+            AvailableDbcMessages.Clear();
+            foreach (var msg in doc.Messages)
+                AvailableDbcMessages.Add(msg);
+        })).RunOnUi();
     }
 
     private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
@@ -158,29 +200,14 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
             StatusText = "No frames to send.";
             return;
         }
-        // Build all frames up front so per-row validation errors
-        // surface before any send happens (no partial-send surprise).
-        var frames = new List<CanFrame>(Rows.Count);
-        for (var i = 0; i < Rows.Count; i++)
-        {
-            try
-            {
-                frames.Add(Rows[i].Build());
-            }
-            catch (FormatException ex)
-            {
-                StatusText = $"Row {i + 1} has invalid data: {ex.Message}";
-                return;
-            }
-            catch (ArgumentOutOfRangeException ex)
-            {
-                StatusText = $"Row {i + 1}: {ex.Message}";
-                return;
-            }
-        }
+        // v2.1.1 PATCH: pass rows directly to the service; the
+        // service handles row.Build() (raw) or DbcEncodeService
+        // (DBC) per-row. Per-row build failures (bad hex, missing
+        // DBC message) count as failures but don't abort the
+        // sequence.
 
         IsRunning = true;
-        StatusText = $"Sending {frames.Count} frame(s) × {Iterations} iteration(s) ({ModeLabel()})…";
+        StatusText = $"Sending {Rows.Count} frame(s) × {Iterations} iteration(s) ({ModeLabel()})…";
         ProgressValue = 0;
         RefreshProgressMax();
 
@@ -195,7 +222,7 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
 
         try
         {
-            var result = await _service.SendAsync(frames, mode, DelayMs, Iterations, progress, ct).ConfigureAwait(true);
+            var result = await _service.SendAsync(Rows, mode, DelayMs, Iterations, progress, ct).ConfigureAwait(true);
             StatusText = result.FailureCount == 0
                 ? $"Done. Sent {result.SentCount} / {result.SentCount + result.FailureCount} in {result.IterationsCompleted} iteration(s)."
                 : $"Done with errors. Sent {result.SentCount}, failed {result.FailureCount}, iterations {result.IterationsCompleted}.";
@@ -248,6 +275,8 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
         _progressPollTimer.Stop();
         _runCts?.Cancel();
         _runCts?.Dispose();
+        if (_dbcService is not null)
+            _dbcService.DbcLoaded -= OnDbcLoaded;
         GC.SuppressFinalize(this);
     }
 }

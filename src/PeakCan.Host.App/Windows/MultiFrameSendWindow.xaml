@@ -15,6 +15,8 @@
         Topmost="False">
     <Window.Resources>
         <conv:InverseBooleanConverter x:Key="InverseBool" />
+        <!-- v2.1.1 PATCH: visibility converter for "kind == X" bindings -->
+        <conv:KindEqualsConverter x:Key="KindEquals" />
     </Window.Resources>
     <Grid Margin="8">
         <Grid.RowDefinitions>
@@ -28,17 +30,57 @@
                   ItemsSource="{Binding Rows}"
                   SelectedItem="{Binding SelectedRow}"
                   AutoGenerateColumns="False"
-                  CanUserAddRows="False">
+                  CanUserAddRows="False"
+                  RowDetailsVisibilityMode="VisibleWhenSelected">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="ID (hex)" Binding="{Binding IdHexDisplay, Mode=OneWay}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="80" />
+                <!-- v2.1.1 PATCH: Type column with Raw/Dbc dropdown.
+                     Switching a row's Kind toggles the RowDetails
+                     editor via the DataTrigger on RowKind below. -->
+                <DataGridTextColumn Header="ID (hex)" Binding="{Binding IdHexDisplay, Mode=OneWay}" Width="80" IsReadOnly="True"/>
+                <DataGridComboBoxColumn Header="Type" Width="70"
+                                        SelectedItemBinding="{Binding RowKind}">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding DataContext.AvailableDbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                </DataGridComboBoxColumn>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="70" />
                 <DataGridTextColumn Header="Data (hex)" Binding="{Binding DataHex}" Width="*" />
-                <DataGridCheckBoxColumn Header="Ext" Binding="{Binding IsExtended}" Width="50" />
-                <DataGridCheckBoxColumn Header="FD"  Binding="{Binding IsFd}" Width="50" />
-                <DataGridCheckBoxColumn Header="RTR" Binding="{Binding IsRtr}" Width="50" />
-                <DataGridCheckBoxColumn Header="BRS" Binding="{Binding IsBitRateSwitch}" Width="50" />
-                <DataGridCheckBoxColumn Header="ESI" Binding="{Binding IsErrorStateIndicator}" Width="50" />
+                <DataGridCheckBoxColumn Header="Ext" Binding="{Binding IsExtended}" Width="40" />
+                <DataGridCheckBoxColumn Header="FD"  Binding="{Binding IsFd}" Width="40" />
+                <DataGridCheckBoxColumn Header="RTR" Binding="{Binding IsRtr}" Width="40" />
+                <DataGridCheckBoxColumn Header="BRS" Binding="{Binding IsBitRateSwitch}" Width="40" />
+                <DataGridCheckBoxColumn Header="ESI" Binding="{Binding IsErrorStateIndicator}" Width="40" />
             </DataGrid.Columns>
+
+            <!-- v2.1.1 PATCH: RowDetails shows DBC editor when row
+                 is Dbc kind; hidden for Raw. The editor is a small
+                 grid: message picker + signal values. -->
+            <DataGrid.RowDetailsTemplate>
+                <DataTemplate>
+                    <Border Padding="8" Background="#1E1E1E" BorderBrush="#444" BorderThickness="0,1,0,0">
+                        <StackPanel Visibility="{Binding RowKind, Converter={StaticResource KindEquals}, ConverterParameter=Dbc}">
+                            <TextBlock Text="DBC message" Foreground="#CCC" Margin="0,0,0,4"/>
+                            <ComboBox ItemsSource="{Binding DataContext.AvailableDbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedItem="{Binding DbcMessageName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      DisplayMemberPath="Name"
+                                      Width="200" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Text="Signal values" Foreground="#CCC" Margin="0,4,0,4"/>
+                            <DataGrid ItemsSource="{Binding DbcSignalValues}"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="True" CanUserDeleteRows="True"
+                                      MaxHeight="160"
+                                      HeadersVisibility="Column">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Signal" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="Engineering value" Binding="{Binding Value}" Width="160" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </DataGrid.RowDetailsTemplate>
         </DataGrid>
 
         <!-- Toolbar -->

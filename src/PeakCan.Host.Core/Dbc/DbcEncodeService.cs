@@ -6,7 +6,7 @@ namespace PeakCan.Host.Core.Dbc;
 /// Handles DBC endianness (Little/Big), sign extension (Unsigned/Signed),
 /// IEEE-754 reinterpretation (Float/Double), and engineering scale/offset.
 /// </summary>
-public sealed class DbcEncodeService
+public class DbcEncodeService
 {
     /// <summary>
     /// Encode <paramref name="signalValues"/> into a fresh <c>Dlc</c>-sized byte
@@ -21,7 +21,7 @@ public sealed class DbcEncodeService
     /// <exception cref="DbcMultiplexorRequiredException">
     /// Multiplexed message missing multiplexor value in input.
     /// </exception>
-    public byte[] Encode(Message message, IReadOnlyDictionary<string, double> signalValues)
+    public virtual byte[] Encode(Message message, IReadOnlyDictionary<string, double> signalValues)
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(signalValues);
