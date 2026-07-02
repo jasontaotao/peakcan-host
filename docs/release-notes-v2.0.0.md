@@ -44,7 +44,7 @@ load `.odx` / `.pdx` files directly via the UDS view's new "Load ODX…" button.
 | Core  | 353            | 378    |
 | App   | 438            | 442    |
 | Infra | 84             | 84     |
-| **Total** | **875 + 6 SKIP** | **~902 + 6 SKIP / 0 fail** (excluding 2 race-test transient flakes; pass in isolation per MEMORY pattern) |
+| **Total** | **875 + 6 SKIP** | **905 + 6 SKIP / 0 fail** (excluding 2 race-test transient flakes; pass in isolation per MEMORY pattern) |
 
 (29 new ODX tests: 1 ErrorCode + 3 ImportResult + 3 Document + 3 Parser + 3 PdxReader + 6 Database + 2 AddRange + 4 Mapper + 2 Service + 2 VM = 29.)
 

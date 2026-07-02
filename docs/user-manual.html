@@ -1093,7 +1093,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <h3>A.3 测试覆盖</h3>
 <ul>
-  <li><strong>900 pass + 6 SKIP + 0 fail</strong>：Core 378 + App 442 + Infrastructure 84 (含 ODX</li>
+  <li><strong>905 pass + 6 SKIP + 0 fail</strong>：Core 379 + App 442 + Infrastructure 84 (含 ODX</li>
   <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
   <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
