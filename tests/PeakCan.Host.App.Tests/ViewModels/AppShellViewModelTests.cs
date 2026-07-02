@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
@@ -96,7 +97,8 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
     }
 
     /// <summary>
@@ -405,7 +407,8 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -477,7 +480,8 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
     }
 
     [Fact]
@@ -592,7 +596,8 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -837,6 +842,7 @@ public class AppShellViewModelTests
                 new DtcPanelViewModel(udsClient)),
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+            new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
             enumerator,
             writableConfig);
     }
@@ -1072,5 +1078,19 @@ public class AppShellViewModelTests
         var shell = NewVm();
         shell.ShowReplayCommand.Should().NotBeNull();
         shell.ShowReplayCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    // --- v2.1.7 PATCH: OpenMultiFrame routing (Pattern A2 orphan closure) ---
+
+    [Fact]
+    public void OpenMultiFrameCommand_Is_Not_Null_And_Can_Execute()
+    {
+        // v2.1.7 PATCH: closes the v2.1.0 MINOR Multi-frame orphan — the
+        // MultiFrameSendWindow + MultiFrameSendViewModel + SendView button
+        // were all built, but AppShell had no menu route. Mirror the
+        // ShowReplayCommand_Is_Not_Null_And_Can_Execute precedent.
+        var shell = NewVm();
+        shell.OpenMultiFrameCommand.Should().NotBeNull();
+        shell.OpenMultiFrameCommand.CanExecute(null).Should().BeTrue();
     }
 }

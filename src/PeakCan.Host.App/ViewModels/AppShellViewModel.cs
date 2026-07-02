@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.App.Windows;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
@@ -86,6 +88,12 @@ public sealed partial class AppShellViewModel : ObservableObject
     // navigation route reached it. Wiring the VM through DI + ctor is the first
     // half of the fix; AppShell.xaml menu entry is the second half.
     private readonly ReplayViewModel _replayViewModel;
+    // v2.1.7 PATCH: Multi-frame send window was reachable only via the
+    // SendView button (Pattern A2 orphan since v2.1.0 MINOR). AppShell now
+    // holds the shared MultiFrameSendViewModel and opens a new
+    // MultiFrameSendWindow on menu click. SendViewModel keeps its own
+    // independent window instance — both point at the same singleton VM.
+    private readonly MultiFrameSendViewModel _multiFrameSendViewModel;
     // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
@@ -235,6 +243,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         UdsViewModel udsViewModel,
         RecordViewModel recordViewModel,
         ReplayViewModel replayViewModel,
+        MultiFrameSendViewModel multiFrameSendViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -252,6 +261,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
         _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
         _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
+        _multiFrameSendViewModel = multiFrameSendViewModel ?? throw new ArgumentNullException(nameof(multiFrameSendViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -398,6 +408,23 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _replayView;
         }
         CurrentView = _replayView;
+    }
+
+    [RelayCommand]
+    private void OpenMultiFrame()
+    {
+        // v2.1.7 PATCH: Multi-frame send window from the AppShell View menu.
+        // Closes the v2.1.0 MINOR Pattern A2 orphan — the window + VM were
+        // fully built and SendView held a button to open it, but AppShell
+        // had no menu route. Each menu click opens a fresh window instance
+        // pointing at the shared singleton VM (matches SendViewModel's
+        // lazy-show pattern; if both menus are used, two independent windows
+        // coexist — acceptable for this PATCH; window-state consolidation
+        // is a separate refactor).
+        var win = new MultiFrameSendWindow(_multiFrameSendViewModel);
+        if (Application.Current?.MainWindow is { } owner && owner != win)
+            win.Owner = owner;
+        win.Show();
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

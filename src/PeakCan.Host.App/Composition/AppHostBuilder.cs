@@ -483,6 +483,7 @@ public class AppHostBuilder
             sp.GetRequiredService<UdsViewModel>(),
             sp.GetRequiredService<RecordViewModel>(),
             sp.GetRequiredService<ReplayViewModel>(),
+            sp.GetRequiredService<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();
