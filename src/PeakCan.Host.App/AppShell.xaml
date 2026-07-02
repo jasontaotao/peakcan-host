@@ -23,6 +23,7 @@
                 <MenuItem Header="Script" Command="{Binding ShowScriptCommand}" />
                 <MenuItem Header="UDS" Command="{Binding ShowUdsCommand}" />
                 <MenuItem Header="Record" Command="{Binding ShowRecordCommand}" />
+                <MenuItem Header="Replay" Command="{Binding ShowReplayCommand}" />
             </MenuItem>
         </Menu>
         <ToolBarTray DockPanel.Dock="Top">

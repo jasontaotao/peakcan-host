@@ -303,6 +303,13 @@ public class AppHostBuilder
         // navigation in production.
         builder.Services.AddSingleton<RecordViewModel>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordViewModel>());
+        // v2.1.4 PATCH: Replay tab VM. Closes the v1.4.0 MINOR orphan —
+        // ReplayView + IReplayService were wired but ReplayViewModel
+        // itself was never registered, so AppShell could not navigate to
+        // the tab. Standard AddSingleton matches the RecordViewModel
+        // precedent (no IHostedService — ReplayVM has no Dispose-time
+        // background timer that needs host shutdown).
+        builder.Services.AddSingleton<ReplayViewModel>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -475,6 +482,7 @@ public class AppHostBuilder
             sp.GetRequiredService<ScriptViewModel>(),
             sp.GetRequiredService<UdsViewModel>(),
             sp.GetRequiredService<RecordViewModel>(),
+            sp.GetRequiredService<ReplayViewModel>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();

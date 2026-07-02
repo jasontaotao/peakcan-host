@@ -81,6 +81,11 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly ScriptViewModel _scriptViewModel;
     private readonly UdsViewModel _udsViewModel;
     private readonly RecordViewModel _recordViewModel;
+    // v2.1.4 PATCH: Replay tab was orphaned since v1.4.0 MINOR — ReplayViewModel
+    // exists (with the full ReplayView UI behind it) but no AppShell-level
+    // navigation route reached it. Wiring the VM through DI + ctor is the first
+    // half of the fix; AppShell.xaml menu entry is the second half.
+    private readonly ReplayViewModel _replayViewModel;
     // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
@@ -105,6 +110,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private ScriptView? _scriptView;
     private UdsView? _udsView;
     private RecordView? _recordView;
+    private ReplayView? _replayView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -228,6 +234,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         ScriptViewModel scriptViewModel,
         UdsViewModel udsViewModel,
         RecordViewModel recordViewModel,
+        ReplayViewModel replayViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -244,6 +251,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
         _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
         _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
+        _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -374,6 +382,22 @@ public sealed partial class AppShellViewModel : ObservableObject
             if (CurrentView == null) CurrentView = _recordView;
         }
         CurrentView = _recordView;
+    }
+
+    [RelayCommand]
+    private void ShowReplay()
+    {
+        // v2.1.4 PATCH: Replay tab. Same lazy-view pattern as ShowRecord.
+        // Closes the v1.4.0 MINOR orphan — the tab was fully built
+        // (ReplayView + ReplayViewModel + IReplayService + tests) but
+        // AppShell had no ShowReplayCommand and AppHostBuilder had no
+        // ReplayViewModel DI registration, so the tab was unreachable.
+        if (_replayView == null)
+        {
+            _replayView = new ReplayView { DataContext = _replayViewModel };
+            if (CurrentView == null) CurrentView = _replayView;
+        }
+        CurrentView = _replayView;
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

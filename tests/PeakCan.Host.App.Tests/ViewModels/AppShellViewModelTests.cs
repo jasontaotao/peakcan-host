@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Tests.Collections;
@@ -8,6 +9,7 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -93,7 +95,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance));
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
     }
 
     /// <summary>
@@ -401,7 +404,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance));
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -472,7 +476,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance));
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
     }
 
     [Fact]
@@ -586,7 +591,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance));
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -830,6 +836,7 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+            new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
             enumerator,
             writableConfig);
     }
@@ -1048,5 +1055,22 @@ public class AppShellViewModelTests
         var shell = NewVm();
         shell.ShowRecordCommand.Should().NotBeNull();
         shell.ShowRecordCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    // --- v2.1.4 PATCH: ShowReplay routing ---
+
+    [Fact]
+    public void ShowReplayCommand_Is_Not_Null_And_Can_Execute()
+    {
+        // v2.1.4 PATCH: closes the v1.4.0 MINOR Replay orphan — the tab
+        // was fully built (ReplayView + ReplayViewModel + IReplayService
+        // + tests) but the AppShell shell had no navigation route. The
+        // command is now generated and binds to the View → Replay menu
+        // entry. STA-RunSta lazy-view instantiation is exercised by the
+        // same manual smoke as ShowRecord (manual smoke validates the tab
+        // swap; here we only assert the command exists).
+        var shell = NewVm();
+        shell.ShowReplayCommand.Should().NotBeNull();
+        shell.ShowReplayCommand.CanExecute(null).Should().BeTrue();
     }
 }
