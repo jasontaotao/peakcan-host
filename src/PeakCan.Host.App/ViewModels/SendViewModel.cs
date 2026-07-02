@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Windows;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -96,7 +98,14 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     [ObservableProperty]
     private DbcSendViewModel? _dbcSend;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null)
+    // v2.1.0 MINOR: multi-frame send VM (singleton in DI). The
+    // Window itself is NOT DI-registered because WPF Window
+    // construction requires STA + a live Application — instantiating
+    // it via the DI container (which runs in any thread) throws.
+    // Instead we lazy-create the window in OpenMultiFrameSend.
+    private readonly MultiFrameSendViewModel? _multiFrameVm;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -107,6 +116,9 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         // DBC sub-panel may be null in unit tests that pre-date
         // DbcSendViewModel registration; production DI always provides it.
         _dbcSend = dbcSend;
+        // Multi-frame VM may be null in unit tests that pre-date
+        // v2.1.0; production DI always provides it.
+        _multiFrameVm = multiFrameVm;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
         // the UI reflects IsRunning / SuccessCount / FailureCount without
@@ -421,4 +433,34 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
 
     [LoggerMessage(EventId = 2002, Level = LogLevel.Error, Message = "Delete '{Name}' from library failed")]
     private static partial void LogDeleteFromLibraryFailed(ILogger logger, Exception ex, string name);
+
+    // v2.1.0 MINOR: open the multi-frame send window (non-modal).
+    // The window is lazy-created on first call: WPF Window construction
+    // requires an STA thread + a live Application, so we can't
+    // resolve a Window from DI at container-build time. The VM is
+    // DI-resolved (singleton) but the Window itself is owned by
+    // SendViewModel and kept alive for the SendView's lifetime.
+    private MultiFrameSendWindow? _openMultiFrameWindow;
+
+    [RelayCommand]
+    private void OpenMultiFrameSend()
+    {
+        if (_multiFrameVm is null)
+        {
+            Status = "Multi-frame window unavailable";
+            return;
+        }
+        if (_openMultiFrameWindow is { } existing && existing.IsVisible)
+        {
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            return;
+        }
+        _openMultiFrameWindow = new MultiFrameSendWindow(_multiFrameVm);
+        if (Application.Current?.MainWindow is { } owner && owner != _openMultiFrameWindow)
+            _openMultiFrameWindow.Owner = owner;
+        _openMultiFrameWindow.Show();
+        Status = "Multi-frame send window opened";
+    }
 }

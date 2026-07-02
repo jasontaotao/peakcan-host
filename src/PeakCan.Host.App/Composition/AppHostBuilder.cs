@@ -269,6 +269,15 @@ public class AppHostBuilder
         // DBC load. Dependencies (DbcEncodeService, SendService,
         // DbcService, ICyclicDbcSendService) are registered above.
         builder.Services.AddSingleton<DbcSendViewModel>();
+        // v2.1.0 MINOR: multi-frame sequence send. SequenceSendService
+        // wraps SendService for concurrent/sequential frame dispatch;
+        // MultiFrameSendViewModel drives the non-modal window's UI.
+        // The Window itself is NOT DI-registered — WPF Window
+        // construction requires STA + live Application, so DI
+        // resolution throws on the test thread. SendViewModel
+        // lazy-creates the Window on first OpenMultiFrameSend call.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>();
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would
