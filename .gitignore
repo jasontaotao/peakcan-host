@@ -35,3 +35,14 @@ docs/devlog.md
 mutate
 release-lock
 run-other-cleanup
+
+# v2.0.2 PATCH follow-up (per v2.0.1 PATCH release notes Item 4):
+# Root-level _*.md are brainstorming / agent scratch files, not repo
+# content. Real design + plan artifacts live under docs/superpowers/{specs,plans}/.
+# _plan.md / _spec.md reappeared at v2.0.0 ship; deleted in v2.0.1 PATCH.
+# This rule prevents re-introduction via accidental same-path writes.
+# Files starting with single underscore + at least one character are
+# excluded; legitimate root files normally use either no prefix or a
+# leading dot.
+_[!_]*.md
+
