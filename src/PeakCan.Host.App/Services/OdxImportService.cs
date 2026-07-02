@@ -67,27 +67,57 @@ public sealed class OdxImportService : IOdxImportService
             _parser.Parse(xdoc, out var parseWarnings);
             warnings.AddRange(parseWarnings);
 
-            foreach (var layerEl in xdoc.Descendants(XName.Get("DIAG-LAYER", OdxParser.OdxNamespace)))
+            // Resolve the file's namespace once per document. ODX 2.x
+            // (with xmlns) and ODX-D (no xmlns) differ here.
+            var ns = xdoc.Root?.Name.Namespace ?? (XNamespace)OdxParser.OdxNamespace;
+
+            // DOPs / DTC-DOPs / ECU-JOBs may live anywhere in the
+            // document tree: inside DIAG-LAYER (canonical ODX 2.x) OR
+            // inside ECU-SHARED-DATA (Vector CANdelaStudio .odx-d
+            // layout). Walk the whole document so both layouts are
+            // supported without per-shape branching.
+            foreach (var dop in xdoc.Descendants(ns + "DOP-BASE"))
             {
-                foreach (var dop in layerEl.Descendants(XName.Get("DOP-BASE", OdxParser.OdxNamespace)))
+                var def = DidDop.TryMap(dop, out var w);
+                if (def is { } d) didDefs.Add(d);
+                if (w is not null) warnings.Add(w);
+            }
+
+            // DTCs: build a document-wide index of inline <DTC> elements
+            // first so DTC-REFs in secondary DTC-DOPs can resolve.
+            var dtcIndex = DtcDop.IndexInlineDtcs(xdoc, ns);
+            var seenDtcCodes = new HashSet<uint>();
+            foreach (var dop in xdoc.Descendants(ns + "DTC-DOP"))
+            {
+                foreach (var (def, w) in DtcDop.Enumerate(dop, dtcIndex))
                 {
-                    var def = DidDop.TryMap(dop, out var w);
-                    if (def is { } d) didDefs.Add(d);
                     if (w is not null) warnings.Add(w);
-                }
-                foreach (var dop in layerEl.Descendants(XName.Get("DTC-DOP", OdxParser.OdxNamespace)))
-                {
-                    var def = DtcDop.TryMap(dop, out var w);
-                    if (def is { } d) dtcDefs.Add(d);
-                    if (w is not null) warnings.Add(w);
-                }
-                foreach (var job in layerEl.Descendants(XName.Get("ECU-JOB", OdxParser.OdxNamespace)))
-                {
-                    var def = EcuJob.TryMap(job, out var w);
-                    if (def is not null) routineDefs.Add(def);
-                    if (w is not null) warnings.Add(w);
+                    if (def is { } d && seenDtcCodes.Add(d.Code))
+                        dtcDefs.Add(d);
                 }
             }
+            foreach (var job in xdoc.Descendants(ns + "ECU-JOB"))
+            {
+                var def = EcuJob.TryMap(job, out var w);
+                if (def is not null) routineDefs.Add(def);
+                if (w is not null) warnings.Add(w);
+            }
+
+            // Flat ODX-D layouts (Vector CANdelaStudio .odx-d) do not
+            // use DOP-BASE / ECU-JOB. DIDs and routines are inline in
+            // <REQUEST> elements with SERVICE-ID + ID PARAMs.
+            var didsFromRequests = RequestBasedMappers.ExtractDids(xdoc, ns);
+            foreach (var (did, writable) in didsFromRequests)
+            {
+                didDefs.Add(new DidDefinition(
+                    Id: did,
+                    Name: $"DID_0x{did:X4}",
+                    Description: $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
+                    LengthBytes: 0, // P6 will populate from DOP-REF / DIAG-CODED-TYPE
+                    Writable: writable));
+            }
+            var routinesFromRequests = RequestBasedMappers.ExtractRoutines(xdoc, ns);
+            routineDefs.AddRange(routinesFromRequests);
         }
 
         // D6 — DoS guard.

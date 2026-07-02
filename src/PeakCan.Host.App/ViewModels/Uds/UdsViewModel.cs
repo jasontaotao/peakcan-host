@@ -77,7 +77,7 @@ public sealed partial class UdsViewModel : ObservableObject
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Load ODX diagnostic description",
-            Filter = "ODX files (*.odx;*.pdx)|*.odx;*.pdx|All files (*.*)|*.*",
+            Filter = "ODX files (*.odx;*.pdx;*.odx-d)|*.odx;*.pdx;*.odx-d|All files (*.*)|*.*",
         };
         if (dialog.ShowDialog() != true) return;
 

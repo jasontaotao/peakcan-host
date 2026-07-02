@@ -894,16 +894,18 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 <p>操作：<strong>Read DTCs</strong> 拉取并填充 DataGrid；<strong>Clear DTCs</strong> 发送 <code>ClearDiagnosticInformation(0xFFFFFF)</code> 并清空本地列表。</p>
 
-<h3 id="uds-odx">11.5 ODX 诊断描述导入（v2.0.0 起）</h3>
+<h3 id="uds-odx">11.5 ODX 诊断描述导入（v2.0.0 起，v2.0.4 支持 <code>.odx-d</code>）</h3>
 
-<p>v2.0.0 起，UDS 视图顶部条新增 <strong>Load ODX…</strong> 按钮：</p>
+<p>v2.0.0 起，UDS 视图顶部条新增 <strong>Load ODX…</strong> 按钮。v2.0.4 起支持 Vector CANdelaStudio 输出的 <code>.odx-d</code> 文件（ODX-D 子集）：</p>
 <ol>
-  <li>点击按钮 → 文件对话框（filter: <code>*.odx</code> / <code>*.pdx</code> / <code>*.*</code>）。</li>
-  <li>选择供应商提供的 <code>.odx</code>（或 <code>.pdx</code> zip 容器）文件。</li>
-  <li><code>OdxImportService</code> 解析 <code>DIAG-LAYER-CONTAINER</code> → 映射 <code>DOP-BASE</code> / <code>DTC-DOP</code> / <code>ECU-JOB</code> → 填充 <code>DidDatabase</code> / <code>DtcDatabase</code> / <code>RoutineDatabase</code>。</li>
+  <li>点击按钮 → 文件对话框（filter: <code>*.odx</code> / <code>*.pdx</code> / <code>*.odx-d</code> / <code>*.*</code>）。</li>
+  <li>选择供应商提供的 <code>.odx</code>、<code>.pdx</code>（zip 容器）或 <code>.odx-d</code>（Vector CANdelaStudio 导出）文件。</li>
+  <li><code>OdxImportService</code> 解析 <code>DIAG-LAYER-CONTAINER</code> → 映射 <code>DOP-BASE</code> / <code>DTC-DOP</code> / <code>ECU-JOB</code>（canonical ODX 2.x）+ <code>BASE-VARIANT</code> + <code>REQUEST</code>（<code>0x22</code>/<code>0x2E</code>/<code>0x31</code> 三个 UDS service id，<code>.odx-d</code> 实际数据所在）→ 填充 <code>DidDatabase</code> / <code>DtcDatabase</code> / <code>RoutineDatabase</code>。</li>
   <li>底部 status bar 显示 <code>ODX loaded: N DIDs / M Routines / K DTCs from &lt;path&gt;</code>。如果 warnings &gt; 0，会附 warning 数（也显示在 modal summary）。</li>
   <li>DTC panel 重新刷新 — 如果之前 ECU 已读过 DTC 但描述为空，<strong>现在会自动用 ODX 中的 <code>TEXT/DTC-TAB</code> 替换 ISO 14294 category fallback</strong>。</li>
 </ol>
+
+<p><strong>已知限制（v2.0.4）</strong>：DID 数据长度（<code>LengthBytes</code>）字段在 ODX-D flat layout 下需要走 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链才能解析——v2.0.4 PATCH 暂未实现，所有 ODX 导入的 DID 默认 <code>LengthBytes=0</code>。DID 列表 + Writable 标志已正确导入。后续 v2.0.5 / v2.1 计划补 length resolution。</p>
 
 <h3 id="uds-secauth">11.6 SecurityAccess 与 <code>IKeyDerivationAlgorithm</code></h3>
 

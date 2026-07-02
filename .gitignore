@@ -46,3 +46,10 @@ run-other-cleanup
 # leading dot.
 _[!_]*.md
 
+# v2.0.4 PATCH: OEM-supplied ODX-D test fixtures (e.g. CANdelaStudio
+# .odx-d exports) are customer proprietary. Tests reference these
+# from tests/**/Fixtures/Odx/ but the files themselves are
+# git-ignored to avoid committing proprietary data.
+tests/**/Fixtures/Odx/*.odx-d
+tests/**/Fixtures/Odx/*.cdd
+
