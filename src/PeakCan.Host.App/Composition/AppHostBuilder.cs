@@ -285,10 +285,16 @@ public class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.Services.SendService>(),
                 sp.GetRequiredService<PeakCan.Host.Core.Dbc.DbcEncodeService>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
+        // v2.1.2 PATCH: SequenceLibrary persists named sequences to
+        // %APPDATA%\PeakCan.Host\sequences.json. Wired into the
+        // multi-frame VM factory so SaveCurrent / LoadSaved / DeleteSaved
+        // commands reach the library.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Sequence.SequenceLibrary>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.MultiFrameSendViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
+                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Sequence.SequenceLibrary>()));
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would

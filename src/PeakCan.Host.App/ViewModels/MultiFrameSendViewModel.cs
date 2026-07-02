@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
+using PeakCan.Host.App.Services.Sequence;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 
@@ -32,6 +33,7 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
 {
     private readonly SequenceSendService _service;
     private readonly DbcService? _dbcService;
+    private readonly SequenceLibrary? _library;
     private CancellationTokenSource? _runCts;
     private readonly DispatcherTimer _progressPollTimer;
 
@@ -41,6 +43,13 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// <summary>v2.1.1 PATCH: messages from the loaded DBC document,
     /// for the DBC-row message picker. Empty when no DBC loaded.</summary>
     public ObservableCollection<Message> AvailableDbcMessages { get; } = new();
+
+    /// <summary>v2.1.2 PATCH: saved sequences from the library,
+    /// for the Load Sequence picker.</summary>
+    public ObservableCollection<SequenceLibrary.SavedSequence> SavedSequences { get; } = new();
+
+    [ObservableProperty] private string _saveNameText = "";
+    [ObservableProperty] private SequenceLibrary.SavedSequence? _selectedSavedSequence;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
@@ -63,7 +72,7 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     [ObservableProperty] private MultiFrameSequenceRow? _selectedRow;
 
     public MultiFrameSendViewModel(SequenceSendService service)
-        : this(service, null) { }
+        : this(service, null, null) { }
 
     /// <summary>
     /// v2.1.1 PATCH: full-fidelity ctor that wires the
@@ -73,9 +82,20 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// Tests that don't need DBC rows pass null.
     /// </summary>
     public MultiFrameSendViewModel(SequenceSendService service, DbcService? dbcService)
+        : this(service, dbcService, null) { }
+
+    /// <summary>
+    /// v2.1.2 PATCH: full-fidelity ctor with <see cref="SequenceLibrary"/>
+    /// for Save / Load / Delete of named sequences.
+    /// </summary>
+    public MultiFrameSendViewModel(
+        SequenceSendService service,
+        DbcService? dbcService,
+        SequenceLibrary? library)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dbcService = dbcService;
+        _library = library;
         Rows.CollectionChanged += OnRowsChanged;
         // Seed with one empty row so the DataGrid isn't empty on first open.
         Rows.Add(new MultiFrameSequenceRow { Id = 0x100, DataHex = "DEADBEEF" });
@@ -88,6 +108,13 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
             foreach (var msg in _dbcService.Current?.Messages ?? Enumerable.Empty<Message>())
                 AvailableDbcMessages.Add(msg);
             _dbcService.DbcLoaded += OnDbcLoaded;
+        }
+
+        // v2.1.2 PATCH: populate SavedSequences from the library.
+        if (_library is not null)
+        {
+            foreach (var s in _library.Load())
+                SavedSequences.Add(s);
         }
 
         // Poll the run progress from the service's cancellation state.
@@ -254,6 +281,142 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     private bool CanStop() => IsRunning;
 
     private string ModeLabel() => IsConcurrent ? "concurrent" : $"sequential @ {DelayMs}ms";
+
+    // ===== v2.1.2 PATCH: Save / Load / Delete sequence =====
+
+    [RelayCommand(CanExecute = nameof(CanEditRows))]
+    private void SaveCurrent()
+    {
+        if (_library is null) { StatusText = "Sequence library unavailable"; return; }
+        var name = (SaveNameText ?? "").Trim();
+        if (string.IsNullOrEmpty(name)) { StatusText = "Sequence name is required"; return; }
+        var saved = BuildSavedSequence(name);
+        try
+        {
+            var count = _library.Add(saved);
+            // Refresh the picker — last-wins on duplicate name, so
+            // always update the in-memory list.
+            ReplaceOrAddInPicker(saved);
+            StatusText = $"Saved '{name}' ({count} sequence(s) in library).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"FAIL: Save '{name}': {ex.Message}";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEditRows))]
+    private void LoadSaved(SequenceLibrary.SavedSequence? saved)
+    {
+        if (saved is null || _library is null) return;
+        try
+        {
+            IsConcurrent = saved.Mode == SequenceLibrary.Mode.Concurrent;
+            DelayMs = saved.DelayMs;
+            Iterations = saved.Iterations;
+            Rows.Clear();
+            foreach (var sr in saved.Rows)
+            {
+                var row = MaterializeRow(sr);
+                Rows.Add(row);
+            }
+            SelectedRow = Rows.Count > 0 ? Rows[0] : null;
+            StatusText = $"Loaded '{saved.Name}' ({saved.Rows.Count} row(s)).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"FAIL: Load '{saved?.Name}': {ex.Message}";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEditRows))]
+    private void DeleteSaved(SequenceLibrary.SavedSequence? saved)
+    {
+        if (saved is null || _library is null) return;
+        try
+        {
+            if (_library.Remove(saved.Name))
+            {
+                SavedSequences.Remove(saved);
+                StatusText = $"Removed '{saved.Name}'.";
+            }
+            else
+            {
+                StatusText = $"'{saved.Name}' not found in library.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"FAIL: Delete '{saved.Name}': {ex.Message}";
+        }
+    }
+
+    private void ReplaceOrAddInPicker(SequenceLibrary.SavedSequence saved)
+    {
+        for (var i = 0; i < SavedSequences.Count; i++)
+        {
+            if (SavedSequences[i].Name == saved.Name)
+            {
+                SavedSequences[i] = saved;
+                return;
+            }
+        }
+        SavedSequences.Add(saved);
+    }
+
+    /// <summary>Snapshot the current Rows + mode into a SavedSequence record.</summary>
+    private SequenceLibrary.SavedSequence BuildSavedSequence(string name) =>
+        new(
+            Name: name,
+            Mode: IsConcurrent ? SequenceLibrary.Mode.Concurrent : SequenceLibrary.Mode.Sequential,
+            DelayMs: DelayMs,
+            Iterations: Iterations,
+            Rows: Rows.Select(SnapshotRow).ToList(),
+            SavedAt: DateTimeOffset.UtcNow);
+
+    private static SequenceLibrary.SavedRow SnapshotRow(MultiFrameSequenceRow row) =>
+        new()
+        {
+            Kind = row.RowKind == MultiFrameSequenceRow.Kind.Dbc
+                ? SequenceLibrary.RowKind.Dbc
+                : SequenceLibrary.RowKind.Raw,
+            Id = row.Id,
+            DataHex = row.DataHex,
+            IsExtended = row.IsExtended,
+            IsFd = row.IsFd,
+            IsRtr = row.IsRtr,
+            IsBitRateSwitch = row.IsBitRateSwitch,
+            IsErrorStateIndicator = row.IsErrorStateIndicator,
+            DbcMessageName = row.DbcMessageName,
+            DbcSignalValues = row.DbcSignalValues.Select(s => new SequenceLibrary.SavedSignalValue
+            {
+                Name = s.Name,
+                Value = s.Value,
+            }).ToList(),
+        };
+
+    private static MultiFrameSequenceRow MaterializeRow(SequenceLibrary.SavedRow sr)
+    {
+        var row = new MultiFrameSequenceRow
+        {
+            RowKind = sr.Kind == SequenceLibrary.RowKind.Dbc
+                ? MultiFrameSequenceRow.Kind.Dbc
+                : MultiFrameSequenceRow.Kind.Raw,
+            Id = sr.Id,
+            DataHex = sr.DataHex,
+            IsExtended = sr.IsExtended,
+            IsFd = sr.IsFd,
+            IsRtr = sr.IsRtr,
+            IsBitRateSwitch = sr.IsBitRateSwitch,
+            IsErrorStateIndicator = sr.IsErrorStateIndicator,
+            DbcMessageName = sr.DbcMessageName,
+        };
+        foreach (var sv in sr.DbcSignalValues)
+        {
+            row.DbcSignalValues.Add(new DbcSignalValue { Name = sv.Name, Value = sv.Value });
+        }
+        return row;
+    }
 
     /// <summary>
     /// Parses <paramref name="text"/> as a hex (0x-prefixed) or

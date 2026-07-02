@@ -92,6 +92,22 @@
                 <Button Content="▲ Up"      Command="{Binding MoveUpCommand}"      Padding="8,3" Margin="0,0,4,0"/>
                 <Button Content="▼ Down"    Command="{Binding MoveDownCommand}"    Padding="8,3" Margin="0,0,4,0"/>
                 <Button Content="Clear all" Command="{Binding ClearRowsCommand}"   Padding="8,3" Margin="0,0,16,0"/>
+                <!-- v2.1.2 PATCH: saved-sequence picker + Save / Load / Delete -->
+                <ComboBox ItemsSource="{Binding SavedSequences}"
+                          SelectedItem="{Binding SelectedSavedSequence}"
+                          DisplayMemberPath="Name"
+                          Width="160" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Button Content="Load"   Command="{Binding LoadSavedCommand}"
+                        CommandParameter="{Binding SelectedSavedSequence}"
+                        Padding="8,3" Margin="0,0,4,0"/>
+                <Button Content="Delete" Command="{Binding DeleteSavedCommand}"
+                        CommandParameter="{Binding SelectedSavedSequence}"
+                        Padding="8,3" Margin="0,0,4,0"/>
+                <TextBox Text="{Binding SaveNameText, UpdateSourceTrigger=PropertyChanged}"
+                         Width="120" VerticalAlignment="Center" Margin="0,0,4,0"
+                         ToolTip="Name for the saved sequence"/>
+                <Button Content="💾 Save current" Command="{Binding SaveCurrentCommand}"
+                        Padding="8,3" Margin="0,0,4,0"/>
             </StackPanel>
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"
                        DockPanel.Dock="Right" Margin="8,0,0,0" Foreground="Gray"/>
