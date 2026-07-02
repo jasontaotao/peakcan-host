@@ -19,6 +19,11 @@ public class DidDatabaseTests
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "PeakCan.Host"),
             $"uds-dids-{Guid.NewGuid():N}.json");
+        // v2.1.5 PATCH: ensure parent dir exists before write. CI runner
+        // has fresh %LOCALAPPDATA% — the app never ran so the dir is
+        // absent. CreateDirectory is a no-op if exists.
+        var parentDir = System.IO.Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
         File.WriteAllText(path, contents);
         return path;
     }

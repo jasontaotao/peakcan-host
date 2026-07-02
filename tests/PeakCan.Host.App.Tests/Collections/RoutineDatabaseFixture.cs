@@ -26,6 +26,12 @@ public sealed class RoutineDatabaseFixture : IDisposable
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "PeakCan.Host"),
             $"uds-rt-collection-{Guid.NewGuid():N}.json");
+        // v2.1.5 PATCH: ensure parent dir exists before write. CI runner
+        // has fresh %LOCALAPPDATA% — the app never ran so the dir is
+        // absent. Local dev boxes usually have the dir from previous
+        // runs which masked this. CreateDirectory is a no-op if exists.
+        var parentDir = Path.GetDirectoryName(TempJsonPath);
+        if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
         File.WriteAllText(TempJsonPath,
             "{\"routines\":[{\"id\":\"0xFF00\",\"name\":\"Erase\",\"description\":\"d\",\"startable\":true,\"stoppable\":true}]}");
         Db = new RoutineDatabase(TempJsonPath, logger: NullLogger<RoutineDatabase>.Instance);

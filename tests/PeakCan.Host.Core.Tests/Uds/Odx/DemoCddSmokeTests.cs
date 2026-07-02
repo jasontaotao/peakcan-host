@@ -25,15 +25,12 @@ public class DemoCddSmokeTests
         System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
             "Fixtures", "Odx", "Demo_Cdd.odx-d"));
 
-    [Fact]
-    public void RealFile_FixtureExists_OtherwiseTestsSkipped()
-    {
-        // Sanity: verify fixture is in place. (Hard skip if absent so
-        // CI doesn't fail for repos without the OEM fixture.)
-        File.Exists(FixturePath).Should().BeTrue(
-            $"Demo_Cdd.odx-d fixture missing at {FixturePath}. " +
-            "Tests using it are designed to skip when absent (see other tests).");
-    }
+    // v2.1.5 PATCH: removed `RealFile_FixtureExists_OtherwiseTestsSkipped`.
+    // The fixture is .gitignore'd (proprietary OEM Demo_Cdd.odx-d), so on
+    // a fresh CI clone it is intentionally absent. The other 4 tests in
+    // this class handle missing fixture via `if (!File.Exists(FixturePath)) return;`
+    // early-return soft-skip. The removed test was asserting the OPPOSITE
+    // of the gitignored-by-design state, so it failed every CI run.
 
     [Fact]
     public async Task RealFile_LoadAsync_ReturnsOneDocument()
