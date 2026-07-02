@@ -1003,7 +1003,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 <p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v1.2.x 范围）。</p>
 
 <h4>Q2: 能否录制总线数据供后续回放?</h4>
-<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>当前未提供（v2.2.0 MINOR 候选：Replay-from-file——已规划为 v2.1.0/v2.1.2 release notes 的 forward work）。</p>
+<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>已提供：v1.4.0 MINOR 起 <code>Replay</code> 服务实现（Open/Play/Pause/Stop/Scrubber/Speed/Loop/CAN-ID 过滤/时间范围过滤），但 UI 入口在 v2.1.4 PATCH 之前未挂上 AppShell。自 v2.1.4 PATCH 起 <strong>View ▸ Replay</strong> 菜单可直接打开。</p>
 
 <h4>Q3: 多路复用（M / m）信号能否解码?</h4>
 <p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。Signals 视图会显示当前多路复用器值下激活的子信号。</p>
@@ -1032,7 +1032,6 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 <h3>14.2 v1.2.2 已知限制</h3>
 <ul>
   <li>同一时刻单连接（多通道并行收发未实现）</li>
-  <li>无 ASC 录制回放（仅录制可，回放需 v2.2.0 MINOR）</li>
   <li>无 UDS SecurityAccess 默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</li>
   <li>TesterPresent 循环无法跨 UDS 视图关闭（VM 单例生命周期）</li>
   <li>UDS DID/Routine 仅支持 ISO 14229 简单子功能（<code>0x01 Start</code> / <code>0x02 Stop</code> / <code>0x03 QueryResults</code>）；<code>RequestCorrectlyReceived</code> 等长流程未实现</li>
@@ -1061,7 +1060,13 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
   <tr><td><strong>v1.3.0 🔜</strong></td><td>OEM-specific <code>IKeyDerivationAlgorithm</code> 实现（需 OEM 列表 / 客户触发）+ 多通道并行收发（可选）+ UDS SecurityAccess 多级支持（Level 1/3/5 按 OEM 需求）</td></tr>
   <tr><td><strong>v2.0.0 ✅</strong></td><td>ODX-D (ISO 22901) 诊断描述导入 — <code>*.odx</code> / <code>*.pdx</code> 文件加载 + DID/DTC/Routine 数据库填充 + DtcPanel ODX 描述优先 + UDS 视图 Load ODX… 按钮 + 新 DtcDatabase（非 v2.0 候选 J1939/CANopen/SocketCAN——属于更大 v2.x 重命名后</td></tr>
   <tr><td><strong>v2.0.1 ✅</strong></td><td>v2.0.0 closure Tidy：test-count drift 修正（release-notes <code>~902</code> → <code>905</code>；manual §A.3 <code>900</code> → <code>905</code> + <code>Core 378</code> → <code>Core 379</code>） + 清理 stray root 设计草稿（<code>_plan.md</code> / <code>_spec.md</code>） + Option B release notes。0 代码改动。</td></tr>
-  <tr><td><strong>v2.1 🔜</strong></td><td>ODX CONDITIONAL / ECU-VARIANT DIAG-LAYER 子类型支持 + V8 沙箱 ODX 加载白名单（安全审查后）</td></tr>
+  <tr><td><strong>v2.1.0 ✅</strong></td><td>MINOR：Multi-frame 发送窗口（concurrent / sequential / iteration count，<code>SequenceSendService</code> 派发 Raw 行 + DBC 行）。</td></tr>
+  <tr><td><strong>v2.1.1 ✅</strong></td><td>PATCH：Multi-frame 窗口加 DBC 行类型支持（<code>DbcEncodeService.Encode(message, values)</code> + PEAK IDE bit 剥离）。</td></tr>
+  <tr><td><strong>v2.1.2 ✅</strong></td><td>PATCH：命名 sequence 持久化到 <code>%APPDATA%\PeakCan.Host\sequences.json</code>（Save / Load / Delete），atomic write + 锁 + last-wins。</td></tr>
+  <tr><td><strong>v2.1.3 ✅</strong></td><td>PATCH：stale manual refs Tidy（0 代码改动）。</td></tr>
+  <tr><td><strong>v2.1.4 ✅</strong></td><td>PATCH：Replay 标签 UI orphan 闭合（<code>View ▸ Replay</code> 菜单入口 + <code>ShowReplayCommand</code> + <code>ReplayViewModel</code> DI 注册；自 v1.4.0 起 Replay 服务已实现但 UI 不可达）。</td></tr>
+  <tr><td><strong>v2.1.5 ✅</strong></td><td>PATCH：CI 失败 gap 闭合（<code>%LOCALAPPDATA%\PeakCan.Host</code> 目录缺失 + <code>Demo_Cdd.odx-d</code> fixture 软跳过）。</td></tr>
+  <tr><td><strong>v2.2 🔜</strong></td><td>ODX CONDITIONAL / ECU-VARIANT DIAG-LAYER 子类型支持 + V8 沙箱 ODX 加载白名单（安全审查后）。</td></tr>
 </table>
 
 <!-- =========================================================== -->
@@ -1096,7 +1101,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <h3>A.3 测试覆盖</h3>
 <ul>
-  <li><strong>963 pass + 6 SKIP + 0 fail</strong>：Core 388 + App 491 + Infrastructure 84 (含 ODX</li>
+  <li><strong>964 pass + 6 SKIP + 0 fail</strong>：Core 387 + App 493 + Infrastructure 84 (含 ODX</li>
   <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
   <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
