@@ -30,14 +30,27 @@ public partial class ScriptView : UserControl
         Unloaded += OnUnloaded;
     }
 
-    // v1.2.13 PATCH Item 6: Unloaded must set _isLoaded = false so any
-    // in-flight OnLoaded continuation short-circuits, and must Dispose
-    // the EditorWebView so its CoreWebView2 native process is reaped.
+    // v2.0.7 PATCH Bug-5: previously this method disposed the
+    // EditorWebView and nulled its C# field on every Unloaded. The
+    // UserControl is unloaded every time the user switches to another
+    // tab and re-loaded when they come back. Disposing the WebView2
+    // nuked its CoreWebView2 process, but the WebView2 loader's
+    // process-wide CoreWebView2Environment handle stayed cached —
+    // re-creating a WebView2 against that cached env failed with
+    // "WebView2 runtime not installed or corrupted" on every second
+    // tab entry. The v1.2.13 PATCH Item 6 Disposed-too-eagerly
+    // pattern is correct for full UserControl destruction (process
+    // exit) but wrong for WPF tab navigation.
+    //
+    // Fix: only set _isLoaded = false on tab-switch Unload. Do NOT
+    // dispose the WebView2 — it stays alive for the process lifetime
+    // (only one ScriptView exists, so this is one CoreWebView2
+    // process, not a leak). The WebView2's finalizer runs when the
+    // AppShell window closes; for an extra-clean shutdown we also
+    // dispose on the app's Exit event (see App.xaml.cs).
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = false;
-        EditorWebView?.Dispose();
-        EditorWebView = null!;
     }
 
     // v1.2.13 PATCH Item 6: test helpers — drive Loaded / Unloaded events

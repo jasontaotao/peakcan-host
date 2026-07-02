@@ -211,8 +211,21 @@ public static class RequestBasedMappers
             if (reqRefId is null || !byRequestId.TryGetValue(reqRefId, out var info))
                 continue;
 
-            var shortName = (string?)svc.Attribute("SHORT-NAME") ?? string.Empty;
-            var longName = (string?)svc.Element(ns + "LONG-NAME") ?? shortName;
+            // v2.0.7 PATCH Bug-4: SHORT-NAME is canonically an ATTRIBUTE
+            // per ODX 2.x schema, but real-world Vector CANdelaStudio
+            // .odx-d exports (verified against Demo_Cdd.odx-d: 95 of 95
+            // DIAG-SERVICEs use the child-element form) emit it as a
+            // CHILD ELEMENT instead. Attribute-only lookup produced
+            // empty Name fields for the entire UDS Routines panel.
+            // Try attribute first, then fall back to child element.
+            // (XAttribute has an implicit string conversion; we don't
+            // need `as string` which would always null-out.)
+            var shortName = svc.Attribute("SHORT-NAME")?.Value
+                ?? svc.Element(ns + "SHORT-NAME")?.Value
+                ?? string.Empty;
+            var longName = svc.Attribute("LONG-NAME")?.Value
+                ?? svc.Element(ns + "LONG-NAME")?.Value
+                ?? shortName;
             var startable = shortName.EndsWith("_Start", StringComparison.Ordinal)
                             || info.Sub == 0x01;
             var stoppable = shortName.EndsWith("_Stop", StringComparison.Ordinal)

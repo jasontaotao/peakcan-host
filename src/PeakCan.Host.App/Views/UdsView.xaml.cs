@@ -45,28 +45,45 @@ public partial class UdsView : UserControl
 
     private void OnLogCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action != NotifyCollectionChangedAction.Add) return;
-        if (e.NewItems is null) return;
-
-        foreach (UdsLogLine line in e.NewItems)
+        // v2.0.7 PATCH Bug-1: previously this handler returned early
+        // for any action other than Add. ObservableCollection.Clear()
+        // raises Reset (not Add), so clicking the UDS "Clear" button
+        // emptied OutputLog but left the RichTextBox's FlowDocument
+        // populated. WPF's binding only refreshes the bound property,
+        // not the visual document — we own the LogParagraph.Inlines
+        // ourselves and must mirror the collection explicitly.
+        switch (e.Action)
         {
-            var run = new Run($"[{line.Timestamp}] {line.Message}")
-            {
-                Foreground = line.Level switch
+            case NotifyCollectionChangedAction.Reset:
+                LogParagraph.Inlines.Clear();
+                return;
+            case NotifyCollectionChangedAction.Add:
+                if (e.NewItems is null) return;
+                foreach (UdsLogLine line in e.NewItems)
                 {
-                    "Warn"  => WarnBrush,
-                    "Error" => ErrorBrush,
-                    _       => null,
+                    var run = new Run($"[{line.Timestamp}] {line.Message}")
+                    {
+                        Foreground = line.Level switch
+                        {
+                            "Warn"  => WarnBrush,
+                            "Error" => ErrorBrush,
+                            _       => null,
+                        }
+                    };
+                    LogParagraph.Inlines.Add(run);
                 }
-            };
-            LogParagraph.Inlines.Add(run);
-        }
-        LogBox.ScrollToEnd();
+                LogBox.ScrollToEnd();
 
-        // Trim if over the 500-line cap.
-        while (LogParagraph.Inlines.Count > 500)
-        {
-            LogParagraph.Inlines.Remove(LogParagraph.Inlines.FirstInline);
+                // Trim if over the 500-line cap.
+                while (LogParagraph.Inlines.Count > 500)
+                {
+                    LogParagraph.Inlines.Remove(LogParagraph.Inlines.FirstInline);
+                }
+                return;
+            // Remove / Replace / Move are not currently emitted by the
+            // 4 panel VMs (only Add via AppendLog + Reset via Clear).
+            // Fall through to a defensive no-op rather than silently
+            // leaving stale runs on screen.
         }
     }
 
