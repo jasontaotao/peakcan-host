@@ -61,6 +61,121 @@ public static class RequestBasedMappers
     }
 
     /// <summary>
+    /// Resolve the data length (in bytes) for each DID extracted
+    /// from 0x22/0x2E REQUESTs by walking the POS-RESPONSE chain:
+    ///   DID ← REQUEST ← DIAG-SERVICE ← POS-RESPONSE-REF ← POS-RESPONSE
+    ///   POS-RESPONSE → PARAM SEMANTIC="DATA" → DOP-REF → DOP /
+    ///   DATA-OBJECT-PROP → DIAG-CODED-TYPE → BIT-LENGTH
+    /// Returns a dictionary keyed by DID id, value = total data bytes
+    /// (sum of all SEMANTIC="DATA" PARAM DOPs in the largest matching
+    /// POS-RESPONSE). DIDs without a resolvable chain are absent.
+    /// </summary>
+    public static IReadOnlyDictionary<ushort, int> ExtractDidLengths(
+        XDocument xdoc, XNamespace ns)
+    {
+        ArgumentNullException.ThrowIfNull(xdoc);
+
+        // 1. Index DOP-like elements (DATA-OBJECT-PROP, DOP) id → bit length.
+        // DATA-OBJECT-PROP is the Vector CANdelaStudio form; DOP is the
+        // canonical ODX 2.x form. Both may have DIAG-CODED-TYPE/BIT-LENGTH.
+        var dopBitLengths = new Dictionary<string, int>();
+        foreach (var el in xdoc.Descendants())
+        {
+            var localName = el.Name.LocalName;
+            if (localName != "DATA-OBJECT-PROP" && localName != "DOP") continue;
+            var id = (string?)el.Attribute("ID");
+            if (id is null) continue;
+            var bits = ReadBitLength(el, ns);
+            if (bits is not null) dopBitLengths[id] = bits.Value;
+        }
+
+        // 2. Index REQUEST id → DID id (only 0x22 / 0x2E).
+        var didByReqId = new Dictionary<string, ushort>();
+        foreach (var req in xdoc.Descendants(ns + "REQUEST"))
+        {
+            var sid = ReadServiceId(req, ns);
+            if (sid != ServiceId_ReadDataByIdentifier &&
+                sid != ServiceId_WriteDataByIdentifier)
+                continue;
+            var id = ReadIdParam(req, ns);
+            var reqId = (string?)req.Attribute("ID");
+            if (id is not null && reqId is not null)
+                didByReqId[reqId] = id.Value;
+        }
+
+        // 3. Index POS-RESPONSE id → element.
+        var posById = new Dictionary<string, XElement>();
+        foreach (var pos in xdoc.Descendants(ns + "POS-RESPONSE"))
+        {
+            var id = (string?)pos.Attribute("ID");
+            if (id is not null) posById[id] = pos;
+        }
+
+        // 4. Walk DIAG-SERVICEs. For each, if its REQUEST-REF points to
+        //    a 0x22/0x2E REQUEST, look at the matching POS-RESPONSE-REFs
+        //    and sum the BIT-LENGTHs of SEMANTIC="DATA" PARAM DOPs.
+        var result = new Dictionary<ushort, int>();
+        foreach (var svc in xdoc.Descendants(ns + "DIAG-SERVICE"))
+        {
+            var reqRefEl = svc.Element(ns + "REQUEST-REF");
+            if (reqRefEl is null) continue;
+            var reqRefId = (string?)reqRefEl.Attribute("ID-REF");
+            if (reqRefId is null || !didByReqId.TryGetValue(reqRefId, out var did))
+                continue;
+
+            foreach (var posRef in svc.Elements(ns + "POS-RESPONSE-REFS")
+                                      .Elements(ns + "POS-RESPONSE-REF"))
+            {
+                var posId = (string?)posRef.Attribute("ID-REF");
+                if (posId is null || !posById.TryGetValue(posId, out var pos))
+                    continue;
+
+                int totalBits = 0;
+                int dataParams = 0;
+                foreach (var param in pos.Descendants(ns + "PARAM"))
+                {
+                    if ((string?)param.Attribute("SEMANTIC") != "DATA") continue;
+                    dataParams++;
+                    var dopRef = param.Element(ns + "DOP-REF");
+                    if (dopRef is not null)
+                    {
+                        var dopRefId = (string?)dopRef.Attribute("ID-REF");
+                        if (dopRefId is not null &&
+                            dopBitLengths.TryGetValue(dopRefId, out var bits))
+                            totalBits += bits;
+                    }
+                    else
+                    {
+                        // Inline DIAG-CODED-TYPE
+                        var bits = ReadBitLength(param, ns);
+                        if (bits is not null) totalBits += bits.Value;
+                    }
+                }
+                if (dataParams > 0 && totalBits > 0)
+                {
+                    var lengthBytes = (totalBits + 7) / 8;
+                    if (!result.TryGetValue(did, out var prev) || lengthBytes > prev)
+                        result[did] = lengthBytes;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static int? ReadBitLength(XElement parent, XNamespace ns)
+    {
+        var dct = parent.Descendants(ns + "DIAG-CODED-TYPE").FirstOrDefault();
+        if (dct is null) return null;
+        var bit = dct.Element(ns + "BIT-LENGTH");
+        if (bit is null) return null;
+        if (int.TryParse(bit.Value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var n))
+            return n;
+        return null;
+    }
+
+    /// <summary>
     /// Extract routines from REQUEST elements with SERVICE-ID 0x31.
     /// </summary>
     public static IReadOnlyList<RoutineDefinition> ExtractRoutines(

@@ -75,4 +75,27 @@ public class OdxImportServiceRealFileTests
         routineIds.Should().Contain(514);
         routineIds.Should().Contain(515);
     }
+
+    [Fact]
+    public async Task RealFile_ImportAsync_PopulatesDidLengthBytes()
+    {
+        if (!File.Exists(FixturePath)) return;
+
+        var svc = NewService(out var dids, out _, out _);
+
+        await svc.ImportAsync(FixturePath);
+
+        // CellVolt_JG_Read corresponds to DID 0x0102 (258 dec). Its
+        // POS-RESPONSE has 8 SEMANTIC="DATA" PARAMs: 2 referencing
+        // DATA-OBJECT-PROP "Hex_182_Byte" (BIT-LENGTH=1456) + 6
+        // referencing "HexDump_6_Byte" (BIT-LENGTH=48). Total =
+        // 2*1456 + 6*48 = 3200 bits = 400 bytes. v2.0.4 set every
+        // imported DID to LengthBytes=0; v2.0.5 should resolve the
+        // POS-RESPONSE chain and populate LengthBytes correctly.
+        var cellVolt = dids.Find(0x0102);
+        cellVolt.Should().NotBeNull();
+        cellVolt!.LengthBytes.Should().Be(400,
+            "CellVolt_JG_Read POS-RESPONSE 8 DATA PARAMs sum to " +
+            "2*1456 + 6*48 = 3200 bits = 400 bytes (full response body)");
+    }
 }

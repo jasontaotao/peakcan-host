@@ -107,13 +107,17 @@ public sealed class OdxImportService : IOdxImportService
             // use DOP-BASE / ECU-JOB. DIDs and routines are inline in
             // <REQUEST> elements with SERVICE-ID + ID PARAMs.
             var didsFromRequests = RequestBasedMappers.ExtractDids(xdoc, ns);
+            var didLengths = RequestBasedMappers.ExtractDidLengths(xdoc, ns);
             foreach (var (did, writable) in didsFromRequests)
             {
+                var lengthBytes = didLengths.TryGetValue(did, out var l) ? l : 0;
                 didDefs.Add(new DidDefinition(
                     Id: did,
                     Name: $"DID_0x{did:X4}",
-                    Description: $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
-                    LengthBytes: 0, // P6 will populate from DOP-REF / DIAG-CODED-TYPE
+                    Description: lengthBytes > 0
+                        ? $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {lengthBytes}B)"
+                        : $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
+                    LengthBytes: lengthBytes,
                     Writable: writable));
             }
             var routinesFromRequests = RequestBasedMappers.ExtractRoutines(xdoc, ns);

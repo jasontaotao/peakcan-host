@@ -905,7 +905,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
   <li>DTC panel 重新刷新 — 如果之前 ECU 已读过 DTC 但描述为空，<strong>现在会自动用 ODX 中的 <code>TEXT/DTC-TAB</code> 替换 ISO 14294 category fallback</strong>。</li>
 </ol>
 
-<p><strong>已知限制（v2.0.4）</strong>：DID 数据长度（<code>LengthBytes</code>）字段在 ODX-D flat layout 下需要走 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链才能解析——v2.0.4 PATCH 暂未实现，所有 ODX 导入的 DID 默认 <code>LengthBytes=0</code>。DID 列表 + Writable 标志已正确导入。后续 v2.0.5 / v2.1 计划补 length resolution。</p>
+<p><strong>v2.0.5 起</strong>：DID 数据长度（<code>LengthBytes</code>）通过走 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链自动解析（响应体总 bit-length 求和后按 byte 对齐）。DID 列表、Writable 标志、LengthBytes 全部正确导入。</p>
 
 <h3 id="uds-secauth">11.6 SecurityAccess 与 <code>IKeyDerivationAlgorithm</code></h3>
 
