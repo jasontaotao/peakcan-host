@@ -259,6 +259,16 @@ public class AppHostBuilder
         builder.Services.AddSingleton<CyclicDbcSendService>();
         builder.Services.AddSingleton<ICyclicDbcSendService>(sp =>
             sp.GetRequiredService<CyclicDbcSendService>());
+        // v2.0.6 PATCH Bug-2: DbcSendViewModel must be registered as a
+        // singleton so SendViewModel.DbcSend resolves to a real instance
+        // in production (its ctor param defaults to null and DI never
+        // wired it up). Without this, SendView.xaml's
+        // DataContext="{Binding DbcSend}" evaluates to null, the DBC
+        // sub-panel's ComboBox / DataGrid / Send button all bind to
+        // nothing, and "DBC mode" appears empty even after a successful
+        // DBC load. Dependencies (DbcEncodeService, SendService,
+        // DbcService, ICyclicDbcSendService) are registered above.
+        builder.Services.AddSingleton<DbcSendViewModel>();
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would

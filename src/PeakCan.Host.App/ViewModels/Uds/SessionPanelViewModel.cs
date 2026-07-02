@@ -84,7 +84,10 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
         try
         {
             AppendLog("Info", "Requesting security access (level 0x01)...");
-            var response = await _udsClient.SecurityAccessAsync((byte)0x01, CancellationToken.None).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — catch handlers set
+            // SecurityLevel and call AppendLog, both of which need the UI
+            // dispatcher.
+            var response = await _udsClient.SecurityAccessAsync((byte)0x01, CancellationToken.None);
             SecurityLevel = 0x01;
             AppendLog("Info", $"SecurityAccess 0x01 succeeded ({response.Length} bytes).");
         }
@@ -117,7 +120,9 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     {
         try
         {
-            await _udsClient.DiagnosticSessionControlAsync(subFunction).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — AppendLog writes to
+            // the shared ObservableCollection on this continuation path.
+            await _udsClient.DiagnosticSessionControlAsync(subFunction);
             CurrentSession = label;
             AppendLog("Info", $"Session → {label}");
         }

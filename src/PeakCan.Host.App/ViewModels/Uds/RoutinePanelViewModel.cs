@@ -14,6 +14,7 @@ namespace PeakCan.Host.App.ViewModels.Uds;
 public sealed partial class RoutinePanelViewModel : ObservableObject, IUdsPanel
 {
     private readonly UdsClient _udsClient;
+    private readonly RoutineDatabase _routineDb;
     private ObservableCollection<UdsLogLine>? _log;
 
     public ObservableCollection<RoutineRow> Routines { get; } = new();
@@ -24,9 +25,27 @@ public sealed partial class RoutinePanelViewModel : ObservableObject, IUdsPanel
         ArgumentNullException.ThrowIfNull(udsClient);
         ArgumentNullException.ThrowIfNull(routineDb);
         _udsClient = udsClient;
+        // v2.0.6 PATCH Bug-1: store the RoutineDatabase reference so
+        // RefreshFromDatabase can re-populate after an ODX import.
+        _routineDb = routineDb;
 
         foreach (var r in routineDb.All)
             Routines.Add(new RoutineRow { Id = r.Id, Name = r.Name });
+        if (Routines.Count > 0) SelectedRoutine = Routines[0];
+    }
+
+    /// <summary>
+    /// v2.0.6 PATCH Bug-1: re-populate the Routines DataGrid from
+    /// <see cref="RoutineDatabase.All"/> after an ODX import. Mirrors
+    /// <c>DtcPanelViewModel.RefreshFromDatabase</c>.
+    /// </summary>
+    public void RefreshFromDatabase()
+    {
+        Routines.Clear();
+        foreach (var r in _routineDb.All)
+        {
+            Routines.Add(new RoutineRow { Id = r.Id, Name = r.Name });
+        }
         if (Routines.Count > 0) SelectedRoutine = Routines[0];
     }
 
@@ -55,7 +74,10 @@ public sealed partial class RoutinePanelViewModel : ObservableObject, IUdsPanel
         try
         {
             AppendLog("Info", $"{label} routine 0x{row.Id:X4}...");
-            var result = await _udsClient.RoutineControlAsync(subFunction, row.Id).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — the catch block
+            // sets row.Status and AppendLog writes to the shared
+            // ObservableCollection; both need to stay on the UI dispatcher.
+            var result = await _udsClient.RoutineControlAsync(subFunction, row.Id);
             row.LastResult = BitConverter.ToString(result).Replace("-", " ");
             row.Status     = "Completed";
             AppendLog("Info", $"{label} routine 0x{row.Id:X4} -> {row.LastResult}");

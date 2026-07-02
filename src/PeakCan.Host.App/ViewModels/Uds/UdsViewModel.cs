@@ -82,10 +82,20 @@ public sealed partial class UdsViewModel : ObservableObject
         if (dialog.ShowDialog() != true) return;
 
         await OdxImport.ImportAsync(dialog.FileName);
-        // Refresh panels to reflect ODX-imported definitions.
+        // v2.0.6 PATCH Bug-1: refresh all three database-backed panels
+        // after ODX import. Previously only Dtc.RefreshFromDatabase()
+        // was called — Did and Routine panels populated their
+        // ObservableCollection only in the constructor, so an ODX
+        // import (which calls DidDatabase.AddRange / RoutineDatabase.AddRange
+        // in-place) silently mutated the database while leaving the UI
+        // frozen on the ctor-time snapshot. The 4-line comment that
+        // claimed "Did/Routine panels refresh themselves via their
+        // existing Load commands" was incorrect — no such refresh
+        // exists. All three panels now have explicit RefreshFromDatabase
+        // methods (mirroring DtcPanelViewModel's pre-existing pattern).
+        Did.RefreshFromDatabase();
+        Routine.RefreshFromDatabase();
         Dtc.RefreshFromDatabase();
-        // Did/Routine panels refresh themselves via their existing
-        // Load commands; future DI wiring exposes explicit refresh.
     }
 
     [RelayCommand]

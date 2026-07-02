@@ -50,8 +50,9 @@ public class DtcDopMappingTests
     {
         // Arrange
         var dop = XElement.Parse("""
-            <DTC-DOP xmlns="http://www.asam.net/xml/odx" ID="DTC.P0123" SHORT-NAME="P0123_O2">
+            <DTC-DOP xmlns="http://www.asam.net/xml/odx" ID="DTC.P0123">
               <DTC>
+                <SHORT-NAME>P0123_O2</SHORT-NAME>
                 <TROUBLE-CODE>0x012356</TROUBLE-CODE>
                 <TEXT>
                   <DTC-TAB SHORT-NAME="DESC">O2 sensor circuit malfunction</DTC-TAB>
@@ -61,7 +62,18 @@ public class DtcDopMappingTests
             """);
 
         // Act
-        var result = DtcDop.TryMap(dop, out var warning);
+        // v2.0.6 PATCH: DtcDop was refactored in v2.0.4 to use the
+        // Enumerate(dop, dtcById) two-pass API (IndexInlineDtcs +
+        // Enumerate) instead of a single TryMap call. The reason:
+        // ODX 2.2+ files share DTCs across DTC-DOPs via <DTC-REF>,
+        // which the single-DOP TryMap could not resolve. This test
+        // was written for the pre-v2.0.4 API and stopped compiling
+        // when v2.0.4 shipped. Update to the v2.0.4 API — the inline
+        // DTC in this fixture is exactly Layout 1 in the DtcDop doc.
+        var ns = dop.Name.Namespace;
+        var xdoc = new XDocument(dop);
+        var dtcIndex = DtcDop.IndexInlineDtcs(xdoc, ns);
+        var (result, warning) = DtcDop.Enumerate(dop, dtcIndex).First();
 
         // Assert
         result.Should().NotBeNull();

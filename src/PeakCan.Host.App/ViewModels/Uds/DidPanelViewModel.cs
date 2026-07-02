@@ -14,6 +14,7 @@ namespace PeakCan.Host.App.ViewModels.Uds;
 public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
 {
     private readonly UdsClient _udsClient;
+    private readonly DidDatabase _didDb;
     private ObservableCollection<UdsLogLine>? _log;
 
     public ObservableCollection<DidRow> Dids { get; } = new();
@@ -27,6 +28,13 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         ArgumentNullException.ThrowIfNull(udsClient);
         ArgumentNullException.ThrowIfNull(didDb);
         _udsClient = udsClient;
+        // v2.0.6 PATCH Bug-1: store the DidDatabase reference so
+        // RefreshFromDatabase can re-populate the panel after an ODX
+        // import. Previously the ctor copied DidDatabase.All into Dids
+        // and discarded the database reference, so ODX import calls to
+        // AddRange mutated the database in-place but the UI never
+        // noticed — the panel stayed frozen on the ctor-time snapshot.
+        _didDb = didDb;
 
         foreach (var d in didDb.All)
             Dids.Add(new DidRow
@@ -36,6 +44,29 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
                 LengthBytes = d.LengthBytes,
                 Writable    = d.Writable,
             });
+        if (Dids.Count > 0) SelectedDid = Dids[0];
+    }
+
+    /// <summary>
+    /// v2.0.6 PATCH Bug-1: re-populate the DIDs DataGrid from
+    /// <see cref="DidDatabase.All"/> after an ODX import (or any other
+    /// out-of-band mutation of the database). Mirrors
+    /// <c>DtcPanelViewModel.RefreshFromDatabase</c> so all three
+    /// database-backed panels stay consistent.
+    /// </summary>
+    public void RefreshFromDatabase()
+    {
+        Dids.Clear();
+        foreach (var d in _didDb.All)
+        {
+            Dids.Add(new DidRow
+            {
+                Id          = d.Id,
+                Name        = d.Name,
+                LengthBytes = d.LengthBytes,
+                Writable    = d.Writable,
+            });
+        }
         if (Dids.Count > 0) SelectedDid = Dids[0];
     }
 
@@ -55,7 +86,19 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         try
         {
             AppendLog("Info", $"Reading DID 0x{row.Id:X4}...");
-            var data = await _udsClient.ReadDataByIdentifierAsync(row.Id).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: NO ConfigureAwait(false) here — the
+            // continuation, catch handlers, and finally block all mutate
+            // WPF-bound state (row.ReadValue, row.IsReading, ObservableCollection
+            // log entries, RelayCommand.NotifyCanExecuteChanged). With
+            // ConfigureAwait(false) those run on the threadpool and cause
+            // cross-thread binding access / NotSupportedException / deadlock
+            // → "program hangs and crashes" when the SDK times out (e.g.
+            // peakcan connected but no ECU on the bus). Removing the flag
+            // lets WPF's SynchronizationContext keep the continuation on the
+            // UI dispatcher thread. UdsClient methods themselves use
+            // ConfigureAwait(false) internally (correct for Core-layer code
+            // with no UI dependency); the re-capture happens at this await.
+            var data = await _udsClient.ReadDataByIdentifierAsync(row.Id);
             row.ReadValue = BitConverter.ToString(data).Replace("-", " ");
             LastResult    = row.ReadValue;
             AppendLog("Info", $"DID 0x{row.Id:X4} = {row.ReadValue}");
@@ -90,7 +133,10 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         {
             var data = ParseHexString(WriteValue);
             AppendLog("Info", $"Writing DID 0x{row.Id:X4} ({data.Length} bytes)...");
-            await _udsClient.WriteDataByIdentifierAsync(row.Id, data).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: same reasoning as ReadDidAsync — no
+            // ConfigureAwait(false) so the surrounding try/catch runs on the
+            // UI dispatcher when AppendLog writes to the ObservableCollection.
+            await _udsClient.WriteDataByIdentifierAsync(row.Id, data);
             AppendLog("Info", $"DID 0x{row.Id:X4} written successfully");
         }
         catch (UdsNegativeResponseException ex)

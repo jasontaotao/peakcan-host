@@ -49,7 +49,9 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
         try
         {
             AppendLog("Info", "Reading DTCs (reportByStatusMask=0xFF)...");
-            var data = await _udsClient.ReadDtcInformationAsync(0x02, 0xFF).ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — the catch / no-NRC
+            // branch mutates the bound ObservableCollection<DtcRow>.
+            var data = await _udsClient.ReadDtcInformationAsync(0x02, 0xFF);
 
             Dtcs.Clear();
             for (int i = 0; i + 3 < data.Length; i += 4)
@@ -82,7 +84,9 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
         try
         {
             AppendLog("Info", "Clearing all DTCs...");
-            await _udsClient.ClearDiagnosticInformationAsync().ConfigureAwait(false);
+            // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — clears the bound
+            // ObservableCollection in the catch-free path.
+            await _udsClient.ClearDiagnosticInformationAsync();
             Dtcs.Clear();
             AppendLog("Info", "All DTCs cleared");
         }
