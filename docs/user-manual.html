@@ -1003,7 +1003,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 <p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v1.2.x 范围）。</p>
 
 <h4>Q2: 能否录制总线数据供后续回放?</h4>
-<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>当前未提供（v2.0 候选）。</p>
+<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>当前未提供（v2.2.0 MINOR 候选：Replay-from-file——已规划为 v2.1.0/v2.1.2 release notes 的 forward work）。</p>
 
 <h4>Q3: 多路复用（M / m）信号能否解码?</h4>
 <p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。Signals 视图会显示当前多路复用器值下激活的子信号。</p>
@@ -1032,7 +1032,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 <h3>14.2 v1.2.2 已知限制</h3>
 <ul>
   <li>同一时刻单连接（多通道并行收发未实现）</li>
-  <li>无 ASC 录制回放（仅录制可，回放需 v2.0）</li>
+  <li>无 ASC 录制回放（仅录制可，回放需 v2.2.0 MINOR）</li>
   <li>无 UDS SecurityAccess 默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</li>
   <li>TesterPresent 循环无法跨 UDS 视图关闭（VM 单例生命周期）</li>
   <li>UDS DID/Routine 仅支持 ISO 14229 简单子功能（<code>0x01 Start</code> / <code>0x02 Stop</code> / <code>0x03 QueryResults</code>）；<code>RequestCorrectlyReceived</code> 等长流程未实现</li>
@@ -1087,7 +1087,7 @@ CI 会拒绝破坏此边界的 PR。</p>
   <tr><td><strong>.NET 10</strong>（非 8）</td><td>开发机仅有 10.0.300 SDK；自包含发布后目标机不需任何运行时。</td></tr>
   <tr><td><strong>Peak.PCANBasic.NET 5.0.1</strong>（非 <code>Peak.Can.Basic</code>）</td><td>旧的 <code>Peak.Can.Basic</code> 在 nuget.org 上不可寻；<code>Peak.PCANBasic.NET</code> 是 PEAK 官方替代（12.7 万次下载）。</td></tr>
   <tr><td><strong>OxyPlot.Wpf 2.2.0</strong>（非 LiveChartsCore 2.0.4）</td><td>LiveCharts 2.0.4 的原生依赖（OpenTK + SkiaSharp.Views.WPF）仅目标 .NET Framework，在 .NET 10 上启动失败。OxyPlot 是纯托管的，干净。</td></tr>
-  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发在 v2.0 候选。</td></tr>
+  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发不实现（v2.x 范围外的长期非目标，与 J1939/CANopen/SocketCAN 一起推迟到更远的将来）。</td></tr>
   <tr><td><strong>VM 部分 IDisposable（v1.2.2 起）</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，v1.2.2 起实现 <code>IDisposable</code> 复位 <code>TesterPresentActive=false</code> + Cancel/Dispose CTS。<strong>注</strong>：当前 DI 容器不调用 <code>Dispose()</code>——VM 生命周期 ≈ 进程生命周期，Dispose 仅作为防御性 API 暴露。</td></tr>
   <tr><td><strong><code>IFileDialogService</code> 抽象（v1.1 起）</strong></td><td>v0.x <code>DbcViewModel.OpenAsync</code> 内联调用 <code>OpenFileDialog.ShowDialog</code>，用户取消路径测试为 <code>[Fact(Skip=...)]</code>。v1.1 起抽取为 <code>IFileDialogService</code> 接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
   <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code>（v1.1 起）</strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异（典型：HMAC-SHA256、HSM 模拟、硬件安全模块等）。v1.1 抽取为接口并提供占位实现（<em>原样回传 seed</em>）让 UI 联调可跑通；OEM 客户需自行实现并替换。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
@@ -1096,7 +1096,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <h3>A.3 测试覆盖</h3>
 <ul>
-  <li><strong>905 pass + 6 SKIP + 0 fail</strong>：Core 379 + App 442 + Infrastructure 84 (含 ODX</li>
+  <li><strong>963 pass + 6 SKIP + 0 fail</strong>：Core 388 + App 491 + Infrastructure 84 (含 ODX</li>
   <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
   <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
