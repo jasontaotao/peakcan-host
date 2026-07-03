@@ -1110,7 +1110,7 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 <h3>14.1 FAQ</h3>
 
 <h4>Q1: 能否连接多块 PCAN-USB FD 或多通道?</h4>
-<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v1.2.x 范围）。</p>
+<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v3.x 范围——见 §14.3 路线图）。</p>
 
 <h4>Q2: 能否录制总线数据供后续回放?</h4>
 <p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>已提供：v1.4.0 MINOR 起 <code>Replay</code> 服务实现（Open/Play/Pause/Stop/Scrubber/Speed/Loop/CAN-ID 过滤/时间范围过滤），但 UI 入口在 v2.1.4 PATCH 之前未挂上 AppShell。自 v2.1.4 PATCH 起 <strong>View ▸ Replay</strong> 菜单可直接打开。</p>
@@ -1152,7 +1152,7 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 <h3>14.2b v2.0.0 ODX 导入限制</h3>
 <ul>
-  <li>仅支持 ODX <code>DIAG-LAYER</code> 的 <code>BASE-VARIANT</code> 子类型；<code>CONDITIONAL</code> / <code>ECU-VARIANT</code> 推迟到后续 MINOR（推测 v2.1）。</li>
+  <li>仅支持 ODX <code>DIAG-LAYER</code> 的 <code>BASE-VARIANT</code> 子类型；<code>CONDITIONAL</code> / <code>ECU-VARIANT</code> 推迟到 v2.2 🔜（见 <a href="#roadmap">§14.3 路线图</a>）。</li>
   <li>ODX schema 仅接受 2.0.0 + 2.2.0 版本；其他版本 warn + 尝试解析（v2.5+ schema 元素未实现）。</li>
   <li>仅支持 <code>DOP-BASE</code>（DID）+ <code>DTC-DOP</code>（DTC）+ <code>ECU-JOB</code>（Routine）三种 element；<code>COMPARAM-SPEC</code>、<code>ECU-CONFIG</code>、<code>ECU-MULTIPLE-JOB</code> 等 out of scope。</li>
   <li>单次导入 DoS 守卫：10000 items/type（超出后 <code>OdxImportResult.HasError</code> + <code>ErrorCode = OdxErrorCode.Refused</code>）。</li>
@@ -1170,6 +1170,11 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
   <tr><td><strong>v1.3.0 🔜</strong></td><td>OEM-specific <code>IKeyDerivationAlgorithm</code> 实现（需 OEM 列表 / 客户触发）+ 多通道并行收发（可选）+ UDS SecurityAccess 多级支持（Level 1/3/5 按 OEM 需求）</td></tr>
   <tr><td><strong>v2.0.0 ✅</strong></td><td>ODX-D (ISO 22901) 诊断描述导入 — <code>*.odx</code> / <code>*.pdx</code> 文件加载 + DID/DTC/Routine 数据库填充 + DtcPanel ODX 描述优先 + UDS 视图 Load ODX… 按钮 + 新 DtcDatabase（非 v2.0 候选 J1939/CANopen/SocketCAN——属于更大 v2.x 重命名后</td></tr>
   <tr><td><strong>v2.0.1 ✅</strong></td><td>v2.0.0 closure Tidy：test-count drift 修正（release-notes <code>~902</code> → <code>905</code>；manual §A.3 <code>900</code> → <code>905</code> + <code>Core 378</code> → <code>Core 379</code>） + 清理 stray root 设计草稿（<code>_plan.md</code> / <code>_spec.md</code>） + Option B release notes。0 代码改动。</td></tr>
+  <tr><td><strong>v2.0.2 ✅</strong></td><td>PATCH：v2.0.1 closure Tidy——<code>.gitignore</code> 加 <code>_[!_]*.md</code> 规则排除单下划线根级 scratch 文件（exempt 双下划线） + manual §14.3 补 v2.0.1 ✅ 行。0 代码改动。v2.0.3 不存在。</td></tr>
+  <tr><td><strong>v2.0.4 ✅</strong></td><td>PATCH：真实 OEM <code>.odx-d</code>（Vector CANdelaStudio 输出）导入路径走通——DID / DTC / Routine 数据库填充 + DtcPanel ODX 描述优先 + UDS 视图 Load ODX… 接受 <code>*.odx-d</code>。替换占位 <code>Demo_Cdd.odx-d</code> fixture（v2.0.0 起的合成数据）。</td></tr>
+  <tr><td><strong>v2.0.5 ✅</strong></td><td>PATCH：DID <code>LengthBytes</code> 从 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链自动解析（响应体总 bit-length 求和后按 byte 对齐）。DID 列表、<code>Writable</code> 标志、<code>LengthBytes</code> 全部正确导入。详见 <a href="#uds-odx">§11.5</a>。</td></tr>
+  <tr><td><strong>v2.0.6 ✅</strong></td><td>PATCH：3 bug 修复 + 1 UI tidy——<code>AppHostBuilder</code> DI 注册 <code>DbcSendViewModel</code> + <code>UdsViewModel</code> ODX panel refresh + <code>UdsViewModel</code> crash regression + <code>MapperTests</code> DTC DOP mapping section。</td></tr>
+  <tr><td><strong>v2.0.7 ✅</strong></td><td>PATCH：3 bug 修复——<code>UdsView</code> <code>CollectionChanged.Reset</code> 重建 + <code>RequestBasedMappers</code> SHORT-NAME attribute-or-child fallback + <code>ScriptView</code> WebView2 lifecycle。</td></tr>
   <tr><td><strong>v2.1.0 ✅</strong></td><td>MINOR：Multi-frame 发送窗口（concurrent / sequential / iteration count，<code>SequenceSendService</code> 派发 Raw 行 + DBC 行）。</td></tr>
   <tr><td><strong>v2.1.1 ✅</strong></td><td>PATCH：Multi-frame 窗口加 DBC 行类型支持（<code>DbcEncodeService.Encode(message, values)</code> + PEAK IDE bit 剥离）。</td></tr>
   <tr><td><strong>v2.1.2 ✅</strong></td><td>PATCH：命名 sequence 持久化到 <code>%APPDATA%\PeakCan.Host\sequences.json</code>（Save / Load / Delete），atomic write + 锁 + last-wins。</td></tr>
@@ -1207,7 +1212,7 @@ CI 会拒绝破坏此边界的 PR。</p>
   <tr><td><strong>.NET 10</strong>（非 8）</td><td>开发机仅有 10.0.300 SDK；自包含发布后目标机不需任何运行时。</td></tr>
   <tr><td><strong>Peak.PCANBasic.NET 5.0.1</strong>（非 <code>Peak.Can.Basic</code>）</td><td>旧的 <code>Peak.Can.Basic</code> 在 nuget.org 上不可寻；<code>Peak.PCANBasic.NET</code> 是 PEAK 官方替代（12.7 万次下载）。</td></tr>
   <tr><td><strong>OxyPlot.Wpf 2.2.0</strong>（非 LiveChartsCore 2.0.4）</td><td>LiveCharts 2.0.4 的原生依赖（OpenTK + SkiaSharp.Views.WPF）仅目标 .NET Framework，在 .NET 10 上启动失败。OxyPlot 是纯托管的，干净。</td></tr>
-  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发不实现（v2.x 范围外的长期非目标，与 J1939/CANopen/SocketCAN 一起推迟到更远的将来）。</td></tr>
+  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发不实现（v3.x 范围外的长期非目标，与 J1939/CANopen/SocketCAN 一起推迟到更远的将来）。</td></tr>
   <tr><td><strong>VM 部分 IDisposable（v1.2.2 起）</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，v1.2.2 起实现 <code>IDisposable</code> 复位 <code>TesterPresentActive=false</code> + Cancel/Dispose CTS。<strong>注</strong>：当前 DI 容器不调用 <code>Dispose()</code>——VM 生命周期 ≈ 进程生命周期，Dispose 仅作为防御性 API 暴露。</td></tr>
   <tr><td><strong><code>IFileDialogService</code> 抽象（v1.1 起）</strong></td><td>v0.x <code>DbcViewModel.OpenAsync</code> 内联调用 <code>OpenFileDialog.ShowDialog</code>，用户取消路径测试为 <code>[Fact(Skip=...)]</code>。v1.1 起抽取为 <code>IFileDialogService</code> 接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
   <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code>（v1.1 起）</strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异（典型：HMAC-SHA256、HSM 模拟、硬件安全模块等）。v1.1 抽取为接口并提供占位实现（<em>原样回传 seed</em>）让 UI 联调可跑通；OEM 客户需自行实现并替换。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
