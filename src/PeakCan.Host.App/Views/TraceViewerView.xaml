@@ -54,14 +54,19 @@
             <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
 
             <!-- Right: chart subplots (per-signal PlotViews) -->
-            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="ChartScroll" Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                          Loaded="OnChartScrollLoaded" SizeChanged="OnChartScrollSizeChanged">
                 <ItemsControl ItemsSource="{Binding ChartViewModel.Series}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
                                 <StackPanel>
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Margin="8,0" />
-                                    <oxy:PlotView Model="{Binding PlotModel}" Height="160" />
+                                    <StackPanel Orientation="Horizontal" Margin="8,0">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <Button Content="[Focus]" Click="OnFocusSubplotClick" Margin="8,0,4,0" Padding="4,0" />
+                                        <Button Content="[▼ Collapse]" Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0" />
+                                    </StackPanel>
+                                    <oxy:PlotView Model="{Binding PlotModel}" Height="{Binding AdaptiveHeight}" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>

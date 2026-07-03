@@ -31,6 +31,12 @@ public sealed class TraceChartViewModel : ObservableObject
 #pragma warning restore CS0169
     private double _playbackCursorX;
     private double _totalDuration;
+    private double _chartAreaHeight = 800.0;
+
+    // v3.0.2 PATCH Task 1: subplot height clamp bounds (spec §3).
+    private const double MinSubplotHeight = 80.0;
+    private const double MaxSubplotHeight = 250.0;
+    private const double CollapsedSubplotHeight = 24.0;
 
     public ObservableCollection<TraceChartSeries> Series { get; } = new();
     public double PlaybackCursorX
@@ -44,14 +50,44 @@ public sealed class TraceChartViewModel : ObservableObject
         set => SetProperty(ref _totalDuration, value);
     }
 
+    /// <summary>
+    /// Height (px) of the chart area that hosts the stacked subplots.
+    /// Set from the chart area's <c>ActualHeight</c> by the code-behind
+    /// (XAML wiring is Task 2 of v3.0.2). When this value changes,
+    /// every series' <see cref="TraceChartSeries.AdaptiveHeight"/> is
+    /// recomputed via the spec's algorithm.
+    /// </summary>
+    public double ChartAreaHeight
+    {
+        get => _chartAreaHeight;
+        set
+        {
+            if (SetProperty(ref _chartAreaHeight, value))
+                RecomputeHeights();
+        }
+    }
+
     public void AddSeries(TraceChartSeries s)
     {
         Series.Add(s);
+        RecomputeHeights();
     }
 
     public void RemoveSeries(TraceChartSeries s)
     {
-        Series.Remove(s);
+        // Match by SignalKey (not reference / value equality) so the
+        // caller can pass the original record even after AddSeries /
+        // ToggleCollapse / SetFocus have replaced it with a `with` copy.
+        // Mirrors the lookup pattern in ToggleCollapse.
+        for (int i = 0; i < Series.Count; i++)
+        {
+            if (Series[i].SignalKey == s.SignalKey)
+            {
+                Series.RemoveAt(i);
+                RecomputeHeights();
+                return;
+            }
+        }
     }
 
     public void UpdatePlaybackCursor(double x)
@@ -127,6 +163,7 @@ public sealed class TraceChartViewModel : ObservableObject
             {
                 var current = Series[i];
                 Series[i] = current with { IsCollapsed = !current.IsCollapsed };
+                RecomputeHeights();
                 return;
             }
         }
@@ -134,6 +171,7 @@ public sealed class TraceChartViewModel : ObservableObject
 
     public void SetFocus(TraceChartSeries s)
     {
+        var changed = false;
         for (int i = 0; i < Series.Count; i++)
         {
             var cur = Series[i];
@@ -141,8 +179,57 @@ public sealed class TraceChartViewModel : ObservableObject
             if (cur.IsFocused != isFocused)
             {
                 Series[i] = cur with { IsFocused = isFocused };
+                changed = true;
             }
         }
+        if (changed) RecomputeHeights();
+    }
+
+    /// <summary>
+    /// Re-runs <see cref="Compute"/> for every series and writes the
+    /// result back as a new record (via the <c>with</c> expression) so
+    /// XAML bindings see the updated <c>AdaptiveHeight</c>.
+    /// </summary>
+    public void RecomputeHeights()
+    {
+        var visibleCount = Series.Count(s => !s.IsCollapsed);
+        var focusModeActive = Series.Any(s => s.IsFocused);
+        for (int i = 0; i < Series.Count; i++)
+        {
+            var cur = Series[i];
+            var newHeight = Compute(cur, visibleCount, focusModeActive, _chartAreaHeight);
+            if (cur.AdaptiveHeight != newHeight)
+                Series[i] = cur with { AdaptiveHeight = newHeight };
+        }
+    }
+
+    /// <summary>
+    /// Spec §3 adaptive-subplot-height algorithm.
+    /// <list type="bullet">
+    ///   <item>Collapsed series: <c>24</c> px (header-only).</item>
+    ///   <item>Focused series (any focus active): <c>clamp(H * 0.5, 80, 250)</c>.</item>
+    ///   <item>Non-focused (in focus mode): <c>clamp((H * 0.5) / max(N-1, 1), 80, 250)</c>.</item>
+    ///   <item>General case (no focus): <c>clamp(H / N, 80, 250)</c>.</item>
+    /// </list>
+    /// <paramref name="visibleCount"/> is the number of non-collapsed series.
+    /// <paramref name="focusModeActive"/> is true iff at least one series in
+    /// the collection has <c>IsFocused == true</c>.
+    /// </summary>
+    internal static double Compute(TraceChartSeries s, int visibleCount, bool focusModeActive, double h)
+    {
+        if (s.IsCollapsed) return CollapsedSubplotHeight;
+        if (s.IsFocused) return Math.Clamp(h * 0.5, MinSubplotHeight, MaxSubplotHeight);
+        if (focusModeActive)
+        {
+            // Others share the remaining half. visibleCount includes this
+            // (non-collapsed, non-focused) series; the focused series is
+            // already excluded from the visible share.
+            var divisor = Math.Max(visibleCount - 1, 1);
+            return Math.Clamp((h * 0.5) / divisor, MinSubplotHeight, MaxSubplotHeight);
+        }
+        // Equal share: H / N, clamped.
+        if (visibleCount <= 0) return MinSubplotHeight;
+        return Math.Clamp(h / visibleCount, MinSubplotHeight, MaxSubplotHeight);
     }
 
     /// <summary>Called by subplot's X-axis when user zooms/pans. Syncs all others.</summary>

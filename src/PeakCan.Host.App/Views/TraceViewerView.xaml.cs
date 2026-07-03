@@ -37,4 +37,49 @@ public partial class TraceViewerView : Window
             catch (System.Exception ex) { MessageBox.Show(this, ex.Message, "DBC load failed"); }
         }
     }
+
+    // v3.0.2 PATCH Task 2: header buttons inside each subplot DataTemplate.
+    // DataContext inside the template is the TraceChartSeries row, so we
+    // cast sender.DataContext to TraceChartSeries and the window's
+    // DataContext (the VM) to TraceViewerViewModel, then forward to the
+    // chart VM's SetFocus / ToggleCollapse methods (both added in Task 1).
+    private void OnFocusSubplotClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe
+            && fe.DataContext is TraceChartSeries s
+            && DataContext is TraceViewerViewModel vm)
+        {
+            vm.ChartViewModel.SetFocus(s);
+        }
+    }
+
+    private void OnCollapseSubplotClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe
+            && fe.DataContext is TraceChartSeries s
+            && DataContext is TraceViewerViewModel vm)
+        {
+            vm.ChartViewModel.ToggleCollapse(s);
+        }
+    }
+
+    // v3.0.2 PATCH Task 2: feed ChartAreaHeight (which feeds
+    // AdaptiveHeight via RecomputeHeights) from the chart area's actual
+    // height. Loaded fires once on first render; SizeChanged fires on
+    // window resize and GridSplitter drag.
+    private void OnChartScrollLoaded(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is TraceViewerViewModel vm && sender is FrameworkElement fe)
+        {
+            vm.ChartViewModel.ChartAreaHeight = fe.ActualHeight;
+        }
+    }
+
+    private void OnChartScrollSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (DataContext is TraceViewerViewModel vm)
+        {
+            vm.ChartViewModel.ChartAreaHeight = e.NewSize.Height;
+        }
+    }
 }

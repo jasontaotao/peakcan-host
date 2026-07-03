@@ -20,4 +20,14 @@ public sealed record TraceChartSeries(
     double MinValue,
     double MaxValue,
     bool IsFocused,
-    bool IsCollapsed);
+    bool IsCollapsed)
+{
+    /// <summary>
+    /// Computed per-instance subplot height in pixels. Bound from XAML
+    /// onto <c>PlotView.Height</c>. Updated by
+    /// <see cref="TraceChartViewModel"/> whenever <c>ChartAreaHeight</c>,
+    /// the series set, or any series' <c>IsFocused</c>/<c>IsCollapsed</c>
+    /// flag changes. See spec §3 adaptive-subplot-height algorithm.
+    /// </summary>
+    public double AdaptiveHeight { get; init; } = 160.0;
+}
