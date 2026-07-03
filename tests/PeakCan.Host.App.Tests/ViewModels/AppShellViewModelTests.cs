@@ -98,7 +98,8 @@ public class AppShellViewModelTests
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
-                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
     }
 
     /// <summary>
@@ -408,7 +409,8 @@ public class AppShellViewModelTests
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
-                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -481,7 +483,8 @@ public class AppShellViewModelTests
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
-                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
     }
 
     [Fact]
@@ -597,7 +600,8 @@ public class AppShellViewModelTests
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
-                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))));
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -843,6 +847,7 @@ public class AppShellViewModelTests
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+            new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance),
             enumerator,
             writableConfig);
     }
@@ -1092,5 +1097,20 @@ public class AppShellViewModelTests
         var shell = NewVm();
         shell.OpenMultiFrameCommand.Should().NotBeNull();
         shell.OpenMultiFrameCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    // --- v3.0 MINOR: ShowTraceViewer routing (Task 7) ---
+
+    [Fact]
+    public void ShowTraceViewerCommand_Is_Not_Null_And_Can_Execute()
+    {
+        // v3.0 MINOR: TraceViewerWindow + TraceViewerViewModel were built
+        // (Task 5/6) but AppShell had no menu route. Mirror the
+        // ShowReplayCommand_Is_Not_Null_And_Can_Execute / OpenMultiFrame
+        // precedent — the menu-cached view reuse + STA-RunSta
+        // lazy-window path is exercised by the same manual smoke.
+        var shell = NewVm();
+        shell.ShowTraceViewerCommand.Should().NotBeNull();
+        shell.ShowTraceViewerCommand.CanExecute(null).Should().BeTrue();
     }
 }

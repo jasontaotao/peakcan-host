@@ -24,6 +24,7 @@
                 <MenuItem Header="UDS" Command="{Binding ShowUdsCommand}" />
                 <MenuItem Header="Record" Command="{Binding ShowRecordCommand}" />
                 <MenuItem Header="Replay" Command="{Binding ShowReplayCommand}" />
+                <MenuItem Header="Trace Viewer…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="Multi-frame..." Command="{Binding OpenMultiFrameCommand}" />
             </MenuItem>
         </Menu>

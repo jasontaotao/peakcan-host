@@ -311,6 +311,25 @@ public class AppHostBuilder
         // background timer that needs host shutdown).
         builder.Services.AddSingleton<ReplayViewModel>();
 
+        // v3.0 MINOR Task 7: Trace Viewer (non-modal inspection window —
+        // see docs/superpowers/specs/2026-07-03-trace-viewer-design.md).
+        // ITraceViewerService follows the IReplayService precedent — singleton
+        // so the ReplayTimeline + loaded ASC state is shared across consumers.
+        // TraceViewerViewModel is a singleton so AppShellViewModel (also a
+        // singleton) constructs with the same instance, preserving the
+        // loaded trace + signal list + chart scrubber position across menu
+        // round-trips. TraceViewerView itself is NOT registered with DI: WPF
+        // Window ctor requires STA, and the AppShell shell already owns a
+        // cached lazy field (_traceViewerView) matching the ShowReplayCommand
+        // precedent — see AppShellViewModel.ShowTraceViewer for the resolve
+        // path (resolves TraceViewerViewModel from DI on first show, news
+        // a TraceViewerView with it).
+        builder.Services.AddSingleton<ITraceViewerService, TraceViewerService>();
+        // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceViewerService.
+        // DbcService is registered above (singleton, AddSingleton with factory);
+        // the logger is auto-wired by Microsoft.Extensions.Hosting.
+        builder.Services.AddSingleton<TraceViewerViewModel>();
+
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
                                        PeakCan.Host.App.Services.WpfFileDialogService>();
@@ -484,6 +503,7 @@ public class AppHostBuilder
             sp.GetRequiredService<RecordViewModel>(),
             sp.GetRequiredService<ReplayViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(),
+            sp.GetRequiredService<TraceViewerViewModel>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();

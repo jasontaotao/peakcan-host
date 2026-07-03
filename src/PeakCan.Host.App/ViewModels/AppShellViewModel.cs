@@ -94,6 +94,12 @@ public sealed partial class AppShellViewModel : ObservableObject
     // MultiFrameSendWindow on menu click. SendViewModel keeps its own
     // independent window instance — both point at the same singleton VM.
     private readonly MultiFrameSendViewModel _multiFrameSendViewModel;
+    // v3.0 MINOR Task 7: Trace Viewer non-modal window (Pattern A orphan
+    // closure — TraceViewerView + VM + ITraceViewerService were fully
+    // built in Tasks 1-6 but AppShell had no menu route). Shared singleton
+    // VM so the menu, future SendView button, and any other consumer all
+    // bind to the same loaded trace + signal list + chart scrubber state.
+    private readonly TraceViewerViewModel _traceViewerViewModel;
     // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
@@ -119,6 +125,12 @@ public sealed partial class AppShellViewModel : ObservableObject
     private UdsView? _udsView;
     private RecordView? _recordView;
     private ReplayView? _replayView;
+    // v3.0 MINOR Task 7: TraceViewerView is a non-modal Window (not a
+    // tab in the MainArea ContentControl), so it lives outside the
+    // WPF View cache. Lazy + Closed-reset pattern mirrors the
+    // OpenMultiFrame window precedent (each menu click reopens the
+    // cached window without spawning a fresh one).
+    private TraceViewerView? _traceViewerView;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -244,6 +256,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         RecordViewModel recordViewModel,
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
+        TraceViewerViewModel traceViewerViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -262,6 +275,14 @@ public sealed partial class AppShellViewModel : ObservableObject
         _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
         _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
         _multiFrameSendViewModel = multiFrameSendViewModel ?? throw new ArgumentNullException(nameof(multiFrameSendViewModel));
+        // v3.0 MINOR Task 7: Trace Viewer non-modal window. Required ctor
+        // argument (no default) so DI always wires it — backwards-
+        // compatible test fixtures that build the VM without DI will
+        // receive a Compile Error on missing arg, exactly the behaviour
+        // we want for the v3.0 surface addition. Existing test sites
+        // were updated to construct with a stub ITraceViewerService +
+        // null DbcService substitute.
+        _traceViewerViewModel = traceViewerViewModel ?? throw new ArgumentNullException(nameof(traceViewerViewModel));
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -425,6 +446,43 @@ public sealed partial class AppShellViewModel : ObservableObject
         if (Application.Current?.MainWindow is { } owner && owner != win)
             win.Owner = owner;
         win.Show();
+    }
+
+    [RelayCommand]
+    private void ShowTraceViewer()
+    {
+        // v3.0 MINOR Task 7: Trace Viewer non-modal window from the AppShell
+        // View menu. Closes the v3.0 Pattern A orphan — TraceViewerView +
+        // TraceViewerViewModel + ITraceViewerService were all built in Tasks
+        // 1-6 but AppShell had no menu route. **No bus writes**: this is a
+        // read-only inspection surface over the loaded ASC + optional DBC.
+        // Reuses the OpenMultiFrame lazy-cached-window pattern (each
+        // menu click re-shows the cached window; closing resets the
+        // reference so the next click opens a fresh window). The window
+        // is non-modal and not owned by AppShell so the user can keep the
+        // ASC open while interacting with the main tabs.
+        if (_traceViewerView == null)
+        {
+            // Build a fresh window with the shared singleton VM. VM
+            // survives the window (independent lifetime), so re-opening
+            // a closed window preserves the loaded ASC + signal list +
+            // chart scrubber position only as long as the underlying
+            // VM is the same instance — which it is, by ctor injection
+            // (registered singleton in AppHostBuilder).
+            _traceViewerView = new TraceViewerView(_traceViewerViewModel);
+            _traceViewerView.Closed += (_, _) => _traceViewerView = null;
+        }
+        if (!_traceViewerView.IsVisible)
+        {
+            _traceViewerView.Show();
+        }
+        else
+        {
+            // Already shown — bring to the foreground instead of
+            // re-activating (which on Windows flashes the taskbar
+            // icon for an already-visible window and looks like a bug).
+            _traceViewerView.Activate();
+        }
     }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };

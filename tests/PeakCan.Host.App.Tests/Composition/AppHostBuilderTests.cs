@@ -8,6 +8,7 @@ using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.App.Views;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -345,5 +346,50 @@ public class AppHostBuilderTests
         host.Services.GetService<IReplayService>()
             .Should().BeSameAs(host.Services.GetService<IReplayService>(),
                 "IReplayService is registered as singleton");
+    }
+
+    /// <summary>
+    /// v3.0 MINOR (Task 7): wires the new TraceViewerService,
+    /// TraceViewerViewModel, and TraceViewerView into DI. Singleton lifetime
+    /// on the service matches <see cref="IReplayService"/>; the VM and
+    /// non-modal Window are singleton so every caller (including menu
+    /// reopen) shares one timeline and the same view instance — the
+    /// <c>AppShellViewModel.ShowTraceViewerCommand</c> command opens
+    /// the cached window rather than news-up a fresh one each click.
+    /// </summary>
+    [Fact]
+    public void Build_Registers_TraceViewerService_As_Singleton()
+    {
+        var builder = new AppHostBuilder();
+        using var host = builder.Build();
+
+        host.Services.GetService<ITraceViewerService>().Should().NotBeNull();
+        host.Services.GetService<ITraceViewerService>()
+            .Should().BeSameAs(host.Services.GetService<ITraceViewerService>(),
+                "ITraceViewerService is registered as singleton");
+    }
+
+    [Fact]
+    public void Build_Registers_TraceViewerViewModel_As_Singleton()
+    {
+        // Task 7: TraceViewerViewModel is a singleton so AppShellViewModel
+        // (also a singleton) constructs with the same instance, preserving
+        // the loaded trace + signal list + chart scrubber position across
+        // menu round-trips. Matches the ReplayViewModel precedent.
+        var builder = new AppHostBuilder();
+        using var host = builder.Build();
+
+        host.Services.GetService<TraceViewerViewModel>().Should().NotBeNull();
+        host.Services.GetService<TraceViewerViewModel>()
+            .Should().BeSameAs(host.Services.GetService<TraceViewerViewModel>(),
+                "TraceViewerViewModel is registered as singleton");
+
+        // TraceViewerView is intentionally NOT DI-registered — WPF Window
+        // ctor requires STA, and AppShellViewModel owns the lazy cached
+        // _traceViewerView field (matches ShowReplayCommand precedent).
+        // Resolving it from the IServiceProvider would throw on test
+        // MTA threads. This negative assertion pins that decision.
+        host.Services.GetService<TraceViewerView>().Should().BeNull(
+            "TraceViewerView is not DI-registered — the AppShell lazy-show pattern is the integration point");
     }
 }

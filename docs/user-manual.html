@@ -85,6 +85,7 @@
     <li><a href="#stats">Stats（总线统计）</a></li>
     <li><a href="#script">Script（脚本自动化）</a></li>
     <li><a href="#uds">UDS（UDS 诊断栈）</a></li>
+    <li><a href="#trace-viewer">Trace Viewer（离线 .asc 回放）</a></li>
     <li><a href="#dbc-scope">DBC 解析器支持范围</a></li>
     <li><a href="#logs">日志与故障排查</a></li>
     <li><a href="#faq">FAQ &amp; 已知限制</a></li>
@@ -943,7 +944,117 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 </blockquote>
 
 <!-- =========================================================== -->
-<h2 id="dbc-scope">12. DBC 解析器支持范围</h2>
+<h2 id="trace-viewer">12. Trace Viewer（离线 .asc 回放） <span class="badge info">v3.0.0</span></h2>
+<!-- =========================================================== -->
+
+<p><strong>Trace Viewer</strong>（v3.0.0 MINOR 起）是 PeakCan Host 的<strong>离线回放</strong>窗口，
+对应中文"<strong>回放</strong>"语义：加载已录制的 <code>.asc</code> 文件并按时间轴<strong>只读
+地</strong>查看信号变化曲线，<strong>绝不向 CAN 总线写入任何帧</strong>。</p>
+
+<blockquote>
+<strong>关键区分：</strong>
+<ul>
+  <li><strong>Trace Viewer（回放，v3.0.0）</strong>：加载 <code>.asc</code> → 解析 → 显示图表。
+      <strong>无总线写入</strong>。代码路径走 <code>ITraceViewerService</code>，反射测试
+      <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 强制该类型不能引用
+      <code>IReplayFrameSink</code>。</li>
+  <li><strong>Replay（重发，v1.4.0）</strong>：加载 <code>.asc</code> → 通过 <code>IReplayFrameSink.SendFrameAsync</code>
+      <strong>把帧重新写到总线上</strong>，影响真实总线状态。自 v2.1.4 PATCH 起 <code>View ▸ Replay</code>
+      菜单入口可用。</li>
+</ul>
+</blockquote>
+
+<h3>12.1 启动方式</h3>
+<ol>
+  <li>主窗口菜单 <strong>View ▸ Trace Viewer…</strong>（<code>AppShellViewModel.ShowTraceViewerCommand</code>）。</li>
+  <li>弹出<strong>非模态</strong>窗口（<code>TraceViewerView</code>），可与主窗口同时操作、独立关闭。</li>
+  <li>窗口内顶部工具栏：<strong>Open .asc</strong>（打开录制文件）+ <strong>Open DBC</strong>（可选，解析信号）+ 播放控件
+      <span class="kbd">▶</span> / <span class="kbd">⏸</span> / <span class="kbd">⏹</span> + 速度下拉（0.25× / 0.5× / 1× / 2× / 4×）+ Loop 复选框
+      + 进度 scrubber。</li>
+  <li>窗口中部：横向 split（<code>GridSplitter</code>）。
+    <ul>
+      <li><strong>左侧：信号列表</strong>（按 <code>(CAN ID, signal)</code> 一行），列：Plot 复选框 / CAN ID hex / 信号名 / 最新值 / 单位。</li>
+      <li><strong>右侧：每个选中信号的子图</strong>（每个 <code>OxyPlot.PlotView</code> 独立 Y 轴），共享 X 轴（0..TotalDuration）。</li>
+    </ul>
+  </li>
+  <li>窗口底部：状态栏 + <strong>Export CSV</strong>（导出所有已勾选信号样本，X = 时间，列为各信号值）。</li>
+</ol>
+
+<h3>12.2 关键行为</h3>
+<table>
+  <tr><th>行为</th><th>说明</th></tr>
+  <tr><td><strong>无总线写入</strong></td>
+       <td><code>TraceViewerService</code> 不持有 <code>IReplayFrameSink</code>；
+           反射测试 <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 在每次 CI 中验证
+           <code>IReplayFrameSink</code> 不出现在 <code>TraceViewerService</code> 的 ctor 参数、属性或字段中。
+           加载 ASC 后，CPU 资源被消耗，但 PCAN-USB FD 硬件<strong>不会</strong>发出任何帧。</td></tr>
+  <tr><td><strong>帧数上限</strong></td>
+       <td>软警告 50 000 帧；硬上限 100 000 帧。超出后 <code>TraceViewerService.LoadAsync</code> 抛
+           <code>ReplayLoadException</code>，UI 弹错误对话框。</td></tr>
+  <tr><td><strong>共享 X 轴同步</strong></td>
+       <td>所有子图的 X 轴通过 <code>LinearAxis.AxisChanged</code> 事件级联；
+           用 <code>_syncing</code> 布尔标志位防止重入 ping-pong。zoom / pan 一个子图时其他子图同步。</td></tr>
+  <tr><td><strong>播放游标</strong></td>
+       <td>红色垂直 <code>LineAnnotation</code>，由 <code>ValueChanged</code> 事件驱动；为避免 10k 点的全量重绘，
+           用 <code>PlotModel.InvalidatePlot(false)</code> 只刷新 annotation 层（~50× 快于无参重载）。</td></tr>
+  <tr><td><strong>CSV 导出</strong></td>
+       <td>所有 Plot 复选框勾选的信号 → 写出 <code>time,SignalA,SignalB,…</code> 格式 CSV；
+           时间列单位为秒（相对录制起点）。</td></tr>
+  <tr><td><strong>统计 chip</strong></td>
+       <td>每个子图底部显示 min / max / avg / n 四个 chip，随 playback 实时刷新。</td></tr>
+  <tr><td><strong>DBC 不必加载</strong></td>
+       <td>无 DBC 时按 ID 列出原始帧（hex）；有 DBC 时按 <code>(ID, signal)</code> 展开成可绘制的物理值。</td></tr>
+  <tr><td><strong>多实例</strong></td>
+       <td>可同时开多个 Trace Viewer 窗口看不同 <code>.asc</code>；每个窗口独立 VM（DI 单例复用，但 View 独立）。</td></tr>
+</table>
+
+<h3>12.3 字段含义</h3>
+<table>
+  <tr><th>列 / 元素</th><th>含义</th></tr>
+  <tr><td><strong>Plot 复选框</strong></td>
+       <td>勾选后该 <code>(ID, signal)</code> 行进入右侧子图区域；最多 10 个同时显示（Tableau 10 调色板）。</td></tr>
+  <tr><td><strong>CAN ID (hex)</strong></td>
+       <td>帧的 CAN ID（Standard 11-bit 显示 <code>0xNNN</code>；Extended 29-bit 显示 <code>0xNNNNNNNN</code>）。</td></tr>
+  <tr><td><strong>Signal</strong></td>
+       <td>信号名（来自 DBC <code>SG_</code>；无 DBC 时为 <code>—</code>）。</td></tr>
+  <tr><td><strong>Latest</strong></td>
+       <td>播放游标位置（最新一次）该信号的物理值；最多 3 位小数。</td></tr>
+  <tr><td><strong>Unit</strong></td>
+       <td>信号单位（来自 DBC；空时显示 <code>—</code>）。</td></tr>
+  <tr><td><strong>状态栏</strong></td>
+       <td>显示 <code>"Loaded N frames from &lt;file&gt;"</code> / <code>"Playback: HH:MM:SS.mmm / HH:MM:SS.mmm"</code> /
+           <code>"FAIL: &lt;code&gt; &lt;message&gt;"</code>。</td></tr>
+</table>
+
+<h3>12.4 与 Replay（重发）的差异</h3>
+<table>
+  <tr><th>维度</th><th>Trace Viewer（v3.0.0）</th><th>Replay（v1.4.0 / v2.1.4）</th></tr>
+  <tr><td>输入</td><td><code>.asc</code> 文件</td><td><code>.asc</code> 文件</td></tr>
+  <tr><td>输出</td><td>屏幕图表（OxyPlot）</td><td>真实 CAN 帧（通过 <code>IReplayFrameSink</code>）</td></tr>
+  <tr><td>总线写入</td><td><strong>无</strong>（反射测试强制）</td><td>有（每帧调用 <code>SendFrameAsync</code>）</td></tr>
+  <tr><td>服务接口</td><td><code>ITraceViewerService</code>（无 sink）</td><td><code>IReplayService</code>（接受 sink）</td></tr>
+  <tr><td>UI 入口</td><td><code>View ▸ Trace Viewer…</code></td><td><code>View ▸ Replay</code>（v2.1.4 PATCH 起）</td></tr>
+  <tr><td>典型场景</td><td>事故分析、信号曲线查看、回归测试历史</td><td>回灌测试、台架复现、故障注入</td></tr>
+  <tr><td>硬件依赖</td><td>不需要 PCAN-USB FD 即可加载（纯本地解析）</td><td>需要已连接硬件以发送帧</td></tr>
+</table>
+
+<blockquote class="warn">
+<strong>安全提示：</strong>Trace Viewer 是<strong>只读</strong>工具，不会对总线产生任何影响；但若你同时打开了
+Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察的同一条总线——否则重发帧会与录制回放的图表
+"<strong>混入</strong>"，造成分析误导。两个窗口的视觉样式（颜色、布局）有显著差异，但功能职责不同。
+</blockquote>
+
+<h3>12.5 已知限制（V1）</h3>
+<ul>
+  <li>子图 focus 模式按钮为 V1 stub（占位 + 提示信息），完整实现推迟到 v3.0.1（如果用户优先级提升）。</li>
+  <li>最多同时显示 10 个信号子图（Tableau 10 调色板）；超过 10 个需手动取消勾选前面的再勾选新的。</li>
+  <li>录制时间超过 100 000 帧会被拒绝加载；建议先用 <strong>Record</strong> 服务的 CSV 模式导出大文件做趋势分析。</li>
+  <li>DBC 热重载不支持——换 DBC 后需关闭 + 重开窗口。</li>
+  <li>无书签 / 标注 / 多 trace 对比 / PNG 导出 / J1939 协议解码（均明确出 V1 scope）。</li>
+</ul>
+
+<!-- =========================================================== -->
+<h2 id="dbc-scope">13. DBC 解析器支持范围</h2>
 <!-- =========================================================== -->
 
 <p>当前 v1.2.2 支持以下 DBC 关键字与特性：</p>
@@ -968,7 +1079,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 </blockquote>
 
 <!-- =========================================================== -->
-<h2 id="logs">13. 日志与故障排查</h2>
+<h2 id="logs">14. 日志与故障排查</h2>
 <!-- =========================================================== -->
 
 <h3>11.1 日志位置</h3>
@@ -994,7 +1105,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 </ol>
 
 <!-- =========================================================== -->
-<h2 id="faq">14. FAQ &amp; 已知限制</h2>
+<h2 id="faq">15. FAQ &amp; 已知限制</h2>
 <!-- =========================================================== -->
 
 <h3>14.1 FAQ</h3>
@@ -1066,6 +1177,9 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
   <tr><td><strong>v2.1.3 ✅</strong></td><td>PATCH：stale manual refs Tidy（0 代码改动）。</td></tr>
   <tr><td><strong>v2.1.4 ✅</strong></td><td>PATCH：Replay 标签 UI orphan 闭合（<code>View ▸ Replay</code> 菜单入口 + <code>ShowReplayCommand</code> + <code>ReplayViewModel</code> DI 注册；自 v1.4.0 起 Replay 服务已实现但 UI 不可达）。</td></tr>
   <tr><td><strong>v2.1.5 ✅</strong></td><td>PATCH：CI 失败 gap 闭合（<code>%LOCALAPPDATA%\PeakCan.Host</code> 目录缺失 + <code>Demo_Cdd.odx-d</code> fixture 软跳过）。</td></tr>
+  <tr><td><strong>v2.1.6 ✅</strong></td><td>PATCH：Doc-only Tidy（4 stale refs in user-manual §14/§A）。</td></tr>
+  <tr><td><strong>v2.1.7 ✅</strong></td><td>PATCH：Multi-frame AppShell menu entry（Pattern A2 orphan：<code>View ▸ Multi-frame...</code> 菜单入口 + <code>OpenMultiFrameCommand</code>）。</td></tr>
+  <tr><td><strong>v3.0.0 ✅</strong></td><td>MINOR：<strong>Trace Viewer（回放/inspection）</strong>——非模态窗口，<code>View ▸ Trace Viewer…</code> 菜单入口；加载 <code>.asc</code> + 可选 DBC → 共享 X 轴的 per-signal OxyPlot 子图；播放控件（▶/⏸/⏹/速度/Loop）+ scrubber + 统计 chip + CSV 导出。<strong>无总线写入</strong>（<code>ITraceViewerService</code> 无 <code>IReplayFrameSink</code> 依赖，反射测试 <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 强制）。详见 <a href="#trace-viewer">§12</a>。</td></tr>
   <tr><td><strong>v2.2 🔜</strong></td><td>ODX CONDITIONAL / ECU-VARIANT DIAG-LAYER 子类型支持 + V8 沙箱 ODX 加载白名单（安全审查后）。</td></tr>
 </table>
 
@@ -1101,7 +1215,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <h3>A.3 测试覆盖</h3>
 <ul>
-  <li><strong>964 pass + 6 SKIP + 0 fail</strong>：Core 387 + App 493 + Infrastructure 84 (含 ODX</li>
+  <li><strong>985 pass + 6 SKIP + 0 fail</strong>：Core 392 + App 509 + Infrastructure 84 (含 ODX</li>
   <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
   <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
