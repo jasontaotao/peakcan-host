@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -162,22 +163,101 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Rebuild the left-side <see cref="Signals"/> collection from the
-    /// currently loaded trace + (optional) DBC. V1 stub: emits no rows.
-    /// The real impl iterates <see cref="ITraceViewerService"/>'s loaded
-    /// frames and the <see cref="DbcService.Current"/> document.
-    /// Pending v3.0.1 PATCH: per-signal DBC decode. The 5 mandated tests
-    /// do not exercise <see cref="Signals"/> content, so the stub keeps
-    /// the tests green without committing to a wiring shape that
-    /// subsequent tasks may want to change.
+    /// currently loaded trace + (optional) DBC. For every message in the
+    /// loaded DBC, every signal on that message that has at least one
+    /// matching frame in <see cref="ITraceViewerService.LoadedFrames"/>
+    /// becomes one <see cref="TraceSignalRow"/>, with <c>LatestValue</c>
+    /// set to the engineering value decoded from the LAST matching frame
+    /// (matches the v3.0.0 release-notes promise: the most recent value
+    /// at load time). Rows are sorted by <c>(CanIdHex, SignalName)</c>
+    /// for deterministic output.
+    /// <para>
+    /// When <see cref="DbcService.Current"/> is null (no DBC loaded) the
+    /// collection is left empty; same when a DBC is loaded but no
+    /// <see cref="ITraceViewerService.LoadedFrames"/> entries match any
+    /// of its messages. Runs synchronously on the UI thread — the
+    /// caller (OpenFileAsync / LoadDbcAsync) is already on the UI
+    /// thread, the work is bounded by <c>|messages| * |signals|</c>
+    /// which is small for typical DBC sizes, and the result is bound
+    /// to an <see cref="ObservableCollection{T}"/> which would require
+    /// a marshal-back if we ever moved it off-thread.
+    /// </para>
     /// </summary>
     private async Task RebuildSignalsAsync()
     {
         Signals.Clear();
-        // Pending v3.0.1 PATCH: per-signal DBC decode. Intentionally
-        // empty until then; keeping it as a no-op (rather than throwing)
-        // avoids test-fixture surprises if the VM is constructed with a
-        // real service before any data flows.
+        var dbc = _dbcService.Current;
+        if (dbc is null)
+        {
+            // No DBC — nothing to decode against.
+            await Task.CompletedTask;
+            return;
+        }
+
+        var frames = _service.LoadedFrames;
+        // Bucket frames by CAN ID once (linear in |frames|); then walk
+        // DBC messages and emit one row per signal that has at least
+        // one matching frame.
+        var byId = new Dictionary<uint, List<ReplayFrame>>(frames.Count);
+        foreach (var f in frames)
+        {
+            if (!byId.TryGetValue(f.Id, out var list))
+            {
+                list = new List<ReplayFrame>();
+                byId[f.Id] = list;
+            }
+            list.Add(f);
+        }
+
+        var rows = new List<TraceSignalRow>();
+        foreach (var msg in dbc.Messages)
+        {
+            if (!byId.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
+            {
+                continue;
+            }
+            var idHex = FormatCanIdHex(msg.Id);
+            foreach (var sig in msg.Signals)
+            {
+                // Latest = decoded value of the last matching frame.
+                // Use the existing decode path so signed/float/factor/offset
+                // semantics match the live Trace Chart VM exactly.
+                var lastFrame = matching[^1];
+                var value = SignalDecoder.Decode(lastFrame.Data, sig);
+                rows.Add(new TraceSignalRow(
+                    CanIdHex: idHex,
+                    SignalName: sig.Name,
+                    Unit: sig.Unit,
+                    IsPlotted: false,
+                    LatestValue: value));
+            }
+        }
+
+        rows.Sort(static (a, b) =>
+        {
+            var byId2 = string.CompareOrdinal(a.CanIdHex, b.CanIdHex);
+            return byId2 != 0 ? byId2 : string.CompareOrdinal(a.SignalName, b.SignalName);
+        });
+        foreach (var row in rows)
+        {
+            Signals.Add(row);
+        }
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Format a CAN ID as a hex string for display: "0x123" for standard
+    /// (11-bit, IDE bit clear) and "0x00000123" for extended (29-bit,
+    /// IDE bit set). Matches the DBC tab's ID display convention so the
+    /// Trace Viewer signal list and the DBC message list line up
+    /// visually.
+    /// </summary>
+    private static string FormatCanIdHex(uint id)
+    {
+        const uint IdeBit = 0x80000000u;
+        return (id & IdeBit) == 0
+            ? $"0x{id:X3}"
+            : $"0x{id:X8}";
     }
 
     /// <summary>

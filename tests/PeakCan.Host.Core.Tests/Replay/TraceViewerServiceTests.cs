@@ -80,6 +80,26 @@ public class TraceViewerServiceTests
     }
 
     [Fact]
+    public async Task LoadAsync_ValidAsc_ExposesLoadedFrames()
+    {
+        // After loading a 2-frame ASC, LoadedFrames must surface both frames
+        // with their parsed CAN IDs intact so the VM can iterate them for
+        // per-signal DBC decode in Task 2.
+        var path = System.IO.Path.GetTempFileName();
+        await File.WriteAllLinesAsync(path, TwoFrameAsc);
+        try
+        {
+            var sut = new TraceViewerService(Substitute.For<ILogger<TraceViewerService>>());
+            await sut.LoadAsync(path);
+
+            sut.LoadedFrames.Should().HaveCount(2);
+            sut.LoadedFrames[0].Id.Should().Be(0x100u);
+            sut.LoadedFrames[1].Id.Should().Be(0x100u);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Play_PreLoad_DoesNotEmit()
     {
         // Sanity check: subscribing to FrameEmitted and never invoking Load

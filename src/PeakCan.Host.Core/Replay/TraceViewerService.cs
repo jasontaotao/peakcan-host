@@ -31,6 +31,7 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
     public double CurrentTimestamp => _timeline.CurrentTimestamp;
     public double TotalDuration => _frames.Count > 0 ? _frames[^1].Timestamp : 0.0;
     public double Speed => _timeline.Speed;
+    public IReadOnlyList<ReplayFrame> LoadedFrames => _frames;
     public event Action<ReplayFrame>? FrameEmitted;
 
     public bool Loop

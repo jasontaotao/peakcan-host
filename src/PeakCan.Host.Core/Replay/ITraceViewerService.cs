@@ -18,6 +18,13 @@ public interface ITraceViewerService
     double TotalDuration { get; }
     double Speed { get; }
 
+    /// <summary>
+    /// Read-only view of the frames currently loaded by <see cref="LoadAsync"/>.
+    /// Returns the internal storage directly (no defensive copy); callers must
+    /// treat the result as read-only. Empty until the first successful LoadAsync.
+    /// </summary>
+    IReadOnlyList<ReplayFrame> LoadedFrames { get; }
+
     /// <summary>Fired on the timeline's timer thread. UI subscribers must marshal.</summary>
     event Action<ReplayFrame>? FrameEmitted;
 
