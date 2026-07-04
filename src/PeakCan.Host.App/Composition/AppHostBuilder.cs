@@ -507,7 +507,33 @@ public class AppHostBuilder
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();
-        builder.Services.AddSingleton<SendViewModel>();
+        // A4 orphan PATCH (v3.0.8): SendViewModel needs a
+        // Func<long> that returns the current rate-limit rejected
+        // frame count. Resolved by pattern-matching the registered
+        // SendService against RateLimitedSendService. The null branch
+        // is defensive-only — current DI always wraps the SendService
+        // in a RateLimitedSendService decorator (line 175-180 below
+        // registers a factory that always returns the decorator, even
+        // when MaxFramesPerSecond=0 the decorator instance is still
+        // constructed and its RejectedFrameCount stays at 0). The
+        // pattern-match is future-proofing against a DI refactor that
+        // might bypass the decorator for callers that opt out of rate
+        // limiting.
+        builder.Services.AddSingleton<SendViewModel>(sp =>
+        {
+            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
+            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
+                ? () => rateLimited.RejectedFrameCount
+                : null;
+            return new SendViewModel(
+                sendSvc,
+                sp.GetRequiredService<ILogger<SendViewModel>>(),
+                sp.GetRequiredService<ICyclicSendService>(),
+                sp.GetService<SendFrameLibrary>(),
+                dbcSend: sp.GetRequiredService<DbcSendViewModel>(),
+                multiFrameVm: sp.GetRequiredService<MultiFrameSendViewModel>(),
+                rateLimitRejectedCountProvider: rejectedCountProvider);
+        });
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown (same rationale as RecordViewModel).
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SendViewModel>());

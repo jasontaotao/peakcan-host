@@ -80,8 +80,77 @@ public class SendViewModelTests
         }
     }
 
-    private static SendViewModel NewVm(SendService svc, ICyclicSendService? cyclic = null, SendFrameLibrary? library = null)
-        => new(svc, NullLogger<SendViewModel>.Instance, cyclic ?? new FakeCyclicSendService(), library);
+    private static SendViewModel NewVm(SendService svc, ICyclicSendService? cyclic = null, SendFrameLibrary? library = null, Func<long>? rateLimitRejectedCountProvider = null)
+        => new(svc, NullLogger<SendViewModel>.Instance, cyclic ?? new FakeCyclicSendService(), library, rateLimitRejectedCountProvider: rateLimitRejectedCountProvider);
+
+    /// <summary>
+    /// A4 orphan PATCH (v3.0.8): <see cref="SendViewModel.RateLimitRejectedCount"/>
+    /// is the UI mirror of <see cref="RateLimitedSendService.RejectedFrameCount"/>.
+    /// The VM polls the underlying service every 200 ms via the existing
+    /// DispatcherTimer; tests verify the poll logic via
+    /// <see cref="SendViewModel.Poll"/> (the DispatcherTimer doesn't fire
+    /// in unit-test context).
+    /// </summary>
+    [Fact]
+    public void RateLimitRejectedCount_Defaults_To_Zero_When_Provider_Null()
+    {
+        var vm = NewVm(new FakeSendService());
+        vm.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Updates_From_Provider_After_Poll()
+    {
+        var source = 0L;
+        var vm = NewVm(new FakeSendService(), rateLimitRejectedCountProvider: () => source);
+        vm.RateLimitRejectedCount.Should().Be(0);
+
+        source = 5;
+        vm.Poll();
+        vm.RateLimitRejectedCount.Should().Be(5);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Stays_Zero_When_Provider_Returns_Zero()
+    {
+        var source = 0L;
+        var vm = NewVm(new FakeSendService(), rateLimitRejectedCountProvider: () => source);
+        vm.Poll();
+        vm.Poll();
+        vm.Poll();
+        vm.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Raises_PropertyChanged_Only_When_Count_Changes()
+    {
+        var source = 7L;
+        var vm = NewVm(new FakeSendService(), rateLimitRejectedCountProvider: () => source);
+        var initial = vm.RateLimitRejectedCount;
+        initial.Should().Be(0);
+
+        var changeCount = 0;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.RateLimitRejectedCount))
+                changeCount++;
+        };
+
+        // First poll: 0 -> 7, must raise.
+        vm.Poll();
+        changeCount.Should().Be(1);
+        vm.RateLimitRejectedCount.Should().Be(7);
+
+        // Second poll: 7 -> 7, must NOT raise (idempotent guard).
+        vm.Poll();
+        changeCount.Should().Be(1);
+
+        // Third poll: 7 -> 12, must raise.
+        source = 12;
+        vm.Poll();
+        changeCount.Should().Be(2);
+        vm.RateLimitRejectedCount.Should().Be(12);
+    }
 
     [Fact]
     public void Default_IdText_Is_100()

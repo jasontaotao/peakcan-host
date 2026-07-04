@@ -39,6 +39,12 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     private readonly ICyclicSendService _cyclic;
     private readonly SendFrameLibrary? _libraryService;
     private readonly ILogger<SendViewModel> _logger;
+    // A4 orphan PATCH (v3.0.8): optional provider that returns the
+    // current rate-limit rejected frame count. Production DI wires this
+    // to RateLimitedSendService.RejectedFrameCount when the decorator
+    // is active; tests pass a controllable lambda; the default null
+    // means the UI stays at 0 (no rate-limit policy active).
+    private readonly Func<long>? _getRejectedCount;
     // v1.2.11 PATCH review fix (HIGH): hold a reference to the poll timer
     // so Dispose can stop it. Without Dispose the timer ticks for the
     // VM lifetime and (via Tick closure over _cyclic) keeps the VM alive
@@ -83,6 +89,36 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     [ObservableProperty]
     private long _cyclicFailureCount;
 
+    // A4 orphan PATCH (v3.0.8): mirror of
+    // RateLimitedSendService.RejectedFrameCount, polled every 200 ms.
+    // Defaults to 0 (no rate-limit policy or decorator absent). UI binds
+    // this to a small "rate limit rejected: N" chip in the single-shot
+    // section so operators can see when their burst exceeds the cap.
+    [ObservableProperty]
+    private long _rateLimitRejectedCount;
+
+    /// <summary>
+    /// A4 orphan PATCH (v3.0.8): chip visibility bound to
+    /// <see cref="RateLimitRejectedCount"/>. Hidden when the counter is
+    /// 0 (no rejections or rate-limit decorator absent); visible when
+    /// at least one frame has been rejected.
+    /// </summary>
+    public System.Windows.Visibility RateLimitRejectedVisibility
+        => RateLimitRejectedCount > 0
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+
+    /// <summary>
+    /// Raised by <see cref="OnRateLimitRejectedCountChanged"/> whenever
+    /// <see cref="RateLimitRejectedCount"/> changes so WPF re-evaluates
+    /// <see cref="RateLimitRejectedVisibility"/>. Without this hook the
+    /// Visibility binding would not refresh because the underlying
+    /// property change notification is for the long, not the computed
+    /// Visibility.
+    /// </summary>
+    partial void OnRateLimitRejectedCountChanged(long value)
+        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
+
     // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
     [ObservableProperty]
     private ObservableCollection<SendFrameLibrary.SavedFrame> _library = new();
@@ -105,7 +141,7 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     // Instead we lazy-create the window in OpenMultiFrameSend.
     private readonly MultiFrameSendViewModel? _multiFrameVm;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null)
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null, Func<long>? rateLimitRejectedCountProvider = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -119,6 +155,12 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         // Multi-frame VM may be null in unit tests that pre-date
         // v2.1.0; production DI always provides it.
         _multiFrameVm = multiFrameVm;
+        // A4 orphan PATCH: rate-limit reject counter provider. Null in
+        // test scenarios that pre-date the rate-limit decorator, or in
+        // production when the decorator is disabled (MaxFramesPerSecond=0
+        // returns the inner CoreSendService directly, bypassing the
+        // decorator — AppHostBuilder detects this case and wires null).
+        _getRejectedCount = rateLimitRejectedCountProvider;
 
         // v1.2.11 PATCH Item 3: poll the cyclic service every 200 ms so
         // the UI reflects IsRunning / SuccessCount / FailureCount without
@@ -131,14 +173,51 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         {
             Interval = TimeSpan.FromMilliseconds(200),
         };
-        _pollTimer.Tick += (_, _) =>
-        {
-            IsCyclicRunning = _cyclic.IsRunning;
-            CyclicSuccessCount = _cyclic.SuccessCount;
-            CyclicFailureCount = _cyclic.FailureCount;
-        };
+        _pollTimer.Tick += (_, _) => Poll();
         _pollTimer.Start();
     }
+
+    /// <summary>
+    /// v1.2.11 PATCH Item 3 (expanded A4 orphan): refresh the
+    /// observable properties from their authoritative sources. Called
+    /// every 200 ms by the <see cref="DispatcherTimer"/> in production,
+    /// and directly by tests (the DispatcherTimer doesn't fire in
+    /// xunit's STA-WPF test fixtures). Marked <c>internal</c> so the
+    /// App.Tests assembly can invoke it via
+    /// <c>[InternalsVisibleTo("PeakCan.Host.App.Tests")]</c>.
+    /// </summary>
+    internal void Poll()
+    {
+        IsCyclicRunning = _cyclic.IsRunning;
+        CyclicSuccessCount = _cyclic.SuccessCount;
+        CyclicFailureCount = _cyclic.FailureCount;
+        // A4 orphan PATCH: refresh the rate-limit reject counter.
+        // The [ObservableProperty] source-generated setter on
+        // RateLimitRejectedCount already short-circuits when the new
+        // value equals the old (EqualityComparer<long>.Default.Equals),
+        // so we don't need an explicit idempotent guard here — direct
+        // assignment is safe and avoids a redundant comparison.
+        if (_getRejectedCount is not null)
+        {
+            // Defensive try/catch matches the surrounding Poll neighbors
+            // (SendCommand / SaveCurrentToLibrary / DeleteFromLibrary all
+            // catch + surface Status). Without this, an exception inside
+            // the provider would propagate through DispatcherTimer.Tick
+            // and crash the WPF UI thread on subsequent ticks.
+            try
+            {
+                RateLimitRejectedCount = _getRejectedCount();
+            }
+            catch (Exception ex)
+            {
+                LogPollProviderThrew(_logger, ex);
+                // Keep last known good value; do not reset to 0.
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
+    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     /// <summary>
     /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM
