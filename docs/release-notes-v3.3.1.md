@@ -129,7 +129,7 @@ per MEMORY).
 | `.tmtrace` bundle file format (save/restore multi-trace session) | v3.3.x — JSON Schema + file dialog + 4 new commands |
 | Per-source `CanIdFilter` | v3.3.x — independent filter per source; small VM extension |
 | Stroke style differentiation (solid/dashed) for color-blind accessibility | v3.3.2+ — `TraceChartSeries` construction site is itself dead code (no production caller of `TraceChartViewModel.AddSeries`); cannot wire up cleanly until v3.4.0 wires chart series into the playback path |
-| Cross-source Y-axis auto-scale coordination | v3.3.x — OxyPlot coordination across `PlotModel`s |
+| Cross-source Y-axis auto-scale coordination | v3.3.2 — `SyncYAxes()` method shipped (forward-looking, testable in isolation); production wiring from `RebuildSignalsAsync` deferred to v3.4.0 with chart series construction. **CLOSED in v3.3.2 PATCH** |
 | `SignalChartViewModel.Palette` consolidation into `TableauPalette` (refactor, not deletion) | v3.3.2 / v3.4.0 — palette is live; extraction requires an additional API surface for live color reuse |
 | Master dropdown + per-source radio (both present today) | v3.3.x — pick one; current dual UI is a v3.3.0 shipping compromise for keyboard + mouse parity |
 | v1.6.0 MINOR OEM `IKeyDerivationAlgorithm` concrete | 44th consecutive list; crypto review needed |

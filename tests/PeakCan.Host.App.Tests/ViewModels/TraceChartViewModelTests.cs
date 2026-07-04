@@ -198,4 +198,75 @@ public class TraceChartViewModelTests
         sut2.ChartAreaHeight = 80;
         sut2.Series.Should().OnlyContain(s => s.AdaptiveHeight == 80);
     }
+
+    // v3.3.2 PATCH Task 1: cross-source Y-axis auto-scale coordination.
+    // SyncYAxes groups subplots by SignalKey (logical, not EffectiveKey)
+    // and sets each group's Y axis to the union min/max of all sources'
+    // Y data with 5% padding for visual breathing room.
+
+    [Fact]
+    public void SyncYAxes_SingleSource_SetsSubplotYAxisToDataRange_WithPadding()
+    {
+        // v3.3.2 PATCH: Y axis range = data min/max + 5% padding.
+        var sut = new TraceChartViewModel();
+        var s = MakeSeries("A", (0, 10), (1, 20), (2, 30));
+        sut.AddSeries(s);
+
+        sut.SyncYAxes();
+
+        var yAxis = s.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
+            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
+        // Data range is 10..30, range=20, padding=1, so y axis = 9..31
+        yAxis.Minimum.Should().BeApproximately(9.0, 0.001);
+        yAxis.Maximum.Should().BeApproximately(31.0, 0.001);
+    }
+
+    [Fact]
+    public void SyncYAxes_TwoSourcesSameSignal_SharesMinMaxOfBoth()
+    {
+        // v3.3.2 PATCH: 2 sources with same SignalKey share Y axis.
+        // Source A: Y = 10..20 (range 10)
+        // Source B: Y = 5..50 (range 45)
+        // Global: 5..50 (range 45), padding 2.25, axis = 2.75..52.25
+        var sut = new TraceChartViewModel();
+        var sA = MakeSeries("A", (0, 10), (1, 20));
+        var sB = MakeSeries("A", (0, 5), (1, 50));
+        sut.AddSeries(sA);
+        sut.AddSeries(sB);
+
+        sut.SyncYAxes();
+
+        var yA = sA.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
+            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
+        var yB = sB.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
+            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
+        yA.Minimum.Should().BeApproximately(2.75, 0.001);
+        yA.Maximum.Should().BeApproximately(52.25, 0.001);
+        yB.Minimum.Should().BeApproximately(2.75, 0.001);
+        yB.Maximum.Should().BeApproximately(52.25, 0.001);
+    }
+
+    [Fact]
+    public void SyncYAxes_TwoSourcesDifferentSignals_IndependentYAxes()
+    {
+        // v3.3.2 PATCH: different SignalKey → independent Y axes.
+        var sut = new TraceChartViewModel();
+        var sA = MakeSeries("SignalA", (0, 100), (1, 200));
+        var sB = MakeSeries("SignalB", (0, 1), (1, 2));
+        sut.AddSeries(sA);
+        sut.AddSeries(sB);
+
+        sut.SyncYAxes();
+
+        var yA = sA.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
+            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
+        var yB = sB.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
+            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
+        // SignalA: data 100..200, range 100, padding 5, axis 95..205
+        yA.Minimum.Should().BeApproximately(95.0, 0.001);
+        yA.Maximum.Should().BeApproximately(205.0, 0.001);
+        // SignalB: data 1..2, range 1, padding 0.05, axis 0.95..2.05
+        yB.Minimum.Should().BeApproximately(0.95, 0.001);
+        yB.Maximum.Should().BeApproximately(2.05, 0.001);
+    }
 }
