@@ -217,6 +217,12 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// Parses the free-form text into a <see cref="HashSet{T}"/> of CAN
     /// IDs and pushes it onto <see cref="IReplayService.CanIdFilter"/>.
     /// <para>
+    /// v3.4.4 PATCH: delegation refactor. The lexer moved to the shared
+    /// <see cref="CanIdListParser"/> in Core; this method now just
+    /// forwards the result to the service + surfaces
+    /// <see cref="CanIdFilterError"/> when there are invalid tokens.
+    /// </para>
+    /// <para>
     /// Token syntax: comma- or whitespace-separated. Each token is
     /// trimmed. <c>0x</c> / <c>0X</c> prefix means hex; otherwise
     /// decimal. Empty / whitespace input clears the filter to
@@ -227,79 +233,10 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// </summary>
     partial void OnCanIdFilterTextChanged(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            _service.CanIdFilter = null;
-            CanIdFilterError = null;
-            return;
-        }
-
-        var tokens = value.Split(
-            new[] { ',', ' ', '\t', '\n', '\r' },
-            StringSplitOptions.RemoveEmptyEntries);
-        var ids = new HashSet<uint>();
-        var errors = new List<string>();
-        foreach (var raw in tokens)
-        {
-            var token = raw.Trim();
-            if (token.Length == 0)
-            {
-                continue;
-            }
-
-            uint parsed;
-            bool ok;
-            if (token.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            {
-                ok = uint.TryParse(
-                    token.AsSpan(2),
-                    System.Globalization.NumberStyles.HexNumber,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out parsed);
-            }
-            else
-            {
-                ok = uint.TryParse(
-                    token,
-                    System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out parsed);
-            }
-
-            if (ok)
-            {
-                ids.Add(parsed);
-            }
-            else
-            {
-                errors.Add(token);
-            }
-        }
-
-        // v1.5.0 MINOR Task 5 tri-state semantics:
-        //   ids.Count > 0 -> whitelist of valid IDs (including
-        //                    partial-valid parses where some tokens failed)
-        //   ids.Count == 0 && errors.Count == 0 -> user typed only
-        //                    whitespace/comma separators after split;
-        //                    treat as "clear filter" to match the empty-string path.
-        //   ids.Count == 0 && errors.Count > 0 -> everything the user
-        //                    typed was invalid; push empty set so the
-        //                    timeline emits nothing, surface error.
-        if (ids.Count > 0)
-        {
-            _service.CanIdFilter = ids;
-        }
-        else if (errors.Count == 0)
-        {
-            _service.CanIdFilter = null;
-        }
-        else
-        {
-            _service.CanIdFilter = new HashSet<uint>();
-        }
-
-        CanIdFilterError = errors.Count > 0
-            ? $"Invalid token(s): {string.Join(", ", errors)}"
+        var result = CanIdListParser.Parse(value);
+        _service.CanIdFilter = result.AllowList;
+        CanIdFilterError = result.HasInvalidTokens
+            ? $"Invalid token(s): {string.Join(", ", result.InvalidTokens)}"
             : null;
     }
 

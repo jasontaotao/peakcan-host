@@ -462,7 +462,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         Signals.Clear();
         ChartViewModel.Series.Clear();   // v3.4.0 MINOR: also clear chart series
         // v3.4.2 PATCH: parse the global filter once per rebuild. null = no filter.
-        var allowed = CanIdFilterParser.Parse(CanIdFilter);
+        var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
         var dbc = _dbcService.Current;
         if (dbc is null)
         {
@@ -477,7 +477,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             // v3.4.3 PATCH: per-source filter overrides the global one. Empty
             // per-source → fall through to globalAllowed (inherit). Non-empty
             // → use the per-source parse result exclusively.
-            var perSourceAllowed = CanIdFilterParser.Parse(source.CanIdFilter);
+            var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
             var effective = perSourceAllowed ?? allowed;
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
@@ -533,7 +533,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         foreach (var source in _registry.Sources)
         {
             // v3.4.3 PATCH: same per-source resolution as the byId loop above.
-            var perSourceAllowed = CanIdFilterParser.Parse(source.CanIdFilter);
+            var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
             var effective = perSourceAllowed ?? allowed;
             var srcById = new Dictionary<uint, List<ReplayFrame>>();
             foreach (var f in _registry.GetFrames(source.SourceId))
