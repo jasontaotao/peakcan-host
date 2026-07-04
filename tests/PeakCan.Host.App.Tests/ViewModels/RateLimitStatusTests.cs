@@ -78,6 +78,20 @@ public class RateLimitStatusTests
         }
     }
 
+    [Fact]
+    public void Refresh_DoesNotThrow_WhenLoggerOmitted()
+    {
+        // v3.1.1 PATCH: pins the `logger == null` default path
+        // (NullLogger.Instance fallback). The helper must never propagate
+        // the provider exception even when no logger is supplied — the
+        // caller gets back currentValue and the warning goes nowhere.
+        Func<long> throwingProvider = () => throw new InvalidOperationException("boom");
+
+        var act = () => RateLimitStatus.Refresh(throwingProvider, currentValue: 0L);
+
+        act.Should().NotThrow();
+    }
+
     /// <summary>
     /// Minimal <see cref="ILogger"/> stub that captures emitted entries.
     /// Avoids adding a new package dependency for one test.

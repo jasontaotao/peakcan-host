@@ -280,4 +280,34 @@ public sealed class MultiFrameSendViewModelTests
         changeCount.Should().Be(2);
         vm.RateLimitRejectedCount.Should().Be(12);
     }
+
+    // v3.1.1 PATCH: pins the computed RateLimitRejectedVisibility enum against
+    // the count threshold (>0 → Visible, ==0 → Collapsed). Previously exercised
+    // only indirectly via the OnRateLimitRejectedCountChanged PropertyChanged
+    // event (Plan agent B3 follow-up from v3.1.0 review).
+    [Fact]
+    public void RateLimitRejectedVisibility_Tracks_Count_Threshold()
+    {
+        // count == 0 → Collapsed.
+        var sut0 = new MultiFrameSendViewModel(
+            new SequenceSendService(new PeakCan.Host.App.Services.SendService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.SendService>.Instance)),
+            dbcService: null,
+            library: null,
+            logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance,
+            rateLimitRejectedCountProvider: () => 0L);
+        sut0.Poll();
+        sut0.RateLimitRejectedVisibility.Should().Be(System.Windows.Visibility.Collapsed);
+
+        // count > 0 → Visible.
+        var sut5 = new MultiFrameSendViewModel(
+            new SequenceSendService(new PeakCan.Host.App.Services.SendService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.SendService>.Instance)),
+            dbcService: null,
+            library: null,
+            logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance,
+            rateLimitRejectedCountProvider: () => 5L);
+        sut5.Poll();
+        sut5.RateLimitRejectedVisibility.Should().Be(System.Windows.Visibility.Visible);
+    }
 }

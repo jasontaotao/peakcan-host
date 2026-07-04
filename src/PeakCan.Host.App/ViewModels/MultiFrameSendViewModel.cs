@@ -118,10 +118,12 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// subscribes to <see cref="DbcService.DbcLoaded"/> so a DBC
     /// loaded AFTER the window opens still shows up in the picker.
     /// Tests that don't need DBC rows pass null.
-    /// <para>v3.1.0 MINOR: now passes <see cref="NullLogger{MultiFrameSendViewModel}"/>
-    /// for the new <c>logger</c> parameter (W1 silent-log fix — shorter
-    /// ctors used to skip logging entirely; now they get a null logger
-    /// explicitly).</para>
+    /// <para>v3.1.0 MINOR: chains to the 5-arg ctor with
+    /// <see cref="NullLogger{MultiFrameSendViewModel}"/> for the new
+    /// <c>logger</c> parameter (W1 silent-log fix). The v3.0.9 ctor
+    /// chain (4-arg form ending at <c>rateLimitRejectedCountProvider</c>)
+    /// had no logger param at any level — the logger position is new
+    /// in v3.1.0, not a pre-existing null default.</para>
     /// </summary>
     public MultiFrameSendViewModel(SequenceSendService service, DbcService? dbcService)
         : this(service, dbcService, null, Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, null) { }
