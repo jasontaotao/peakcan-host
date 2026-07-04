@@ -41,6 +41,15 @@ public sealed class TableauPalette : ITracePalette
         OxyColor.FromRgb(0xBA, 0xBE, 0xCF), // gray
     };
 
+    // v3.4.0 MINOR: 5-style cycle (Solid, Dash, Dot, DashDot, DashDotDot).
+    // Past 10, cycle continues with hash-based offset so distinct sources
+    // get distinct strokes (no two sources share within a session).
+    private static readonly LineStyle[] Strokes =
+    {
+        LineStyle.Solid, LineStyle.Dash, LineStyle.Dot,
+        LineStyle.DashDot, LineStyle.DashDotDot,
+    };
+
     private readonly Dictionary<string, int> _assigned = new();
 
     public OxyColor PickColorFor(string sourceId)
@@ -82,6 +91,36 @@ public sealed class TableauPalette : ITracePalette
         // hash-based sourceId.
         _hashCache[sourceId] = fallback;
         return fallback;
+    }
+
+    /// <summary>
+    /// v3.4.0 MINOR: deterministic per-source LineStyle. Slots 0-9
+    /// cycle through the 5-style array (Solid/Dash/Dot/DashDot/DashDotDot
+    /// — 2 full rounds). Past capacity, fall back to a hash-based offset
+    /// so distinct sourceIds still get distinct strokes (preserves the
+    /// v3.2.0 determinism invariant). Mirrors <see cref="PickColorFor"/>'s
+    /// capacity-overflow handling.
+    /// </summary>
+    public LineStyle PickStrokeFor(string sourceId)
+    {
+        if (string.IsNullOrEmpty(sourceId))
+            throw new ArgumentException("sourceId must be non-empty", nameof(sourceId));
+
+        if (_assigned.TryGetValue(sourceId, out var slot))
+            return Strokes[slot % Strokes.Length];
+
+        if (_assigned.Count < Colors.Length)
+        {
+            var nextSlot = _assigned.Count;
+            _assigned[sourceId] = nextSlot;
+            return Strokes[nextSlot % Strokes.Length];
+        }
+
+        // Past capacity — hash-based offset (avoids palette collision
+        // with the color slot; same sourceId always maps to same offset).
+        var hash = (uint)sourceId.GetHashCode();
+        var offset = (int)((hash / Strokes.Length) % Strokes.Length);
+        return Strokes[offset];
     }
 
     // v3.3.1 PATCH: hash-based colors are stored in a separate dict so

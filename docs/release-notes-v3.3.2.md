@@ -28,6 +28,6 @@ logic is already in place.
 **Still deferred (3 items):**
 - `.tmtrace` bundle file format
 - Per-source `CanIdFilter`
-- Stroke style differentiation (deferred to v3.4.0 — blocked on `TraceChartSeries` production wiring)
+- ~~Stroke style differentiation (deferred to v3.4.0 — blocked on `TraceChartSeries` production wiring)~~ **CLOSED in v3.4.0 MINOR** (5-style cycle via `ITracePalette.PickStrokeFor` + per-source `LineStyle StrokeStyle` on `TraceSource` + applied to `LineSeries.LineStyle` in chart wiring)
 
 **Lessons:** 0 NEW. Surgical additive change.

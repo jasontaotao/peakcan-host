@@ -2,6 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using OxyPlot;
+using OxyPlot.Axes;
+using OxyPlot.Series;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core.Dbc;
@@ -399,6 +402,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private async Task RebuildSignalsAsync()
     {
         Signals.Clear();
+        ChartViewModel.Series.Clear();   // v3.4.0 MINOR: also clear chart series
         var dbc = _dbcService.Current;
         if (dbc is null)
         {
@@ -455,6 +459,81 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         {
             Signals.Add(row);
         }
+
+        // v3.4.0 MINOR: emit one TraceChartSeries per (source, signal) pair.
+        // Per-source re-group: the byId dict above is global (across sources);
+        // chart series need per-source frames per CAN ID, so re-group here.
+        // Independent of the Signals population loop above — the two loops
+        // share dbc.Messages but read from different frame buckets.
+        foreach (var source in _registry.Sources)
+        {
+            var srcById = new Dictionary<uint, List<ReplayFrame>>();
+            foreach (var f in _registry.GetFrames(source.SourceId))
+            {
+                if (!srcById.TryGetValue(f.Id, out var list))
+                {
+                    list = new List<ReplayFrame>();
+                    srcById[f.Id] = list;
+                }
+                list.Add(f);
+            }
+            foreach (var msg in dbc.Messages)
+            {
+                if (!srcById.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
+                    continue;
+                var idHex = FormatCanIdHex(msg.Id);
+                foreach (var sig in msg.Signals)
+                {
+                    var xs = new List<double>(matching.Count);
+                    var ys = new List<double>(matching.Count);
+                    foreach (var f in matching)
+                    {
+                        xs.Add(f.Timestamp);
+                        ys.Add(SignalDecoder.Decode(f.Data, sig));
+                    }
+                    var plotModel = new PlotModel();
+                    plotModel.Axes.Add(new LinearAxis
+                    {
+                        Position = AxisPosition.Bottom,
+                        Title = "Time (s)",
+                    });
+                    plotModel.Axes.Add(new LinearAxis
+                    {
+                        Position = AxisPosition.Left,
+                        Title = sig.Unit,
+                    });
+                    var line = new LineSeries
+                    {
+                        Title = $"{source.DisplayName}/{sig.Name}",
+                        Color = source.Color,
+                        // v3.4.0 MINOR: stroke style for color-blind accessibility.
+                        LineStyle = source.StrokeStyle,
+                    };
+                    for (int i = 0; i < xs.Count; i++)
+                        line.Points.Add(new DataPoint(xs[i], ys[i]));
+                    plotModel.Series.Add(line);
+                    var displayName = $"{source.DisplayName}.{idHex}.{sig.Name}";
+                    ChartViewModel.AddSeries(new TraceChartSeries(
+                        SignalKey: $"{idHex}.{sig.Name}",
+                        DisplayName: displayName,
+                        Unit: sig.Unit,
+                        Color: source.Color,
+                        PlotModel: plotModel,
+                        XValues: xs,
+                        YValues: ys,
+                        MinValue: ys.Min(),
+                        MaxValue: ys.Max(),
+                        IsFocused: false,
+                        IsCollapsed: false,
+                        SourceId: source.SourceId));
+                }
+            }
+        }
+
+        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
+        ChartViewModel.SyncYAxes();
+        ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
+
         await Task.CompletedTask;
     }
 

@@ -61,8 +61,22 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
             throw;
         }
 
+        // v3.4.0 MINOR: assign stroke style from the palette (5-style cycle).
+        // Wrap in try/catch (mirror color branch) so a palette failure here
+        // disposes the freshly-loaded service without leaking.
+        LineStyle stroke;
+        try
+        {
+            stroke = _palette.PickStrokeFor(sourceId);
+        }
+        catch
+        {
+            service.Dispose();
+            throw;
+        }
+
         // 4. Register + notify.
-        var meta = new TraceSource(sourceId, displayName, path, color);
+        var meta = new TraceSource(sourceId, displayName, path, color, stroke);
         _sources[sourceId] = new Entry(service, meta);
         SourcesChanged?.Invoke();
         return meta;

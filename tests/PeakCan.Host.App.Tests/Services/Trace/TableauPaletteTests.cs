@@ -74,4 +74,21 @@ public class TableauPaletteTests
         first.Should().Be(second);
         second.Should().Be(third);
     }
+
+    [Fact]
+    public void PickStrokeFor_FirstSource_IsSolid()
+    {
+        // v3.4.0 MINOR: slot 0 → Solid (5-style cycle: Solid, Dash, Dot, DashDot, DashDotDot).
+        var palette = new TableauPalette();
+        palette.PickStrokeFor("guid-1").Should().Be(OxyPlot.LineStyle.Solid);
+    }
+
+    [Fact]
+    public void PickStrokeFor_FifthSource_IsDashDotDot()
+    {
+        // v3.4.0 MINOR: slot 4 → DashDotDot (5-style cycle, 0-indexed).
+        var palette = new TableauPalette();
+        for (var i = 0; i < 4; i++) palette.PickStrokeFor($"filler-{i}");
+        palette.PickStrokeFor("slot-4").Should().Be(OxyPlot.LineStyle.DashDotDot);
+    }
 }
