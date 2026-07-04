@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -288,12 +289,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private void OnRegistrySourcesChanged()
     {
         DetachAllServiceHandlers();
+        DetachAllSourcePropertyHandlers();   // v3.4.3 PATCH
         _allServices.Clear();
         foreach (var src in _registry.Sources)
         {
             var svc = _registry.GetService(src.SourceId);
             if (svc is null) continue;
             _allServices[src.SourceId] = svc;
+            // v3.4.3 PATCH: subscribe to per-source filter changes (manual
+            // INPC on TraceSource.CanIdFilter). Detach happens first above;
+            // re-attaching here is safe even if the registry contains the
+            // same instance across consecutive SourcesChanged events.
+            src.PropertyChanged += OnAnySourcePropertyChanged;
             // Multi-trace sync mode: ignore per-source playback range
             // (each source's playable range = full [0, TotalDuration]).
             if (_registry.Sources.Count > 1)
@@ -312,6 +319,25 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         TotalDuration = _masterService?.TotalDuration ?? 0.0;
         ChartViewModel.SetTotalDuration(TotalDuration);
         ChartViewModel.Series.Clear();
+    }
+
+    // v3.4.3 PATCH: detach per-source INPC subscriptions. Idempotent —
+    // subtracting an absent handler is a no-op (mirrors the existing
+    // DetachAllServiceHandlers pattern).
+    private void DetachAllSourcePropertyHandlers()
+    {
+        foreach (var src in _registry.Sources)
+            src.PropertyChanged -= OnAnySourcePropertyChanged;
+    }
+
+    // v3.4.3 PATCH: react to TraceSource.CanIdFilter changes by
+    // rebuilding the chart + signal rows synchronously. The TraceSource
+    // instance only exposes CanIdFilter as INPC today, so the filter
+    // guard is a safety net for future fields.
+    private void OnAnySourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(TraceSource.CanIdFilter)) return;
+        RebuildSignalsCore();
     }
 
     // v3.3.0 MINOR: master timeline is the clock; each non-master is
@@ -448,9 +474,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var byId = new Dictionary<uint, List<ReplayFrame>>();
         foreach (var source in _registry.Sources)
         {
+            // v3.4.3 PATCH: per-source filter overrides the global one. Empty
+            // per-source → fall through to globalAllowed (inherit). Non-empty
+            // → use the per-source parse result exclusively.
+            var perSourceAllowed = CanIdFilterParser.Parse(source.CanIdFilter);
+            var effective = perSourceAllowed ?? allowed;
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
-                if (allowed is not null && !allowed.Contains(f.Id)) continue;   // v3.4.2 PATCH
+                if (effective is not null && !effective.Contains(f.Id)) continue;
                 if (!byId.TryGetValue(f.Id, out var list))
                 {
                     list = new List<ReplayFrame>();
@@ -501,10 +532,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // share dbc.Messages but read from different frame buckets.
         foreach (var source in _registry.Sources)
         {
+            // v3.4.3 PATCH: same per-source resolution as the byId loop above.
+            var perSourceAllowed = CanIdFilterParser.Parse(source.CanIdFilter);
+            var effective = perSourceAllowed ?? allowed;
             var srcById = new Dictionary<uint, List<ReplayFrame>>();
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
-                if (allowed is not null && !allowed.Contains(f.Id)) continue;   // v3.4.2 PATCH
+                if (effective is not null && !effective.Contains(f.Id)) continue;
                 if (!srcById.TryGetValue(f.Id, out var list))
                 {
                     list = new List<ReplayFrame>();

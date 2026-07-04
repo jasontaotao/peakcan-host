@@ -102,6 +102,12 @@
                                            VerticalAlignment="Center"
                                            Fill="{Binding Color, Converter={StaticResource OxyColorToBrush}}" />
                                 <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                                <!-- v3.4.3 PATCH: per-source CAN ID filter (override global when
+                                     non-empty; inherit global when empty). Width 80 keeps the legend
+                                     row compact; tooltip explains the override vs inherit semantics. -->
+                                <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="80" Margin="6,0,0,0" Padding="2,0" VerticalAlignment="Center"
+                                         ToolTip="Per-source filter (decimal or 0x-hex CAN IDs, comma-separated). Empty = inherit global." />
                                 <Button Content="✕" Margin="6,0,0,0" Padding="4,0"
                                         Command="{Binding DataContext.RemoveTraceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding SourceId}"

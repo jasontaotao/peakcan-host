@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using OxyPlot;
 
 namespace PeakCan.Host.App.Services.Trace;
@@ -8,14 +9,61 @@ namespace PeakCan.Host.App.Services.Trace;
 /// <see cref="PeakCan.Host.Core.Replay.ITraceViewerService"/> for
 /// each <see cref="TraceSource"/>; consumers should not hold direct
 /// references to the service — go through the registry.
+/// <para>
+/// v3.4.3 PATCH: <see cref="CanIdFilter"/> is a mutable per-source
+/// filter string with manual <see cref="INotifyPropertyChanged"/>.
+/// The other five fields stay init-only to preserve v3.2.0-v3.4.2
+/// back-compat at the LoadAsync construction site. Pure Core-style
+/// design: no <c>CommunityToolkit.Mvvm</c> dependency in this file —
+/// callers must subscribe to <see cref="PropertyChanged"/> directly.
+/// </para>
 /// </summary>
-public sealed record TraceSource(
-    string SourceId,            // GUID, stable for the session
-    string DisplayName,         // Path.GetFileNameWithoutExtension(Path)
-    string Path,
-    OxyColor Color,
-    // v3.4.0 MINOR: per-source LineStyle for color-blind accessibility.
-    // 5-style cycle (Solid/Dash/Dot/DashDot/DashDotDot) per palette
-    // slot. Default Solid for back-compat with v3.3.x positional
-    // callers (no breaking signature change).
-    LineStyle StrokeStyle = LineStyle.Solid);
+public sealed class TraceSource : INotifyPropertyChanged
+{
+    public string SourceId { get; }
+    public string DisplayName { get; }
+    public string Path { get; }
+    public OxyColor Color { get; }
+    public LineStyle StrokeStyle { get; }
+
+    private string _canIdFilter = "";
+
+    /// <summary>
+    /// v3.4.3 PATCH: per-source comma-separated CAN ID allow-list
+    /// (decimal or 0x-hex, case-insensitive). Empty = inherit the
+    /// Trace Viewer's global filter. Non-empty = override the global
+    /// for this source. Parsed by <c>CanIdFilterParser</c> at the VM
+    /// layer, not here — invalid tokens are silently skipped at parse
+    /// time. Implements <see cref="INotifyPropertyChanged"/> on this
+    /// property only.
+    /// </summary>
+    public string CanIdFilter
+    {
+        get => _canIdFilter;
+        set
+        {
+            if (_canIdFilter == value) return;
+            _canIdFilter = value ?? "";
+            PropertyChanged?.Invoke(this,
+                new PropertyChangedEventArgs(nameof(CanIdFilter)));
+        }
+    }
+
+    // Explicit ctor preserves the v3.2.0 positional call-site shape:
+    //   new TraceSource("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid)
+    public TraceSource(
+        string sourceId,
+        string displayName,
+        string path,
+        OxyColor color,
+        LineStyle strokeStyle = LineStyle.Solid)
+    {
+        SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
+        DisplayName = displayName ?? throw new ArgumentNullException(nameof(displayName));
+        Path = path ?? throw new ArgumentNullException(nameof(path));
+        Color = color;
+        StrokeStyle = strokeStyle;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
