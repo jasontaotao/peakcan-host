@@ -29,12 +29,10 @@ public sealed record TraceSignalRow(
 /// single-trace workflow (1 source) is a degenerate case of the registry —
 /// <see cref="Sources"/>.Count == 1 — and behaves identically to v3.0/3.1.x.
 /// <para>
-/// <b>Multi-trace mode (Sources.Count &gt; 1):</b> playback commands
+/// v3.3.0 MINOR: sync playback across N traces. Playback commands
 /// (<see cref="PlayCommand"/>, <see cref="PauseCommand"/>, <see cref="StopCommand"/>,
-/// <see cref="SeekToCommand"/>) throw <see cref="InvalidOperationException"/>
-/// because sync playback across N traces is deferred to v3.3.0 (proportional
-/// seek math + master-source dropdown UI is non-trivial). The View hides
-/// the play/pause/stop controls when <see cref="IsMultiTraceMode"/> is true.
+/// <see cref="SeekToCommand"/>) iterate the per-source services in
+/// <see cref="_allServices"/>; proportional seek math lands in Task 2.
 /// </para>
 /// <para>
 /// <b>Cursor propagation (single-trace mode):</b> identical to v3.0 —
@@ -53,6 +51,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // without an STA SynchronizationContext (direct set is safe there).
     private readonly SynchronizationContext? _syncContext;
     private ITraceViewerService? _masterService;   // current master source's service (rebound on SourcesChanged)
+    // v3.3.0 MINOR: registry of all N per-source services, keyed by SourceId.
+    // Rebuilt on SourcesChanged. Play/Pause/Stop/Seek iterate this dict.
+    private readonly Dictionary<string, ITraceViewerService> _allServices =
+        new(StringComparer.Ordinal);
     private bool _disposed;
 
     [ObservableProperty]
@@ -69,6 +71,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _masterSourceId = "";
+
+    // v3.3.0 MINOR: global loop toggle; propagates to master only (non-masters
+    // use Loop=false — see OnRegistrySourcesChanged + master PlaybackEnded hook).
+    [ObservableProperty]
+    private bool _loop = false;
+
+    // v3.3.0 MINOR: global speed multiplier; propagated to every service.
+    [ObservableProperty]
+    private double _speed = 1.0;
 
     public ObservableCollection<TraceSignalRow> Signals { get; } = new();
     public TraceChartViewModel ChartViewModel { get; } = new();
@@ -88,7 +99,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
-        RebindMasterFromRegistry();
+        // OnRegistrySourcesChanged populates _allServices and rebinds master;
+        // a bare RebindMasterFromRegistry would leave _allServices empty.
+        OnRegistrySourcesChanged();
     }
 
     /// <summary>
@@ -104,7 +117,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         {
             await _registry.LoadAsync(path).ConfigureAwait(true);
             // The SourcesChanged handler will RebindMasterFromRegistry +
-            // update IsMultiTraceMode + refresh ChartViewModel duration.
+            // refresh ChartViewModel duration.
         }
         catch (ReplayException ex)
         {
@@ -132,6 +145,37 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public Task OpenFileAsync(string path) => AddTraceAsync(path);
 
+    /// <summary>
+    /// v3.3.0 MINOR: switch the master source mid-session. Stops playback,
+    /// swaps the master, restarts if was playing. If the new sourceId is
+    /// not in <see cref="_allServices"/> the call is a no-op. After the
+    /// swap the previous master's <c>PlaybackEnded</c> handler is detached
+    /// and the new master's is attached (via the standard attach/detach
+    /// lifecycle) so the loop rewind anchor follows the active master.
+    /// </summary>
+    [RelayCommand]
+    public void SetMaster(string sourceId)
+    {
+        if (sourceId == MasterSourceId) return;
+        if (!_allServices.TryGetValue(sourceId, out var newMaster)) return;
+        var wasPlaying = _masterService?.State == ReplayState.Playing;
+        Stop();   // resets all services to t=0
+        MasterSourceId = sourceId;
+        _masterService = newMaster;
+        TotalDuration = _masterService.TotalDuration;
+        ChartViewModel.SetTotalDuration(TotalDuration);
+        // Reattach event handlers — the previous master had FrameEmitted +
+        // PlaybackEnded subscribed; the new master needs the same hooks.
+        DetachAllServiceHandlers();
+        AttachAllServiceHandlers();
+        PropagateLoopToAllServices();
+        PropagateSpeedToAllServices();
+        // Master swap can change which signal rows have data (different
+        // frame set); rebuild off-thread to avoid blocking the UI.
+        _ = RebuildSignalsAsync();
+        if (wasPlaying) Play();
+    }
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
     private static partial void LogLoadFailed(ILogger logger, Exception ex, string path);
 
@@ -148,77 +192,98 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         await RebuildSignalsAsync().ConfigureAwait(true);
     }
 
-    /// <summary>v3.2.0 MINOR: computed from <see cref="Sources"/>.Count. Re-raised
-    /// via OnSourcesPropertyChanged whenever SourcesChanged fires.</summary>
-    public bool IsMultiTraceMode => Sources.Count > 1;
-
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
     /// <c>Visibility</c>. True when at least one trace is loaded.</summary>
     public bool HasSources => Sources.Count > 0;
 
-    /// <summary>Returns true when more than one trace is loaded (multi-trace mode is active).</summary>
-    public bool IsPlaybackDisabled => IsMultiTraceMode || Sources.Count == 0;
-
-    /// <summary>v3.2.0 MINOR: XAML binding source for the play/pause/stop
-    /// buttons' <c>Visibility</c>. Visible when single-trace playback is
-    /// allowed; collapsed in multi-trace mode or when no source is loaded.</summary>
-    public System.Windows.Visibility PlaybackControlsVisibility =>
-        IsPlaybackDisabled ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
-
-    private void EnsureSingleTraceMode()
-    {
-        if (IsMultiTraceMode)
-            throw new InvalidOperationException(
-                "Playback disabled in multi-trace mode (v3.3.0 will add sync playback across N sources).");
-    }
-
     [RelayCommand]
     public void Play()
     {
-        EnsureSingleTraceMode();
-        _masterService?.Play();
+        foreach (var svc in _allServices.Values)
+            svc.Play();
     }
 
     [RelayCommand]
     public void Pause()
     {
-        EnsureSingleTraceMode();
-        _masterService?.Pause();
+        foreach (var svc in _allServices.Values)
+            svc.Pause();
     }
 
     [RelayCommand]
     public void Stop()
     {
-        EnsureSingleTraceMode();
-        _masterService?.Stop();
+        foreach (var svc in _allServices.Values)
+            svc.Stop();
         ScrubberValue = 0;
     }
 
     [RelayCommand]
     public void SeekTo(double t)
     {
-        EnsureSingleTraceMode();
-        _masterService?.Seek(t);
+        // Setting ScrubberValue fires OnScrubberValueChanged, which calls
+        // SeekAllToProportionalTime. Doing the seek here too would double-call
+        // every service — single source of truth is the scrubber change handler.
+        ScrubberValue = t;
     }
 
     partial void OnScrubberValueChanged(double value)
     {
-        if (TotalDuration > 0 && _masterService is not null && !IsMultiTraceMode)
-            _masterService.Seek(value);
+        if (TotalDuration > 0 && _masterService is not null)
+            SeekAllToProportionalTime(value);
+    }
+
+    partial void OnLoopChanged(bool value)
+    {
+        PropagateLoopToAllServices();
+    }
+
+    partial void OnSpeedChanged(double value)
+    {
+        PropagateSpeedToAllServices();
+    }
+
+    private void PropagateLoopToAllServices()
+    {
+        foreach (var svc in _allServices.Values)
+            svc.Loop = Loop;
+    }
+
+    private void PropagateSpeedToAllServices()
+    {
+        foreach (var svc in _allServices.Values)
+            svc.SetSpeed(Speed);
     }
 
     /// <summary>
     /// v3.2.0 MINOR: react to <see cref="ITraceSessionRegistry.SourcesChanged"/>
     /// — re-pin master to first source, update TotalDuration + ChartViewModel
-    /// duration, refresh IsMultiTraceMode + LoadedTracePath (legacy binding).
+    /// duration, refresh LoadedTracePath (legacy binding). v3.3.0 MINOR:
+    /// attach FrameEmitted + master PlaybackEnded handlers and propagate
+    /// Loop/Speed to every newly registered service.
     /// </summary>
     private void OnRegistrySourcesChanged()
     {
+        DetachAllServiceHandlers();
+        _allServices.Clear();
+        foreach (var src in _registry.Sources)
+        {
+            var svc = _registry.GetService(src.SourceId);
+            if (svc is null) continue;
+            _allServices[src.SourceId] = svc;
+            // Multi-trace sync mode: ignore per-source playback range
+            // (each source's playable range = full [0, TotalDuration]).
+            if (_registry.Sources.Count > 1)
+            {
+                svc.StartTimestamp = null;
+                svc.EndTimestamp = null;
+            }
+        }
         RebindMasterFromRegistry();
+        AttachAllServiceHandlers();
+        PropagateLoopToAllServices();
+        PropagateSpeedToAllServices();
         OnPropertyChanged(nameof(Sources));
-        OnPropertyChanged(nameof(IsMultiTraceMode));
-        OnPropertyChanged(nameof(IsPlaybackDisabled));
-        OnPropertyChanged(nameof(PlaybackControlsVisibility));
         OnPropertyChanged(nameof(HasSources));
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
         TotalDuration = _masterService?.TotalDuration ?? 0.0;
@@ -226,43 +291,88 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         ChartViewModel.Series.Clear();
     }
 
+    // v3.3.0 MINOR: master timeline is the clock; each non-master is
+    // positioned at the proportional point of its own total duration.
+    // Formula: nonMaster.t = (master.t / master.totalDuration) * nonMaster.totalDuration.
+    // Clamp ratio to [0, 1] to handle transient slider overshoot.
+    private void SeekAllToProportionalTime(double masterT)
+    {
+        if (_masterService is null) return;
+        var masterDur = _masterService.TotalDuration;
+        if (masterDur <= 0)
+        {
+            _masterService.Seek(masterT);
+            return;
+        }
+        var ratio = Math.Clamp(masterT / masterDur, 0.0, 1.0);
+        foreach (var (sourceId, svc) in _allServices)
+        {
+            if (sourceId == MasterSourceId)
+            {
+                svc.Seek(masterT);
+            }
+            else
+            {
+                svc.Seek(ratio * svc.TotalDuration);
+            }
+        }
+    }
+
     private void RebindMasterFromRegistry()
     {
-        // Unhook the old master (if any).
-        if (_masterService is not null)
-            _masterService.FrameEmitted -= OnFrameEmitted;
-
-        // Pin master to first source (deterministic for the session).
+        // Pure master-resolution step — caller (OnRegistrySourcesChanged)
+        // owns the attach/detach lifecycle via AttachAllServiceHandlers /
+        // DetachAllServiceHandlers. Keeping this method idempotent avoids
+        // double-attaching the FrameEmitted + PlaybackEnded handlers when
+        // invoked after a SourcesChanged event.
         if (_registry.Sources.Count == 0)
         {
             _masterService = null;
             MasterSourceId = "";
             return;
         }
-
-        var master = _registry.Sources[0];
-        MasterSourceId = master.SourceId;
-        // Resolve the master service through a round-trip: in the registry
-        // implementation, sources are keyed by SourceId. For simplicity,
-        // we expose a per-source service lookup via the registry's internal
-        // LoadAsync flow. To keep this lightweight, we re-use the existing
-        // service via a new ITraceSessionRegistry.GetService(sourceId) call.
-        // See ITraceSessionRegistry for the contract.
-        _masterService = GetMasterService(master.SourceId);
-        if (_masterService is not null)
-            _masterService.FrameEmitted += OnFrameEmitted;
+        // Master invariant: prefer current MasterSourceId if still in Sources;
+        // else fall back to Sources[0] (deterministic default).
+        var newMaster = _registry.Sources.FirstOrDefault(
+            s => s.SourceId == MasterSourceId) ?? _registry.Sources[0];
+        MasterSourceId = newMaster.SourceId;
+        _masterService = _allServices.TryGetValue(newMaster.SourceId, out var svc) ? svc : null;
     }
 
-    /// <summary>
-    /// v3.2.0 MINOR: looks up the underlying <see cref="ITraceViewerService"/>
-    /// for the master source. The current registry contract exposes only
-    /// <see cref="ITraceSessionRegistry.GetFrames"/> (frames, not service);
-    /// playback needs the service handle. We resolve via a public
-    /// <see cref="ITraceSessionRegistry.GetService"/> helper added in the
-    /// same PR. See <see cref="TraceSessionRegistry.GetService"/>.
-    /// </summary>
-    private ITraceViewerService? GetMasterService(string sourceId)
-        => _registry.GetService(sourceId);
+    private void AttachAllServiceHandlers()
+    {
+        foreach (var (sourceId, svc) in _allServices)
+        {
+            svc.FrameEmitted += OnAnyFrameEmitted;
+            // Only the master drives the loop rewind — non-masters use
+            // Loop=false so they don't independently wrap (avoids per-timer drift).
+            if (sourceId == MasterSourceId)
+                svc.PlaybackEnded += OnMasterPlaybackEnded;
+        }
+    }
+
+    private void DetachAllServiceHandlers()
+    {
+        foreach (var svc in _allServices.Values)
+        {
+            svc.FrameEmitted -= OnAnyFrameEmitted;
+            // PlaybackEnded was only subscribed on master — detach defensively
+            // (idempotent on services that never had the handler).
+            svc.PlaybackEnded -= OnMasterPlaybackEnded;
+        }
+    }
+
+    // v3.3.0 MINOR: single master-driven rewind anchor. When master EOFs
+    // with Loop=true, rewind all services proportionally and resume play.
+    private void OnMasterPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
+    {
+        if (!Loop) return;
+        if (e.Error is not null) return;   // sink error / abnormal end — don't auto-loop
+        SeekAllToProportionalTime(0.0);
+        foreach (var svc in _allServices.Values)
+            if (svc.State != ReplayState.Playing)
+                svc.Play();
+    }
 
     /// <summary>
     /// FrameEmitted is invoked on the timeline's timer thread. We Post
@@ -272,21 +382,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// cursor directly — safe because tests assert immediately after
     /// raising the event.
     /// </summary>
-    private void OnFrameEmitted(ReplayFrame frame)
+    private void OnAnyFrameEmitted(ReplayFrame frame)
     {
         if (_syncContext is not null)
-        {
-            _syncContext.Post(_ =>
-            {
-                if (_masterService is not null)
-                    ChartViewModel.UpdatePlaybackCursor(_masterService.CurrentTimestamp);
-            }, null);
-        }
+            _syncContext.Post(_ => ChartViewModel.UpdatePlaybackCursor(_masterService?.CurrentTimestamp ?? 0.0), null);
         else
-        {
-            if (_masterService is not null)
-                ChartViewModel.UpdatePlaybackCursor(_masterService.CurrentTimestamp);
-        }
+            ChartViewModel.UpdatePlaybackCursor(_masterService?.CurrentTimestamp ?? 0.0);
     }
 
     /// <summary>
@@ -380,9 +481,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        DetachAllServiceHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
-        if (_masterService is not null)
-            _masterService.FrameEmitted -= OnFrameEmitted;
         GC.SuppressFinalize(this);
     }
 }

@@ -63,18 +63,9 @@ public class TraceViewerViewModelMultiTraceTests
     }
 
     [Fact]
-    public void IsMultiTraceMode_False_WhenSourcesEmpty()
+    public void PlayCommand_InMultiTraceMode_DoesNotThrow_DrivesAllServices()
     {
-        var registry = MakeRegistry();
-        var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
-
-        vm.IsMultiTraceMode.Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsMultiTraceMode_True_WhenSourcesCount_GreaterThanOne()
-    {
+        // v3.3.0 MINOR: sync playback now allowed in multi-trace mode
         var registry = MakeRegistry();
         registry.Sources.Returns(new List<TraceSource>
         {
@@ -84,25 +75,21 @@ public class TraceViewerViewModelMultiTraceTests
         var dbcService = MakeFakeDbcService();
         var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
 
-        vm.IsMultiTraceMode.Should().BeTrue();
-    }
-
-    [Fact]
-    public void PlayCommand_InMultiTraceMode_ThrowsInvalidOperationException()
-    {
-        var registry = MakeRegistry();
-        registry.Sources.Returns(new List<TraceSource>
-        {
-            new("guid-1", "traceA", "C:/a.asc", OxyColors.Blue),
-            new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
-        });
-        var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        // Pre-load the per-source services onto the fake registry (in production
+        // the real registry hands them out via LoadAsync). The VM's
+        // SourcesChanged handler reads them via GetService when iterating.
+        var svcA = Substitute.For<ITraceViewerService>();
+        var svcB = Substitute.For<ITraceViewerService>();
+        registry.GetService("guid-1").Returns(svcA);
+        registry.GetService("guid-2").Returns(svcB);
+        // Fire SourcesChanged so the VM rebuilds _allServices for this fixture.
+        registry.SourcesChanged += Raise.Event<Action>();
 
         var act = () => vm.PlayCommand.Execute(null);
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*multi-trace*");
+        act.Should().NotThrow();
+        svcA.Received(1).Play();
+        svcB.Received(1).Play();
     }
 
     [Fact]

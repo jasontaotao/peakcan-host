@@ -36,6 +36,11 @@ public class TraceViewerViewModelTests
     private static DbcService MakeFakeDbcService()
         => Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
 
+    // v3.3.0 MINOR: per-source ITraceViewerService mock — Task 2 tests need
+    // to assert Seek/SetSpeed/Loop propagation to specific service instances.
+    private static ITraceViewerService MakeFakeService()
+        => Substitute.For<ITraceViewerService>();
+
     // ===== v3.0.1 PATCH Task 2 fixtures =====
 
     // One CAN ID (0x100), one unsigned 16-bit little-endian signal at
@@ -278,5 +283,329 @@ public class TraceViewerViewModelTests
 
         sut.Signals.Should().HaveCount(1);
         sut.Signals[0].LatestValue.Should().Be(5.0);
+    }
+
+    // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====
+
+    [Fact]
+    public void SeekTo_ProportionalMapping_NonMasterAt30pctOf60s_IsAt15pctOf30s()
+    {
+        // v3.3.0 MINOR: master 60s timeline, non-master 30s timeline.
+        // SeekTo(18) → non-master at 9.0 (= 18/60 * 30).
+        var registry = MakeFakeRegistry();
+        var svcMaster = MakeFakeService();
+        svcMaster.TotalDuration.Returns(60.0);
+        var svcB = MakeFakeService();
+        svcB.TotalDuration.Returns(30.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("master", "A", "C:/a.asc", OxyColors.Blue),
+            new("slave",  "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("master").Returns(svcMaster);
+        registry.GetService("slave").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        // MasterSourceId defaults to first source ("master").
+
+        sut.SeekTo(18.0);
+
+        svcMaster.Received(1).Seek(18.0);
+        svcB.Received(1).Seek(9.0);  // proportional
+    }
+
+    [Fact]
+    public void SetSpeed_AppliesToAllServices()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.Speed = 2.5;
+
+        svcA.Received(1).SetSpeed(2.5);
+        svcB.Received(1).SetSpeed(2.5);
+    }
+
+    [Fact]
+    public void Loop_PropagatesToAllServices_OnChange()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.Loop = true;
+
+        svcA.Received(1).Loop = true;
+        svcB.Received(1).Loop = true;
+    }
+
+    [Fact]
+    public void OnMasterPlaybackEnded_LoopTrue_RewindsAllServicesToZero()
+    {
+        var registry = MakeFakeRegistry();
+        var svcMaster = MakeFakeService();
+        svcMaster.TotalDuration.Returns(60.0);
+        var svcB = MakeFakeService();
+        svcB.TotalDuration.Returns(30.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("master", "A", "C:/a.asc", OxyColors.Blue),
+            new("slave",  "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("master").Returns(svcMaster);
+        registry.GetService("slave").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        sut.Loop = true;
+
+        // Raise master's PlaybackEnded (no error → normal EOF, not sink fail)
+        svcMaster.PlaybackEnded += Raise.EventWith(
+            new PlaybackEndedEventArgs(error: null));
+
+        // Master rewound to 0; non-master at proportional 0 (which is 0).
+        svcMaster.Received().Seek(0.0);
+        svcB.Received().Seek(0.0);
+    }
+
+    // ===== v3.3.0 MINOR Task 3: SetMaster command + auto-promote =====
+
+    [Fact]
+    public void SetMaster_ChangesMasterSourceId_RebindsFrameEmitted()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        // MasterSourceId defaults to "a"
+
+        sut.SetMasterCommand.Execute("b");
+
+        sut.MasterSourceId.Should().Be("b");
+    }
+
+    [Fact]
+    public void SetMaster_ToUnknownSourceId_IsNoOp()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+        });
+        registry.GetService("a").Returns(svcA);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var original = sut.MasterSourceId;
+
+        sut.SetMasterCommand.Execute("nonexistent");
+
+        sut.MasterSourceId.Should().Be(original);
+    }
+
+    [Fact]
+    public void OnSourcesChanged_MasterSourceRemoved_AutoPromotesFirstRemaining()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        sut.MasterSourceId.Should().Be("a");
+
+        // Simulate user removing source "a" (the master)
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.SourcesChanged += Raise.Event<Action>();
+
+        sut.MasterSourceId.Should().Be("b");
+    }
+
+    // ===== v3.3.0 MINOR Task 5: HasSources contract + edge cases =====
+
+    // Brief Steps 1-3 (PlaybackControlsVisibility_*) replaced: the property
+    // was removed in Task 5 (dead-code sweep, L1 from Task 4 review).
+    // XAML visibility is now bound to HasSources via BoolToVis converter.
+    // These three tests pin the new contract.
+
+    [Fact]
+    public void HasSources_True_WhenSingleSource()
+    {
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.HasSources.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasSources_True_WhenMultipleSources()
+    {
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.HasSources.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasSources_False_WhenNoSources()
+    {
+        var registry = MakeFakeRegistry();
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.HasSources.Should().BeFalse();
+    }
+
+    // Brief Step 4: OnRegistrySourcesChanged clears non-master per-source
+    // Start/End timestamps in multi-trace mode (sync playback ignores
+    // per-source ranges — each source's playable range = full timeline).
+
+    [Fact]
+    public void OnSourcesChanged_ClearsNonMasterStartEndTimestamps_InMultiTraceMode()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        registry.SourcesChanged += Raise.Event<Action>();
+
+        // Ctor already calls OnRegistrySourcesChanged (initial pull), so
+        // each service receives the null-write twice — once from the ctor
+        // pull and once from the explicit raise. We assert the clear
+        // behavior (the null assignment happens), not the call count.
+        svcA.Received().StartTimestamp = null;
+        svcA.Received().EndTimestamp = null;
+        svcB.Received().StartTimestamp = null;
+        svcB.Received().EndTimestamp = null;
+    }
+
+    // Brief Step 6: SetMaster mid-playback — stops all, swaps master,
+    // restarts because wasPlaying=true. ScrubberValue reset to 0 by Stop().
+
+    [Fact]
+    public void SetMaster_MidPlayback_StopsAll_RestartsFromZero()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        svcA.State.Returns(ReplayState.Playing);  // simulate mid-playback
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+
+        sut.SetMasterCommand.Execute("b");
+
+        // SetMaster stops all (calls svc.Stop()), then plays because wasPlaying=true.
+        svcA.Received(1).Stop();
+        svcB.Received(1).Play();
+        sut.ScrubberValue.Should().Be(0.0);
+    }
+
+    // Task 3 review carry-over (Important): reattach contract.
+    // After SetMaster("b") the VM must swap the PlaybackEnded subscription
+    // from svcA → svcB. Raising svcB.PlaybackEnded with Loop=true must
+    // rewind the master (now svcB). Raising svcA.PlaybackEnded after the
+    // swap must NOT trigger a rewind — that handler is detached.
+
+    [Fact]
+    public void SetMaster_ReattachesPlaybackEndedToNewMaster()
+    {
+        var registry = MakeFakeRegistry();
+        var svcA = MakeFakeService();
+        var svcB = MakeFakeService();
+        svcA.TotalDuration.Returns(60.0);
+        svcB.TotalDuration.Returns(30.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+            new("b", "B", "C:/b.asc", OxyColors.Orange),
+        });
+        registry.GetService("a").Returns(svcA);
+        registry.GetService("b").Returns(svcB);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        sut.Loop = true;
+        // Master is "a" by default; swap to "b".
+        sut.SetMasterCommand.Execute("b");
+
+        // Raise new master's PlaybackEnded — must rewind the new master (svcB).
+        svcB.PlaybackEnded += Raise.EventWith(new PlaybackEndedEventArgs(error: null));
+        svcB.Received().Seek(0.0);
+
+        // Raise old master's PlaybackEnded — handler is detached; no extra seek.
+        svcA.ClearReceivedCalls();
+        svcA.PlaybackEnded += Raise.EventWith(new PlaybackEndedEventArgs(error: null));
+        svcA.DidNotReceiveWithAnyArgs().Seek(default);
     }
 }

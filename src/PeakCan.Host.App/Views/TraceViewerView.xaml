@@ -4,6 +4,7 @@
         xmlns:oxy="http://oxyplot.org/wpf"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
         xmlns:trace="clr-namespace:PeakCan.Host.App.Services.Trace"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
         d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -18,18 +19,48 @@
             <Button Content="Add trace…" Click="OnAddTraceClick" Padding="8,2" Margin="0,0,4,0" />
             <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
             <Separator />
-            <!-- v3.2.0 MINOR: playback controls hidden in multi-trace mode
-                 (sync playback across N sources deferred to v3.3.0). -->
+
+            <!-- v3.3.0 MINOR: master picker (the "clock source") -->
+            <TextBlock Text="Master:" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <ComboBox Width="180" Margin="0,0,8,0" VerticalAlignment="Center"
+                      ItemsSource="{Binding Sources}"
+                      SelectedValuePath="SourceId"
+                      SelectedValue="{Binding MasterSourceId, Mode=TwoWay}"
+                      DisplayMemberPath="DisplayName"
+                      ToolTip="Clock source for multi-trace sync playback"
+                      Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
+
+            <!-- v3.3.0 MINOR: speed multiplier -->
+            <TextBlock Text="Speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <ComboBox Width="70" VerticalAlignment="Center"
+                      SelectedItem="{Binding Speed, Mode=TwoWay}"
+                      ToolTip="Playback speed multiplier (applied to all sources)">
+                <sys:Double>0.25</sys:Double>
+                <sys:Double>0.5</sys:Double>
+                <sys:Double>1.0</sys:Double>
+                <sys:Double>2.0</sys:Double>
+                <sys:Double>4.0</sys:Double>
+            </ComboBox>
+
+            <!-- v3.3.0 MINOR: global loop toggle -->
+            <CheckBox Content="Loop" VerticalAlignment="Center" Margin="8,0"
+                      IsChecked="{Binding Loop, Mode=TwoWay}"
+                      ToolTip="When the master ends, rewind all sources to 0 and resume" />
+
+            <Separator />
+
+            <!-- v3.3.0 MINOR: visibility flipped from PlaybackControlsVisibility to HasSources
+                 (multi-trace mode now allows playback). -->
             <Button Content="▶" Command="{Binding PlayCommand}" Width="32"
-                    Visibility="{Binding PlaybackControlsVisibility}" />
+                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
             <Button Content="⏸" Command="{Binding PauseCommand}" Width="32"
-                    Visibility="{Binding PlaybackControlsVisibility}" />
+                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
             <Button Content="⏹" Command="{Binding StopCommand}" Width="32"
-                    Visibility="{Binding PlaybackControlsVisibility}" />
+                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
             <Slider Value="{Binding ScrubberValue, Mode=TwoWay}"
                     Minimum="0" Maximum="{Binding TotalDuration}"
                     Width="300" Margin="8,0" VerticalAlignment="Center"
-                    Visibility="{Binding PlaybackControlsVisibility}" />
+                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
@@ -49,6 +80,15 @@
                         <Border Background="White" BorderBrush="#CCC" BorderThickness="1"
                                 CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
                             <StackPanel Orientation="Horizontal">
+                                <!-- v3.3.0 MINOR: per-source "make master" radio. Bound TwoWay via SetMasterCommand. -->
+                                <RadioButton GroupName="MasterGroup" Margin="0,0,6,0" VerticalAlignment="Center"
+                                             IsChecked="{Binding SourceId,
+                                                                 Converter={StaticResource MasterRadio},
+                                                                 ConverterParameter={Binding DataContext.MasterSourceId,
+                                                                                             RelativeSource={RelativeSource AncestorType=Window}}}"
+                                             Command="{Binding DataContext.SetMasterCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                             CommandParameter="{Binding SourceId}"
+                                             ToolTip="Make this the master (clock source)" />
                                 <Rectangle Width="14" Height="14" Margin="0,0,6,0"
                                            VerticalAlignment="Center"
                                            Fill="{Binding Color, Converter={StaticResource OxyColorToBrush}}" />
