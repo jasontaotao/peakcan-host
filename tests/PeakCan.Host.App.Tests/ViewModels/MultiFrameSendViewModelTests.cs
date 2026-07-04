@@ -256,6 +256,7 @@ public sealed class MultiFrameSendViewModelTests
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.SendService>.Instance)),
             dbcService: null,
             library: null,
+            logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance,
             rateLimitRejectedCountProvider: () => source);
         var initial = vm.RateLimitRejectedCount;
         initial.Should().Be(0);

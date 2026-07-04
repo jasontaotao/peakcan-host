@@ -51,7 +51,7 @@ public class DbcSendViewModelCyclicTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         var send = new FakeSendService();
         var cyclic = Substitute.For<ICyclicDbcSendService>();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic, NullLogger<DbcSendViewModel>.Instance);
 
         sut.StartDbcCyclicCommand.Execute(null);
 
@@ -70,7 +70,7 @@ public class DbcSendViewModelCyclicTests
         dbcService.SetCurrentForTests(doc);
         var send = new FakeSendService();
         var cyclic = Substitute.For<ICyclicDbcSendService>();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic, NullLogger<DbcSendViewModel>.Instance);
 
         sut.SelectedDbcMessage = doc.Messages[0];
         sut.DbcCyclicIntervalText = "100";
@@ -98,7 +98,7 @@ public class DbcSendViewModelCyclicTests
         var send = new FakeSendService();
         var cyclic = Substitute.For<ICyclicDbcSendService>();
         cyclic.IsRunning.Returns(true);
-        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic, NullLogger<DbcSendViewModel>.Instance);
 
         sut.SelectedDbcMessage = doc.Messages[0];
         sut.DbcCyclicIntervalText = "100";
@@ -122,7 +122,7 @@ public class DbcSendViewModelCyclicTests
         dbcService.SetCurrentForTests(doc);
         var send = new FakeSendService();
         var cyclic = Substitute.For<ICyclicDbcSendService>();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic, NullLogger<DbcSendViewModel>.Instance);
 
         sut.SelectedDbcMessage = doc.Messages[0];
         sut.DbcCyclicIntervalText = "not-a-timespan";
@@ -143,7 +143,7 @@ public class DbcSendViewModelCyclicTests
         dbcService.SetCurrentForTests(doc);
         var send = new FakeSendService();
         var cyclic = Substitute.For<ICyclicDbcSendService>();
-        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), send, dbcService, cyclic, NullLogger<DbcSendViewModel>.Instance);
 
         sut.SelectedDbcMessage = doc.Messages[0];
         // Set S1=10, leave S2 null

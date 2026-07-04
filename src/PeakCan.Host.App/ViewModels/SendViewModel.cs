@@ -197,27 +197,10 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         // value equals the old (EqualityComparer<long>.Default.Equals),
         // so we don't need an explicit idempotent guard here — direct
         // assignment is safe and avoids a redundant comparison.
-        if (_getRejectedCount is not null)
-        {
-            // Defensive try/catch matches the surrounding Poll neighbors
-            // (SendCommand / SaveCurrentToLibrary / DeleteFromLibrary all
-            // catch + surface Status). Without this, an exception inside
-            // the provider would propagate through DispatcherTimer.Tick
-            // and crash the WPF UI thread on subsequent ticks.
-            try
-            {
-                RateLimitRejectedCount = _getRejectedCount();
-            }
-            catch (Exception ex)
-            {
-                LogPollProviderThrew(_logger, ex);
-                // Keep last known good value; do not reset to 0.
-            }
-        }
+        // v3.1.0 MINOR: try/catch + [LoggerMessage] factored into the
+        // shared RateLimitStatus helper (3-way DRY refactor).
+        RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
-    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     /// <summary>
     /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM

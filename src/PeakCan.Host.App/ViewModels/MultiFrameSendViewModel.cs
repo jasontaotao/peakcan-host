@@ -35,6 +35,10 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     private readonly SequenceSendService _service;
     private readonly DbcService? _dbcService;
     private readonly SequenceLibrary? _library;
+    // v3.1.0 MINOR: real ILogger<> replaces the v3.0.9 hardcoded
+    // NullLogger<MultiFrameSendViewModel>.Instance in the rate-limit
+    // refresh catch block — was a silent-logging regression (W1).
+    private readonly ILogger<MultiFrameSendViewModel> _logger;
     private CancellationTokenSource? _runCts;
     private readonly DispatcherTimer _progressPollTimer;
     // v3.0.9 PATCH: mirror of v3.0.8 SendViewModel pattern. Multi-frame
@@ -106,7 +110,7 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
         => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
 
     public MultiFrameSendViewModel(SequenceSendService service)
-        : this(service, null, null, null) { }
+        : this(service, null, null, Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, null) { }
 
     /// <summary>
     /// v2.1.1 PATCH: full-fidelity ctor that wires the
@@ -114,23 +118,33 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// subscribes to <see cref="DbcService.DbcLoaded"/> so a DBC
     /// loaded AFTER the window opens still shows up in the picker.
     /// Tests that don't need DBC rows pass null.
+    /// <para>v3.1.0 MINOR: now passes <see cref="NullLogger{MultiFrameSendViewModel}"/>
+    /// for the new <c>logger</c> parameter (W1 silent-log fix — shorter
+    /// ctors used to skip logging entirely; now they get a null logger
+    /// explicitly).</para>
     /// </summary>
     public MultiFrameSendViewModel(SequenceSendService service, DbcService? dbcService)
-        : this(service, dbcService, null, null) { }
+        : this(service, dbcService, null, Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, null) { }
 
     /// <summary>
     /// v2.1.2 PATCH: full-fidelity ctor with <see cref="SequenceLibrary"/>
     /// for Save / Load / Delete of named sequences.
+    /// <para>v3.1.0 MINOR: added <see cref="ILogger{MultiFrameSendViewModel}"/>
+    /// parameter (W1 silent-log fix — was previously hardcoded
+    /// <see cref="NullLogger{MultiFrameSendViewModel}"/> in the rate-limit
+    /// catch block, silently dropping provider exceptions).</para>
     /// </summary>
     public MultiFrameSendViewModel(
         SequenceSendService service,
         DbcService? dbcService,
         SequenceLibrary? library,
+        ILogger<MultiFrameSendViewModel> logger,
         Func<long>? rateLimitRejectedCountProvider = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dbcService = dbcService;
         _library = library;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // v3.0.9 PATCH: optional rate-limit rejected-count provider.
         // Production DI wires this to RateLimitedSendService.RejectedFrameCount
         // when the decorator is active; null when the rate-limit policy is
@@ -176,26 +190,12 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// </summary>
     internal void Poll()
     {
-        // v3.0.9 PATCH: refresh rate-limit reject counter. The
-        // [ObservableProperty] source-generated setter on
-        // RateLimitRejectedCount short-circuits on equal values, so
-        // direct assignment is safe and idempotent. Defensive try/catch
-        // matches v3.0.8 SendViewModel.Poll + v3.0.9 DbcSendViewModel.Poll.
-        if (_getRejectedCount is not null)
-        {
-            try
-            {
-                RateLimitRejectedCount = _getRejectedCount();
-            }
-            catch (Exception ex)
-            {
-                LogPollProviderThrew(Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, ex);
-            }
-        }
+        // v3.1.0 MINOR: try/catch + [LoggerMessage] factored into the
+        // shared RateLimitStatus helper (3-way DRY refactor). W1 also
+        // fixed: logger was previously hardcoded to NullLogger<...>,
+        // silently dropping provider exceptions.
+        RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
-    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     private void OnDbcLoaded(DbcDocument doc)
     {

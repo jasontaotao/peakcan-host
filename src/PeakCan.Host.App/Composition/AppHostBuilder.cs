@@ -279,6 +279,8 @@ public class AppHostBuilder
                 sendSvc,
                 sp.GetRequiredService<DbcService>(),
                 sp.GetRequiredService<ICyclicDbcSendService>(),
+                // v3.1.0 MINOR: real ILogger<> (W1 silent-log fix).
+                sp.GetRequiredService<ILogger<DbcSendViewModel>>(),
                 rateLimitRejectedCountProvider: rejectedCountProvider);
         });
         // v2.1.0 MINOR: multi-frame sequence send. SequenceSendService
@@ -312,6 +314,8 @@ public class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.Sequence.SequenceLibrary>(),
+                // v3.1.0 MINOR: real ILogger<> (W1 silent-log fix).
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>>(),
                 rateLimitRejectedCountProvider: rejectedCountProvider);
         });
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).

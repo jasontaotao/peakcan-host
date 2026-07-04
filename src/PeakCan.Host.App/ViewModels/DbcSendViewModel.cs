@@ -47,6 +47,10 @@ public sealed partial class DbcSendViewModel : ObservableObject
     private readonly SendService _sendService;
     private readonly DbcService _dbcService;
     private readonly ICyclicDbcSendService _cyclicDbc;
+    // v3.1.0 MINOR: real ILogger<> replaces the v3.0.9 hardcoded
+    // NullLogger<DbcSendViewModel>.Instance in the rate-limit refresh
+    // catch block — was a silent-logging regression (W1).
+    private readonly ILogger<DbcSendViewModel> _logger;
     private readonly DispatcherTimer _cyclicPollTimer;
     // v3.0.9 PATCH: mirror of v3.0.8 SendViewModel pattern. DBC Send is
     // the high-throughput caller (one frame per encode), so operators
@@ -117,12 +121,14 @@ public sealed partial class DbcSendViewModel : ObservableObject
         SendService sendService,
         DbcService dbcService,
         ICyclicDbcSendService cyclicDbc,
+        ILogger<DbcSendViewModel> logger,
         Func<long>? rateLimitRejectedCountProvider = null)
     {
         _encoder = encoder ?? throw new ArgumentNullException(nameof(encoder));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _cyclicDbc = cyclicDbc ?? throw new ArgumentNullException(nameof(cyclicDbc));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // v3.0.9 PATCH: optional rate-limit rejected-count provider.
         // Production DI wires this to RateLimitedSendService.RejectedFrameCount
         // when the decorator is active; null when the rate-limit policy is
@@ -173,29 +179,12 @@ public sealed partial class DbcSendViewModel : ObservableObject
         IsDbcCyclicRunning = _cyclicDbc.IsRunning;
         DbcCyclicSuccessCount = _cyclicDbc.SuccessCount;
         DbcCyclicFailureCount = _cyclicDbc.FailureCount;
-        // v3.0.9 PATCH: refresh rate-limit reject counter. The
-        // [ObservableProperty] source-generated setter on
-        // RateLimitRejectedCount short-circuits on equal values, so
-        // direct assignment is safe and idempotent.
-        if (_getRejectedCount is not null)
-        {
-            try
-            {
-                RateLimitRejectedCount = _getRejectedCount();
-            }
-            catch (Exception ex)
-            {
-                // Defensive try/catch matches v3.0.8 SendViewModel.Poll;
-                // without it, a provider exception would propagate through
-                // DispatcherTimer.Tick and crash the WPF UI thread on
-                // subsequent ticks.
-                LogPollProviderThrew(Microsoft.Extensions.Logging.Abstractions.NullLogger<DbcSendViewModel>.Instance, ex);
-            }
-        }
+        // v3.1.0 MINOR: try/catch + [LoggerMessage] factored into the
+        // shared RateLimitStatus helper (3-way DRY refactor). W1 also
+        // fixed: logger was previously hardcoded to NullLogger<...>,
+        // silently dropping provider exceptions.
+        RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
-    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     /// <summary>
     /// v1.4.1 PATCH Item 3: repopulate <see cref="DbcMessages"/> when a
