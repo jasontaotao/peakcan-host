@@ -204,4 +204,79 @@ public sealed class MultiFrameSendViewModelTests
         vm.Iterations = 5;
         vm.ProgressMax.Should().Be(15, "3 rows × 5 iterations");
     }
+
+    /// <summary>
+    /// v3.0.9 PATCH: mirror the v3.0.8 SendViewModel + v3.0.9
+    /// DbcSendViewModel pattern — expose
+    /// <see cref="RateLimitedSendService.RejectedFrameCount"/> as
+    /// <see cref="MultiFrameSendViewModel.RateLimitRejectedCount"/>.
+    /// Multi-frame is the highest-throughput caller (iterations ×
+    /// frames per second), so a too-tight MaxFramesPerSecond cap is
+    /// most likely to be noticed here.
+    /// </summary>
+    [Fact]
+    public void RateLimitRejectedCount_Defaults_To_Zero_When_Provider_Null()
+    {
+        var vm = NewVm(out _, out _);
+        vm.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Updates_From_Provider_After_Poll()
+    {
+        var vm = NewVm(out _, out _);
+        vm.RateLimitRejectedCount.Should().Be(0);
+
+        // NewVm returns a VM with a null provider; swap in a controllable one.
+        // Reflection of the private field avoids exposing a test-only setter.
+        var sourceField = typeof(MultiFrameSendViewModel)
+            .GetField("_getRejectedCount", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        long source = 5;
+        sourceField!.SetValue(vm, (Func<long>)(() => source));
+        vm.Poll();
+        vm.RateLimitRejectedCount.Should().Be(5);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Stays_Zero_When_Provider_Returns_Zero()
+    {
+        var vm = NewVm(out _, out _);
+        vm.Poll();
+        vm.Poll();
+        vm.Poll();
+        vm.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Raises_PropertyChanged_Only_When_Count_Changes()
+    {
+        long source = 7;
+        var vm = new MultiFrameSendViewModel(
+            new SequenceSendService(new PeakCan.Host.App.Services.SendService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.SendService>.Instance)),
+            dbcService: null,
+            library: null,
+            rateLimitRejectedCountProvider: () => source);
+        var initial = vm.RateLimitRejectedCount;
+        initial.Should().Be(0);
+
+        var changeCount = 0;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.RateLimitRejectedCount))
+                changeCount++;
+        };
+
+        vm.Poll();
+        changeCount.Should().Be(1);
+        vm.RateLimitRejectedCount.Should().Be(7);
+
+        vm.Poll();
+        changeCount.Should().Be(1);
+
+        source = 12;
+        vm.Poll();
+        changeCount.Should().Be(2);
+        vm.RateLimitRejectedCount.Should().Be(12);
+    }
 }

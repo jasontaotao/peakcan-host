@@ -268,7 +268,19 @@ public class AppHostBuilder
         // nothing, and "DBC mode" appears empty even after a successful
         // DBC load. Dependencies (DbcEncodeService, SendService,
         // DbcService, ICyclicDbcSendService) are registered above.
-        builder.Services.AddSingleton<DbcSendViewModel>();
+        builder.Services.AddSingleton<DbcSendViewModel>(sp =>
+        {
+            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
+            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
+                ? () => rateLimited.RejectedFrameCount
+                : null;
+            return new DbcSendViewModel(
+                sp.GetRequiredService<DbcEncodeService>(),
+                sendSvc,
+                sp.GetRequiredService<DbcService>(),
+                sp.GetRequiredService<ICyclicDbcSendService>(),
+                rateLimitRejectedCountProvider: rejectedCountProvider);
+        });
         // v2.1.0 MINOR: multi-frame sequence send. SequenceSendService
         // wraps SendService for concurrent/sequential frame dispatch;
         // MultiFrameSendViewModel drives the non-modal window's UI.
@@ -291,10 +303,17 @@ public class AppHostBuilder
         // commands reach the library.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Sequence.SequenceLibrary>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(sp =>
-            new PeakCan.Host.App.ViewModels.MultiFrameSendViewModel(
+        {
+            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
+            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
+                ? () => rateLimited.RejectedFrameCount
+                : null;
+            return new PeakCan.Host.App.ViewModels.MultiFrameSendViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.Sequence.SequenceLibrary>()));
+                sp.GetRequiredService<PeakCan.Host.App.Services.Sequence.SequenceLibrary>(),
+                rateLimitRejectedCountProvider: rejectedCountProvider);
+        });
         // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown — the VM's DispatcherTimer would

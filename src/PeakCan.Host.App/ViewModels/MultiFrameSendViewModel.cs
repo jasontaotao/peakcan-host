@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
@@ -36,6 +37,10 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     private readonly SequenceLibrary? _library;
     private CancellationTokenSource? _runCts;
     private readonly DispatcherTimer _progressPollTimer;
+    // v3.0.9 PATCH: mirror of v3.0.8 SendViewModel pattern. Multi-frame
+    // is the highest-throughput caller (iterations × frames per second),
+    // so a tight MaxFramesPerSecond cap is most likely to be noticed here.
+    private readonly Func<long>? _getRejectedCount;
 
     /// <summary>One row per CAN frame definition.</summary>
     public ObservableCollection<MultiFrameSequenceRow> Rows { get; } = new();
@@ -71,8 +76,37 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     [ObservableProperty] private int    _progressMax;
     [ObservableProperty] private MultiFrameSequenceRow? _selectedRow;
 
+    /// <summary>
+    /// v3.0.9 PATCH: mirror of
+    /// <see cref="RateLimitedSendService.RejectedFrameCount"/>. Polled
+    /// every 100 ms via the existing <see cref="_progressPollTimer"/>
+    /// (see <see cref="Poll"/>). Defaults to 0 (no rate-limit policy
+    /// or decorator absent). UI binds this to a chip in the status bar.
+    /// </summary>
+    [ObservableProperty]
+    private long _rateLimitRejectedCount;
+
+    /// <summary>
+    /// v3.0.9 PATCH: chip visibility bound to
+    /// <see cref="RateLimitRejectedCount"/>. Hidden when count = 0;
+    /// visible when at least one multi-frame sequence row has been
+    /// rejected by the rate limiter.
+    /// </summary>
+    public System.Windows.Visibility RateLimitRejectedVisibility
+        => RateLimitRejectedCount > 0
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+
+    /// <summary>
+    /// v3.0.9 PATCH: re-raise PropertyChanged for the computed
+    /// <see cref="RateLimitRejectedVisibility"/> whenever the underlying
+    /// <see cref="RateLimitRejectedCount"/> changes.
+    /// </summary>
+    partial void OnRateLimitRejectedCountChanged(long value)
+        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
+
     public MultiFrameSendViewModel(SequenceSendService service)
-        : this(service, null, null) { }
+        : this(service, null, null, null) { }
 
     /// <summary>
     /// v2.1.1 PATCH: full-fidelity ctor that wires the
@@ -82,7 +116,7 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// Tests that don't need DBC rows pass null.
     /// </summary>
     public MultiFrameSendViewModel(SequenceSendService service, DbcService? dbcService)
-        : this(service, dbcService, null) { }
+        : this(service, dbcService, null, null) { }
 
     /// <summary>
     /// v2.1.2 PATCH: full-fidelity ctor with <see cref="SequenceLibrary"/>
@@ -91,11 +125,18 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     public MultiFrameSendViewModel(
         SequenceSendService service,
         DbcService? dbcService,
-        SequenceLibrary? library)
+        SequenceLibrary? library,
+        Func<long>? rateLimitRejectedCountProvider = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dbcService = dbcService;
         _library = library;
+        // v3.0.9 PATCH: optional rate-limit rejected-count provider.
+        // Production DI wires this to RateLimitedSendService.RejectedFrameCount
+        // when the decorator is active; null when the rate-limit policy is
+        // disabled (MaxFramesPerSecond=0). Mirrors the v3.0.8 SendViewModel
+        // pattern exactly.
+        _getRejectedCount = rateLimitRejectedCountProvider;
         Rows.CollectionChanged += OnRowsChanged;
         // Seed with one empty row so the DataGrid isn't empty on first open.
         Rows.Add(new MultiFrameSequenceRow { Id = 0x100, DataHex = "DEADBEEF" });
@@ -121,14 +162,40 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
         // The service itself reports progress via IProgress<int> which
         // marshals back to the UI thread (caller uses TaskScheduler.FromCurrentSynchronizationContext).
         _progressPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        _progressPollTimer.Tick += (_, _) =>
-        {
-            // Intentionally empty: IProgress<int> on the caller side
-            // pushes ProgressValue updates. The timer exists for future
-            // use (e.g. elapsed-time display) and is cheap when idle.
-        };
+        _progressPollTimer.Tick += (_, _) => Poll();
         _progressPollTimer.Start();
     }
+
+    /// <summary>
+    /// v3.0.9 PATCH: refresh the observable properties from their
+    /// authoritative sources. Called every 100 ms by the existing
+    /// <see cref="_progressPollTimer"/> in production, and directly by
+    /// tests (the DispatcherTimer doesn't fire in xunit's STA-WPF test
+    /// fixtures). Marked <c>internal</c> so the App.Tests assembly can
+    /// invoke it via <c>[InternalsVisibleTo("PeakCan.Host.App.Tests")]</c>.
+    /// </summary>
+    internal void Poll()
+    {
+        // v3.0.9 PATCH: refresh rate-limit reject counter. The
+        // [ObservableProperty] source-generated setter on
+        // RateLimitRejectedCount short-circuits on equal values, so
+        // direct assignment is safe and idempotent. Defensive try/catch
+        // matches v3.0.8 SendViewModel.Poll + v3.0.9 DbcSendViewModel.Poll.
+        if (_getRejectedCount is not null)
+        {
+            try
+            {
+                RateLimitRejectedCount = _getRejectedCount();
+            }
+            catch (Exception ex)
+            {
+                LogPollProviderThrew(Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, ex);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
+    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     private void OnDbcLoaded(DbcDocument doc)
     {

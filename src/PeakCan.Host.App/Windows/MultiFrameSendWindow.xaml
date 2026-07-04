@@ -111,6 +111,18 @@
             </StackPanel>
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"
                        DockPanel.Dock="Right" Margin="8,0,0,0" Foreground="Gray"/>
+            <!-- v3.0.9 PATCH: mirror of MultiFrameSendViewModel.RateLimitRejectedCount.
+                 Same yellow chip pattern as v3.0.8 SendViewModel + v3.0.9 DbcSendViewModel
+                 chips. Hidden when count = 0. Multi-frame is the highest-throughput caller,
+                 so this chip is most likely to be non-zero during tight MaxFramesPerSecond caps. -->
+            <Border DockPanel.Dock="Right" Margin="8,0,0,0" Padding="6,2" CornerRadius="3"
+                    Background="#FFF8E1" BorderBrush="#D4A72C" BorderThickness="1"
+                    Visibility="{Binding RateLimitRejectedVisibility}">
+                <TextBlock VerticalAlignment="Center" Foreground="#7D4E00" FontSize="12">
+                    <Run Text="rate limit rejected: " />
+                    <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
+                </TextBlock>
+            </Border>
         </DockPanel>
 
         <!-- Mode + Run row -->

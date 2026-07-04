@@ -180,4 +180,80 @@ public class DbcSendViewModelTests
         sut.SignalRows.Should().BeEmpty(
             "OnSelectedDbcMessageChanged(null) clears SignalRows via the partial method");
     }
+
+    /// <summary>
+    /// v3.0.9 PATCH: mirror the v3.0.8 SendViewModel pattern — expose
+    /// <see cref="RateLimitedSendService.RejectedFrameCount"/> as
+    /// <see cref="DbcSendViewModel.RateLimitRejectedCount"/>. DBC Send is
+    /// the high-throughput caller (one frame per encode), so operators
+    /// are most likely to hit the rate limit here.
+    /// </summary>
+    [Fact]
+    public void RateLimitRejectedCount_Defaults_To_Zero_When_Provider_Null()
+    {
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var sut = new DbcSendViewModel(new DbcEncodeService(), new FakeSendService(), dbcService,
+            Substitute.For<ICyclicDbcSendService>());
+        sut.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Updates_From_Provider_After_Poll()
+    {
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var source = 0L;
+        var sut = new DbcSendViewModel(new DbcEncodeService(), new FakeSendService(), dbcService,
+            Substitute.For<ICyclicDbcSendService>(),
+            rateLimitRejectedCountProvider: () => source);
+        sut.RateLimitRejectedCount.Should().Be(0);
+
+        source = 3;
+        sut.Poll();
+        sut.RateLimitRejectedCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Stays_Zero_When_Provider_Returns_Zero()
+    {
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var source = 0L;
+        var sut = new DbcSendViewModel(new DbcEncodeService(), new FakeSendService(), dbcService,
+            Substitute.For<ICyclicDbcSendService>(),
+            rateLimitRejectedCountProvider: () => source);
+        sut.Poll();
+        sut.Poll();
+        sut.Poll();
+        sut.RateLimitRejectedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void RateLimitRejectedCount_Raises_PropertyChanged_Only_When_Count_Changes()
+    {
+        var dbcService = new DbcService(NullLogger<DbcService>.Instance);
+        var source = 7L;
+        var sut = new DbcSendViewModel(new DbcEncodeService(), new FakeSendService(), dbcService,
+            Substitute.For<ICyclicDbcSendService>(),
+            rateLimitRejectedCountProvider: () => source);
+        var initial = sut.RateLimitRejectedCount;
+        initial.Should().Be(0);
+
+        var changeCount = 0;
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(sut.RateLimitRejectedCount))
+                changeCount++;
+        };
+
+        sut.Poll();
+        changeCount.Should().Be(1);
+        sut.RateLimitRejectedCount.Should().Be(7);
+
+        sut.Poll();
+        changeCount.Should().Be(1);
+
+        source = 12;
+        sut.Poll();
+        changeCount.Should().Be(2);
+        sut.RateLimitRejectedCount.Should().Be(12);
+    }
 }

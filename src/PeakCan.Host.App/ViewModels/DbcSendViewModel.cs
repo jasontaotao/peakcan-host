@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core;
@@ -47,6 +48,10 @@ public sealed partial class DbcSendViewModel : ObservableObject
     private readonly DbcService _dbcService;
     private readonly ICyclicDbcSendService _cyclicDbc;
     private readonly DispatcherTimer _cyclicPollTimer;
+    // v3.0.9 PATCH: mirror of v3.0.8 SendViewModel pattern. DBC Send is
+    // the high-throughput caller (one frame per encode), so operators
+    // are most likely to hit the rate limit here.
+    private readonly Func<long>? _getRejectedCount;
 
     /// <summary>All DBC messages from the loaded document. Empty if no DBC loaded.</summary>
     public ObservableCollection<Message> DbcMessages { get; } = new();
@@ -79,16 +84,51 @@ public sealed partial class DbcSendViewModel : ObservableObject
     [ObservableProperty]
     private long _dbcCyclicFailureCount;
 
+    /// <summary>
+    /// v3.0.9 PATCH: mirror of
+    /// <see cref="RateLimitedSendService.RejectedFrameCount"/>. Polled
+    /// every 200 ms via the existing DispatcherTimer (see <see cref="Poll"/>).
+    /// Defaults to 0 (no rate-limit policy or decorator absent). UI binds
+    /// this to a chip in the DBC Mode expander.
+    /// </summary>
+    [ObservableProperty]
+    private long _rateLimitRejectedCount;
+
+    /// <summary>
+    /// v3.0.9 PATCH: chip visibility bound to
+    /// <see cref="RateLimitRejectedCount"/>. Hidden when count = 0;
+    /// visible when at least one DBC-encoded frame has been rejected.
+    /// </summary>
+    public System.Windows.Visibility RateLimitRejectedVisibility
+        => RateLimitRejectedCount > 0
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+
+    /// <summary>
+    /// v3.0.9 PATCH: re-raise PropertyChanged for the computed
+    /// <see cref="RateLimitRejectedVisibility"/> whenever the underlying
+    /// <see cref="RateLimitRejectedCount"/> changes.
+    /// </summary>
+    partial void OnRateLimitRejectedCountChanged(long value)
+        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
+
     public DbcSendViewModel(
         DbcEncodeService encoder,
         SendService sendService,
         DbcService dbcService,
-        ICyclicDbcSendService cyclicDbc)
+        ICyclicDbcSendService cyclicDbc,
+        Func<long>? rateLimitRejectedCountProvider = null)
     {
         _encoder = encoder ?? throw new ArgumentNullException(nameof(encoder));
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _cyclicDbc = cyclicDbc ?? throw new ArgumentNullException(nameof(cyclicDbc));
+        // v3.0.9 PATCH: optional rate-limit rejected-count provider.
+        // Production DI wires this to RateLimitedSendService.RejectedFrameCount
+        // when the decorator is active; null when the rate-limit policy is
+        // disabled (MaxFramesPerSecond=0). Mirrors the v3.0.8 SendViewModel
+        // pattern exactly.
+        _getRejectedCount = rateLimitRejectedCountProvider;
         foreach (var msg in _dbcService.Current?.Messages ?? Enumerable.Empty<Message>())
         {
             DbcMessages.Add(msg);
@@ -105,12 +145,7 @@ public sealed partial class DbcSendViewModel : ObservableObject
         {
             Interval = TimeSpan.FromMilliseconds(200)
         };
-        _cyclicPollTimer.Tick += (s, e) =>
-        {
-            IsDbcCyclicRunning = _cyclicDbc.IsRunning;
-            DbcCyclicSuccessCount = _cyclicDbc.SuccessCount;
-            DbcCyclicFailureCount = _cyclicDbc.FailureCount;
-        };
+        _cyclicPollTimer.Tick += (s, e) => Poll();
         _cyclicPollTimer.Start();
 
         // v1.4.1 PATCH Item 3: subscribe to DbcLoaded so that a DBC
@@ -124,6 +159,43 @@ public sealed partial class DbcSendViewModel : ObservableObject
         // was a latent footgun per review Task 15 fix-history).
         _dbcService.DbcLoaded += OnLoaded;
     }
+
+    /// <summary>
+    /// v1.5.1 PATCH Item 2 (expanded v3.0.9): refresh the observable
+    /// properties from their authoritative sources. Called every 200 ms
+    /// by the <see cref="DispatcherTimer"/> in production, and directly
+    /// by tests (the DispatcherTimer doesn't fire in xunit's STA-WPF
+    /// test fixtures). Marked <c>internal</c> so the App.Tests assembly
+    /// can invoke it via <c>[InternalsVisibleTo("PeakCan.Host.App.Tests")]</c>.
+    /// </summary>
+    internal void Poll()
+    {
+        IsDbcCyclicRunning = _cyclicDbc.IsRunning;
+        DbcCyclicSuccessCount = _cyclicDbc.SuccessCount;
+        DbcCyclicFailureCount = _cyclicDbc.FailureCount;
+        // v3.0.9 PATCH: refresh rate-limit reject counter. The
+        // [ObservableProperty] source-generated setter on
+        // RateLimitRejectedCount short-circuits on equal values, so
+        // direct assignment is safe and idempotent.
+        if (_getRejectedCount is not null)
+        {
+            try
+            {
+                RateLimitRejectedCount = _getRejectedCount();
+            }
+            catch (Exception ex)
+            {
+                // Defensive try/catch matches v3.0.8 SendViewModel.Poll;
+                // without it, a provider exception would propagate through
+                // DispatcherTimer.Tick and crash the WPF UI thread on
+                // subsequent ticks.
+                LogPollProviderThrew(Microsoft.Extensions.Logging.Abstractions.NullLogger<DbcSendViewModel>.Instance, ex);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate-limit rejected-count provider threw during Poll; keeping last value")]
+    private static partial void LogPollProviderThrew(ILogger logger, Exception ex);
 
     /// <summary>
     /// v1.4.1 PATCH Item 3: repopulate <see cref="DbcMessages"/> when a
