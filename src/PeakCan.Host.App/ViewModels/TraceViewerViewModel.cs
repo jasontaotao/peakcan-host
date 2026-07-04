@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 
@@ -23,29 +24,35 @@ public sealed record TraceSignalRow(
 /// v3.0 MINOR Trace Viewer: orchestration VM that bridges
 /// <see cref="ITraceViewerService"/> + <see cref="DbcService"/> +
 /// <see cref="TraceChartViewModel"/> for the Trace Viewer window.
-/// Mirrors the threading model used by <see cref="ReplayViewModel"/>:
-/// capture <see cref="SynchronizationContext"/> at construction so
-/// timer-thread callbacks can marshal to the UI thread; the test path
-/// (no captured context) falls back to direct setters.
+/// v3.2.0 MINOR: backed by <see cref="ITraceSessionRegistry"/> (multi-trace
+/// overlay) instead of a single <see cref="ITraceViewerService"/>. The
+/// single-trace workflow (1 source) is a degenerate case of the registry —
+/// <see cref="Sources"/>.Count == 1 — and behaves identically to v3.0/3.1.x.
 /// <para>
-/// <b>Cursor propagation:</b> the underlying service exposes
-/// <see cref="ITraceViewerService.CurrentTimestamp"/> as a polled
-/// property, not via <c>PropertyChanged</c>. We piggy-back on
-/// <see cref="ITraceViewerService.FrameEmitted"/>, which fires on every
-/// cursor advance — the same pattern <see cref="ReplayViewModel"/>
-/// uses for its cursor UI. This avoids changing the v1 contract on
-/// <see cref="ITraceViewerService"/>.
+/// <b>Multi-trace mode (Sources.Count &gt; 1):</b> playback commands
+/// (<see cref="PlayCommand"/>, <see cref="PauseCommand"/>, <see cref="StopCommand"/>,
+/// <see cref="SeekToCommand"/>) throw <see cref="InvalidOperationException"/>
+/// because sync playback across N traces is deferred to v3.3.0 (proportional
+/// seek math + master-source dropdown UI is non-trivial). The View hides
+/// the play/pause/stop controls when <see cref="IsMultiTraceMode"/> is true.
+/// </para>
+/// <para>
+/// <b>Cursor propagation (single-trace mode):</b> identical to v3.0 —
+/// the master source's <see cref="ITraceViewerService.FrameEmitted"/> fires
+/// on the timeline's timer thread; we Post the cursor advance to the captured
+/// <see cref="SynchronizationContext"/> for UI marshaling.
 /// </para>
 /// </summary>
 public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 {
-    private readonly ITraceViewerService _service;
+    private readonly ITraceSessionRegistry _registry;
     private readonly DbcService _dbcService;
     private readonly ILogger<TraceViewerViewModel> _logger;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
     private readonly SynchronizationContext? _syncContext;
+    private ITraceViewerService? _masterService;   // current master source's service (rebound on SourcesChanged)
     private bool _disposed;
 
     [ObservableProperty]
@@ -60,46 +67,70 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double _totalDuration;
 
+    [ObservableProperty]
+    private string _masterSourceId = "";
+
     public ObservableCollection<TraceSignalRow> Signals { get; } = new();
     public TraceChartViewModel ChartViewModel { get; } = new();
 
+    /// <summary>v3.2.0 MINOR: read-through to the registry. XAML binds the
+    /// legend strip against this property (one entry per loaded source).</summary>
+    public IReadOnlyList<TraceSource> Sources => _registry.Sources;
+
     public TraceViewerViewModel(
-        ITraceViewerService service,
+        ITraceSessionRegistry registry,
         DbcService dbcService,
         ILogger<TraceViewerViewModel> logger)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _syncContext = SynchronizationContext.Current;
-        _service.FrameEmitted += OnFrameEmitted;
+        _registry.SourcesChanged += OnRegistrySourcesChanged;
+        // Initial pull — captures any pre-loaded sources (none in normal startup).
+        RebindMasterFromRegistry();
     }
 
     /// <summary>
-    /// Load an ASC recording into the trace service. Updates
-    /// <see cref="LoadedTracePath"/>, <see cref="TotalDuration"/>, and
-    /// forwards the duration to <see cref="TraceChartViewModel"/> so the
-    /// X-axis range matches. Surfaces <see cref="ReplayLoadException"/>
-    /// to the VM caller (window shows MessageBox); other exception
-    /// types propagate unhandled.
+    /// v3.2.0 MINOR: append a new trace to the session. Used by the
+    /// View's "Add trace…" button. Surfaces <see cref="ReplayException"/>
+    /// to the caller (window shows MessageBox); other exception types
+    /// propagate unhandled.
     /// </summary>
     [RelayCommand]
-    public async Task OpenFileAsync(string path)
+    public async Task AddTraceAsync(string path)
     {
         try
         {
-            await _service.LoadAsync(path).ConfigureAwait(true);
-            LoadedTracePath = path;
-            TotalDuration = _service.TotalDuration;
-            ChartViewModel.SetTotalDuration(_service.TotalDuration);
-            await RebuildSignalsAsync().ConfigureAwait(true);
+            await _registry.LoadAsync(path).ConfigureAwait(true);
+            // The SourcesChanged handler will RebindMasterFromRegistry +
+            // update IsMultiTraceMode + refresh ChartViewModel duration.
         }
         catch (ReplayException ex)
         {
             LogLoadFailed(_logger, ex, path);
-            throw;  // VM caller shows MessageBox
+            throw;
         }
     }
+
+    /// <summary>
+    /// v3.2.0 MINOR: remove a source from the session. Invoked by the
+    /// per-source "✕" button in the legend strip.
+    /// </summary>
+    [RelayCommand]
+    public async Task RemoveTraceAsync(string sourceId)
+    {
+        await _registry.UnloadAsync(sourceId).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// v3.2.0 MINOR: read-only proxy for the legacy v3.0
+    /// <c>OpenFileAsync</c> command name. Calls <see cref="AddTraceAsync"/>
+    /// internally — for a single-source session the effect is identical to
+    /// v3.0.0 (one ASC loaded).
+    /// </summary>
+    [RelayCommand]
+    public Task OpenFileAsync(string path) => AddTraceAsync(path);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
     private static partial void LogLoadFailed(ILogger logger, Exception ex, string path);
@@ -117,26 +148,121 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         await RebuildSignalsAsync().ConfigureAwait(true);
     }
 
-    [RelayCommand]
-    public void Play() => _service.Play();
+    /// <summary>v3.2.0 MINOR: computed from <see cref="Sources"/>.Count. Re-raised
+    /// via OnSourcesPropertyChanged whenever SourcesChanged fires.</summary>
+    public bool IsMultiTraceMode => Sources.Count > 1;
+
+    /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
+    /// <c>Visibility</c>. True when at least one trace is loaded.</summary>
+    public bool HasSources => Sources.Count > 0;
+
+    /// <summary>Returns true when more than one trace is loaded (multi-trace mode is active).</summary>
+    public bool IsPlaybackDisabled => IsMultiTraceMode || Sources.Count == 0;
+
+    /// <summary>v3.2.0 MINOR: XAML binding source for the play/pause/stop
+    /// buttons' <c>Visibility</c>. Visible when single-trace playback is
+    /// allowed; collapsed in multi-trace mode or when no source is loaded.</summary>
+    public System.Windows.Visibility PlaybackControlsVisibility =>
+        IsPlaybackDisabled ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    private void EnsureSingleTraceMode()
+    {
+        if (IsMultiTraceMode)
+            throw new InvalidOperationException(
+                "Playback disabled in multi-trace mode (v3.3.0 will add sync playback across N sources).");
+    }
 
     [RelayCommand]
-    public void Pause() => _service.Pause();
+    public void Play()
+    {
+        EnsureSingleTraceMode();
+        _masterService?.Play();
+    }
+
+    [RelayCommand]
+    public void Pause()
+    {
+        EnsureSingleTraceMode();
+        _masterService?.Pause();
+    }
 
     [RelayCommand]
     public void Stop()
     {
-        _service.Stop();
+        EnsureSingleTraceMode();
+        _masterService?.Stop();
         ScrubberValue = 0;
     }
 
     [RelayCommand]
-    public void SeekTo(double t) => _service.Seek(t);
+    public void SeekTo(double t)
+    {
+        EnsureSingleTraceMode();
+        _masterService?.Seek(t);
+    }
 
     partial void OnScrubberValueChanged(double value)
     {
-        if (TotalDuration > 0) _service.Seek(value);
+        if (TotalDuration > 0 && _masterService is not null && !IsMultiTraceMode)
+            _masterService.Seek(value);
     }
+
+    /// <summary>
+    /// v3.2.0 MINOR: react to <see cref="ITraceSessionRegistry.SourcesChanged"/>
+    /// — re-pin master to first source, update TotalDuration + ChartViewModel
+    /// duration, refresh IsMultiTraceMode + LoadedTracePath (legacy binding).
+    /// </summary>
+    private void OnRegistrySourcesChanged()
+    {
+        RebindMasterFromRegistry();
+        OnPropertyChanged(nameof(Sources));
+        OnPropertyChanged(nameof(IsMultiTraceMode));
+        OnPropertyChanged(nameof(IsPlaybackDisabled));
+        OnPropertyChanged(nameof(PlaybackControlsVisibility));
+        OnPropertyChanged(nameof(HasSources));
+        LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
+        TotalDuration = _masterService?.TotalDuration ?? 0.0;
+        ChartViewModel.SetTotalDuration(TotalDuration);
+        ChartViewModel.Series.Clear();
+    }
+
+    private void RebindMasterFromRegistry()
+    {
+        // Unhook the old master (if any).
+        if (_masterService is not null)
+            _masterService.FrameEmitted -= OnFrameEmitted;
+
+        // Pin master to first source (deterministic for the session).
+        if (_registry.Sources.Count == 0)
+        {
+            _masterService = null;
+            MasterSourceId = "";
+            return;
+        }
+
+        var master = _registry.Sources[0];
+        MasterSourceId = master.SourceId;
+        // Resolve the master service through a round-trip: in the registry
+        // implementation, sources are keyed by SourceId. For simplicity,
+        // we expose a per-source service lookup via the registry's internal
+        // LoadAsync flow. To keep this lightweight, we re-use the existing
+        // service via a new ITraceSessionRegistry.GetService(sourceId) call.
+        // See ITraceSessionRegistry for the contract.
+        _masterService = GetMasterService(master.SourceId);
+        if (_masterService is not null)
+            _masterService.FrameEmitted += OnFrameEmitted;
+    }
+
+    /// <summary>
+    /// v3.2.0 MINOR: looks up the underlying <see cref="ITraceViewerService"/>
+    /// for the master source. The current registry contract exposes only
+    /// <see cref="ITraceSessionRegistry.GetFrames"/> (frames, not service);
+    /// playback needs the service handle. We resolve via a public
+    /// <see cref="ITraceSessionRegistry.GetService"/> helper added in the
+    /// same PR. See <see cref="TraceSessionRegistry.GetService"/>.
+    /// </summary>
+    private ITraceViewerService? GetMasterService(string sourceId)
+        => _registry.GetService(sourceId);
 
     /// <summary>
     /// FrameEmitted is invoked on the timeline's timer thread. We Post
@@ -152,36 +278,22 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         {
             _syncContext.Post(_ =>
             {
-                ChartViewModel.UpdatePlaybackCursor(_service.CurrentTimestamp);
+                if (_masterService is not null)
+                    ChartViewModel.UpdatePlaybackCursor(_masterService.CurrentTimestamp);
             }, null);
         }
         else
         {
-            ChartViewModel.UpdatePlaybackCursor(_service.CurrentTimestamp);
+            if (_masterService is not null)
+                ChartViewModel.UpdatePlaybackCursor(_masterService.CurrentTimestamp);
         }
     }
 
     /// <summary>
     /// Rebuild the left-side <see cref="Signals"/> collection from the
-    /// currently loaded trace + (optional) DBC. For every message in the
-    /// loaded DBC, every signal on that message that has at least one
-    /// matching frame in <see cref="ITraceViewerService.LoadedFrames"/>
-    /// becomes one <see cref="TraceSignalRow"/>, with <c>LatestValue</c>
-    /// set to the engineering value decoded from the LAST matching frame
-    /// (matches the v3.0.0 release-notes promise: the most recent value
-    /// at load time). Rows are sorted by <c>(CanIdHex, SignalName)</c>
-    /// for deterministic output.
-    /// <para>
-    /// When <see cref="DbcService.Current"/> is null (no DBC loaded) the
-    /// collection is left empty; same when a DBC is loaded but no
-    /// <see cref="ITraceViewerService.LoadedFrames"/> entries match any
-    /// of its messages. Runs synchronously on the UI thread — the
-    /// caller (OpenFileAsync / LoadDbcAsync) is already on the UI
-    /// thread, the work is bounded by <c>|messages| * |signals|</c>
-    /// which is small for typical DBC sizes, and the result is bound
-    /// to an <see cref="ObservableCollection{T}"/> which would require
-    /// a marshal-back if we ever moved it off-thread.
-    /// </para>
+    /// currently loaded trace + (optional) DBC. v3.2.0 MINOR: walks
+    /// <see cref="ITraceSessionRegistry.GetFrames"/> per source so multi-trace
+    /// overlays see all frames across all loaded sources.
     /// </summary>
     private async Task RebuildSignalsAsync()
     {
@@ -194,19 +306,19 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var frames = _service.LoadedFrames;
-        // Bucket frames by CAN ID once (linear in |frames|); then walk
-        // DBC messages and emit one row per signal that has at least
-        // one matching frame.
-        var byId = new Dictionary<uint, List<ReplayFrame>>(frames.Count);
-        foreach (var f in frames)
+        // v3.2.0 MINOR: bucket frames from all loaded sources by CAN ID.
+        var byId = new Dictionary<uint, List<ReplayFrame>>();
+        foreach (var source in _registry.Sources)
         {
-            if (!byId.TryGetValue(f.Id, out var list))
+            foreach (var f in _registry.GetFrames(source.SourceId))
             {
-                list = new List<ReplayFrame>();
-                byId[f.Id] = list;
+                if (!byId.TryGetValue(f.Id, out var list))
+                {
+                    list = new List<ReplayFrame>();
+                    byId[f.Id] = list;
+                }
+                list.Add(f);
             }
-            list.Add(f);
         }
 
         var rows = new List<TraceSignalRow>();
@@ -261,14 +373,16 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Unsubscribe from the service and stop playback. Safe to call
-    /// multiple times — <c>_disposed</c> guards re-entry.
+    /// Unsubscribe from the registry + master service and stop playback.
+    /// Safe to call multiple times — <c>_disposed</c> guards re-entry.
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _service.FrameEmitted -= OnFrameEmitted;
+        _registry.SourcesChanged -= OnRegistrySourcesChanged;
+        if (_masterService is not null)
+            _masterService.FrameEmitted -= OnFrameEmitted;
         GC.SuppressFinalize(this);
     }
 }

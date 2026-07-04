@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:oxy="http://oxyplot.org/wpf"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+        xmlns:trace="clr-namespace:PeakCan.Host.App.Services.Trace"
         d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -12,18 +13,56 @@
     <DockPanel>
         <!-- Toolbar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
-            <Button Content="Open .asc…" Click="OnOpenAscClick" Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.2.0 MINOR: Add trace always appends to the session (never
+                 overwrites). Single-trace default behavior unchanged from v3.0. -->
+            <Button Content="Add trace…" Click="OnAddTraceClick" Padding="8,2" Margin="0,0,4,0" />
             <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
             <Separator />
-            <Button Content="▶" Command="{Binding PlayCommand}" Width="32" />
-            <Button Content="⏸" Command="{Binding PauseCommand}" Width="32" />
-            <Button Content="⏹" Command="{Binding StopCommand}" Width="32" />
+            <!-- v3.2.0 MINOR: playback controls hidden in multi-trace mode
+                 (sync playback across N sources deferred to v3.3.0). -->
+            <Button Content="▶" Command="{Binding PlayCommand}" Width="32"
+                    Visibility="{Binding PlaybackControlsVisibility}" />
+            <Button Content="⏸" Command="{Binding PauseCommand}" Width="32"
+                    Visibility="{Binding PlaybackControlsVisibility}" />
+            <Button Content="⏹" Command="{Binding StopCommand}" Width="32"
+                    Visibility="{Binding PlaybackControlsVisibility}" />
             <Slider Value="{Binding ScrubberValue, Mode=TwoWay}"
                     Minimum="0" Maximum="{Binding TotalDuration}"
-                    Width="300" Margin="8,0" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding LoadedTracePath}" Margin="8,0" VerticalAlignment="Center"
-                       Foreground="Gray" />
+                    Width="300" Margin="8,0" VerticalAlignment="Center"
+                    Visibility="{Binding PlaybackControlsVisibility}" />
         </StackPanel>
+
+        <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
+             swatch (the source's palette color), the display name, and an
+             ✕ button to unload the source via RemoveTraceCommand. Hidden
+             when no sources are loaded. -->
+        <Border DockPanel.Dock="Top" Background="#F4F4F4" Padding="6,4"
+                Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}">
+            <ItemsControl ItemsSource="{Binding Sources}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type trace:TraceSource}">
+                        <Border Background="White" BorderBrush="#CCC" BorderThickness="1"
+                                CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Rectangle Width="14" Height="14" Margin="0,0,6,0"
+                                           VerticalAlignment="Center"
+                                           Fill="{Binding Color, Converter={StaticResource OxyColorToBrush}}" />
+                                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                                <Button Content="✕" Margin="6,0,0,0" Padding="4,0"
+                                        Command="{Binding DataContext.RemoveTraceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding SourceId}"
+                                        ToolTip="Unload this trace" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
 
         <!-- Status bar -->
         <TextBlock DockPanel.Dock="Bottom" Margin="4" Foreground="Gray"

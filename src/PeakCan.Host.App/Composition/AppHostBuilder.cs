@@ -347,8 +347,18 @@ public class AppHostBuilder
         // precedent — see AppShellViewModel.ShowTraceViewer for the resolve
         // path (resolves TraceViewerViewModel from DI on first show, news
         // a TraceViewerView with it).
-        builder.Services.AddSingleton<ITraceViewerService, TraceViewerService>();
-        // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceViewerService.
+        // v3.2.0 MINOR: TraceViewerViewModel is now backed by ITraceSessionRegistry
+        // instead of a single ITraceViewerService. The per-load
+        // TraceViewerService instances live inside the registry (created on
+        // LoadAsync, disposed on UnloadAsync). Palette (Tableau-10) is wired
+        // before the registry so the registry ctor can resolve colors.
+        // ITraceViewerService is no longer registered as a singleton — the
+        // registry owns its service instances.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITracePalette,
+                                       PeakCan.Host.App.Services.Trace.TableauPalette>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry,
+                                       PeakCan.Host.App.Services.Trace.TraceSessionRegistry>();
+        // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.
         builder.Services.AddSingleton<TraceViewerViewModel>();

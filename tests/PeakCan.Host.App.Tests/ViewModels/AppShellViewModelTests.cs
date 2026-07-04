@@ -5,6 +5,7 @@ using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
@@ -99,7 +100,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
     }
 
     /// <summary>
@@ -410,7 +411,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -484,7 +485,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
     }
 
     [Fact]
@@ -601,7 +602,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -847,7 +848,7 @@ public class AppShellViewModelTests
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-            new TraceViewerViewModel(Substitute.For<ITraceViewerService>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance),
+            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance),
             enumerator,
             writableConfig);
     }

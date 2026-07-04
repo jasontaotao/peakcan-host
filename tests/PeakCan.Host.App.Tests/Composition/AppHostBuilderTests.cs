@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
@@ -349,24 +350,27 @@ public class AppHostBuilderTests
     }
 
     /// <summary>
-    /// v3.0 MINOR (Task 7): wires the new TraceViewerService,
-    /// TraceViewerViewModel, and TraceViewerView into DI. Singleton lifetime
-    /// on the service matches <see cref="IReplayService"/>; the VM and
-    /// non-modal Window are singleton so every caller (including menu
-    /// reopen) shares one timeline and the same view instance — the
-    /// <c>AppShellViewModel.ShowTraceViewerCommand</c> command opens
-    /// the cached window rather than news-up a fresh one each click.
+    /// v3.2.0 MINOR: wires the new TraceSessionRegistry + TableauPalette
+    /// into DI. Singleton lifetime on both matches <see cref="IReplayService"/>;
+    /// the VM and non-modal Window are singleton so every caller
+    /// (including menu reopen) shares one session and the same view
+    /// instance — the <c>AppShellViewModel.ShowTraceViewerCommand</c>
+    /// command opens the cached window rather than news-up a fresh one.
+    /// v3.0/3.1.x previously registered a single <see cref="ITraceViewerService"/>
+    /// here; v3.2.0 replaces it with the registry (per-load service
+    /// instances live inside the registry).
     /// </summary>
     [Fact]
-    public void Build_Registers_TraceViewerService_As_Singleton()
+    public void Build_Registers_TraceSessionRegistry_As_Singleton()
     {
         var builder = new AppHostBuilder();
         using var host = builder.Build();
 
-        host.Services.GetService<ITraceViewerService>().Should().NotBeNull();
-        host.Services.GetService<ITraceViewerService>()
-            .Should().BeSameAs(host.Services.GetService<ITraceViewerService>(),
-                "ITraceViewerService is registered as singleton");
+        host.Services.GetService<ITraceSessionRegistry>().Should().NotBeNull();
+        host.Services.GetService<ITraceSessionRegistry>()
+            .Should().BeSameAs(host.Services.GetService<ITraceSessionRegistry>(),
+                "ITraceSessionRegistry is registered as singleton");
+        host.Services.GetService<ITracePalette>().Should().NotBeNull();
     }
 
     [Fact]
