@@ -14,21 +14,13 @@ public sealed class TraceChartViewModel : ObservableObject
     public sealed record TraceChartStatistics(
         string SignalKey, double Min, double Max, double Average, int SampleCount);
 
-    /// <summary>Tableau 10 color palette (10 colors). Mirrors SignalChartViewModel.</summary>
-    internal static readonly OxyColor[] Palette =
-    {
-        OxyColor.FromRgb(0x1F, 0x77, 0xB4), OxyColor.FromRgb(0xFF, 0x7F, 0x0E),
-        OxyColor.FromRgb(0x2C, 0xA0, 0x2C), OxyColor.FromRgb(0xD6, 0x27, 0x28),
-        OxyColor.FromRgb(0x94, 0x67, 0xBD), OxyColor.FromRgb(0x8C, 0x56, 0x4B),
-        OxyColor.FromRgb(0xE3, 0x77, 0xC2), OxyColor.FromRgb(0x7F, 0x7F, 0x7F),
-        OxyColor.FromRgb(0xBC, 0xBD, 0x22), OxyColor.FromRgb(0x17, 0xBE, 0xCF),
-    };
+    // DELETED (v3.3.1 PATCH dead code sweep):
+    // - internal static readonly OxyColor[] Palette
+    // - private int _nextColorSlot
+    // Both were remnants from pre-v3.2.0 chart series construction. After
+    // v3.2.0 moved palette assignment to ITracePalette, neither is read.
+    // v3.3.0 release notes deferred this extraction; v3.3.1 PATCH closes it.
 
-    // Reserved for Task 5 (TraceViewerViewModel): auto-assign next
-    // Palette color to incoming series in deterministic round-robin.
-#pragma warning disable CS0169 // field is never used (consumed in Task 5)
-    private int _nextColorSlot;
-#pragma warning restore CS0169
     private double _playbackCursorX;
     private double _totalDuration;
     private double _chartAreaHeight = 800.0;

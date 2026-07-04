@@ -3,11 +3,11 @@ using OxyPlot;
 namespace PeakCan.Host.App.Services.Trace;
 
 /// <summary>
-/// v3.2.0 MINOR: wraps the Tableau-10 palette (10 colors). Mirrors the
-/// hard-coded palette array previously duplicated in
-/// <c>TraceChartViewModel.Palette</c> and <c>SignalChartViewModel.Palette</c>;
-/// v3.2.0 only consumes it via <see cref="TraceSessionRegistry"/>. The
-/// SignalChartViewModel extraction is deferred to v3.3.0.
+/// v3.2.0 MINOR: deterministic per-source color assignment for the
+/// multi-trace overlay. Each loaded <see cref="TraceSource"/> gets one
+/// color from the palette; the same color is reused for every chart
+/// series derived from that source so all subplots of "trace A" share
+/// a color identity.
 ///
 /// <para>
 /// <b>Determinism:</b> the same <c>sourceId</c> always maps to the same
@@ -17,15 +17,14 @@ namespace PeakCan.Host.App.Services.Trace;
 /// </para>
 ///
 /// <para>
-/// <b>Capacity:</b> hard-capped at 10 (the Tableau-10 palette size).
-/// <see cref="PickColorFor"/> throws <see cref="InvalidOperationException"/>
-/// past capacity. v3.3.0 will add a deterministic hash-based fallback.
+/// <b>Capacity (v3.3.1 PATCH):</b> the first 10 distinct sourceIds
+/// receive Tableau-10 colors. SourceIds past 10 receive a deterministic
+/// hash-based HSL color (same sourceId → same color). The hard-cap of
+/// v3.2.0 is lifted; <see cref="PickColorFor"/> no longer throws.
 /// </para>
 /// </summary>
 public sealed class TableauPalette : ITracePalette
 {
-    private const int Capacity = 10;
-
     // Tableau-10 palette — matches the array previously inlined in
     // TraceChartViewModel.cs:18-25.
     private static readonly OxyColor[] Colors =
@@ -52,13 +51,70 @@ public sealed class TableauPalette : ITracePalette
         if (_assigned.TryGetValue(sourceId, out var slot))
             return Colors[slot];
 
-        if (_assigned.Count >= Capacity)
-            throw new InvalidOperationException(
-                $"TraceSessionRegistry capacity exceeded: {Capacity} distinct sources per session. " +
-                "v3.3.0 will add a hash-based color fallback; close one source before adding another.");
+        // v3.3.1 PATCH: hash-based fallback also caches its resolved color
+        // so repeated lookups of the same overflow sourceId return the
+        // exact same OxyColor (determinism invariant).
+        if (_hashCache.TryGetValue(sourceId, out var hashColor))
+            return hashColor;
 
-        var nextSlot = _assigned.Count;
-        _assigned[sourceId] = nextSlot;
-        return Colors[nextSlot];
+        // v3.3.1 PATCH: past the 10-slot Tableau-10 palette, fall back to a
+        // deterministic hash-based color. Same sourceId always yields the same
+        // color across calls within an instance (preserves the v3.2.0
+        // determinism invariant). Color is derived from the sourceId hash
+        // mapped to HSL — same hash → same h/s/l → same OxyColor.
+        if (_assigned.Count < Colors.Length)
+        {
+            var nextSlot = _assigned.Count;
+            _assigned[sourceId] = nextSlot;
+            return Colors[nextSlot];
+        }
+
+        var hash = (uint)sourceId.GetHashCode();
+        var h = hash % 360;
+        var l = 0.55 + ((hash / 360) % 20) / 100.0;  // 0.55..0.74 lightness
+        // OxyPlot 2.2.0 does not expose FromHsl; compute RGB from HSL inline
+        // (standard formula) so the plan's HSL semantics are preserved
+        // exactly — same sourceId → same h/s/l → same RGB → same OxyColor.
+        var fallback = HslToOxyColor(h, 0.6, l);
+        // Cache the resolved color (not the slot index) so the cache-hit
+        // path above can return it directly. Storing -1 as a sentinel
+        // would crash `Colors[slot]` on the second lookup of the same
+        // hash-based sourceId.
+        _hashCache[sourceId] = fallback;
+        return fallback;
+    }
+
+    // v3.3.1 PATCH: hash-based colors are stored in a separate dict so
+    // the fixed-slot path (Colors[slot]) and the hash-fallback path
+    // (resolved OxyColor) don't share a single int-typed slot field.
+    // Kept distinct from `_assigned` so the fixed-slot cache stays
+    // semantically pure (slot index in [0, Colors.Length)).
+    private readonly Dictionary<string, OxyColor> _hashCache = new();
+
+    /// <summary>
+    /// Convert HSL (h in 0..359, s/l in 0..1) to <see cref="OxyColor"/>.
+    /// Standard HSL→RGB formula; equivalent to
+    /// <c>OxyColor.FromHsv</c> would give a different visual distribution,
+    /// so we implement HSL directly to preserve the v3.3.1 spec.
+    /// </summary>
+    private static OxyColor HslToOxyColor(double h, double s, double l)
+    {
+        // h normalized to [0,1); s,l already in [0,1]
+        var hNorm = h / 360.0;
+        var c = (1 - Math.Abs(2 * l - 1)) * s;
+        var hp = hNorm * 6.0;
+        var x = c * (1 - Math.Abs(hp % 2 - 1));
+        double r1, g1, b1;
+        if (hp < 1) { r1 = c; g1 = x; b1 = 0; }
+        else if (hp < 2) { r1 = x; g1 = c; b1 = 0; }
+        else if (hp < 3) { r1 = 0; g1 = c; b1 = x; }
+        else if (hp < 4) { r1 = 0; g1 = x; b1 = c; }
+        else if (hp < 5) { r1 = x; g1 = 0; b1 = c; }
+        else { r1 = c; g1 = 0; b1 = x; }
+        var m = l - c / 2;
+        var r = (byte)Math.Clamp((r1 + m) * 255, 0, 255);
+        var g = (byte)Math.Clamp((g1 + m) * 255, 0, 255);
+        var b = (byte)Math.Clamp((b1 + m) * 255, 0, 255);
+        return OxyColor.FromRgb(r, g, b);
     }
 }

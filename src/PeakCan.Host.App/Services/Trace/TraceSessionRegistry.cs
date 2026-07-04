@@ -44,10 +44,12 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         var service = new TraceViewerService(logger);
         await service.LoadAsync(path, ct).ConfigureAwait(false);
 
-        // 3. Now that the parse succeeded, allocate the palette slot. Throws
-        //    past capacity (10). Dispose the freshly-loaded service in that
-        //    case so we don't leak the per-load disposable on the failure
-        //    path.
+        // 3. Now that the parse succeeded, allocate the palette slot. Past
+        //    10 sources, the palette falls back to a hash-based color (v3.3.1
+        //    PATCH). No throw is expected; this try/catch is retained for
+        //    defensive cleanup of the per-load disposable should any future
+        //    palette impl choose to throw (e.g. a custom ITracePalette that
+        //    hard-caps).
         OxyColor color;
         try
         {

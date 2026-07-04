@@ -179,10 +179,10 @@ per MEMORY).
 |------|--------------|
 | `.tmtrace` bundle file format (save/restore multi-trace session) | v3.3.x — JSON Schema + file dialog + 4 new commands |
 | Per-source `CanIdFilter` | v3.3.x — independent filter per source; small VM extension |
-| Palette exhaustion at 11+ (hash-based color fallback) | v3.3.x — `TableauPalette` capacity throw is the v3.2.0 hard cap |
+| Palette exhaustion at 11+ (hash-based color fallback) | **CLOSED in v3.3.1 PATCH** — `TableauPalette.PickColorFor` past capacity returns a deterministic hash-based HSL color (same sourceId → same color) instead of throwing |
 | Stroke style differentiation (solid/dashed) for color-blind accessibility | v3.3.x — visual accessibility |
 | Cross-source Y-axis auto-scale coordination | v3.3.x — OxyPlot coordination across `PlotModel`s |
-| `TraceChartViewModel.Palette` dead array extraction (consolidate into `TableauPalette`) | v3.3.x — extract from both `TraceChartViewModel` + `SignalChartViewModel` |
+| `TraceChartViewModel.Palette` dead array extraction (consolidate into `TableauPalette`) | **CLOSED in v3.3.1 PATCH** for the dead array only — `TraceChartViewModel.Palette` + `_nextColorSlot` deleted. `SignalChartViewModel.Palette` is **live** (used by Signal tab `AddSignal`), so it stays until a future refactor consolidates both into `TableauPalette` |
 | Master dropdown + per-source radio (both present today) | v3.3.x — pick one; current dual UI is a v3.3.0 shipping compromise for keyboard + mouse parity |
 | v1.6.0 MINOR OEM `IKeyDerivationAlgorithm` concrete | 43rd consecutive list; crypto review needed |
 | v2.2 🔜 ODX CONDITIONAL / ECU-VARIANT | Implementation still pending |

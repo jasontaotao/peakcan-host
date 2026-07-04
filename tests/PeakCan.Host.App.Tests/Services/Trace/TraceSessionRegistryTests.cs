@@ -2,6 +2,7 @@ using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using OxyPlot;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -89,19 +90,26 @@ public class TraceSessionRegistryTests
     }
 
     [Fact]
-    public async Task LoadAsync_PastCapacity10_ThrowsInvalidOperationException()
+    public async Task LoadAsync_PastCapacity10_DoesNotThrow_HashBasedFallbackColor()
     {
+        // v3.3.1 PATCH: 10-source hard cap lifted; the palette's hash-based
+        // fallback returns a valid OxyColor for any source past capacity,
+        // so the registry can load unlimited sources.
         var palette = new TableauPalette();
         var registry = new TraceSessionRegistry(palette, NullLoggerFactory.Instance);
 
         var act = async () =>
         {
-            for (var i = 0; i < 11; i++)
+            for (var i = 0; i < 12; i++)
                 await registry.LoadAsync(WriteTwoFrameAsc(out _));
         };
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*10*");
+        await act.Should().NotThrowAsync();
+        registry.Sources.Count.Should().Be(12);
+        // Each source has a non-default color; the first 10 use the
+        // Tableau-10 palette and the 11th/12th use the hash-based fallback.
+        registry.Sources[10].Color.Should().NotBe(default(OxyColor));
+        registry.Sources[11].Color.Should().NotBe(default(OxyColor));
     }
 
     [Fact]
