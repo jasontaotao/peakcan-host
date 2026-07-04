@@ -84,6 +84,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double _speed = 1.0;
 
+    // v3.4.2 PATCH: comma-separated CAN ID allow-list (decimal or 0x-hex,
+    // case-insensitive). Empty = no filter. Parsed in RebuildSignalsAsync
+    // and applied to both the global frame bucketing loop and the per-source
+    // chart-series loop.
+    [ObservableProperty]
+    private string _canIdFilter = "";
+
     public ObservableCollection<TraceSignalRow> Signals { get; } = new();
     public TraceChartViewModel ChartViewModel { get; } = new();
 
@@ -246,6 +253,19 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         PropagateSpeedToAllServices();
     }
 
+    // v3.4.2 PATCH: filter changes trigger a synchronous rebuild via the
+    // extracted core. Property change notifications fire on the UI thread,
+    // and the core is fully synchronous — no Task continuation race.
+    partial void OnCanIdFilterChanged(string value)
+    {
+        RebuildSignalsCore();
+    }
+
+    // v3.4.2 PATCH: XAML "Clear" button binding. Empty string → parser
+    // returns null → unfiltered rebuild.
+    [RelayCommand]
+    private void ClearCanIdFilter() => CanIdFilter = "";
+
     private void PropagateLoopToAllServices()
     {
         foreach (var svc in _allServices.Values)
@@ -401,13 +421,26 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private async Task RebuildSignalsAsync()
     {
+        RebuildSignalsCore();
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// v3.4.2 PATCH: synchronous core of <see cref="RebuildSignalsAsync"/>.
+    /// Extracted so property-setter change handlers (synchronous context)
+    /// can invoke the rebuild without the async-Task continuation race.
+    /// The body has no real awaits — it's fully synchronous in practice.
+    /// </summary>
+    private void RebuildSignalsCore()
+    {
         Signals.Clear();
         ChartViewModel.Series.Clear();   // v3.4.0 MINOR: also clear chart series
+        // v3.4.2 PATCH: parse the global filter once per rebuild. null = no filter.
+        var allowed = CanIdFilterParser.Parse(CanIdFilter);
         var dbc = _dbcService.Current;
         if (dbc is null)
         {
             // No DBC — nothing to decode against.
-            await Task.CompletedTask;
             return;
         }
 
@@ -417,6 +450,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         {
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
+                if (allowed is not null && !allowed.Contains(f.Id)) continue;   // v3.4.2 PATCH
                 if (!byId.TryGetValue(f.Id, out var list))
                 {
                     list = new List<ReplayFrame>();
@@ -470,6 +504,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             var srcById = new Dictionary<uint, List<ReplayFrame>>();
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
+                if (allowed is not null && !allowed.Contains(f.Id)) continue;   // v3.4.2 PATCH
                 if (!srcById.TryGetValue(f.Id, out var list))
                 {
                     list = new List<ReplayFrame>();
@@ -533,8 +568,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // v3.4.0 MINOR: synchronize axes now that all subplots exist.
         ChartViewModel.SyncYAxes();
         ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
-
-        await Task.CompletedTask;
     }
 
     /// <summary>

@@ -30,6 +30,15 @@
                       ToolTip="Clock source for multi-trace sync playback"
                       Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
 
+            <Separator />
+            <!-- v3.4.2 PATCH: global CAN ID filter — restrict rendered frames -->
+            <TextBlock Text="Filter CAN IDs:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     Width="180" VerticalAlignment="Center" Margin="0,0,4,0"
+                     ToolTip="Comma-separated CAN IDs to show (decimal or 0x-hex). Empty = all frames." />
+            <Button Content="Clear" Command="{Binding ClearCanIdFilterCommand}"
+                    Padding="6,2" Margin="0,0,4,0" ToolTip="Clear filter (show all frames)" />
+
             <!-- v3.3.0 MINOR: speed multiplier -->
             <TextBlock Text="Speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
             <ComboBox Width="70" VerticalAlignment="Center"
