@@ -91,4 +91,24 @@ public class TableauPaletteTests
         for (var i = 0; i < 4; i++) palette.PickStrokeFor($"filler-{i}");
         palette.PickStrokeFor("slot-4").Should().Be(OxyPlot.LineStyle.DashDotDot);
     }
+
+    [Fact]
+    public void PickStrokeFor_PastCapacity_DeterministicAcrossCalls()
+    {
+        // v3.4.1 PATCH: mirrors PickColorFor_PastCapacity_DeterministicAcrossCalls
+        // (added in v3.3.1). Past 10 sources, PickStrokeFor falls back to a
+        // hash-derived LineStyle — same sourceId must always yield the same
+        // stroke across calls within the same palette instance.
+        var palette = new TableauPalette();
+        // Pre-fill to capacity (10 sources) so the 11th triggers the hash fallback.
+        for (var i = 0; i < 10; i++)
+            palette.PickStrokeFor($"filler-{i}");
+
+        var first = palette.PickStrokeFor("guid-overflow-A");
+        var second = palette.PickStrokeFor("guid-overflow-A");
+        var third = palette.PickStrokeFor("guid-overflow-A");
+
+        first.Should().Be(second);
+        second.Should().Be(third);
+    }
 }
