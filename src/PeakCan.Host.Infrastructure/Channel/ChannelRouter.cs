@@ -21,20 +21,38 @@ namespace PeakCan.Host.Infrastructure.Channel;
 /// Thread-safety: <see cref="RegisterChannel"/>, <see cref="UnregisterChannel"/>,
 /// <see cref="AttachSink"/>, and <see cref="DetachSink"/> may be called from
 /// any thread; the underlying sink-list mutation is gated by a single
-/// <c>lock</c>. The post-mutation value is an <see cref="ImmutableArray{T}"/>
-/// that <see cref="OnChannelFrame"/> reads with a single <c>Volatile.Read</c>
-/// — no per-frame allocation, no per-frame lock acquire on the hot path.
+/// <c>lock</c>. The post-mutation value is an <see cref="IFrameSink"/>?
+/// array that <see cref="OnChannelFrame"/> reads with a single
+/// <c>Volatile.Read</c> — no per-frame lock acquire on the hot path.
+/// </para>
+/// <para>
+/// <b>v3.5.7 PATCH:</b> <c>_sinks</c> field type changed from
+/// <see cref="ImmutableArray{T}"/> (struct with reference field, can't
+/// be marked <c>volatile</c>) to <c>IFrameSink[]?</c> (reference type,
+/// directly usable with <c>Volatile.Read</c> / <c>Volatile.Write</c>).
+/// The previous v3.5.5 <c>ReadSinksAcquire</c> helper (plain struct load
+/// + <c>Interlocked.MemoryBarrier()</c>) had two flaws: (a) the
+/// placement-after-load does not actually constitute an acquire fence
+/// (JIT can reorder subsequent reads across it), and (b) the
+/// accompanying inline comment claimed the write side used
+/// <c>ImmutableInterlocked</c> when in fact <see cref="AttachSink"/> /
+/// <see cref="DetachSink"/> were plain stores — so neither side had a
+/// proper fence. v3.5.7 fixes both: write side uses <c>Volatile.Write</c>
+/// (release fence), read side uses <c>Volatile.Read</c> (acquire fence).
+/// Attach/Detach allocates a new array, but that's a registration-time
+/// path (not hot) — per-frame read stays allocation-free.
 /// </para>
 /// <para>
 /// <b>v1.2.3 zero-allocation fan-out:</b> pre-1.2.3 every frame did
 /// <c>_sinks.ToArray()</c>, allocating a fresh <c>IFrameSink[]</c> per
 /// call (~32 B/frame on the typical 4-sink path, ~256 kB/s of Gen0
 /// short-lived allocations at 8 kfps, contributing to GC pressure on
-/// the WPF dispatcher thread). The v1.2.3 fix replaces
-/// <c>List&lt;IFrameSink&gt;</c> with <see cref="ImmutableArray{T}"/>
-/// (a value type) read by <c>Volatile.Read</c> at dispatch time and
-/// rebuilt only on <see cref="AttachSink"/> / <see cref="DetachSink"/>.
-/// The channel list is unchanged — there is exactly one channel per
+/// the WPF dispatcher thread). The v1.2.3 fix replaced
+/// <c>List&lt;IFrameSink&gt;</c> with an immutable snapshot
+/// (<see cref="ImmutableArray{T}"/> v3.5.5-or-earlier, <c>IFrameSink[]</c>
+/// v3.5.7+) read by <c>Volatile.Read</c> at dispatch time and rebuilt
+/// only on <see cref="AttachSink"/> / <see cref="DetachSink"/>. The
+/// channel list is unchanged — there is exactly one channel per
 /// hardware device in the MVP and RegisterChannel runs once at
 /// startup, so the per-frame allocation there is negligible.
 /// </para>
@@ -57,7 +75,16 @@ namespace PeakCan.Host.Infrastructure.Channel;
 public sealed partial class ChannelRouter : IFrameSource
 {
     private readonly List<ICanChannel> _channels = new();
-    private ImmutableArray<IFrameSink> _sinks = ImmutableArray<IFrameSink>.Empty;
+    // v3.5.7 PATCH: IFrameSink[]? (reference type) — enables Volatile.Read
+    // / Volatile.Write with proper acquire/release fences. The previous
+    // ImmutableArray<IFrameSink> (struct with reference field) cannot
+    // be marked volatile, and plain store + post-load Interlocked.
+    // MemoryBarrier() is not a true acquire fence (see class-level
+    // doc-comment). The empty sentinel below avoids null-checks on the
+    // hot path while still allowing Volatile.Write of a null array when
+    // the last sink detaches.
+    private static readonly IFrameSink[] EmptySinks = Array.Empty<IFrameSink>();
+    private IFrameSink[]? _sinks;
     private readonly object _gate = new();
     // v1.2.12 PATCH Item 11: sink OnError → ILogger. Nullable for backward
     // compatibility with test fixtures and any caller that does not yet
@@ -113,8 +140,18 @@ public sealed partial class ChannelRouter : IFrameSource
         ArgumentNullException.ThrowIfNull(sink);
         lock (_gate)
         {
-            if (_sinks.Contains(sink)) return;
-            _sinks = _sinks.Add(sink);
+            var current = _sinks ?? EmptySinks;
+            // Linear scan is fine: AttachSink runs at registration time
+            // (typically 4-5 sinks, once per app lifetime), not per-frame.
+            if (Array.IndexOf(current, sink) >= 0) return;
+            var next = new IFrameSink[current.Length + 1];
+            Array.Copy(current, next, current.Length);
+            next[current.Length] = sink;
+            // v3.5.7 PATCH: Volatile.Write gives the publish a release
+            // fence — OnChannelFrame's Volatile.Read sees the new array
+            // with all prior writes (the Array.Copy + last-element
+            // assignment) visible.
+            Volatile.Write(ref _sinks, next);
         }
     }
 
@@ -124,35 +161,38 @@ public sealed partial class ChannelRouter : IFrameSource
         ArgumentNullException.ThrowIfNull(sink);
         lock (_gate)
         {
-            _sinks = _sinks.Remove(sink);
+            var current = _sinks;
+            if (current is null || current.Length == 0) return;
+            var idx = Array.IndexOf(current, sink);
+            if (idx < 0) return;
+            // Replace the array with a copy that omits the sink. If we
+            // just removed the last sink, publish null so OnChannelFrame
+            // can fast-path on `_sinks is null` (rare in practice — most
+            // apps have at least one persistent sink).
+            IFrameSink[]? next = (current.Length == 1)
+                ? null
+                : new IFrameSink[current.Length - 1];
+            if (next is not null)
+            {
+                Array.Copy(current, 0, next, 0, idx);
+                Array.Copy(current, idx + 1, next, idx, current.Length - idx - 1);
+            }
+            Volatile.Write(ref _sinks, next);
         }
     }
 
     private void OnChannelFrame(CanFrame frame)
     {
-        // v3.5.5 PATCH: replace the wasteful self-exchange with a
-        // pointer-based volatile read. The previous
-        // ImmutableInterlocked.InterlockedExchange(ref _sinks, _sinks)
-        // pattern was atomic but wasteful — it CAS-wrote the value
-        // back to itself on every frame dispatch (~8 kfps = 8k wasted
-        // CAS ops/sec).
-        //
-        // The BCL `Volatile.Read<T>(ref readonly T)` overload has a
-        // `where T : class` constraint, which blocks direct use on
-        // ImmutableArray<T> (a struct with a reference field). The
-        // pattern below takes the address of the field, reinterprets
-        // it as an `ImmutableArray<T>*`, and calls Unsafe.ReadUnaligned
-        // to load with a single acquire fence. We deliberately use
-        // Unsafe.ReadUnaligned (not Unsafe.AsRef, which has the same
-        // generic-constraint issue) so the JIT emits a single load +
-        // acquire fence instead of the CAS exchange the previous
-        // implementation performed.
-        //
-        // ImmutableArray<T>'s value is never mutated after construction,
-        // so an acquire-fence read is sufficient — no release store is
-        // needed on the write side (handled by ImmutableInterlocked in
-        // AttachSink/DetachSink already).
-        var sinks = ReadSinksAcquire();
+        // v3.5.7 PATCH: Volatile.Read on a reference-type field is the
+        // canonical acquire-fence read — single load, no constraint
+        // gymnastics, no per-frame Interlocked.MemoryBarrier. Replaces
+        // the v3.5.5 ReadSinksAcquire helper which had two flaws:
+        // (1) post-load barrier placement is not a real acquire fence
+        //     (JIT can reorder subsequent reads across the barrier), and
+        // (2) the inline comment claimed a write-side fence existed
+        //     when in fact AttachSink/DetachSink were plain stores.
+        // Both ends now have matching fences via Volatile.Read/Write.
+        var sinks = Volatile.Read(ref _sinks) ?? EmptySinks;
         for (var i = 0; i < sinks.Length; i++)
         {
             var s = sinks[i];
@@ -195,37 +235,12 @@ public sealed partial class ChannelRouter : IFrameSource
         }
     }
 
-    /// <summary>
-    /// v3.5.5 PATCH: acquire-fence read of <c>_sinks</c>. Replaces the
-    /// wasteful <c>ImmutableInterlocked.InterlockedExchange(ref _sinks, _sinks)</c>
-    /// self-CAS used pre-v3.5.5 with a barrier-paired plain read.
-    /// <para>
-    /// The BCL <c>Volatile.Read&lt;T&gt;(ref readonly T)</c> overload has
-    /// a <c>where T : class</c> constraint that blocks direct use on
-    /// <see cref="ImmutableArray{T}"/> (a struct with a reference field).
-    /// The working pattern here is: (1) take a local copy of the struct
-    /// value (a plain load), then (2) issue a full-fence
-    /// <see cref="Interlocked.MemoryBarrier()"/> between the load and
-    /// the first use. <see cref="ImmutableArray{T}"/>'s value is never
-    /// mutated after construction, so an acquire-fence read is
-    /// sufficient — no release store is needed on the write side
-    /// (handled by <c>ImmutableInterlocked</c> in
-    /// <see cref="AttachSink"/> / <see cref="DetachSink"/> already).
-    /// </para>
-    /// <para>
-    /// This avoids the wasted CAS-exchange of the previous pattern
-    /// (~8 kCAS/sec saved at 8 kfps) without requiring
-    /// <c>AllowUnsafeBlocks</c> on the assembly. The
-    /// <see cref="Interlocked.MemoryBarrier"/> ensures subsequent loads
-    /// observe the snapshot atomically.
-    /// </para>
-    /// </summary>
-    private ImmutableArray<IFrameSink> ReadSinksAcquire()
-    {
-        var sinks = _sinks;
-        Interlocked.MemoryBarrier();
-        return sinks;
-    }
+    // v3.5.7 PATCH: ReadSinksAcquire helper removed — replaced by direct
+    // Volatile.Read(ref _sinks) in OnChannelFrame. The helper had two
+    // flaws (post-load barrier placement + lying comment about write
+    // side) that together made the v3.5.5 "fix" a correctness regression
+    // from "wasteful but sound" to "cheap but unsound". See class-level
+    // doc-comment + OnChannelFrame for the replacement pattern.
 
     // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
     // Debug.WriteLine was stripped in Release builds, leaving production

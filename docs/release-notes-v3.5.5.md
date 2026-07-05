@@ -33,10 +33,11 @@ members including `GetType()`.
 **Fix shape (Option A — preferred)**:
 
 ClearScript 7.4.5 ships `AddRestrictedHostObject<T>(string, T)` on
-`ScriptEngine`. The `T`-constrained overload exposes **only members
-declared on `T`** — members inherited from `System.Object` (e.g.
-`GetType`, `ToString`, `Equals`) are not reachable from script code
-because they are not redeclared on `IScriptCanApi` / `IScriptDbcApi`.
+`ScriptEngine`. The `T`-constrained overload limits the visible
+surface to members declared on `T`, removing irrelevant members
+(`Dispose`, `IFrameSink.OnError`, etc.) from script visibility. This
+narrows the legitimate API surface — a script trying to call
+`can.Dispose()` now sees `undefined` instead of a callable function.
 
 ```csharp
 // Before
@@ -49,16 +50,29 @@ engine.AddRestrictedHostObject<IScriptDbcApi>("dbc", _dbcApi);
 
 The cast-to-interface was doing nothing useful (the static type system
 already sees the interface; the runtime instance type was leaking via
-reflection). `AddRestrictedHostObject<T>` closes that gap at the
-ClearScript binder level rather than relying on the .NET static
-type.
+reflection).
+
+**Important clarification (added by v3.5.7 review follow-up)**:
+`AddRestrictedHostObject<T>` is **surface restriction, not a security
+boundary**. ClearScript still exposes `System.Object` members
+(`GetType`, `ToString`, `Equals`, `GetHashCode`) as script-callable
+functions — `typeof can.GetType` returns `'function'` in JS, and
+`can.ToString()` returns the internal type name without throwing. The
+**actual reflection guard** is ClearScript's
+`ScriptEngine.CheckReflection()`, which throws
+`UnauthorizedAccessException("Use of reflection is prohibited")` at
+INVOCATION time when a script tries to call `GetType()`,
+`Delegate.Method`, etc. Both attack paths
+(`can.GetType().Assembly.GetType('System.Diagnostics.Process')` and
+`log.Method.DeclaringType.Assembly.GetType(...)`) are caught by this
+guard. See `ScriptEngineReflectionGuardTests` for regression coverage.
 
 **Defense in depth caveat**: this is **not** a full sandbox. A
 determined script can still call `can.send(...)` and observe side
-effects on the bus; the restricted-host surface only prevents
-reflection-based escape via `GetType()`. Full process isolation
-requires `AssemblyLoadContext` or a separate V8 isolate's
-`AccessContext` (deferred to v3.5.6+ if ever needed).
+effects on the bus; the restricted-host surface only narrows the
+legitimate API. Reflection-based escape is blocked by ClearScript's
+internal guard. Full process isolation requires `AssemblyLoadContext`
+or a separate V8 isolate's `AccessContext` (deferred).
 
 **README wording** updated to reflect the actual trust model:
 
@@ -112,9 +126,10 @@ is atomic but wasteful — it CAS-writes the same value back to itself.
 `Volatile.Read<T>`'s `where T : class` constraint blocks direct use on
 `ImmutableArray<T>` (a struct with a reference field).
 
-**Fix**: use `Unsafe.As` to reinterpret the `ImmutableArray<T>` field
-as the same struct type so the `Volatile.Read` struct overload resolves,
-giving us an acquire-fence atomic read without the wasted write:
+**Fix (v3.5.5 attempt)**: use `Unsafe.As` to reinterpret the
+`ImmutableArray<T>` field as the same struct type so the
+`Volatile.Read` struct overload resolves, giving us an acquire-fence
+atomic read without the wasted write:
 
 ```csharp
 var sinks = Volatile.Read(ref Unsafe.As<ImmutableArray<IFrameSink>, ImmutableArray<IFrameSink>>(ref _sinks));
@@ -124,6 +139,20 @@ var sinks = Volatile.Read(ref Unsafe.As<ImmutableArray<IFrameSink>, ImmutableArr
 an acquire-fence read is sufficient — no release store is needed on
 the write side (handled by `ImmutableInterlocked` in `AttachSink` /
 `DetachSink` already). Added `using System.Runtime.CompilerServices;`.
+
+**⚠️ v3.5.7 correction**: this v3.5.5 attempt did not compile against
+.NET 10 BCL (`where T : class` constraint and CS8500 unsafe-pointer
+issues blocked all three attempted workarounds). The shipped v3.5.5
+implementation uses a different pattern — plain struct load +
+`Interlocked.MemoryBarrier()` AFTER the load, plus a `ReadSinksAcquire`
+helper. That implementation has two flaws identified during the
+v3.5.5 post-ship review: (a) post-load barrier placement is not a
+true acquire fence (JIT can reorder subsequent reads across the
+barrier), and (b) the inline comment claimed `ImmutableInterlocked`
+was used on the write side when in fact `AttachSink` / `DetachSink`
+were plain stores — neither side had a proper fence. **v3.5.7 PATCH
+fixes both by switching the field type to `IFrameSink[]?` and using
+`Volatile.Read` / `Volatile.Write`.**
 
 ## Fix 4 (MEDIUM) — `IFrameSink.OnFrame` contract — must not block
 

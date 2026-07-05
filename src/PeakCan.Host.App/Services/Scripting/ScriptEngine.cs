@@ -163,7 +163,13 @@ public sealed partial class ScriptEngine : IDisposable
     {
         try
         {
-            _engine?.Interrupt();
+            // v3.5.7 PATCH: Volatile.Read pairs with the Interlocked.Exchange
+            // in ExecuteScript to give this observe a proper acquire fence.
+            // Without it, the JIT could cache the field across the null-check
+            // and observe a stale value after a fresh RunAsync has replaced
+            // it (paired with the v3.5.5 line-183 race the Interlocked.
+            // Exchange write fixes; this read completes the pair).
+            Volatile.Read(ref _engine)?.Interrupt();
         }
         catch (Exception ex)
         {
@@ -180,7 +186,16 @@ public sealed partial class ScriptEngine : IDisposable
         try
         {
             engine = CreateEngine(ct);
-            _engine = engine;
+            // v3.5.7 PATCH: Interlocked.Exchange for atomic publish of the
+            // engine reference. The previous plain field write
+            // (`_engine = engine`) had a race when Stop() raced against a
+            // concurrent RunAsync: the old task's line-183 assignment could
+            // land AFTER the new task's assignment, leaving _engine pointing
+            // to the old (interrupted) engine while the new engine was never
+            // registered — making InterruptEngine() a no-op for the new
+            // engine. Interlocked.Exchange pairs with the Volatile.Read in
+            // InterruptEngine to give the publish + observe proper fences.
+            Interlocked.Exchange(ref _engine, engine);
 
             // Set the current engine for ScriptConsole routing.
             ScriptConsole.CurrentEngine = this;
