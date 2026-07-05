@@ -1,5 +1,7 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
 using PeakCan.Host.App.Services;
@@ -28,6 +30,14 @@ public class TraceViewerViewModelTests
 
     private static ILogger<TraceViewerViewModel> MakeFakeLogger()
         => Substitute.For<ILogger<TraceViewerViewModel>>();
+
+    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
+    // path. Tests that exercise Save/Open use the public ctor's
+    // default-path branch (no test asserts on file contents here).
+    private static TraceSessionLibrary MakeFakeSessionLibrary()
+        => new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
 
     // TBD-2: substitute the concrete DbcService via NSubstitute's
     // constructor pattern. The production ctor accepts DbcService
@@ -103,7 +113,7 @@ public class TraceViewerViewModelTests
     [Fact]
     public void Ctor_Empty_NoSignalsNoCharts()
     {
-        var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger());
+        var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Signals.Should().BeEmpty();
         sut.ChartViewModel.Series.Should().BeEmpty();
     }
@@ -112,7 +122,7 @@ public class TraceViewerViewModelTests
     public async Task OpenFileAsync_InvokesServiceLoadAsync()
     {
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.OpenFileAsync("C:/fake.asc");
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
@@ -127,7 +137,7 @@ public class TraceViewerViewModelTests
         // default mode" — playback delegation is verified indirectly via
         // the multi-trace tests (Play throws in multi-trace mode).
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.PlayCommand.Execute(null);
 
@@ -139,7 +149,7 @@ public class TraceViewerViewModelTests
     {
         // See PlayCommand above — same no-throw-in-default-mode contract.
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.PauseCommand.Execute(null);
 
@@ -156,7 +166,7 @@ public class TraceViewerViewModelTests
         // default mode" — playback delegation is verified indirectly via
         // the multi-trace tests (Stop throws in multi-trace mode).
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.StopCommand.Execute(null);
 
@@ -173,7 +183,7 @@ public class TraceViewerViewModelTests
         svc.GetFrames(Arg.Any<string>()).Returns(new[] { Frame(0x100, 0x42, 0x00) });
         // No DBC set — DbcService.Current remains null.
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.OpenFileAsync("C:/fake.asc");
 
@@ -199,7 +209,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -227,7 +237,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -249,7 +259,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.OpenFileAsync("C:/fake.asc");
 
@@ -277,7 +287,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -306,7 +316,7 @@ public class TraceViewerViewModelTests
         registry.GetService("slave").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         // MasterSourceId defaults to first source ("master").
 
         sut.SeekTo(18.0);
@@ -330,7 +340,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.Speed = 2.5;
 
@@ -353,7 +363,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.Loop = true;
 
@@ -378,7 +388,7 @@ public class TraceViewerViewModelTests
         registry.GetService("slave").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Loop = true;
 
         // Raise master's PlaybackEnded (no error → normal EOF, not sink fail)
@@ -407,7 +417,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         // MasterSourceId defaults to "a"
 
         sut.SetMasterCommand.Execute("b");
@@ -427,7 +437,7 @@ public class TraceViewerViewModelTests
         registry.GetService("a").Returns(svcA);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         var original = sut.MasterSourceId;
 
         sut.SetMasterCommand.Execute("nonexistent");
@@ -450,7 +460,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.MasterSourceId.Should().Be("a");
 
         // Simulate user removing source "a" (the master)
@@ -479,7 +489,7 @@ public class TraceViewerViewModelTests
             new("a", "A", "C:/a.asc", OxyColors.Blue),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeTrue();
     }
@@ -494,7 +504,7 @@ public class TraceViewerViewModelTests
             new("b", "B", "C:/b.asc", OxyColors.Orange),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeTrue();
     }
@@ -504,7 +514,7 @@ public class TraceViewerViewModelTests
     {
         var registry = MakeFakeRegistry();
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeFalse();
     }
@@ -528,7 +538,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         registry.SourcesChanged += Raise.Event<Action>();
 
@@ -561,7 +571,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.SetMasterCommand.Execute("b");
 
@@ -594,7 +604,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Loop = true;
         // Master is "a" by default; swap to "b".
         sut.SetMasterCommand.Execute("b");

@@ -1,5 +1,7 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
 using OxyPlot.Series;
@@ -39,6 +41,14 @@ public class TraceViewerViewModelCanIdFilterTests
 
     private static ILogger<TraceViewerViewModel> MakeFakeLogger()
         => Substitute.For<ILogger<TraceViewerViewModel>>();
+
+    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
+    // path. Tests in this file do not assert on bundle round-trip; the
+    // library is wired so the VM ctor is satisfied.
+    private static TraceSessionLibrary MakeFakeSessionLibrary()
+        => new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
 
     private static DbcDocument DocWithTwoMessages() => new(
         Version: "",
@@ -94,7 +104,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Load DBC → unfiltered rebuild (2 signals, 2 series).
         await sut.LoadDbcAsync("C:/fake.dbc");
@@ -131,7 +141,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
         sut.CanIdFilter = "0x200";
@@ -177,7 +187,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.LoadDbcAsync("C:/fake.dbc");
 
         // Establish baseline: no filters → 2 signals (one per message) and
@@ -241,7 +251,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.LoadDbcAsync("C:/fake.dbc");
 
         // Act: set global filter to 0x100. Per-source filters stay empty.
@@ -276,7 +286,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.LoadDbcAsync("C:/fake.dbc");
 
         // Baseline: 2 signals, 2 series.

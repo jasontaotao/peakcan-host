@@ -362,6 +362,10 @@ public class AppHostBuilder
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.
         builder.Services.AddSingleton<TraceViewerViewModel>();
+        // v3.5.0 MINOR: persists Trace Viewer multi-trace sessions to .tmtrace
+        // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
+        // OpenSessionAsync commands.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,

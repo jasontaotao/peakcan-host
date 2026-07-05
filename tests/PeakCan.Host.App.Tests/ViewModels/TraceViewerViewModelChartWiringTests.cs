@@ -1,5 +1,7 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
 using OxyPlot.Series;
@@ -38,6 +40,14 @@ public class TraceViewerViewModelChartWiringTests
 
     private static ILogger<TraceViewerViewModel> MakeFakeLogger()
         => Substitute.For<ILogger<TraceViewerViewModel>>();
+
+    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
+    // path. Tests in this file do not assert on bundle round-trip; the
+    // library is wired so the VM ctor is satisfied.
+    private static TraceSessionLibrary MakeFakeSessionLibrary()
+        => new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
 
     private static ITraceViewerService MakeFakeService()
     {
@@ -90,7 +100,7 @@ public class TraceViewerViewModelChartWiringTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -115,7 +125,7 @@ public class TraceViewerViewModelChartWiringTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -154,7 +164,7 @@ public class TraceViewerViewModelChartWiringTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 
@@ -177,7 +187,7 @@ public class TraceViewerViewModelChartWiringTests
         var registry = MakeFakeRegistry();
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.LoadDbcAsync("C:/fake.dbc");
 

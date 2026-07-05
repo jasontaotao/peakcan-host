@@ -24,11 +24,15 @@ public class DbcViewModelTests
     /// <summary>
     /// Test double for <see cref="IFileDialogService"/> that returns
     /// a configurable path (or null to simulate cancellation).
+    /// v3.5.0 MINOR: also implements <see cref="ShowSaveDialog"/>; tests
+    /// that exercise the save path can override <see cref="NextSaveResult"/>.
     /// </summary>
     private sealed class FakeFileDialogService : IFileDialogService
     {
         public string? NextResult { get; set; }
+        public string? NextSaveResult { get; set; }
         public string? ShowOpenDialog(string filter) => NextResult;
+        public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => NextSaveResult;
     }
 
     private static DbcViewModel NewVm(DbcService svc, IFileDialogService? fileDialog = null)

@@ -1,3 +1,4 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -62,6 +63,15 @@ public class AppShellViewModelTests
             => System.Threading.Tasks.Task.CompletedTask;
     }
 
+    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
+    // path. AppShell VM wiring does not assert on bundle round-trip;
+    // the library is constructed so the TraceViewerViewModel ctor is
+    // satisfied.
+    private static TraceSessionLibrary NewFakeSessionLibrary()
+        => new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+
     /// <summary>
     /// Test double for <see cref="Core.IChannelProbe"/>. Always returns
     /// a successful probe so the <c>CanConnect</c> predicate string
@@ -100,7 +110,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
     }
 
     /// <summary>
@@ -411,7 +421,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -485,7 +495,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
     }
 
     [Fact]
@@ -602,7 +612,7 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -848,7 +858,7 @@ public class AppShellViewModelTests
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance),
+            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
             enumerator,
             writableConfig);
     }

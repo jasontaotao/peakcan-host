@@ -1,5 +1,7 @@
+using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
 using PeakCan.Host.App.Services;
@@ -19,12 +21,20 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// </summary>
 public class TraceViewerViewModelMultiTraceTests
 {
+    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
+    // path. Tests in this file do not assert on bundle round-trip; the
+    // library is wired so the VM ctor is satisfied.
+    private static TraceSessionLibrary MakeFakeSessionLibrary()
+        => new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+
     [Fact]
     public void Constructor_SubscribesToRegistrySourcesChanged()
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Adding a source should raise PropertyChanged on Sources (or fire
         // the SourcesChanged event through the VM). Verify the VM exposed
@@ -43,7 +53,7 @@ public class TraceViewerViewModelMultiTraceTests
         });
 
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await vm.AddTraceAsync("C:/b.asc");
 
@@ -55,7 +65,7 @@ public class TraceViewerViewModelMultiTraceTests
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await vm.RemoveTraceAsync("guid-target");
 
@@ -73,7 +83,7 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Pre-load the per-source services onto the fake registry (in production
         // the real registry hands them out via LoadAsync). The VM's
@@ -102,7 +112,7 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         vm.MasterSourceId.Should().Be("guid-1");
     }

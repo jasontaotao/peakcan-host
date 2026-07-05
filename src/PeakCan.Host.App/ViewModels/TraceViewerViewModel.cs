@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -8,6 +9,7 @@ using OxyPlot.Axes;
 using OxyPlot.Series;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 
@@ -50,6 +52,16 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private readonly ITraceSessionRegistry _registry;
     private readonly DbcService _dbcService;
     private readonly ILogger<TraceViewerViewModel> _logger;
+    // v3.5.0 MINOR: .tmtrace bundle save/load. Persists the multi-trace
+    // session (sources + per-source filter + global filter + playback
+    // cursor + master + loop + speed + DBC path) as a single JSON
+    // document via atomic tmp+rename.
+    private readonly TraceSessionLibrary _sessionLibrary;
+    // v3.5.0 MINOR: file-dialog abstraction so the Save/Open commands
+    // can be unit-tested with a fake (no WPF Application needed).
+    // Production DI wires the WPF impl; tests inject a fake that
+    // returns a canned path or simulates cancellation.
+    private readonly IFileDialogService? _fileDialog;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -102,11 +114,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     public TraceViewerViewModel(
         ITraceSessionRegistry registry,
         DbcService dbcService,
-        ILogger<TraceViewerViewModel> logger)
+        ILogger<TraceViewerViewModel> logger,
+        TraceSessionLibrary sessionLibrary,
+        IFileDialogService? fileDialog = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _sessionLibrary = sessionLibrary ?? throw new ArgumentNullException(nameof(sessionLibrary));
+        _fileDialog = fileDialog;
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
@@ -190,6 +206,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
     private static partial void LogLoadFailed(ILogger logger, Exception ex, string path);
 
+    // v3.5.0 MINOR: bundle-load could not resolve one of the recorded .asc
+    // paths (file moved, deleted, or on a currently-unmounted drive). The
+    // caller (View) surfaces the missing paths via a MessageBox so the user
+    // can decide whether to remap or proceed without.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
+    private static partial void LogSourceMissing(ILogger logger, string path, Exception ex);
+
     /// <summary>
     /// Load a DBC into <see cref="DbcService"/>. Updates
     /// <see cref="LoadedDbcPath"/>; <see cref="RebuildSignalsAsync"/>
@@ -266,6 +289,190 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // returns null → unfiltered rebuild.
     [RelayCommand]
     private void ClearCanIdFilter() => CanIdFilter = "";
+
+    /// <summary>
+    /// v3.5.0 MINOR: save the current Trace Viewer session to a
+    /// <c>.tmtrace</c> bundle. <paramref name="path"/> is supplied by
+    /// the View's <c>SaveFileDialog</c>; the command itself does NOT
+    /// pop a dialog (testability — the View handles the file dialog
+    /// to keep WPF dependency out of the VM).
+    /// </summary>
+    [RelayCommand]
+    public async Task SaveSessionAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        var snapshot = BuildSnapshot();
+        await Task.Run(() => _sessionLibrary.Save(snapshot, path)).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// v3.5.0 MINOR: load a Trace Viewer session from a <c>.tmtrace</c>
+    /// bundle. The caller (View) handles the open-file dialog and the
+    /// missing-ascs MessageBox UX — the VM returns the list of paths
+    /// that could not be resolved (e.g. an .asc that was moved/deleted
+    /// since the bundle was saved) so the View can surface them.
+    /// Restores playback to a paused/stopped cursor — never auto-resumes.
+    /// </summary>
+    /// <returns>List of source .asc paths that did NOT resolve on load.
+    /// Empty when the bundle had no sources or when every source
+    /// resolved cleanly.</returns>
+    public async Task<IReadOnlyList<string>> OpenSessionAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return Array.Empty<string>();
+        var dto = await Task.Run(() => _sessionLibrary.Load(path)).ConfigureAwait(true);
+        if (dto is null) return Array.Empty<string>();
+        return await ApplySnapshotAsync(dto).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// v3.5.0 MINOR: collect the current session state into a
+    /// <see cref="TraceSessionBundleDto"/>. Pure — no I/O, no side
+    /// effects. Path-reference only for .asc recordings; playback state
+    /// is captured verbatim (master, loop, speed, scrubber) and the
+    /// DBC path is recorded (the DBC service is not re-loaded — the
+    /// caller will reload it as part of <see cref="ApplySnapshotAsync"/>
+    /// once the sources are loaded).
+    /// </summary>
+    private TraceSessionBundleDto BuildSnapshot()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.5.0",
+            DbcPath = LoadedDbcPath ?? "",
+            GlobalCanIdFilter = CanIdFilter ?? "",
+        };
+        dto.Sources = new List<BundleSourceDto>(Sources.Count);
+        foreach (var src in Sources)
+        {
+            dto.Sources.Add(new BundleSourceDto
+            {
+                SourceId = src.SourceId,
+                DisplayName = src.DisplayName,
+                Path = src.Path,
+                ColorA = src.Color.A,
+                ColorR = src.Color.R,
+                ColorG = src.Color.G,
+                ColorB = src.Color.B,
+                StrokeStyle = src.StrokeStyle.ToString(),
+                CanIdFilter = src.CanIdFilter ?? "",
+            });
+        }
+        dto.Playback = new BundlePlaybackDto
+        {
+            MasterSourceId = MasterSourceId ?? "",
+            Loop = Loop,
+            Speed = Speed,
+            ScrubberValue = ScrubberValue,
+            StartTimestamp = null,
+            EndTimestamp = null,
+        };
+        dto.Viewports = new List<BundleViewportDto>(ChartViewModel.CaptureViewports());
+        return dto;
+    }
+
+    /// <summary>
+    /// v3.5.0 MINOR: restore a saved session. Loads each .asc via the
+    /// registry, applies playback state (always to a paused cursor —
+    /// never auto-resumes), then restores chart viewports AFTER
+    /// <see cref="RebuildSignalsCore"/> populates the Series collection
+    /// (otherwise the per-axis writes would land on stale or empty
+    /// PlotModels and <see cref="TraceChartViewModel.SyncYAxes"/> would
+    /// overwrite them).
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ApplySnapshotAsync(TraceSessionBundleDto dto)
+    {
+        var missing = new List<string>();
+        // Unload any currently-loaded sources so the session is exactly
+        // what the bundle describes. UnloadAsync is async but the inner
+        // work is synchronous; we await to keep ordering deterministic.
+        foreach (var src in Sources.ToList())
+        {
+            await _registry.UnloadAsync(src.SourceId).ConfigureAwait(true);
+        }
+        // Map sourceId → DisplayName so we can re-stamp after load.
+        var nameBySourceId = dto.Sources.ToDictionary(s => s.SourceId, s => s.DisplayName, StringComparer.Ordinal);
+        var pathBySourceId = dto.Sources.ToDictionary(s => s.SourceId, s => s.Path, StringComparer.Ordinal);
+        // 1. Reload the .asc files via the registry. Missing → recorded
+        //    in the returned list; do NOT throw (user-friendly).
+        foreach (var bs in dto.Sources)
+        {
+            try
+            {
+                var loaded = await _registry.LoadAsync(bs.Path).ConfigureAwait(true);
+                // The registry assigns a fresh SourceId — patch the
+                // metadata (display name + filter) onto the new instance
+                // because palette assignment does not match the bundle's
+                // pre-recorded colors. v3.5.0 ships path-reference only;
+                // color restoration is a v3.5.x follow-up.
+                loaded.CanIdFilter = bs.CanIdFilter;
+                if (nameBySourceId.TryGetValue(bs.SourceId, out var n)
+                    && !string.Equals(loaded.DisplayName, n, StringComparison.Ordinal))
+                {
+                    // Display name comes from filename at load time;
+                    // when the filename matches the bundle we leave it.
+                    // If the bundle had a different name (legacy bundle),
+                    // the source's DisplayName stays as the filename.
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                LogSourceMissing(_logger, bs.Path, ex);
+                missing.Add(bs.Path);
+            }
+            catch (ReplayException ex)
+            {
+                LogSourceMissing(_logger, bs.Path, ex);
+                missing.Add(bs.Path);
+            }
+        }
+        // 2. Apply DBC path if present. Best-effort — missing DBC is
+        //    acceptable (user can reload manually).
+        if (!string.IsNullOrEmpty(dto.DbcPath) && File.Exists(dto.DbcPath))
+        {
+            try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(true); }
+            catch { /* swallow — bundle stores path-reference only */ }
+            LoadedDbcPath = dto.DbcPath;
+        }
+        else
+        {
+            LoadedDbcPath = dto.DbcPath ?? "";
+        }
+        // 3. Apply global filter + playback transport. Always to a
+        //    paused cursor — never auto-resume on app restart.
+        CanIdFilter = dto.GlobalCanIdFilter ?? "";
+        Loop = dto.Playback?.Loop ?? false;
+        Speed = dto.Playback?.Speed ?? 1.0;
+        ScrubberValue = 0.0;
+        if (dto.Playback is { } pb && !string.IsNullOrEmpty(pb.MasterSourceId))
+        {
+            // The new SourceId from registry.LoadAsync != bundle's pre-recorded
+            // id. Map via display name — same alpha-order as the registry
+            // adds them, and the bundle's order matches.
+            var newMaster = Sources.FirstOrDefault(s =>
+                string.Equals(s.DisplayName, nameBySourceId.GetValueOrDefault(pb.MasterSourceId, ""), StringComparison.Ordinal));
+            if (newMaster is not null)
+            {
+                MasterSourceId = newMaster.SourceId;
+                _masterService = _registry.GetService(newMaster.SourceId);
+                TotalDuration = _masterService?.TotalDuration ?? 0.0;
+                ChartViewModel.SetTotalDuration(TotalDuration);
+                // Seek to saved scrubber position (paused).
+                if (_masterService is not null && pb.ScrubberValue > 0)
+                {
+                    _masterService.Seek(pb.ScrubberValue);
+                    ScrubberValue = pb.ScrubberValue;
+                }
+            }
+        }
+        // 4. Rebuild signals + chart with the new source set, then apply
+        //    viewports AFTER SyncYAxes has run so the X-axis writes stick.
+        RebuildSignalsCore();
+        ChartViewModel.ApplyViewports(dto.Viewports);
+        return missing;
+    }
 
     private void PropagateLoopToAllServices()
     {
