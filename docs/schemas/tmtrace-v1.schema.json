@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peakcan.local/schemas/tmtrace-v1.schema.json",
+  "title": "Trace Viewer Session Bundle (tmtrace/v1)",
+  "description": "v1 of the .tmtrace multi-trace Trace Viewer session bundle. Path-reference only for .asc and DBC files; recordings are NOT embedded. JSON encoding is UTF-8 with BOM, written atomically (tmp + rename) by TraceSessionLibrary.Save. Round-tripped by TraceSessionLibrary.Load. See docs/release-notes-v3.5.0.md for the format design and docs/release-notes-v3.6.0.md for the v1 restore-Color/DisplayName semantics. Forward-compat: adding new top-level or nested fields is non-breaking (System.Text.Json ignores unknown keys on deserialize); the schema sets additionalProperties=true to allow the producer to write fields a strict consumer might not know about. Renaming or removing fields IS a breaking change and requires a schema bump.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "version",
+    "schema",
+    "savedAt",
+    "appVersion",
+    "dbcPath",
+    "globalCanIdFilter",
+    "sources",
+    "viewports"
+  ],
+  "properties": {
+    "version": {
+      "description": "Bundle format version. Constrained to 1; bumping requires a schema-versioned file (e.g. tmtrace-v2.schema.json).",
+      "const": 1
+    },
+    "schema": {
+      "description": "Schema identifier. Constrained to 'tmtrace/v1' for this file; any other value means a different schema and this validator should reject.",
+      "const": "tmtrace/v1"
+    },
+    "savedAt": {
+      "description": "ISO 8601 timestamp (UTC) of when the bundle was written. Format: yyyy-MM-ddTHH:mm:ss.fffffffZ. May carry sub-second precision depending on producer.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "appVersion": {
+      "description": "AssemblyInformationalVersion of the writer (stripped of any '+git<sha>' suffix). Pure documentation; consumers should not branch on this value.",
+      "type": "string",
+      "minLength": 1
+    },
+    "dbcPath": {
+      "description": "Absolute or relative path to the .dbc file. May be empty if no DBC was loaded. Path-reference only — the DBC contents are NOT embedded.",
+      "type": "string"
+    },
+    "globalCanIdFilter": {
+      "description": "Per-application CAN-ID filter applied across all sources in the bundle. Format: comma-separated hex IDs or ranges (see CanIdListParser in the project). Empty string means 'no filter'.",
+      "type": "string"
+    },
+    "playback": {
+      "description": "Playback transport state (master source, loop, speed, scrubber, time bounds). Optional — bundles saved without playback (e.g. fresh user-save of a static session) may omit this key entirely; consumers must treat null/missing as 'playback not captured, use defaults'.",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/BundlePlaybackDto" }
+      ]
+    },
+    "sources": {
+      "description": "Array of loaded .asc traces in the bundle. Order is producer-chosen (typically insertion order).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/BundleSourceDto" }
+    },
+    "viewports": {
+      "description": "Per-series chart viewport (X-axis range, focus, collapse). Keyed by EffectiveKey = '<SourceId>.<SignalKey>'. Order is producer-chosen.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/BundleViewportDto" }
+    }
+  },
+  "$defs": {
+    "BundleSourceDto": {
+      "description": "One loaded trace in the saved session.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "sourceId",
+        "displayName",
+        "path",
+        "colorA",
+        "colorR",
+        "colorG",
+        "colorB",
+        "strokeStyle",
+        "canIdFilter"
+      ],
+      "properties": {
+        "sourceId": {
+          "description": "Producer-assigned unique identifier for this source. Generated as a GUID string by the registry on LoadAsync; consumers should NOT assume any particular format beyond uniqueness within the bundle's sources array.",
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "description": "User-visible label shown in the Trace Viewer strip. If empty or matching the path's filename, the registry's default (filename without extension) is used instead — see ApplySnapshotAsync fallback at TraceViewerViewModel.cs.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute or relative path to the .asc recording. Path-reference only — the recording is NOT embedded. May not exist on the consumer's filesystem; the consumer must handle missing files gracefully (skip with warning).",
+          "type": "string"
+        },
+        "colorA": {
+          "description": "Alpha channel of the strip color (0-255). Bytes stored individually (not as packed ARGB int) for readability.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "colorR": {
+          "description": "Red channel (0-255).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "colorG": {
+          "description": "Green channel (0-255).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "colorB": {
+          "description": "Blue channel (0-255).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "strokeStyle": {
+          "description": "OxyPlot LineStyle name (Solid, Dash, Dot, DashDot, DashDashDot, DashDotDot, LongDash, LongDashDot, LongDashDotDot, None, Hidden, Automatic). Producer usually emits 'Solid' for default; consumer should tolerate unknown values by falling back to Solid.",
+          "type": "string",
+          "minLength": 1
+        },
+        "canIdFilter": {
+          "description": "Per-source CAN-ID filter (overrides the globalCanIdFilter for this source). Same format as globalCanIdFilter; empty string means 'inherit global'.",
+          "type": "string"
+        }
+      }
+    },
+    "BundlePlaybackDto": {
+      "description": "Playback transport state at save time. Consumers must restore to a paused/stopped cursor; auto-resume on app restart is a UX anti-pattern.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "masterSourceId",
+        "loop",
+        "speed",
+        "scrubberValue"
+      ],
+      "properties": {
+        "masterSourceId": {
+          "description": "SourceId of the trace driving playback master clock. Empty string means 'no master set'.",
+          "type": "string"
+        },
+        "loop": {
+          "description": "Whether playback wraps at the end.",
+          "type": "boolean"
+        },
+        "speed": {
+          "description": "Playback rate multiplier (1.0 = real-time). Negative values mean reverse playback (consumer-specific).",
+          "type": "number"
+        },
+        "scrubberValue": {
+          "description": "Scrubber position in trace-relative seconds (NOT a DateTime — relative to the first frame of the master source).",
+          "type": "number"
+        },
+        "startTimestamp": {
+          "description": "Lower bound of the visible trace range, or null for 'no lower bound'. Same units as scrubberValue.",
+          "type": ["number", "null"]
+        },
+        "endTimestamp": {
+          "description": "Upper bound of the visible trace range, or null for 'no upper bound'. Same units as scrubberValue.",
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "BundleViewportDto": {
+      "description": "Per-series chart viewport — X-axis range plus focus/collapse flags. The strip's chart rebuilds these after RebuildSignalsCore (otherwise per-axis writes land on stale PlotModels and SyncYAxes overwrites them).",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "effectiveKey",
+        "xMin",
+        "xMax",
+        "isFocused",
+        "isCollapsed"
+      ],
+      "properties": {
+        "effectiveKey": {
+          "description": "Composite key '<SourceId>.<SignalKey>'. Disambiguates viewports across multi-trace sessions where the same signal name may appear in multiple sources.",
+          "type": "string",
+          "minLength": 1
+        },
+        "xMin": {
+          "description": "Left edge of the X-axis (trace-relative seconds).",
+          "type": "number"
+        },
+        "xMax": {
+          "description": "Right edge of the X-axis (trace-relative seconds).",
+          "type": "number"
+        },
+        "isFocused": {
+          "description": "Whether this series is the focused row (highlighted, sync-pinned).",
+          "type": "boolean"
+        },
+        "isCollapsed": {
+          "description": "Whether the series row is collapsed in the chart strip (chart hidden, only header visible).",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -4,12 +4,12 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.6.0 — `.tmtrace` UX completeness MINOR (AppShell File
-> menu Save/Open Session + Recent[5] MRU + auto-save on close with
-> restore-on-startup prompt + restore Color/DisplayName from v1
-> bundles). See [Release Notes v3.6.0](docs/release-notes-v3.6.0.md)
-> for the MINOR summary. **~1117 unit tests pass** (404 Core + 84
-> Infrastructure + ~629 App); 5 SKIP; 5 architecture rules enforced
+> **Status:** v3.6.1 — `.tmtrace` JSON Schema doc PATCH (canonical
+> contract for the v1 bundle format + reflection-based drift test that
+> catches accidental DTO rename/property drop at test time). See
+> [Release Notes v3.6.1](docs/release-notes-v3.6.1.md). Bundle format
+> unchanged from v3.6.0; **~1122 unit tests pass** (404 Core + 84
+> Infrastructure + ~634 App); 5 SKIP; 5 architecture rules enforced
 > via NetArchTest; CI runs on every push to `main`.
 
 ## Features (MVP)
@@ -27,7 +27,9 @@ and 1 Hz bus statistics.
   chart viewports). **File → Open Recent** keeps the last 5 bundles.
   On app close, the current session is auto-saved to
   `%APPDATA%/PeakCan.Host/trace-session.tmtrace`; on next startup the
-  app offers to restore it.
+  app offers to restore it. Bundle format is versioned —
+  [docs/schemas/tmtrace-v1.schema.json](docs/schemas/tmtrace-v1.schema.json)
+  is the canonical contract (v3.6.1).
 - **DBC file load** — parse a `.dbc` file off the UI thread; populate a
   message table with sender, DLC, signal list.
 - **Signal view** — DBC-decoded live signals per message, with raw hex
