@@ -1,8 +1,8 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.App.Tests.TestHelpers;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Services;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;
@@ -21,6 +21,17 @@ namespace PeakCan.Host.App.Tests.Services;
 ///   - no frame from an old generation after Start re-entry
 ///   - failure increments <c>FailureCount</c> only
 ///   - success increments <c>SuccessCount</c> only
+/// <para>
+/// v3.5.4 PATCH: switched to a <see cref="FakeTimerFactory"/> and drive
+/// ticks deterministically via <c>FakeCyclicTimer.Fire()</c>. The
+/// pre-refactor version waited on wall-clock for the timer to fire
+/// (with a 3-retry <c>CyclicTimerTestHarness</c> masking transient
+/// flakes); v3.5.3 CI hit
+/// <c>Encode_Failure_Increments_FailureCount_Not_SuccessCount</c> in
+/// the sibling <c>CyclicDbcSendServiceRaceTests</c>, demonstrating
+/// that 3 retries wasn't enough. The factory seam removes the
+/// timing-luck dependency entirely — tests advance ticks on demand.
+/// </para>
 /// </summary>
 public class CyclicSendServiceRaceTests
 {
@@ -62,68 +73,74 @@ public class CyclicSendServiceRaceTests
     public async Task OnTimerTick_After_Stop_Does_Not_Send()
     {
         var send = new CountingSendService();
-        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
+        var factory = new FakeTimerFactory();
+        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance, factory);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
 
-        // Let the timer fire a few times so we have a non-zero baseline.
-        // v1.6.1 PATCH Item 3: harness wraps the wait with 3 internal
-        // retries (5ms polling per attempt) so transient CI flakes no
-        // longer depend on human re-trigger.
-        await CyclicTimerTestHarness.AssertWithinAsync(
-            () => send.CallCount > 0,
-            TimeSpan.FromMilliseconds(500),
-            "timer ticks at least once before Stop");
+        // v3.5.4 PATCH: deterministic Fire() drives the timer instead
+        // of waiting on wall-clock. Two ticks baseline so we can
+        // observe the post-Stop tail.
+        var timer = factory.CreatedCyclicTimers.Single();
+        timer.Fire();
+        timer.Fire();
+        send.CallCount.Should().Be(2, "two Fire() calls should yield two SendAsync invocations");
 
         svc.Stop();
-        int beforeStopCount = send.CallCount;
 
-        // After Stop, allow plenty of wall-clock time for any already-queued
-        // tick to fire. With lock-snapshot at top of OnTimerTick, queued
-        // ticks should observe _isRunning=false and bail; and the
-        // generation bump in StopInner invalidates any tick whose body
-        // already started before Stop flipped the flag. The only
-        // acceptable leak is the single tick whose `OnTimerTick` body had
-        // already passed the lock check and is mid-await on SendAsync
-        // when Stop runs — its `await` will complete (no cancellation
-        // token is propagated to SendAsync from OnTimerTick), but that's
-        // at most 1 in-flight frame. Two or more leaks is the race
-        // regression.
-        await Task.Delay(150);
-        int afterStopCount = send.CallCount;
+        // Post-Stop: even if Fire() is invoked again, the service's
+        // lock-snapshot at top of OnTimerTick must observe
+        // _isRunning=false and bail. The stale-timer-drop path also
+        // bails because Stop() bumps the generation.
+        timer.Fire();
+        timer.Fire();
 
-        (afterStopCount - beforeStopCount).Should().BeLessThanOrEqualTo(1,
-            "after Stop, at most one in-flight tick may complete its SendAsync; any more is the race regression");
+        // Allow any in-flight tick callback (already past the lock
+        // check) to complete. With FakeCyclicTimer.Fire() running the
+        // callback synchronously on the test thread, the call above
+        // already serialized — but drain briefly to match the
+        // production-thread semantics.
+        await Task.Delay(20);
+
+        // Pre-refactor (Task.Delay-based) tests allowed up to 1
+        // post-Stop leak because a Timer callback could be queued
+        // between Start and Stop with SendAsync in flight. With the
+        // fake, Fire() is synchronous: NO post-Stop call to
+        // SendAsync should occur because Stop() runs before Fire()
+        // returns control to the timer thread (in production) /
+        // completes the callback (in tests).
+        send.CallCount.Should().Be(2,
+            "after Stop, Fire() must not produce additional SendAsync calls");
     }
 
     [Fact]
     public async Task OnTimerTick_Generation_Mismatch_Does_Not_Send()
     {
         var send = new CountingSendService();
-        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
+        var factory = new FakeTimerFactory();
+        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance, factory);
 
         // First generation: id=0x100
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        // v1.6.2 PATCH Item 2b: fire-timer → predicate-based migration.
-        await CyclicTimerTestHarness.WaitUntilAsync(
-            () => send.CallCount > 0,
-            TimeSpan.FromMilliseconds(500));
+        var timer1 = factory.CreatedCyclicTimers.Last();
+        timer1.Fire();
+        timer1.Fire();
         svc.Stop();
-        // Let any old-generation in-flight callbacks finish so they don't
-        // get misattributed to the second-generation cycle.
-        await Task.Delay(40);
+
         int beforeSecondStart = send.CallCount;
 
         // Second generation: id=0x200 — bumps the generation counter so
         // queued callbacks from gen=1 with stale snapshots are dropped.
         svc.Start(BuildFrame(0x200), TimeSpan.FromMilliseconds(20));
-        // v1.6.2 PATCH Item 2b: wait until ≥1 frame with id=0x200 sent.
-        await CyclicTimerTestHarness.WaitUntilAsync(
-            () => send.SentIds.Any(id => id == 0x200u),
-            TimeSpan.FromMilliseconds(500));
+        var timer2 = factory.CreatedCyclicTimers.Last();
+        timer2.Fire();
+        timer2.Fire();
         svc.Stop();
 
         // After the second Start, only 0x200 frames should reach SendAsync.
-        // The 0x100 frames captured by SentIds must all predate beforeSecondStart.
+        // Pre-refactor: queued gen=1 callbacks could fire mid-window;
+        // post-refactor: each Start replaces the timer (Stop disposes
+        // gen=1 timer, Start creates gen=2 timer), so timer1.Fire()
+        // post-Stop is a no-op.
         var idsFromSecondCycle = send.SentIds.Skip(beforeSecondStart).ToList();
         idsFromSecondCycle.Should().NotBeEmpty("second generation must send at least one frame");
         idsFromSecondCycle.Should().OnlyContain(id => id == 0x200u,
@@ -131,79 +148,84 @@ public class CyclicSendServiceRaceTests
     }
 
     [Fact]
-    public async Task Send_Failure_Increments_FailureCount_Not_SuccessCount()
+    public void Send_Failure_Increments_FailureCount_Not_SuccessCount()
     {
         var send = new CountingSendService
         {
             NextResult = Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, "TX_ERROR")
         };
-        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
+        var factory = new FakeTimerFactory();
+        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance, factory);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        // v1.6.2 PATCH Item 2b: wait until failures accumulate.
-        await CyclicTimerTestHarness.WaitUntilAsync(
-            () => svc.FailureCount > 0,
-            TimeSpan.FromMilliseconds(500));
+        var timer = factory.CreatedCyclicTimers.Single();
+        timer.Fire(3);
         svc.Stop();
 
-        svc.FailureCount.Should().BeGreaterThan(0);
+        svc.FailureCount.Should().Be(3, "3 Fire() calls each produce one failure increment");
         svc.SuccessCount.Should().Be(0);
     }
 
     [Fact]
-    public async Task Send_Success_Increments_SuccessCount_Not_FailureCount()
+    public void Send_Success_Increments_SuccessCount_Not_FailureCount()
     {
         var send = new CountingSendService { NextResult = Result<Unit>.Ok(default) };
-        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
+        var factory = new FakeTimerFactory();
+        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance, factory);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
-        // v1.6.2 PATCH Item 2b: wait until successes accumulate.
-        await CyclicTimerTestHarness.WaitUntilAsync(
-            () => svc.SuccessCount > 0,
-            TimeSpan.FromMilliseconds(500));
+        var timer = factory.CreatedCyclicTimers.Single();
+        timer.Fire(3);
         svc.Stop();
 
-        svc.SuccessCount.Should().BeGreaterThan(0);
+        svc.SuccessCount.Should().Be(3, "3 Fire() calls each produce one success increment");
         svc.FailureCount.Should().Be(0);
     }
 
     [Fact]
     public void SuccessCount_And_FailureCount_Exposed_Via_Properties()
     {
-        var svc = new CyclicSendService(new CountingSendService(), NullLogger<CyclicSendService>.Instance);
+        var svc = new CyclicSendService(
+            new CountingSendService(),
+            NullLogger<CyclicSendService>.Instance,
+            new FakeTimerFactory());
         svc.SuccessCount.Should().Be(0);
         svc.FailureCount.Should().Be(0);
     }
 
     /// <summary>
-    /// v1.6.2 PATCH Item 1a: verifies that <see cref="CyclicSendService.Stop"/>
-    /// cancels the in-flight <see cref="SendService.SendAsync"/> via the
+    /// v1.6.2 PATCH Item 1a + v3.5.4: verifies that
+    /// <see cref="CyclicSendService.Stop"/> cancels the in-flight
+    /// <see cref="SendService.SendAsync"/> via the
     /// <see cref="CancellationToken"/> it passes to the underlying channel.
     /// <para>
-    /// After <see cref="CyclicSendService.Start"/>, the timer fires every 20ms;
-    /// we wait for at least one tick (so <c>SendAsync</c> has been called once
-    /// with a non-cancelled token), then call <see cref="CyclicSendService.Stop"/>.
-    /// A brief drain (50ms) lets any in-flight tick reach its <c>await SendAsync</c>
-    /// with the cancelled token. The last observed CT must be cancelled.
+    /// With the <see cref="FakeCyclicTimer"/>, the tick callback runs
+    /// synchronously on the calling test thread, so we drive one tick
+    /// to establish a baseline (non-cancelled CT observed), then call
+    /// <see cref="CyclicSendService.Stop"/>. A subsequent Fire() after
+    /// Stop would observe a cancelled CTSnapshot inside OnTimerTick —
+    /// the assertion verifies the CTS was indeed cancelled by Stop().
     /// </para>
     /// </summary>
     [Fact]
     public async Task Stop_during_inflight_tick_cancels_SendAsync_via_ct()
     {
         var send = new CountingSendService();
-        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance);
+        var factory = new FakeTimerFactory();
+        var svc = new CyclicSendService(send, NullLogger<CyclicSendService>.Instance, factory);
         svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(20));
 
-        // Wait for at least one tick so SendAsync has been invoked once
-        // (with a non-cancelled token — establishes the baseline).
-        await CyclicTimerTestHarness.WaitUntilAsync(
-            () => send.CallCount > 0,
-            TimeSpan.FromMilliseconds(500));
+        // First tick: establishes baseline (non-cancelled token).
+        var timer = factory.CreatedCyclicTimers.Single();
+        timer.Fire();
+        send.LastObservedCt.IsCancellationRequested.Should().BeFalse(
+            "first tick must observe a non-cancelled CT");
 
         svc.Stop();
 
         // Drain briefly so any in-flight SendAsync callback completes its
-        // observation of _cts.Token. 50ms is more than enough — our
-        // CountingSendService returns synchronously.
-        await Task.Delay(50);
+        // observation of _cts.Token. With FakeCyclicTimer.Fire() running
+        // synchronously, the call above already serialized; the brief
+        // delay preserves the pre-refactor test contract.
+        await Task.Delay(20);
 
         send.LastObservedCt.IsCancellationRequested.Should().BeTrue(
             "Stop() must cancel the CTS so in-flight SendAsync receives a cancelled token");

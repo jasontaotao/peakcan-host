@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.Services;
 
@@ -33,7 +34,8 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
 {
     private readonly SendService _sendService;
     private readonly ILogger<CyclicSendService> _logger;
-    private Timer? _timer;
+    private readonly ITimerFactory _timerFactory;
+    private ICyclicTimer? _timer;
     private CanFrame _frame;
     private TimeSpan _interval;
     private long _generation;
@@ -66,9 +68,28 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
     public long FailureCount => Interlocked.Read(ref _sendFailureCount);
 
     public CyclicSendService(SendService sendService, ILogger<CyclicSendService> logger)
+        : this(sendService, logger, new CyclicTimerFactory())
+    {
+    }
+
+    /// <summary>
+    /// v3.5.4 PATCH: internal ctor lets unit tests inject an
+    /// <see cref="ITimerFactory"/> (typically a <c>FakeTimerFactory</c>)
+    /// so race tests can advance ticks deterministically via
+    /// <c>FakeCyclicTimer.Fire()</c>. Production DI uses the public
+    /// 2-arg ctor above, which constructs a real
+    /// <c>CyclicTimerFactory</c> (backed by
+    /// <see cref="System.Threading.Timer"/>). Mirrors the v3.5.2/v3.5.3
+    /// dual-ctor pattern in RecordService / TraceService.
+    /// </summary>
+    internal CyclicSendService(
+        SendService sendService,
+        ILogger<CyclicSendService> logger,
+        ITimerFactory timerFactory)
     {
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
     }
 
     /// <summary>
@@ -99,7 +120,11 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
             gen = ++_generation;
-            _timer = new Timer(OnTimerTick, gen, interval, interval);
+            // v3.5.4 PATCH: timer obtained from the factory. The fake
+            // (FakeCyclicTimer) records the callback + state + period
+            // but does not auto-fire; tests call Fire() to advance
+            // deterministically.
+            _timer = _timerFactory.CreateCyclicTimer(OnTimerTick, gen, interval);
         }
         LogCyclicStarted(_logger, frame.Id, interval.TotalMilliseconds);
     }

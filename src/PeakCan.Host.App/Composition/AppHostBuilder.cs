@@ -129,10 +129,13 @@ public class AppHostBuilder
         builder.Services.AddSingleton<BusStatisticsCollector>();
         // v3.5.2 PATCH: ITimerFactory seam so RecordService +
         // StatisticsService can be unit-tested with a deterministic
-        // FakeTimerFactory (no wall-clock dependency). Singleton
-        // because the factory is a stateless dispatcher.
+        // FakeTimerFactory (no wall-clock dependency). v3.5.4 PATCH:
+        // switched to CyclicTimerFactory so the same singleton handles
+        // both IPeriodicTimer (RecordService/StatisticsService/TraceService)
+        // and ICyclicTimer (CyclicSendService/CyclicDbcSendService). The
+        // factory is stateless — only the dispatch shape differs.
         builder.Services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
-                                      PeakCan.Host.Core.Services.PeriodicTimerFactory>();
+                                      PeakCan.Host.Core.Services.CyclicTimerFactory>();
         // Task 18: extracted PEAK SDK probe call into a swappable
         // service so the App assembly has no Peak.Can.Basic dependency
         // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).
