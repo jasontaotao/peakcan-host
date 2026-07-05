@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;
@@ -51,6 +52,16 @@ public sealed partial class TraceService : BackgroundService, IFrameSink
 
     private readonly TraceViewModel _vm;
     private readonly ILogger<TraceService> _logger;
+    // v3.5.3 PATCH: hold the factory, not a concrete PeriodicTimer, so
+    // unit tests can drive the 200ms batching tick deterministically
+    // (see FakeTimerFactory in App.Tests). Default ctor wires a real
+    // PeriodicTimer-backed factory for production; internal ctor lets
+    // tests inject a fake. Mirrors the v3.5.2 pattern in RecordService
+    // + StatisticsService — closes the third (and most painful)
+    // BackgroundService that depended on a wall-clock PeriodicTimer and
+    // caused TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch
+    // to hang the xunit test host under parallel execution since v1.7.x.
+    private readonly ITimerFactory _timerFactory;
     private readonly Channel<CanFrame> _batch = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(BatchCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
 
@@ -76,9 +87,24 @@ public sealed partial class TraceService : BackgroundService, IFrameSink
     /// passes one.
     /// </summary>
     public TraceService(TraceViewModel vm, ILogger<TraceService>? logger = null)
+        : this(vm, logger, new PeriodicTimerFactory())
+    {
+    }
+
+    /// <summary>
+    /// v3.5.3 PATCH: internal ctor lets unit tests inject an
+    /// <see cref="ITimerFactory"/> (typically a <c>FakeTimerFactory</c>)
+    /// so the 200ms batching tick can be driven deterministically without
+    /// a real <see cref="System.Threading.PeriodicTimer"/>. Production DI
+    /// uses the public 2-arg ctor above, which constructs a real
+    /// <see cref="PeriodicTimerFactory"/>. Mirrors the v3.5.2 pattern in
+    /// <see cref="RecordService"/> + <see cref="StatisticsService"/>.
+    /// </summary>
+    internal TraceService(TraceViewModel vm, ILogger<TraceService>? logger, ITimerFactory timerFactory)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _logger = logger ?? NullLogger<TraceService>.Instance;
+        _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
     }
 
     /// <summary>
@@ -101,7 +127,13 @@ public sealed partial class TraceService : BackgroundService, IFrameSink
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(200));
+        // v3.5.3 PATCH: factory-supplied timer so the 200ms tick is
+        // test-deterministic (FakeTimerFactory.Fire()) when wired by
+        // the internal test-only ctor. await using because IPeriodicTimer
+        // is IAsyncDisposable (PeriodicTimer dispose is sync but the
+        // IAsyncDisposable contract is required of any async-capable
+        // timer). Same pattern as RecordService.ExecuteAsync (v3.5.2).
+        await using var timer = _timerFactory.CreateTimer(TimeSpan.FromMilliseconds(200));
         var buf = new List<CanFrame>(1024);
         try
         {
