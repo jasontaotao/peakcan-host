@@ -231,20 +231,30 @@ public class RecordServiceTests : IAsyncLifetime, IDisposable
 /// <see cref="System.Threading.Channels.Channel{T}"/>-backed writer
 /// loop: <see cref="RecordService.OnFrame"/> is non-blocking on the
 /// SDK read thread; the writer thread drains the channel; a
-/// <see cref="System.Threading.PeriodicTimer"/> flushes the file
-/// every 1 second; the channel's DropOldest policy keeps memory
-/// bounded; and <see cref="RecordService.StopRecording"/> drains
-/// remaining frames before closing the file.
+/// timer flushes the file on every tick; the channel's DropOldest
+/// policy keeps memory bounded; and <see cref="RecordService.StopRecording"/>
+/// drains remaining frames before closing the file.
+/// <para>
+/// v3.5.2 PATCH: writer/flush tests inject a <see cref="FakeTimerFactory"/>
+/// so the "1 Hz flush" test is deterministic. The previous
+/// <c>Task.Delay(1100)</c> waited on wall-clock time and produced
+/// occasional CI flake; the fake timer is fired explicitly so the
+/// only waits remaining are in-task <c>Task.Yield()</c> round-trips.
+/// </para>
 /// </summary>
 public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
 {
     private readonly RecordService _svc;
     private readonly string _tmpPath;
+    private readonly FakeTimerFactory _timerFactory;
 
     public RecordServiceChannelTests()
     {
         _tmpPath = Path.Combine(Path.GetTempPath(), $"rec-{Guid.NewGuid():N}.csv");
-        _svc = new RecordService(Substitute.For<Microsoft.Extensions.Logging.ILogger<RecordService>>());
+        _timerFactory = new FakeTimerFactory();
+        _svc = new RecordService(
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<RecordService>>(),
+            _timerFactory);
     }
 
     public async Task InitializeAsync()
@@ -316,18 +326,58 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
     [Fact]
     public async Task Writer_Flushes_Every_One_Second()
     {
+        // v3.5.2 PATCH: drive the flush timer deterministically via the
+        // FakeTimerFactory wired into the service ctor. NO Task.Delay
+        // for the tick cadence — file size must grow between explicit
+        // Fire() calls, every time.
         _svc.StartRecording(_tmpPath, RecordService.RecordFormat.Csv);
+
+        // Wait for the BackgroundService.ExecuteAsync to reach the
+        // factory.CreateTimer call. xunit's parallel collection runs
+        // tests concurrently, so we cannot assume the task has reached
+        // this point by the time StartAsync returns — poll briefly.
+        var timer = await WaitForCreatedTimerAsync();
+
         _svc.OnFrame(BuildFrame(0x100, 0xAB));
-        // Wait long enough for the 1 Hz PeriodicTimer to tick once and
-        // flush the first frame to disk.
-        await Task.Delay(1100);
+        // Wait for the writer thread to drain the enqueued frame
+        // before we let the flush timer tick. WaitForDrain polls at
+        // 10 ms — bounded inside the 5 s ceiling.
+        await WaitForDrainAsync(1);
+
+        // Tick 1 — flushes the first frame to disk.
+        timer.Fire();
+        await Task.Yield();   // let the flush loop run
+        await Task.Yield();
         var firstSize = new FileInfo(_tmpPath).Length;
+        firstSize.Should().BeGreaterThan(0, "tick 1 must have flushed something to disk");
+
         _svc.OnFrame(BuildFrame(0x100, 0xCD));
-        // Wait for the second 1 Hz tick; the file should grow.
-        await Task.Delay(1100);
+        await WaitForDrainAsync(2);
+
+        // Tick 2 — second frame lands on disk.
+        timer.Fire();
+        await Task.Yield();
+        await Task.Yield();
         var secondSize = new FileInfo(_tmpPath).Length;
-        secondSize.Should().BeGreaterThan(firstSize);
+        secondSize.Should().BeGreaterThan(firstSize,
+            "a second tick + second OnFrame must grow the recorded file");
+
         _svc.StopRecording();
+    }
+
+    private async Task<FakePeriodicTimer> WaitForCreatedTimerAsync(int timeoutMs = 2000)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (Environment.TickCount < deadline)
+        {
+            if (_timerFactory.CreatedTimers.Count > 0)
+            {
+                return _timerFactory.CreatedTimers[0];
+            }
+            await Task.Delay(10);
+        }
+        throw new InvalidOperationException(
+            $"BackgroundService.ExecuteAsync did not create a timer within {timeoutMs}ms");
     }
 
     [Fact]
@@ -355,6 +405,20 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
         _svc.StopRecording();
         await Task.Delay(500);
         _svc.FrameCount.Should().Be(500);
+    }
+
+    private async Task WaitForDrainAsync(long expectedEnqueued, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (Environment.TickCount < deadline)
+        {
+            if (_svc.FrameEnqueuedCount >= expectedEnqueued
+                && _svc.FrameCount >= expectedEnqueued)
+            {
+                return;
+            }
+            await Task.Delay(10);
+        }
     }
 
     private static CanFrame BuildFrame(uint id, byte b) => new(

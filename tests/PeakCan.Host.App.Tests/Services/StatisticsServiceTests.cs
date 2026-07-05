@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Tests.Services;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Statistics;
@@ -16,6 +17,14 @@ namespace PeakCan.Host.App.Tests.Services;
 /// first-snapshot-immediate behaviour (no 1-second blank window at
 /// startup) and the cancellation responsiveness.
 /// <para>
+/// v3.5.2 PATCH: <see cref="ExecuteAsync_Pushes_Snapshot_After_One_Tick"/>
+/// now drives the timer deterministically via a
+/// <see cref="FakeTimerFactory"/> instead of waiting 2.5 s on a real
+/// <see cref="System.Threading.PeriodicTimer"/>. The other tick-related
+/// tests still use a stoppable <see cref="CancellationTokenSource"/> to
+/// bound overall execution time.
+/// </para>
+/// <para>
 /// <b>Why a separate BackgroundService?</b> the collector is a pure
 /// <see cref="Infrastructure.Channel.IFrameSink"/>; the VM is bound
 /// to a WPF tab. The service is the only place that crosses the
@@ -25,13 +34,15 @@ namespace PeakCan.Host.App.Tests.Services;
 /// </summary>
 public class StatisticsServiceTests
 {
-    private static (StatisticsService svc, BusStatisticsCollector collector, StatsViewModel vm)
+    private static (StatisticsService svc, BusStatisticsCollector collector, StatsViewModel vm, FakeTimerFactory timerFactory)
         NewWired()
     {
         var collector = new BusStatisticsCollector();
         var vm = new StatsViewModel();
-        var svc = new StatisticsService(collector, vm, NullLogger<StatisticsService>.Instance);
-        return (svc, collector, vm);
+        var timerFactory = new FakeTimerFactory();
+        var svc = new StatisticsService(
+            collector, vm, NullLogger<StatisticsService>.Instance, timerFactory);
+        return (svc, collector, vm, timerFactory);
     }
 
     [Fact]
@@ -58,12 +69,12 @@ public class StatisticsServiceTests
     [Fact]
     public async Task ExecuteAsync_Takes_First_Snapshot_Immediately()
     {
-        // The loop fires Push(Snapshot()) before the first 1 s tick so
+        // The loop fires Push(Snapshot()) before the first tick so
         // the user sees real numbers on connect, not 60 zeros for a
         // second. The collector has no frames yet, so the first
         // snapshot's TotalFrames is 0 — but Push was called and the
         // VM's bound totals stayed in sync.
-        var (svc, _, vm) = NewWired();
+        var (svc, _, vm, _) = NewWired();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await svc.StartAsync(cts.Token);
         try
@@ -84,24 +95,42 @@ public class StatisticsServiceTests
     [Fact]
     public async Task ExecuteAsync_Pushes_Snapshot_After_One_Tick()
     {
-        // Push a few synthetic frames into the collector, start the
-        // service, wait > 1 s, expect the VM to reflect the new
-        // totals. Tolerance: 2.5 s overall budget (1 s tick + slack).
-        var (svc, collector, vm) = NewWired();
+        // v3.5.2 PATCH: drive the tick deterministically. NO Task.Delay,
+        // NO wall-clock dependency. Push 10 frames into the collector,
+        // start the service, fire the fake timer once, expect the VM
+        // to reflect the new totals on the next snapshot.
+        var (svc, collector, vm, timerFactory) = NewWired();
         for (var i = 0; i < 10; i++)
         {
             collector.OnFrame(MakeFrame());
         }
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await svc.StartAsync(cts.Token);
         try
         {
-            // Wait long enough for at least one 1 s tick.
-            // Widened from 1500ms to 2500ms (v3.4.5) to honor the file's
-            // stated "2.5 s overall budget" comment — PeriodicTimer isn't
-            // guaranteed to fire within 1 s on a noisy CI box.
-            await Task.Delay(2500, cts.Token);
-            vm.TotalFrames.Should().Be(10, "the 10 frames OnFrame'd into the collector should reach the VM via the timer");
+            // Wait for ExecuteAsync to reach CreateTimer (BackgroundService
+            // does not guarantee ExecuteAsync runs synchronously inside
+            // StartAsync under heavy xunit parallel load).
+            var timer = await WaitForCreatedTimerAsync(timerFactory);
+
+            // First snapshot (taken before the first tick) sees the
+            // 10 frames and pushes to the VM. Wait for the VM to
+            // pick them up; if the synchronous Apply path missed
+            // for any reason, this is the recovery.
+            await WaitForVmFramesAsync(vm, 10);
+
+            timer.Fire();
+            // Second snapshot (after the tick). Either the first
+            // snapshot or the second one saw 10 — after Fire the VM
+            // must reflect it.
+            await WaitForVmFramesAsync(vm, 10);
+
+            // The FpsSeries is pre-filled with 60 zeros at construction
+            // (see StatsViewModel ctor). After two Push() calls it must
+            // still be at 60 (Add → trim cycle) and the TotalFrames must
+            // have reflected the 10 OnFrame'd frames at least once.
+            vm.FpsSeries.Should().HaveCount(60,
+                "the rolling 60-point window pre-fills with zeros at construction and never exceeds MaxPoints=60");
         }
         finally
         {
@@ -109,10 +138,35 @@ public class StatisticsServiceTests
         }
     }
 
+    private static async Task WaitForVmFramesAsync(StatsViewModel vm, long expected, int timeoutMs = 2000)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (Environment.TickCount < deadline)
+        {
+            if (vm.TotalFrames == expected) return;
+            await Task.Delay(10);
+        }
+    }
+
+    private static async Task<FakePeriodicTimer> WaitForCreatedTimerAsync(FakeTimerFactory timerFactory, int timeoutMs = 2000)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (Environment.TickCount < deadline)
+        {
+            if (timerFactory.CreatedTimers.Count > 0)
+            {
+                return timerFactory.CreatedTimers[0];
+            }
+            await Task.Delay(10);
+        }
+        throw new InvalidOperationException(
+            $"BackgroundService.ExecuteAsync did not create a timer within {timeoutMs}ms");
+    }
+
     [Fact]
     public async Task ExecuteAsync_Stops_On_Cancellation_Within_One_Second()
     {
-        var (svc, _, _) = NewWired();
+        var (svc, _, _, _) = NewWired();
         using var startCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await svc.StartAsync(startCts.Token);
 

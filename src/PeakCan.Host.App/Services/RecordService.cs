@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;
@@ -55,6 +56,12 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(1);
 
     private readonly ILogger<RecordService> _logger;
+    // v3.5.2 PATCH: hold the factory, not a concrete PeriodicTimer, so
+    // unit tests can drive flush ticks deterministically (see
+    // FakeTimerFactory in App.Tests). Default ctor wires a real
+    // PeriodicTimer-backed factory for production; internal ctor lets
+    // tests inject a fake.
+    private readonly ITimerFactory _timerFactory;
     private readonly Channel<CanFrame> _frameChannel = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(FrameChannelCapacity)
         {
@@ -84,8 +91,22 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     public long FrameDroppedOnFullChannel => Interlocked.Read(ref _frameDroppedOnFullChannel);
 
     public RecordService(ILogger<RecordService> logger)
+        : this(logger, new PeriodicTimerFactory())
+    {
+    }
+
+    /// <summary>
+    /// v3.5.2 PATCH: internal ctor lets unit tests inject an
+    /// <see cref="ITimerFactory"/> (typically a <c>FakeTimerFactory</c>)
+    /// so flush-tick tests can advance time deterministically without a
+    /// real <see cref="System.Threading.PeriodicTimer"/>. Production DI
+    /// uses the public single-arg ctor above, which constructs a real
+    /// <see cref="PeriodicTimerFactory"/>.
+    /// </summary>
+    internal RecordService(ILogger<RecordService> logger, ITimerFactory timerFactory)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
     }
 
     /// <summary>
@@ -198,7 +219,13 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var flushTimer = new PeriodicTimer(FlushInterval);
+        // v3.5.2 PATCH: factory-supplied timer so flush ticks are
+        // test-deterministic (FakeTimerFactory.Fire()) when wired by
+        // the internal test-only ctor. await using because
+        // IPeriodicTimer is IAsyncDisposable (PeriodicTimer dispose is
+        // sync but the IAsyncDisposable contract is required of any
+        // async-capable timer).
+        await using var flushTimer = _timerFactory.CreateTimer(FlushInterval);
         try
         {
             // Drain loop: read frames from the channel and write to disk.
@@ -230,7 +257,7 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
                 catch (OperationCanceledException) { /* shutdown */ }
             }, stoppingToken);
 
-            // Flush loop: PeriodicTimer tick → Flush(). This is the
+            // Flush loop: timer tick → Flush(). This is the
             // "1 Hz flush" promised by the class doc.
             var flushTask = Task.Run(async () =>
             {

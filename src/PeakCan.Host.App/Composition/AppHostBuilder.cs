@@ -127,6 +127,12 @@ public class AppHostBuilder
         builder.Services.AddSingleton<ChannelRouter>(sp =>
             new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
         builder.Services.AddSingleton<BusStatisticsCollector>();
+        // v3.5.2 PATCH: ITimerFactory seam so RecordService +
+        // StatisticsService can be unit-tested with a deterministic
+        // FakeTimerFactory (no wall-clock dependency). Singleton
+        // because the factory is a stateless dispatcher.
+        builder.Services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
+                                      PeakCan.Host.Core.Services.PeriodicTimerFactory>();
         // Task 18: extracted PEAK SDK probe call into a swappable
         // service so the App assembly has no Peak.Can.Basic dependency
         // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).

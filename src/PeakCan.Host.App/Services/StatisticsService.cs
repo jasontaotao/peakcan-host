@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Infrastructure.Statistics;
 
 namespace PeakCan.Host.App.Services;
@@ -41,15 +42,39 @@ public sealed partial class StatisticsService : BackgroundService
     private readonly BusStatisticsCollector _collector;
     private readonly StatsViewModel _vm;
     private readonly ILogger<StatisticsService> _logger;
+    // v3.5.2 PATCH: hold the factory, not a concrete PeriodicTimer, so
+    // unit tests can drive the snapshot tick deterministically (see
+    // FakeTimerFactory in App.Tests). Default ctor wires a real
+    // PeriodicTimer-backed factory for production; internal ctor lets
+    // tests inject a fake.
+    private readonly ITimerFactory _timerFactory;
 
     public StatisticsService(
         BusStatisticsCollector collector,
         StatsViewModel vm,
         ILogger<StatisticsService> logger)
+        : this(collector, vm, logger, new PeriodicTimerFactory())
+    {
+    }
+
+    /// <summary>
+    /// v3.5.2 PATCH: internal ctor lets unit tests inject an
+    /// <see cref="ITimerFactory"/> (typically a <c>FakeTimerFactory</c>)
+    /// so the "snapshot after one tick" test can advance time without
+    /// a real <see cref="System.Threading.PeriodicTimer"/>. Production
+    /// DI uses the public 3-arg ctor above, which constructs a real
+    /// <see cref="PeriodicTimerFactory"/>.
+    /// </summary>
+    internal StatisticsService(
+        BusStatisticsCollector collector,
+        StatsViewModel vm,
+        ILogger<StatisticsService> logger,
+        ITimerFactory timerFactory)
     {
         _collector = collector ?? throw new ArgumentNullException(nameof(collector));
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
     }
 
     /// <summary>
@@ -59,7 +84,11 @@ public sealed partial class StatisticsService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         LogStarted(_logger, TickInterval);
-        using var timer = new PeriodicTimer(TickInterval);
+        // v3.5.2 PATCH: factory-supplied timer so tick is
+        // test-deterministic (FakeTimerFactory.Fire()) when wired by
+        // the internal test-only ctor. await using because
+        // IPeriodicTimer is IAsyncDisposable.
+        await using var timer = _timerFactory.CreateTimer(TickInterval);
         try
         {
             // Take the first snapshot immediately so the UI shows real
