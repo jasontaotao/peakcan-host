@@ -408,14 +408,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 // pre-recorded colors. v3.5.0 ships path-reference only;
                 // color restoration is a v3.5.x follow-up.
                 loaded.CanIdFilter = bs.CanIdFilter;
-                if (nameBySourceId.TryGetValue(bs.SourceId, out var n)
-                    && !string.Equals(loaded.DisplayName, n, StringComparison.Ordinal))
-                {
-                    // Display name comes from filename at load time;
-                    // when the filename matches the bundle we leave it.
-                    // If the bundle had a different name (legacy bundle),
-                    // the source's DisplayName stays as the filename.
-                }
+                // Display name intentionally left as the filename set by
+                // _registry.LoadAsync — restoring a legacy bundle's
+                // display name would diverge from the filename visible
+                // in the UI, so the bundle's DisplayName is ignored.
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
@@ -470,6 +466,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // 4. Rebuild signals + chart with the new source set, then apply
         //    viewports AFTER SyncYAxes has run so the X-axis writes stick.
         RebuildSignalsCore();
+        // v3.5.1 PATCH (review M2): explicit assignment removes the
+        // implicit dependency on _registry.LoadAsync firing
+        // OnRegistrySourcesChanged synchronously inside ApplySnapshotAsync.
+        // If the registry were ever to dispatch SourcesChanged
+        // asynchronously, the property would still be correct here.
+        LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
         ChartViewModel.ApplyViewports(dto.Viewports);
         return missing;
     }

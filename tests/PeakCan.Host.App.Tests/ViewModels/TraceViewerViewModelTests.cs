@@ -618,4 +618,76 @@ public class TraceViewerViewModelTests
         svcA.PlaybackEnded += Raise.EventWith(new PlaybackEndedEventArgs(error: null));
         svcA.DidNotReceiveWithAnyArgs().Seek(default);
     }
+
+    // ===== v3.5.1 PATCH (review M2): LoadedTracePath ordering =====
+
+    [Fact]
+    public async Task OpenSessionAsync_RestoresLoadedTracePath_To_FirstSource_Path()
+    {
+        // v3.5.1 PATCH (review M2): the property must be set explicitly
+        // inside ApplySnapshotAsync after RebuildSignalsCore, not left
+        // to OnRegistrySourcesChanged firing inside LoadAsync. Seed the
+        // registry with two sources, save a snapshot with the same
+        // paths, modify LoadedTracePath to a stale value, then call
+        // OpenSessionAsync and assert the property is restored to the
+        // first source's path.
+        const string path1 = "C:/path/to/s1.asc";
+        const string path2 = "C:/path/to/s2.asc";
+        var loadedSources = new List<TraceSource>
+        {
+            new("aaa", "s1", path1, OxyColors.Blue, LineStyle.Solid),
+            new("bbb", "s2", path2, OxyColors.Orange, LineStyle.Solid),
+        };
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(loadedSources);
+        // ApplySnapshotAsync calls registry.LoadAsync in a loop; return
+        // the matching entry per path so Sources.Count > 0 after restore.
+        registry.LoadAsync(path1, Arg.Any<CancellationToken>())
+            .Returns(loadedSources[0]);
+        registry.LoadAsync(path2, Arg.Any<CancellationToken>())
+            .Returns(loadedSources[1]);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var library = MakeFakeSessionLibrary();
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), library);
+
+        // Seed an arbitrary stale value to verify post-restore override.
+        sut.LoadedTracePath = "stale/path.asc";
+        sut.LoadedTracePath.Should().Be("stale/path.asc");
+
+        // Persist a snapshot that the test will re-load.
+        var snapshot = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.5.0",
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "aaa", DisplayName = "s1", Path = path1 },
+                new() { SourceId = "bbb", DisplayName = "s2", Path = path2 },
+            },
+        };
+        var filePath = Path.Combine(
+            Path.GetTempPath(),
+            $"tmtrace-vm-m2-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            library.Save(snapshot, filePath);
+
+            // Act: this triggers ApplySnapshotAsync → our new
+            // LoadedTracePath = Sources[0].Path line.
+            await sut.OpenSessionAsync(filePath);
+
+            // Assert: explicit assignment wins regardless of whether
+            // OnRegistrySourcesChanged fires synchronously inside
+            // registry.LoadAsync.
+            sut.LoadedTracePath.Should().Be(path1,
+                "the v3.5.1 explicit assignment must set LoadedTracePath to the first source's path");
+        }
+        finally
+        {
+            if (File.Exists(filePath)) File.Delete(filePath);
+        }
+    }
 }

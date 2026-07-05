@@ -20,6 +20,13 @@ public sealed class OxyColorJsonConverter : JsonConverter<OxyColor>
 {
     public override OxyColor Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+        // v3.5.1 PATCH (review L1): tolerate JSON null literal → zero-channel color.
+        // Required for optional fields with default=null in the bundle schema.
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            reader.Read();  // consume the null
+            return OxyColor.FromArgb(0, 0, 0, 0);
+        }
         if (reader.TokenType != JsonTokenType.StartObject)
             throw new JsonException($"Expected StartObject for OxyColor, got {reader.TokenType}.");
 

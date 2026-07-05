@@ -70,4 +70,34 @@ public sealed class OxyColorJsonConverterTests
         roundTripped.A.Should().Be((byte)0x00,
             "alpha must survive round-trip — fully-transparent color is a valid bundle state");
     }
+
+    // ===== v3.5.1 PATCH (review L1): null-handling branch =====
+
+    [Fact]
+    public void Deserialize_NullLiteral_Returns_ZeroChannelColor()
+    {
+        const string json = "null";
+
+        var color = JsonSerializer.Deserialize<OxyColor>(json, Opts);
+
+        var zero = OxyColor.FromArgb(0, 0, 0, 0);
+        color.A.Should().Be((byte)0,
+            "the v3.5.1 null-handling branch must return a zero-channel color for JSON null without throwing");
+        color.Should().Be(zero);
+    }
+
+    [Fact]
+    public void Serialize_ZeroChannelColor_EmitsObject()
+    {
+        // v3.5.1 PATCH (review L1): write path always emits the four-property
+        // object shape so deserialization round-trips regardless of value.
+        var color = OxyColor.FromArgb(0, 0, 0, 0);
+
+        var json = JsonSerializer.Serialize(color, Opts);
+
+        json.Should().Contain("\"a\":")
+            .And.Contain("\"r\":")
+            .And.Contain("\"g\":")
+            .And.Contain("\"b\":");
+    }
 }
