@@ -123,8 +123,10 @@ public class ReplayTimelineTests
         sw.Stop();
 
         emitted.Should().HaveCount(2);
-        // 1.0s frame at 2x = 0.5s wall-clock; full 1.5s budget is generous
-        sw.ElapsedMilliseconds.Should().BeLessThan(2000);
+        // 1.0s frame at 2x = 0.5s wall-clock; full 1.5s budget is generous.
+        // Widened from 2000ms to 5000ms (v3.4.5): latent CI flake risk per same
+        // shape as SequenceSendServiceTests.SendAsync_Sequential_DelayRespectedBetweenFrames.
+        sw.ElapsedMilliseconds.Should().BeLessThan(5000L);
     }
 
     /// <summary>

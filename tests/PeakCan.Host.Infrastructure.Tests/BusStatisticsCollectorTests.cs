@@ -144,17 +144,21 @@ public class BusStatisticsCollectorTests
     {
         // Push 100 frames, sleep > 1s, push 1 more.
         // After the sleep, the trailing 1s window should contain only the
-        // last frame, so FramesPerSecond == 1.0 (count=1, window=1s).
+        // last frame, so FramesPerSecond ~= 1.0 (count=1, window=1s).
+        // Widened from `Thread.Sleep(1100); exact Be(1.0)` to 1500ms +
+        // BeInRange(0.9, 1.1) (v3.4.5): Windows Sleep(1ms granularity)
+        // can drift +200/-100ms on CI; see Reports_FramesPerSecond_Over_Window
+        // lines 39-44 for the same precedent.
         var s = new BusStatisticsCollector();
         for (int i = 0; i < 100; i++)
         {
             s.OnFrame(MakeFrame());
         }
-        Thread.Sleep(1100);
+        Thread.Sleep(1500);
         s.OnFrame(MakeFrame());
         var snap = s.Snapshot();
 
-        snap.FramesPerSecond.Should().Be(1.0);
+        snap.FramesPerSecond.Should().BeInRange(0.9, 1.1);
         snap.TotalFrames.Should().Be(101);
     }
 

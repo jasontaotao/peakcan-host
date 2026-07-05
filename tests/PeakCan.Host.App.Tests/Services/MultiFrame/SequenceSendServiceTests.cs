@@ -118,9 +118,10 @@ public sealed class SequenceSendServiceTests
         sw.Stop();
 
         // 3 frames: 2 inter-frame gaps (delay only between consecutive frames)
-        // Allow generous upper bound for CI noise.
+        // Allow generous upper bound for CI noise. Widened from 2000ms to 5000ms
+        // (v3.4.5): observed worst case 3859ms × 1.3 headroom = 5017ms.
         sw.ElapsedMilliseconds.Should().BeGreaterThanOrEqualTo(100);
-        sw.ElapsedMilliseconds.Should().BeLessThan(2000);
+        sw.ElapsedMilliseconds.Should().BeLessThan(5000L);
     }
 
     [Fact]

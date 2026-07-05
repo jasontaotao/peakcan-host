@@ -97,7 +97,10 @@ public class StatisticsServiceTests
         try
         {
             // Wait long enough for at least one 1 s tick.
-            await Task.Delay(1500, cts.Token);
+            // Widened from 1500ms to 2500ms (v3.4.5) to honor the file's
+            // stated "2.5 s overall budget" comment — PeriodicTimer isn't
+            // guaranteed to fire within 1 s on a noisy CI box.
+            await Task.Delay(2500, cts.Token);
             vm.TotalFrames.Should().Be(10, "the 10 frames OnFrame'd into the collector should reach the VM via the timer");
         }
         finally
