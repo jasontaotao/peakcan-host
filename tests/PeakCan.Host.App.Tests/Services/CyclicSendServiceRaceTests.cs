@@ -272,8 +272,13 @@ public class CyclicSendServiceRaceTests
         // SlowFakeChannel delay. The continuation is queued on the
         // SynchronizationContext (or thread-pool); we'll race Stop +
         // DisposeAsync against it.
+        // v3.5.6 PATCH: wait on SlowFakeChannel.WriteAsyncInvoked (a TCS
+        // signaled before SlowFakeChannel's Task.Delay) instead of
+        // wall-clock-guessed `await Task.Delay(50)`. Deterministic
+        // guarantee that the callback has reached mid-await — robust
+        // under any CI scheduler load.
         timer.Fire();
-        await Task.Delay(50); // send is mid-await in WriteAsync
+        await slowChannel.WriteAsyncInvoked;
 
         // Concurrently stop service and dispose channel. Both should
         // complete without throwing non-OCE / non-ObjectDisposedException.
@@ -314,6 +319,15 @@ public class CyclicSendServiceRaceTests
     private sealed class SlowFakeChannel : ICanChannel
     {
         private readonly TimeSpan _delay;
+        // v3.5.6 PATCH: TCS signaled when WriteAsync is invoked, so tests
+        // can deterministically wait for the caller's continuation to
+        // reach mid-await. Replaces the wall-clock-guessed Task.Delay(50)
+        // the v3.5.5 review flagged as LOW nit (worked under bounded
+        // CI load, but not strictly deterministic — could flake under
+        // heavier parallel load). RunContinuationsAsynchronously avoids
+        // stack dives if the awaiter resumes inline.
+        private readonly TaskCompletionSource _writeStartedTcs =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposed;
 
         public ChannelId Id { get; } = new(0x51);
@@ -321,6 +335,14 @@ public class CyclicSendServiceRaceTests
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
 #pragma warning restore CS0067
+
+        /// <summary>
+        /// v3.5.6 PATCH: completes the moment <see cref="WriteAsync"/>
+        /// is invoked (before the <c>Task.Delay</c>), so tests know the
+        /// caller's continuation has reached mid-await without relying
+        /// on wall-clock timing.
+        /// </summary>
+        public Task WriteAsyncInvoked => _writeStartedTcs.Task;
 
         public SlowFakeChannel(int delayMs = 200)
         {
@@ -335,6 +357,11 @@ public class CyclicSendServiceRaceTests
 
         public async ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
         {
+            // Signal "WriteAsync has been invoked" BEFORE any await, so
+            // the caller's continuation is known to be mid-await when the
+            // test sees this complete.
+            _writeStartedTcs.TrySetResult();
+
             // Honor cancellation: caller (CyclicSendService.Stop's CTS)
             // cancelling during the delay throws OCE — the
             // CyclicSendService catches it, no failure increment.
