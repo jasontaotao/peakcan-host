@@ -330,6 +330,15 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
         // FakeTimerFactory wired into the service ctor. NO Task.Delay
         // for the tick cadence — file size must grow between explicit
         // Fire() calls, every time.
+        //
+        // v3.5.4 PATCH: replaced `Task.Yield(); Task.Yield();` with
+        // WaitForFileSizeChangeAsync polling. Under CI parallel load
+        // the test scheduler can starve the BackgroundService loop
+        // between Fire() calls — the LIFO TCS list is empty when
+        // Fire() resolves and the await Task.Yield path completes
+        // before iteration 2 has reached WaitForNextTickAsync. The
+        // polling helper only returns after the file size actually
+        // grows, proving the flush loop has reached the next tick.
         _svc.StartRecording(_tmpPath, RecordService.RecordFormat.Csv);
 
         // Wait for the BackgroundService.ExecuteAsync to reach the
@@ -346,23 +355,44 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
 
         // Tick 1 — flushes the first frame to disk.
         timer.Fire();
-        await Task.Yield();   // let the flush loop run
-        await Task.Yield();
-        var firstSize = new FileInfo(_tmpPath).Length;
+        var firstSize = await WaitForFileSizeChangeAsync(0);
         firstSize.Should().BeGreaterThan(0, "tick 1 must have flushed something to disk");
 
         _svc.OnFrame(BuildFrame(0x100, 0xCD));
         await WaitForDrainAsync(2);
 
-        // Tick 2 — second frame lands on disk.
+        // Tick 2 — second frame lands on disk. Polling here is
+        // critical: by the time firstSize returned, the writer
+        // thread had already drained AND the BackgroundService had
+        // reached iteration 2's WaitForNextTickAsync, so Fire()
+        // will resolve a real waiter.
         timer.Fire();
-        await Task.Yield();
-        await Task.Yield();
-        var secondSize = new FileInfo(_tmpPath).Length;
+        var secondSize = await WaitForFileSizeChangeAsync(firstSize);
         secondSize.Should().BeGreaterThan(firstSize,
             "a second tick + second OnFrame must grow the recorded file");
 
         _svc.StopRecording();
+    }
+
+    // Polls the recorded file until its size strictly exceeds the
+    // baseline. Used in lieu of Task.Yield for flush-loop waiting
+    // because file-size change is a deterministic postcondition —
+    // by the time we observe it, the BackgroundService has reached
+    // the next WaitForNextTickAsync AND the writer thread has
+    // flushed the previous batch to disk.
+    private async Task<long> WaitForFileSizeChangeAsync(long baselineSize, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (Environment.TickCount < deadline)
+        {
+            var currentSize = new FileInfo(_tmpPath).Length;
+            if (currentSize > baselineSize)
+            {
+                return currentSize;
+            }
+            await Task.Delay(10);
+        }
+        return new FileInfo(_tmpPath).Length;
     }
 
     private async Task<FakePeriodicTimer> WaitForCreatedTimerAsync(int timeoutMs = 2000)
