@@ -83,7 +83,9 @@ Race scenario (per user's analysis):
 
 Window is narrow (requires Stop to hit during `CreateEngine`) but real.
 
-**Fix**: `Interlocked.Exchange(ref _engine, engine)` for the publish + `Volatile.Read(ref _engine)` in `InterruptEngine`. Both ends now have matching fences. The existing CAS-protected null-clear in `finally` (v3.5.5) is unchanged — it still ensures we only clear OUR engine.
+**Fix (v3.5.7)**: `Interlocked.Exchange(ref _engine, engine)` for the publish + `Volatile.Read(ref _engine)` in `InterruptEngine`. Both ends now have matching fences. The existing CAS-protected null-clear in `finally` (v3.5.5) is unchanged — it still ensures we only clear OUR engine.
+
+**⚠️ v3.5.8 correction**: the v3.5.7 fix made the WRITE atomic + fenced, but did NOT address the **stale-task overwrite** scenario. A delayed old task (Task.Run scheduling latency) could still execute `Interlocked.Exchange(ref _engine, engineA)` AFTER the new task already installed `engineB` — the LAST writer wins, leaving `_engine` pointing to the disposed old engine while `engineB` becomes unreachable. v3.5.8 PATCH adds `_generation` counter + entry-check stale-task drop (mirrors `CyclicSendService._generation` + tickGen drop pattern at `CyclicSendService.cs:41` + `:180`). Race window: rare (Task.Run scheduling delay under CI load / GC pause / thread-pool saturation), symptom severe — "Stop button doesn't stop runaway script, must wait 60s timeout".
 
 ### Fix 3 (test regression coverage) — `ScriptEngineReflectionGuardTests`
 

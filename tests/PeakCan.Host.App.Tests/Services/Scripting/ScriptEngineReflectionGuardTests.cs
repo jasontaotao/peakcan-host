@@ -123,6 +123,53 @@ public class ScriptEngineReflectionGuardTests
         result.Should().StartWith("BLOCKED:");
     }
 
+    [Fact]
+    public void Unrestricted_Delegate_Func_IntTask_Method_Is_Blocked_By_Reflection_Guard()
+    {
+        // v3.5.8 PATCH: extend coverage to Func<int, Task> (the shape used
+        // for the script utility `delay`). Task is awaitable — ClearScript
+        // may have different marshalling paths for Func<> / Task than for
+        // Action<>. If ClearScript ever weakens the reflection guard for
+        // awaitable return types, this test catches it.
+        using var engine = new V8ScriptEngine(V8ScriptEngineFlags.DisableGlobalMembers);
+        engine.AddHostObject("delay", new Func<int, Task>((ms) => Task.Delay(ms)));
+
+        var result = SafeEval(engine, "typeof delay.Method");
+        _output.WriteLine($"typeof delay.Method (Func<int,Task>) → {result}");
+        result.Should().Contain("Use of reflection is prohibited",
+            "ClearScript must block Delegate.Method access on Func<int,Task> host objects");
+    }
+
+    [Fact]
+    public void Unrestricted_Delegate_Func_ByteArray_Method_Is_Blocked_By_Reflection_Guard()
+    {
+        // v3.5.8 PATCH: extend coverage to Func<byte[]?, string?> (the
+        // shape used for the script utility `toHex`). byte[] is a host
+        // array type — different marshalling from string-typed delegates.
+        using var engine = new V8ScriptEngine(V8ScriptEngineFlags.DisableGlobalMembers);
+        engine.AddHostObject("toHex", new Func<byte[]?, string?>((bytes) => bytes is null ? null : Convert.ToHexString(bytes)));
+
+        var result = SafeEval(engine, "typeof toHex.Method");
+        _output.WriteLine($"typeof toHex.Method (Func<byte[],string?>) → {result}");
+        result.Should().Contain("Use of reflection is prohibited");
+    }
+
+    [Fact]
+    public void Unrestricted_Delegate_Func_Task_ReflectionEscape_Via_Method_Is_Blocked()
+    {
+        // v3.5.8 PATCH: full reflection escape via Func<int,Task>.Method.
+        // Defense in depth — if the typeof-block on Method ever weakens,
+        // this catches the actual escape path.
+        using var engine = new V8ScriptEngine(V8ScriptEngineFlags.DisableGlobalMembers);
+        engine.AddHostObject("delay", new Func<int, Task>((ms) => Task.Delay(ms)));
+
+        var result = SafeEval(engine,
+            "try { var m = delay.Method; var a = m.DeclaringType.Assembly; var p = a.GetType('System.Diagnostics.Process'); p ? 'REACHED' : 'NO-PROCESS'; } " +
+            "catch(e) { 'BLOCKED:' + e.message; }");
+        _output.WriteLine($"delay→Method→Asm→Process → {result}");
+        result.Should().StartWith("BLOCKED:");
+    }
+
     private sealed class StubScriptApi : IScriptCanApi
     {
         public Task<bool> Send(int id, byte[] data, bool fd = false, bool extended = false) => Task.FromResult(true);

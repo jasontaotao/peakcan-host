@@ -154,6 +154,14 @@ were plain stores — neither side had a proper fence. **v3.5.7 PATCH
 fixes both by switching the field type to `IFrameSink[]?` and using
 `Volatile.Read` / `Volatile.Write`.**
 
+**⚠️ v3.5.8 corollary**: v3.5.7's `_sinks: IFrameSink[]?` field type
+change preserved the `AttachSink` / `DetachSink` / `OnChannelFrame`
+correctness (the actual fence fix). The v3.5.8 PATCH does NOT
+touch `ChannelRouter.cs` for the field/fence fix — it only removes
+the leftover `using System.Runtime.CompilerServices;` from v3.5.5's
+`Unsafe.ReadUnaligned` (the v3.5.7 fix deleted the helper but
+didn't clean the using).
+
 ## Fix 4 (MEDIUM) — `IFrameSink.OnFrame` contract — must not block
 
 **File**:

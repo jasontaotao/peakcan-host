@@ -37,6 +37,14 @@ public sealed partial class ScriptEngine : IDisposable
     private V8ScriptEngine? _engine;
     private CancellationTokenSource? _executionCts;
     private Task? _executionTask;
+    // v3.5.8 PATCH: generation counter for stale-task drop. Mirrors the
+    // CyclicSendService._generation + tickGen != generation pattern
+    // (CyclicSendService.cs:41 + :180). RunAsync captures a generation
+    // at entry; ExecuteScript self-checks at entry and bails if a newer
+    // RunAsync has invalidated it. Prevents the stale-task write race
+    // where a delayed old task's Interlocked.Exchange would overwrite
+    // the new task's _engine reference.
+    private long _generation;
     private readonly object _lock = new();
 
     /// <summary>Raised when the script produces output (log/warn/error).</summary>
@@ -116,9 +124,18 @@ public sealed partial class ScriptEngine : IDisposable
 
         var tcs = new TaskCompletionSource<ScriptResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // v3.5.8 PATCH: increment generation BEFORE scheduling the new
+        // task. Any older ExecuteScript instance that hasn't yet reached
+        // its entry-check will see _generation > myGen on its eventual
+        // entry and bail without writing to _engine. This closes the
+        // stale-task write race that v3.5.7's Interlocked.Exchange
+        // alone couldn't prevent (Task.Run scheduling delay could let
+        // a delayed old task overwrite the new task's _engine reference).
+        long myGen = Interlocked.Increment(ref _generation);
+
         lock (_lock)
         {
-            _executionTask = Task.Run(() => ExecuteScript(script, tcs, _executionCts.Token), _executionCts.Token);
+            _executionTask = Task.Run(() => ExecuteScript(script, tcs, myGen, _executionCts.Token), _executionCts.Token);
         }
 
         // Register timeout callback.
@@ -180,16 +197,35 @@ public sealed partial class ScriptEngine : IDisposable
     /// <summary>
     /// Core execution logic. Runs on a dedicated worker thread.
     /// </summary>
-    private void ExecuteScript(string script, TaskCompletionSource<ScriptResult> tcs, CancellationToken ct)
+    /// <param name="myGen">Generation captured by <see cref="RunAsync"/>
+    /// at entry. If a newer RunAsync has incremented _generation
+    /// before this task gets scheduled, this task is stale and
+    /// returns immediately without touching any state — see the
+    /// entry-check below.</param>
+    private void ExecuteScript(string script, TaskCompletionSource<ScriptResult> tcs, long myGen, CancellationToken ct)
     {
         V8ScriptEngine? engine = null;
         try
         {
+            // v3.5.8 PATCH: stale-task drop. If _generation has moved
+            // past myGen (a newer RunAsync started after this task was
+            // scheduled), this task is stale — bail before CreateEngine
+            // and before the _engine write. Without this guard, a
+            // Task.Run scheduling delay could let an old task's
+            // Interlocked.Exchange (line below) overwrite the new task's
+            // _engine reference AFTER the new task already installed
+            // its engine, leaving _engine pointing to the disposed old
+            // engine while the new engine was never reachable via
+            // InterruptEngine. Mirrors CyclicSendService:180's
+            // `if (state is long tickGen && tickGen != generation) return;`
+            // drop pattern.
+            if (Interlocked.Read(ref _generation) != myGen) return;
+
             engine = CreateEngine(ct);
             // v3.5.7 PATCH: Interlocked.Exchange for atomic publish of the
             // engine reference. The previous plain field write
             // (`_engine = engine`) had a race when Stop() raced against a
-            // concurrent RunAsync: the old task's line-183 assignment could
+            // concurrent RunAsync: the old task's line-198 assignment could
             // land AFTER the new task's assignment, leaving _engine pointing
             // to the old (interrupted) engine while the new engine was never
             // registered — making InterruptEngine() a no-op for the new
