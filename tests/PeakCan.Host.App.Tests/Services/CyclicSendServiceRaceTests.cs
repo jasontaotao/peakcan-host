@@ -230,4 +230,129 @@ public class CyclicSendServiceRaceTests
         send.LastObservedCt.IsCancellationRequested.Should().BeTrue(
             "Stop() must cancel the CTS so in-flight SendAsync receives a cancelled token");
     }
+
+    /// <summary>
+    /// v3.5.5 PATCH: regression test for in-flight <c>SendAsync</c> behavior
+    /// when the channel is disposed concurrently with <c>Stop()</c>.
+    /// Previously untested — <c>CyclicSendService.StopInner</c>
+    /// (<c>CyclicSendService.cs:148</c>) calls <c>_timer?.Dispose()</c>
+    /// which does NOT wait for the in-flight <c>OnTimerTick</c>
+    /// callback. If the caller concurrently disposes the channel while
+    /// <c>await _sendService.SendAsync(frame, ct)</c> is mid-await,
+    /// <c>PeakCanChannel.WriteAsync</c> behavior on concurrent disposal
+    /// is untested.
+    /// <para>
+    /// The assertion is: no unhandled exception escapes. Either
+    /// <see cref="OperationCanceledException"/> or
+    /// <see cref="ObjectDisposedException"/> are acceptable; a native
+    /// handle crash or uncaught exception type is not.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Stop_While_InFlight_SendAsync_Disposing_Channel_Does_Not_Crash()
+    {
+        // Slow-fake ICanChannel that holds WriteAsync open for 200 ms
+        // before completing (or throws ObjectDisposedException if
+        // DisposeAsync was called first). Mirrors the existing
+        // FakeChannel pattern from CyclicSendServiceTests but with a
+        // configurable delay + dispose-aware throw.
+        var slowChannel = new SlowFakeChannel(delayMs: 200);
+        var sendService = new SendService(NullLogger<SendService>.Instance)
+        {
+            ActiveChannel = slowChannel
+        };
+        var timerFactory = new FakeTimerFactory();
+        var svc = new CyclicSendService(sendService, NullLogger<CyclicSendService>.Instance, timerFactory);
+
+        svc.Start(BuildFrame(0x100), TimeSpan.FromMilliseconds(50));
+        var timer = timerFactory.CreatedCyclicTimers.Single();
+
+        // Trigger in-flight send: Fire() runs the callback synchronously
+        // but the callback awaits WriteAsync, which is held open by the
+        // SlowFakeChannel delay. The continuation is queued on the
+        // SynchronizationContext (or thread-pool); we'll race Stop +
+        // DisposeAsync against it.
+        timer.Fire();
+        await Task.Delay(50); // send is mid-await in WriteAsync
+
+        // Concurrently stop service and dispose channel. Both should
+        // complete without throwing non-OCE / non-ObjectDisposedException.
+        // Either of those is acceptable (CyclicSendService swallows
+        // OperationCanceledException; SlowFakeChannel's WriteAsync may
+        // throw ObjectDisposedException if DisposeAsync was called
+        // first, which is the race being exercised).
+        var stopTask = Task.Run(() => svc.Stop());
+        var disposeTask = Task.Run(() => slowChannel.DisposeAsync().AsTask());
+
+        await Task.WhenAll(stopTask, disposeTask).WaitAsync(TimeSpan.FromSeconds(2));
+
+        // Fire one more time — if in-flight logic raced wrong,
+        // FakeCyclicTimer re-entry after Stop would crash.
+        timer.Fire(); // should be no-op since Stop was called
+
+        // Cleanup
+        svc.Dispose();
+    }
+
+    /// <summary>
+    /// v3.5.5 PATCH: minimal <see cref="ICanChannel"/> test double that
+    /// holds <see cref="WriteAsync"/> open for a configurable delay, then
+    /// completes. If <see cref="DisposeAsync"/> is invoked first,
+    /// pending <see cref="WriteAsync"/> calls throw
+    /// <see cref="ObjectDisposedException"/> — exercising the
+    /// concurrent-dispose-while-write race that v3.5.5 PATCH Fix 2
+    /// regression-tests.
+    /// <para>
+    /// Mirrors the existing <c>FakeChannel</c> pattern from
+    /// <c>CyclicSendServiceTests</c> but adds (a) an artificial
+    /// Task.Delay in <see cref="WriteAsync"/> to keep the call
+    /// mid-await while <see cref="Stop()"/> + <see cref="DisposeAsync"/>
+    /// race against it, and (b) a dispose-throws branch so the race
+    /// actually has something to surface.
+    /// </para>
+    /// </summary>
+    private sealed class SlowFakeChannel : ICanChannel
+    {
+        private readonly TimeSpan _delay;
+        private int _disposed;
+
+        public ChannelId Id { get; } = new(0x51);
+        public bool IsConnected { get; private set; } = true;
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+#pragma warning restore CS0067
+
+        public SlowFakeChannel(int delayMs = 200)
+        {
+            _delay = TimeSpan.FromMilliseconds(delayMs);
+        }
+
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        { IsConnected = true; return Task.FromResult(Result<Unit>.Ok(default)); }
+
+        public Task DisconnectAsync(CancellationToken ct = default)
+        { IsConnected = false; return Task.CompletedTask; }
+
+        public async ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+        {
+            // Honor cancellation: caller (CyclicSendService.Stop's CTS)
+            // cancelling during the delay throws OCE — the
+            // CyclicSendService catches it, no failure increment.
+            await Task.Delay(_delay, ct).ConfigureAwait(false);
+
+            // Race: if DisposeAsync fired first, simulate a
+            // peakcan-channel WriteAsync on a disposed handle by
+            // throwing ObjectDisposedException. Otherwise complete
+            // normally. Use ThrowIf (CA1513) instead of `throw new`.
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            return Result<Unit>.Ok(default);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            IsConnected = false;
+            return ValueTask.CompletedTask;
+        }
+    }
 }

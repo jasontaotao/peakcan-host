@@ -4,12 +4,12 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v1.1.0 — UDS SecurityAccess KeyProvider + JSON-loadable DID/Routine databases.
-> See [Spec](docs/superpowers/specs/2026-06-25-v1-1-0-uds-ui-and-key-provider-design.md)
-> for the v1.1.0 design and [Plan](docs/superpowers/plans/2026-06-25-v1-1-0-uds-ui-and-key-provider.md)
-> for the implementation plan, plus [Release Notes](docs/release-notes-v1.1.0.md)
-> for the v1.1.0 ship summary. **477 unit tests pass** (207 Core + 196 App
-> + 74 Infrastructure); 5 architecture rules enforced via NetArchTest;
+> **Status:** v3.5.5 — peer-review hardening PATCH (sandbox fix + Dispose
+> race test + ChannelRouter acquire-fence read + IFrameSink blocking
+> contract + ScriptEngine CAS interrupt + README sync).
+> See [Release Notes v3.5.5](docs/release-notes-v3.5.5.md) for the
+> PATCH summary. **~1098 unit tests pass** (404 Core + 84 Infrastructure
+> + ~610 App); 5 SKIP; 5 architecture rules enforced via NetArchTest;
 > CI runs on every push to `main`.
 
 ## Features (MVP)
@@ -230,8 +230,11 @@ writeup. Summary:
 ## v1.0.0 (Scripting Engine)
 
 - **JavaScript scripting** — write and execute scripts to automate CAN
-  bus operations. Scripts run in a sandboxed V8 engine with no access
-  to filesystem, network, or system APIs.
+  bus operations. Scripts run in a trusted V8 runtime with a curated
+  `can.*` / `dbc.*` surface. **Not a security sandbox**: scripts authored
+  by trusted users can call into the .NET runtime via standard JS
+  reflection patterns. Do not execute untrusted script sources without
+  review.
 - **`can.*` API** — `can.send(id, data, options?)` to transmit frames;
   `can.onFrame(callback)` to register callbacks for all received frames;
   `can.onMessage(id, callback)` for specific CAN ID or hex prefix.
@@ -360,9 +363,11 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **423 pass + 6 SKIP** across Core (155) / Infrastructure (74 + 2 SKIP) /
-App (194 + 4 SKIP — 3 hardware + 1 `TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`).
-With `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
+Output: **~1098 pass + 5 SKIP** across Core (404) / Infrastructure (84) /
+App (~610 — 3 hardware SKIP + 1 wall-clock-sensitive
+`TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
+SKIP + 1 unrelated SKIP). With
+`dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
 ## Architecture

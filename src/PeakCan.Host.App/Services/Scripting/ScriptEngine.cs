@@ -293,8 +293,15 @@ public sealed partial class ScriptEngine : IDisposable
                 }
                 catch { /* ignore dispose errors */ }
 
-                _engine = null;
-                ScriptConsole.CurrentEngine = null;
+                // v3.5.5 PATCH: CAS-protected null. Only clear _engine
+                // if it still points to OUR engine — a subsequent
+                // RunAsync may have replaced it. Without this, the old
+                // finally can null out a fresh engine and break its
+                // interrupt path (InterruptEngine reads _engine).
+                if (Interlocked.CompareExchange(ref _engine, null, engine) == engine)
+                {
+                    ScriptConsole.CurrentEngine = null;
+                }
             }
         }
     }
@@ -352,16 +359,28 @@ public sealed partial class ScriptEngine : IDisposable
         // Inject can.* API (if available). v1.7.0 MINOR Item 2: cast to
         // IScriptCanApi so scripts see only the minimal surface (no Dispose,
         // no IFrameSink members).
+        // v3.5.5 PATCH: use AddRestrictedHostObject<IScriptCanApi> so
+        // ClearScript exposes ONLY members declared on IScriptCanApi,
+        // not System.Object members like GetType/ToString/Equals that
+        // would let a script reach CanApi's runtime type and from
+        // there into arbitrary .NET runtime types
+        // (e.g. can.GetType().Assembly.GetType("System.Diagnostics.Process")).
+        // This is the "Option A" hardening path recommended by the
+        // brief; ClearScript 7.4.5 supports it directly via the
+        // <T>-constrained overload. IScriptCanApi carries no
+        // overrides for the System.Object members so they are not
+        // reachable from script code.
         if (_canApi is not null)
         {
-            engine.AddHostObject("can", (IScriptCanApi)_canApi);
+            engine.AddRestrictedHostObject<IScriptCanApi>("can", _canApi);
         }
 
         // Inject dbc.* API (if available). v1.7.0 MINOR Item 2: cast to
         // IScriptDbcApi so scripts see only the minimal surface (no Dispose).
+        // v3.5.5 PATCH: same AddRestrictedHostObject hardening as `can`.
         if (_dbcApi is not null)
         {
-            engine.AddHostObject("dbc", (IScriptDbcApi)_dbcApi);
+            engine.AddRestrictedHostObject<IScriptDbcApi>("dbc", _dbcApi);
         }
 
         // Inject utility functions (if available).

@@ -9,7 +9,21 @@ namespace PeakCan.Host.Infrastructure.Channel;
 /// </summary>
 public interface IFrameSink
 {
-    /// <summary>Called for every received frame. Implementations must not throw.</summary>
+    /// <summary>
+    /// Called for every received frame on the SDK read thread.
+    /// <para>
+    /// <b>Contract:</b> implementations MUST NOT block. Heavy work
+    /// (disk I/O, dictionary lookups, signal decoding) MUST be enqueued
+    /// to an internal <see cref="System.Threading.Channels.Channel{T}"/>
+    /// or off-thread worker. A blocking OnFrame stalls the SDK read loop
+    /// and drops frames at high bus load.
+    /// </para>
+    /// <para>
+    /// Implementations MUST NOT throw — exceptions are caught by the
+    /// <c>ChannelRouter</c> and forwarded to <see cref="OnError"/> on
+    /// the same sink.
+    /// </para>
+    /// </summary>
     void OnFrame(CanFrame frame);
 
     /// <summary>
