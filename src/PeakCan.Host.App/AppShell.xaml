@@ -12,6 +12,20 @@
             <MenuItem Header="_File">
                 <MenuItem Header="Open DBC..." Command="{Binding OpenDbcCommand}" />
                 <Separator />
+                <MenuItem Header="Open _Session..." Command="{Binding OpenSessionCommand}" InputGestureText="Ctrl+O" />
+                <MenuItem Header="_Save Session..." Command="{Binding SaveSessionCommand}" InputGestureText="Ctrl+S" />
+                <MenuItem Header="Open _Recent" ItemsSource="{Binding RecentSessionEntries}">
+                    <MenuItem.ItemTemplate>
+                        <DataTemplate>
+                            <MenuItem Header="{Binding Label}"
+                                      Command="{Binding DataContext.OpenRecentSessionCommand,
+                                                        RelativeSource={RelativeSource AncestorType=Menu}}"
+                                      CommandParameter="{Binding Path}" />
+                        </DataTemplate>
+                    </MenuItem.ItemTemplate>
+                </MenuItem>
+                <MenuItem Header="_Clear Recent" Command="{Binding ClearRecentSessionsCommand}" />
+                <Separator />
                 <MenuItem Header="Exit" Click="OnExit" />
             </MenuItem>
             <MenuItem Header="_View">

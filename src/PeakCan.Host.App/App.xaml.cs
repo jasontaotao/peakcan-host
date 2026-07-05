@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Composition;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Serilog;
 
@@ -112,7 +113,23 @@ public partial class App : Application
         {
             DataContext = Services.GetRequiredService<AppShellViewModel>(),
         };
-        Dispatcher.Invoke(() => shell.Show());
+        // v3.6.0 MINOR T2: resolve the auto-saver + VM up front so the
+        // post-Show dispatcher block can chain the restore prompt.
+        var autoSaver = Services.GetRequiredService<TraceSessionAutoSaver>();
+        var traceVm = Services.GetRequiredService<TraceViewerViewModel>();
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            shell.Show();
+            try
+            {
+                await autoSaver.ApplyAutoSnapshotAsync(traceVm, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Auto-restore prompt failed");
+            }
+        });
     }
 
     protected override async void OnExit(ExitEventArgs e)
@@ -130,6 +147,25 @@ public partial class App : Application
         // exceptions during teardown — the process is exiting anyway.
         if (_host is not null)
         {
+            // v3.6.0 MINOR T2: best-effort auto-save BEFORE host teardown so
+            // we never lose the user's current session. 5s cap so we don't
+            // blow the 10s shutdown budget if the disk is slow. Failures
+            // are logged at Warning — auto-save must never crash OnExit.
+            try
+            {
+                var autoSaver = _host.Services.GetService<TraceSessionAutoSaver>();
+                if (autoSaver is not null)
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await autoSaver.TrySaveAutoSnapshotAsync(cts.Token)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Trace auto-save failed during OnExit");
+            }
+
             try
             {
                 await _host.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);

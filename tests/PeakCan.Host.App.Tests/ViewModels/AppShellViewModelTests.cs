@@ -87,6 +87,17 @@ public class AppShellViewModelTests
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
+        // v3.6.0 MINOR T3: RecentSessionsService + IFileDialogService
+        // added to AppShellViewModel ctor. Both have no on-disk side
+        // effects when the test does not exercise OpenSessionCommand /
+        // SaveSessionCommand / RecentSessionEntries — RecentSessionsService
+        // writes only when Add is called, and the per-test temp dir
+        // keeps it isolated. NullLogger + a per-test temp file keep the
+        // singleton-shaped ctor honest without forcing test parallel
+        // groups to coordinate file paths.
+        var recentTemp = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"recent-{System.Guid.NewGuid():N}.json");
         return new AppShellViewModel(
             new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
@@ -110,7 +121,11 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                    NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                    recentTemp),
+                Substitute.For<IFileDialogService>());
     }
 
     /// <summary>
@@ -421,7 +436,11 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                    NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
+                Substitute.For<IFileDialogService>());
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -495,7 +514,11 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                    NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
+                Substitute.For<IFileDialogService>());
     }
 
     [Fact]
@@ -612,7 +635,11 @@ public class AppShellViewModelTests
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()));
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                    NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
+                Substitute.For<IFileDialogService>());
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -859,6 +886,10 @@ public class AppShellViewModelTests
             new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
             new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+            new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
+            Substitute.For<IFileDialogService>(),
             enumerator,
             writableConfig);
     }

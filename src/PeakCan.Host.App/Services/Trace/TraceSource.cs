@@ -21,10 +21,24 @@ namespace PeakCan.Host.App.Services.Trace;
 public sealed class TraceSource : INotifyPropertyChanged
 {
     public string SourceId { get; }
-    public string DisplayName { get; }
     public string Path { get; }
-    public OxyColor Color { get; }
     public LineStyle StrokeStyle { get; }
+
+    /// <summary>
+    /// v3.6.0 MINOR T1.B: DisplayName is restored from a saved bundle
+    /// when the bundle's value differs from the filename-only default
+    /// that the registry stamps on LoadAsync. Internal setter so the
+    /// VM can rewrite; public read surface unchanged.
+    /// </summary>
+    public string DisplayName { get; internal set; }
+
+    /// <summary>
+    /// v3.6.0 MINOR T1.B: Color is restored from a saved bundle when
+    /// the bundle carries non-zero ARGB bytes. Internal setter so the
+    /// VM can overwrite the registry's palette color; public read
+    /// surface unchanged.
+    /// </summary>
+    public OxyColor Color { get; internal set; }
 
     private string _canIdFilter = "";
 

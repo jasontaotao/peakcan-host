@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -50,6 +51,72 @@ public class TraceViewerViewModelTests
     // to assert Seek/SetSpeed/Loop propagation to specific service instances.
     private static ITraceViewerService MakeFakeService()
         => Substitute.For<ITraceViewerService>();
+
+    // ===== v3.6.0 MINOR T1 helpers =====
+
+    // Real TraceSessionLibrary against a per-test temp path. Returns the
+    // library + the path it should save/load to. The library uses an
+    // internal test ctor (mirrors MakeFakeSessionLibrary but exposes the
+    // path so callers can re-load it).
+    private static TraceSessionLibrary NewTestLibrary(out string libPath)
+    {
+        libPath = Path.Combine(
+            Path.GetTempPath(),
+            $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace");
+        return new TraceSessionLibrary(
+            libPath,
+            NullLogger<TraceSessionLibrary>.Instance);
+    }
+
+    // v3.6.0 MINOR T1: thin wrapper around the canonical VM ctor used by
+    // the bundle round-trip tests. Exists so T1 tests don't need to know
+    // which constructor argument is the IFileDialogService.
+    private static TraceViewerViewModel NewVm(TraceSessionLibrary library)
+        => new TraceViewerViewModel(
+            MakeFakeRegistry(),
+            MakeFakeDbcService(),
+            MakeFakeLogger(),
+            library);
+
+    // Seed the fake registry with one source having the requested
+    // DisplayName + Color. Returns the seeded TraceSource so callers can
+    // re-read it for assertions. Uses distinct Guid-derived ids per call
+    // so reload-after-clear scenarios have stable ids.
+    // v3.6.0 MINOR T1: review-fix — default DisplayName intentionally
+    // DIFFERS from the path's filename so the production restore guard
+    // (`bs.DisplayName != filenameOnly`) fires when this helper is used
+    // without overrides. Defaulting to a name matching the path basename
+    // would silently skip the restore branch on future test reuse.
+    private static TraceSource AddFakeTraceSource(
+        ITraceSessionRegistry registry,
+        string displayName = "non_default_fake",
+        OxyColor? color = null,
+        string? sourceId = null)
+    {
+        var src = new TraceSource(
+            sourceId ?? Guid.NewGuid().ToString("N"),
+            displayName,
+            $"C:/fake.asc",
+            color ?? OxyColors.Blue);
+        registry.Sources.Returns(new List<TraceSource> { src });
+        registry.SourcesChanged += Raise.Event<Action>();
+        return src;
+    }
+
+    // v3.6.0 MINOR T1: save the VM's current state, reload it via a fresh
+    // VM pointed at the same library, return the reloaded DTO. The caller
+    // can assert on the bundle's contents.
+    private static TraceSessionBundleDto SaveAndReloadBundle(
+        TraceViewerViewModel vm,
+        TraceSessionLibrary library,
+        string libPath)
+    {
+        // Build + save via the public SaveSessionAsync method.
+        vm.SaveSessionAsync(libPath).GetAwaiter().GetResult();
+        return library.Load(libPath)
+            ?? throw new InvalidOperationException(
+                $"Bundle at {libPath} could not be reloaded after Save");
+    }
 
     // ===== v3.0.1 PATCH Task 2 fixtures =====
 
@@ -689,5 +756,143 @@ public class TraceViewerViewModelTests
         {
             if (File.Exists(filePath)) File.Delete(filePath);
         }
+    }
+
+    // ===== v3.6.0 MINOR T1.A: AppVersion stamped from assembly metadata =====
+
+    [Fact]
+    public async Task BuildSnapshot_StampsInformationalVersion()
+    {
+        // v3.6.0 MINOR T1.A: the bundle's AppVersion must reflect the
+        // running assembly's AssemblyInformationalVersion, NOT a
+        // hardcoded string. Strip any "+git<sha>" suffix LocalBuilder
+        // appends so the assertion matches the on-disk value.
+        var library = NewTestLibrary(out var libPath);
+        var vm = NewVm(library);
+
+        var bundle = SaveAndReloadBundle(vm, library, libPath);
+
+        var raw = typeof(App).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        var expected = raw?.Split('+')[0];
+        bundle.AppVersion.Should().Be(expected);
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
+    }
+
+    // ===== v3.6.0 MINOR T1.B: restore Color + DisplayName on reload =====
+
+    [Fact]
+    public async Task ApplySnapshotAsync_RestoresColorAndDisplayName()
+    {
+        // v3.6.0 MINOR T1.B: when a bundle carries a non-default ARGB
+        // color and a custom DisplayName (one that DIFFERS from the
+        // path's filename), both must survive the save → fresh-VM
+        // reload round-trip.
+        const byte R = 0x12, G = 0x34, B = 0x56;
+        const string DisplayName = "highway_cruise";
+        const string Path = "C:/recordings/2026-01-15_drive.asc";
+        var library = NewTestLibrary(out var libPath);
+        var registry = MakeFakeRegistry();
+        var vm = new TraceViewerViewModel(
+            registry, MakeFakeDbcService(), MakeFakeLogger(), library);
+        // Seed a source whose DisplayName intentionally differs from
+        // the path's filename (the guard's distinguishing signal).
+        var source = new TraceSource(
+            Guid.NewGuid().ToString("N"),
+            DisplayName, Path,
+            OxyColor.FromArgb(255, R, G, B));
+        registry.Sources.Returns(new List<TraceSource> { source });
+        registry.SourcesChanged += Raise.Event<Action>();
+        await vm.SaveSessionAsync(libPath);
+
+        // Reload through a fresh VM whose registry returns a fresh
+        // TraceSource (palette defaults) on LoadAsync AND mutates
+        // Sources to simulate the registry's bookkeeping.
+        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
+        var loadedSources = new List<TraceSource>();
+        reloadRegistry.Sources.Returns(loadedSources);
+        reloadRegistry.GetService(Arg.Any<string>())
+            .Returns(MakeFakeService());
+        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                // Mimic the production registry: stamp filename as
+                // DisplayName + palette color. Restore logic must
+                // overwrite both with bundle values.
+                var src = new TraceSource(
+                    "fresh-id", "2026-01-15_drive", Path,
+                    OxyColors.Blue);
+                loadedSources.Add(src);
+                return src;
+            });
+        var vm2 = new TraceViewerViewModel(
+            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library);
+
+        var missing = await vm2.OpenSessionAsync(libPath);
+        missing.Should().BeEmpty();
+
+        var restored = vm2.Sources.Single();
+        restored.DisplayName.Should().Be(DisplayName);
+        restored.Color.R.Should().Be(R);
+        restored.Color.G.Should().Be(G);
+        restored.Color.B.Should().Be(B);
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public async Task ApplySnapshotAsync_V1BundleWithoutColor_FallsBackToPalette()
+    {
+        // v3.6.0 MINOR T1.B: bundles whose ARGB bytes are all 0 must
+        // leave the registry's palette color untouched. Without this
+        // guard, a fully-transparent black source would render with
+        // zero alpha in the chart strip.
+        var library = NewTestLibrary(out var libPath);
+        var registry = MakeFakeRegistry();
+        var vm = new TraceViewerViewModel(
+            registry, MakeFakeDbcService(), MakeFakeLogger(), library);
+        AddFakeTraceSource(registry, displayName: "drive_downtown");
+        await vm.SaveSessionAsync(libPath);
+
+        // Hand-craft a v1 bundle with all-zero color bytes — simulates
+        // a hand-edited or imported bundle where the color field is
+        // not populated.
+        var dto = library.Load(libPath)!;
+        dto.Sources[0].ColorA = 0;
+        dto.Sources[0].ColorR = 0;
+        dto.Sources[0].ColorG = 0;
+        dto.Sources[0].ColorB = 0;
+        library.Save(dto, libPath);
+
+        // Reload via fresh VM — registry's stub returns a source with
+        // a non-zero palette color (OxyColors.Orange) and seeds
+        // Sources so the VM can see it.
+        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
+        var loadedSources = new List<TraceSource>();
+        reloadRegistry.Sources.Returns(loadedSources);
+        reloadRegistry.GetService(Arg.Any<string>())
+            .Returns(MakeFakeService());
+        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                var src = new TraceSource(
+                    "fresh-id", "drive_downtown.asc", "drive_downtown.asc",
+                    OxyColors.Orange);
+                loadedSources.Add(src);
+                return src;
+            });
+        var vm2 = new TraceViewerViewModel(
+            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library);
+
+        var missing = await vm2.OpenSessionAsync(libPath);
+        missing.Should().BeEmpty();
+
+        var restored = vm2.Sources.Single();
+        restored.Color.A.Should().NotBe(0,
+            "a bundle with all-zero ARGB must NOT overwrite the registry's palette color");
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
@@ -7,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
@@ -100,6 +102,15 @@ public sealed partial class AppShellViewModel : ObservableObject
     // VM so the menu, future SendView button, and any other consumer all
     // bind to the same loaded trace + signal list + chart scrubber state.
     private readonly TraceViewerViewModel _traceViewerViewModel;
+    // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
+    // Singleton so multiple consumers (AppShell today, future shortcuts)
+    // observe the same ordering; persisted to
+    // %APPDATA%/PeakCan.Host/recent-sessions.json.
+    private readonly RecentSessionsService _recentSessions;
+    // v3.6.0 MINOR T3: file-dialog abstraction so the Save/Open Session
+    // menu commands can be unit-tested with a fake (no WPF Application
+    // needed). Production DI wires the WPF impl.
+    private readonly IFileDialogService _fileDialogs;
     // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
@@ -197,6 +208,26 @@ public sealed partial class AppShellViewModel : ObservableObject
     [ObservableProperty]
     private object? _currentView;
 
+    /// <summary>
+    /// v3.6.0 MINOR T3: XAML binding source for the File ▸ Open Recent
+    /// submenu. Rebuilt from <see cref="RecentSessionsService.Recent"/>
+    /// whenever the service raises <see cref="System.ComponentModel.INotifyPropertyChanged.PropertyChanged"/>
+    /// (Add / Remove / Clear / LoadAsync). The wrapper record
+    /// <see cref="RecentSessionVm"/> carries only the two fields the
+    /// menu needs (Label for display, Path as CommandParameter) —
+    /// <see cref="RecentSessionDto.SavedAt"/> is consumed only in
+    /// tooltip / future UX.
+    /// </summary>
+    public ObservableCollection<RecentSessionVm> RecentSessionEntries { get; } = new();
+
+    /// <summary>v3.6.0 MINOR T3: lightweight VM-side projection of
+    /// <see cref="RecentSessionDto"/> for the Open Recent submenu.
+    /// <see cref="Path"/> is the CommandParameter for
+    /// <c>OpenRecentSessionCommand</c>; <see cref="Label"/> is the menu
+    /// header text. Mirrors the AppShell.xaml
+    /// <c>DataTemplate</c> binding contract.</summary>
+    public sealed record RecentSessionVm(string Path, string Label);
+
     /// <summary>根据 IsFd 动态返回可用波特率预设列表。ComboBox ItemsSource 绑定此属性。</summary>
     public IReadOnlyList<BaudRate> AvailableBaudRates => IsFd ? FdBaudRates : ClassicBaudRates;
 
@@ -257,6 +288,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
         TraceViewerViewModel traceViewerViewModel,
+        RecentSessionsService recentSessions,
+        IFileDialogService fileDialogs,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -283,6 +316,24 @@ public sealed partial class AppShellViewModel : ObservableObject
         // were updated to construct with a stub ITraceViewerService +
         // null DbcService substitute.
         _traceViewerViewModel = traceViewerViewModel ?? throw new ArgumentNullException(nameof(traceViewerViewModel));
+        // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
+        // RecentSessionsService is a singleton; subscribing to its
+        // PropertyChanged keeps the AppShell menu in sync with
+        // external mutations (e.g. AutoSave pre-populating the list
+        // in a future change). Initial LoadAsync is fire-and-forget —
+        // the service leaves the list empty until then, matching the
+        // pre-load state.
+        _recentSessions = recentSessions ?? throw new ArgumentNullException(nameof(recentSessions));
+        _recentSessions.PropertyChanged += (_, __) => RefreshRecentEntries();
+        _fileDialogs = fileDialogs ?? throw new ArgumentNullException(nameof(fileDialogs));
+        // v3.6.0 MINOR T3: load the persisted MRU list at startup so
+        // the File ▸ Open Recent submenu is populated. Fire-and-forget
+        // — the service never throws on load (corrupt → empty list)
+        // and the menu can render an empty Recent without a UX bug.
+        // The PropertyChanged subscription above handles the rebuild
+        // when LoadAsync raises the change notification synchronously;
+        // no explicit ContinueWith needed (T3 review M1/M2 fix).
+        _ = _recentSessions.LoadAsync(CancellationToken.None);
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
@@ -315,6 +366,105 @@ public sealed partial class AppShellViewModel : ObservableObject
         // only navigates so the user sees the right surface.
         CurrentView = GetOrCreateDbcView();
         LogOpenDbcInvoked(_logger);
+    }
+
+    /// <summary>
+    /// v3.6.0 MINOR T3: File ▸ Open Session... menu command. Pops a
+    /// file-open dialog (via the WPF-independent <see cref="IFileDialogService"/>),
+    /// loads the chosen bundle through <see cref="TraceViewerViewModel.OpenSessionAsync"/>,
+    /// surfaces any missing <c>.asc</c> recordings via MessageBox, and
+    /// records the path in the MRU list. Cancellation returns silently.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSessionAsync()
+    {
+        var path = _fileDialogs.ShowOpenDialog(
+            "Trace Viewer session|*.tmtrace;*.TMTRACE|All files|*.*");
+        if (string.IsNullOrEmpty(path)) return;
+        var missing = await _traceViewerViewModel.OpenSessionAsync(path)
+            .ConfigureAwait(true);
+        if (missing.Count > 0)
+        {
+            MessageBox.Show(
+                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+                "Open Session",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        _recentSessions.Add(path);
+    }
+
+    /// <summary>
+    /// v3.6.0 MINOR T3: File ▸ Save Session... menu command. Pops a
+    /// file-save dialog, hands the chosen path to
+    /// <see cref="TraceViewerViewModel.SaveSessionAsync"/>, then records
+    /// it in the MRU list. The Trace Viewer window must be open and
+    /// hold the session state being saved; we do not auto-open it here
+    /// (matches the toolbar behaviour that the menu is replacing).
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveSessionAsync()
+    {
+        var path = _fileDialogs.ShowSaveDialog(
+            "Trace Viewer session|*.tmtrace|All files|*.*",
+            ".tmtrace",
+            null);
+        if (string.IsNullOrEmpty(path)) return;
+        await _traceViewerViewModel.SaveSessionAsync(path)
+            .ConfigureAwait(true);
+        _recentSessions.Add(path);
+    }
+
+    /// <summary>
+    /// v3.6.0 MINOR T3: File ▸ Open Recent ▸ &lt;name&gt; menu command.
+    /// <paramref name="path"/> is the CommandParameter wired through
+    /// the <c>DataTemplate</c> in <c>AppShell.xaml</c>. Skips the file
+    /// dialog (the path was chosen from the MRU), forwards to
+    /// <see cref="TraceViewerViewModel.OpenSessionAsync"/>, and
+    /// re-records the path so a re-click moves it back to the top of
+    /// the list (matching standard MRU UX).
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenRecentSessionAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        var missing = await _traceViewerViewModel.OpenSessionAsync(path)
+            .ConfigureAwait(true);
+        if (missing.Count > 0)
+        {
+            MessageBox.Show(
+                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+                "Open Recent Session",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        _recentSessions.Add(path);
+    }
+
+    /// <summary>
+    /// v3.6.0 MINOR T3: File ▸ Clear Recent menu command. Wipes both
+    /// the in-memory MRU list and the on-disk
+    /// <c>recent-sessions.json</c> file via
+    /// <see cref="RecentSessionsService.Clear"/>.
+    /// </summary>
+    [RelayCommand]
+    private void ClearRecentSessions() => _recentSessions.Clear();
+
+    /// <summary>
+    /// v3.6.0 MINOR T3: rebuild <see cref="RecentSessionEntries"/> from
+    /// <see cref="RecentSessionsService.Recent"/>. Called on
+    /// <see cref="RecentSessionsService"/> PropertyChanged (any
+    /// mutation) and once after the initial LoadAsync. Cheap (max 5
+    /// entries) — full Clear + rebuild avoids the per-item
+    /// CollectionChanged dance.
+    /// </summary>
+    private void RefreshRecentEntries()
+    {
+        RecentSessionEntries.Clear();
+        foreach (var r in _recentSessions.Recent)
+        {
+            RecentSessionEntries.Add(new RecentSessionVm(r.Path, r.Label));
+        }
     }
 
     [RelayCommand]

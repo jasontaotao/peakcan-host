@@ -18,13 +18,12 @@
                  overwrites). Single-trace default behavior unchanged from v3.0. -->
             <Button Content="Add trace…" Click="OnAddTraceClick" Padding="8,2" Margin="0,0,4,0" />
             <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
-            <!-- v3.5.0 MINOR: Save/Open .tmtrace session bundle. User-triggered
-                 (no auto-save). The SaveFileDialog / OpenFileDialog plumbing
-                 lives in code-behind to keep the VM free of WPF dependencies. -->
-            <Button Content="Save session…" Click="OnSaveSessionClick" Padding="8,2" Margin="0,0,4,0"
-                    ToolTip="Save the current multi-trace session to a .tmtrace bundle" />
-            <Button Content="Open session…" Click="OnOpenSessionClick" Padding="8,2" Margin="0,0,4,0"
-                    ToolTip="Restore a saved multi-trace session from a .tmtrace bundle" />
+            <!-- v3.6.0 MINOR T3: Save/Open .tmtrace session buttons moved to
+                 the AppShell File menu (Open Session... / Save Session... +
+                 Open Recent submenu). The toolbar buttons are removed; the
+                 underlying TraceViewerViewModel.SaveSessionAsync /
+                 OpenSessionAsync methods remain public and are now called
+                 from AppShellViewModel via DI. -->
             <Separator />
 
             <!-- v3.3.0 MINOR: master picker (the "clock source") -->

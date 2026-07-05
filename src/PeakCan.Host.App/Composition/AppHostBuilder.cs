@@ -375,6 +375,31 @@ public class AppHostBuilder
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
         // OpenSessionAsync commands.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
+        // v3.6.0 MINOR T3: most-recently-used list backing the AppShell
+        // File ▸ Open Recent menu. Singleton so AppShell and any future
+        // consumer (e.g. keyboard shortcut handler) observe the same
+        // ordering. Persists to %APPDATA%/PeakCan.Host/recent-sessions.json
+        // via internal DefaultPath (mirrors TraceSessionLibrary pattern).
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.RecentSessionsService>();
+
+        // v3.6.0 MINOR T2: auto-save + auto-restore prompt. Wired into
+        // App.OnExit (flush) and App.OnStartup (prompt) so users get
+        // their session back across app restarts without manual Save.
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.TraceSessionAutoSaver>();
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.ITraceViewerViewModelProvider,
+            PeakCan.Host.App.Services.Trace.ServiceProviderTraceViewerViewModelProvider>();
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.IAutoSavePrefsStore>(sp =>
+            new PeakCan.Host.App.Services.Trace.FileAutoSavePrefsStore(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "PeakCan.Host", "auto-save-prefs.json"),
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Trace.FileAutoSavePrefsStore>>()));
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.IMessageBoxPrompt,
+            PeakCan.Host.App.Services.Trace.WpfMessageBoxPrompt>();
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -550,6 +575,8 @@ public class AppHostBuilder
             sp.GetRequiredService<ReplayViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(),
             sp.GetRequiredService<TraceViewerViewModel>(),
+            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.RecentSessionsService>(),
+            sp.GetRequiredService<PeakCan.Host.Core.IFileDialogService>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();

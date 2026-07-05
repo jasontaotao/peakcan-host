@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -332,15 +333,20 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// DBC path is recorded (the DBC service is not re-loaded — the
     /// caller will reload it as part of <see cref="ApplySnapshotAsync"/>
     /// once the sources are loaded).
+    /// <para>
+    /// v3.6.0 MINOR T2: access changed from <c>private</c> to
+    /// <c>public</c> so <see cref="TraceSessionAutoSaver"/> can snapshot
+    /// the live VM during <c>App.OnExit</c>. Behavior unchanged.
+    /// </para>
     /// </summary>
-    private TraceSessionBundleDto BuildSnapshot()
+    public TraceSessionBundleDto BuildSnapshot()
     {
         var dto = new TraceSessionBundleDto
         {
             Version = 1,
             Schema = TraceSessionLibrary.CurrentSchema,
             SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = "3.5.0",
+            AppVersion = GetAppVersion(),
             DbcPath = LoadedDbcPath ?? "",
             GlobalCanIdFilter = CanIdFilter ?? "",
         };
@@ -402,16 +408,28 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             try
             {
                 var loaded = await _registry.LoadAsync(bs.Path).ConfigureAwait(true);
-                // The registry assigns a fresh SourceId — patch the
-                // metadata (display name + filter) onto the new instance
-                // because palette assignment does not match the bundle's
-                // pre-recorded colors. v3.5.0 ships path-reference only;
-                // color restoration is a v3.5.x follow-up.
+                // v3.6.0 MINOR T1.B: restore DisplayName and color from
+                // the bundle, replacing the v3.5.0 "path-reference only"
+                // comment. The registry's LoadAsync stamps a default
+                // DisplayName (filename) and palette color; both are
+                // overwritten when the bundle supplies values. For
+                // bundle entries where color was left at default ARGB =
+                // (0,0,0,0), the property set is skipped so the
+                // registry's palette color survives (forward-compat with
+                // hand-edited v1 bundles that pre-date color capture).
                 loaded.CanIdFilter = bs.CanIdFilter;
-                // Display name intentionally left as the filename set by
-                // _registry.LoadAsync — restoring a legacy bundle's
-                // display name would diverge from the filename visible
-                // in the UI, so the bundle's DisplayName is ignored.
+                var filenameOnly = Path.GetFileNameWithoutExtension(bs.Path);
+                if (!string.IsNullOrEmpty(bs.DisplayName) &&
+                    bs.DisplayName != filenameOnly)
+                {
+                    loaded.DisplayName = bs.DisplayName;
+                }
+                if (!(bs.ColorA == 0 && bs.ColorR == 0 &&
+                      bs.ColorG == 0 && bs.ColorB == 0))
+                {
+                    loaded.Color = OxyColor.FromArgb(
+                        bs.ColorA, bs.ColorR, bs.ColorG, bs.ColorB);
+                }
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
@@ -826,6 +844,23 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return (id & IdeBit) == 0
             ? $"0x{id:X3}"
             : $"0x{id:X8}";
+    }
+
+    /// <summary>
+    /// v3.6.0 MINOR T1.A: read version from assembly metadata instead of
+    /// a hardcoded string. Mirrors the
+    /// <see cref="AppShellViewModel.WindowTitle"/> pattern. Strip a
+    /// trailing "+git&lt;sha&gt;" suffix that LocalBuilder adds so the
+    /// bundle round-trips cleanly across builds.
+    /// </summary>
+    private static string GetAppVersion()
+    {
+        var info = typeof(App).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        if (string.IsNullOrEmpty(info)) return "0.0.0";
+        var plus = info.IndexOf('+');
+        return plus > 0 ? info[..plus] : info;
     }
 
     /// <summary>

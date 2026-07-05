@@ -4,13 +4,13 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.5.5 — peer-review hardening PATCH (sandbox fix + Dispose
-> race test + ChannelRouter acquire-fence read + IFrameSink blocking
-> contract + ScriptEngine CAS interrupt + README sync).
-> See [Release Notes v3.5.5](docs/release-notes-v3.5.5.md) for the
-> PATCH summary. **~1098 unit tests pass** (404 Core + 84 Infrastructure
-> + ~610 App); 5 SKIP; 5 architecture rules enforced via NetArchTest;
-> CI runs on every push to `main`.
+> **Status:** v3.6.0 — `.tmtrace` UX completeness MINOR (AppShell File
+> menu Save/Open Session + Recent[5] MRU + auto-save on close with
+> restore-on-startup prompt + restore Color/DisplayName from v1
+> bundles). See [Release Notes v3.6.0](docs/release-notes-v3.6.0.md)
+> for the MINOR summary. **~1117 unit tests pass** (404 Core + 84
+> Infrastructure + ~629 App); 5 SKIP; 5 architecture rules enforced
+> via NetArchTest; CI runs on every push to `main`.
 
 ## Features (MVP)
 
@@ -19,6 +19,15 @@ and 1 Hz bus statistics.
   and release the hardware at any time via the **Disconnect** button.
 - **Trace view** — virtualized DataGrid of every received frame
   (timestamp, channel, ID, DLC, hex data, decoded row).
+- **Trace Viewer + session persistence (v3.6.0)** — open the Trace
+  Viewer from **View → Trace Viewer…**; load multiple `.asc` recordings
+  side-by-side, sync playback across them, and **File → Save Session…
+  / Open Session…** to save the whole multi-trace session to a
+  `.tmtrace` bundle (sources + per-source filter + playback cursor +
+  chart viewports). **File → Open Recent** keeps the last 5 bundles.
+  On app close, the current session is auto-saved to
+  `%APPDATA%/PeakCan.Host/trace-session.tmtrace`; on next startup the
+  app offers to restore it.
 - **DBC file load** — parse a `.dbc` file off the UI thread; populate a
   message table with sender, DLC, signal list.
 - **Signal view** — DBC-decoded live signals per message, with raw hex
