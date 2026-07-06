@@ -241,6 +241,15 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
             // list empty rather than throwing, mirroring the
             // TraceSessionLibrary.Load contract.
         }
+        // v3.8.6 PATCH H2: enforce the MaxEntries cap symmetric with Add.
+        // Pre-fix, a hand-edited persisted JSON (or a back-compat user
+        // upgrading from a pre-v3.6.0 build that did not enforce the cap)
+        // could land on a 6-10 entry list -- the MRU menu would show more
+        // than 5 entries until the next Add trimmed the tail.
+        if (_items.Count > MaxEntries)
+        {
+            _items.RemoveRange(MaxEntries, _items.Count - MaxEntries);
+        }
         Raise();
         return Task.CompletedTask;
     }

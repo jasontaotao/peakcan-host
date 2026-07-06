@@ -392,6 +392,108 @@ public class TraceViewerViewModelTests
         svcB.Received(1).Seek(9.0);  // proportional
     }
 
+    // ---------- v3.8.6 PATCH H1: SeekTo input validation (symmetry-miss of v3.8.4 L1) ----------
+
+    /// <summary>
+    /// v3.8.6 PATCH H1: <see cref="TraceViewerViewModel.SeekTo"/> (and the
+    /// underlying <c>SeekAllToProportionalTime</c> direct-call branch)
+    /// must clamp <c>t</c> to <c>[0, _masterService.TotalDuration]</c>.
+    /// The v3.8.4 L1 PATCH shipped the same clamp on
+    /// <c>ReplayViewModel.SeekTo</c> but missed the symmetric Trace
+    /// Viewer path. A WPF <c>TwoWay</c> slider binding (or programmatic
+    /// scrub) can push values outside the valid range -- passing through
+    /// with the raw value would walk the master's <c>_nextFrameIndex</c>
+    /// past <c>_frames.Count</c>, leaving no frame in range. With
+    /// <c>Loop=true</c>, the visible position jumps; with <c>Loop=false</c>,
+    /// playback silently stops.
+    /// </summary>
+    [Fact]
+    public void SeekTo_NegativeTimestamp_ClampsToZero()
+    {
+        // Same setup shape as SeekTo_ProportionalMapping_NonMasterAt30pctOf60s_IsAt15pctOf30s
+        // -- the ctor wires up the master service from the first registered source.
+        // ScrubberValue default is 0.0 from `[ObservableProperty]`; this test
+        // verifies Seek(0.0) reaches the master despite the in-range default,
+        // by performing an explicit "advance-to-something-different" seek first
+        // to put us mid-range (so OnScrubberValueChanged has a non-default
+        // baseline to detect the change from).
+        var registry = MakeFakeRegistry();
+        var svcMaster = MakeFakeService();
+        svcMaster.TotalDuration.Returns(60.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+        });
+        registry.GetService("a").Returns(svcMaster);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // Advance scrubber first so OnScrubberValueChanged has a non-default
+        // baseline. The negative SeekTo(-5.0) then flips ScrubberValue to a
+        // different clamped value (0.0 -> still 0.0 if ScrubberValue was 0,
+        // so we use 1.0 as the baseline).
+        sut.SeekTo(1.0);
+        svcMaster.Received(1).Seek(1.0);
+
+        // Negative seek is clamped at SeekAllToProportionalTime to 0.0.
+        sut.SeekTo(-5.0);
+        svcMaster.Received(1).Seek(0.0);
+    }
+
+    /// <summary>
+    /// v3.8.6 PATCH H1: <see cref="TraceViewerViewModel.SeekTo"/> with a
+    /// timestamp greater than the master's <c>TotalDuration</c> must
+    /// clamp to <c>TotalDuration</c>. Mirrors the v3.8.4 L1 Replay
+    /// pattern. Without the fix, the timeline walks past the last frame
+    /// and the next playback emits nothing (silent dead-end).
+    /// </summary>
+    [Fact]
+    public void SeekTo_TimestampBeyondTotalDuration_ClampsToMax()
+    {
+        var registry = MakeFakeRegistry();
+        var svcMaster = MakeFakeService();
+        svcMaster.TotalDuration.Returns(60.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+        });
+        registry.GetService("a").Returns(svcMaster);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.SeekTo(1.0e10);
+
+        svcMaster.Received(1).Seek(60.0);
+    }
+
+    /// <summary>
+    /// v3.8.6 PATCH H1: a positive-control test -- <see cref="TraceViewerViewModel.SeekTo"/>
+    /// with a valid in-range timestamp must NOT clamp. Pins the
+    /// non-regression path for the happy case so the clamp doesn't
+    /// mangle in-range slider values.
+    /// </summary>
+    [Fact]
+    public void SeekTo_InRangeTimestamp_PassesThroughUnchanged()
+    {
+        var registry = MakeFakeRegistry();
+        var svcMaster = MakeFakeService();
+        svcMaster.TotalDuration.Returns(60.0);
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "A", "C:/a.asc", OxyColors.Blue),
+        });
+        registry.GetService("a").Returns(svcMaster);
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.SeekTo(15.0);
+
+        svcMaster.Received(1).Seek(15.0);
+    }
+
     [Fact]
     public void SetSpeed_AppliesToAllServices()
     {

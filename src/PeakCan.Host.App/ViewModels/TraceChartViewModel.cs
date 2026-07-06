@@ -343,10 +343,14 @@ public sealed class TraceChartViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(viewports);
         // Group by EffectiveKey so a single key from the bundle maps to
         // exactly one (source, signal) pair. The bundle writer guarantees
-        // 1:1 already; the dict lookup is defensive against duplicates.
+        // 1:1 already; the GroupBy.Last() pick is defensive against
+        // duplicates -- a hand-edited or producer-bug-crafted bundle with
+        // two entries sharing an EffectiveKey no longer crashes
+        // ApplyViewports via ToDictionary's duplicate-key throw.
         var byKey = viewports
             .Where(v => !string.IsNullOrEmpty(v.EffectiveKey))
-            .ToDictionary(v => v.EffectiveKey, v => v, StringComparer.Ordinal);
+            .GroupBy(v => v.EffectiveKey, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.Ordinal);
         var anyFocused = byKey.Values.Any(v => v.IsFocused);
         var anyCollapsed = byKey.Values.Any(v => v.IsCollapsed);
         var changed = false;

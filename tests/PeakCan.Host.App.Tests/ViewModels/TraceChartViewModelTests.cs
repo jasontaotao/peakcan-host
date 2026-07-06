@@ -1,5 +1,6 @@
 using FluentAssertions;
 using OxyPlot;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
 
@@ -268,5 +269,57 @@ public class TraceChartViewModelTests
         // SignalB: data 1..2, range 1, padding 0.05, axis 0.95..2.05
         yB.Minimum.Should().BeApproximately(0.95, 0.001);
         yB.Maximum.Should().BeApproximately(2.05, 0.001);
+    }
+
+    // ---------- v3.8.6 PATCH L1: ApplyViewports tolerates duplicate EffectiveKey ----------
+
+    /// <summary>
+    /// v3.8.6 PATCH L1: <see cref="TraceChartViewModel.ApplyViewports"/>
+    /// must NOT throw <c>ArgumentException</c> when the bundle's viewport
+    /// list contains two entries with the same <see cref="BundleViewportDto.EffectiveKey"/>.
+    /// The inline XML doc at line 344 claims "defensive against duplicates"
+    /// but the implementation used <c>ToDictionary(...)</c> which throws
+    /// on duplicate keys (since .NET 9+). A hand-edited or
+    /// producer-bug-crafted bundle with duplicate keys would crash
+    /// <c>ApplyViewports</c> mid-restore, propagating up through the
+    /// bundle-open call chain (no try/catch in any of the wrappers) and
+    /// surfacing as an unhandled exception in the user's WPF dispatcher.
+    /// <para>
+    /// Fix: <c>GroupBy(...).ToDictionary(g =&gt; g.Key, g =&gt; g.Last())</c>
+    /// so the last entry wins. Bundle writer guarantees 1:1 so the
+    /// behavior change is invisible in the happy path; the documented
+    /// duplicate-defense now actually defends.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ApplyViewports_WithDuplicateEffectiveKeys_DoesNotThrow_LastWins()
+    {
+        var sut = new TraceChartViewModel();
+        var s = MakeSeries("A", (0, 10), (1, 20), (2, 30));
+        sut.AddSeries(s);
+
+        // Two entries with the SAME EffectiveKey (matches the series just
+        // added so the dict lookup path applies). The second has a wider
+        // XMax that should win under "last-wins" GroupBy semantics.
+        var viewports = new[]
+        {
+            new BundleViewportDto
+            {
+                EffectiveKey = s.EffectiveKey,
+                XMin = 0.0,
+                XMax = 30.0,
+            },
+            new BundleViewportDto
+            {
+                EffectiveKey = s.EffectiveKey,
+                XMin = 0.0,
+                XMax = 60.0,  // LAST wins under GroupBy.Last()
+            },
+        };
+
+        // Act -- must not throw.
+        var act = () => sut.ApplyViewports(viewports);
+        act.Should().NotThrow<ArgumentException>(
+            "ApplyViewports must tolerate duplicate EffectiveKeys (defensive against hand-crafted bundles)");
     }
 }

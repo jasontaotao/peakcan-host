@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -169,6 +170,49 @@ public sealed class RecentSessionsServiceTests : IDisposable
         second.Recent[1].Path.Should().Be(@"C:\sessions\highway.tmtrace");
         second.Recent[0].Label.Should().Be("drive_downtown.tmtrace");
         second.Recent[1].Label.Should().Be("highway.tmtrace");
+    }
+
+    // ---------- v3.8.6 PATCH H2: LoadAsync MaxEntries cap ----------
+
+    /// <summary>
+    /// v3.8.6 PATCH H2: <see cref="RecentSessionsService.LoadAsync"/>
+    /// must enforce the same <see cref="RecentSessionsService.MaxEntries"/>
+    /// cap that <see cref="RecentSessionsService.Add"/> enforces. Pre-fix,
+    /// a hand-edited persisted JSON (or a back-compat user upgrading from
+    /// a pre-v3.6.0 build that did not enforce the cap) could land on a
+    /// list of 6-10 entries -- the MRU menu would show more than 5 items
+    /// until the next <c>Add</c> operation trimmed the tail. The cap
+    /// must be symmetric across both code paths.
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_FileExceedsMaxEntries_TrimsToCap()
+    {
+        // Arrange: persist an 7-entry JSON file before constructing the
+        // service (simulates a hand-edited or upgrade-from-old-version list).
+        var path = NewRecentPath();
+        var dto = new RecentSessionsService.Envelope
+        {
+            Schema = "recent-sessions/v1",
+            Recent = Enumerable.Range(0, 7).Select(i => new RecentSessionDto(
+                $@"C:\sessions\file{i}.tmtrace",
+                $"file{i}.tmtrace",
+                DateTimeOffset.UtcNow.AddMinutes(-i),
+                "trace")).ToList(),
+        };
+        var json = JsonSerializer.Serialize(dto);
+        File.WriteAllText(path, json);
+
+        // Act
+        var svc = NewService(path);
+        await svc.LoadAsync(CancellationToken.None);
+
+        // Assert — exactly MaxEntries (5 newest by SavedAt) survive.
+        svc.Recent.Should().HaveCount(RecentSessionsService.MaxEntries,
+            "LoadAsync must enforce the MaxEntries cap symmetric with Add");
+        // Newest (file0, most-recent SavedAt) lands at top, oldest
+        // (file4) at bottom of the kept set; file5 + file6 dropped.
+        svc.Recent[0].Path.Should().EndWith("file0.tmtrace");
+        svc.Recent[^1].Path.Should().EndWith("file4.tmtrace");
     }
 
     // ---------- v3.7.0 MINOR Chunk 2: viewType discriminator ----------

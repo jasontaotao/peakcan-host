@@ -275,9 +275,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public void SeekTo(double t)
     {
-        // Setting ScrubberValue fires OnScrubberValueChanged, which calls
-        // SeekAllToProportionalTime. Doing the seek here too would double-call
-        // every service — single source of truth is the scrubber change handler.
+        // v3.8.6 PATCH H1: clamp is in SeekAllToProportionalTime
+        // (defense-in-depth with v3.8.4 L1 Replay-tab pattern). The
+        // ScrubberValue setter is left raw so the slider thumb reflects
+        // what the user actually typed/programmatic; the timeline-side
+        // clamp rejects out-of-range values before they reach the
+        // service. Doing the seek here too would double-call every
+        // service — single source of truth is the scrubber change handler.
         ScrubberValue = t;
     }
 
@@ -633,21 +637,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // positioned at the proportional point of its own total duration.
     // Formula: nonMaster.t = (master.t / master.totalDuration) * nonMaster.totalDuration.
     // Clamp ratio to [0, 1] to handle transient slider overshoot.
+    // v3.8.6 PATCH H1: also clamp masterT to [0, masterDur] before the
+    // master branch svc.Seek(masterT) call. Symmetric-miss of the v3.8.4
+    // L1 Replay-tab clamp; the comment at the call site said "ratio"
+    // clamp handles overshoot, but the master direct-seek got the raw
+    // (potentially out-of-range) value, leaving no frame in range after
+    // the timeline walked past _frames.Count.
     private void SeekAllToProportionalTime(double masterT)
     {
         if (_masterService is null) return;
         var masterDur = _masterService.TotalDuration;
         if (masterDur <= 0)
         {
+            // No total duration to clamp against -- defensively drop negatives.
+            if (masterT < 0) masterT = 0;
             _masterService.Seek(masterT);
             return;
         }
-        var ratio = Math.Clamp(masterT / masterDur, 0.0, 1.0);
+        var clampedMasterT = Math.Clamp(masterT, 0.0, masterDur);
+        var ratio = Math.Clamp(clampedMasterT / masterDur, 0.0, 1.0);
         foreach (var (sourceId, svc) in _allServices)
         {
             if (sourceId == MasterSourceId)
             {
-                svc.Seek(masterT);
+                svc.Seek(clampedMasterT);
             }
             else
             {
