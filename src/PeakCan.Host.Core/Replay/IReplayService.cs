@@ -117,4 +117,22 @@ public interface IReplayService
 
     /// <summary>Stop playback and reset to t=0.</summary>
     void Stop();
+
+    /// <summary>
+    /// v3.8.4 PATCH H2: drop the loaded frame buffer and reset internal
+    /// timeline state without starting or stopping playback. Used by
+    /// <c>ReplayViewModel.OpenSessionAsync</c> when a multi-source bundle
+    /// fails to load (any source missing) — the VM-side bindable surface
+    /// is cleared in the missing branch, but the service-side
+    /// <see cref="Frames"/> list still holds whatever source succeeded
+    /// last. Calling <c>Reset()</c> here keeps the service's authoritative
+    /// state in sync with the VM's reported <c>IsLoaded = false</c>.
+    /// <para>
+    /// Distinct from <see cref="Stop"/>: <c>Stop</c> halts the timer and
+    /// resets the cursor to t=0 but does NOT clear <c>_frames</c>.
+    /// <c>Reset</c> clears <c>_frames</c> in addition to stopping the
+    /// timeline, leaving the service in a "no file loaded" state.
+    /// </para>
+    /// </summary>
+    void Reset();
 }

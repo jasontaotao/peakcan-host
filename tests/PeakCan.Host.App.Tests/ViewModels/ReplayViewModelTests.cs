@@ -1768,4 +1768,194 @@ public class ReplayViewModelTests : IDisposable
             try { File.Delete(bundlePath); } catch { /* best effort */ }
         }
     }
+
+    // ---------- v3.8.4 PATCH H1: OpenAsync cancellation teardown ----------
+
+    /// <summary>
+    /// v3.8.4 PATCH H1: when <see cref="IReplayService.LoadAsync"/> throws
+    /// <see cref="OperationCanceledException"/> (e.g. app-shutdown CTS
+    /// cancel propagates through the parse, or the user-initiated parse
+    /// pre-empted by a different command), the VM must clear the
+    /// bindable surface — same teardown shape as <see cref="ReplayException"/>
+    /// — but without populating <c>ErrorMessage</c> (a cancel is not a
+    /// user-hostile error). Pre-fix, the catch block at line 415 only
+    /// matched <c>ReplayException</c>; <c>OperationCanceledException</c>
+    /// propagated uncaught through the <c>async void</c> command
+    /// pipeline into WPF's DispatcherUnhandledException handler. The VM
+    /// was left with stale <c>LoadedFilePath</c> / <c>IsLoaded</c> /
+    /// <c>TotalDuration</c> / <c>ScrubberMaxValue</c> from the prior
+    /// load while the new file's <c>_frames</c> field was empty (because
+    /// <c>await _service.LoadAsync</c> threw before line 131 fired).
+    /// </summary>
+    [Fact]
+    public async Task OpenAsync_OperationCanceled_ClearsBindableStateAndDoesNotPopulateError()
+    {
+        // Pre-condition: seed a previously-loaded state so the teardown
+        // is observable (otherwise the assertions below pass trivially).
+        _sut.LoadedFilePath = "/tmp/previous.asc";
+        _sut.TotalDuration = 7.5;
+        _sut.ScrubberMaxValue = 7.5;
+        _sut.IsLoaded = true;
+
+        _fileDialog.ShowOpenDialog(Arg.Any<string>()).Returns("/tmp/cancelled.asc");
+        _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromCanceled(new CancellationToken(true)));
+
+        await _sut.OpenCommand.ExecuteAsync(null);
+
+        // Teardown: bindable surface mirrors the ReplayException catch shape.
+        _sut.IsLoaded.Should().BeFalse("OperationCanceledException must clear IsLoaded");
+        _sut.LoadedFilePath.Should().BeNull("OperationCanceledException must clear LoadedFilePath");
+        _sut.TotalDuration.Should().Be(0.0, "OperationCanceledException must clear TotalDuration");
+        _sut.ScrubberMaxValue.Should().Be(0.0, "OperationCanceledException must clear ScrubberMaxValue");
+
+        // No ErrorMessage: cancel is not an error.
+        _sut.ErrorMessage.Should().BeNull(
+            "OperationCanceledException must NOT populate ErrorMessage — cancel is not a user-hostile failure");
+    }
+
+    // ---------- v3.8.4 PATCH H2: OpenSessionAsync partial-failure → service-state reset ----------
+
+    /// <summary>
+    /// v3.8.4 PATCH H2: when <see cref="ReplayViewModel.OpenSessionAsync"/>
+    /// enters the failure teardown branch (any source fails to load), the
+    /// VM must call <see cref="IReplayService.Reset"/> to clear the
+    /// service-side frame buffer. v3.8.3 H1 only cleared the VM-side
+    /// bindable surface but left the service's <c>_frames</c> populated
+    /// with whatever source succeeded last (in a multi-source bundle,
+    /// source #1 succeeded → its frames are held in the service; source
+    /// #2 threw → we entered the missing branch). Subsequent code
+    /// inspecting <c>_service.Frames.Count</c> would observe the stale
+    /// source #1 frames even though the VM reports <c>IsLoaded == false</c>.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_MultiSourceAllFail_CallsServiceResetOnFailure()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new() { SourceId = "s1", DisplayName = "s1", Path = "C:/nonexistent1.asc" },
+            new() { SourceId = "s2", DisplayName = "s2", Path = "C:/nonexistent2.asc" },
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"srvcreset-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromException(new ReplayLoadException("not found")));
+
+            var missing = await _sut.OpenSessionAsync(bundlePath);
+
+            missing.Should().HaveCount(2, "both sources fail");
+            // v3.8.4 H2: the service-side frame buffer must be cleared.
+            _service.Received(1).Reset();
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.8.4 PATCH H2: when <see cref="ReplayViewModel.OpenSessionAsync"/>
+    /// completes successfully (all sources resolved cleanly), the VM
+    /// must NOT call <see cref="IReplayService.Reset"/> — the latest
+    /// source's frames are the authoritative state.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_AllSourcesLoad_DoesNotCallServiceReset()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new() { SourceId = "s1", DisplayName = "s1", Path = "C:/ok1.asc" },
+            new() { SourceId = "s2", DisplayName = "s2", Path = "C:/ok2.asc" },
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"srvcresetok-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(3.0);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            _service.DidNotReceive().Reset();
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    // ---------- v3.8.4 PATCH L1: SeekTo input validation ----------
+
+    /// <summary>
+    /// v3.8.4 PATCH L1: <see cref="ReplayViewModel.SeekToCommand"/> must
+    /// clamp <c>timestamp</c> to <c>[0, _service.TotalDuration]</c>.
+    /// Negative values arrive from the WPF slider when the binding
+    /// momentarily desyncs during an <c>IsLoaded</c> flip — passing
+    /// through with the raw value would set <c>_service.CurrentTimestamp</c>
+    /// negative and walk <c>_nextFrameIndex</c> to 0 (no-op seek
+    /// observable), but the bindable <c>CurrentTimestamp</c> would hold
+    /// a value WPF can't render on the scrubber.
+    /// </summary>
+    [Fact]
+    public void SeekTo_NegativeTimestamp_ClampsToZero()
+    {
+        _service.TotalDuration.Returns(5.0);
+
+        _sut.SeekToCommand.Execute(-2.5);
+
+        _service.Received(1).Seek(0.0);
+        _sut.CurrentTimestamp.Should().Be(0.0, "VM CurrentTimestamp reflects the clamped value");
+    }
+
+    /// <summary>
+    /// v3.8.4 PATCH L1: <see cref="ReplayViewModel.SeekToCommand"/> must
+    /// clamp <c>timestamp</c> to <c>[0, _service.TotalDuration]</c>.
+    /// The WPF slider pulls <c>CurrentTimestamp</c> back to <c>Maximum</c>
+    /// on display, but a <c>TwoWay</c> binding can push
+    /// <c>Value &gt; Maximum</c> through (programmatic, drag-past, or
+    /// numeric-text-entry edge cases) — passing through with the raw
+    /// value would leave the VM reporting a position the timeline
+    /// could never emit from (slider thumb at MAX, timeline silent).
+    /// </summary>
+    [Fact]
+    public void SeekTo_TimestampBeyondTotalDuration_ClampsToMax()
+    {
+        _service.TotalDuration.Returns(5.0);
+
+        _sut.SeekToCommand.Execute(1.0e10);
+
+        _service.Received(1).Seek(5.0);
+        _sut.CurrentTimestamp.Should().Be(5.0, "VM CurrentTimestamp reflects the clamped value");
+    }
+
+    /// <summary>
+    /// v3.8.4 PATCH L1: <see cref="ReplayViewModel.SeekToCommand"/> with
+    /// a valid timestamp inside <c>[0, _service.TotalDuration]</c> must
+    /// pass through unchanged (the clamp is a no-op for the in-range case).
+    /// </summary>
+    [Fact]
+    public void SeekTo_InRangeTimestamp_PassesThroughUnchanged()
+    {
+        _service.TotalDuration.Returns(5.0);
+
+        _sut.SeekToCommand.Execute(2.5);
+
+        _service.Received(1).Seek(2.5);
+        _sut.CurrentTimestamp.Should().Be(2.5);
+    }
 }

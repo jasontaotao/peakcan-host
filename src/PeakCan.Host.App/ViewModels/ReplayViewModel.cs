@@ -387,6 +387,18 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// <see cref="ReplayException"/> (load + format) and surfaces the
     /// message via <see cref="ErrorMessage"/>; any other exception
     /// propagates so the WPF host can decide how to handle it.
+    /// <para>
+    /// v3.8.4 PATCH H1: also catches <see cref="OperationCanceledException"/>
+    /// (e.g. app-shutdown CTS cancel propagates through the parse, or a
+    /// user-initiated parse is pre-empted by a different command) with
+    /// the same teardown shape as <see cref="ReplayException"/> but
+    /// without populating <c>ErrorMessage</c> — a cancel is not a
+    /// user-hostile failure. Pre-fix, the catch only matched
+    /// <c>ReplayException</c>; <c>OperationCanceledException</c>
+    /// propagated uncaught through the <c>async void</c> command
+    /// pipeline into WPF's DispatcherUnhandledException handler,
+    /// leaving the VM with stale bindable state from the prior load.
+    /// </para>
     /// </summary>
     [RelayCommand]
     private async Task OpenAsync()
@@ -411,6 +423,18 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             StartTimestamp = null;
             EndTimestamp = null;
             RangeFilterError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            // v3.8.4 PATCH H1: same teardown as ReplayException, but no
+            // ErrorMessage (cancel is not a user-hostile failure).
+            // Symmetric to the OpenSessionAsync failure branch (v3.8.3
+            // H1) — VM-side bindable surface goes back to a clean
+            // "not loaded" state so the transport bar greys out.
+            IsLoaded = false;
+            LoadedFilePath = null;
+            TotalDuration = 0.0;
+            ScrubberMaxValue = 0.0;
         }
         catch (ReplayException ex)
         {
@@ -466,12 +490,25 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// Jump to an absolute timestamp. Updates
     /// <see cref="CurrentTimestamp"/> immediately so the slider thumb
     /// tracks without waiting for the next timer tick.
+    /// <para>
+    /// v3.8.4 PATCH L1: clamps <c>timestamp</c> to
+    /// <c>[0, _service.TotalDuration]</c> before forwarding to the
+    /// service. The WPF slider's <c>TwoWay</c> binding can push values
+    /// outside this range (drag-past-max, programmatic, numeric-text
+    /// entry, momentary desync during an <c>IsLoaded</c> flip). Passing
+    /// the raw value through leaves the VM reporting a position the
+    /// timeline could never emit from (slider thumb at MAX, playback
+    /// silent for unbounded time). Mirrors the <see cref="SetSpeed"/>
+    /// non-positive-multiplier guard — the VM owns input validation to
+    /// keep the service free of out-of-range concerns.
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void SeekTo(double timestamp)
     {
-        _service.Seek(timestamp);
-        CurrentTimestamp = timestamp;
+        var clamped = Math.Clamp(timestamp, 0.0, _service.TotalDuration);
+        _service.Seek(clamped);
+        CurrentTimestamp = clamped;
     }
 
     /// <summary>
@@ -656,8 +693,17 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         // misleading "loaded with error banner" state, and SKIP the
         // playback-envelope restore (bundle state is meaningless
         // without the sources it references).
+        // v3.8.4 PATCH H2: extend the teardown to also reset the
+        // service-side frame buffer. v3.8.3 H1 only cleared VM-side
+        // state; in a multi-source partial-success bundle (source #1
+        // loads fine, source #2 throws), the service's _frames list
+        // is left populated with source #1's data even though the VM
+        // reports IsLoaded=false. Calling _service.Reset() drops the
+        // frames + stops the timeline so the service's authoritative
+        // state matches the VM's reported state.
         if (missing.Count > 0)
         {
+            _service.Reset();
             IsLoaded = false;
             LoadedFilePath = null;
             TotalDuration = 0.0;

@@ -554,4 +554,53 @@ base 0x7e0 500k
             File.Delete(path2);
         }
     }
+
+    // ---------- v3.8.4 PATCH H2: service-state Reset ----------
+
+    /// <summary>
+    /// v3.8.4 PATCH H2: <see cref="IReplayService.Reset"/> drops the
+    /// loaded frame buffer and leaves the service in the same "no file
+    /// loaded" state as a freshly-constructed instance. After
+    /// <c>Reset</c>, <see cref="IReplayService.Frames"/> is empty and
+    /// <see cref="IReplayService.TotalDuration"/> is 0.0.
+    /// <para>
+    /// Distinct from <see cref="IReplayService.Stop"/>, which halts the
+    /// timer but preserves <c>_frames</c> so a subsequent
+    /// <c>Play()</c> can resume. <c>Reset</c> is the "post-failure
+    /// teardown" primitive — used by <c>ReplayViewModel.OpenSessionAsync</c>
+    /// when a multi-source bundle fails to load.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Reset_AfterLoad_DropsFrameBufferAndZerosTotalDuration()
+    {
+        var path = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 0.500000 51  200  4  01 02 03 04
+ 1.000000 51  300  2  AA BB
+");
+        try
+        {
+            var sink = new FakeReplayFrameSink();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+            await service.LoadAsync(path);
+
+            // Pre-condition: load populated Frames + TotalDuration.
+            service.Frames.Should().HaveCount(3, "ASC had 3 data lines");
+            service.TotalDuration.Should().Be(1.0);
+
+            service.Reset();
+
+            // Post-condition: Frames empty + TotalDuration zeroed.
+            service.Frames.Should().BeEmpty("Reset drops the frame buffer");
+            service.TotalDuration.Should().Be(0.0, "TotalDuration derived from last frame's timestamp → 0.0");
+            service.State.Should().Be(ReplayState.Stopped, "Reset stops the timer");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

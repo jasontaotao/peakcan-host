@@ -138,6 +138,26 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     public void SetSpeed(double multiplier) => _timeline.SetSpeed(multiplier);
     public void Stop() => _timeline.Stop();
 
+    /// <summary>
+    /// v3.8.4 PATCH H2: drop the loaded frame buffer and reset the
+    /// internal timeline. After <c>Reset</c>, <see cref="Frames"/> is
+    /// empty and <see cref="TotalDuration"/> is 0.0; the service is in
+    /// the same "no file loaded" state as a freshly-constructed instance
+    /// (the timer is stopped by <c>_timeline.Stop()</c>).
+    /// <para>
+    /// Used by <c>ReplayViewModel.OpenSessionAsync</c> on the
+    /// failure-teardown branch. Distinct from <see cref="Stop"/>, which
+    /// only halts the timer (frames are preserved so a subsequent
+    /// <c>Play()</c> can resume).
+    /// </para>
+    /// </summary>
+    public void Reset()
+    {
+        _timeline.Stop();
+        _frames = Array.Empty<ReplayFrame>();
+        _timeline.SetFrames(_frames);
+    }
+
     private void EmitFrame(ReplayFrame frame)
     {
         // v1.5.0 MINOR Task 4: tri-state CAN-ID filter. null = pass all;
