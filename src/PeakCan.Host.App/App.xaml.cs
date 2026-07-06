@@ -6,6 +6,7 @@ using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Serilog;
+using SerilogLogger = Serilog.ILogger;
 
 namespace PeakCan.Host.App;
 
@@ -145,34 +146,20 @@ public partial class App : Application
         // time to finish; the OS reaps the process if shutdown still
         // hangs. OnExit is the only call site where we tolerate
         // exceptions during teardown — the process is exiting anyway.
+        // v3.6.2 PATCH: the auto-save pre-flush + host-stop sequence
+        // is extracted into <see cref="RunShutdownAsync"/> for unit
+        // testability. The dispose in the finally remains here so the
+        // caller still owns host lifetime.
         if (_host is not null)
         {
-            // v3.6.0 MINOR T2: best-effort auto-save BEFORE host teardown so
-            // we never lose the user's current session. 5s cap so we don't
-            // blow the 10s shutdown budget if the disk is slow. Failures
-            // are logged at Warning — auto-save must never crash OnExit.
             try
             {
-                var autoSaver = _host.Services.GetService<TraceSessionAutoSaver>();
-                if (autoSaver is not null)
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await autoSaver.TrySaveAutoSnapshotAsync(cts.Token)
-                        .ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Logger.Warning(ex, "Trace auto-save failed during OnExit");
-            }
-
-            try
-            {
-                await _host.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Log.Logger.Error(ex, "IHost.StopAsync threw during OnExit");
+                await RunShutdownAsync(
+                    _host,
+                    sp => sp.GetService<TraceSessionAutoSaver>(),
+                    TimeSpan.FromSeconds(5),
+                    TimeSpan.FromSeconds(10),
+                    Log.Logger).ConfigureAwait(false);
             }
             finally
             {
@@ -182,6 +169,79 @@ public partial class App : Application
             }
         }
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// v3.6.2 PATCH: extracted shutdown sequence so the auto-save /
+    /// host-stop ordering can be unit-tested without spinning up the
+    /// full WPF host. <paramref name="autoSaverResolver"/> is
+    /// injectable so tests can return a stub <see cref="TraceSessionAutoSaver"/>
+    /// without a real <see cref="IServiceProvider"/>. <paramref name="logger"/>
+    /// is explicit so the static <see cref="Log.Logger"/> lookup is
+    /// never invoked from the test path. Both timeouts are explicit so
+    /// the test can pass zero / near-zero durations.
+    /// <para>
+    /// <b>Ordering contract:</b> auto-save runs to completion (or
+    /// times out) BEFORE <see cref="IHost.StopAsync"/> is called. The
+    /// auto-saver resolves the live <see cref="TraceViewerViewModel"/>
+    /// through its own DI provider; if <c>StopAsync</c> ran first the
+    /// service provider would be disposed and the resolver would
+    /// return null, silently skipping the save.
+    /// </para>
+    /// <para>
+    /// <b>Exception contract:</b> exceptions during auto-save are
+    /// caught and logged at Warning (auto-save must never crash
+    /// shutdown); exceptions during <c>StopAsync</c> are caught and
+    /// logged at Error (host teardown failures are tolerated on the
+    /// exit path). The method does NOT dispose the host — that is the
+    /// caller's responsibility.
+    /// </para>
+    /// </summary>
+    internal static async Task RunShutdownAsync(
+        IHost host,
+        Func<IServiceProvider, TraceSessionAutoSaver?> autoSaverResolver,
+        TimeSpan autoSaveTimeout,
+        TimeSpan hostStopTimeout,
+        SerilogLogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(autoSaverResolver);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        // Pre-flush: best-effort auto-save BEFORE host teardown so we
+        // never lose the user's current session. Cap so we don't blow
+        // the shutdown budget if the disk is slow.
+        try
+        {
+            var autoSaver = autoSaverResolver(host.Services);
+            if (autoSaver is not null)
+            {
+                using var cts = new CancellationTokenSource(autoSaveTimeout);
+                await autoSaver.TrySaveAutoSnapshotAsync(cts.Token)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning(ex, "Trace auto-save failed during OnExit");
+        }
+
+        // Host stop: graceful teardown of hosted services. We call
+        // the IHostedService StopAsync(CancellationToken) overload
+        // directly (instead of the IHost.StopAsync(TimeSpan) DIM)
+        // so unit tests can substitute IHost without worrying about
+        // default-interface-method dispatch. The CancellationToken
+        // cancellation is enforced by a linked CTS — the same
+        // shape the DIM uses internally — so behavior is preserved.
+        using var stopCts = new CancellationTokenSource(hostStopTimeout);
+        try
+        {
+            await host.StopAsync(stopCts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "IHost.StopAsync threw during OnExit");
+        }
     }
 
     /// <summary>
