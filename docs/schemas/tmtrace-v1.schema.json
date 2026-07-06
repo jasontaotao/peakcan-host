@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://peakcan.local/schemas/tmtrace-v1.schema.json",
   "title": "Trace Viewer Session Bundle (tmtrace/v1)",
-  "description": "v1 of the .tmtrace multi-trace Trace Viewer session bundle. Path-reference only for .asc and DBC files; recordings are NOT embedded. JSON encoding is UTF-8 with BOM, written atomically (tmp + rename) by TraceSessionLibrary.Save. Round-tripped by TraceSessionLibrary.Load. See docs/release-notes-v3.5.0.md for the format design and docs/release-notes-v3.6.0.md for the v1 restore-Color/DisplayName semantics, and docs/release-notes-v3.6.4.md for the v3.6.4 hash-based .asc relocation feature (each BundleSourceDto may carry an optional 'contentHash' SHA-256 fingerprint; if the recorded 'path' is missing at load time the consumer may search a user-known directory list for a relocated copy whose hash matches). Forward-compat: adding new top-level or nested fields is non-breaking (System.Text.Json ignores unknown keys on deserialize); the schema sets additionalProperties=true to allow the producer to write fields a strict consumer might not know about. Renaming or removing fields IS a breaking change and requires a schema bump.",
+  "description": "v1 of the .tmtrace multi-trace Trace Viewer session bundle, also used by the Replay tab (v3.7.0) as a degenerate single-source case (sources: [1], most multi-trace fields empty). Path-reference only for .asc and DBC files; recordings are NOT embedded. JSON encoding is UTF-8 with BOM, written atomically (tmp + rename) by TraceSessionLibrary.Save. Round-tripped by TraceSessionLibrary.Load. See docs/release-notes-v3.5.0.md for the format design, docs/release-notes-v3.6.0.md for the v1 restore-Color/DisplayName semantics, docs/release-notes-v3.6.4.md for the v3.6.4 hash-based .asc relocation feature, and docs/release-notes-v3.7.0.md for the v3.7.0 Replay tab adoption (each BundleSourceDto may carry an optional 'contentHash' SHA-256 fingerprint; the playback envelope carries an optional 'replayCanIdFilterText' field for the Replay tab's CAN-ID filter; if the recorded 'path' is missing at load time the consumer may search a user-known directory list for a relocated copy whose hash matches). Forward-compat: adding new top-level or nested fields is non-breaking (System.Text.Json ignores unknown keys on deserialize); the schema sets additionalProperties=true to allow the producer to write fields a strict consumer might not know about. Renaming or removing fields IS a breaking change and requires a schema bump.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -164,6 +164,10 @@
         "endTimestamp": {
           "description": "Upper bound of the visible trace range, or null for 'no upper bound'. Same units as scrubberValue.",
           "type": ["number", "null"]
+        },
+        "replayCanIdFilterText": {
+          "description": "v3.7.0 MINOR: Replay-tab CAN-ID filter text (free-form, comma- or whitespace-separated decimal/hex tokens). Persisted alongside the playback envelope because the filter is a transport-state concern for the Replay tab (it affects what frames are emitted), not a per-source display concern. The Trace Viewer keeps its filter on BundleSourceDto.canIdFilter (per-source) and TraceSessionBundleDto.globalCanIdFilter (global); the Replay tab has only the single source, so a sibling field on the playback envelope is the right shape. Default = empty string (= no filter). Forward-compat: deserializers that do not know this field get an empty string, which matches 'no filter' and is a safe no-op.",
+          "type": "string"
         }
       }
     },

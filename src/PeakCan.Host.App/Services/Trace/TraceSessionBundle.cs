@@ -117,6 +117,26 @@ public sealed class BundlePlaybackDto
 
     [JsonPropertyName("endTimestamp")]
     public double? EndTimestamp { get; set; }
+
+    /// <summary>
+    /// v3.7.0 MINOR: Replay-tab CAN-ID filter text (free-form,
+    /// comma- or whitespace-separated decimal/hex tokens). Persisted
+    /// alongside the playback envelope because the filter is a
+    /// transport-state concern for the Replay tab (it affects what
+    /// frames are emitted), not a per-source display concern. The
+    /// Trace Viewer keeps its filter on
+    /// <see cref="BundleSourceDto.CanIdFilter"/> (per-source) and
+    /// <see cref="TraceSessionBundleDto.GlobalCanIdFilter"/> (global);
+    /// the Replay tab has only the single source, so a sibling field
+    /// on the playback envelope is the right shape.
+    /// <para>
+    /// Default = empty string (= no filter). Forward-compat:
+    /// deserializers that don't know this field get an empty string,
+    /// which matches "no filter" and is a safe no-op.
+    /// </para>
+    /// </summary>
+    [JsonPropertyName("replayCanIdFilterText")]
+    public string ReplayCanIdFilterText { get; set; } = "";
 }
 
 /// <summary>Per-series chart viewport (X-axis range + focus/collapse).

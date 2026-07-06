@@ -1,7 +1,14 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -34,6 +41,27 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
 {
     private readonly IReplayService _service;
     private readonly IFileDialogService _fileDialog;
+    // v3.7.0 MINOR Chunk 1 T1: SHA-256 hasher used by BuildSnapshot to
+    // stamp the .asc's contentHash into the bundle. Mirrors
+    // TraceViewerViewModel._hasher (v3.6.4 PATCH). Optional at ctor
+    // time? No — required: production wires Sha256AscContentHasher, tests
+    // inject a NSubstitute that returns canned hex.
+    private readonly IAscContentHasher _hasher;
+    // v3.7.0 MINOR Chunk 1 T1: locator consulted during OpenSessionAsync
+    // when the recorded .asc path is missing. Empty contentHash skips
+    // the locator (path-only resolution path, matching v3.6.4 PATCH).
+    private readonly IAscLocator _ascLocator;
+    // v3.7.0 MINOR Chunk 1 T1+T2: bundle persistence. Save uses
+    // .Save(snapshot, path); Open uses .Load(path) which returns null
+    // for missing/corrupt bundles. Same library as the Trace Viewer
+    // uses (the .tmtrace schema is shared).
+    private readonly TraceSessionLibrary _library;
+    // v3.7.0 MINOR Chunk 1 T2: MRU list. SaveCommand adds the saved
+    // path; the Recent submenu binding (chunk 2) reads it. The
+    // viewType="replay" overload is added in chunk 2 — for now we use
+    // the default ("trace") which the chunk-2 implementer will swap.
+    private readonly RecentSessionsService _recentSessions;
+    private readonly ILogger<ReplayViewModel> _logger;
     // v1.4.0 MINOR Task 4 (memory I-5 follow-up): FrameEmitted fires on
     // the timeline's timer thread. We must Post the binding update back
     // to the captured UI context or WPF will throw. Null is a valid
@@ -177,14 +205,64 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     public bool IsNotLoaded => !IsLoaded;
 
     /// <summary>
+    /// v3.7.0 MINOR Chunk 2: VM-side projection of
+    /// <see cref="RecentSessionDto"/> for the Replay tab's Open Recent
+    /// submenu. <see cref="Path"/> is the CommandParameter for
+    /// <see cref="OpenRecentSessionCommand"/>; <see cref="Label"/> is the
+    /// menu header text. Lives nested inside
+    /// <see cref="ReplayViewModel"/> because the Replay tab owns its own
+    /// filter (replay entries only) — mirroring
+    /// <see cref="AppShellViewModel.RecentSessionVm"/> keeps the two
+    /// surfaces symmetric. Declared public because
+    /// <see cref="RecentSessionEntries"/> exposes
+    /// <c>ObservableCollection&lt;RecentSessionVm&gt;</c> as a public
+    /// type, and a less-accessible element on a public collection
+    /// trips CS0053.
+    /// </summary>
+    public sealed record RecentSessionVm(string Path, string Label);
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: XAML binding source for the Replay tab's
+    /// Open Recent submenu. Rebuilt from
+    /// <see cref="RecentSessionsService.Recent"/> (filtered to replay
+    /// entries) whenever the service raises
+    /// <see cref="System.ComponentModel.INotifyPropertyChanged.PropertyChanged"/>
+    /// (Add / Remove / Clear / LoadAsync). Visible to the
+    /// <c>RecentSessionEntries</c> property setter — CommunityToolkit.Mvvm
+    /// requires the backing field to be private.
+    /// </summary>
+    public ObservableCollection<RecentSessionVm> RecentSessionEntries { get; } = new();
+
+    /// <summary>
     /// Construct the VM. Capture <see cref="SynchronizationContext.Current"/>
     /// so the <see cref="IReplayService.FrameEmitted"/> callback can
     /// marshal binding updates to the UI thread.
+    /// <para>
+    /// v3.7.0 MINOR Chunk 1: the ctor grew from 2 to 7 args as the
+    /// Replay tab gained bundle save/load parity with the Trace
+    /// Viewer. The four new deps (hasher / locator / library /
+    /// recentSessions) match the Trace Viewer's DI surface; production
+    /// DI wires them in <c>AppHostBuilder</c> (chunk 2 territory), tests
+    /// pass either real instances (TraceSessionLibrary +
+    /// RecentSessionsService to a temp path) or NSubstitute doubles.
+    /// </para>
     /// </summary>
-    public ReplayViewModel(IReplayService service, IFileDialogService fileDialog)
+    public ReplayViewModel(
+        IReplayService service,
+        IFileDialogService fileDialog,
+        IAscContentHasher hasher,
+        IAscLocator ascLocator,
+        TraceSessionLibrary library,
+        RecentSessionsService recentSessions,
+        ILogger<ReplayViewModel>? logger = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _fileDialog = fileDialog ?? throw new ArgumentNullException(nameof(fileDialog));
+        _hasher = hasher ?? throw new ArgumentNullException(nameof(hasher));
+        _ascLocator = ascLocator ?? throw new ArgumentNullException(nameof(ascLocator));
+        _library = library ?? throw new ArgumentNullException(nameof(library));
+        _recentSessions = recentSessions ?? throw new ArgumentNullException(nameof(recentSessions));
+        _logger = logger ?? NullLogger<ReplayViewModel>.Instance;
         _syncContext = SynchronizationContext.Current;
         _service.FrameEmitted += OnFrameEmitted;
         // v1.4.2 PATCH Item 3: subscribe to PlaybackEnded so sink failures
@@ -196,6 +274,34 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         // reflects the current state at startup (and after a future
         // LoadAsync that may reset it).
         _loop = _service.Loop;
+        // v3.7.0 MINOR Chunk 2: subscribe to the MRU service so the
+        // Replay tab's Open Recent submenu reflects Add / Remove / Clear
+        // / LoadAsync. Initial RefreshRecentEntries runs synchronously
+        // — the service leaves the list empty until LoadAsync returns,
+        // so an empty refresh is the correct first state.
+        _recentSessions.PropertyChanged += (_, __) => RefreshRecentEntries();
+        RefreshRecentEntries();
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: rebuild <see cref="RecentSessionEntries"/>
+    /// from <see cref="RecentSessionsService.Recent"/> filtered to
+    /// entries with <see cref="RecentSessionDto.ViewType"/> ==
+    /// <c>"replay"</c>. Mirrors
+    /// <see cref="AppShellViewModel.RefreshRecentEntries"/> which
+    /// filters to <c>"trace"</c> / legacy <c>""</c>. Cheap (max 5
+    /// entries) — full Clear + rebuild avoids the per-item
+    /// CollectionChanged dance. Called on
+    /// <see cref="RecentSessionsService"/> PropertyChanged (any mutation).
+    /// </summary>
+    private void RefreshRecentEntries()
+    {
+        RecentSessionEntries.Clear();
+        foreach (var r in _recentSessions.Recent)
+        {
+            if (r.ViewType != "replay") continue;
+            RecentSessionEntries.Add(new RecentSessionVm(r.Path, r.Label));
+        }
     }
 
     /// <summary>
@@ -345,6 +451,299 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         if (multiplier <= 0) return;
         _service.SetSpeed(multiplier);
         Speed = multiplier;
+    }
+
+    // -------- v3.7.0 MINOR Chunk 1: bundle save/load --------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T1: collect the current Replay session
+    /// state into a <see cref="TraceSessionBundleDto"/>. Mirrors
+    /// <see cref="TraceViewerViewModel.BuildSnapshot"/> but the
+    /// Replay tab is single-source — exactly one entry in
+    /// <see cref="TraceSessionBundleDto.Sources"/> (path + hash). The
+    /// DBC / global filter / per-source filter / per-source viewport
+    /// fields are all Trace-Viewer-specific and stay at their defaults.
+    /// The playback envelope captures Loop / Speed / scrubber + the
+    /// range filter (Start/End) so the cursor lands at the same
+    /// timestamp on reload. <see cref="CanIdFilterText"/> is captured
+    /// via the new <see cref="BundlePlaybackDto.ReplayCanIdFilterText"/>
+    /// field (chunk 2 documents the schema).
+    /// <para>
+    /// The contentHash is computed synchronously via
+    /// <c>GetAwaiter().GetResult()</c> on the hasher — same pattern
+    /// the Trace Viewer uses (v3.6.4 PATCH). For typical .asc files
+    /// (10–500 MB) the SHA-256 round-trip is &lt; 2 s; BuildSnapshot
+    /// is invoked from a <c>Task.Run</c>-wrapped save on the
+    /// SaveCommand path, so the UI thread is not blocked.
+    /// </para>
+    /// </summary>
+    public TraceSessionBundleDto BuildSnapshot()
+    {
+        var hash = "";
+        if (!string.IsNullOrEmpty(LoadedFilePath) && File.Exists(LoadedFilePath))
+        {
+            try
+            {
+                hash = _hasher.ComputeAsync(LoadedFilePath).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                // Hashing failed (locked file / ACL). Skip — the
+                // bundle still saves with contentHash="" and the
+                // path-only resolution covers it on reload.
+                LogHashFailed(_logger, ex, LoadedFilePath);
+                hash = "";
+            }
+        }
+        var displayName = string.IsNullOrEmpty(LoadedFilePath)
+            ? ""
+            : Path.GetFileNameWithoutExtension(LoadedFilePath);
+        var sourceId = Guid.NewGuid().ToString("N");
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = GetAppVersion(),
+            DbcPath = "",
+            GlobalCanIdFilter = "",
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new()
+            {
+                SourceId = sourceId,
+                DisplayName = displayName,
+                Path = LoadedFilePath ?? "",
+                ColorA = 0,
+                ColorR = 0,
+                ColorG = 0,
+                ColorB = 0,
+                StrokeStyle = "Solid",
+                CanIdFilter = "",
+                ContentHash = hash,
+            },
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            MasterSourceId = "",
+            Loop = Loop,
+            Speed = Speed,
+            ScrubberValue = CurrentTimestamp,
+            StartTimestamp = StartTimestamp,
+            EndTimestamp = EndTimestamp,
+            ReplayCanIdFilterText = CanIdFilterText ?? "",
+        };
+        // Replay has no per-series viewports (single source, no
+        // chart subplots). Empty list keeps the envelope shape stable
+        // with the Trace Viewer.
+        dto.Viewports = new List<BundleViewportDto>();
+        return dto;
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T1: restore a saved Replay session from
+    /// a <c>.tmtrace</c> bundle. The path-only resolution matches
+    /// <see cref="TraceViewerViewModel.OpenSessionAsync"/>: if the
+    /// recorded <c>.asc</c> is missing and the bundle carries a
+    /// non-empty contentHash, ask <see cref="IAscLocator"/> for a
+    /// relocated copy and retry the load. Reload also lands on a
+    /// paused cursor (IsPlaying=false) — never auto-resumes.
+    /// <para>
+    /// Caller (View) handles the open-file dialog and the
+    /// missing-ascs MessageBox UX — the VM returns the list of paths
+    /// that could not be resolved so the View can surface them.
+    /// </para>
+    /// </summary>
+    /// <returns>List of source .asc paths that did NOT resolve on load.
+    /// Empty when the bundle had no sources or when every source
+    /// resolved cleanly.</returns>
+    public async Task<IReadOnlyList<string>> OpenSessionAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return Array.Empty<string>();
+        var dto = await Task.Run(() => _library.Load(path)).ConfigureAwait(true);
+        if (dto is null) return Array.Empty<string>();
+
+        var missing = new List<string>();
+        // Each bundle is expected to be single-source. We iterate the
+        // list defensively in case a hand-edited bundle (or a future
+        // multi-source Replay tab) supplies > 1.
+        foreach (var bs in dto.Sources)
+        {
+            var loadPath = bs.Path;
+            // Hash-based relocation: skip the locator for empty hashes
+            // (path-only resolution). The locator itself short-circuits
+            // on empty input too, so this is just a tiny perf save.
+            if (!string.IsNullOrEmpty(bs.Path) &&
+                !File.Exists(bs.Path) &&
+                !string.IsNullOrEmpty(bs.ContentHash))
+            {
+                var relocated = await _ascLocator.LocateAsync(bs.ContentHash).ConfigureAwait(true);
+                if (!string.IsNullOrEmpty(relocated) && File.Exists(relocated))
+                {
+                    LogRelocated(_logger, bs.Path, relocated);
+                    loadPath = relocated;
+                }
+            }
+            try
+            {
+                await _service.LoadAsync(loadPath).ConfigureAwait(true);
+                // Mirror the successful load into the bindable surface
+                // — same fields OpenAsync populates.
+                LoadedFilePath = loadPath;
+                TotalDuration = _service.TotalDuration;
+                ScrubberMaxValue = TotalDuration;
+                CurrentTimestamp = dto.Playback?.ScrubberValue ?? 0.0;
+                IsLoaded = true;
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                LogSourceMissing(_logger, bs.Path, ex);
+                missing.Add(bs.Path);
+            }
+            catch (ReplayException ex)
+            {
+                LogSourceMissing(_logger, bs.Path, ex);
+                missing.Add(bs.Path);
+            }
+        }
+        // 2. Apply playback state if present. Always to a paused
+        //    cursor — never auto-resume on session reload.
+        if (dto.Playback is { } pb)
+        {
+            Loop = pb.Loop;
+            Speed = pb.Speed <= 0 ? 1.0 : pb.Speed;
+            StartTimestamp = pb.StartTimestamp;
+            EndTimestamp = pb.EndTimestamp;
+            // ReplayCanIdFilterText is the Replay-tab filter field;
+            // setting it on the VM fires the OnCanIdFilterTextChanged
+            // partial callback which parses + pushes to the service.
+            // Empty / missing playback envelope → leave the existing
+            // filter alone (no clobber on bundles from before this
+            // field existed).
+            CanIdFilterText = pb.ReplayCanIdFilterText ?? "";
+        }
+        IsPlaying = false;
+        IsPaused = false;
+        return missing;
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T2: save the current Replay session to
+    /// a <c>.tmtrace</c> bundle. The command itself pops the save
+    /// dialog (different from the Trace Viewer, which takes the path
+    /// as an argument so the View can pop the dialog). The dialog
+    /// service is injected via ctor — testable with a fake.
+    /// <para>
+    /// <b>Threading:</b> the snapshot is built inline (fast) and the
+    /// disk write is wrapped in <c>Task.Run</c> to avoid blocking the
+    /// UI thread on the atomic-rename I/O.
+    /// </para>
+    /// <para>
+    /// v3.7.0 MINOR Chunk 2: records the saved path in the MRU list
+    /// with <c>viewType: "replay"</c> so the Replay tab's Recent
+    /// submenu filters to its own entries (and never sees the
+    /// Trace Viewer's MRU list).
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveAsync()
+    {
+        var path = _fileDialog.ShowSaveDialog(
+            filter: "Trace Viewer session|*.tmtrace;*.TMTRACE|All files|*.*",
+            defaultExt: ".tmtrace",
+            initialDirectory: null);
+        if (string.IsNullOrEmpty(path)) return;  // user cancelled
+        var snapshot = BuildSnapshot();
+        await Task.Run(() => _library.Save(snapshot, path)).ConfigureAwait(true);
+        _recentSessions.Add(path, viewType: "replay");
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T2: open a Replay session from a
+    /// <c>.tmtrace</c> bundle. Pops the open dialog, forwards the
+    /// path to <see cref="OpenSessionAsync"/>. Mirrors
+    /// <see cref="TraceViewerViewModel.OpenSessionAsync"/> but the
+    /// Replay tab does NOT need a per-source missing-ascs MessageBox
+    /// (the bundle is always single-source + the Reload + Replay
+    /// loop lets the user pick a relocated file interactively).
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSession()
+    {
+        var path = _fileDialog.ShowOpenDialog(
+            filter: "Trace Viewer session|*.tmtrace;*.TMTRACE|All files|*.*");
+        if (string.IsNullOrEmpty(path)) return;  // user cancelled
+        var missing = await OpenSessionAsync(path).ConfigureAwait(true);
+        if (missing.Count > 0)
+        {
+            // Mirror the AppShell's pattern (AppShellViewModel.cs:
+            // OpenSessionAsync). We don't have WPF access here; the
+            // chunk-2 UI work is responsible for hooking the
+            // MessageBox. The VM still surfaces the missing list so
+            // the View can decide what to do.
+            ErrorMessage = $"{missing.Count} .asc file(s) could not be located. Use File → Open .asc to reload the source.";
+        }
+    }
+
+    // -------- v3.7.0 MINOR Chunk 2: Recent submenu wiring --------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: Replay tab's Open Recent menu command.
+    /// Loads the chosen bundle through
+    /// <see cref="OpenSessionAsync"/>, surfaces any missing
+    /// <c>.asc</c> source via <see cref="ErrorMessage"/>, and
+    /// re-records the path with <c>viewType: "replay"</c> so a
+    /// re-click moves it back to the top of the list (standard MRU
+    /// UX). The command is invoked from the code-behind
+    /// <c>OnOpenRecentClick</c> handler that builds a
+    /// <c>ContextMenu</c> from <see cref="RecentSessionEntries"/>.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenRecentSessionAsync(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        var missing = await OpenSessionAsync(path).ConfigureAwait(true);
+        if (missing.Count > 0)
+        {
+            ErrorMessage = $"{missing.Count} .asc file(s) could not be located. Use File → Open .asc to reload the source.";
+        }
+        _recentSessions.Add(path, viewType: "replay");
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: Replay tab's Clear Recent menu command.
+    /// Drops replay entries only via
+    /// <see cref="RecentSessionsService.Clear(string)"/>; the AppShell's
+    /// Trace entries and any future viewType's entries survive.
+    /// </summary>
+    [RelayCommand]
+    private void ClearRecentSessions() => _recentSessions.Clear("replay");
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
+    private static partial void LogHashFailed(ILogger logger, Exception ex, string? path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
+    private static partial void LogSourceMissing(ILogger logger, string? path, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
+    private static partial void LogRelocated(ILogger logger, string? oldPath, string? newPath);
+
+    /// <summary>
+    /// v3.6.0 MINOR T1.A pattern: read version from assembly metadata
+    /// instead of a hardcoded string. Mirrors
+    /// <see cref="TraceViewerViewModel.GetAppVersion"/>. Strip a
+    /// trailing <c>+git&lt;sha&gt;</c> suffix that LocalBuilder adds so
+    /// the bundle round-trips cleanly across builds.
+    /// </summary>
+    private static string GetAppVersion()
+    {
+        var info = typeof(App).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        if (string.IsNullOrEmpty(info)) return "0.0.0";
+        var plus = info.IndexOf('+');
+        return plus > 0 ? info[..plus] : info;
     }
 
     /// <summary>

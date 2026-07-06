@@ -118,6 +118,12 @@ public partial class App : Application
         // post-Show dispatcher block can chain the restore prompt.
         var autoSaver = Services.GetRequiredService<TraceSessionAutoSaver>();
         var traceVm = Services.GetRequiredService<TraceViewerViewModel>();
+        // v3.7.0 MINOR Chunk 3: chain a second restore prompt for the
+        // Replay tab. Each prompt is independent — user can say Yes to
+        // one and No to the other. Worst case: 2 MessageBoxes in a row
+        // on app start (annoying but correct).
+        var replaySaver = Services.GetRequiredService<ReplaySessionAutoSaver>();
+        var replayVm = Services.GetRequiredService<ReplayViewModel>();
         _ = Dispatcher.InvokeAsync(async () =>
         {
             shell.Show();
@@ -129,6 +135,15 @@ public partial class App : Application
             catch (Exception ex)
             {
                 Log.Logger.Warning(ex, "Auto-restore prompt failed");
+            }
+            try
+            {
+                await replaySaver.ApplyAutoSnapshotAsync(replayVm, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Replay auto-restore prompt failed");
             }
         });
     }
@@ -157,6 +172,8 @@ public partial class App : Application
                 await RunShutdownAsync(
                     _host,
                     sp => sp.GetService<TraceSessionAutoSaver>(),
+                    sp => sp.GetService<ReplaySessionAutoSaver>(),
+                    TimeSpan.FromSeconds(5),
                     TimeSpan.FromSeconds(5),
                     TimeSpan.FromSeconds(10),
                     Log.Logger).ConfigureAwait(false);
@@ -181,12 +198,20 @@ public partial class App : Application
     /// never invoked from the test path. Both timeouts are explicit so
     /// the test can pass zero / near-zero durations.
     /// <para>
-    /// <b>Ordering contract:</b> auto-save runs to completion (or
-    /// times out) BEFORE <see cref="IHost.StopAsync"/> is called. The
-    /// auto-saver resolves the live <see cref="TraceViewerViewModel"/>
-    /// through its own DI provider; if <c>StopAsync</c> ran first the
-    /// service provider would be disposed and the resolver would
-    /// return null, silently skipping the save.
+    /// <b>v3.7.0 MINOR Chunk 3:</b> signature extended with
+    /// <paramref name="replayAutoSaverResolver"/> and
+    /// <paramref name="replayAutoSaveTimeout"/>. The Trace auto-save
+    /// runs first, then the Replay auto-save, then the host stops. The
+    /// <see cref="AutoSavePrefs"/> file is shared (one opt-out flag for
+    /// both tabs).
+    /// </para>
+    /// <para>
+    /// <b>Ordering contract:</b> both auto-savers run to completion (or
+    /// time out) BEFORE <see cref="IHost.StopAsync"/> is called. The
+    /// auto-savers resolve their VMs through their own DI providers; if
+    /// <c>StopAsync</c> ran first the service provider would be
+    /// disposed and the resolvers would return null, silently
+    /// skipping the saves.
     /// </para>
     /// <para>
     /// <b>Exception contract:</b> exceptions during auto-save are
@@ -200,17 +225,21 @@ public partial class App : Application
     internal static async Task RunShutdownAsync(
         IHost host,
         Func<IServiceProvider, TraceSessionAutoSaver?> autoSaverResolver,
+        Func<IServiceProvider, ReplaySessionAutoSaver?> replayAutoSaverResolver,
         TimeSpan autoSaveTimeout,
+        TimeSpan replayAutoSaveTimeout,
         TimeSpan hostStopTimeout,
         SerilogLogger logger)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(autoSaverResolver);
+        ArgumentNullException.ThrowIfNull(replayAutoSaverResolver);
         ArgumentNullException.ThrowIfNull(logger);
 
         // Pre-flush: best-effort auto-save BEFORE host teardown so we
         // never lose the user's current session. Cap so we don't blow
         // the shutdown budget if the disk is slow.
+        // v3.7.0 Chunk 3: Trace first, then Replay.
         try
         {
             var autoSaver = autoSaverResolver(host.Services);
@@ -224,6 +253,21 @@ public partial class App : Application
         catch (Exception ex)
         {
             logger.Warning(ex, "Trace auto-save failed during OnExit");
+        }
+
+        try
+        {
+            var replaySaver = replayAutoSaverResolver(host.Services);
+            if (replaySaver is not null)
+            {
+                using var cts = new CancellationTokenSource(replayAutoSaveTimeout);
+                await replaySaver.TrySaveAutoSnapshotAsync(cts.Token)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warning(ex, "Replay auto-save failed during OnExit");
         }
 
         // Host stop: graceful teardown of hosted services. We call

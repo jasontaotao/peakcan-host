@@ -4,14 +4,16 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.6.4 — Hash-based `.asc` relocation via
-> `BundleSourceDto.contentHash` PATCH (SHA-256 fingerprint stored
-> alongside the path in `.tmtrace` bundles; on reload, if the
-> recorded path is missing the loader searches the user's
-> `asc-search-dirs.json` for an `.asc` whose hash matches; first
-> match wins). See [Release Notes v3.6.4](docs/release-notes-v3.6.4.md).
-> Forward-compat: bundles saved by v3.6.0–v3.6.3 (no contentHash)
-> continue to work with path-only resolution. **~1144 unit tests
+> **Status:** v3.7.0 — Replay tab session save MINOR (Replay can
+> save / load its own session to a `.tmtrace` bundle, with toolbar
+> Save/Open buttons, Open-Recent submenu filtered to Replay entries,
+> and implicit auto-save on app close with restore-prompt on next
+> startup — same UX as Trace Viewer, sharing the same `.tmtrace`
+> format as a degenerate single-source case). See [Release Notes
+> v3.7.0](docs/release-notes-v3.7.0.md). Bundle format unchanged
+> (one new optional `replayCanIdFilterText` field on the playback
+> envelope; `additionalProperties: true` from v3.6.1 keeps this
+> forward-compat). **~1164 unit tests
 > pass** (416 Core + 84 Infrastructure + 644 App); 5 SKIP; 5
 > architecture rules enforced via NetArchTest; CI runs on every push
 > to `main`.
@@ -34,6 +36,16 @@ and 1 Hz bus statistics.
   app offers to restore it. Bundle format is versioned —
   [docs/schemas/tmtrace-v1.schema.json](docs/schemas/tmtrace-v1.schema.json)
   is the canonical contract (v3.6.1).
+- **Replay tab + session persistence (v3.7.0)** — open the Replay
+  tab from **View → Replay**; load a single `.asc` recording; set
+  loop / speed / scrubber / CAN-ID filter; **Save session… / Open
+  session…** in the Replay toolbar saves the whole Replay state to
+  the same `.tmtrace` format (degenerate single-source case —
+  `sources: [1]`). **Open recent** submenu lists the last 5 Replay
+  sessions. On app close, the Replay session is auto-saved to
+  `%APPDATA%/PeakCan.Host/replay-session-auto.tmtrace`; on next
+  startup the app offers to restore it (sequentially after the Trace
+  restore prompt).
 - **DBC file load** — parse a `.dbc` file off the UI thread; populate a
   message table with sender, DLC, signal list.
 - **Signal view** — DBC-decoded live signals per message, with raw hex

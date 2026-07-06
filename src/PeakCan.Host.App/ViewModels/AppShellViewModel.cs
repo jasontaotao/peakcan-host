@@ -391,7 +391,7 @@ public sealed partial class AppShellViewModel : ObservableObject
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
-        _recentSessions.Add(path);
+        _recentSessions.Add(path, "trace");
     }
 
     /// <summary>
@@ -412,7 +412,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         if (string.IsNullOrEmpty(path)) return;
         await _traceViewerViewModel.SaveSessionAsync(path)
             .ConfigureAwait(true);
-        _recentSessions.Add(path);
+        _recentSessions.Add(path, "trace");
     }
 
     /// <summary>
@@ -438,17 +438,17 @@ public sealed partial class AppShellViewModel : ObservableObject
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
-        _recentSessions.Add(path);
+        _recentSessions.Add(path, "trace");
     }
 
     /// <summary>
-    /// v3.6.0 MINOR T3: File ▸ Clear Recent menu command. Wipes both
-    /// the in-memory MRU list and the on-disk
-    /// <c>recent-sessions.json</c> file via
-    /// <see cref="RecentSessionsService.Clear"/>.
+    /// v3.6.0 MINOR T3: File ▸ Clear Recent menu command. Wipes the
+    /// Trace entries only — replay entries (added by the Replay tab's
+    /// own submenu in chunk 2) survive. The on-disk JSON file is left
+    /// alone unless the list became empty as a side effect.
     /// </summary>
     [RelayCommand]
-    private void ClearRecentSessions() => _recentSessions.Clear();
+    private void ClearRecentSessions() => _recentSessions.Clear("trace");
 
     /// <summary>
     /// v3.6.0 MINOR T3: rebuild <see cref="RecentSessionEntries"/> from
@@ -457,12 +457,23 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// mutation) and once after the initial LoadAsync. Cheap (max 5
     /// entries) — full Clear + rebuild avoids the per-item
     /// CollectionChanged dance.
+    /// <para>
+    /// v3.7.0 MINOR Chunk 2: the AppShell menu now filters to Trace
+    /// entries only. Empty <c>ViewType</c> is the legacy-trace value
+    /// carried over from v3.6.0–v3.6.4 entries (which pre-date the
+    /// field); treating it as trace preserves the user's pre-existing
+    /// MRU list across the upgrade.
+    /// </para>
     /// </summary>
     private void RefreshRecentEntries()
     {
         RecentSessionEntries.Clear();
         foreach (var r in _recentSessions.Recent)
         {
+            // v3.7.0: filter to Trace Viewer entries only. Empty ViewType
+            // is legacy-trace (v3.6.x saves) — kept for back-compat.
+            if (r.ViewType != "trace" && r.ViewType != "")
+                continue;
             RecentSessionEntries.Add(new RecentSessionVm(r.Path, r.Label));
         }
     }

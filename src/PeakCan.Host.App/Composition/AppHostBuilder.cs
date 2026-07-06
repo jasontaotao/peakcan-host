@@ -401,6 +401,14 @@ public class AppHostBuilder
         builder.Services.AddSingleton<
             PeakCan.Host.App.Services.Trace.ITraceViewerViewModelProvider,
             PeakCan.Host.App.Services.Trace.ServiceProviderTraceViewerViewModelProvider>();
+        // v3.7.0 MINOR Chunk 3: Replay auto-save + restore-prompt. Shares
+        // the same IAutoSavePrefsStore / IMessageBoxPrompt singletons as
+        // Trace (one opt-out flag for both tabs).
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.ReplaySessionAutoSaver>();
+        builder.Services.AddSingleton<
+            PeakCan.Host.App.Services.Trace.IReplayViewModelProvider,
+            PeakCan.Host.App.Services.Trace.ServiceProviderReplayViewModelProvider>();
         builder.Services.AddSingleton<
             PeakCan.Host.App.Services.Trace.IAutoSavePrefsStore>(sp =>
             new PeakCan.Host.App.Services.Trace.FileAutoSavePrefsStore(

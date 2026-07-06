@@ -1,8 +1,12 @@
+using System.IO;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -24,12 +28,48 @@ public class ReplayViewModelTests : IDisposable
 {
     private readonly IReplayService _service = Substitute.For<IReplayService>();
     private readonly IFileDialogService _fileDialog = Substitute.For<IFileDialogService>();
+    private readonly IAscContentHasher _hasher = Substitute.For<IAscContentHasher>();
+    private readonly IAscLocator _ascLocator = Substitute.For<IAscLocator>();
+    private readonly TraceSessionLibrary _library;
+    private readonly RecentSessionsService _recentSessions;
     private readonly ReplayViewModel _sut;
 
     public ReplayViewModelTests()
     {
         _service.TotalDuration.Returns(10.0);
-        _sut = new ReplayViewModel(_service, _fileDialog);
+        _library = new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-replay-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+        _recentSessions = new RecentSessionsService(
+            NullLogger<RecentSessionsService>.Instance,
+            Path.Combine(Path.GetTempPath(), $"recent-replay-{Guid.NewGuid():N}.json"));
+        _sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, _recentSessions);
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1: test ctor helper. Wires the four new
+    /// dependencies (hasher / locator / library / recentSessions) with
+    /// the test's pre-built doubles so individual tests can override
+    /// behavior. The legacy two-arg shape is preserved by defaulting
+    /// the new deps to NSubstitute mocks + temp-path real services.
+    /// </summary>
+    private static ReplayViewModel NewVm(
+        IReplayService svc,
+        IFileDialogService dlg,
+        IAscContentHasher? hasher = null,
+        IAscLocator? ascLocator = null,
+        TraceSessionLibrary? library = null,
+        RecentSessionsService? recentSessions = null)
+    {
+        hasher ??= Substitute.For<IAscContentHasher>();
+        ascLocator ??= Substitute.For<IAscLocator>();
+        library ??= new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-replay-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+        recentSessions ??= new RecentSessionsService(
+            NullLogger<RecentSessionsService>.Instance,
+            Path.Combine(Path.GetTempPath(), $"recent-replay-{Guid.NewGuid():N}.json"));
+        return new ReplayViewModel(svc, dlg, hasher, ascLocator, library, recentSessions);
     }
 
     public void Dispose()
@@ -409,7 +449,7 @@ public class ReplayViewModelTests : IDisposable
     {
         var service = Substitute.For<IReplayService>();
         var fileDialog = Substitute.For<IFileDialogService>();
-        var sut = new ReplayViewModel(service, fileDialog);
+        var sut = NewVm(service, fileDialog);
 
         sut.EndTimestamp = 10.0;
 
@@ -426,7 +466,7 @@ public class ReplayViewModelTests : IDisposable
     {
         var service = Substitute.For<IReplayService>();
         var fileDialog = Substitute.For<IFileDialogService>();
-        var sut = new ReplayViewModel(service, fileDialog);
+        var sut = NewVm(service, fileDialog);
 
         sut.StartTimestamp = 5.0;
         sut.EndTimestamp = 10.0;
@@ -441,7 +481,7 @@ public class ReplayViewModelTests : IDisposable
     {
         var service = Substitute.For<IReplayService>();
         var fileDialog = Substitute.For<IFileDialogService>();
-        var sut = new ReplayViewModel(service, fileDialog);
+        var sut = NewVm(service, fileDialog);
 
         sut.StartTimestamp = 10.0;
 
@@ -458,7 +498,7 @@ public class ReplayViewModelTests : IDisposable
         // When one endpoint is null, the other is unconstrained.
         var service = Substitute.For<IReplayService>();
         var fileDialog = Substitute.For<IFileDialogService>();
-        var sut = new ReplayViewModel(service, fileDialog);
+        var sut = NewVm(service, fileDialog);
 
         sut.EndTimestamp = null;
         sut.StartTimestamp = 1_000_000.0;  // huge value, no End to violate
@@ -466,5 +506,486 @@ public class ReplayViewModelTests : IDisposable
         sut.StartTimestamp.Should().Be(1_000_000.0);
         sut.RangeFilterError.Should().BeNull();
         service.Received(1).StartTimestamp = 1_000_000.0;
+    }
+
+    // ---------- v3.7.0 MINOR Chunk 1: T1 BuildSnapshot + OpenSessionAsync ----------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T1: <c>BuildSnapshot</c> packages the loaded
+    /// .asc into a single-source <c>TraceSessionBundleDto</c>. The
+    /// contentHash is sourced from <see cref="IAscContentHasher"/>
+    /// (synchronous call) when the file exists. Display name is the
+    /// filename stem; path is verbatim.
+    /// </summary>
+    [Fact]
+    public void BuildSnapshot_ProducesSingleSourceBundle()
+    {
+        // Arrange — create a small real file on disk and seed the VM state
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"build-snap-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+            _sut.LoadedFilePath = tempAsc;
+            _sut.IsLoaded = true;
+
+            // Act
+            var dto = _sut.BuildSnapshot();
+
+            // Assert
+            dto.Sources.Should().HaveCount(1);
+            dto.Sources[0].Path.Should().Be(tempAsc);
+            dto.Sources[0].DisplayName.Should().Be(Path.GetFileNameWithoutExtension(tempAsc));
+            dto.Sources[0].ContentHash.Should().Be(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+            dto.Playback.Should().NotBeNull();
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T1: <c>OpenSessionAsync</c> round-trips a
+    /// saved bundle: BuildSnapshot, save, then load. The reloaded VM
+    /// state must reflect the bundle (path + transport). Reuses the
+    /// existing ctor pattern via NewVm helper.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_LoadsFromBundle()
+    {
+        // Arrange — fresh VM with its own library so save→load is hermetic.
+        var localLib = new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-rb-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+        var localLocator = Substitute.For<IAscLocator>();
+        var localVm = NewVm(_service, _fileDialog, _hasher, localLocator, localLib, _recentSessions);
+
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"load-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("aaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccdddd");
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(7.5);
+            // Seed VM state directly (bypass the dialog-driven OpenAsync
+            // path — we control the playback state we save).
+            localVm.LoadedFilePath = tempAsc;
+            localVm.IsLoaded = true;
+            localVm.Loop = true;
+            localVm.Speed = 2.0;
+            localVm.CurrentTimestamp = 3.25;
+            localVm.StartTimestamp = 1.0;
+            localVm.EndTimestamp = 5.0;
+            localVm.CanIdFilterText = "0x100";
+
+            var snapshot = localVm.BuildSnapshot();
+            var bundlePath = Path.Combine(Path.GetTempPath(), $"replay-bundle-{Guid.NewGuid():N}.tmtrace");
+            localLib.Save(snapshot, bundlePath);
+
+            // Arrange: a fresh VM that will consume the bundle.
+            var consumer = NewVm(_service, _fileDialog, _hasher, localLocator, localLib, _recentSessions);
+            _service.LoadAsync(tempAsc, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(7.5);
+
+            // Act
+            var missing = await consumer.OpenSessionAsync(bundlePath);
+
+            // Assert
+            missing.Should().BeEmpty("the recorded .asc still exists at its original path");
+            consumer.LoadedFilePath.Should().Be(tempAsc);
+            consumer.Loop.Should().BeTrue();
+            consumer.Speed.Should().Be(2.0);
+            consumer.CurrentTimestamp.Should().Be(3.25);
+            consumer.StartTimestamp.Should().Be(1.0);
+            consumer.EndTimestamp.Should().Be(5.0);
+            consumer.CanIdFilterText.Should().Be("0x100");
+            consumer.IsPlaying.Should().BeFalse("open always lands on a paused cursor");
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T1: when the recorded .asc is missing but
+    /// the bundle carries a contentHash, <c>OpenSessionAsync</c> asks
+    /// the locator for a relocated path and retries the load. Success
+    /// means the relocated path is used; the recorded path is not
+    /// added to the missing list.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_MissingFile_FallsBackToHashLocator()
+    {
+        // Arrange — fabricate a bundle with a stale path + valid hash
+        // pointing at a real (relocated) file on disk.
+        var stalePath = Path.Combine(Path.GetTempPath(), $"stale-{Guid.NewGuid():N}.asc");
+        var relocatedPath = Path.Combine(Path.GetTempPath(), $"relocated-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(relocatedPath, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("hashforrelocation");
+            _ascLocator.LocateAsync("hashforrelocation", Arg.Any<CancellationToken>())
+                .Returns(relocatedPath);
+            _service.LoadAsync(relocatedPath, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(4.0);
+
+            // Build a bundle manually — stale path, real hash, pointing at the relocated file.
+            var snapshot = new TraceSessionBundleDto
+            {
+                Version = 1,
+                Schema = TraceSessionLibrary.CurrentSchema,
+                SavedAt = DateTimeOffset.UtcNow,
+                DbcPath = "",
+                GlobalCanIdFilter = "",
+                Sources = new List<BundleSourceDto>
+                {
+                    new()
+                    {
+                        SourceId = "replay-1",
+                        DisplayName = "relocated",
+                        Path = stalePath,
+                        ContentHash = "hashforrelocation",
+                    },
+                },
+                Playback = new BundlePlaybackDto
+                {
+                    MasterSourceId = "",
+                    Loop = false,
+                    Speed = 1.0,
+                    ScrubberValue = 0.0,
+                },
+                Viewports = new List<BundleViewportDto>(),
+            };
+            var bundlePath = Path.Combine(Path.GetTempPath(), $"stale-bundle-{Guid.NewGuid():N}.tmtrace");
+            _library.Save(snapshot, bundlePath);
+
+            // Act
+            var missing = await _sut.OpenSessionAsync(bundlePath);
+
+            // Assert — no missing reported, and the relocated path was loaded.
+            missing.Should().BeEmpty();
+            await _service.Received(1).LoadAsync(relocatedPath, Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            try { File.Delete(relocatedPath); } catch { /* best effort */ }
+        }
+    }
+
+    // ---------- v3.7.0 MINOR Chunk 1: T2 SaveCommand + OpenSessionCommand ----------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T2: <c>SaveCommand</c> pops the save
+    /// dialog, builds a snapshot, writes the .tmtrace file, and adds
+    /// the path to <see cref="RecentSessionsService"/>.
+    /// </summary>
+    [Fact]
+    public async Task SaveCommand_PopsDialog_BuildsAndSavesBundle_AddsToRecent()
+    {
+        // Arrange — pre-load a fake .asc, prime the save dialog
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"save-src-{Guid.NewGuid():N}.asc");
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"save-out-{Guid.NewGuid():N}.tmtrace");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface");
+            _fileDialog.ShowSaveDialog(
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+                .Returns(bundlePath);
+            _sut.LoadedFilePath = tempAsc;
+            _sut.IsLoaded = true;
+
+            // Act
+            await _sut.SaveCommand.ExecuteAsync(null);
+
+            // Assert
+            File.Exists(bundlePath).Should().BeTrue("SaveCommand persists the bundle to disk");
+            _recentSessions.Recent.Should().HaveCount(1, "the saved path is added to the MRU list");
+            _recentSessions.Recent[0].Path.Should().Be(bundlePath);
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T2: <c>OpenSessionCommand</c> pops the open
+    /// dialog and forwards the chosen path to <c>OpenSessionAsync</c>.
+    /// Verify by saving first, then opening the same bundle via the
+    /// command.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionCommand_PopsDialog_LoadsBundle()
+    {
+        // Arrange — pre-save a bundle
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"open-cmd-{Guid.NewGuid():N}.asc");
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"open-cmd-bundle-{Guid.NewGuid():N}.tmtrace");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffee");
+            _service.LoadAsync(tempAsc, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(2.0);
+            // First save via the command.
+            _fileDialog.ShowSaveDialog(
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+                .Returns(bundlePath);
+            _sut.LoadedFilePath = tempAsc;
+            _sut.IsLoaded = true;
+            await _sut.SaveCommand.ExecuteAsync(null);
+
+            // Now configure the open dialog for OpenSessionCommand.
+            _fileDialog.ShowOpenDialog(Arg.Any<string>()).Returns(bundlePath);
+
+            // Act
+            await _sut.OpenSessionCommand.ExecuteAsync(null);
+
+            // Assert — VM state reflects the loaded bundle.
+            _sut.LoadedFilePath.Should().Be(tempAsc);
+            _sut.IsLoaded.Should().BeTrue();
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    // ---------- v3.7.0 MINOR Chunk 1: T10 edge cases ----------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T10: when a bundle has no contentHash and
+    /// the recorded path is missing, the path is reported in the
+    /// missing list. No locator call is made (the locator only
+    /// triggers on a non-empty hash).
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_StalePath_NoHash_ReportsMissing()
+    {
+        // Arrange — bundle with a path that does not exist, no contentHash.
+        var missingPath = Path.Combine(Path.GetTempPath(), $"never-existed-{Guid.NewGuid():N}.asc");
+        var snapshot = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "x", DisplayName = "x", Path = missingPath, ContentHash = "" },
+            },
+            Playback = new BundlePlaybackDto(),
+            Viewports = new List<BundleViewportDto>(),
+        };
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"nohash-bundle-{Guid.NewGuid():N}.tmtrace");
+        _library.Save(snapshot, bundlePath);
+        // Configure the mock to throw FileNotFoundException for the
+        // missing path — matches the real ReplayService behavior
+        // (FileNotFoundException is in the catch list of OpenSessionAsync).
+        _service.LoadAsync(missingPath, Arg.Any<CancellationToken>())
+            .Returns(_ => throw new FileNotFoundException("not on disk", missingPath));
+
+        // Act
+        var missing = await _sut.OpenSessionAsync(bundlePath);
+
+        // Assert
+        missing.Should().ContainSingle().Which.Should().Be(missingPath);
+        await _ascLocator.DidNotReceiveWithAnyArgs().LocateAsync(default!, default);
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T10: <c>SaveCommand</c> requests the WPF
+    /// save dialog with the .tmtrace filter and default extension.
+    /// </summary>
+    [Fact]
+    public async Task SaveCommand_ShowsSaveDialog_DefaultsToDotTmtrace()
+    {
+        // Arrange
+        _fileDialog.ShowSaveDialog(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+            .Returns((string?)null);  // user cancels → still exercises dialog pop
+        _sut.LoadedFilePath = null;
+        _sut.IsLoaded = false;
+
+        // Act
+        await _sut.SaveCommand.ExecuteAsync(null);
+
+        // Assert — the dialog was invoked with the .tmtrace filter and
+        // default extension. NSubstitute's Arg.Is gives us a content
+        // check.
+        _fileDialog.Received(1).ShowSaveDialog(
+            Arg.Is<string>(f => f.Contains(".tmtrace", StringComparison.OrdinalIgnoreCase)),
+            Arg.Is<string?>(e => e == ".tmtrace"),
+            Arg.Any<string?>());
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 1 T10: when a bundle is saved mid-playback
+    /// (IsPlaying=true) and later reloaded, the consumer must land on
+    /// a paused cursor (IsPlaying=false). Open never auto-resumes.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_RestoresToPausedCursor()
+    {
+        // Arrange — fabricate a bundle and a VM that "thinks" it's
+        // playing; OpenSessionAsync should force IsPlaying=false.
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"paused-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            _service.LoadAsync(tempAsc, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+            _service.TotalDuration.Returns(2.0);
+
+            var snapshot = new TraceSessionBundleDto
+            {
+                Version = 1,
+                Schema = TraceSessionLibrary.CurrentSchema,
+                SavedAt = DateTimeOffset.UtcNow,
+                Sources = new List<BundleSourceDto>
+                {
+                    new()
+                    {
+                        SourceId = "p",
+                        DisplayName = Path.GetFileNameWithoutExtension(tempAsc),
+                        Path = tempAsc,
+                        ContentHash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                    },
+                },
+                Playback = new BundlePlaybackDto
+                {
+                    MasterSourceId = "",
+                    Loop = false,
+                    Speed = 1.0,
+                    ScrubberValue = 0.0,
+                },
+                Viewports = new List<BundleViewportDto>(),
+            };
+            var bundlePath = Path.Combine(Path.GetTempPath(), $"paused-bundle-{Guid.NewGuid():N}.tmtrace");
+            _library.Save(snapshot, bundlePath);
+            _sut.IsPlaying = true;   // simulate prior session state
+
+            // Act
+            var missing = await _sut.OpenSessionAsync(bundlePath);
+
+            // Assert
+            missing.Should().BeEmpty();
+            _sut.IsPlaying.Should().BeFalse("OpenSessionAsync never auto-resumes playback");
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+        }
+    }
+
+    // ---------- v3.7.0 MINOR Chunk 2: RecentSessionEntries + ClearRecentSessions ----------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: <see cref="ReplayViewModel.RecentSessionEntries"/>
+    /// surfaces only the entries whose <see cref="RecentSessionDto.ViewType"/>
+    /// is <c>"replay"</c>. Trace Viewer entries and legacy empty-viewType
+    /// entries are filtered out at the VM level (the consumer of the
+    /// menu) — the service itself stays unfiltered.
+    /// </summary>
+    [Fact]
+    public void RecentSessionEntries_OnlyIncludesReplayEntries()
+    {
+        // Arrange — separate MRU service so the test owns its state
+        var localRecent = new RecentSessionsService(
+            NullLogger<RecentSessionsService>.Instance,
+            Path.Combine(Path.GetTempPath(), $"recent-chunk2a-{Guid.NewGuid():N}.json"));
+        localRecent.Add(@"C:\x\trace.tmtrace", viewType: "trace");
+        localRecent.Add(@"C:\y\replay.tmtrace", viewType: "replay");
+        localRecent.Add(@"C:\z\legacy.tmtrace", viewType: "");   // pre-v3.7.0 entry
+        var sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, localRecent);
+
+        // Act + Assert
+        sut.RecentSessionEntries.Should().HaveCount(1);
+        sut.RecentSessionEntries[0].Path.Should().Be(@"C:\y\replay.tmtrace");
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: <see cref="ReplayViewModel.ClearRecentSessionsCommand"/>
+    /// drops replay entries only. Trace Viewer entries and any future
+    /// viewType's entries survive — the two MRU lists are independent
+    /// on the shared service backing file.
+    /// </summary>
+    [Fact]
+    public void ClearRecentSessions_RemovesOnlyReplayEntries()
+    {
+        // Arrange
+        var localRecent = new RecentSessionsService(
+            NullLogger<RecentSessionsService>.Instance,
+            Path.Combine(Path.GetTempPath(), $"recent-chunk2b-{Guid.NewGuid():N}.json"));
+        localRecent.Add(@"C:\x\trace.tmtrace", viewType: "trace");
+        localRecent.Add(@"C:\y\replay1.tmtrace", viewType: "replay");
+        localRecent.Add(@"C:\z\replay2.tmtrace", viewType: "replay");
+        var sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, localRecent);
+
+        // Act
+        sut.ClearRecentSessionsCommand.Execute(null);
+
+        // Assert
+        localRecent.Recent.Should().HaveCount(1);
+        localRecent.Recent[0].Path.Should().Be(@"C:\x\trace.tmtrace");
+        localRecent.Recent[0].ViewType.Should().Be("trace");
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: <c>SaveCommand</c> now records the saved
+    /// path with <c>viewType: "replay"</c> (chunk-1 used the legacy
+    /// default). This pins the new contract: a Replay save is tagged
+    /// "replay" so the AppShell menu filter does not pick it up and
+    /// the Replay Recent submenu DOES.
+    /// </summary>
+    [Fact]
+    public async Task SaveCommand_RecordsViewTypeAsReplay()
+    {
+        // Arrange
+        var localRecent = new RecentSessionsService(
+            NullLogger<RecentSessionsService>.Instance,
+            Path.Combine(Path.GetTempPath(), $"recent-chunk2c-{Guid.NewGuid():N}.json"));
+        var tempAsc = Path.Combine(Path.GetTempPath(), $"save-replay-{Guid.NewGuid():N}.asc");
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"save-replay-out-{Guid.NewGuid():N}.tmtrace");
+        File.WriteAllText(tempAsc, "0.000 1 100x R\n");
+        try
+        {
+            _hasher.ComputeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+            _fileDialog.ShowSaveDialog(
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+                .Returns(bundlePath);
+            var sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, localRecent);
+            sut.LoadedFilePath = tempAsc;
+            sut.IsLoaded = true;
+
+            // Act
+            await sut.SaveCommand.ExecuteAsync(null);
+
+            // Assert
+            localRecent.Recent.Should().HaveCount(1);
+            localRecent.Recent[0].ViewType.Should().Be("replay",
+                "Replay SaveCommand tags the MRU entry with viewType=replay so the two submenus stay disjoint");
+        }
+        finally
+        {
+            try { File.Delete(tempAsc); } catch { /* best effort */ }
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
     }
 }

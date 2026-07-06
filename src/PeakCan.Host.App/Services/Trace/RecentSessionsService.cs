@@ -14,11 +14,22 @@ namespace PeakCan.Host.App.Services.Trace;
 /// <see cref="Label"/> is what the menu shows (just the filename);
 /// <see cref="SavedAt"/> is recorded when <see cref="RecentSessionsService.Add"/>
 /// runs and surfaces in the menu tooltip via UI plumbing.
+/// <para>
+/// <b>v3.7.0 MINOR Chunk 2:</b> <see cref="ViewType"/> discriminates
+/// which surface produced the entry. Empty string is the legacy-trace
+/// value preserved from v3.6.0–v3.6.4 entries (back-compat: those
+/// predate the field and never carried a value; they're treated as
+/// trace entries for filter purposes). <c>"trace"</c> for Trace
+/// Viewer saves (AppShell menu). <c>"replay"</c> for Replay tab
+/// saves (ReplayView's Recent submenu). Future surface additions
+/// (Signal tab?) pick their own string.
+/// </para>
 /// </summary>
 public sealed record RecentSessionDto(
     [property: JsonPropertyName("path")] string Path,
     [property: JsonPropertyName("label")] string Label,
-    [property: JsonPropertyName("savedAt")] DateTimeOffset SavedAt);
+    [property: JsonPropertyName("savedAt")] DateTimeOffset SavedAt,
+    [property: JsonPropertyName("viewType")] string ViewType = "");
 
 /// <summary>
 /// v3.6.0 MINOR T3: most-recently-used (MRU) list of opened/saved
@@ -86,19 +97,34 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Push <paramref name="path"/> to the top of the MRU. If the path
-    /// is already present (case-insensitive exact match), remove the
-    /// older entry first so we don't double-list — re-adding also
-    /// refreshes <c>SavedAt</c> to <c>DateTimeOffset.UtcNow</c>, matching
-    /// standard MRU semantics (the entry moves to the top of the list
-    /// and its timestamp is the most recent use). Caps the result at
-    /// <see cref="MaxEntries"/>; older entries fall off the bottom.
-    /// Persists atomically (tmp + rename, UTF-8 BOM). Raises
-    /// <see cref="PropertyChanged"/> on <c>Recent</c>.
+    /// Push <paramref name="path"/> to the top of the MRU with the default
+    /// <c>"trace"</c> viewType. Preserved for source-compatibility with
+    /// the v3.6.0–v3.6.4 callers that pre-date the viewType discriminator.
     /// </summary>
-    public void Add(string path)
+    public void Add(string path) => Add(path, viewType: "trace");
+
+    /// <summary>
+    /// Push <paramref name="path"/> to the top of the MRU tagged with
+    /// <paramref name="viewType"/>. If the path is already present
+    /// (case-insensitive exact match), remove the older entry first so
+    /// we don't double-list — re-adding also refreshes <c>SavedAt</c> to
+    /// <c>DateTimeOffset.UtcNow</c>, matching standard MRU semantics (the
+    /// entry moves to the top of the list and its timestamp is the most
+    /// recent use). Caps the result at <see cref="MaxEntries"/>; older
+    /// entries fall off the bottom. Persists atomically (tmp + rename,
+    /// UTF-8 BOM). Raises <see cref="PropertyChanged"/> on <c>Recent</c>.
+    /// <para>
+    /// v3.7.0 MINOR Chunk 2: <paramref name="viewType"/> is the surface
+    /// discriminator (<c>"trace"</c> for AppShell, <c>"replay"</c> for
+    /// the Replay tab). Filter at the consumer (AppShell filter narrows
+    /// to trace/replay entries; Replay VM filters to replay entries) —
+    /// the service itself is the unfiltered MRU list.
+    /// </para>
+    /// </summary>
+    public void Add(string path, string viewType)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentNullException.ThrowIfNull(viewType);
         // Case-insensitive exact-path match — Windows file paths are
         // case-insensitive at the OS level, so "C:\foo.tmtrace" and
         // "c:\FOO.tmtrace" should not both appear in the list.
@@ -106,7 +132,8 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
         _items.Insert(0, new RecentSessionDto(
             Path: path,
             Label: Path.GetFileName(path),
-            SavedAt: DateTimeOffset.UtcNow));
+            SavedAt: DateTimeOffset.UtcNow,
+            ViewType: viewType));
         if (_items.Count > MaxEntries)
         {
             _items.RemoveRange(MaxEntries, _items.Count - MaxEntries);
@@ -129,17 +156,55 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
         Raise();
     }
 
-    /// <summary>Empty the list and delete the backing file (best effort).</summary>
-    public void Clear()
+    /// <summary>
+    /// Empty the entire MRU list (any <see cref="RecentSessionDto.ViewType"/>)
+    /// and delete the backing file (best effort). Preserved for the v3.6.0
+    /// back-compat caller; new callers should use <see cref="Clear(string)"/>
+    /// so a Trace entry's <c>Clear</c> doesn't accidentally wipe the
+    /// user's Replay entries (and vice versa).
+    /// </summary>
+    public void Clear() => Clear(viewType: null);
+
+    /// <summary>
+    /// Drop every entry whose <see cref="RecentSessionDto.ViewType"/>
+    /// matches <paramref name="viewType"/>. <c>null</c> clears ALL entries
+    /// (any viewType) plus the backing file — matches the v3.6.0
+    /// <c>Clear()</c> behavior. <c>""</c> clears only legacy-trace
+    /// entries (predates the field, ViewType default value).
+    /// </summary>
+    public void Clear(string? viewType)
     {
-        _items.Clear();
-        try
+        if (viewType is null)
         {
-            if (File.Exists(_path)) File.Delete(_path);
+            _items.Clear();
+            try
+            {
+                if (File.Exists(_path)) File.Delete(_path);
+            }
+            catch (Exception ex)
+            {
+                LogDeleteFailed(_logger, ex, _path);
+            }
+            Raise();
+            return;
         }
-        catch (Exception ex)
+        var removed = _items.RemoveAll(e =>
+            string.Equals(e.ViewType, viewType, StringComparison.Ordinal));
+        if (removed == 0) return;
+        if (_items.Count == 0)
         {
-            LogDeleteFailed(_logger, ex, _path);
+            try
+            {
+                if (File.Exists(_path)) File.Delete(_path);
+            }
+            catch (Exception ex)
+            {
+                LogDeleteFailed(_logger, ex, _path);
+            }
+        }
+        else
+        {
+            Persist();
         }
         Raise();
     }

@@ -37,8 +37,28 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!--
+            v3.7.0 MINOR Chunk 2: toolbar grew from 1 to 4 buttons:
+              Open...     - dialog-driven raw ASC load (v1.4.0)
+              Save...     - bundle save (chunk 1, exposed via VM command)
+              Open session... - dialog-driven bundle open (chunk 1)
+              Open recent - dropdown menu of recent bundles (chunk 2)
+            Enable rules: Open.../Open session/Open recent are disabled
+            while a session is loaded (the file dialog would be a no-op
+            because IsLoaded gates the transport bar); Save... is only
+            enabled once there's a file to snapshot. LoadedFilePath is
+            shrunk from the explicit-margin block to fit the wider
+            toolbar.
+        -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-            <Button Content="Open..." Command="{Binding OpenCommand}" Margin="0,0,5,0"/>
+            <Button Content="Open..." Command="{Binding OpenCommand}" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsNotLoaded}"/>
+            <Button Content="Save session..." Command="{Binding SaveCommand}" Padding="6,2" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsLoaded}"/>
+            <Button Content="Open session..." Command="{Binding OpenSessionCommand}" Padding="6,2" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsNotLoaded}"/>
+            <Button Content="Open recent" Click="OnOpenRecentClick" Padding="6,2" Margin="0,0,5,0"
+                    IsEnabled="{Binding IsNotLoaded}"/>
             <TextBlock Text="{Binding LoadedFilePath}" VerticalAlignment="Center" Margin="5,0,10,0"/>
         </StackPanel>
 

@@ -170,4 +170,63 @@ public sealed class RecentSessionsServiceTests : IDisposable
         second.Recent[0].Label.Should().Be("drive_downtown.tmtrace");
         second.Recent[1].Label.Should().Be("highway.tmtrace");
     }
+
+    // ---------- v3.7.0 MINOR Chunk 2: viewType discriminator ----------
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: the explicit-viewType overload stores the
+    /// viewType string on the entry. The default no-viewType overload
+    /// falls back to <c>"trace"</c> for source compatibility with the
+    /// v3.6.x callers.
+    /// </summary>
+    [Fact]
+    public void Add_WithViewType_StoresViewType()
+    {
+        // Arrange
+        var path = NewRecentPath();
+        var svc = NewService(path);
+
+        // Act
+        svc.Add(@"C:\sessions\replay.tmtrace", viewType: "replay");
+
+        // Assert
+        svc.Recent.Should().HaveCount(1);
+        svc.Recent[0].Path.Should().Be(@"C:\sessions\replay.tmtrace");
+        svc.Recent[0].ViewType.Should().Be("replay");
+
+        // The default overload (no viewType) is the v3.6.x back-compat
+        // entry point; it must default to "trace" so the AppShell menu
+        // still finds those legacy callers.
+        var legacyPath = NewRecentPath();
+        var legacySvc = NewService(legacyPath);
+        legacySvc.Add(@"C:\sessions\legacy.tmtrace");
+        legacySvc.Recent[0].ViewType.Should().Be("trace");
+    }
+
+    /// <summary>
+    /// v3.7.0 MINOR Chunk 2: <see cref="RecentSessionsService.Clear(string)"/>
+    /// removes only entries whose <see cref="RecentSessionDto.ViewType"/>
+    /// matches the argument. The on-disk JSON file is left alone when
+    /// other viewType entries remain; deleted when the list becomes
+    /// empty as a result.
+    /// </summary>
+    [Fact]
+    public void Clear_WithViewType_RemovesOnlyMatchingEntries()
+    {
+        // Arrange
+        var path = NewRecentPath();
+        var svc = NewService(path);
+        svc.Add(@"C:\x\trace.tmtrace", viewType: "trace");
+        svc.Add(@"C:\y\replay1.tmtrace", viewType: "replay");
+        svc.Add(@"C:\z\replay2.tmtrace", viewType: "replay");
+        svc.Recent.Should().HaveCount(3);
+
+        // Act
+        svc.Clear("replay");
+
+        // Assert
+        svc.Recent.Should().HaveCount(1);
+        svc.Recent[0].Path.Should().Be(@"C:\x\trace.tmtrace");
+        svc.Recent[0].ViewType.Should().Be("trace");
+    }
 }

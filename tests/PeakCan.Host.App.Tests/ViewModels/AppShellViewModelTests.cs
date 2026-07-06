@@ -13,6 +13,7 @@ using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -119,7 +120,13 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new ReplayViewModel(
+                    Substitute.For<IReplayService>(),
+                    Substitute.For<IFileDialogService>(),
+                    Substitute.For<IAscContentHasher>(),
+                    Substitute.For<IAscLocator>(),
+                    new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                    new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
@@ -434,7 +441,13 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new ReplayViewModel(
+                    Substitute.For<IReplayService>(),
+                    Substitute.For<IFileDialogService>(),
+                    Substitute.For<IAscContentHasher>(),
+                    Substitute.For<IAscLocator>(),
+                    new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                    new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
@@ -512,7 +525,13 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new ReplayViewModel(
+                    Substitute.For<IReplayService>(),
+                    Substitute.For<IFileDialogService>(),
+                    Substitute.For<IAscContentHasher>(),
+                    Substitute.For<IAscLocator>(),
+                    new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                    new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
@@ -633,7 +652,13 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
                 new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-                new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+                new ReplayViewModel(
+                    Substitute.For<IReplayService>(),
+                    Substitute.For<IFileDialogService>(),
+                    Substitute.For<IAscContentHasher>(),
+                    Substitute.For<IAscLocator>(),
+                    new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                    new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
@@ -883,7 +908,13 @@ public class AppShellViewModelTests
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
             new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
-            new ReplayViewModel(Substitute.For<IReplayService>(), Substitute.For<IFileDialogService>()),
+            new ReplayViewModel(
+                Substitute.For<IReplayService>(),
+                Substitute.For<IFileDialogService>(),
+                Substitute.For<IAscContentHasher>(),
+                Substitute.For<IAscLocator>(),
+                new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
             new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
