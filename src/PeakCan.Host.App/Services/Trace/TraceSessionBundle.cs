@@ -139,21 +139,21 @@ public sealed class BundlePlaybackDto
     public string ReplayCanIdFilterText { get; set; } = "";
 
     /// <summary>
-    /// v3.8.0 MINOR chunk 4: user-captured timestamps for the Replay
-    /// tab. Each bookmark is a (id, timestamp, optional label) tuple
-    /// added via Ctrl+B / <c>AddBookmarkCommand</c>. Optional with
-    /// empty default — v3.7.2 bundles load with no bookmarks (round-trip
-    /// safe via <c>additionalProperties: true</c> schema design from
-    /// v3.6.1).
+    /// User-captured timestamps for the Replay tab (Ctrl+B / the
+    /// <c>+ Bookmark</c> toolbar button). Each bookmark is a
+    /// (id, timestamp, optional label) tuple. Empty list = no bookmarks
+    /// (the default). Null deserializes as empty; producers SHOULD emit
+    /// <c>[]</c> for forward-compat with v3.7.x readers.
     /// </summary>
     [JsonPropertyName("bookmarks")]
     public List<BookmarkDto> Bookmarks { get; set; } = new();
 
     /// <summary>
-    /// v3.8.0 MINOR chunk 6: named playback windows. See
-    /// <see cref="LoopRegionDto"/> for the precedence + partial-rewind
-    /// semantics. Empty list = legacy single-region behavior
-    /// (Start/End Timestamp bounds).
+    /// Named playback windows. See <see cref="LoopRegionDto"/> for the
+    /// precedence + partial-rewind semantics. Empty list = legacy
+    /// single-region behavior (Start/End Timestamp bounds). Null
+    /// deserializes as empty; producers SHOULD emit <c>[]</c> for
+    /// forward-compat with v3.7.x readers.
     /// </summary>
     [JsonPropertyName("loopRegions")]
     public List<LoopRegionDto> LoopRegions { get; set; } = new();

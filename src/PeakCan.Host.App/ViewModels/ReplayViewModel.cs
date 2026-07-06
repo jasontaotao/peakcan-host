@@ -83,6 +83,10 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotLoaded))]
+    // v3.8.1 PATCH: frame-step commands gate CanExecute on !IsPlaying;
+    // without this attribute, the buttons wouldn't re-evaluate their
+    // IsEnabled bindings when playback starts/stops.
+    [NotifyCanExecuteChangedFor(nameof(NextFrameCommand), nameof(PrevFrameCommand))]
     private bool _isPlaying;
 
     [ObservableProperty]
@@ -95,6 +99,16 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     private string? _errorMessage;
 
     [ObservableProperty]
+    // v3.8.1 PATCH: 5 v3.8.0 commands gate CanExecute on IsLoaded (or on
+    // LoopRegions.Count which expands only after IsLoaded=true). This
+    // attribute forces the source-gen partial setter to call
+    // NotifyCanExecuteChanged on each listed command when IsLoaded
+    // flips. Pairs with the IsEnabled bindings on the toolbar buttons
+    // (ReplayView.xaml) to make the buttons visually enable/disable
+    // at the right moments.
+    [NotifyCanExecuteChangedFor(nameof(NextFrameCommand), nameof(PrevFrameCommand),
+        nameof(AddBookmarkCommand), nameof(AddLoopRegionCommand),
+        nameof(ClearLoopRegionsCommand))]
     private bool _isLoaded;
 
     // v1.5.0 MINOR Task 5: Loop is a proxy to the service. The CheckBox
@@ -886,7 +900,16 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand(CanExecute = nameof(CanClearLoopRegions))]
-    private void ClearLoopRegions() => LoopRegions.Clear();
+    private void ClearLoopRegions()
+    {
+        LoopRegions.Clear();
+        // v3.8.1 PATCH: ObservableCollection<T> mutations don't fire
+        // PropertyChanged for the count, so the source-gen
+        // CanExecuteChangedFor attribute can't see LoopRegions.Count
+        // changes. Notify explicitly to keep the toolbar Clear button
+        // enabled-state in sync after a Clear.
+        ClearLoopRegionsCommand.NotifyCanExecuteChanged();
+    }
 
     private bool CanAddLoopRegion() => IsLoaded;
     private bool CanClearLoopRegions() => LoopRegions.Count > 0;

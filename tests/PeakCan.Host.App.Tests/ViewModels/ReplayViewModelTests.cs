@@ -1121,6 +1121,46 @@ public class ReplayViewModelTests : IDisposable
         _service.DidNotReceive().Seek(Arg.Any<double>());
     }
 
+    // ---------- v3.8.1 PATCH: interior-frame boundary tests (pin strict-> / <) ----------
+
+    /// <summary>
+    /// v3.8.1 PATCH: when cursor is AT an interior frame's timestamp,
+    /// NextFrame must advance PAST it (intuitive "next" semantic). Pins
+    /// the strict-<c>&gt;</c> binary-search behavior so a future
+    /// maintainer can't silently change <c>&gt;</c> to <c>&gt;=</c>
+    /// without test failure.
+    /// </summary>
+    [Fact]
+    public void NextFrame_AtInteriorFrame_AdvancesPastIt()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(2.0);  // AT interior frame
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.NextFrameCommand.Execute(null);
+
+        _service.Received(1).Seek(3.0);
+    }
+
+    /// <summary>
+    /// v3.8.1 PATCH: mirror of NextFrame_AtInteriorFrame_AdvancesPastIt
+    /// for the PrevFrame direction. Pins the strict-<c>&lt;</c> binary-
+    /// search behavior for the interior case.
+    /// </summary>
+    [Fact]
+    public void PrevFrame_AtInteriorFrame_GoesBack()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(2.0);  // AT interior frame
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.PrevFrameCommand.Execute(null);
+
+        _service.Received(1).Seek(1.0);
+    }
+
     // ---------- v3.8.0 MINOR chunk 4: bookmarks ----------
 
     /// <summary>

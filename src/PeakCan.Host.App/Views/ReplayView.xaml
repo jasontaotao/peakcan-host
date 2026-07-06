@@ -89,23 +89,32 @@
                     IsEnabled="{Binding IsLoaded}"/>
             <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,5,0"
                     IsEnabled="{Binding IsLoaded}"/>
-            <!-- v3.8.0 MINOR chunk 9: frame-step buttons. CanExecute
-                 handles enable/disable so we don't need IsEnabled. -->
+            <!-- v3.8.0 MINOR chunk 9: frame-step buttons. v3.8.1 PATCH:
+                 IsEnabled bound to <Cmd>.CanExecute (CommunityToolkit.Mvvm
+                 source-generated bool property on IRelayCommand) so the
+                 buttons visually enable/disable at the right moments.
+                 Pairs with [NotifyCanExecuteChangedFor] on _isLoaded +
+                 _isPlaying in ReplayViewModel.cs. -->
             <Separator Margin="8,0,8,0"/>
             <Button Content="|◀" Command="{Binding PrevFrameCommand}" Margin="0,0,5,0"
                     ToolTip="Previous frame (Left arrow)"
+                    IsEnabled="{Binding PrevFrameCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
             <Button Content="▶|" Command="{Binding NextFrameCommand}" Margin="0,0,5,0"
                     ToolTip="Next frame (Right arrow)"
+                    IsEnabled="{Binding NextFrameCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
             <Separator Margin="8,0,8,0"/>
             <Button Content="+ Bookmark" Command="{Binding AddBookmarkCommand}" Margin="0,0,5,0"
                     ToolTip="Add bookmark at cursor (Ctrl+B)"
+                    IsEnabled="{Binding AddBookmarkCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
             <Button Content="+ Loop region" Command="{Binding AddLoopRegionCommand}" Margin="0,0,5,0"
                     ToolTip="Add loop region from current Start/End bounds"
+                    IsEnabled="{Binding AddLoopRegionCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
             <Button Content="Clear regions" Command="{Binding ClearLoopRegionsCommand}" Margin="0,0,5,0"
+                    IsEnabled="{Binding ClearLoopRegionsCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
             <TextBlock Text="{Binding CurrentTimestamp, StringFormat='{}{0:F2} s'}"
                        VerticalAlignment="Center" Margin="10,0,5,0"/>

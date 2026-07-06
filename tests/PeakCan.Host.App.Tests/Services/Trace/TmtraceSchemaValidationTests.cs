@@ -274,6 +274,53 @@ public class TmtraceSchemaValidationTests
         dto.Playback.Speed.Should().Be(2.0);
     }
 
+    /// <summary>
+    /// v3.8.1 PATCH: realistic v3.7.2 bundle with a non-empty
+    /// <c>replayCanIdFilterText</c> value (the field added in v3.7.0 MINOR
+    /// that any v3.7.0–v3.7.2 Replay tab save would set if the user
+    /// typed a CAN-ID filter). The v3.8.0 deserializer must round-trip
+    /// the field value as-is — NOT clobber with empty string when
+    /// <c>Bookmarks</c> / <c>LoopRegions</c> are absent from the bundle.
+    /// <para>
+    /// This is the realistic forward-compat shape; the empty-string
+    /// variant is covered by <see cref="V372Bundle_WithPlaybackEnvelope_DeserializesWithEmptyCollections"/>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void V372Bundle_WithNonEmptyReplayCanIdFilterText_RoundTripsValue()
+    {
+        var oldBundle = """
+            {
+              "version": 1,
+              "schema": "tmtrace/v1",
+              "savedAt": "2026-06-15T10:00:00.0000000Z",
+              "appVersion": "3.7.2",
+              "dbcPath": "",
+              "globalCanIdFilter": "",
+              "playback": {
+                "masterSourceId": "",
+                "loop": false,
+                "speed": 1.0,
+                "scrubberValue": 0.0,
+                "replayCanIdFilterText": "0x100, 0x200, 0x300"
+              },
+              "sources": [],
+              "viewports": []
+            }
+            """;
+
+        var dto = JsonSerializer.Deserialize<TraceSessionBundleDto>(oldBundle);
+
+        dto.Should().NotBeNull();
+        dto!.Playback.Should().NotBeNull();
+        dto.Playback!.ReplayCanIdFilterText.Should().Be("0x100, 0x200, 0x300",
+            "v3.7.2 field must round-trip through v3.8.0 deserializer unchanged");
+        dto.Playback.Bookmarks.Should().BeEmpty(
+            "v3.7.2 bundle has no bookmarks key → empty list (not null)");
+        dto.Playback.LoopRegions.Should().BeEmpty(
+            "v3.7.2 bundle has no loop regions key → empty list (not null)");
+    }
+
     // ===== helpers =====
 
     private static void AssertSubDto(Type dtoType, JsonElement schemaDef)

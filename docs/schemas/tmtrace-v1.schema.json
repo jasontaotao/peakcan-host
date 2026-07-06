@@ -170,13 +170,13 @@
           "type": "string"
         },
         "bookmarks": {
-          "description": "v3.8.0 MINOR: list of Replay-tab bookmarks — user-captured timestamps (Ctrl+B) for quick re-navigation. Each BookmarkDto is a (id, timestamp, label) tuple. Empty array = no bookmarks (default). v3.7.2 bundles without this field deserialize with no bookmarks.",
+          "description": "Replay-tab bookmarks — user-captured timestamps (Ctrl+B / the + Bookmark toolbar button) for quick re-navigation. Each BookmarkDto is a (id, timestamp, label) tuple. Empty array = no bookmarks (default). Null deserializes as empty; producers SHOULD emit [] for forward-compat with v3.7.x readers.",
           "type": "array",
           "items": { "$ref": "#/$defs/BookmarkDto" },
           "default": []
         },
         "loopRegions": {
-          "description": "v3.8.0 MINOR: list of named playback windows. When Loop is true AND this array is non-empty, the FIRST region overrides StartTimestamp/EndTimestamp for wrap-around. Empty array = legacy single-region behavior. Partial v3.8.0: regions seek to their Start on activation but do NOT yet rewind at End (full A/B loop is v3.9.0 territory).",
+          "description": "Named playback windows. When Loop is true AND this array is non-empty, the FIRST region overrides StartTimestamp/EndTimestamp for wrap-around. Empty array = legacy single-region behavior. Partial: regions seek to their Start on activation but do NOT yet rewind at End (full A/B loop is a future enhancement). Null deserializes as empty; producers SHOULD emit [] for forward-compat with v3.7.x readers.",
           "type": "array",
           "items": { "$ref": "#/$defs/LoopRegionDto" },
           "default": []
