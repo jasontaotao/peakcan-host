@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -44,7 +45,8 @@ public sealed class ReplaySessionAutoSaverTests : IDisposable
 
     private string Track(string p) { _files.Add(p); return p; }
 
-    private (ReplaySessionAutoSaver Saver, IReplayViewModelProvider Provider, ReplayViewModel Vm) MakeSaver(string path)
+    private (ReplaySessionAutoSaver Saver, IReplayViewModelProvider Provider, ReplayViewModel Vm)
+        MakeSaver(string path, IAutoSavePrefsStore prefs, IMessageBoxPrompt prompt)
     {
         var library = new TraceSessionLibrary(path, NullLogger<TraceSessionLibrary>.Instance);
         var vm = new ReplayViewModel(
@@ -60,13 +62,15 @@ public sealed class ReplaySessionAutoSaverTests : IDisposable
             .SetValue(vm, @"C:/replay.asc");
         var provider = Substitute.For<IReplayViewModelProvider>();
         provider.GetCurrent().Returns(vm);
-        var prefs = Substitute.For<IAutoSavePrefsStore>();
-        var prompt = Substitute.For<IMessageBoxPrompt>();
         return (new ReplaySessionAutoSaver(
             provider, library, prefs, prompt,
             NullLogger<ReplaySessionAutoSaver>.Instance, path),
             provider, vm);
     }
+
+    private (ReplaySessionAutoSaver Saver, IReplayViewModelProvider Provider, ReplayViewModel Vm)
+        MakeSaver(string path) =>
+        MakeSaver(path, new InMemoryPrefsStore(), Substitute.For<IMessageBoxPrompt>());
 
     [Fact]
     public async Task TrySaveAutoSnapshotAsync_WritesToAppDataLocation()
@@ -109,7 +113,7 @@ public sealed class ReplaySessionAutoSaverTests : IDisposable
         var provider = Substitute.For<IReplayViewModelProvider>();
         var saver = new ReplaySessionAutoSaver(
             provider, library,
-            Substitute.For<IAutoSavePrefsStore>(),
+            new InMemoryPrefsStore(),
             Substitute.For<IMessageBoxPrompt>(),
             NullLogger<ReplaySessionAutoSaver>.Instance, missingPath);
 
@@ -137,17 +141,49 @@ public sealed class ReplaySessionAutoSaverTests : IDisposable
         loaded.Dto.Sources[0].Path.Should().Be(@"C:/replay.asc");
     }
 
-    [Fact(Skip = "v3.7.0 Chunk 3 follow-up: NSubstitute + WPF Window? owner + Application.Current interaction is unreliable in test context; the same prompt path is covered by TraceSessionAutoSaverTests")]
+    [Fact]
     public async Task ApplyAutoSnapshotAsync_UserSaysNo_PersistsNeverRestoreFlag()
     {
-        // Skipped — see attribute.
-        await Task.CompletedTask;
+        // Arrange — bundle exists; user answers No.
+        var path = NewAutoSavePath();
+        var prefs = new InMemoryPrefsStore();
+        var prompt = Substitute.For<IMessageBoxPrompt>();
+        prompt.ShowAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>())
+            .Returns(MessageBoxResult.No);
+        var (saver, _, vm) = MakeSaver(path, prefs, prompt);
+        (await saver.TrySaveAutoSnapshotAsync(CancellationToken.None)).Should().BeTrue();
+
+        // Act
+        var outcome = await saver.ApplyAutoSnapshotAsync(vm, CancellationToken.None);
+
+        // Assert
+        outcome.Applied.Should().BeFalse();
+        outcome.PromptShown.Should().BeTrue();
+        outcome.Answer.Should().Be(RestoreAnswer.No);
+        prefs.Current.NeverRestore.Should().BeTrue(
+            "user said No → opt-out flag persists so we never prompt again");
     }
 
-    [Fact(Skip = "v3.7.0 Chunk 3 follow-up: same NSubstitute Window? owner issue as above")]
+    [Fact]
     public async Task ApplyAutoSnapshotAsync_AfterNeverRestore_NoPrompt()
     {
-        // Skipped — see attribute.
-        await Task.CompletedTask;
+        // Arrange — prefs already say NeverRestore=true; bundle exists but
+        // the prompt must be suppressed.
+        var path = NewAutoSavePath();
+        var prefs = new InMemoryPrefsStore { Current = new AutoSavePrefs(NeverRestore: true) };
+        var prompt = Substitute.For<IMessageBoxPrompt>();
+        prompt.ShowAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>())
+            .Returns(MessageBoxResult.Yes);
+        var (saver, _, vm) = MakeSaver(path, prefs, prompt);
+        (await saver.TrySaveAutoSnapshotAsync(CancellationToken.None)).Should().BeTrue();
+
+        // Act
+        var outcome = await saver.ApplyAutoSnapshotAsync(vm, CancellationToken.None);
+
+        // Assert
+        outcome.Applied.Should().BeFalse();
+        outcome.PromptShown.Should().BeFalse();
+        outcome.Answer.Should().Be(RestoreAnswer.NeverRestore);
+        await prompt.DidNotReceiveWithAnyArgs().ShowAsync(default!, default!, default);
     }
 }

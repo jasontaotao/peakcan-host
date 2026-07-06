@@ -95,19 +95,9 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
             autoSavePath);
     }
 
-    // In-memory prefs fake — bypasses disk so tests don't share state
-    // across the test fixture's temp dir.
-    private sealed class InMemoryPrefsStore : IAutoSavePrefsStore
-    {
-        public AutoSavePrefs Current { get; set; } = new(NeverRestore: false);
-        public Task<AutoSavePrefs> LoadAsync(CancellationToken ct) =>
-            Task.FromResult(Current);
-        public Task SaveAsync(AutoSavePrefs prefs, CancellationToken ct)
-        {
-            Current = prefs;
-            return Task.CompletedTask;
-        }
-    }
+    // InMemoryPrefsStore now lives in its own file (Services/Trace/InMemoryPrefsStore.cs,
+    // v3.7.0 PATCH). The factory and tests below reference it by bare name
+    // (same namespace).
 
     [Fact]
     public async Task TrySaveAutoSnapshotAsync_WritesToAppDataLocation()
