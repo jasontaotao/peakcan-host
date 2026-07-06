@@ -112,6 +112,25 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _canIdFilter = "";
 
+    // v3.9.1 PATCH Bug #2: IsLoading + ErrorMessage + StatusMessage.
+    // IsLoading gates AddTraceCommand CanExecute (mirrors
+    // ReplayViewModel.IsLoaded's 5-command gate at lines 101-112) so the
+    // toolbar "Add trace…" button greys out during a load. ErrorMessage is
+    // XAML-bound to a red TextBlock — parse failures surface as visible UI
+    // feedback instead of a MessageBox. StatusMessage is XAML-bound to a
+    // gray status bar showing the load lifecycle ("Loading foo.asc…" /
+    // "Loaded foo.asc" / "Load failed" / "Load cancelled").
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddTraceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveTraceCommand))]
+    private bool _isLoading;
+
+    [ObservableProperty]
+    private string? _errorMessage;
+
+    [ObservableProperty]
+    private string _statusMessage = "Status: ready";
+
     public ObservableCollection<TraceSignalRow> Signals { get; } = new();
     public TraceChartViewModel ChartViewModel { get; } = new();
 
@@ -148,24 +167,50 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.2.0 MINOR: append a new trace to the session. Used by the
-    /// View's "Add trace…" button. Surfaces <see cref="ReplayException"/>
-    /// to the caller (window shows MessageBox); other exception types
-    /// propagate unhandled.
+    /// v3.2.0 MINOR: append a new trace to the session. v3.9.1 PATCH
+    /// Bug #2: now absorbs failures into bindable state
+    /// (<see cref="ErrorMessage"/> + <see cref="StatusMessage"/>) instead
+    /// of rethrowing into the View's <c>async void</c> click handler.
+    /// Mirrors <see cref="ReplayViewModel.OpenAsync"/>'s try/catch shape:
+    /// <list type="bullet">
+    ///   <item><see cref="OperationCanceledException"/> → swallowed,
+    ///     <c>StatusMessage = "Load cancelled"</c>, no ErrorMessage.</item>
+    ///   <item><see cref="ReplayException"/> → <c>ErrorMessage = ex.Message</c>,
+    ///     <c>StatusMessage = "Load failed"</c>.</item>
+    /// </list>
+    /// <see cref="IsLoading"/> flips true → false in <c>finally</c> so the
+    /// toolbar button re-enables regardless of success or failure path.
+    /// <para>
+    /// v3.9.1 PATCH: <c>CanExecute = nameof(CanAddTrace)</c> so the
+    /// generated <c>AddTraceCommand</c> respects <see cref="IsLoading"/> —
+    /// the toolbar button greys out during a load.
+    /// </para>
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanAddTrace))]
     public async Task AddTraceAsync(string path)
     {
         try
         {
+            ErrorMessage = null;
+            IsLoading = true;
+            var name = System.IO.Path.GetFileName(path);
+            StatusMessage = $"Loading {name}…";
             await _registry.LoadAsync(path).ConfigureAwait(true);
-            // The SourcesChanged handler will RebindMasterFromRegistry +
-            // refresh ChartViewModel duration.
+            StatusMessage = $"Loaded {name}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Load cancelled";
         }
         catch (ReplayException ex)
         {
             LogLoadFailed(_logger, ex, path);
-            throw;
+            ErrorMessage = ex.Message;
+            StatusMessage = "Load failed";
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 
@@ -187,6 +232,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     [RelayCommand]
     public Task OpenFileAsync(string path) => AddTraceAsync(path);
+
+    /// <summary>
+    /// v3.9.1 PATCH Bug #2: <c>CanExecute</c> predicate for
+    /// <see cref="AddTraceCommand"/>. Disables the toolbar button while a
+    /// load is in flight.
+    /// </summary>
+    private bool CanAddTrace(string? path) => !IsLoading;
 
     /// <summary>
     /// v3.3.0 MINOR: switch the master source mid-session. Stops playback,

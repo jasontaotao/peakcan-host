@@ -15,8 +15,14 @@
         <!-- Toolbar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
             <!-- v3.2.0 MINOR: Add trace always appends to the session (never
-                 overwrites). Single-trace default behavior unchanged from v3.0. -->
-            <Button Content="Add trace…" Click="OnAddTraceClick" Padding="8,2" Margin="0,0,4,0" />
+                 overwrites). Single-trace default behavior unchanged from v3.0.
+                 v3.9.1 PATCH Bug #2: switched from Click=OnAddTraceClick to
+                 Command={Binding AddTraceCommand} so [NotifyCanExecuteChangedFor]
+                 on IsLoading actually gates the button (greys out during load).
+                 The Command binding here calls into the same VM method
+                 (AddTraceAsync) that the click handler called. -->
+            <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
+                    CommandParameter="" Padding="8,2" Margin="0,0,4,0" />
             <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
             <!-- v3.6.0 MINOR T3: Save/Open .tmtrace session buttons moved to
                  the AppShell File menu (Open Session... / Save Session... +
@@ -126,8 +132,18 @@
         </Border>
 
         <!-- Status bar -->
-        <TextBlock DockPanel.Dock="Bottom" Margin="4" Foreground="Gray"
-                   Text="Status: ready" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Vertical" Margin="4">
+            <!-- v3.9.1 PATCH Bug #2: bind to VM's StatusMessage (lifecycle
+                 status: "Loading foo.asc…" / "Loaded foo.asc" / "Load failed" /
+                 "Load cancelled"). Gray text, plain font. -->
+            <TextBlock Text="{Binding StatusMessage}" Foreground="Gray" />
+            <!-- v3.9.1 PATCH Bug #2: bind to VM's ErrorMessage (parse failure
+                 detail). Red text, bold to distinguish from status line. Hidden
+                 via empty-string → DataTrigger if needed; currently always
+                 visible but empty when no error. -->
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="#D62728"
+                       FontWeight="SemiBold" TextWrapping="Wrap" />
+        </StackPanel>
 
         <!-- Main split: signal list (left) + chart subplots (right) -->
         <Grid>

@@ -65,16 +65,45 @@ public class TraceViewerServiceTests
     }
 
     [Fact]
-    public async Task LoadAsync_EmptyFile_HasZeroTotalDuration()
+    public async Task LoadAsync_EmptyFile_ThrowsReplayFormatException()
     {
+        // v3.9.1 PATCH Bug #2: empty .asc files must surface as parse errors,
+        // not silently load as 0 frames. Pre-fix, TraceViewerService.LoadAsync
+        // line 62-68 caught ReplayFormatException when _frames.Count==0 and
+        // silently set frames to Array.Empty — user saw no error at all.
         var path = System.IO.Path.GetTempFileName();
         await File.WriteAllTextAsync(path, "");  // empty
         try
         {
             var sut = new TraceViewerService(Substitute.For<ILogger<TraceViewerService>>());
-            await sut.LoadAsync(path);
-            sut.TotalDuration.Should().Be(0.0);
-            sut.State.Should().Be(ReplayState.Stopped);
+            var act = () => sut.LoadAsync(path);
+            await act.Should().ThrowAsync<ReplayFormatException>(
+                "v3.9.1 PATCH: empty .asc files must surface as parse errors, not silently load as 0 frames");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task LoadAsync_FileExceedsSizeCap_ThrowsReplayLoadException()
+    {
+        // v3.9.1 PATCH Bug #2 size-cap guard (mirrors v3.8.8 PATCH F2 pattern).
+        // Files larger than MaxAscFileBytes (200 MB) are rejected BEFORE
+        // File.OpenRead + AscParser.ParseAsync, preventing OOM and the
+        // multi-second UI freeze that the multi-GB import bug produced.
+        // We use FileStream.SetLength to create a sparse 201 MB file (cheap
+        // on NTFS — no actual disk allocation).
+        var path = System.IO.Path.GetTempFileName();
+        try
+        {
+            using (var fs = File.OpenWrite(path))
+            {
+                fs.SetLength(TraceViewerService.MaxAscFileBytes + 1);
+            }
+            var sut = new TraceViewerService(Substitute.For<ILogger<TraceViewerService>>());
+            var act = () => sut.LoadAsync(path);
+            var ex = await act.Should().ThrowAsync<ReplayLoadException>(
+                "v3.9.1 PATCH: files beyond MaxAscFileBytes must be rejected with ReplayLoadException");
+            ex.And.Message.Should().Contain("exceeds size cap");
         }
         finally { File.Delete(path); }
     }

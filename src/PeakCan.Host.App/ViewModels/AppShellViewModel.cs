@@ -631,6 +631,18 @@ public sealed partial class AppShellViewModel : ObservableObject
             // VM is the same instance — which it is, by ctor injection
             // (registered singleton in AppHostBuilder).
             _traceViewerView = new TraceViewerView(_traceViewerViewModel);
+            // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
+            // main window cascade-closes the Trace Viewer. Without
+            // Owner, Trace Viewer is an owner-less top-level Window;
+            // WPF's default ShutdownMode=OnLastWindowClose keeps the
+            // dispatcher running while Trace Viewer is visible, so the
+            // user sees Trace Viewer survive AppShell close. Mirrors
+            // OpenMultiFrame (line 606-609) and SendViewModel's
+            // OpenMultiFrameSend (SendViewModel.cs:522-525) — both
+            // already set Owner. Application.Current.MainWindow is
+            // assigned to AppShell in App.OnStartup.
+            if (Application.Current?.MainWindow is { } owner && owner != _traceViewerView)
+                _traceViewerView.Owner = owner;
             _traceViewerView.Closed += (_, _) => _traceViewerView = null;
         }
         if (!_traceViewerView.IsVisible)

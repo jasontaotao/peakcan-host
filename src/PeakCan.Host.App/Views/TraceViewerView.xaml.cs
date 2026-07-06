@@ -19,14 +19,17 @@ public partial class TraceViewerView : Window
     // v3.2.0 MINOR: toolbar button renamed "Open .asc…" → "Add trace…" with
     // the same click semantics — calls AddTraceAsync which appends to the
     // session. Single-trace default behavior unchanged from v3.0.
+    // v3.9.1 PATCH Bug #2: AddTraceAsync now absorbs failures into
+    // bindable state (vm.ErrorMessage + vm.StatusMessage); the catch is
+    // removed. If the file dialog throws, the surrounding MessageBox is
+    // the user's last-resort signal — not the success/failure of the load.
     private async void OnAddTraceClick(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog { Filter = "ASC files|*.asc;*.ASC|All files|*.*" };
         if (dlg.ShowDialog(this) != true) return;
         if (DataContext is TraceViewerViewModel vm)
         {
-            try { await vm.AddTraceAsync(dlg.FileName); }
-            catch (System.Exception ex) { MessageBox.Show(this, ex.Message, "Add trace failed"); }
+            await vm.AddTraceAsync(dlg.FileName);
         }
     }
 

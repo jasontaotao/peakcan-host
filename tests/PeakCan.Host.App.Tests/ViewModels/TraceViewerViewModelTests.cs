@@ -1290,4 +1290,106 @@ public class TraceViewerViewModelTests
 
         try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
     }
+
+    // ---------- v3.9.1 PATCH: IsLoading + ErrorMessage + StatusMessage UX surface ----------
+
+    /// <summary>
+    /// v3.9.1 PATCH Bug #2 root fix: when the registry throws
+    /// <see cref="ReplayException"/> (parse failure, file not found, etc.)
+    /// during <c>AddTraceAsync</c>, the VM must:
+    ///   1. Set <c>ErrorMessage</c> to the exception message (XAML-bound red text).
+    ///   2. Set <c>StatusMessage</c> to "Load failed".
+    ///   3. Reset <c>IsLoading</c> to false in finally (button re-enables).
+    ///   4. NOT re-throw (the VM absorbs the failure into bindable state; the View
+    ///      no longer shows a MessageBox — that contract was removed in v3.9.1).
+    /// Pre-fix, the VM rethrew and the View caught with <c>MessageBox.Show</c>.
+    /// </summary>
+    [Fact]
+    public async Task AddTraceAsync_RegistryThrowsReplayException_SetsErrorMessageAndClearsIsLoading()
+    {
+        var registry = MakeFakeRegistry();
+        registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<TraceSource>>(_ =>
+                throw new ReplayLoadException("ASC file not found: C:/missing.asc"));
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // Act — must NOT throw (absorbed into ErrorMessage)
+        await sut.AddTraceAsync("C:/missing.asc");
+
+        // Assert
+        sut.IsLoading.Should().BeFalse("IsLoading must reset in finally so the Add button re-enables");
+        sut.ErrorMessage.Should().Be("ASC file not found: C:/missing.asc",
+            "v3.9.1 PATCH: parse failure surfaces as bindable ErrorMessage (XAML red text) — was a MessageBox before");
+        sut.StatusMessage.Should().Be("Load failed");
+    }
+
+    /// <summary>
+    /// v3.9.1 PATCH: when <see cref="ReplayFormatException"/> propagates from
+    /// the registry (e.g. empty .asc file, >50% malformed lines), the VM must
+    /// absorb it into <c>ErrorMessage</c> + reset <c>IsLoading</c>.
+    /// Pre-fix, the silent empty-file no-op in <c>TraceViewerService.LoadAsync</c>
+    /// (line 62-68) swallowed this exception — user saw no error at all.
+    /// </summary>
+    [Fact]
+    public async Task AddTraceAsync_RegistryThrowsReplayFormatException_SetsErrorMessageAndClearsIsLoading()
+    {
+        var registry = MakeFakeRegistry();
+        registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<TraceSource>>(_ =>
+                throw new ReplayFormatException("Empty ASC file (0 parseable frames)"));
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        await sut.AddTraceAsync("C:/empty.asc");
+
+        sut.IsLoading.Should().BeFalse();
+        sut.ErrorMessage.Should().Contain("Empty ASC");
+        sut.StatusMessage.Should().Be("Load failed");
+    }
+
+    /// <summary>
+    /// v3.9.1 PATCH: <see cref="OperationCanceledException"/> during
+    /// <c>AddTraceAsync</c> must be swallowed cleanly — status shows "Load
+    /// cancelled", <c>ErrorMessage</c> stays null (cancel is not a
+    /// user-hostile failure), <c>IsLoading</c> resets.
+    /// Pre-fix, OCE propagated through the <c>async void</c> click handler
+    /// into WPF's DispatcherUnhandledException.
+    /// </summary>
+    [Fact]
+    public async Task AddTraceAsync_RegistryThrowsOperationCanceled_SwallowsCleanlyNoErrorMessage()
+    {
+        var registry = MakeFakeRegistry();
+        registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<TraceSource>>(_ =>
+                throw new OperationCanceledException("user cancelled"));
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        await sut.AddTraceAsync("C:/whatever.asc");
+
+        sut.IsLoading.Should().BeFalse();
+        sut.ErrorMessage.Should().BeNull(
+            "v3.9.1 PATCH: cancellation is not a user-hostile failure — no red error text");
+        sut.StatusMessage.Should().Be("Load cancelled");
+    }
+
+    /// <summary>
+    /// v3.9.1 PATCH: <see cref="TraceViewerViewModel.AddTraceCommand"/> CanExecute
+    /// must be <c>false</c> while <c>IsLoading</c> is true and <c>true</c>
+    /// when false. This is the gate that greys out the toolbar "Add trace…"
+    /// button during a load — implemented via <c>[NotifyCanExecuteChangedFor]</c>
+    /// on <c>IsLoading</c>, mirroring <c>ReplayViewModel.IsLoaded</c>'s
+    /// 5-command gate pattern.
+    /// </summary>
+    [Fact]
+    public void AddTraceCommand_CanExecute_ReflectsIsLoading()
+    {
+        var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.IsLoading = false;
+        sut.AddTraceCommand.CanExecute(null).Should().BeTrue(
+            "AddTraceCommand must be enabled when IsLoading=false (initial state)");
+
+        sut.IsLoading = true;
+        sut.AddTraceCommand.CanExecute(null).Should().BeFalse(
+            "v3.9.1 PATCH: AddTraceCommand must be disabled during load — toolbar button greys out");
+    }
 }

@@ -12,6 +12,16 @@ namespace PeakCan.Host.Core.Replay;
 /// </summary>
 public sealed class TraceViewerService : ITraceViewerService, IDisposable
 {
+    /// <summary>
+    /// v3.9.1 PATCH Bug #2 size cap: refuse to open .asc files beyond
+    /// 200 MB. A 200 MB .asc with ~30 bytes/frame ≈ 7M frames × ~24 bytes
+    /// ≈ 170 MB heap just for the parsed frames, leaving headroom for
+    /// OxyPlot series copies. Production 24h captures that exceed 200 MB
+    /// should be pre-truncated with a tool. Mirrors the v3.8.8 PATCH F2
+    /// pattern (<see cref="PeakCan.Host.App.Services.Trace.RecentSessionsService.MaxLoadFileBytes"/>).
+    /// </summary>
+    public const long MaxAscFileBytes = 200L * 1024 * 1024;
+
     private readonly ILogger<TraceViewerService> _logger;
     private readonly ReplayTimeline _timeline;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
@@ -56,15 +66,26 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
     {
         try
         {
-            await using var fs = File.OpenRead(PathNormalizer.Normalize(path));
+            var normalized = PathNormalizer.Normalize(path);
+            // v3.9.1 PATCH Bug #2 size-cap precheck (mirrors v3.8.8 PATCH F2).
+            // Without this, a multi-GB .asc would happily open, consume
+            // hundreds of MB of heap for frames, and freeze the WPF
+            // dispatcher for the entire AscParser.ParseAsync walk. Use
+            // FileInfo.Length — cheap stat call, no actual file read.
+            var info = new FileInfo(normalized);
+            if (info.Length > MaxAscFileBytes)
+                throw new ReplayLoadException(
+                    $"ASC file exceeds size cap ({info.Length:N0} > {MaxAscFileBytes:N0} bytes); use a tool to truncate: {path}");
+            // useAsync: true + 4096 buffer for true async I/O on .NET 10
+            // (File.OpenRead uses synchronous FileStream by default).
+            await using var fs = new FileStream(
+                normalized,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                useAsync: true);
             _frames = await AscParser.ParseAsync(fs, ct).ConfigureAwait(false);
-        }
-        catch (ReplayFormatException) when (_frames.Count == 0)
-        {
-            // Empty file (0 parseable frames) — treat as a successful no-op load.
-            // TotalDuration stays 0.0, State stays Stopped. Other format failures
-            // (corrupted file with >50% malformed lines) still throw.
-            _frames = Array.Empty<ReplayFrame>();
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)

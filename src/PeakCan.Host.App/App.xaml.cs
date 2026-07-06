@@ -126,6 +126,13 @@ public partial class App : Application
         var replayVm = Services.GetRequiredService<ReplayViewModel>();
         _ = Dispatcher.InvokeAsync(async () =>
         {
+            // v3.9.1 PATCH Bug #1: explicitly assign Application.Current.MainWindow
+            // BEFORE shell.Show() so non-modal secondary windows (Trace Viewer,
+            // Multi-frame send, etc.) resolve a non-null owner for cascade-close.
+            // WPF's default fallback is "first shown Window", which would
+            // otherwise be Trace Viewer if it was opened earlier — fragile and
+            // was the root cause of Trace Viewer surviving AppShell close.
+            Application.Current.MainWindow = shell;
             shell.Show();
             try
             {
