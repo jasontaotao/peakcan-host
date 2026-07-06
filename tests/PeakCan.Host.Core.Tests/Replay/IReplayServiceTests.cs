@@ -459,4 +459,99 @@ base 0x7e0 500k
         service.StartTimestamp.Should().BeNull(
             "null means unbounded below; service does not validate Start <= End (VM does)");
     }
+
+    // ---------- v3.8.0 MINOR chunk 1: Frames accessor ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 1: before <see cref="IReplayService.LoadAsync"/>,
+    /// <see cref="IReplayService.Frames"/> returns an empty list (not null).
+    /// Empty-not-null lets the VM do <c>Frames.Count == 0</c> checks without
+    /// a null guard.
+    /// </summary>
+    [Fact]
+    public void Frames_BeforeLoad_ReturnsEmpty()
+    {
+        var sink = new FakeReplayFrameSink();
+        using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+        service.Frames.Should().NotBeNull("Frames must be an empty list, not null, before LoadAsync");
+        service.Frames.Should().BeEmpty("no frames parsed yet");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 1: after <see cref="IReplayService.LoadAsync"/>,
+    /// <see cref="IReplayService.Frames"/> returns all parsed frames in source
+    /// order, with the last frame's timestamp matching <see cref="IReplayService.TotalDuration"/>.
+    /// </summary>
+    [Fact]
+    public async Task Frames_ExposedAfterLoad_ReturnsAllFramesInOrder()
+    {
+        var path = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 0.500000 51  200  4  01 02 03 04
+ 1.000000 51  300  2  AA BB
+");
+        try
+        {
+            var sink = new FakeReplayFrameSink();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+            await service.LoadAsync(path);
+
+            service.Frames.Should().HaveCount(3, "ASC had 3 data lines");
+            service.Frames[0].Timestamp.Should().Be(0.0);
+            service.Frames[1].Timestamp.Should().Be(0.5);
+            service.Frames[2].Timestamp.Should().Be(1.0);
+            service.Frames[^1].Timestamp.Should().Be(service.TotalDuration);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 1: a second <see cref="IReplayService.LoadAsync"/>
+    /// call replaces the <see cref="IReplayService.Frames"/> list with the
+    /// new bundle's frames (atomic on LoadAsync completion — no partial reads
+    /// from the timeline because callers must await LoadAsync).
+    /// </summary>
+    [Fact]
+    public async Task Frames_AfterReload_ReflectsNewBundle()
+    {
+        var path1 = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 0.500000 51  200  4  01 02 03 04
+");
+        var path2 = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  2  AA BB
+ 0.100000 51  200  2  AA BB
+ 0.200000 51  300  2  AA BB
+ 0.300000 51  400  2  AA BB
+");
+        try
+        {
+            var sink = new FakeReplayFrameSink();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+            await service.LoadAsync(path1);
+            service.Frames.Should().HaveCount(2);
+
+            await service.LoadAsync(path2);
+            service.Frames.Should().HaveCount(4,
+                "Frames must be replaced on reload — old 2 frames must not leak");
+            service.Frames[^1].Timestamp.Should().Be(0.3);
+            service.TotalDuration.Should().Be(0.3);
+        }
+        finally
+        {
+            File.Delete(path1);
+            File.Delete(path2);
+        }
+    }
 }

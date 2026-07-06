@@ -4,19 +4,17 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.7.0 — Replay tab session save MINOR (Replay can
-> save / load its own session to a `.tmtrace` bundle, with toolbar
-> Save/Open buttons, Open-Recent submenu filtered to Replay entries,
-> and implicit auto-save on app close with restore-prompt on next
-> startup — same UX as Trace Viewer, sharing the same `.tmtrace`
-> format as a degenerate single-source case). See [Release Notes
-> v3.7.0](docs/release-notes-v3.7.0.md). Bundle format unchanged
-> (one new optional `replayCanIdFilterText` field on the playback
-> envelope; `additionalProperties: true` from v3.6.1 keeps this
-> forward-compat). **~1164 unit tests
-> pass** (416 Core + 84 Infrastructure + 644 App); 5 SKIP; 5
-> architecture rules enforced via NetArchTest; CI runs on every push
-> to `main`.
+> **Status:** v3.8.0 — Replay cursor-walking UX MINOR (frame stepping via
+> Right/Left arrows + toolbar, Ctrl+B bookmarks, named loop regions,
+> all round-tripped through the `.tmtrace` bundle). Builds on v3.7.0's
+> Replay-tab persistence surface (`.tmtrace` degenerate single-source case).
+> See [Release Notes v3.8.0](docs/release-notes-v3.8.0.md). Bundle format
+> adds two optional fields on the playback envelope (`bookmarks`,
+> `loopRegions`) + two new `$defs` (`BookmarkDto`, `LoopRegionDto`); all
+> forward-compat via `additionalProperties: true` from v3.6.1.
+> **~1206 unit tests pass** (421 Core + 84 Infrastructure + 701 App);
+> 5 SKIP; 5 architecture rules enforced via NetArchTest; CI runs on
+> every push to `main`.
 
 ## Features (MVP)
 
@@ -46,6 +44,14 @@ and 1 Hz bus statistics.
   `%APPDATA%/PeakCan.Host/replay-session-auto.tmtrace`; on next
   startup the app offers to restore it (sequentially after the Trace
   restore prompt).
+- **Replay cursor-walking UX (v3.8.0)** — frame-by-frame stepping
+  (Right/Left arrow keys + toolbar buttons), Ctrl+B bookmarks
+  captured at the cursor, named loop regions captured from the
+  current Start/End bounds. All three round-trip through the
+  `.tmtrace` bundle as new optional fields on the playback envelope
+  (`bookmarks`, `loopRegions`). Partial v3.8.0: loop regions seek
+  to their start on activation but do NOT yet rewind at end (full
+  A/B loop deferred to v3.9.0).
 - **DBC file load** — parse a `.dbc` file off the UI thread; populate a
   message table with sender, DLC, signal list.
 - **Signal view** — DBC-decoded live signals per message, with raw hex

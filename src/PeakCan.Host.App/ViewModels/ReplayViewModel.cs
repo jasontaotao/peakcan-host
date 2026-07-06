@@ -222,6 +222,26 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     public sealed record RecentSessionVm(string Path, string Label);
 
     /// <summary>
+    /// v3.8.0 MINOR chunk 4: in-memory list of bookmarks the user has
+    /// captured at the current playback cursor. Persisted to the
+    /// bundle via <see cref="BundlePlaybackDto.Bookmarks"/> in chunk 7.
+    /// Owned by the Replay tab (the Trace Viewer doesn't need bookmarks
+    /// because it loads N traces; Replay loads one).
+    /// </summary>
+    public ObservableCollection<BookmarkVm> Bookmarks { get; } = new();
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: in-memory list of named playback windows.
+    /// Persisted to the bundle via
+    /// <see cref="BundlePlaybackDto.LoopRegions"/> in chunk 7. When
+    /// non-empty and <see cref="Loop"/> is true, the FIRST region
+    /// overrides <see cref="IReplayService.StartTimestamp"/> /
+    /// <see cref="IReplayService.EndTimestamp"/> for wrap-around (full
+    /// A/B rewind is deferred to v3.9.0).
+    /// </summary>
+    public ObservableCollection<LoopRegionVm> LoopRegions { get; } = new();
+
+    /// <summary>
     /// v3.7.0 MINOR Chunk 2: XAML binding source for the Replay tab's
     /// Open Recent submenu. Rebuilt from
     /// <see cref="RecentSessionsService.Recent"/> (filtered to replay
@@ -533,6 +553,13 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             StartTimestamp = StartTimestamp,
             EndTimestamp = EndTimestamp,
             ReplayCanIdFilterText = CanIdFilterText ?? "",
+            // v3.8.0 MINOR chunk 7: persist in-memory bookmarks +
+            // loop-regions. Empty list (not null) is intentional — keeps
+            // the bundle shape stable across v3.7.2 readers who deserialize
+            // the optional field as null and treat null-vs-empty as
+            // semantically the same ("no bookmarks / regions").
+            Bookmarks = Bookmarks.Select(b => b.Dto).ToList(),
+            LoopRegions = LoopRegions.Select(r => r.Dto).ToList(),
         };
         // Replay has no per-series viewports (single source, no
         // chart subplots). Empty list keeps the envelope shape stable
@@ -622,6 +649,21 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             // filter alone (no clobber on bundles from before this
             // field existed).
             CanIdFilterText = pb.ReplayCanIdFilterText ?? "";
+
+            // v3.8.0 MINOR chunk 7: restore bookmarks + loop regions.
+            // Old bundles (no Bookmarks/LoopRegions keys) deserialize as
+            // null → clear to empty. Same null-vs-empty handling as
+            // BuildSnapshot: empty list == no items.
+            Bookmarks.Clear();
+            if (pb.Bookmarks is not null)
+            {
+                foreach (var b in pb.Bookmarks) Bookmarks.Add(new BookmarkVm(b));
+            }
+            LoopRegions.Clear();
+            if (pb.LoopRegions is not null)
+            {
+                foreach (var r in pb.LoopRegions) LoopRegions.Add(new LoopRegionVm(r));
+            }
         }
         IsPlaying = false;
         IsPaused = false;
@@ -720,6 +762,135 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ClearRecentSessions() => _recentSessions.Clear("replay");
 
+    // ---------- v3.8.0 MINOR chunk 2: frame stepping ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: advance the cursor to the first frame whose
+    /// timestamp is strictly greater than <see cref="IReplayService.CurrentTimestamp"/>.
+    /// Uses <see cref="IReplayService.Frames"/> + binary search (O(log n))
+    /// rather than a new <c>Seek(int)</c> overload — reuses
+    /// <see cref="IReplayService.Seek(double)"/> unchanged. Binary search uses
+    /// strict <c>&gt;</c> so stepping AT a frame's timestamp advances PAST it
+    /// (intuitive "next" semantic — keybind Right).
+    /// <para>
+    /// Guarded against playing state (see <see cref="CanStepFrame"/>) so a
+    /// step+play race doesn't fight the timer thread; the user pauses to step.
+    /// </para>
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStepFrame))]
+    private void NextFrame()
+    {
+        var frames = _service.Frames;
+        if (frames.Count == 0) return;
+        var current = _service.CurrentTimestamp;
+        int idx = BinarySearchFirstGreater(frames, current);
+        if (idx < 0) return;
+        _service.Seek(frames[idx].Timestamp);
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: mirror of <see cref="NextFrame"/> moving to the
+    /// last frame strictly before <see cref="IReplayService.CurrentTimestamp"/>.
+    /// Binary search uses strict <c>&lt;</c> — stepping back from the first
+    /// frame's timestamp is a no-op (intuitive). Keybind Left.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStepFrame))]
+    private void PrevFrame()
+    {
+        var frames = _service.Frames;
+        if (frames.Count == 0) return;
+        var current = _service.CurrentTimestamp;
+        int idx = BinarySearchLastLess(frames, current);
+        if (idx < 0) return;
+        _service.Seek(frames[idx].Timestamp);
+    }
+
+    private bool CanStepFrame()
+        => IsLoaded && _service.Frames.Count > 0 && !IsPlaying;
+
+    /// <summary>
+    /// Binary search: returns the lowest index i in <paramref name="frames"/>
+    /// such that <c>frames[i].Timestamp &gt; t</c>, or <c>-1</c> if no such
+    /// frame exists (caller is at-or-past the last frame).
+    /// </summary>
+    private static int BinarySearchFirstGreater(IReadOnlyList<ReplayFrame> frames, double t)
+    {
+        int lo = 0, hi = frames.Count - 1, best = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >> 1;
+            if (frames[mid].Timestamp > t) { best = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Binary search: returns the highest index i in <paramref name="frames"/>
+    /// such that <c>frames[i].Timestamp &lt; t</c>, or <c>-1</c> if no such
+    /// frame exists (caller is at-or-before the first frame).
+    /// </summary>
+    private static int BinarySearchLastLess(IReadOnlyList<ReplayFrame> frames, double t)
+    {
+        int lo = 0, hi = frames.Count - 1, best = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >> 1;
+            if (frames[mid].Timestamp < t) { best = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return best;
+    }
+
+    // ---------- v3.8.0 MINOR chunk 4: bookmarks ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: capture the current playback cursor as a
+    /// bookmark. Generates a fresh GUID id and pushes a
+    /// <see cref="BookmarkVm"/> onto <see cref="Bookmarks"/>. Label
+    /// starts null — a future v3.9.0 PATCH may add inline label editing.
+    /// Keybind Ctrl+B (added in chunk 5).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanAddBookmark))]
+    private void AddBookmark()
+    {
+        var dto = new BookmarkDto(
+            Guid.NewGuid().ToString("N"),
+            _service.CurrentTimestamp,
+            null);
+        Bookmarks.Add(new BookmarkVm(dto));
+    }
+
+    private bool CanAddBookmark() => IsLoaded;
+
+    // ---------- v3.8.0 MINOR chunk 6: loop regions ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: capture the current Start/End range filter
+    /// as a named loop region. If End is null or &lt;= Start (a degenerate
+    /// range), the region is widened to a 1-second window starting at
+    /// Start so the LoopRegions list never contains an invalid range.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanAddLoopRegion))]
+    private void AddLoopRegion()
+    {
+        var start = _service.StartTimestamp ?? 0.0;
+        var end = _service.EndTimestamp ?? start + 1.0;
+        if (end <= start) end = start + 1.0;
+        var dto = new LoopRegionDto(
+            Guid.NewGuid().ToString("N"),
+            start,
+            end,
+            null);
+        LoopRegions.Add(new LoopRegionVm(dto));
+    }
+
+    [RelayCommand(CanExecute = nameof(CanClearLoopRegions))]
+    private void ClearLoopRegions() => LoopRegions.Clear();
+
+    private bool CanAddLoopRegion() => IsLoaded;
+    private bool CanClearLoopRegions() => LoopRegions.Count > 0;
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
     private static partial void LogHashFailed(ILogger logger, Exception ex, string? path);
 
@@ -810,4 +981,38 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         _service.Stop();
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>
+/// v3.8.0 MINOR chunk 4: VM-side projection of <see cref="BookmarkDto"/>
+/// for the Replay tab's bookmark panel. Lives nested outside
+/// <see cref="ReplayViewModel"/> because <see cref="ReplayViewModel.Bookmarks"/>
+/// exposes <c>ObservableCollection&lt;BookmarkVm&gt;</c> as a public type
+/// and a less-accessible element on a public collection trips CS0053
+/// (same pattern as <see cref="ReplayViewModel.RecentSessionVm"/>).
+/// </summary>
+public sealed record BookmarkVm(BookmarkDto Dto)
+{
+    public string Id => Dto.Id;
+    public double Timestamp => Dto.Timestamp;
+    public string? Label => Dto.Label;
+    public string Display => Label is { Length: > 0 }
+        ? $"{Dto.Timestamp:F3}s — {Label}"
+        : $"{Dto.Timestamp:F3}s";
+}
+
+/// <summary>
+/// v3.8.0 MINOR chunk 6: VM-side projection of <see cref="LoopRegionDto"/>
+/// for the Replay tab's loop-regions panel. Same nested-public-record
+/// pattern as <see cref="BookmarkVm"/> (CS0053 fix).
+/// </summary>
+public sealed record LoopRegionVm(LoopRegionDto Dto)
+{
+    public string Id => Dto.Id;
+    public double Start => Dto.Start;
+    public double End => Dto.End;
+    public string? Label => Dto.Label;
+    public string Display => Label is { Length: > 0 }
+        ? $"[{Dto.Start:F3} – {Dto.End:F3}] {Label}"
+        : $"[{Dto.Start:F3} – {Dto.End:F3}]";
 }

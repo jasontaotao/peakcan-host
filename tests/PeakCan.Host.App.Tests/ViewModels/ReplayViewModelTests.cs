@@ -988,4 +988,489 @@ public class ReplayViewModelTests : IDisposable
             try { File.Delete(bundlePath); } catch { /* best effort */ }
         }
     }
+
+    // ---------- v3.8.0 MINOR chunk 2: frame stepping ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: helper that builds a frame list + wires the
+    /// service to return it. Mirrors the pattern in chunk 1's
+    /// <see cref="Frames_ExposedAfterLoad_ReturnsAllFramesInOrder"/> Core test.
+    /// </summary>
+    private static List<ReplayFrame> MakeFrames(params double[] timestamps)
+        => timestamps.Select((t, i) =>
+            new ReplayFrame(t, Id: (uint)(0x100 + i), Dlc: 8, Data: new byte[8], Flags: FrameFlags.None)).ToList();
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: <c>NextFrameCommand</c> with cursor between
+    /// two frames seeks to the next-later one. Binary search uses strict
+    /// <c>&gt;</c> so stepping AT a frame's timestamp advances PAST it
+    /// (intuitive "next" semantic — see ReplayViewModel.NextFrame XML doc).
+    /// </summary>
+    [Fact]
+    public void NextFrame_OnLoaded_SeeksToFirstFrameAfterCurrent()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(1.5);
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.NextFrameCommand.Execute(null);
+
+        _service.Received(1).Seek(2.0);
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: when cursor is at-or-past the last frame's
+    /// timestamp, <c>NextFrameCommand</c> is a no-op (no <see cref="IReplayService.Seek"/>
+    /// call). The strict-<c>&gt;</c> search returns -1.
+    /// </summary>
+    [Fact]
+    public void NextFrame_AtLastFrame_NoSeekCall()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(3.0);  // AT the last frame
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.NextFrameCommand.Execute(null);
+
+        _service.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: <c>PrevFrameCommand</c> with cursor between
+    /// two frames seeks to the next-earlier one.
+    /// </summary>
+    [Fact]
+    public void PrevFrame_OnLoaded_SeeksToLastFrameBeforeCurrent()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(2.5);
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.PrevFrameCommand.Execute(null);
+
+        _service.Received(1).Seek(2.0);
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: when cursor is at-or-before the first frame's
+    /// timestamp, <c>PrevFrameCommand</c> is a no-op.
+    /// </summary>
+    [Fact]
+    public void PrevFrame_AtFirstFrame_NoSeekCall()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _service.CurrentTimestamp.Returns(1.0);  // AT the first frame
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        _sut.PrevFrameCommand.Execute(null);
+
+        _service.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: <c>NextFrameCommand.CanExecute</c> is false
+    /// before a file is loaded (no frames to step through).
+    /// </summary>
+    [Fact]
+    public void NextFrame_BeforeLoad_CanExecuteFalse()
+    {
+        _service.Frames.Returns(MakeFrames());
+        _sut.IsLoaded = false;
+        _sut.IsPlaying = false;
+
+        _sut.NextFrameCommand.CanExecute(null).Should().BeFalse(
+            "frame stepping is gated on IsLoaded");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: <c>NextFrameCommand.CanExecute</c> is false
+    /// while playback is running (avoids step+play race on the timer thread;
+    /// user pauses to step).
+    /// </summary>
+    [Fact]
+    public void NextFrame_WhilePlaying_CanExecuteFalse()
+    {
+        _service.Frames.Returns(MakeFrames(1.0, 2.0, 3.0));
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = true;
+
+        _sut.NextFrameCommand.CanExecute(null).Should().BeFalse(
+            "stepping while playing would race the timer; pause first");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 2: empty <see cref="IReplayService.Frames"/>
+    /// (the <c>Frames.Count == 0</c> path inside NextFrame) must be a no-op,
+    /// not a throw. Defends against a LoadAsync failure that left Frames
+    /// empty while IsLoaded=true was set.
+    /// </summary>
+    [Fact]
+    public void Stepping_OnEmptyFrames_NoThrow()
+    {
+        _service.Frames.Returns(MakeFrames());
+        _sut.IsLoaded = true;
+        _sut.IsPlaying = false;
+
+        var act = () => _sut.NextFrameCommand.Execute(null);
+        act.Should().NotThrow("empty frames list is the expected no-load case");
+
+        _service.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    // ---------- v3.8.0 MINOR chunk 4: bookmarks ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: <c>AddBookmarkCommand</c> captures the current
+    /// <see cref="IReplayService.CurrentTimestamp"/> and pushes a new
+    /// <see cref="BookmarkVm"/> onto <see cref="ReplayViewModel.Bookmarks"/>.
+    /// </summary>
+    [Fact]
+    public void AddBookmark_OnLoaded_AppendsBookmarkWithCurrentTimestamp()
+    {
+        _service.CurrentTimestamp.Returns(2.5);
+        _sut.IsLoaded = true;
+
+        _sut.AddBookmarkCommand.Execute(null);
+
+        _sut.Bookmarks.Should().HaveCount(1);
+        _sut.Bookmarks[0].Timestamp.Should().Be(2.5);
+        _sut.Bookmarks[0].Label.Should().BeNull("Label starts null — no inline editor in v3.8.0");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: <c>AddBookmarkCommand.CanExecute</c> is false
+    /// before a file is loaded (matches the IsLoaded gate pattern).
+    /// </summary>
+    [Fact]
+    public void AddBookmark_BeforeLoad_CanExecuteFalse()
+    {
+        _sut.IsLoaded = false;
+
+        _sut.AddBookmarkCommand.CanExecute(null).Should().BeFalse(
+            "bookmarks are gated on IsLoaded");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: two consecutive <c>AddBookmarkCommand</c> invocations
+    /// produce two distinct GUID ids — bookmarks must be uniquely identifiable
+    /// for later removal / click-to-jump.
+    /// </summary>
+    [Fact]
+    public void AddBookmark_GeneratesUniqueIds()
+    {
+        _sut.IsLoaded = true;
+
+        _sut.AddBookmarkCommand.Execute(null);
+        _sut.AddBookmarkCommand.Execute(null);
+
+        _sut.Bookmarks.Should().HaveCount(2);
+        _sut.Bookmarks[0].Id.Should().NotBe(_sut.Bookmarks[1].Id,
+            "GUIDs must be unique so bookmarks can be referenced individually");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: <see cref="BookmarkVm.Display"/> formats as
+    /// "<timestamp>s — <label>" when Label is non-empty. Pure unit on the
+    /// record — no VM needed.
+    /// </summary>
+    [Fact]
+    public void BookmarkVm_Display_WithLabel_ShowsLabel()
+    {
+        var dto = new BookmarkDto("id-1", 1.234, "engine start");
+        var vm = new BookmarkVm(dto);
+
+        vm.Display.Should().Be("1.234s — engine start");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: <see cref="BookmarkVm.Display"/> formats as
+    /// just "<timestamp>s" when Label is null or empty (the default after
+    /// Ctrl+B with no label editing).
+    /// </summary>
+    [Fact]
+    public void BookmarkVm_Display_NoLabel_ShowsTimestampOnly()
+    {
+        var dto = new BookmarkDto("id-2", 5.678, null);
+        var vm = new BookmarkVm(dto);
+
+        vm.Display.Should().Be("5.678s");
+    }
+
+    // ---------- v3.8.0 MINOR chunk 6: loop regions ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: <c>AddLoopRegionCommand</c> captures the current
+    /// <see cref="IReplayService.StartTimestamp"/> /
+    /// <see cref="IReplayService.EndTimestamp"/> as a
+    /// <see cref="LoopRegionVm"/>.
+    /// </summary>
+    [Fact]
+    public void AddLoopRegion_OnLoaded_AppendsRegionFromCurrentBounds()
+    {
+        _service.StartTimestamp.Returns(1.0);
+        _service.EndTimestamp.Returns(3.5);
+        _sut.IsLoaded = true;
+
+        _sut.AddLoopRegionCommand.Execute(null);
+
+        _sut.LoopRegions.Should().HaveCount(1);
+        _sut.LoopRegions[0].Start.Should().Be(1.0);
+        _sut.LoopRegions[0].End.Should().Be(3.5);
+        _sut.LoopRegions[0].Label.Should().BeNull();
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: <c>AddLoopRegionCommand.CanExecute</c> is false
+    /// before a file is loaded.
+    /// </summary>
+    [Fact]
+    public void AddLoopRegion_BeforeLoad_CanExecuteFalse()
+    {
+        _sut.IsLoaded = false;
+
+        _sut.AddLoopRegionCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: <c>ClearLoopRegionsCommand</c> empties the
+    /// collection. Two-step test: add 2 → clear → empty.
+    /// </summary>
+    [Fact]
+    public void ClearLoopRegions_RemovesAllEntries()
+    {
+        _sut.IsLoaded = true;
+        _service.StartTimestamp.Returns(0.0);
+        _service.EndTimestamp.Returns(1.0);
+        _sut.AddLoopRegionCommand.Execute(null);
+        _sut.AddLoopRegionCommand.Execute(null);
+        _sut.LoopRegions.Should().HaveCount(2);
+
+        _sut.ClearLoopRegionsCommand.Execute(null);
+
+        _sut.LoopRegions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: <c>ClearLoopRegionsCommand.CanExecute</c> is
+    /// false when the collection is empty — gate on actual entries so the
+    /// toolbar Clear button is disabled when there's nothing to clear.
+    /// </summary>
+    [Fact]
+    public void ClearLoopRegions_OnEmpty_CanExecuteFalse()
+    {
+        _sut.LoopRegions.Should().BeEmpty("fresh VM has no regions");
+
+        _sut.ClearLoopRegionsCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: <see cref="LoopRegionVm.Display"/> formats as
+    /// "[start – end] label" or "[start – end]" without label.
+    /// </summary>
+    [Fact]
+    public void LoopRegionVm_Display_FormatsBoundsCorrectly()
+    {
+        var withLabel = new LoopRegionVm(new LoopRegionDto("id-1", 1.0, 3.5, "idle"));
+        withLabel.Display.Should().Be("[1.000 – 3.500] idle");
+
+        var noLabel = new LoopRegionVm(new LoopRegionDto("id-2", 5.0, 7.25, null));
+        noLabel.Display.Should().Be("[5.000 – 7.250]");
+    }
+
+    // ---------- v3.8.0 MINOR chunk 7: persistence (BuildSnapshot + OpenSessionAsync) ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: <see cref="ReplayViewModel.BuildSnapshot"/>
+    /// includes user-added bookmarks in the bundle's
+    /// <see cref="BundlePlaybackDto.Bookmarks"/>.
+    /// </summary>
+    [Fact]
+    public void BuildSnapshot_WithBookmarks_IncludesThemInDto()
+    {
+        _sut.IsLoaded = true;
+        _service.CurrentTimestamp.Returns(2.5);
+        _sut.AddBookmarkCommand.Execute(null);
+        _service.CurrentTimestamp.Returns(5.0);
+        _sut.AddBookmarkCommand.Execute(null);
+
+        var dto = _sut.BuildSnapshot();
+
+        dto.Playback.Should().NotBeNull();
+        dto.Playback!.Bookmarks.Should().HaveCount(2);
+        dto.Playback.Bookmarks[0].Timestamp.Should().Be(2.5);
+        dto.Playback.Bookmarks[1].Timestamp.Should().Be(5.0);
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: <see cref="ReplayViewModel.BuildSnapshot"/>
+    /// includes loop regions.
+    /// </summary>
+    [Fact]
+    public void BuildSnapshot_WithLoopRegions_IncludesThemInDto()
+    {
+        _sut.IsLoaded = true;
+        _service.StartTimestamp.Returns(1.0);
+        _service.EndTimestamp.Returns(4.0);
+        _sut.AddLoopRegionCommand.Execute(null);
+
+        var dto = _sut.BuildSnapshot();
+
+        dto.Playback.Should().NotBeNull();
+        dto.Playback!.LoopRegions.Should().HaveCount(1);
+        dto.Playback.LoopRegions[0].Start.Should().Be(1.0);
+        dto.Playback.LoopRegions[0].End.Should().Be(4.0);
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: empty bookmarks list serializes as empty
+    /// (not null) so v3.7.2 readers see a stable shape — `null` and `[]`
+    /// both mean "no bookmarks", but explicit `[]` makes the schema
+    /// easier to reason about in code review.
+    /// </summary>
+    [Fact]
+    public void BuildSnapshot_EmptyBookmarks_EmitsEmptyList()
+    {
+        _sut.IsLoaded = true;
+
+        var dto = _sut.BuildSnapshot();
+
+        dto.Playback!.Bookmarks.Should().NotBeNull();
+        dto.Playback.Bookmarks.Should().BeEmpty();
+        dto.Playback.LoopRegions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: round-trip via <see cref="ReplayViewModel.OpenSessionAsync"/>
+    /// restores bookmarks from the saved bundle.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_WithBookmarks_PopulatesCollection()
+    {
+        _sut.IsLoaded = true;
+        _service.CurrentTimestamp.Returns(1.0);
+        _sut.AddBookmarkCommand.Execute(null);
+        _service.CurrentTimestamp.Returns(3.0);
+        _sut.AddBookmarkCommand.Execute(null);
+
+        // Round-trip: serialize then deserialize via the real library.
+        var dto = _sut.BuildSnapshot();
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"roundtrip-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            var loaded = _library.Load(bundlePath);
+            loaded.Should().NotBeNull();
+
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            // We must invoke OpenSessionAsync via the actual command;
+            // easier here to inline the call path. The path is the
+            // .tmtrace bundle; OpenSessionAsync uses _ascLocator on
+            // missing .asc but returns empty missing list when file
+            // exists — we never reach the locator in this test because
+            // we pass the bundle path which is also the .asc path the
+            // service saw at build time (the .asc doesn't need to
+            // exist on disk for the OpenSessionAsync happy path here —
+            // we only assert on the playback envelope restoration).
+            var openTask = _sut.OpenSessionAsync(bundlePath);
+            await openTask;
+
+            _sut.Bookmarks.Should().HaveCount(2);
+            _sut.Bookmarks[0].Timestamp.Should().Be(1.0);
+            _sut.Bookmarks[1].Timestamp.Should().Be(3.0);
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: a v3.7.2 bundle (no Bookmarks key in
+    /// playback) loads with empty Bookmarks collection. System.Text.Json
+    /// deserializes a missing optional field as null; the OpenSessionAsync
+    /// restore treats null == empty.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_V37Bundle_NoBookmarksField_ClearsToEmpty()
+    {
+        // Build a minimal v3.7.2-shape bundle: no Playback envelope at all.
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            AppVersion = "3.7.2",
+        };
+        dto.Playback = null;  // v3.7.2 shape — no playback envelope
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"v372-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            _sut.Bookmarks.Should().BeEmpty("v3.7.2 bundle → no bookmarks");
+            _sut.LoopRegions.Should().BeEmpty("v3.7.2 bundle → no loop regions");
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 7: a v3.7.2 bundle with a Playback envelope
+    /// (carrying the v3.7.0 <see cref="BundlePlaybackDto.ReplayCanIdFilterText"/>
+    /// field but no Bookmarks/LoopRegions) loads cleanly — the new
+    /// optional fields deserialize as null and are treated as empty
+    /// collections without crashing.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_V37Bundle_WithPlayback_PreservesRegionsAsEmpty()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            AppVersion = "3.7.2",
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            Loop = true,
+            Speed = 2.0,
+            ScrubberValue = 1.5,
+            ReplayCanIdFilterText = "",
+            // Bookmarks and LoopRegions default to empty lists — same
+            // as a v3.7.2 round-trip where the field was absent.
+            Bookmarks = new(),
+            LoopRegions = new(),
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"v372playback-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            _sut.Bookmarks.Should().BeEmpty();
+            _sut.LoopRegions.Should().BeEmpty();
+            _sut.Loop.Should().BeTrue("Loop should restore from v3.7.2 bundle");
+            _sut.Speed.Should().Be(2.0);
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
 }

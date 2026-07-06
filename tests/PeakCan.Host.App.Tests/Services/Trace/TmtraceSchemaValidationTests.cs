@@ -57,6 +57,9 @@ public class TmtraceSchemaValidationTests
         AssertSubDto(typeof(BundleSourceDto), defs.GetProperty("BundleSourceDto"));
         AssertSubDto(typeof(BundlePlaybackDto), defs.GetProperty("BundlePlaybackDto"));
         AssertSubDto(typeof(BundleViewportDto), defs.GetProperty("BundleViewportDto"));
+        // v3.8.0 MINOR: new sub-DTOs for bookmarks + loop regions.
+        AssertSubDto(typeof(BookmarkDto), defs.GetProperty("BookmarkDto"));
+        AssertSubDto(typeof(LoopRegionDto), defs.GetProperty("LoopRegionDto"));
     }
 
     [Fact]
@@ -106,6 +109,169 @@ public class TmtraceSchemaValidationTests
             schema.GetProperty("minimum").GetInt32().Should().Be(0);
             schema.GetProperty("maximum").GetInt32().Should().Be(255);
         }
+    }
+
+    // ---------- v3.8.0 MINOR chunk 8: new schema fields + $defs ----------
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: <see cref="BundlePlaybackDto.Bookmarks"/> and
+    /// <see cref="BundlePlaybackDto.LoopRegions"/> are present in the schema
+    /// with the right types. Pins the contract so a future maintainer
+    /// can't silently rename the field without breaking round-trip tests.
+    /// </summary>
+    [Fact]
+    public void BundlePlaybackDto_BookmarksAndLoopRegions_ArePresentInSchema()
+    {
+        var def = Schema.RootElement.GetProperty("$defs").GetProperty("BundlePlaybackDto");
+        var props = GetSchemaProperties(def);
+
+        props.Should().ContainKey("bookmarks",
+            "v3.8.0 added Bookmarks to BundlePlaybackDto");
+        props["bookmarks"].GetProperty("type").GetString().Should().Be("array");
+
+        props.Should().ContainKey("loopRegions",
+            "v3.8.0 added LoopRegions to BundlePlaybackDto");
+        props["loopRegions"].GetProperty("type").GetString().Should().Be("array");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: <see cref="BookmarkDto.Id"/> is a non-empty
+    /// string and <see cref="BookmarkDto.Timestamp"/> is a number. The
+    /// schema's `required` array covers the same non-nullable fields the
+    /// C# DTO requires for construction.
+    /// </summary>
+    [Fact]
+    public void BookmarkDto_IdAndTimestamp_AreRequired()
+    {
+        var def = Schema.RootElement.GetProperty("$defs").GetProperty("BookmarkDto");
+        var required = def.GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString()).ToHashSet();
+
+        required.Should().Contain("id");
+        required.Should().Contain("timestamp");
+        // Label is intentionally optional — empty label is a normal state.
+        required.Should().NotContain("label");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: <see cref="LoopRegionDto.Id"/>,
+    /// <see cref="LoopRegionDto.Start"/>, and <see cref="LoopRegionDto.End"/>
+    /// are required. Label is optional (same as BookmarkDto).
+    /// </summary>
+    [Fact]
+    public void LoopRegionDto_IdStartEnd_AreRequired()
+    {
+        var def = Schema.RootElement.GetProperty("$defs").GetProperty("LoopRegionDto");
+        var required = def.GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString()).ToHashSet();
+
+        required.Should().Contain("id");
+        required.Should().Contain("start");
+        required.Should().Contain("end");
+        required.Should().NotContain("label");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: <see cref="BookmarkDto"/> and
+    /// <see cref="LoopRegionDto"/> are top-level <c>$defs</c> entries
+    /// (not nested inside another def). Required for the
+    /// <c>"$ref": "#/$defs/BookmarkDto"</c> reference in
+    /// <c>BundlePlaybackDto.properties.bookmarks</c> to resolve.
+    /// </summary>
+    [Fact]
+    public void NewSubDtos_AreTopLevelDefs()
+    {
+        var defs = Schema.RootElement.GetProperty("$defs");
+
+        defs.TryGetProperty("BookmarkDto", out _).Should().BeTrue(
+            "BookmarkDto must be a top-level $defs entry for the playback array $ref to resolve");
+        defs.TryGetProperty("LoopRegionDto", out _).Should().BeTrue(
+            "LoopRegionDto must be a top-level $defs entry for the playback array $ref to resolve");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: a v3.7.2 bundle payload (no playback
+    /// envelope) still parses cleanly against the v3.8.0 DTO set. The
+    /// new <c>bookmarks</c> and <c>loopRegions</c> fields are optional
+    /// on the playback envelope (and the envelope itself is optional per
+    /// the existing <c>oneOf: [null, $ref]</c> rule). Old bundles load
+    /// with empty lists — forward-compat preserved.
+    /// <para>
+    /// This test uses raw System.Text.Json deserialization (not a JSON
+    /// Schema validator library — keeps the project dep-free per v3.6.1
+    /// PATCH design). The schema itself remains the contract; the
+    /// <see cref="SubDto_PropertiesArePresentInSchema"/> + this test
+    /// together pin forward-compat.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void OldV372Bundle_DeserializesCleanlyWithNewDto()
+    {
+        var oldBundle = """
+            {
+              "version": 1,
+              "schema": "tmtrace/v1",
+              "savedAt": "2026-07-01T00:00:00.0000000Z",
+              "appVersion": "3.7.2",
+              "dbcPath": "",
+              "globalCanIdFilter": "",
+              "sources": [],
+              "viewports": []
+            }
+            """;
+
+        var dto = JsonSerializer.Deserialize<TraceSessionBundleDto>(oldBundle);
+
+        dto.Should().NotBeNull();
+        dto!.Version.Should().Be(1);
+        dto.Playback.Should().BeNull(
+            "v3.7.2 bundle has no playback envelope — null deserializes cleanly");
+    }
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 8: a v3.7.2 bundle with a playback envelope
+    /// carrying only the v3.7.0 fields (<c>replayCanIdFilterText</c> +
+    /// scalar transport) deserializes cleanly with the v3.8.0 DTOs.
+    /// The new <c>Bookmarks</c> / <c>LoopRegions</c> collections default
+    /// to empty lists when the JSON keys are absent — System.Text.Json's
+    /// default for missing optional fields with non-nullable initializers.
+    /// </summary>
+    [Fact]
+    public void V372Bundle_WithPlaybackEnvelope_DeserializesWithEmptyCollections()
+    {
+        var oldBundle = """
+            {
+              "version": 1,
+              "schema": "tmtrace/v1",
+              "savedAt": "2026-07-01T00:00:00.0000000Z",
+              "appVersion": "3.7.2",
+              "dbcPath": "",
+              "globalCanIdFilter": "",
+              "playback": {
+                "masterSourceId": "",
+                "loop": true,
+                "speed": 2.0,
+                "scrubberValue": 1.5,
+                "startTimestamp": 0.0,
+                "endTimestamp": 10.0,
+                "replayCanIdFilterText": ""
+              },
+              "sources": [],
+              "viewports": []
+            }
+            """;
+
+        var dto = JsonSerializer.Deserialize<TraceSessionBundleDto>(oldBundle);
+
+        dto.Should().NotBeNull();
+        dto!.Playback.Should().NotBeNull();
+        dto.Playback!.Bookmarks.Should().NotBeNull();
+        dto.Playback.Bookmarks.Should().BeEmpty(
+            "v3.7.2 playback envelope has no bookmarks key → empty list (not null)");
+        dto.Playback.LoopRegions.Should().NotBeNull();
+        dto.Playback.LoopRegions.Should().BeEmpty();
+        dto.Playback.Loop.Should().BeTrue();
+        dto.Playback.Speed.Should().Be(2.0);
     }
 
     // ===== helpers =====

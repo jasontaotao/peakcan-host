@@ -39,6 +39,14 @@ public sealed partial class ReplayService : IReplayService, IDisposable
         : _timeline.IsPlaying ? ReplayState.Playing : ReplayState.Paused;
     public double CurrentTimestamp => _timeline.CurrentTimestamp;
     public double TotalDuration => _frames.Count > 0 ? _frames[^1].Timestamp : 0.0;
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 1: live read-only view of the parsed frames.
+    /// Returns the internal list (callers must not mutate). Empty before
+    /// <see cref="LoadAsync"/> succeeds; replaced atomically on each reload.
+    /// </summary>
+    public IReadOnlyList<ReplayFrame> Frames => _frames;
+
     public double Speed => _timeline.Speed;
     public event Action<ReplayFrame>? FrameEmitted;
 

@@ -8,6 +8,23 @@
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              mc:Ignorable="d">
     <!--
+        v3.8.0 MINOR chunk 3: InputBindings for frame stepping. The
+        KeyBinding element style is preferred over KeyDown handlers
+        because (a) the gesture + Command data-bind cleanly together,
+        (b) the Slider focused-state keeps arrow-key behavior for
+        scrubbing (Slider consumes the gesture; user taps the trace
+        canvas to use frame-step), and (c) the pattern matches the
+        existing Command="{Binding XxxCommand}" buttons. Ctrl+B for
+        AddBookmark is added in chunk 5.
+    -->
+    <UserControl.InputBindings>
+        <KeyBinding Key="Right" Command="{Binding NextFrameCommand}" />
+        <KeyBinding Key="Left" Command="{Binding PrevFrameCommand}" />
+        <!-- v3.8.0 MINOR chunk 5: Ctrl+B captures a bookmark at the current cursor. -->
+        <KeyBinding Key="B" Modifiers="Control" Command="{Binding AddBookmarkCommand}" />
+    </UserControl.InputBindings>
+
+    <!--
         v1.4.0 MINOR Task 4 + v1.5.0 MINOR Task 5: minimal Replay tab
         scaffold. Production polish (column headers, frame table, error
         retry button, etc.) is deferred per plan §文件结构.
@@ -35,6 +52,9 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <!-- v3.8.0 MINOR chunk 9: row 6 reserved for the
+                 Bookmarks + Loop Regions side-by-side panels. -->
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!--
@@ -69,6 +89,24 @@
                     IsEnabled="{Binding IsLoaded}"/>
             <Button Content="Stop" Command="{Binding StopCommand}" Margin="0,0,5,0"
                     IsEnabled="{Binding IsLoaded}"/>
+            <!-- v3.8.0 MINOR chunk 9: frame-step buttons. CanExecute
+                 handles enable/disable so we don't need IsEnabled. -->
+            <Separator Margin="8,0,8,0"/>
+            <Button Content="|◀" Command="{Binding PrevFrameCommand}" Margin="0,0,5,0"
+                    ToolTip="Previous frame (Left arrow)"
+                    Padding="6,2"/>
+            <Button Content="▶|" Command="{Binding NextFrameCommand}" Margin="0,0,5,0"
+                    ToolTip="Next frame (Right arrow)"
+                    Padding="6,2"/>
+            <Separator Margin="8,0,8,0"/>
+            <Button Content="+ Bookmark" Command="{Binding AddBookmarkCommand}" Margin="0,0,5,0"
+                    ToolTip="Add bookmark at cursor (Ctrl+B)"
+                    Padding="6,2"/>
+            <Button Content="+ Loop region" Command="{Binding AddLoopRegionCommand}" Margin="0,0,5,0"
+                    ToolTip="Add loop region from current Start/End bounds"
+                    Padding="6,2"/>
+            <Button Content="Clear regions" Command="{Binding ClearLoopRegionsCommand}" Margin="0,0,5,0"
+                    Padding="6,2"/>
             <TextBlock Text="{Binding CurrentTimestamp, StringFormat='{}{0:F2} s'}"
                        VerticalAlignment="Center" Margin="10,0,5,0"/>
             <TextBlock Text="/" VerticalAlignment="Center" Margin="0,0,5,0"/>
@@ -152,5 +190,40 @@
                    Text="{Binding ErrorMessage}"
                    Foreground="Red"
                    Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+        <!-- v3.8.0 MINOR chunk 9: Bookmarks + Loop Regions panels.
+             Single row at the bottom; two ListBoxes side-by-side.
+             No code-behind — pure data binding to the VM's
+             ObservableCollections. Manual smoke confirms items
+             appear/disappear with AddBookmark/AddLoopRegion/Clear. -->
+        <Grid Grid.Row="6" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Bookmarks" FontWeight="Bold" Margin="0,0,0,4"/>
+                <ListBox ItemsSource="{Binding Bookmarks}" MaxHeight="160"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Display}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="Loop Regions" FontWeight="Bold" Margin="0,0,0,4"/>
+                <ListBox ItemsSource="{Binding LoopRegions}" MaxHeight="160"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Display}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Grid>
     </Grid>
 </UserControl>

@@ -137,6 +137,93 @@ public sealed class BundlePlaybackDto
     /// </summary>
     [JsonPropertyName("replayCanIdFilterText")]
     public string ReplayCanIdFilterText { get; set; } = "";
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 4: user-captured timestamps for the Replay
+    /// tab. Each bookmark is a (id, timestamp, optional label) tuple
+    /// added via Ctrl+B / <c>AddBookmarkCommand</c>. Optional with
+    /// empty default — v3.7.2 bundles load with no bookmarks (round-trip
+    /// safe via <c>additionalProperties: true</c> schema design from
+    /// v3.6.1).
+    /// </summary>
+    [JsonPropertyName("bookmarks")]
+    public List<BookmarkDto> Bookmarks { get; set; } = new();
+
+    /// <summary>
+    /// v3.8.0 MINOR chunk 6: named playback windows. See
+    /// <see cref="LoopRegionDto"/> for the precedence + partial-rewind
+    /// semantics. Empty list = legacy single-region behavior
+    /// (Start/End Timestamp bounds).
+    /// </summary>
+    [JsonPropertyName("loopRegions")]
+    public List<LoopRegionDto> LoopRegions { get; set; } = new();
+}
+
+/// <summary>
+/// v3.8.0 MINOR chunk 4: a single Replay-tab bookmark — a point-in-time
+/// marker the user can revisit. Mirrors <see cref="BundleSourceDto.SourceId"/>
+/// pattern for id generation (GUID). Timestamp is trace-relative seconds.
+/// </summary>
+public sealed class BookmarkDto
+{
+    public BookmarkDto() { }
+    public BookmarkDto(string id, double timestamp, string? label)
+    {
+        Id = id;
+        Timestamp = timestamp;
+        Label = label;
+    }
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("timestamp")]
+    public double Timestamp { get; set; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+}
+
+/// <summary>
+/// v3.8.0 MINOR chunk 6: a named playback window — the cursor wraps to
+/// <see cref="Start"/> when reaching <see cref="End"/> AND the user has
+/// enabled Loop. Persisted on <see cref="BundlePlaybackDto.LoopRegions"/>
+/// alongside <see cref="BundlePlaybackDto.Bookmarks"/>.
+/// <para>
+/// <b>Precedence rule:</b> when <see cref="BundlePlaybackDto.LoopRegions"/>
+/// has entries, the FIRST region overrides
+/// <see cref="BundlePlaybackDto.StartTimestamp"/> /
+/// <see cref="BundlePlaybackDto.EndTimestamp"/> for the wrap target.
+/// Empty list = fall back to existing behavior (cursor wraps to t=0 on EOF).
+/// </para>
+/// <para>
+/// <b>Partial v3.8.0:</b> regions seek to their Start on activation but
+/// do NOT yet rewind at End (full A/B loop is v3.9.0 territory). See
+/// release notes §"Non-scope (still deferred)".
+/// </para>
+/// </summary>
+public sealed class LoopRegionDto
+{
+    public LoopRegionDto() { }
+    public LoopRegionDto(string id, double start, double end, string? label)
+    {
+        Id = id;
+        Start = start;
+        End = end;
+        Label = label;
+    }
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("start")]
+    public double Start { get; set; }
+
+    [JsonPropertyName("end")]
+    public double End { get; set; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
 }
 
 /// <summary>Per-series chart viewport (X-axis range + focus/collapse).

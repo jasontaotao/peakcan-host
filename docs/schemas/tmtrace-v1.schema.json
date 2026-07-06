@@ -168,6 +168,71 @@
         "replayCanIdFilterText": {
           "description": "v3.7.0 MINOR: Replay-tab CAN-ID filter text (free-form, comma- or whitespace-separated decimal/hex tokens). Persisted alongside the playback envelope because the filter is a transport-state concern for the Replay tab (it affects what frames are emitted), not a per-source display concern. The Trace Viewer keeps its filter on BundleSourceDto.canIdFilter (per-source) and TraceSessionBundleDto.globalCanIdFilter (global); the Replay tab has only the single source, so a sibling field on the playback envelope is the right shape. Default = empty string (= no filter). Forward-compat: deserializers that do not know this field get an empty string, which matches 'no filter' and is a safe no-op.",
           "type": "string"
+        },
+        "bookmarks": {
+          "description": "v3.8.0 MINOR: list of Replay-tab bookmarks — user-captured timestamps (Ctrl+B) for quick re-navigation. Each BookmarkDto is a (id, timestamp, label) tuple. Empty array = no bookmarks (default). v3.7.2 bundles without this field deserialize with no bookmarks.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/BookmarkDto" },
+          "default": []
+        },
+        "loopRegions": {
+          "description": "v3.8.0 MINOR: list of named playback windows. When Loop is true AND this array is non-empty, the FIRST region overrides StartTimestamp/EndTimestamp for wrap-around. Empty array = legacy single-region behavior. Partial v3.8.0: regions seek to their Start on activation but do NOT yet rewind at End (full A/B loop is v3.9.0 territory).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/LoopRegionDto" },
+          "default": []
+        }
+      }
+    },
+    "BookmarkDto": {
+      "description": "v3.8.0 MINOR: a single Replay-tab bookmark. Id is a 32-char hex GUID; timestamp is trace-relative seconds; label is optional free-form text.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "timestamp"
+      ],
+      "properties": {
+        "id": {
+          "description": "32-char hex GUID (no dashes) for unique identification across saves.",
+          "type": "string",
+          "minLength": 1
+        },
+        "timestamp": {
+          "description": "Trace-relative seconds (NOT a DateTime — relative to the first frame of the loaded .asc).",
+          "type": "number"
+        },
+        "label": {
+          "description": "Optional free-form label. Empty / missing = no label.",
+          "type": "string"
+        }
+      }
+    },
+    "LoopRegionDto": {
+      "description": "v3.8.0 MINOR: a named playback window — the cursor wraps to 'start' when reaching 'end' AND Loop is true. See BundlePlaybackDto.loopRegions precedence rule. Empty label = no label.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "id": {
+          "description": "32-char hex GUID (no dashes) for unique identification across saves.",
+          "type": "string",
+          "minLength": 1
+        },
+        "start": {
+          "description": "Lower bound of the region, in trace-relative seconds.",
+          "type": "number"
+        },
+        "end": {
+          "description": "Upper bound of the region, in trace-relative seconds.",
+          "type": "number"
+        },
+        "label": {
+          "description": "Optional free-form label.",
+          "type": "string"
         }
       }
     },

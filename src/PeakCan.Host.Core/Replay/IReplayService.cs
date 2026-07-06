@@ -15,6 +15,16 @@ public interface IReplayService
     /// <summary>Total duration of the loaded file (seconds from first to last frame).</summary>
     double TotalDuration { get; }
 
+    /// <summary>
+    /// Read-only view of the parsed frames, in source order. Empty before <see cref="LoadAsync"/>.
+    /// <para>
+    /// Live reference to the internal list — callers MUST NOT mutate. Used by
+    /// <c>ReplayViewModel</c> for frame-step binary search and bookmark/loop-region
+    /// timestamp resolution. Frames are immutable <see cref="ReplayFrame"/> records.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<ReplayFrame> Frames { get; }
+
     /// <summary>Current playback speed multiplier (1.0 = realtime).</summary>
     double Speed { get; }
 
