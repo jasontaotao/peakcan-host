@@ -15,6 +15,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
 {
     private readonly UdsClient _udsClient;
     private readonly ILogger<SessionPanelViewModel> _logger;
+    private readonly SynchronizationContext? _syncContext;
     private CancellationTokenSource? _testerPresentCts;
     private ObservableCollection<UdsLogLine>? _log;
 
@@ -28,6 +29,15 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
         ArgumentNullException.ThrowIfNull(logger);
         _udsClient = udsClient;
         _logger    = logger;
+        // v3.8.7 PATCH H3: capture the WPF SynchronizationContext at
+        // construction so the TesterPresent background loop's catch arm
+        // can marshal UI mutations (AppendLog mutation of bound
+        // ObservableCollection, TesterPresentActive = false raising
+        // PropertyChanged) back to the UI thread. Mirrors the pattern
+        // in ReplayViewModel.OnPlaybackEnded (lines 1062-1071). Without
+        // this, the WPF dispatcher rejects the cross-thread CollectionChanged
+        // and DataTrigger raises NotSupportedException.
+        _syncContext = SynchronizationContext.Current;
     }
 
     public void AttachLog(ObservableCollection<UdsLogLine> log)
@@ -72,8 +82,24 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             catch (OperationCanceledException) { /* expected on stop */ }
             catch (Exception ex)
             {
-                AppendLog("Error", $"TesterPresent loop error: {ex.Message}");
-                TesterPresentActive = false;
+                // v3.8.7 PATCH H3: marshal the post-failure UI mutations
+                // back to the captured SyncContext so WPF does not
+                // throw on cross-thread CollectionChanged +
+                // PropertyChanged. In test context (SyncContext == null),
+                // fall through to direct call like ReplayViewModel does.
+                if (_syncContext is not null)
+                {
+                    _syncContext.Post(_ =>
+                    {
+                        AppendLog("Error", $"TesterPresent loop error: {ex.Message}");
+                        TesterPresentActive = false;
+                    }, null);
+                }
+                else
+                {
+                    AppendLog("Error", $"TesterPresent loop error: {ex.Message}");
+                    TesterPresentActive = false;
+                }
             }
         }, ct);
     }

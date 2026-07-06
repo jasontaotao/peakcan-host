@@ -85,4 +85,58 @@ public class OdxImportServiceTests : IDisposable
         result.HasError.Should().BeTrue();
         result.ErrorCode.Should().Be(OdxErrorCode.FileNotFound);
     }
+
+    // ---------- v3.8.7 PATCH H1: per-document try/catch tolerance ----------
+
+    /// <summary>
+    /// v3.8.7 PATCH H1: a single malformed document inside a multi-document
+    /// PDX/ODX bundle MUST NOT abort the entire import. Pre-fix, the per-doc
+    /// foreach loop had no try/catch around <c>_parser.Parse</c> + the DOP-DTC-
+    /// ECU-JOB walk -- a single bad XDocument (e.g. wrong root namespace)
+    /// threw <c>OdxParseException</c> and propagated out of <c>ImportAsync</c>,
+    /// returning a top-level <c>OdxImportResult.Failed</c> instead of the
+    /// user's other valid documents.
+    /// <para>
+    /// Fix: wrap the per-doc body in try/catch and append to the warnings
+    /// list. <see cref="OdxImportResult.Ok"/> already carries warnings, so
+    /// the user sees which documents were skipped without losing the
+    /// good ones.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_OneMalformedDocInBundle_ContinuesAndAddsWarning()
+    {
+        // Construct an .odx whose root element is NOT ODX-namespaced --
+        // OdxParser.Parse throws OdxParseException at line 49 ("Root element
+        // namespace 'foo' is not ODX namespace ..."). The fix wraps this
+        // call site in try/catch and adds the exception message to warnings
+        // rather than aborting.
+        var odxPath = System.IO.Path.Combine(_tempDir, "wrong-root.odx");
+        await File.WriteAllTextAsync(odxPath, """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <WrongNamespace xmlns="http://example.com/not/odx">
+              <DIAG-LAYER-CONTAINER ID="DLC.bad"/>
+            </WrongNamespace>
+            """);
+        var dids = new DidDatabase(userJsonPath: null, logger: null);
+        var routines = new RoutineDatabase(userJsonPath: null, logger: null);
+        var dtcs = new DtcDatabase();
+        var svc = new OdxImportService(
+            dids, routines, dtcs,
+            new PdxReader(), new OdxParser(),
+            NullLogger<OdxImportService>.Instance);
+
+        // Act
+        var result = await svc.ImportAsync(odxPath);
+
+        // Post-fix: the import returns Ok (not Failed), with the parser's
+        // root-namespace warning captured. Pre-fix: this threw and the
+        // caller received a top-level OdxImportResult.Failed instead.
+        result.HasError.Should().BeFalse(
+            "import must continue past a single malformed document and surface the parser warning");
+        result.Warnings.Should().Contain(w => w.Contains("not ODX namespace") || w.Contains("namespace"),
+            "the parser exception message must be captured in the warnings list");
+        result.DidCount.Should().Be(0,
+            "no DIDs are produced when the only document failed to parse");
+    }
 }

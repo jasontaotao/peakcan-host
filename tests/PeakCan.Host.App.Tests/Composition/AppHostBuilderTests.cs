@@ -1,4 +1,5 @@
 using System.Linq;
+using Serilog;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -395,5 +396,49 @@ public class AppHostBuilderTests
         // MTA threads. This negative assertion pins that decision.
         host.Services.GetService<TraceViewerView>().Should().BeNull(
             "TraceViewerView is not DI-registered — the AppShell lazy-show pattern is the integration point");
+    }
+
+    // ---------- v3.8.7 PATCH H2: Serilog ReadFrom.Configuration wiring ----------
+
+    /// <summary>
+    /// v3.8.7 PATCH H2: <see cref="AppHostBuilder.Build"/> must wire Serilog
+    /// via <c>ReadFrom.Configuration</c> so the operator can bump the log
+    /// level (e.g. to <c>Debug</c>) without recompiling by editing a
+    /// <c>Serilog</c> section in <c>appsettings.json</c>. Pre-fix, the
+    /// LoggerConfiguration hardcoded <c>MinimumLevel.Information()</c>
+    /// which made production debugging on a customer site require a full
+    /// rebuild + reinstall just to enable Debug logging.
+    /// <para>
+    /// Verification approach: build a fresh host, capture the static
+    /// <c>Log.Logger</c> before vs after, and verify that Build assigns
+    /// a real configured logger to <c>Log.Logger</c> (pre-fix and after a
+    /// never-wired restart, <c>Log.Logger</c> is the default silent
+    /// no-op logger).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Build_WiresSerilogGlobalLogger_NotSilentDefaultLogger()
+    {
+        // Save + restore so this test does not pollute the static Log.Logger
+        // for sibling tests. Serilog's Log.Logger static is process-wide.
+        var previousLogger = Log.Logger;
+        try
+        {
+            using var host = new AppHostBuilder().Build();
+
+            // Post-fix: Build() calls Log.Logger = new LoggerConfiguration()...
+            // so Log.Logger is a real configured logger. Pre-fix or after a
+            // never-wired restart, Log.Logger is the default silent logger
+            // (the Serilog.Core.Logger that emits nothing).
+            Log.Logger.Should().NotBeSameAs(previousLogger,
+                "Build must assign a configured Serilog logger to Log.Logger " +
+                "(currently includes ReadFrom.Configuration for runtime overrides)");
+            Log.Logger.GetType().FullName.Should().Be("Serilog.Core.Logger",
+                "Log.Logger must be a real Serilog pipeline, not the silent default");
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
+        }
     }
 }

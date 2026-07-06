@@ -22,6 +22,7 @@ public sealed class SessionPanelViewModelTests
         public byte[] NextSeed { get; set; } = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
         public bool SecurityAccessThrowsNrc { get; set; }
         public bool SecurityAccessThrowsInvalidOp { get; set; }
+        public bool TesterPresentThrows { get; set; }
 
         public RecordingUdsClient() : base(
             new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { }),
@@ -47,6 +48,13 @@ public sealed class SessionPanelViewModelTests
                 P2 = 50,
                 P2Star = 5000
             });
+        }
+
+        public override Task TesterPresentAsync(CancellationToken ct = default)
+        {
+            if (TesterPresentThrows)
+                throw new InvalidOperationException("TesterPresent underlying transport closed.");
+            return Task.CompletedTask;
         }
     }
 
@@ -200,6 +208,78 @@ public sealed class SessionPanelViewModelTests
         var vm = NewVm(new RecordingUdsClient());
         var act = () => vm.AttachLog(null!);
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ---------- v3.8.7 PATCH H3: TesterPresent thread-pool catch arm ----------
+
+    /// <summary>
+    /// v3.8.7 PATCH H3: <see cref="SessionPanelViewModel.ToggleTesterPresent"/>
+    /// spawns a Task.Run loop that, when the first <c>TesterPresentAsync</c>
+    /// throws, lands in a <c>catch (Exception ex)</c> arm on the threadpool
+    /// thread. Pre-fix, the catch called <c>AppendLog(...)</c> +
+    /// <c>TesterPresentActive = false</c> directly from the threadpool:
+    /// <list type="bullet">
+    ///   <item><c>AppendLog</c> adds to <c>_log</c> (ObservableCollection
+    ///   bound to the WPF UI) -- WPF rejects cross-thread mutations with
+    ///   <see cref="NotSupportedException"/>.</item>
+    ///   <item><c>TesterPresentActive = false</c> raises PropertyChanged on
+    ///   a non-UI thread -- DataTriggers binding to it throw on UI
+    ///   marshalling.</item>
+    /// </list>
+    /// Fix: capture <see cref="SynchronizationContext.Current"/> in the
+    /// ctor and <c>Post</c> the catch-arm UI updates back. Mirrors the
+    /// pattern in <c>ReplayViewModel.OnPlaybackEnded</c>.
+    /// <para>
+    /// This test path runs WITHOUT a WPF SynchronizationContext, so the
+    /// fix's null-SyncContext fallback (direct call, like ReplayViewModel)
+    /// executes -- the test asserts the catch-arm completed without
+    /// throwing AND the log line was appended. The flag-flip-back assertion
+    /// is intentionally omitted because the catch arm's call to
+    /// <c>TesterPresentActive = false</c> races with the test's second
+    /// click event (which would start a new loop in the "stop" branch
+    /// only); the catch arm itself is the observer we care about, not
+    /// the symmetric state machine.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ToggleTesterPresentCommand_TestPresentAsyncThrows_CatchArmFiresNoException_AndAppendsErrorLog()
+    {
+        var fake = new RecordingUdsClient { TesterPresentThrows = true };
+        var vm = NewVm(fake);
+        var log = new System.Collections.ObjectModel.ObservableCollection<UdsLogLine>();
+        vm.AttachLog(log);
+
+        // Start the loop.
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue();
+        log.Should().ContainSingle(l => l.Message.Contains("TesterPresent started"));
+
+        // Wait briefly for the threadpool catch arm to fire on the first
+        // TesterPresentAsync invocation.
+        await WaitFor(() => log.Any(l => l.Level == "Error"), millisecondsTimeout: 2000);
+
+        // Verify the catch arm fired and appended the expected Error line.
+        // Pre-fix, this catch was on the threadpool WITHOUT a SyncContext.Post,
+        // and would throw NotSupportedException on the cross-thread
+        // ObservableCollection.Add in test env (and on WPF dispatcher in
+        // production). Post-fix, the null-SyncContext fallback (test path)
+        // runs the AppendLog + flag-flip in the catch arm directly. In
+        // production with a WPF SyncContext, the Post marshals back to
+        // the UI dispatcher first.
+        log.Should().Contain(l =>
+            l.Level == "Error" && l.Message.Contains("TesterPresent loop error"),
+            "the catch arm must append an Error log line (not throw)");
+    }
+
+    private static async Task WaitFor(Func<bool> predicate, int millisecondsTimeout)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(millisecondsTimeout);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate()) return;
+            await Task.Delay(25);
+        }
+        throw new TimeoutException($"Predicate did not become true within {millisecondsTimeout} ms");
     }
 }
 

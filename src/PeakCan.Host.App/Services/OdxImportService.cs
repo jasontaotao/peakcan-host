@@ -64,64 +64,22 @@ public sealed class OdxImportService : IOdxImportService
         foreach (var xdoc in xdocs)
         {
             ct.ThrowIfCancellationRequested();
-            _parser.Parse(xdoc, out var parseWarnings);
-            warnings.AddRange(parseWarnings);
-
-            // Resolve the file's namespace once per document. ODX 2.x
-            // (with xmlns) and ODX-D (no xmlns) differ here.
-            var ns = xdoc.Root?.Name.Namespace ?? (XNamespace)OdxParser.OdxNamespace;
-
-            // DOPs / DTC-DOPs / ECU-JOBs may live anywhere in the
-            // document tree: inside DIAG-LAYER (canonical ODX 2.x) OR
-            // inside ECU-SHARED-DATA (Vector CANdelaStudio .odx-d
-            // layout). Walk the whole document so both layouts are
-            // supported without per-shape branching.
-            foreach (var dop in xdoc.Descendants(ns + "DOP-BASE"))
+            // v3.8.7 PATCH H1: wrap the per-document body in try/catch so a
+            // single malformed XDocument (e.g. wrong root namespace,
+            // producing OdxParseException) doesn't abort the entire import.
+            // Pre-fix, the exception propagated out of ImportAsync and the
+            // caller received OdxImportResult.Failed for the whole bundle
+            // -- losing the user's other valid documents. The fix
+            // continues past the bad document with a warning, matching
+            // the existing "Non-throwing by design" contract of IOdxImportService.
+            try
             {
-                var def = DidDop.TryMap(dop, out var w);
-                if (def is { } d) didDefs.Add(d);
-                if (w is not null) warnings.Add(w);
+                ParseAndIndexOneDocument(xdoc, didDefs, dtcDefs, routineDefs, warnings);
             }
-
-            // DTCs: build a document-wide index of inline <DTC> elements
-            // first so DTC-REFs in secondary DTC-DOPs can resolve.
-            var dtcIndex = DtcDop.IndexInlineDtcs(xdoc, ns);
-            var seenDtcCodes = new HashSet<uint>();
-            foreach (var dop in xdoc.Descendants(ns + "DTC-DOP"))
+            catch (Exception ex)
             {
-                foreach (var (def, w) in DtcDop.Enumerate(dop, dtcIndex))
-                {
-                    if (w is not null) warnings.Add(w);
-                    if (def is { } d && seenDtcCodes.Add(d.Code))
-                        dtcDefs.Add(d);
-                }
+                warnings.Add($"ODX parse error in document: {ex.Message}");
             }
-            foreach (var job in xdoc.Descendants(ns + "ECU-JOB"))
-            {
-                var def = EcuJob.TryMap(job, out var w);
-                if (def is not null) routineDefs.Add(def);
-                if (w is not null) warnings.Add(w);
-            }
-
-            // Flat ODX-D layouts (Vector CANdelaStudio .odx-d) do not
-            // use DOP-BASE / ECU-JOB. DIDs and routines are inline in
-            // <REQUEST> elements with SERVICE-ID + ID PARAMs.
-            var didsFromRequests = RequestBasedMappers.ExtractDids(xdoc, ns);
-            var didLengths = RequestBasedMappers.ExtractDidLengths(xdoc, ns);
-            foreach (var (did, writable) in didsFromRequests)
-            {
-                var lengthBytes = didLengths.TryGetValue(did, out var l) ? l : 0;
-                didDefs.Add(new DidDefinition(
-                    Id: did,
-                    Name: $"DID_0x{did:X4}",
-                    Description: lengthBytes > 0
-                        ? $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {lengthBytes}B)"
-                        : $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
-                    LengthBytes: lengthBytes,
-                    Writable: writable));
-            }
-            var routinesFromRequests = RequestBasedMappers.ExtractRoutines(xdoc, ns);
-            routineDefs.AddRange(routinesFromRequests);
         }
 
         // D6 — DoS guard.
@@ -142,5 +100,79 @@ public sealed class OdxImportService : IOdxImportService
         warnings.AddRange(dtcWarn);
 
         return OdxImportResult.Ok(didDefs.Count, routineDefs.Count, dtcDefs.Count, warnings);
+    }
+
+    /// <summary>
+    /// v3.8.7 PATCH H1: extract the per-document parse + indexing body so
+    /// the foreach loop in <see cref="ImportAsync"/> can wrap the call
+    /// in a single try/catch. The extracted method mutates the supplied
+    /// collections in-place; no return value (callers aggregate the
+    /// collections to check the D6 DoS guard at the end).
+    /// </summary>
+    private void ParseAndIndexOneDocument(
+        XDocument xdoc,
+        List<DidDefinition> didDefs,
+        List<DtcDefinition> dtcDefs,
+        List<RoutineDefinition> routineDefs,
+        List<string> warnings)
+    {
+        _parser.Parse(xdoc, out var parseWarnings);
+        warnings.AddRange(parseWarnings);
+
+        // Resolve the file's namespace once per document. ODX 2.x
+        // (with xmlns) and ODX-D (no xmlns) differ here.
+        var ns = xdoc.Root?.Name.Namespace ?? (XNamespace)OdxParser.OdxNamespace;
+
+        // DOPs / DTC-DOPs / ECU-JOBs may live anywhere in the
+        // document tree: inside DIAG-LAYER (canonical ODX 2.x) OR
+        // inside ECU-SHARED-DATA (Vector CANdelaStudio .odx-d
+        // layout). Walk the whole document so both layouts are
+        // supported without per-shape branching.
+        foreach (var dop in xdoc.Descendants(ns + "DOP-BASE"))
+        {
+            var def = DidDop.TryMap(dop, out var w);
+            if (def is { } d) didDefs.Add(d);
+            if (w is not null) warnings.Add(w);
+        }
+
+        // DTCs: build a document-wide index of inline <DTC> elements
+        // first so DTC-REFs in secondary DTC-DOPs can resolve.
+        var dtcIndex = DtcDop.IndexInlineDtcs(xdoc, ns);
+        var seenDtcCodes = new HashSet<uint>();
+        foreach (var dop in xdoc.Descendants(ns + "DTC-DOP"))
+        {
+            foreach (var (def, w) in DtcDop.Enumerate(dop, dtcIndex))
+            {
+                if (w is not null) warnings.Add(w);
+                if (def is { } d && seenDtcCodes.Add(d.Code))
+                    dtcDefs.Add(d);
+            }
+        }
+        foreach (var job in xdoc.Descendants(ns + "ECU-JOB"))
+        {
+            var def = EcuJob.TryMap(job, out var w);
+            if (def is not null) routineDefs.Add(def);
+            if (w is not null) warnings.Add(w);
+        }
+
+        // Flat ODX-D layouts (Vector CANdelaStudio .odx-d) do not
+        // use DOP-BASE / ECU-JOB. DIDs and routines are inline in
+        // <REQUEST> elements with SERVICE-ID + ID PARAMs.
+        var didsFromRequests = RequestBasedMappers.ExtractDids(xdoc, ns);
+        var didLengths = RequestBasedMappers.ExtractDidLengths(xdoc, ns);
+        foreach (var (did, writable) in didsFromRequests)
+        {
+            var lengthBytes = didLengths.TryGetValue(did, out var l) ? l : 0;
+            didDefs.Add(new DidDefinition(
+                Id: did,
+                Name: $"DID_0x{did:X4}",
+                Description: lengthBytes > 0
+                    ? $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {lengthBytes}B)"
+                    : $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
+                LengthBytes: lengthBytes,
+                Writable: writable));
+        }
+        var routinesFromRequests = RequestBasedMappers.ExtractRoutines(xdoc, ns);
+        routineDefs.AddRange(routinesFromRequests);
     }
 }
