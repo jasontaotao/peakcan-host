@@ -128,13 +128,25 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Slider x:Name="Scrubber"
-                    Grid.Column="0"
-                    Minimum="0"
-                    Maximum="{Binding ScrubberMaxValue}"
-                    Value="{Binding CurrentTimestamp, Mode=TwoWay}"
-                    IsEnabled="{Binding IsLoaded}"
-                    Thumb.DragCompleted="Scrubber_DragCompleted"/>
+            <Grid Grid.Column="0">
+                <!-- v3.9.0 MINOR P3: Slider visual markers. The Slider
+                     stays native (preserves v3.9.0 P2 click-to-seek via
+                     IsMoveToPointEnabled + v3.8.0 keyboard arrow bindings
+                     + touch). A Canvas overlay is layered on top with
+                     Panel.ZIndex=1; IsHitTestTransparent="True" so
+                     mouse events pass through to the Slider (the
+                     click-to-jump and drag work unchanged). -->
+                <Slider x:Name="Scrubber"
+                        Minimum="0"
+                        Maximum="{Binding ScrubberMaxValue}"
+                        Value="{Binding CurrentTimestamp, Mode=TwoWay}"
+                        IsEnabled="{Binding IsLoaded}"
+                        IsMoveToPointEnabled="True"
+                        Thumb.DragCompleted="Scrubber_DragCompleted"/>
+                <Canvas x:Name="MarkerCanvas"
+                        IsHitTestVisible="False"
+                        Panel.ZIndex="1"/>
+            </Grid>
             <ComboBox Grid.Column="1"
                       SelectedItem="{Binding Speed, Mode=TwoWay}"
                       Margin="10,0,0,0"
@@ -213,14 +225,41 @@
             </Grid.ColumnDefinitions>
             <DockPanel Grid.Column="0">
                 <TextBlock DockPanel.Dock="Top" Text="Bookmarks" FontWeight="Bold" Margin="0,0,0,4"/>
-                <ListBox ItemsSource="{Binding Bookmarks}" MaxHeight="160"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Display}"/>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <!-- v3.9.0 MINOR P4: convert the bookmarks panel from
+                     ListBox to DataGrid so the user can double-click a
+                     row to edit the label inline. The DataGrid has
+                     two columns: Time (read-only, shows Timestamp) +
+                     Label (editable, TextBox in CellEditingTemplate).
+                     Edits commit on Enter or focus-lost (default
+                     DataGrid behavior); the cell setter forwards to
+                     Dto.Label so the next bundle save persists the
+                     edit. -->
+                <DataGrid ItemsSource="{Binding Bookmarks}"
+                          MaxHeight="160"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          HeadersVisibility="Column"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          GridLinesVisibility="None">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time"
+                                            Binding="{Binding Timestamp, StringFormat=F3}"
+                                            IsReadOnly="True"
+                                            Width="80"/>
+                        <DataGridTemplateColumn Header="Label" Width="*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                            <DataGridTemplateColumn.CellEditingTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding Label, UpdateSourceTrigger=LostFocus}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellEditingTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
             </DockPanel>
             <DockPanel Grid.Column="2">
                 <TextBlock DockPanel.Dock="Top" Text="Loop Regions" FontWeight="Bold" Margin="0,0,0,4"/>

@@ -12,6 +12,11 @@
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+    <!-- v3.9.0 MINOR P5: enables ReadFrom.Configuration(IConfiguration)
+         at AppHostBuilder.Build time. Version 8.0.4 is the latest
+         stable that supports Serilog 4.x + Microsoft.Extensions.Configuration
+         abstractions. -->
+    <PackageVersion Include="Serilog.Settings.Configuration" Version="8.0.4" />
     <PackageVersion Include="OxyPlot.Wpf" Version="2.2.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />

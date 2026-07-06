@@ -12,6 +12,14 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <!-- v3.9.0 MINOR P5: Serilog.Settings.Configuration enables
+         ReadFrom.Configuration(IConfiguration) at AppHostBuilder.Build
+         time, so the operator can edit appsettings.json's Serilog
+         section (MinLevel overrides, additional sinks, enrichers)
+         without recompiling. Pre-fix, the LoggerConfiguration was
+         hardcoded to MinimumLevel.Information + WriteTo.File, and
+         any operator override required a full rebuild + reinstall. -->
+    <PackageReference Include="Serilog.Settings.Configuration" />
     <!-- v1.2.9: non-UTF-8 DBC files (GBK/CP936 on zh-CN, etc.) need
          legacy code-page encodings, which the DBC loader's
          OEM-fallback path requests via Encoding.GetEncoding(oem).

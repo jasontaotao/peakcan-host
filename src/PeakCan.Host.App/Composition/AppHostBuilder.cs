@@ -95,21 +95,44 @@ public class AppHostBuilder
 
     public IHost Build()
     {
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PeakCan.Host", "logs", "peak-.log");
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
-            .WriteTo.File(
-                logPath,
-                rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 14,
-                formatProvider: CultureInfo.InvariantCulture)
-            .CreateLogger();
-
+        // v3.9.0 MINOR P5: create the IHostBuilder FIRST so its
+        // IConfiguration (populated from appsettings.json +
+        // environment variables + command line) is available to
+        // Serilog's ReadFrom.Configuration. Pre-fix, the LoggerConfiguration
+        // was self-contained and didn't read from the host's config.
+        // The order matters: Serilog reads the Serilog section from
+        // the configuration the host built, so the host's appsettings.json
+        // must be loaded BEFORE CreateLogger is called.
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+
+        // v3.9.0 MINOR P5: the log directory is now created by Serilog
+        // itself when it opens the WriteTo.File sink (the sink's path
+        // is configured via appsettings.json's Serilog:WriteTo:Args:path).
+        // The default appsettings.json ships
+        // LocalAppData/PeakCan.Host/logs/peak-.log as the path, which
+        // matches the v3.8.0-v3.8.8 hardcoded behavior.
+        Log.Logger = new LoggerConfiguration()
+            // v3.9.0 MINOR P5: ReadFrom.Configuration replaces the
+            // hardcoded MinimumLevel.Information() + WriteTo.File(...)
+            // chain. The operator can now edit appsettings.json's
+            // Serilog section to override MinLevel (e.g. bump to
+            // "Debug" for production debugging) + add sinks + add
+            // enrichers without recompiling. The default appsettings.json
+            // ships a Serilog section that mirrors the prior hardcoded
+            // behavior (MinimumLevel=Information, WriteTo=File with
+            // rollingInterval=Day, retainedFileCountLimit=14) so the
+            // observable behavior is unchanged when the operator
+            // doesn't edit the config.
+            //
+            // Migration note: the hardcoded WriteTo.File(rollingInterval:Day,
+            // retainedFileCountLimit:14) call is REMOVED. If the operator
+            // needs a different rolling interval or retention, they edit
+            // the Serilog:WriteTo section in appsettings.json. The
+            // formatProvider (CultureInfo.InvariantCulture) and the
+            // logPath pattern (LocalAppData/PeakCan.Host/logs/peak-.log)
+            // are preserved in the default appsettings.json.
+            .ReadFrom.Configuration(builder.Configuration)
+            .CreateLogger();
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
 
         // v1.5.0 MINOR: expose the host's IConfiguration as a singleton so

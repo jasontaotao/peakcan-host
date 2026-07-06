@@ -982,6 +982,13 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             end,
             null);
         LoopRegions.Add(new LoopRegionVm(dto));
+        // v3.9.0 MINOR P1: the most-recently-added LoopRegion becomes
+        // the active one (auto-rewind target). v3.9.0 P1 ships the
+        // "last-Add wins" activation policy — click-to-activate UX
+        // (right-click row → Set Active) is deferred to v3.9.0 P3
+        // (Slider visual markers) or v3.10.0. Until then, the
+        // operator's most recent AddRegion is the one that loops.
+        _service.ActiveLoopRegion = (dto.Start, dto.End);
         // v3.8.3 PATCH H2: ObservableCollection<T>.Add() doesn't fire
         // PropertyChanged for Count, so the source-gen attribute on
         // _isLoaded can't see this mutation. Notify explicitly to keep
@@ -994,6 +1001,9 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     private void ClearLoopRegions()
     {
         LoopRegions.Clear();
+        // v3.9.0 MINOR P1: clearing the regions also clears the
+        // service-side active region so playback no longer rewinds.
+        _service.ActiveLoopRegion = null;
         // v3.8.1 PATCH: ObservableCollection<T> mutations don't fire
         // PropertyChanged for the count, so the source-gen
         // CanExecuteChangedFor attribute can't see LoopRegions.Count
@@ -1109,7 +1119,18 @@ public sealed record BookmarkVm(BookmarkDto Dto)
 {
     public string Id => Dto.Id;
     public double Timestamp => Dto.Timestamp;
-    public string? Label => Dto.Label;
+    // v3.9.0 MINOR P4: make Label a get/set property (was get-only
+    // before P4) so a WPF DataGrid's CellEditingTemplate TextBox can
+    // TwoWay-bind to it. The setter forwards to Dto.Label so the
+    // underlying DTO is updated in-place; the bundle serializer then
+    // persists the new label on next Save. The get path still reads
+    // through Dto.Label so a one-shot Dto edit (e.g. via direct
+    // record-with mutation) is reflected immediately.
+    public string? Label
+    {
+        get => Dto.Label;
+        set => Dto.Label = value;
+    }
     public string Display => Label is { Length: > 0 }
         ? $"{Dto.Timestamp:F3}s — {Label}"
         : $"{Dto.Timestamp:F3}s";

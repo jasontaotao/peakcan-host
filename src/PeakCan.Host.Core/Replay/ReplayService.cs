@@ -31,7 +31,15 @@ public sealed partial class ReplayService : IReplayService, IDisposable
         _timeline = new ReplayTimeline(
             EmitFrame,
             onPlaybackEnded: RaisePlaybackEnded,
-            onSinkThrew: OnSinkThrewFromTimeline);
+            onSinkThrew: OnSinkThrewFromTimeline,
+            // v3.9.0 MINOR P1: pass the active-loop-region getter so the
+            // timeline can read the current region on each OnTick. The
+            // getter closes over _activeLoopRegion (set via the
+            // ActiveLoopRegion property below) so the VM can change the
+            // active region mid-playback without rebuilding the timeline.
+            activeLoopRegion: () => _activeLoopRegion,
+            onLoopRewound: r => LoopRewound?.Invoke(this,
+                new LoopRegionRewoundEventArgs(r.Start, r.End)));
     }
 
     public ReplayState State => !_timeline.HasStarted
@@ -77,6 +85,33 @@ public sealed partial class ReplayService : IReplayService, IDisposable
         get => _timeline.EndTimestamp;
         set => _timeline.EndTimestamp = value;
     }
+
+    // v3.9.0 MINOR P1: backing field for ActiveLoopRegion. The
+    // timeline reads it via a Func getter passed in the ctor — the
+    // getter closes over this field, so the timeline observes the
+    // current value on each OnTick.
+    private (double Start, double End)? _activeLoopRegion;
+
+    /// <summary>
+    /// v3.9.0 MINOR P1: see <see cref="IReplayService.ActiveLoopRegion"/>
+    /// for the full contract. Setting this property updates the
+    /// backing field that the timeline's OnTick reads via the ctor's
+    /// <c>activeLoopRegion</c> Func getter — no timeline
+    /// reconstruction required.
+    /// </summary>
+    public (double Start, double End)? ActiveLoopRegion
+    {
+        get => _activeLoopRegion;
+        set => _activeLoopRegion = value;
+    }
+
+    /// <summary>
+    /// v3.9.0 MINOR P1: re-raises the timeline's loop-rewound
+    /// callback as the public <see cref="IReplayService.LoopRewound"/>
+    /// event. UI subscribers (typically <c>ReplayViewModel</c>) attach
+    /// to this event to surface status messages.
+    /// </summary>
+    public event EventHandler<LoopRegionRewoundEventArgs>? LoopRewound;
 
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
 

@@ -14,6 +14,18 @@ internal sealed class ReplayTimeline
     private readonly Action<ReplayFrame> _emit;
     private readonly Action<PlaybackEndedEventArgs>? _onPlaybackEnded;
     private readonly Action<Exception>? _onSinkThrew;
+    // v3.9.0 MINOR P1: A/B loop rewind callback. Raised outside the
+    // lock (in OnTick) when the timeline rewinds the cursor to an
+    // active loop region's Start. ReplayService subscribes to this
+    // and re-raises it as the public LoopRewound event.
+    private readonly Action<(double Start, double End)>? _onLoopRewound;
+    // v3.9.0 MINOR P1: A/B loop-region getter. Returns (Start, End) of
+    // the currently-active loop region, or null if no region is active.
+    // Read on each OnTick so the VM can swap regions mid-playback
+    // without reconstructing the timeline. Caller must keep the
+    // getter thread-safe (the timeline reads it from the timer thread
+    // under its own internal lock; the VM writes from the UI thread).
+    private readonly Func<(double Start, double End)?>? _activeLoopRegionGetter;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
     private int _nextFrameIndex;
     private double _currentTimestamp;
@@ -39,11 +51,21 @@ internal sealed class ReplayTimeline
     public ReplayTimeline(
         Action<ReplayFrame> emit,
         Action<PlaybackEndedEventArgs>? onPlaybackEnded = null,
-        Action<Exception>? onSinkThrew = null)
+        Action<Exception>? onSinkThrew = null,
+        // v3.9.0 MINOR P1: A/B loop-region getter. Optional (defaults
+        // to null = no loop region). Returns the active region's
+        // (Start, End) bounds, or null if no region is active.
+        Func<(double Start, double End)?>? activeLoopRegion = null,
+        // v3.9.0 MINOR P1: A/B loop-rewind callback. Raised when the
+        // cursor is rewound to region.Start after crossing region.End.
+        // Optional (defaults to null = silent rewind).
+        Action<(double Start, double End)>? onLoopRewound = null)
     {
         _emit = emit;
         _onPlaybackEnded = onPlaybackEnded;
         _onSinkThrew = onSinkThrew;
+        _activeLoopRegionGetter = activeLoopRegion;
+        _onLoopRewound = onLoopRewound;
     }
 
     public double CurrentTimestamp { get { lock (_lock) return _currentTimestamp; } }
@@ -188,6 +210,11 @@ internal sealed class ReplayTimeline
     {
         List<ReplayFrame>? toEmit = null;
         bool endReached = false;
+        // v3.9.0 MINOR P1: A/B loop-region rewind. Captured inside the
+        // lock so the getter is observed atomically with the emit loop.
+        // Raised OUTSIDE the lock so the event subscriber (typically a
+        // UI thread) can call back into the service without deadlocking.
+        (double Start, double End)? rewindRegion = null;
         lock (_lock)
         {
             if (!_isPlaying) return;
@@ -230,6 +257,56 @@ internal sealed class ReplayTimeline
                 toEmit.Add(_frames[_nextFrameIndex]);
                 _currentTimestamp = _frames[_nextFrameIndex].Timestamp;
                 _nextFrameIndex++;
+            }
+            // v3.9.0 MINOR P1: A/B loop-region rewind. If the cursor has
+            // reached or crossed the active region's End (or EOF after
+            // emitting past region.End), atomically rewind to region.Start
+            // and continue playback. Composes with the existing file-level
+            // Loop=true (which rewinds to t=0 on EOF) — if both are active,
+            // region rewind fires FIRST on each region.End crossing; the
+            // file-level Loop rewind only fires if region.Start == 0.
+            //
+            // Why condition on >= (not >): the last emitted frame's
+            // Timestamp is exactly the cursor's position. A region [2,4]
+            // and a frame at t=4 means "4 is in the region" — rewind at
+            // t=4 is the correct UX. Strict > would delay the rewind by
+            // 1 tick (~1 ms at 1x), creating a visible "pause at t=4"
+            // before the rewind.
+            //
+            // Why this check is INSIDE the lock: the rewind mutates
+            // _currentTimestamp, _playStartTimestamp, _playStartWallClock,
+            // and _nextFrameIndex — all under the same lock as the
+            // emit-loop mutations. Atomicity guarantees the next tick
+            // sees the rewound state.
+            if (_activeLoopRegionGetter is { } getRegion)
+            {
+                var region = getRegion();
+                if (region is { } r && _currentTimestamp >= r.End)
+                {
+                    _currentTimestamp = r.Start;
+                    _playStartTimestamp = r.Start;
+                    _playStartWallClock = DateTime.UtcNow;
+                    // Reset _nextFrameIndex to 0 then walk forward past
+                    // every pre-region frame. Why reset to 0: the cursor
+                    // may have been AT or PAST region.End in the previous
+                    // tick (e.g. _nextFrameIndex == _frames.Count - 1
+                    // when the End frame emitted). Walking forward from
+                    // 0 finds the first in-range frame (Timestamp >=
+                    // region.Start); the existing frame[].Timestamp >
+                    // r.Start check filters out the others.
+                    // Without the reset, the walk-forward-past loop
+                    // would short-circuit (frame[_nextFrameIndex].ts is
+                    // > region.Start) and the next tick would have
+                    // _nextFrameIndex pointing at a frame past the
+                    // region, so the cursor would never re-emit.
+                    _nextFrameIndex = 0;
+                    while (_nextFrameIndex < _frames.Count
+                        && _frames[_nextFrameIndex].Timestamp < r.Start)
+                    {
+                        _nextFrameIndex++;
+                    }
+                    rewindRegion = r;
+                }
             }
             // Detect EOF this tick: cursor walked off the end while still playing.
             // Loop=true → rewind to t=0 and continue. Loop=false → stop and raise
@@ -274,5 +351,12 @@ internal sealed class ReplayTimeline
         // service without deadlocking. Carry _sinkException (if any) for the
         // PlaybackEndedEventArgs.Error payload (v1.4.2 PATCH Item 3).
         if (endReached) _onPlaybackEnded?.Invoke(new PlaybackEndedEventArgs(_sinkException));
+        // v3.9.0 MINOR P1: A/B loop rewind event. The ReplayService
+        // subscribes to this and re-raises it as the public LoopRewound
+        // event. UI listeners (ReplayViewModel) use it to surface a
+        // status message ("Rewind: loop region X") + reset visual
+        // scroll position. The tuple's components are unpacked into a
+        // 2-arg call so the public EventArgs type can carry them.
+        if (rewindRegion is { } rr) _onLoopRewound?.Invoke(rr);
     }
 }

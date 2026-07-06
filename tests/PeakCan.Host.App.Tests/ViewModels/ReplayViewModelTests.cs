@@ -1958,4 +1958,42 @@ public class ReplayViewModelTests : IDisposable
         _service.Received(1).Seek(2.5);
         _sut.CurrentTimestamp.Should().Be(2.5);
     }
+
+    // ---------- v3.9.0 MINOR P4: Bookmark label edit ----------
+
+    /// <summary>
+    /// v3.9.0 P4: <see cref="BookmarkVm.Label"/> must be settable so
+    /// a WPF DataGrid's CellEditingTemplate TextBox can TwoWay-bind
+    /// to it. The setter forwards to <c>Dto.Label</c> so the
+    /// underlying DTO is updated in-place; the bundle serializer
+    /// then persists the new label on next Save.
+    /// <para>
+    /// Pre-fix (v3.8.x): Label was a get-only record auto-property
+    /// forwarding to Dto.Label. DataGrid CellEditingTemplate edits
+    /// would compile but silently no-op (no setter to write through).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void BookmarkVm_Label_SetterUpdatesDto_InPlace()
+    {
+        var dto = new BookmarkDto("id-p4", 1.0, "original");
+        var vm = new BookmarkVm(dto);
+
+        vm.Label.Should().Be("original");
+        dto.Label.Should().Be("original");
+
+        // Act: simulate the DataGrid CellEditingTemplate TextBox
+        // TwoWay-binding setting the property.
+        vm.Label = "user-edited label";
+
+        // Assert: the underlying Dto is mutated in place (NOT a new
+        // DTO instance). This is critical for the bundle round-trip
+        // path: the existing DTO instances in
+        // ReplayViewModel.Bookmarks are the same instances the
+        // bundle serializer reads; if Label set created a new DTO,
+        // the edits would not be persisted.
+        vm.Label.Should().Be("user-edited label");
+        dto.Label.Should().Be("user-edited label",
+            "v3.9.0 P4: setter must update the DTO in place, not replace it");
+    }
 }

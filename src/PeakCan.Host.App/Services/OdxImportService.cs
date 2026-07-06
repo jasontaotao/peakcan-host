@@ -74,7 +74,7 @@ public sealed class OdxImportService : IOdxImportService
             // the existing "Non-throwing by design" contract of IOdxImportService.
             try
             {
-                ParseAndIndexOneDocument(xdoc, didDefs, dtcDefs, routineDefs, warnings);
+                ParseAndIndexOneDocument(xdoc, didDefs, dtcDefs, routineDefs, warnings, ct);
             }
             catch (Exception ex)
             {
@@ -114,7 +114,16 @@ public sealed class OdxImportService : IOdxImportService
         List<DidDefinition> didDefs,
         List<DtcDefinition> dtcDefs,
         List<RoutineDefinition> routineDefs,
-        List<string> warnings)
+        List<string> warnings,
+        // v3.9.0 MINOR P6: thread the per-document CT so a 500 MB+
+        // ODX parse can be cancelled mid-document (not just between
+        // documents). Checked between the major DOP / DTC-DOP /
+        // ECU-JOB walk segments — checking inside tight DOP loops
+        // would add per-element overhead. The check raises
+        // OperationCanceledException, which propagates up to the
+        // foreach in ImportAsync; ImportAsync's caller (the VM) sees
+        // OCE in its await and resets IsBusy (the finally block).
+        CancellationToken ct)
     {
         _parser.Parse(xdoc, out var parseWarnings);
         warnings.AddRange(parseWarnings);
@@ -148,6 +157,10 @@ public sealed class OdxImportService : IOdxImportService
                     dtcDefs.Add(d);
             }
         }
+        // v3.9.0 MINOR P6: check CT after the DOP-BASE + DTC-DOP walks
+        // (the two heavy DOP walks). The ECU-JOB walk is also heavy
+        // (one walk + one TryMap per job), so check there too.
+        ct.ThrowIfCancellationRequested();
         foreach (var job in xdoc.Descendants(ns + "ECU-JOB"))
         {
             var def = EcuJob.TryMap(job, out var w);

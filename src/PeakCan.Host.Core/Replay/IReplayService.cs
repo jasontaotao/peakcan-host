@@ -82,6 +82,46 @@ public interface IReplayService
     double? EndTimestamp { get; set; }
 
     /// <summary>
+    /// v3.9.0 MINOR P1: A/B loop-region auto-rewind. When the playback
+    /// cursor reaches or crosses the active loop region's
+    /// <c>End</c>, the timeline atomically rewinds to <c>Start</c> and
+    /// continues emitting. <c>null</c> (default) = no loop region
+    /// (playback runs through to EOF; <see cref="PlaybackEnded"/> fires
+    /// once unless <see cref="Loop"/> is true).
+    /// <para>
+    /// The tuple's components are unpacked from
+    /// <c>LoopRegionDto.Start</c> / <c>LoopRegionDto.End</c> by the VM
+    /// (Core has no dependency on the App-layer DTO). Changing the
+    /// active region mid-playback takes effect on the next
+    /// <c>OnTick</c> — the timeline reads the property via a Func
+    /// getter so the change is observed atomically.
+    /// </para>
+    /// <para>
+    /// The region can be set BEFORE <see cref="LoadAsync"/> — the
+    /// service holds the property but the timeline doesn't read it
+    /// until playback starts. Setting it to a non-null value while
+    /// paused re-evaluates the rewind condition on the next Play
+    /// tick.
+    /// </para>
+    /// </summary>
+    (double Start, double End)? ActiveLoopRegion { get; set; }
+
+    /// <summary>
+    /// v3.9.0 MINOR P1: raised when playback is rewound to the active
+    /// loop region's <c>Start</c> after crossing <c>End</c>. UI
+    /// subscribers (typically <c>ReplayViewModel</c>) use this to
+    /// surface a status message ("Rewind: loop region X") and reset
+    /// the visual scroll position.
+    /// <para>
+    /// Fired on the timer callback thread, NOT the calling thread. UI
+    /// subscribers must marshal to the UI thread (e.g.,
+    /// <c>Dispatcher.InvokeAsync</c>). Same threading contract as
+    /// <see cref="FrameEmitted"/> and <see cref="PlaybackEnded"/>.
+    /// </para>
+    /// </summary>
+    event EventHandler<LoopRegionRewoundEventArgs>? LoopRewound;
+
+    /// <summary>
     /// Raised once when playback reaches <see cref="TotalDuration"/> with
     /// <see cref="Loop"/> == false, OR when playback is aborted due to a
     /// sink failure (e.g. <see cref="ReplaySendException"/>). UI listens
