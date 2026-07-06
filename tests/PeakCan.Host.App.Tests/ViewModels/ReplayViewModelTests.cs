@@ -1580,4 +1580,192 @@ public class ReplayViewModelTests : IDisposable
             try { File.Delete(bundlePath); } catch { /* best effort */ }
         }
     }
+
+    // ---------- v3.8.3 PATCH H1: failure teardown ----------
+
+    /// <summary>
+    /// v3.8.3 PATCH H1: when <see cref="ReplayViewModel.OpenSessionAsync"/>
+    /// encounters a source that can't be loaded, the VM must mirror
+    /// <see cref="ReplayViewModel.OpenAsync"/>'s ReplayException
+    /// teardown (clear IsLoaded / LoadedFilePath / TotalDuration /
+    /// ScrubberMaxValue AND skip playback-envelope restore). Pre-fix,
+    /// the VM was left half-loaded with source-1's state intact AND
+    /// the playback envelope from a bundle whose other source(s) failed
+    /// to load — misleading "loaded with error banner" state.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_MultiSourceAllFail_ClearsIsLoadedAndSkipsPlaybackRestore()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new() { SourceId = "s1", DisplayName = "s1", Path = "", ContentHash = "" },
+            new() { SourceId = "s2", DisplayName = "s2", Path = "C:/nonexistent.asc", ContentHash = "" },
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            Loop = true,
+            Speed = 2.0,
+            ScrubberValue = 1.5,
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"multisrcfail-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            // Force LoadAsync to throw ReplayLoadException for both
+            // sources — that's how OpenSessionAsync's catch block at
+            // line 639-648 pushes to `missing`.
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromException(new ReplayLoadException("not found")));
+
+            var missing = await _sut.OpenSessionAsync(bundlePath);
+
+            missing.Should().HaveCount(2, "both sources fail");
+            _sut.IsLoaded.Should().BeFalse("failed-source bundles must NOT leave VM half-loaded");
+            _sut.LoadedFilePath.Should().BeNull();
+            _sut.TotalDuration.Should().Be(0.0);
+            _sut.ScrubberMaxValue.Should().Be(0.0);
+            // Playback envelope must NOT be applied (skip-restore on failure)
+            _sut.CurrentTimestamp.Should().Be(0.0,
+                "ScrubberValue 1.5 must NOT be applied when sources fail");
+            _sut.Loop.Should().BeFalse(
+                "Loop=true must NOT be applied when sources fail");
+            _sut.Speed.Should().Be(1.0,
+                "Speed=2.0 must NOT be applied when sources fail");
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    // ---------- v3.8.3 PATCH H2: AddLoopRegion CanExecute notification ----------
+
+    /// <summary>
+    /// v3.8.3 PATCH H2: <c>AddLoopRegion</c> mutates
+    /// <see cref="ReplayViewModel.LoopRegions"/>.Count from 0 to 1;
+    /// without an explicit <c>NotifyCanExecuteChanged</c>, the
+    /// <c>ClearLoopRegions</c> toolbar button stays visually disabled
+    /// because the v3.8.1 <c>[NotifyCanExecuteChangedFor]</c> on
+    /// <c>_isLoaded</c> only fires on IsLoaded flips, not on
+    /// collection mutations.
+    /// </summary>
+    [Fact]
+    public void AddLoopRegion_NotifiesClearLoopRegionsCommandCanExecute()
+    {
+        _sut.IsLoaded = true;
+        _service.StartTimestamp.Returns(0.0);
+        _service.EndTimestamp.Returns(1.0);
+        _sut.LoopRegions.Should().BeEmpty();
+
+        // Pre-condition: Clear button is disabled when no regions exist
+        _sut.ClearLoopRegionsCommand.CanExecute(null).Should().BeFalse();
+
+        _sut.AddLoopRegionCommand.Execute(null);
+
+        _sut.ClearLoopRegionsCommand.CanExecute(null).Should().BeTrue(
+            "AddLoopRegion must notify ClearLoopRegionsCommand so the Clear button enables");
+    }
+
+    // ---------- v3.8.3 PATCH M1: restore validation ----------
+
+    /// <summary>
+    /// v3.8.3 PATCH M1: a hand-edited bundle with a negative-timestamp
+    /// bookmark must be filtered out on restore (binary-search
+    /// frame-step could never reach a negative timestamp).
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_BookmarkWithNegativeTimestamp_IsFilteredOut()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new() { SourceId = "s1", DisplayName = "s1", Path = "C:/replay.asc" },
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            Bookmarks = new()
+            {
+                new BookmarkDto("b1", -1.0, "negative-timestamp"),
+                new BookmarkDto("b2", 5.0, "valid"),
+            },
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"negbookmark-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            _sut.Bookmarks.Should().HaveCount(1,
+                "negative-timestamp bookmarks must be filtered on restore");
+            _sut.Bookmarks[0].Id.Should().Be("b2");
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.8.3 PATCH M1: a hand-edited bundle with a <see cref="LoopRegionDto"/>
+    /// whose <c>End &lt; Start</c> must be normalized on restore (widened
+    /// to a 1-second window starting at <c>Start</c>) — same fallback
+    /// <see cref="ReplayViewModel.AddLoopRegion"/> uses at the creation
+    /// site.
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_LoopRegionWithInvertedRange_IsNormalized()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+        };
+        dto.Sources = new List<BundleSourceDto>
+        {
+            new() { SourceId = "s1", DisplayName = "s1", Path = "C:/replay.asc" },
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            LoopRegions = new()
+            {
+                new LoopRegionDto("r1", 50.0, 30.0, "inverted-range"),
+            },
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"invregion-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            _sut.LoopRegions.Should().HaveCount(1);
+            _sut.LoopRegions[0].Start.Should().Be(50.0, "Start preserved");
+            _sut.LoopRegions[0].End.Should().Be(51.0,
+                "inverted-range End normalized to Start + 1.0");
+            _sut.LoopRegions[0].Id.Should().Be("r1", "Id preserved across normalization");
+            _sut.LoopRegions[0].Label.Should().Be("inverted-range",
+                "Label preserved across normalization");
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
 }

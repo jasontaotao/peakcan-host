@@ -649,7 +649,21 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         }
         // 2. Apply playback state if present. Always to a paused
         //    cursor — never auto-resume on session reload.
-        if (dto.Playback is { } pb)
+        // v3.8.3 PATCH H1: failure teardown. When ANY source in a
+        // multi-source bundle fails to load (or ALL sources fail),
+        // mirror OpenAsync's ReplayException handling (line 418-422) —
+        // clear the bindable surface so the UI doesn't show a
+        // misleading "loaded with error banner" state, and SKIP the
+        // playback-envelope restore (bundle state is meaningless
+        // without the sources it references).
+        if (missing.Count > 0)
+        {
+            IsLoaded = false;
+            LoadedFilePath = null;
+            TotalDuration = 0.0;
+            ScrubberMaxValue = 0.0;
+        }
+        else if (dto.Playback is { } pb)
         {
             // v3.8.2 PATCH: CurrentTimestamp (playback cursor) used
             // to be restored inside the per-source loop above. When a
@@ -675,15 +689,33 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             // Old bundles (no Bookmarks/LoopRegions keys) deserialize as
             // null → clear to empty. Same null-vs-empty handling as
             // BuildSnapshot: empty list == no items.
+            // v3.8.3 PATCH M1: validate on restore. Bookmarks with
+            // negative timestamps are unreachable from binary-search
+            // frame-step (strict > / <), so filter them out — a
+            // hand-edited bundle could put a bookmark at t=-1.0; we
+            // silently drop it. Loop regions with End < Start are
+            // normalized to a 1-second window (same fallback
+            // AddLoopRegion uses at the creation site) — preserves
+            // the original Id + Label for future click-to-jump UX.
             Bookmarks.Clear();
             if (pb.Bookmarks is not null)
             {
-                foreach (var b in pb.Bookmarks) Bookmarks.Add(new BookmarkVm(b));
+                foreach (var b in pb.Bookmarks)
+                {
+                    if (b.Timestamp < 0) continue;
+                    Bookmarks.Add(new BookmarkVm(b));
+                }
             }
             LoopRegions.Clear();
             if (pb.LoopRegions is not null)
             {
-                foreach (var r in pb.LoopRegions) LoopRegions.Add(new LoopRegionVm(r));
+                foreach (var r in pb.LoopRegions)
+                {
+                    var start = r.Start;
+                    var end = r.End < start ? start + 1.0 : r.End;
+                    var normalized = new LoopRegionDto(r.Id, start, end, r.Label);
+                    LoopRegions.Add(new LoopRegionVm(normalized));
+                }
             }
         }
         IsPlaying = false;
@@ -904,6 +936,12 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
             end,
             null);
         LoopRegions.Add(new LoopRegionVm(dto));
+        // v3.8.3 PATCH H2: ObservableCollection<T>.Add() doesn't fire
+        // PropertyChanged for Count, so the source-gen attribute on
+        // _isLoaded can't see this mutation. Notify explicitly to keep
+        // the toolbar Clear button enabled-state in sync after an Add.
+        // (Clear itself already notifies — see ClearLoopRegions body.)
+        ClearLoopRegionsCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanClearLoopRegions))]

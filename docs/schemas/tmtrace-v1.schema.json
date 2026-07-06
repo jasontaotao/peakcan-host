@@ -203,7 +203,8 @@
         },
         "label": {
           "description": "Optional free-form label. Empty / missing = no label.",
-          "type": "string"
+          "type": "string",
+          "nullable": true
         }
       }
     },
@@ -232,7 +233,8 @@
         },
         "label": {
           "description": "Optional free-form label.",
-          "type": "string"
+          "type": "string",
+          "nullable": true
         }
       }
     },

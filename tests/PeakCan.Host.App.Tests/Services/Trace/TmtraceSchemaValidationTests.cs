@@ -321,6 +321,31 @@ public class TmtraceSchemaValidationTests
             "v3.7.2 bundle has no loop regions key → empty list (not null)");
     }
 
+    /// <summary>
+    /// v3.8.3 PATCH L1: the schema marks <see cref="BookmarkDto"/>.label
+    /// and <see cref="LoopRegionDto"/>.label as <c>"nullable": true</c>
+    /// to match the C# <c>string?</c> declaration. System.Text.Json
+    /// already serializes null strings as JSON null (not omits them),
+    /// so a producer writing Label = null writes <c>"label": null</c>
+    /// which validates against the nullable schema. This test pins
+    /// the explicit nullability annotation so a future maintainer
+    /// can't silently tighten it to <c>"nullable": false</c> (which
+    /// would reject null producers).
+    /// </summary>
+    [Fact]
+    public void BookmarkDto_LabelSchemaFieldIsNullable()
+    {
+        var def = Schema.RootElement.GetProperty("$defs").GetProperty("BookmarkDto");
+        def.GetProperty("properties").GetProperty("label")
+            .GetProperty("nullable").GetBoolean().Should().BeTrue(
+                "BookmarkDto.label schema must mark nullable=true to match C# string?");
+
+        var regionDef = Schema.RootElement.GetProperty("$defs").GetProperty("LoopRegionDto");
+        regionDef.GetProperty("properties").GetProperty("label")
+            .GetProperty("nullable").GetBoolean().Should().BeTrue(
+                "LoopRegionDto.label schema must mark nullable=true to match C# string?");
+    }
+
     // ===== helpers =====
 
     private static void AssertSubDto(Type dtoType, JsonElement schemaDef)
