@@ -1513,4 +1513,71 @@ public class ReplayViewModelTests : IDisposable
             try { File.Delete(bundlePath); } catch { /* best effort */ }
         }
     }
+
+    /// <summary>
+    /// v3.8.2 PATCH (M3 from v3.8.1 audit): comprehensive pin for ALL 6
+    /// scalar fields that <see cref="ReplayViewModel.OpenSessionAsync"/>
+    /// restores from the bundle's playback envelope. The existing chunk-7
+    /// test only checked Loop + Speed + Bookmarks + LoopRegions; a future
+    /// refactor that clobbered CurrentTimestamp / StartTimestamp /
+    /// EndTimestamp / CanIdFilterText on restore would have silently passed.
+    /// <para>
+    /// The CanIdFilterText assertion also verifies that
+    /// <c>OnCanIdFilterTextChanged</c> (the source-gen partial callback)
+    /// fires on the setter, parses the text, and pushes the resulting
+    /// <see cref="HashSet{T}"/> to <c>_service.CanIdFilter</c> — closing
+    /// a gap where the VM property could round-trip correctly while the
+    /// service-side filter was silently lost.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_V37Bundle_RestoresAllScalarTransportFields()
+    {
+        var dto = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            AppVersion = "3.7.2",
+        };
+        dto.Playback = new BundlePlaybackDto
+        {
+            Loop = true,
+            Speed = 2.0,
+            ScrubberValue = 1.5,
+            StartTimestamp = 1.0,
+            EndTimestamp = 5.0,
+            ReplayCanIdFilterText = "0x100, 0x200",
+            Bookmarks = new(),
+            LoopRegions = new(),
+        };
+
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"v372allfields-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            _library.Save(dto, bundlePath);
+            _service.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask);
+
+            await _sut.OpenSessionAsync(bundlePath);
+
+            // Scalar transport fields
+            _sut.Loop.Should().BeTrue();
+            _sut.Speed.Should().Be(2.0);
+            _sut.CurrentTimestamp.Should().Be(1.5, "ScrubberValue must restore the playback cursor");
+            _sut.StartTimestamp.Should().Be(1.0);
+            _sut.EndTimestamp.Should().Be(5.0);
+            _sut.CanIdFilterText.Should().Be("0x100, 0x200");
+
+            // Side effect: CanIdFilterText setter fires
+            // OnCanIdFilterTextChanged which parses the text and pushes
+            // the resulting HashSet<uint> to _service.CanIdFilter.
+            // Verify the parsed filter landed (via CanIdListParser).
+            _service.Received(1).CanIdFilter = Arg.Is<IReadOnlySet<uint>>(s =>
+                s != null && s.Contains(0x100u) && s.Contains(0x200u));
+        }
+        finally
+        {
+            try { File.Delete(bundlePath); } catch { /* best effort */ }
+        }
+    }
 }

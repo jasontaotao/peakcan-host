@@ -634,7 +634,6 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
                 LoadedFilePath = loadPath;
                 TotalDuration = _service.TotalDuration;
                 ScrubberMaxValue = TotalDuration;
-                CurrentTimestamp = dto.Playback?.ScrubberValue ?? 0.0;
                 IsLoaded = true;
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
@@ -652,6 +651,14 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         //    cursor — never auto-resume on session reload.
         if (dto.Playback is { } pb)
         {
+            // v3.8.2 PATCH: CurrentTimestamp (playback cursor) used
+            // to be restored inside the per-source loop above. When a
+            // bundle had zero sources (e.g. a hand-edited bundle or a
+            // future Source-path-empty variant), the loop never ran
+            // and CurrentTimestamp stayed at 0 — silent clobber of
+            // the saved cursor. Move to the post-loop block alongside
+            // the other scalar playback fields.
+            CurrentTimestamp = pb.ScrubberValue;
             Loop = pb.Loop;
             Speed = pb.Speed <= 0 ? 1.0 : pb.Speed;
             StartTimestamp = pb.StartTimestamp;
