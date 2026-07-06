@@ -75,6 +75,21 @@ public sealed class BundleSourceDto
     [JsonPropertyName("canIdFilter")]
     public string CanIdFilter { get; set; } = "";
 
+    /// <summary>
+    /// v3.6.4 PATCH: SHA-256 content fingerprint of the <c>.asc</c>
+    /// file at <see cref="Path"/>, lowercase hex (64 chars). When the
+    /// recorded <c>Path</c> is missing on the consumer's filesystem
+    /// (file moved, renamed, or on an unmounted drive), the loader
+    /// uses this hash to search the user-known
+    /// <c>asc-search-dirs.json</c> directory list for a relocated
+    /// copy. Empty string means "hash unknown" (the bundle was
+    /// written without hashing, or the writer's file was already
+    /// missing at save time) — the loader falls back to the
+    /// existing path-only behavior.
+    /// </summary>
+    [JsonPropertyName("contentHash")]
+    public string ContentHash { get; set; } = "";
+
     /// <summary>Convenience: deserialize the four channel bytes into an
     /// <see cref="OxyColor"/> at consumption time.</summary>
     [JsonIgnore]

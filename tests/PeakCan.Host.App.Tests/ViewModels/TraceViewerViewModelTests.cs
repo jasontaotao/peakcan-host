@@ -895,4 +895,297 @@ public class TraceViewerViewModelTests
 
         try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
     }
+
+    // ===== v3.6.4 PATCH: hash-based .asc relocation =====
+
+    // Fake hasher that records the requested paths and returns a
+    // canned SHA-256 hex string per request. Tests inject this to
+    // pin BuildSnapshot's "populate contentHash when path exists"
+    // contract without touching the disk.
+    private sealed class FakeAscHasher : PeakCan.Host.Core.Services.IAscContentHasher
+    {
+        public List<string> Requests { get; } = new();
+        public string Return { get; set; } = "deadbeef" + new string('0', 56);
+        public bool ThrowOnCompute { get; set; }
+        public Task<string> ComputeAsync(string path, CancellationToken ct = default)
+        {
+            Requests.Add(path);
+            if (ThrowOnCompute)
+                throw new IOException("synthetic hasher failure");
+            return Task.FromResult(Return);
+        }
+    }
+
+    // Fake locator that returns a configurable relocated path. Tests
+    // inject this to pin ApplySnapshotAsync's "use the relocated path
+    // when path is missing AND hash is non-empty" contract.
+    private sealed class FakeAscLocator : PeakCan.Host.Core.Services.IAscLocator
+    {
+        public string? LocateResult { get; set; }
+        public string? LastHash { get; private set; }
+        public Task<string?> LocateAsync(string contentHash, CancellationToken ct = default)
+        {
+            LastHash = contentHash;
+            return Task.FromResult(LocateResult);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_PopulatesContentHash_WhenSourceFileExists()
+    {
+        // Arrange — registry has one source whose .asc path points at
+        // a real file on disk. BuildSnapshot must call the hasher and
+        // populate the bundle's contentHash with the returned hex.
+        var fakeHash = "a1b2c3d4" + new string('0', 56);
+        var hasher = new FakeAscHasher { Return = fakeHash };
+        var library = NewTestLibrary(out var libPath);
+        var registry = MakeFakeRegistry();
+        var vm = new TraceViewerViewModel(
+            registry, MakeFakeDbcService(), MakeFakeLogger(), library,
+            fileDialog: null, hasher: hasher, locator: null);
+        // Source points at a real file under the test temp dir.
+        var ascPath = Path.Combine(Path.GetTempPath(), $"v364-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(ascPath, "synthetic asc content");
+        try
+        {
+            AddFakeTraceSource(registry, displayName: "drive", sourceId: "guid-1");
+            // Replace the seeded path with our real-file path.
+            registry.Sources.Returns(new List<TraceSource>
+            {
+                new("guid-1", "drive", ascPath, OxyColors.Blue),
+            });
+            registry.SourcesChanged += Raise.Event<Action>();
+
+            // Act
+            var bundle = vm.BuildSnapshot();
+
+            // Assert
+            bundle.Sources.Should().HaveCount(1);
+            bundle.Sources[0].ContentHash.Should().Be(fakeHash);
+            hasher.Requests.Should().Contain(ascPath);
+
+            try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
+        }
+        finally
+        {
+            if (File.Exists(ascPath)) File.Delete(ascPath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_LeavesContentHashEmpty_WhenSourceFileMissing()
+    {
+        // Arrange — source's .asc path does NOT exist on disk. The
+        // hasher must NOT be called and the bundle's contentHash must
+        // be empty so the loader falls back to path-only resolution.
+        var hasher = new FakeAscHasher();
+        var library = NewTestLibrary(out var libPath);
+        var registry = MakeFakeRegistry();
+        var vm = new TraceViewerViewModel(
+            registry, MakeFakeDbcService(), MakeFakeLogger(), library,
+            fileDialog: null, hasher: hasher, locator: null);
+        var missingPath = Path.Combine(
+            Path.GetTempPath(), $"v364-missing-{Guid.NewGuid():N}.asc");
+        AddFakeTraceSource(registry, displayName: "drive", sourceId: "guid-1");
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "drive", missingPath, OxyColors.Blue),
+        });
+        registry.SourcesChanged += Raise.Event<Action>();
+
+        // Act
+        var bundle = vm.BuildSnapshot();
+
+        // Assert
+        bundle.Sources.Should().HaveCount(1);
+        bundle.Sources[0].ContentHash.Should().Be("");
+        hasher.Requests.Should().BeEmpty(
+            "the hasher must not be called when the source file does not exist");
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
+    }
+
+    [Fact]
+    public async Task ApplySnapshotAsync_HashHit_ReloadsFromRelocatedPath()
+    {
+        // Arrange — saved bundle has a stale path + a contentHash.
+        // The registry's LoadAsync stub records the path argument; we
+        // assert that the relocated path (returned by the locator)
+        // was passed, not the stale path. The relocated path must
+        // exist on disk for the VM to use it (File.Exists gate).
+        const string StalePath = "C:/old/location/drive.asc";
+        var relocatedPath = Path.Combine(Path.GetTempPath(), $"v364-reloc-{Guid.NewGuid():N}.asc");
+        File.WriteAllText(relocatedPath, "relocated synthetic asc content");
+        var locator = new FakeAscLocator { LocateResult = relocatedPath };
+        var library = NewTestLibrary(out var libPath);
+        var bundle = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.6.4",
+            Sources = new List<BundleSourceDto>
+            {
+                new()
+                {
+                    SourceId = "guid-1",
+                    DisplayName = "drive",
+                    Path = StalePath,
+                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
+                    StrokeStyle = "Solid",
+                    CanIdFilter = "",
+                    ContentHash = "abcdef" + new string('0', 58),
+                },
+            },
+        };
+        library.Save(bundle, libPath);
+
+        // Registry returns a fresh source on LoadAsync, mirroring the
+        // production behavior. We capture the requested path.
+        string? loadedPath = null;
+        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
+        var loadedSources = new List<TraceSource>();
+        reloadRegistry.Sources.Returns(loadedSources);
+        reloadRegistry.GetService(Arg.Any<string>())
+            .Returns(MakeFakeService());
+        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                loadedPath = _.ArgAt<string>(0);
+                var src = new TraceSource(
+                    "fresh-id", "drive", loadedPath ?? StalePath, OxyColors.Blue);
+                loadedSources.Add(src);
+                return src;
+            });
+        var vm = new TraceViewerViewModel(
+            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
+            fileDialog: null, hasher: null, locator: locator);
+
+        try
+        {
+            // Act
+            var missing = await vm.OpenSessionAsync(libPath);
+
+            // Assert
+            missing.Should().BeEmpty(
+                "the relocated path counts as a successful load — it must not appear in missing");
+            loadedPath.Should().Be(relocatedPath,
+                "the VM must call LoadAsync with the relocated path returned by the locator");
+            locator.LastHash.Should().Be(bundle.Sources[0].ContentHash);
+        }
+        finally
+        {
+            if (File.Exists(relocatedPath)) File.Delete(relocatedPath);
+            try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ApplySnapshotAsync_HashMiss_ReportsStalePathInMissing()
+    {
+        // Arrange — saved bundle has a stale path + contentHash, but
+        // the locator returns null (no match in the search dirs).
+        // The VM must fall through to the existing path-only
+        // resolution: LoadAsync(stalePath) is invoked, the registry
+        // throws FileNotFoundException (because the file is gone),
+        // and the VM adds bs.Path to the missing list.
+        const string StalePath = "C:/old/location/drive.asc";
+        var locator = new FakeAscLocator { LocateResult = null };
+        var library = NewTestLibrary(out var libPath);
+        var bundle = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.6.4",
+            Sources = new List<BundleSourceDto>
+            {
+                new()
+                {
+                    SourceId = "guid-1",
+                    DisplayName = "drive",
+                    Path = StalePath,
+                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
+                    StrokeStyle = "Solid",
+                    CanIdFilter = "",
+                    ContentHash = "123456" + new string('0', 58),
+                },
+            },
+        };
+        library.Save(bundle, libPath);
+
+        // Registry throws FileNotFoundException for the stale path —
+        // matches production behavior when the .asc is gone.
+        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
+        reloadRegistry.Sources.Returns(new List<TraceSource>());
+        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<TraceSource>>(_ =>
+                throw new FileNotFoundException("synthetic missing-file", _.ArgAt<string>(0)));
+        var vm = new TraceViewerViewModel(
+            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
+            fileDialog: null, hasher: null, locator: locator);
+
+        // Act
+        var missing = await vm.OpenSessionAsync(libPath);
+
+        // Assert
+        missing.Should().ContainSingle()
+            .Which.Should().Be(StalePath,
+                "when the hash lookup fails the VM must surface the original stale path in the missing list");
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
+    }
+
+    [Fact]
+    public async Task ApplySnapshotAsync_NoContentHash_ExistingPathOnlyBehavior()
+    {
+        // Arrange — saved bundle has a stale path but NO contentHash
+        // (the v3.6.0-v3.6.3 case). The VM must NOT call the locator
+        // and must surface the stale path in the missing list —
+        // identical behavior to v3.6.3.
+        const string StalePath = "C:/old/location/drive.asc";
+        var locator = new FakeAscLocator { LocateResult = "C:/somewhere/else.asc" };
+        var library = NewTestLibrary(out var libPath);
+        var bundle = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = TraceSessionLibrary.CurrentSchema,
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.6.3",
+            Sources = new List<BundleSourceDto>
+            {
+                new()
+                {
+                    SourceId = "guid-1",
+                    DisplayName = "drive",
+                    Path = StalePath,
+                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
+                    StrokeStyle = "Solid",
+                    CanIdFilter = "",
+                    ContentHash = "",   // empty — v3.6.3-era bundle
+                },
+            },
+        };
+        library.Save(bundle, libPath);
+
+        // Registry throws FileNotFoundException for the stale path —
+        // matches production behavior when the .asc is gone.
+        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
+        reloadRegistry.Sources.Returns(new List<TraceSource>());
+        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<TraceSource>>(_ =>
+                throw new FileNotFoundException("synthetic missing-file", _.ArgAt<string>(0)));
+        var vm = new TraceViewerViewModel(
+            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
+            fileDialog: null, hasher: null, locator: locator);
+
+        // Act
+        var missing = await vm.OpenSessionAsync(libPath);
+
+        // Assert
+        missing.Should().ContainSingle().Which.Should().Be(StalePath);
+        locator.LastHash.Should().BeNull(
+            "the locator must NOT be invoked when the bundle has no contentHash");
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
+    }
 }

@@ -4,14 +4,17 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.6.3 — `ReplayTimeline` cursor-walking tests hardening
-> PATCH (widened 4 long `Task.Delay(3500)` budgets to 5000ms for CI
-> parallel-load headroom + converted 1 `Task.Delay(4500)` to
-> event-based via `TaskCompletionSource`). See [Release Notes
-> v3.6.3](docs/release-notes-v3.6.3.md). Zero production behavior
-> change from v3.6.2; **~1127 unit tests pass** (404 Core + 84
-> Infrastructure + ~639 App); 5 SKIP; 5 architecture rules enforced
-> via NetArchTest; CI runs on every push to `main`.
+> **Status:** v3.6.4 — Hash-based `.asc` relocation via
+> `BundleSourceDto.contentHash` PATCH (SHA-256 fingerprint stored
+> alongside the path in `.tmtrace` bundles; on reload, if the
+> recorded path is missing the loader searches the user's
+> `asc-search-dirs.json` for an `.asc` whose hash matches; first
+> match wins). See [Release Notes v3.6.4](docs/release-notes-v3.6.4.md).
+> Forward-compat: bundles saved by v3.6.0–v3.6.3 (no contentHash)
+> continue to work with path-only resolution. **~1144 unit tests
+> pass** (416 Core + 84 Infrastructure + 644 App); 5 SKIP; 5
+> architecture rules enforced via NetArchTest; CI runs on every push
+> to `main`.
 
 ## Features (MVP)
 

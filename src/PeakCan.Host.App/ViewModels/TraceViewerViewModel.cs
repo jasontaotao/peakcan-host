@@ -13,6 +13,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -63,6 +64,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // Production DI wires the WPF impl; tests inject a fake that
     // returns a canned path or simulates cancellation.
     private readonly IFileDialogService? _fileDialog;
+    // v3.6.4 PATCH: hash-based .asc relocation. Optional — both fields
+    // default to no-op fakes in the legacy single-arg test ctor (the
+    // existing test pattern that doesn't care about hashing). Production
+    // DI wires the real SHA-256 hasher + file-system locator.
+    private readonly IAscContentHasher _hasher;
+    private readonly IAscLocator _locator;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -117,13 +124,21 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         DbcService dbcService,
         ILogger<TraceViewerViewModel> logger,
         TraceSessionLibrary sessionLibrary,
-        IFileDialogService? fileDialog = null)
+        IFileDialogService? fileDialog = null,
+        IAscContentHasher? hasher = null,
+        IAscLocator? locator = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionLibrary = sessionLibrary ?? throw new ArgumentNullException(nameof(sessionLibrary));
         _fileDialog = fileDialog;
+        // v3.6.4 PATCH: defaults to a no-op hasher + locator so the
+        // legacy ctor signature (without these args) keeps compiling
+        // and the existing test suite is undisturbed. Tests that DO
+        // exercise hash-based relocation inject real or fake instances.
+        _hasher = hasher ?? NullAscContentHasher.Instance;
+        _locator = locator ?? NullAscLocator.Instance;
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
@@ -213,6 +228,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // can decide whether to remap or proceed without.
     [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
     private static partial void LogSourceMissing(ILogger logger, string path, Exception ex);
+
+    // v3.6.4 PATCH: hash-based relocation recovered a missing .asc.
+    [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
+    private static partial void LogRelocated(ILogger logger, string oldPath, string newPath);
 
     /// <summary>
     /// Load a DBC into <see cref="DbcService"/>. Updates
@@ -353,6 +372,28 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         dto.Sources = new List<BundleSourceDto>(Sources.Count);
         foreach (var src in Sources)
         {
+            // v3.6.4 PATCH: populate contentHash when the source's
+            // .asc still exists on disk so the bundle can later be
+            // relocated via the SHA-256 lookup. Hashing is synchronous
+            // here because BuildSnapshot is invoked from a
+            // Task.Run-wrapped save (SaveSessionAsync wraps the call);
+            // we await it inline below.
+            var hash = "";
+            if (!string.IsNullOrEmpty(src.Path) && File.Exists(src.Path))
+            {
+                try
+                {
+                    hash = _hasher.ComputeAsync(src.Path).GetAwaiter().GetResult();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    // Hashing failed (locked file / ACL). Skip — the
+                    // bundle still saves with contentHash="" and the
+                    // path-only resolution covers it on reload.
+                    LogHashFailed(_logger, ex, src.Path);
+                    hash = "";
+                }
+            }
             dto.Sources.Add(new BundleSourceDto
             {
                 SourceId = src.SourceId,
@@ -364,6 +405,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 ColorB = src.Color.B,
                 StrokeStyle = src.StrokeStyle.ToString(),
                 CanIdFilter = src.CanIdFilter ?? "",
+                ContentHash = hash,
             });
         }
         dto.Playback = new BundlePlaybackDto
@@ -378,6 +420,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         dto.Viewports = new List<BundleViewportDto>(ChartViewModel.CaptureViewports());
         return dto;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
+    private static partial void LogHashFailed(ILogger logger, Exception ex, string path);
 
     /// <summary>
     /// v3.5.0 MINOR: restore a saved session. Loads each .asc via the
@@ -405,9 +450,26 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         //    in the returned list; do NOT throw (user-friendly).
         foreach (var bs in dto.Sources)
         {
+            // v3.6.4 PATCH: when the recorded path is missing AND the
+            // bundle carries a contentHash, ask the locator for a
+            // relocated copy before giving up. The relocated path is
+            // used for the registry load; if the locator also fails,
+            // we fall through to the existing missing-path reporting.
+            var loadPath = bs.Path;
+            if (!string.IsNullOrEmpty(bs.Path) &&
+                !File.Exists(bs.Path) &&
+                !string.IsNullOrEmpty(bs.ContentHash))
+            {
+                var relocated = await _locator.LocateAsync(bs.ContentHash).ConfigureAwait(true);
+                if (!string.IsNullOrEmpty(relocated) && File.Exists(relocated))
+                {
+                    LogRelocated(_logger, bs.Path, relocated);
+                    loadPath = relocated;
+                }
+            }
             try
             {
-                var loaded = await _registry.LoadAsync(bs.Path).ConfigureAwait(true);
+                var loaded = await _registry.LoadAsync(loadPath).ConfigureAwait(true);
                 // v3.6.0 MINOR T1.B: restore DisplayName and color from
                 // the bundle, replacing the v3.5.0 "path-reference only"
                 // comment. The registry's LoadAsync stamps a default
@@ -875,4 +937,35 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>
+/// v3.6.4 PATCH: no-op <see cref="IAscContentHasher"/> used when no
+/// hasher was injected. Returns the empty string for every path so
+/// <c>BuildSnapshot</c> never blocks on disk I/O and every saved
+/// bundle round-trips without a contentHash. Production DI wires
+/// <see cref="Sha256AscContentHasher"/>; tests that care about hashing
+/// inject their own fake.
+/// </summary>
+internal sealed class NullAscContentHasher : IAscContentHasher
+{
+    public static readonly NullAscContentHasher Instance = new();
+    private NullAscContentHasher() { }
+    public Task<string> ComputeAsync(string path, CancellationToken ct = default)
+        => Task.FromResult("");
+}
+
+/// <summary>
+/// v3.6.4 PATCH: no-op <see cref="IAscLocator"/> used when no locator
+/// was injected. Always returns <c>null</c> so the ApplySnapshotAsync
+/// hash fallback is a no-op and the existing path-only resolution
+/// continues to surface the missing-path list. Production DI wires
+/// <see cref="FileSystemAscLocator"/>.
+/// </summary>
+internal sealed class NullAscLocator : IAscLocator
+{
+    public static readonly NullAscLocator Instance = new();
+    private NullAscLocator() { }
+    public Task<string?> LocateAsync(string contentHash, CancellationToken ct = default)
+        => Task.FromResult<string?>(null);
 }

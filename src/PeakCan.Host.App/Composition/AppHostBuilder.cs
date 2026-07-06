@@ -375,6 +375,17 @@ public class AppHostBuilder
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
         // OpenSessionAsync commands.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
+        // v3.6.4 PATCH: hash-based .asc relocation. IAscContentHasher
+        // computes SHA-256 of an .asc's contents (stored alongside the
+        // path in the bundle); IAscLocator walks user-known directories
+        // when the recorded path is missing and recovers the file via
+        // hash match. The search-dir list lives at
+        // %APPDATA%/PeakCan.Host/asc-search-dirs.json (a future MINOR
+        // can add a Settings UI; this PATCH keeps the surface minimal).
+        builder.Services.AddSingleton<PeakCan.Host.Core.Services.IAscContentHasher,
+                                       PeakCan.Host.Core.Services.Sha256AscContentHasher>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Services.IAscLocator,
+                                       PeakCan.Host.Core.Services.FileSystemAscLocator>();
         // v3.6.0 MINOR T3: most-recently-used list backing the AppShell
         // File ▸ Open Recent menu. Singleton so AppShell and any future
         // consumer (e.g. keyboard shortcut handler) observe the same
