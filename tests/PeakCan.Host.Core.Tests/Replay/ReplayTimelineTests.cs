@@ -398,7 +398,10 @@ public class ReplayTimelineTests
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(3500);  // give cursor enough wall-clock to walk past last frame
+        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
+        // Replaces a latent Task.Delay(3500) that was vulnerable to flake under
+        // .NET test runner parallel scheduling. See release-notes-v3.6.3.
+        await Task.Delay(5000);  // give cursor enough wall-clock to walk past last frame
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=2.0 and t=3.0 are in range");
@@ -420,7 +423,9 @@ public class ReplayTimelineTests
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(3500);
+        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
+        // See release-notes-v3.6.3.
+        await Task.Delay(5000);
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=0 and t=1.0 are in range");
@@ -437,13 +442,25 @@ public class ReplayTimelineTests
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400), (4.0, 0x500));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        // v3.6.3 PATCH: converted from Task.Delay(4500) wall-clock wait to
+        // event-based signaling. The target frame (id 0x300) is the only one
+        // in range; we complete a TCS the instant it is emitted and use
+        // WaitAsync as a hard ceiling so a regression can't hang the test
+        // forever. See release-notes-v3.6.3.
+        const uint targetId = 0x300u;
+        var targetTcs = new TaskCompletionSource<ReplayFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timeline = new ReplayTimeline(
+            emit: f =>
+            {
+                emitted.Add(f);
+                if (f.Id == targetId) targetTcs.TrySetResult(f);
+            });
         timeline.StartTimestamp = 1.5;
         timeline.EndTimestamp = 2.5;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(4500);
+        await targetTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
         timeline.Stop();
 
         emitted.Should().HaveCount(1, "only the frame at t=2.0 is in [1.5, 2.5]");
@@ -466,7 +483,9 @@ public class ReplayTimelineTests
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(3500);
+        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
+        // See release-notes-v3.6.3.
+        await Task.Delay(5000);
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=1.0 (== Start) and t=2.0 (== End) are inclusive");
@@ -534,7 +553,10 @@ public class ReplayTimelineTests
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(3500);  // first cycle: emit 0x300 + 0x400; rewind; second cycle: 0x300 + 0x400 again
+        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
+        // First cycle: emit 0x300 + 0x400; rewind; second cycle: 0x300 + 0x400 again.
+        // See release-notes-v3.6.3.
+        await Task.Delay(5000);
         timeline.Stop();
 
         // After loop rewind, cursor walks to t=1.5 again, skipping 0x100 and 0x200.

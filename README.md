@@ -4,11 +4,12 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.6.2 — `App.OnExit` pre-flush ordering test PATCH
-> (extracted `RunShutdownAsync` for testability; 5 new tests guard
-> the auto-save-before-host-stop invariant). See [Release Notes
-> v3.6.2](docs/release-notes-v3.6.2.md). Zero production behavior
-> change from v3.6.1; **~1127 unit tests pass** (404 Core + 84
+> **Status:** v3.6.3 — `ReplayTimeline` cursor-walking tests hardening
+> PATCH (widened 4 long `Task.Delay(3500)` budgets to 5000ms for CI
+> parallel-load headroom + converted 1 `Task.Delay(4500)` to
+> event-based via `TaskCompletionSource`). See [Release Notes
+> v3.6.3](docs/release-notes-v3.6.3.md). Zero production behavior
+> change from v3.6.2; **~1127 unit tests pass** (404 Core + 84
 > Infrastructure + ~639 App); 5 SKIP; 5 architecture rules enforced
 > via NetArchTest; CI runs on every push to `main`.
 
