@@ -847,6 +847,127 @@ public class AppShellViewModelTests
     }
 
     // ──────────────────────────────────────────────
+    // v3.8.8 PATCH F1: ConnectAsync catch unregisters channel from router
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// v3.8.8 PATCH F1: ICanChannel whose <see cref="ConnectAsync"/>
+    /// succeeds (so <c>ChannelRouter.RegisterChannel</c> begins — adding
+    /// the channel to its private <c>_channels</c> list at line 118) but
+    /// the manual <see cref="FrameReceived"/> event <c>add</c> accessor
+    /// throws (mimicking a buggy <c>+=</c> subscription at line 119 of
+    /// ChannelRouter). The throw escapes <c>RegisterChannel</c> AFTER the
+    /// channel was already added to <c>_channels</c>, so the catch in
+    /// <see cref="AppShellViewModel.ConnectAsync"/> runs with a
+    /// "leaked" channel in the router's sink list. The F1 fix unregisters
+    /// the channel inside the catch; without it, the router would keep
+    /// fanning frames into a disposed sink for the rest of the process.
+    /// </summary>
+    private sealed class FrameReceivedAddThrowingChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+        public bool WasDisposed { get; private set; }
+        public event Action<CanFrame>? FrameReceived
+        {
+            add => throw new InvalidOperationException(
+                "simulated RegisterChannel event-subscribe failure");
+            remove { }
+        }
+        public FrameReceivedAddThrowingChannel(ChannelId id) { Id = id; }
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        {
+            IsConnected = true;
+            return Task.FromResult(Result<Unit>.Ok(default));
+        }
+        public Task DisconnectAsync(CancellationToken ct = default)
+        {
+            IsConnected = false;
+            return Task.CompletedTask;
+        }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync()
+        {
+            WasDisposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FrameReceivedAddThrowingChannelFactory : Core.IChannelFactory
+    {
+        public FrameReceivedAddThrowingChannel? LastCreated { get; private set; }
+        public ICanChannel Create(ChannelId id)
+        {
+            LastCreated = new FrameReceivedAddThrowingChannel(id);
+            return LastCreated;
+        }
+    }
+
+    [Fact]
+    public async Task ConnectAsync_When_RegisterChannel_PartiallyFails_AfterAdd_UnregistersChannelFromRouter()
+    {
+        // ARRANGE: real ChannelRouter + a factory whose channel makes
+        // RegisterChannel throw AFTER adding itself to _channels.
+        // Without the F1 fix, the channel stays in the router's sink
+        // list and frames keep fanning into a disposed sink.
+        var router = new ChannelRouter();
+        var sendSvc = new SendService(NullLogger<SendService>.Instance);
+        var factory = new FrameReceivedAddThrowingChannelFactory();
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
+        var vm = new AppShellViewModel(
+            router,
+            NullLogger<AppShellViewModel>.Instance,
+            new TraceViewModel(),
+            sendSvc,
+            new FakeChannelProbe(),
+            factory,
+            new DbcViewModel(new FakeDbcService(),
+                             new SignalViewModel(),
+                             NullLogger<DbcViewModel>.Instance),
+            new SendViewModel(sendSvc, NullLogger<SendViewModel>.Instance, new SendViewModelTests.FakeCyclicSendService(), null),
+            new SignalViewModel(),
+            new StatsViewModel(),
+            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+                                new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
+            new UdsViewModel(
+                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+                new DtcPanelViewModel(udsClient)),
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                new ReplayViewModel(
+                    Substitute.For<IReplayService>(),
+                    Substitute.For<IFileDialogService>(),
+                    Substitute.For<IAscContentHasher>(),
+                    Substitute.For<IAscLocator>(),
+                    new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                    new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
+                new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new PeakCan.Host.App.Services.Trace.RecentSessionsService(
+                    NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
+                Substitute.For<IFileDialogService>());
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+
+        // ACT
+        var act = async () => await vm.ConnectCommand.ExecuteAsync(null);
+
+        // ASSERT: the catch ran (StatusMessage is the exception message),
+        // AND the channel was unregistered from the router (F1 fix),
+        // AND the channel was disposed (M1 fix).
+        await act.Should().NotThrowAsync();
+        vm.IsConnected.Should().BeFalse();
+        vm.StatusMessage.Should().Contain("Connect exception");
+        GetRegisteredChannelCount(router).Should().Be(0,
+            "v3.8.8 F1 fix: catch block must call _router.UnregisterChannel(channel) so a partially-registered channel is removed from the router's sink list");
+        factory.LastCreated!.WasDisposed.Should().BeTrue(
+            "M1 fix preserved: catch block must also dispose the channel");
+    }
+
+    // ──────────────────────────────────────────────
     // v0.4.0: multi-channel enumeration tests
     // ──────────────────────────────────────────────
 

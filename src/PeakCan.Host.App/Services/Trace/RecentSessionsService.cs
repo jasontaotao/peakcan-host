@@ -57,6 +57,21 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
     /// <summary>v3.6.0 MINOR: hard cap. Older entries fall off the bottom.</summary>
     public const int MaxEntries = 5;
 
+    /// <summary>
+    /// v3.8.8 PATCH F2: maximum persisted-file size in bytes that
+    /// <see cref="LoadAsync"/> is willing to read+deserialize. A user
+    /// who drops a large file (a logfile, a stray binary) at the
+    /// persisted path would otherwise block the WPF UI thread for
+    /// the full <c>File.ReadAllText</c> +
+    /// <c>JsonSerializer.Deserialize</c> duration at app startup (the
+    /// call site is a fire-and-forget
+    /// <c>_ = _recentSessions.LoadAsync(...)</c> in
+    /// <c>AppShellViewModel</c> ctor). 1 MB is far above any legitimate
+    /// recent-sessions payload (5 entries × ~200 bytes ≈ 1 KB) and
+    /// gives 1000x headroom for future growth.
+    /// </summary>
+    public const int MaxLoadFileBytes = 1 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
@@ -225,6 +240,29 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
             Raise();
             return Task.CompletedTask;
         }
+        // v3.8.8 PATCH F2: precheck the file size BEFORE reading. The
+        // call site is a fire-and-forget _ = _recentSessions.LoadAsync(...)
+        // in AppShellViewModel ctor at line 336 (runs on the WPF
+        // dispatcher at app startup). Without this guard, a user who
+        // drops a large file (a logfile, a stray binary) at the
+        // persisted path would block the UI thread for the full
+        // File.ReadAllText + JsonSerializer.Deserialize duration. A 1 GB
+        // file risks OOM. Refuse to deserialize anything beyond
+        // MaxLoadFileBytes (1 MB) and treat as corrupt -- the existing
+        // catch (JsonException or IOException) below leaves _items empty.
+        // 1 MB is far above any legitimate recent-sessions payload
+        // (5 entries × ~200 bytes ≈ 1 KB) and gives 1000x headroom for
+        // future growth.
+        var info = new FileInfo(_path);
+        if (info.Length > MaxLoadFileBytes)
+        {
+            LogOversized(_logger, _path, info.Length, MaxLoadFileBytes);
+            // _items already cleared at the top -- oversized-load
+            // leaves the list empty rather than throwing, mirroring
+            // the corrupt-load contract.
+            Raise();
+            return Task.CompletedTask;
+        }
         try
         {
             var json = File.ReadAllText(_path);
@@ -303,6 +341,10 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Recent-sessions file corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
+
+    // v3.8.8 PATCH F2: oversized-file load rejection.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Recent-sessions file exceeds size cap ({Actual} > {Cap} bytes), treating as corrupt: {Path}")]
+    private static partial void LogOversized(ILogger logger, string path, long actual, int cap);
 
     [LoggerMessage(EventId = 9201, Level = LogLevel.Error, Message = "RecentSessionsService save to {Path} failed")]
     private static partial void LogSaveFailed(ILogger logger, Exception ex, string path);

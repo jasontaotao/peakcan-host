@@ -273,4 +273,104 @@ public sealed class RecentSessionsServiceTests : IDisposable
         svc.Recent[0].Path.Should().Be(@"C:\x\trace.tmtrace");
         svc.Recent[0].ViewType.Should().Be("trace");
     }
+
+    // ---------- v3.8.8 PATCH F2: oversized-file load guard ----------
+
+    /// <summary>
+    /// v3.8.8 PATCH F2: a user might drop a large file (a logfile, a
+    /// stray binary) at the persisted path. Pre-fix,
+    /// <see cref="RecentSessionsService.LoadAsync"/> reads the entire
+    /// file via <c>File.ReadAllText</c> + <c>JsonSerializer.Deserialize</c>
+    /// on whatever thread the caller is on — the WPF dispatcher at
+    /// app startup (the call site is a fire-and-forget
+    /// <c>_ = _recentSessions.LoadAsync(...)</c> in AppShellViewModel
+    /// ctor at line 336). A 50 MB file blocks the UI thread for
+    /// seconds; a 1 GB file risks OOM.
+    /// <para>
+    /// F2 fix: precheck the file size with
+    /// <c>new FileInfo(_path).Length</c> before reading; refuse to
+    /// deserialize anything beyond a fixed cap (1 MB) and treat it as
+    /// corrupt (the existing <c>catch (JsonException or IOException)</c>
+    /// leaves <c>_items</c> empty).
+    /// </para>
+    /// <para>
+    /// The test writes a VALID 1.5 MB JSON envelope (10 000 valid
+    /// entries) so the only way for the file to land at 0 entries
+    /// is the size cap. Pre-fix, the deserializer would happily
+    /// consume all 10 000 entries and the in-memory cap would
+    /// trim to <see cref="RecentSessionsService.MaxEntries"/> = 5,
+    /// making the test fail with <c>Recent.Count == 5</c>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_WhenFileExceedsSizeCap_TreatsAsCorrupt_LeavesRecentEmpty()
+    {
+        // Arrange: a 1.5 MB valid envelope (10 000 valid entries).
+        var path = NewRecentPath();
+        var dto = new RecentSessionsService.Envelope
+        {
+            Schema = "recent-sessions/v1",
+            Version = 1,
+        };
+        for (int i = 0; i < 10_000; i++)
+        {
+            dto.Recent.Add(new RecentSessionDto(
+                Path: $@"C:\trace-{i:D5}.tmtrace",
+                Label: $"trace-{i:D5}",
+                SavedAt: DateTimeOffset.UtcNow,
+                ViewType: "trace"));
+        }
+        File.WriteAllText(path, JsonSerializer.Serialize(dto));
+        var fileSize = new FileInfo(path).Length;
+        fileSize.Should().BeGreaterThan(1 * 1024 * 1024,
+            "test fixture must exceed the 1 MB size cap so the only way for Recent to be empty is the size-cap rejection");
+
+        var svc = NewService(path);
+
+        // Act
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await svc.LoadAsync(CancellationToken.None);
+        sw.Stop();
+
+        // Assert: the size cap kicked in -- the file is rejected
+        // outright (treated as corrupt), Recent stays empty, AND the
+        // load returns quickly because no deserialization was attempted.
+        svc.Recent.Should().BeEmpty(
+            "v3.8.8 F2 fix: LoadAsync must refuse to deserialize files beyond the size cap; without it, the file is parsed and capped to MaxEntries (5)");
+        sw.ElapsedMilliseconds.Should().BeLessThan(500,
+            "the size-cap precheck must short-circuit BEFORE File.ReadAllText + JsonSerializer.Deserialize -- a 1.5 MB file would take longer than 500 ms to parse+deserialize on a slow disk");
+    }
+
+    /// <summary>
+    /// v3.8.8 PATCH F2: a small file (under the cap) must still load
+    /// normally. Regression guard so the size cap doesn't accidentally
+    /// reject legitimate small files.
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_WhenFileUnderSizeCap_LoadsNormally()
+    {
+        // Arrange: a small (< 1 KB) valid envelope with 3 entries.
+        var path = NewRecentPath();
+        var dto = new RecentSessionsService.Envelope
+        {
+            Schema = "recent-sessions/v1",
+            Version = 1,
+            Recent = new()
+            {
+                new RecentSessionDto(@"C:\a.tmtrace", "a", DateTimeOffset.UtcNow, "trace"),
+                new RecentSessionDto(@"C:\b.tmtrace", "b", DateTimeOffset.UtcNow, "trace"),
+                new RecentSessionDto(@"C:\c.tmtrace", "c", DateTimeOffset.UtcNow, "trace"),
+            },
+        };
+        File.WriteAllText(path, JsonSerializer.Serialize(dto));
+
+        var svc = NewService(path);
+
+        // Act
+        await svc.LoadAsync(CancellationToken.None);
+
+        // Assert
+        svc.Recent.Should().HaveCount(3,
+            "v3.8.8 F2 regression: small files must still load -- only oversized files are rejected");
+    }
 }

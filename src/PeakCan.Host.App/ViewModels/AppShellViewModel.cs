@@ -767,6 +767,20 @@ public sealed partial class AppShellViewModel : ObservableObject
             ConnectionState = "Disconnected";
             StatusMessage = $"Connect exception: {ex.GetType().Name}";
             LogConnectThrew(_logger, handle, ex);
+            // v3.8.8 PATCH F1: also unregister the channel from the
+            // router. RegisterChannel is a two-step operation in
+            // ChannelRouter (Add to _channels + event subscribe); if
+            // the subscribe step throws AFTER the Add, the channel
+            // stays in the router's sink list and frames keep fanning
+            // into a disposed sink. UnregisterChannel is idempotent
+            // (Remove is a no-op if the channel was never added), so
+            // it is safe to call on every catch. Best-effort wrapped
+            // so a router failure cannot prevent the channel dispose.
+            try { _router.UnregisterChannel(channel); }
+            catch (Exception unregEx)
+            {
+                LogUnregisterFailed(_logger, handle, unregEx);
+            }
             // M1 fix: dispose the channel if RegisterChannel or any
             // subsequent step threw after ConnectAsync succeeded. Without
             // this, the channel (and its CTS + read-loop task) leaks until
@@ -841,6 +855,13 @@ public sealed partial class AppShellViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Connect threw on handle 0x{Handle:X2}")]
     private static partial void LogConnectThrew(ILogger logger, ushort handle, Exception ex);
+
+    // v3.8.8 PATCH F1: best-effort wrapper for the catch-arm
+    // UnregisterChannel call. If the router itself throws (e.g. lock
+    // contention or another sink's DisposeAsync propagating), we log
+    // and continue so the channel dispose still runs.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Connect catch-arm UnregisterChannel threw on handle 0x{Handle:X2}")]
+    private static partial void LogUnregisterFailed(ILogger logger, ushort handle, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Disconnect OK on handle 0x{Handle:X2}")]
     private static partial void LogDisconnectOk(ILogger logger, ushort handle);

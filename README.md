@@ -4,15 +4,44 @@ Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
 
-> **Status:** v3.8.0 — Replay cursor-walking UX MINOR (frame stepping via
+> **Status:** v3.8.8 — Replay cursor-walking UX MINOR + 8 PATCHes (frame stepping via
 > Right/Left arrows + toolbar, Ctrl+B bookmarks, named loop regions,
-> all round-tripped through the `.tmtrace` bundle). Builds on v3.7.0's
-> Replay-tab persistence surface (`.tmtrace` degenerate single-source case).
-> See [Release Notes v3.8.0](docs/release-notes-v3.8.0.md). Bundle format
+> all round-tripped through the `.tmtrace` bundle; v3.8.1 fixes the
+> CanExecute propagation on the 5 new commands; v3.8.2 moves the
+> playback-cursor restore out of the per-source foreach loop so
+> zero-source bundles restore the cursor correctly; v3.8.3 adds
+> OpenSessionAsync failure teardown + AddLoopRegion CanExecute notify +
+> restore-time validation of bookmarks/regions; v3.8.4 adds OpenAsync
+> `OperationCanceledException` teardown + `IReplayService.Reset()` for
+> partial-source service-state cleanup + `SeekTo` clamp to
+> `[0, TotalDuration]`; v3.8.5 adds `ReplayService.LoadAsync`
+> defensive reset + `TraceSessionLibrary.Save` streaming serialization;
+> v3.8.6 adds `TraceViewerViewModel.SeekTo` clamp (symmetry-miss of
+> v3.8.4) + `RecentSessionsService.LoadAsync` MaxEntries cap +
+> `TraceChartViewModel.ApplyViewports` duplicate-key tolerance;
+> v3.8.7 adds `OdxImportService` per-document try/catch (one malformed
+> XDocument no longer aborts the import) + `SessionPanelViewModel`
+> TesterPresent cross-thread UI mutation marshal (`SynchronizationContext.Post`);
+> v3.8.8 adds `AppShellViewModel.ConnectAsync` catch-arm
+> `_router.UnregisterChannel` (channel leaks in router's sink list
+> on partial-register failure closed) + `RecentSessionsService.LoadAsync`
+> 1 MB size cap (oversized file no longer blocks the UI thread at
+> startup) + `OdxImportViewModel.CancelImport` (window-close mid-import
+> no longer leaves `IsBusy=true` stuck)).
+> Builds on v3.7.0's Replay-tab persistence surface (`.tmtrace`
+> degenerate single-source case). See [Release Notes v3.8.0](docs/release-notes-v3.8.0.md)
+> + [Release Notes v3.8.1](docs/release-notes-v3.8.1.md)
+> + [Release Notes v3.8.2](docs/release-notes-v3.8.2.md)
+> + [Release Notes v3.8.3](docs/release-notes-v3.8.3.md)
+> + [Release Notes v3.8.4](docs/release-notes-v3.8.4.md)
+> + [Release Notes v3.8.5](docs/release-notes-v3.8.5.md)
+> + [Release Notes v3.8.6](docs/release-notes-v3.8.6.md)
+> + [Release Notes v3.8.7](docs/release-notes-v3.8.7.md)
+> + [Release Notes v3.8.8](docs/release-notes-v3.8.8.md). Bundle format
 > adds two optional fields on the playback envelope (`bookmarks`,
 > `loopRegions`) + two new `$defs` (`BookmarkDto`, `LoopRegionDto`); all
 > forward-compat via `additionalProperties: true` from v3.6.1.
-> **~1206 unit tests pass** (421 Core + 84 Infrastructure + 701 App);
+> **~1228 unit tests pass** (421 Core + 84 Infrastructure + 723 App);
 > 5 SKIP; 5 architecture rules enforced via NetArchTest; CI runs on
 > every push to `main`.
 
@@ -396,10 +425,8 @@ guide.
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-Output: **~1098 pass + 5 SKIP** across Core (404) / Infrastructure (84) /
-App (~610 — 3 hardware SKIP + 1 wall-clock-sensitive
-`TraceServiceTests.ExecuteAsync_Periodically_Flushes_Channel_Into_VM_Batch`
-SKIP + 1 unrelated SKIP). With
+Output: **~1228 pass + 5 SKIP** across Core (421) / Infrastructure (84) /
+App (~723 — 3 hardware SKIP + 2 unrelated SKIP). With
 `dotnet test --collect:"XPlat Code Coverage"` a per-test-project
 `cobertura.xml` is also produced and uploaded as a CI artifact.
 
