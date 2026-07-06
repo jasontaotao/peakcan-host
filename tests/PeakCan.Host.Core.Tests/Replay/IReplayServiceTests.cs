@@ -603,4 +603,75 @@ base 0x7e0 500k
             File.Delete(path);
         }
     }
+
+    // ---------- v3.8.5 PATCH H1: LoadAsync defensive reset ----------
+
+    /// <summary>
+    /// v3.8.5 PATCH H1: when <see cref="IReplayService.LoadAsync"/> is
+    /// called after a prior successful load and the new file fails to
+    /// parse, the prior file's frames must NOT leak into the new session.
+    /// Pre-fix, the <c>_frames</c> field was only assigned on the
+    /// success path of <c>LoadAsync</c>; on a subsequent failed load,
+    /// callers observed the previous file's frame list despite the
+    /// exception -- silently misleading any consumer that reads
+    /// <see cref="IReplayService.Frames"/> after a failed load
+    /// (regression against the "Frames empty before LoadAsync succeeds"
+    /// contract from v3.8.0).
+    /// <para>
+    /// Defense-in-depth alongside the v3.8.4 H2 <see cref="IReplayService.Reset"/>
+    /// call from <c>OpenSessionAsync</c>: this LoadAsync-level reset
+    /// fires automatically without caller cooperation, so any future
+    /// load path cannot leak the previous file's frames even if the
+    /// VM-side teardown forgets to invoke <c>Reset</c>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_AfterPriorSuccessfulLoad_ThenNewFileParseFails_FramesListIsEmpty()
+    {
+        var okPath = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 0.500000 51  200  4  01 02 03 04
+ 1.000000 51  300  2  AA BB
+");
+        try
+        {
+            var sink = new FakeReplayFrameSink();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+
+            // Phase 1: successful load populates Frames.
+            await service.LoadAsync(okPath);
+            service.Frames.Should().HaveCount(3, "first load populated frames");
+            service.TotalDuration.Should().Be(1.0);
+
+            // Phase 2: failed load (malformed ASC) MUST clear Frames
+            // -- pre-fix, the Frames list from Phase 1 leaked through.
+            var badPath = WriteTempAsc(@"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+");
+            try
+            {
+                var act = async () => await service.LoadAsync(badPath);
+                await act.Should().ThrowAsync<ReplayFormatException>(
+                    "the malformed file throws ReplayFormatException from the parser");
+
+                // Post-condition: service-state is back to "no file loaded".
+                service.Frames.Should().BeEmpty(
+                    "LoadAsync must clear the previous file's frames before attempting parse");
+                service.TotalDuration.Should().Be(0.0,
+                    "TotalDuration derived from last-frame-timestamp, which is now empty");
+            }
+            finally
+            {
+                File.Delete(badPath);
+            }
+        }
+        finally
+        {
+            File.Delete(okPath);
+        }
+    }
 }
+

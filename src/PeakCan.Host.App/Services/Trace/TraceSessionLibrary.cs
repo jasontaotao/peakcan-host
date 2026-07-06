@@ -90,6 +90,20 @@ public sealed partial class TraceSessionLibrary
     /// mid-rename leaves either the old file or the new file — never a
     /// half-written one. On failure, the tmp file is cleaned up and the
     /// exception rethrown with the original path attached.
+    /// <para>
+    /// v3.8.5 PATCH L1: switched from eager
+    /// <c>JsonSerializer.Serialize(snapshot)</c> +
+    /// <c>File.WriteAllText(tmp, json)</c> to streaming
+    /// <c>JsonSerializer.Serialize(stream, snapshot, JsonOpts)</c> via
+    /// <c>Utf8JsonWriter</c> on the file stream. The eager path
+    /// allocates the entire JSON envelope on the LOH as a UTF-16
+    /// string before any byte hits disk; a 50MB bundle would peak at
+    /// ≥100MB working-set. The streaming path writes incrementally and
+    /// discards per-iteration buffers as the writer advances, capping
+    /// peak memory at the per-write chunk size (default 4KB). Same
+    /// atomic-write behavior (tmp + rename), same JSON shape (pretty +
+    /// UTF-8 BOM).
+    /// </para>
     /// </summary>
     public void Save(TraceSessionBundleDto snapshot, string? path = null)
     {
@@ -100,8 +114,22 @@ public sealed partial class TraceSessionLibrary
         {
             snapshot.Schema = CurrentSchema;
             snapshot.SavedAt = DateTimeOffset.UtcNow;
-            var json = JsonSerializer.Serialize(snapshot, JsonOpts);
-            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            // v3.8.5 PATCH L1: streaming serialization. Utf8JsonWriter
+            // writes directly into the FileStream in 4KB-ish chunks,
+            // bounded memory regardless of bundle size.
+            using (var fs = new FileStream(
+                tmp,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 4096,
+                useAsync: false))
+            {
+                // UTF-8 BOM matches the prior eager path so existing
+                // tools that detect the bundle via BOM keep working.
+                fs.Write([0xEF, 0xBB, 0xBF], 0, 3);
+                JsonSerializer.Serialize(fs, snapshot, JsonOpts);
+            }
             // Atomic on POSIX (rename) and Windows (MoveFileEx
             // MOVEFILE_REPLACE_EXISTING) — same pattern as SequenceLibrary
             // v2.1.2 PATCH and SendFrameLibrary v1.2.13 PATCH Item 8.

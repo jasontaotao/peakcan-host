@@ -112,6 +112,17 @@ public sealed partial class ReplayService : IReplayService, IDisposable
 
     public async Task LoadAsync(string path, CancellationToken ct = default)
     {
+        // v3.8.5 PATCH H1: defensive reset on entry. Clear `_frames` +
+        // push to the timeline BEFORE the parse attempt so a failed
+        // load (parse exception, file not found, IO error) leaves the
+        // service in a clean "no file loaded" state rather than
+        // silently retaining the prior file's frames. Defense-in-depth
+        // alongside the v3.8.4 H2 `Reset()` call from OpenSessionAsync
+        // -- this LoadAsync-level reset fires automatically without
+        // caller cooperation.
+        _frames = Array.Empty<ReplayFrame>();
+        _timeline.SetFrames(_frames);
+
         // v1.4.0 MINOR Replay: open file → parse → set frames.
         // ParseExceptions propagate; FileNotFound/IO wrap into ReplayLoadException.
         try

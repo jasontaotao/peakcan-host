@@ -214,4 +214,85 @@ public sealed class TraceSessionLibraryTests
         fileInfo.Length.Should().BeLessThan(10_000,
             "bundle must not embed the recording — typical .asc is 10MB-1GB");
     }
+
+    // ---------- v3.8.5 PATCH L1: streaming serialization ----------
+
+    /// <summary>
+    /// v3.8.5 PATCH L1: <see cref="TraceSessionLibrary.Save"/> must use
+    /// streaming serialization (Utf8JsonWriter on the FileStream) instead
+    /// of eagerly serializing to a UTF-16 string with
+    /// <c>JsonSerializer.Serialize(snapshot)</c> + <c>File.WriteAllText</c>.
+    /// The eager path allocates the entire JSON envelope on the LOH
+    /// before any byte hits disk; a 50MB bundle would peak at ≥100MB
+    /// working-set (UTF-16 string overhead) — visible on low-RAM CI
+    /// runners and small-VM machines. The streaming path writes
+    /// incrementally and discards per-iteration buffers as the writer
+    /// advances, capping peak memory at the per-write chunk size
+    /// (default 4KB).
+    /// <para>
+    /// Round-trip equivalence: the resulting bundle file must deserialize
+    /// back into a DTO with all fields populated identically. Same
+    /// atomic-write behavior (tmp + rename), same JSON shape (pretty +
+    /// UTF-8 BOM).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Save_LargeBundle_StreamingSerialization_RoundTripsThroughLoad()
+    {
+        var lib = NewLib(out var path);
+        // 200 sources + 1000 playback bookmarks + 100 viewports —
+        // exercise the streaming path with a payload large enough to
+        // trip the LOH if the eager path regresses.
+        var sources = Enumerable.Range(0, 200).Select(i => new BundleSourceDto
+        {
+            SourceId = Guid.NewGuid().ToString("N"),
+            DisplayName = $"trace{i}",
+            Path = $@"C:/recordings/trace{i}.asc",
+            ContentHash = new string('a', 64),  // synthetic 64-char SHA-256 hex
+        }).ToList();
+
+        var bookmarks = Enumerable.Range(0, 1000).Select(i => new BookmarkDto(
+            $"b{i}", i * 0.05, $"bookmark-{i}")).ToList();
+
+        var viewports = Enumerable.Range(0, 100).Select(i => new BundleViewportDto
+        {
+            EffectiveKey = $"v{i}.0x100.SignalName",
+            XMin = 0.0,
+            XMax = 60.0,
+            IsFocused = false,
+            IsCollapsed = false,
+        }).ToList();
+
+        var snapshot = new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            SavedAt = DateTimeOffset.UtcNow,
+            AppVersion = "3.8.5",
+            DbcPath = "C:/projects/vehicle.dbc",
+            GlobalCanIdFilter = "0x100, 0x200, 0x300",
+            Sources = sources,
+            Viewports = viewports,
+            Playback = new BundlePlaybackDto
+            {
+                Loop = true,
+                Speed = 2.0,
+                ScrubberValue = 12.345,
+                Bookmarks = bookmarks,
+            },
+        };
+
+        lib.Save(snapshot);
+        var loaded = lib.Load(path);
+
+        loaded.Should().NotBeNull("streaming serialization must produce a loadable bundle");
+        loaded!.Sources.Should().HaveCount(200, "all sources must survive streaming round-trip");
+        loaded.Playback!.Bookmarks.Should().HaveCount(1000,
+            "all bookmarks must survive streaming round-trip");
+        loaded.Viewports.Should().HaveCount(100, "all viewports must survive streaming round-trip");
+        loaded.Playback.Bookmarks[500].Id.Should().Be("b500",
+            "specific bookmark identity must round-trip (catches field-name typos in streaming path)");
+        loaded.Sources[100].ContentHash.Should().Be(new string('a', 64),
+            "long ContentHash fields must survive streaming round-trip verbatim");
+    }
 }
