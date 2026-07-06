@@ -12,6 +12,7 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
+using PeakCan.Host.App.Tests.Services.Trace;  // v3.7.2 PATCH: InMemoryPrefsStore
 using SerilogLogger = Serilog.ILogger;
 using SerilogNullLogger = Serilog.Core.Logger;
 
@@ -159,7 +160,7 @@ public class AppLifecycleShutdownTests : IDisposable
         var vm = new TraceViewerViewModel(
             registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null);
         var provider = new RecordingTraceVmProvider(vm);
-        var prefs = Substitute.For<IAutoSavePrefsStore>();
+        var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
         return (new TraceSessionAutoSaver(
             provider, library, prefs, prompt,
@@ -176,7 +177,7 @@ public class AppLifecycleShutdownTests : IDisposable
     private (ReplaySessionAutoSaver Saver, RecordingReplayVmProvider Provider) MakeReplaySaver(string path)
     {
         var library = new TraceSessionLibrary(path, NullLogger<TraceSessionLibrary>.Instance);
-        var prefs = Substitute.For<IAutoSavePrefsStore>();
+        var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
         var vm = new ReplayViewModel(
             Substitute.For<IReplayService>(),
@@ -388,7 +389,7 @@ public class AppLifecycleShutdownTests : IDisposable
         var badReplaySaver = new ReplaySessionAutoSaver(
             badReplayProvider,
             new TraceSessionLibrary(replayPath, NullLogger<TraceSessionLibrary>.Instance),
-            Substitute.For<IAutoSavePrefsStore>(),
+            new InMemoryPrefsStore(),
             Substitute.For<IMessageBoxPrompt>(),
             NullLogger<ReplaySessionAutoSaver>.Instance,
             replayPath);
