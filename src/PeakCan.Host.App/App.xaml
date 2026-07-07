@@ -16,7 +16,8 @@
         <!-- v3.2.0 MINOR: Trace Viewer legend strip + chart subplots. -->
         <conv:BooleanToVisibilityConverter x:Key="BoolToVis" />
         <conv:OxyColorToBrushConverter x:Key="OxyColorToBrush" />
-        <!-- v3.3.0 MINOR: per-source master radio in Trace Viewer legend strip. -->
-        <conv:MasterRadioConverter x:Key="MasterRadio" />
+        <!-- v3.11.6 PATCH: per-source master-radio resource removed; the
+             legend-strip XAML now uses MultiBinding + the singleton
+             SourceIdEqualsMasterConverter instead. -->
     </Application.Resources>
 </Application>
