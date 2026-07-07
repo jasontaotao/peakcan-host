@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -70,6 +69,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // DI wires the real SHA-256 hasher + file-system locator.
     private readonly IAscContentHasher _hasher;
     private readonly IAscLocator _locator;
+    // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic. Trace +
+    // Replay VMs delegate the scalar envelope to this helper; the
+    // Trace VM still iterates Sources itself (N sources, per-source
+    // color + stroke style + filter) but uses the builder for the
+    // version / schema / savedAt / appVersion envelope.
+    private readonly TraceSessionSnapshotBuilder _builder;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -145,7 +150,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         TraceSessionLibrary sessionLibrary,
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
-        IAscLocator? locator = null)
+        IAscLocator? locator = null,
+        TraceSessionSnapshotBuilder? builder = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
@@ -158,6 +164,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // exercise hash-based relocation inject real or fake instances.
         _hasher = hasher ?? NullAscContentHasher.Instance;
         _locator = locator ?? NullAscLocator.Instance;
+        // v3.11.0 MINOR T2 (H7): default to a builder wrapping the same
+        // hasher so existing test ctor calls (no builder arg) keep
+        // compiling. Production DI wires a singleton builder; the
+        // default keeps unit-test hermeticity — no DI container required.
+        _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
@@ -433,33 +444,53 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <c>public</c> so <see cref="TraceSessionAutoSaver"/> can snapshot
     /// the live VM during <c>App.OnExit</c>. Behavior unchanged.
     /// </para>
+    /// <para>
+    /// v3.11.0 MINOR T2 (H7): the scalar envelope (Version / Schema /
+    /// SavedAt / AppVersion / DbcPath / GlobalCanIdFilter) now lives in
+    /// <see cref="TraceSessionSnapshotBuilder"/>. This method is the
+    /// thin sync shim over <see cref="BuildSnapshotAsync"/>; new
+    /// callers should prefer the async form. Per-source iteration +
+    /// per-source hashing still lives here (N sources + per-source
+    /// color / stroke style / filter).
+    /// </para>
     /// </summary>
-    public TraceSessionBundleDto BuildSnapshot()
+    public TraceSessionBundleDto BuildSnapshot() =>
+        BuildSnapshotAsync().GetAwaiter().GetResult();
+
+    /// <summary>
+    /// v3.11.0 MINOR T2 (H7): async BuildSnapshot entry point. Same
+    /// shape as <see cref="BuildSnapshot"/> but awaits the shared
+    /// builder's scalar envelope assembly. CT propagates to each
+    /// per-source hasher call.
+    /// </summary>
+    public async Task<TraceSessionBundleDto> BuildSnapshotAsync(CancellationToken ct = default)
     {
-        var dto = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = GetAppVersion(),
-            DbcPath = LoadedDbcPath ?? "",
-            GlobalCanIdFilter = CanIdFilter ?? "",
-        };
+        var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
+            LoadedFilePath: null,    // Trace iterates N sources — the builder's single-source path is unused
+            CurrentTimestamp: ScrubberValue,
+            Speed: Speed,
+            Loop: Loop,
+            StartTimestamp: 0.0,
+            EndTimestamp: 0.0,
+            CanIdFilterText: CanIdFilter ?? "",
+            DbcPath: LoadedDbcPath ?? "");
+        var dto = await _builder.BuildAsync(scaffold, ct).ConfigureAwait(true);
+
+        // Per-source assembly stays on the VM: N sources, per-source
+        // color + stroke style + filter, plus N per-source hashes
+        // (the builder's single-source pre-population is overwritten).
         dto.Sources = new List<BundleSourceDto>(Sources.Count);
         foreach (var src in Sources)
         {
             // v3.6.4 PATCH: populate contentHash when the source's
             // .asc still exists on disk so the bundle can later be
-            // relocated via the SHA-256 lookup. Hashing is synchronous
-            // here because BuildSnapshot is invoked from a
-            // Task.Run-wrapped save (SaveSessionAsync wraps the call);
-            // we await it inline below.
+            // relocated via the SHA-256 lookup.
             var hash = "";
             if (!string.IsNullOrEmpty(src.Path) && File.Exists(src.Path))
             {
                 try
                 {
-                    hash = _hasher.ComputeAsync(src.Path).GetAwaiter().GetResult();
+                    hash = await _hasher.ComputeAsync(src.Path, ct).ConfigureAwait(true);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
@@ -1054,23 +1085,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return (id & IdeBit) == 0
             ? $"0x{id:X3}"
             : $"0x{id:X8}";
-    }
-
-    /// <summary>
-    /// v3.6.0 MINOR T1.A: read version from assembly metadata instead of
-    /// a hardcoded string. Mirrors the
-    /// <see cref="AppShellViewModel.WindowTitle"/> pattern. Strip a
-    /// trailing "+git&lt;sha&gt;" suffix that LocalBuilder adds so the
-    /// bundle round-trips cleanly across builds.
-    /// </summary>
-    private static string GetAppVersion()
-    {
-        var info = typeof(App).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (string.IsNullOrEmpty(info)) return "0.0.0";
-        var plus = info.IndexOf('+');
-        return plus > 0 ? info[..plus] : info;
     }
 
     /// <summary>

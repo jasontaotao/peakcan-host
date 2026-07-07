@@ -420,6 +420,12 @@ public class AppHostBuilder
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
         // OpenSessionAsync commands.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
+        // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic for Trace +
+        // Replay VMs. Both VMs delegate the scalar envelope + content-hash
+        // computation to this helper; VM-specific Sources / Playback /
+        // Viewports stay on the caller. Singleton because it owns no
+        // state (only a hasher reference + a logger).
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionSnapshotBuilder>();
         // v3.6.4 PATCH: hash-based .asc relocation. IAscContentHasher
         // computes SHA-256 of an .asc's contents (stored alongside the
         // path in the bundle); IAscLocator walks user-known directories
