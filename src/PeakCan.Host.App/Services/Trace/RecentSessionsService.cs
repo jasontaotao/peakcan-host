@@ -82,13 +82,8 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
     private readonly ILogger<RecentSessionsService> _logger;
     private readonly List<RecentSessionDto> _items = new();
 
-    /// <summary>The on-disk JSON file. Defaults to
-    /// <c>%APPDATA%/PeakCan.Host/recent-sessions.json</c>; tests inject
-    /// a per-test temp path.</summary>
-    public string RecentSessionsPath => _path;
-
     /// <summary>The current MRU list, most-recent first. Updated after
-    /// each <see cref="Add"/>/<see cref="Remove"/>/<see cref="Clear"/>
+    /// each <see cref="Add"/>/<see cref="Clear"/>
     /// call and after a successful <see cref="LoadAsync"/>.</summary>
     public IReadOnlyList<RecentSessionDto> Recent => _items;
 
@@ -153,20 +148,6 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
         {
             _items.RemoveRange(MaxEntries, _items.Count - MaxEntries);
         }
-        Persist();
-        Raise();
-    }
-
-    /// <summary>
-    /// Drop <paramref name="path"/> from the MRU. Case-insensitive exact
-    /// match. No-op if the path is not present. Persists and raises.
-    /// </summary>
-    public void Remove(string path)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        var removed = _items.RemoveAll(e =>
-            string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (removed == 0) return;
         Persist();
         Raise();
     }

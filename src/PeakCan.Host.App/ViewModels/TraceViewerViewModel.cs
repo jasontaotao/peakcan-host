@@ -208,6 +208,23 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             ErrorMessage = ex.Message;
             StatusMessage = "Load failed";
         }
+        // v3.9.2 PATCH H10: defensive fallback catch. AddTraceAsync is
+        // invoked through an async-void command (the source-gen
+        // AddTraceCommand), so any exception that escapes the typed
+        // arms above would propagate to WPF DispatcherUnhandledException,
+        // where App.xaml.cs:332 deliberately does NOT mark Handled —
+        // resulting in process termination. TraceViewerService.LoadAsync
+        // already wraps nearly every I/O failure in ReplayLoadException,
+        // but a registry hook (e.g. SourcesChanged listener throwing)
+        // or an unexpected exception in ApplyAutoSnapshotAsync could
+        // still escape. Log + ErrorMessage + StatusMessage keeps the
+        // user in control instead of killing the app.
+        catch (Exception ex)
+        {
+            LogLoadFailed(_logger, ex, path);
+            ErrorMessage = $"Unexpected error: {ex.Message}";
+            StatusMessage = "Load failed";
+        }
         finally
         {
             IsLoading = false;
@@ -223,15 +240,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     {
         await _registry.UnloadAsync(sourceId).ConfigureAwait(true);
     }
-
-    /// <summary>
-    /// v3.2.0 MINOR: read-only proxy for the legacy v3.0
-    /// <c>OpenFileAsync</c> command name. Calls <see cref="AddTraceAsync"/>
-    /// internally — for a single-source session the effect is identical to
-    /// v3.0.0 (one ASC loaded).
-    /// </summary>
-    [RelayCommand]
-    public Task OpenFileAsync(string path) => AddTraceAsync(path);
 
     /// <summary>
     /// v3.9.1 PATCH Bug #2: <c>CanExecute</c> predicate for
@@ -285,12 +293,24 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
     private static partial void LogRelocated(ILogger logger, string oldPath, string newPath);
 
+    // v3.9.2 PATCH L1: source-gen'd log helper for the bundle DBC load
+    // fallback catch (was bare catch { } before).
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle DBC load failed for {Path}")]
+    private static partial void LogBundleDbcLoadFailed(ILogger logger, string path, Exception ex);
+
     /// <summary>
     /// Load a DBC into <see cref="DbcService"/>. Updates
     /// <see cref="LoadedDbcPath"/>; <see cref="RebuildSignalsAsync"/>
     /// picks up the new document on next signal rebuild.
+    /// <para>
+    /// v3.9.2 PATCH H2: was <c>[RelayCommand]</c>-attributed but XAML
+    /// wires <c>Click="OnLoadDbcClick"</c> (calls method directly) —
+    /// the source-gen <c>LoadDbcCommand</c> property had no consumer.
+    /// Method stays as a public API (consumed by code-behind + 11
+    /// tests + chart/filter test classes); the RelayCommand wrapper
+    /// is dropped.
+    /// </para>
     /// </summary>
-    [RelayCommand]
     public async Task LoadDbcAsync(string path)
     {
         await _dbcService.LoadAsync(path).ConfigureAwait(true);
@@ -565,7 +585,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrEmpty(dto.DbcPath) && File.Exists(dto.DbcPath))
         {
             try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(true); }
-            catch { /* swallow — bundle stores path-reference only */ }
+            catch (FileNotFoundException) { /* bundle references a deleted DBC — acceptable */ }
+            catch (Exception ex)
+            {
+                // v3.9.2 PATCH L1: was a bare catch{ } swallowing all failures.
+                // Log the DBC load failure so the operator can diagnose a
+                // malformed-vendor-DBC without losing visibility. StatusMessage
+                // surfaces it on the toolbar; the source still loads (the
+                // bundle is path-reference only, so a missing/bad DBC is
+                // not fatal — the user can reload manually).
+                LogBundleDbcLoadFailed(_logger, dto.DbcPath, ex);
+                StatusMessage = $"DBC load failed: {ex.Message}";
+            }
             LoadedDbcPath = dto.DbcPath;
         }
         else

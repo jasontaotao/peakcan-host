@@ -186,11 +186,13 @@ public class TraceViewerViewModelTests
     }
 
     [Fact]
-    public async Task OpenFileAsync_InvokesServiceLoadAsync()
+    public async Task AddTraceAsync_InvokesServiceLoadAsync()
     {
+        // v3.9.2 PATCH H2: OpenFileAsync (legacy v3.0 alias) was deleted;
+        // these tests now exercise the canonical AddTraceAsync directly.
         var svc = MakeFakeRegistry();
         var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.OpenFileAsync("C:/fake.asc");
+        await sut.AddTraceAsync("C:/fake.asc");
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
 
@@ -252,7 +254,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.OpenFileAsync("C:/fake.asc");
+        await sut.AddTraceAsync("C:/fake.asc");
 
         sut.Signals.Should().BeEmpty();
     }
@@ -328,7 +330,7 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.OpenFileAsync("C:/fake.asc");
+        await sut.AddTraceAsync("C:/fake.asc");
 
         sut.Signals.Should().BeEmpty();
     }
@@ -1391,5 +1393,31 @@ public class TraceViewerViewModelTests
         sut.IsLoading = true;
         sut.AddTraceCommand.CanExecute(null).Should().BeFalse(
             "v3.9.1 PATCH: AddTraceCommand must be disabled during load — toolbar button greys out");
+    }
+
+    /// <summary>
+    /// v3.9.2 PATCH H10: AddTraceAsync must catch non-Replay/non-OCE
+    /// exceptions and surface them via ErrorMessage + StatusMessage.
+    /// Without this fallback, an unexpected exception would escape the
+    /// async-void command, hit WPF DispatcherUnhandledException, and
+    /// terminate the process (App.xaml.cs:332 "do not mark Handled").
+    /// </summary>
+    [Fact]
+    public async Task AddTraceAsync_RegistryThrowsUnexpectedException_SetsErrorMessageAndClearsIsLoading()
+    {
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        // NSubstitute cannot configure a Task-returning method to throw
+        // synchronously via Returns(...). Use When().Do() to throw inside
+        // the awaited call so the async machinery sees the exception.
+        registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async _ => throw new InvalidOperationException("registry hook blew up"));
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        await sut.AddTraceAsync("C:/whatever.asc");
+
+        sut.ErrorMessage.Should().Contain("Unexpected error").And.Contain("registry hook blew up");
+        sut.StatusMessage.Should().Be("Load failed");
+        sut.IsLoading.Should().BeFalse(
+            "v3.9.2 PATCH H10: IsLoading must reset to false on the fallback catch arm");
     }
 }

@@ -522,6 +522,11 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         _openMultiFrameWindow = new MultiFrameSendWindow(_multiFrameVm);
         if (Application.Current?.MainWindow is { } owner && owner != _openMultiFrameWindow)
             _openMultiFrameWindow.Owner = owner;
+        // v3.9.2 PATCH L3: mirror the v3.9.1 PATCH B1 fix
+        // (AppShellViewModel._traceViewerView.Closed reset) so the next
+        // OpenMultiFrameSend click takes the fresh-window path instead
+        // of stomp-and-leak on a closed instance.
+        _openMultiFrameWindow.Closed += (_, _) => _openMultiFrameWindow = null;
         _openMultiFrameWindow.Show();
         Status = "Multi-frame send window opened";
     }

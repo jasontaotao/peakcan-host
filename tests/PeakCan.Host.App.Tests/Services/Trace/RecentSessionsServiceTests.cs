@@ -113,27 +113,6 @@ public sealed class RecentSessionsServiceTests : IDisposable
     }
 
     [Fact]
-    public void Remove_DropsPath_AndPreservesOrderOfRest()
-    {
-        // Arrange
-        var path = NewRecentPath();
-        var svc = NewService(path);
-        svc.Add(@"C:\a\b1.tmtrace");
-        svc.Add(@"C:\a\b2.tmtrace");
-        svc.Add(@"C:\a\b3.tmtrace");
-        // Order: [b3, b2, b1]
-
-        // Act — case-insensitive match: lowercase the middle path and
-        // confirm the service treats it as the same entry.
-        svc.Remove(@"c:\a\B2.tmtrace");
-
-        // Assert
-        svc.Recent.Should().HaveCount(2);
-        svc.Recent[0].Path.Should().Be(@"C:\a\b3.tmtrace");
-        svc.Recent[1].Path.Should().Be(@"C:\a\b1.tmtrace");
-    }
-
-    [Fact]
     public void Clear_EmptiesList_AndEmptiesFile()
     {
         // Arrange

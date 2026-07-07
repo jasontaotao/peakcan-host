@@ -243,6 +243,37 @@ public class ReplayViewModelTests : IDisposable
         _sut.Speed.Should().Be(1.0);
     }
 
+    /// <summary>
+    /// v3.9.2 PATCH H1: <c>LoopRewound</c> event from
+    /// <see cref="IReplayService"/> surfaces as a transient
+    /// <see cref="ReplayViewModel.StatusMessage"/> update. Test path:
+    /// no <see cref="System.Threading.SynchronizationContext"/> captured,
+    /// so the handler runs synchronously and the test asserts on the
+    /// state immediately.
+    /// </summary>
+    [Fact]
+    public void LoopRewound_RaisesServiceEvent_SetsStatusMessage()
+    {
+        _sut.StatusMessage = "Loading…";
+
+        _service.LoopRewound += Raise.Event<EventHandler<LoopRegionRewoundEventArgs>>(
+            this, new LoopRegionRewoundEventArgs(start: 1.5, end: 3.25));
+
+        _sut.StatusMessage.Should().StartWith("Rewind: loop region")
+            .And.Contain("1.50s").And.Contain("3.25s");
+    }
+
+    /// <summary>
+    /// v3.9.2 PATCH H1: <c>StatusMessage</c> defaults to a sensible
+    /// non-null value so XAML bindings never see a null transient
+    /// (mirrors <c>TraceViewerViewModel.StatusMessage</c>).
+    /// </summary>
+    [Fact]
+    public void StatusMessage_DefaultsTo_Ready()
+    {
+        _sut.StatusMessage.Should().NotBeNullOrWhiteSpace();
+    }
+
     // ---------- v1.5.0 MINOR Task 5: Loop proxy + CanIdFilterText parser ----------
 
     /// <summary>

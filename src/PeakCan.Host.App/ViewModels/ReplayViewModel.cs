@@ -98,6 +98,16 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _errorMessage;
 
+    /// <summary>
+    /// v3.9.2 PATCH H1: bindable transient status string for non-error
+    /// UI feedback. Currently driven by <see cref="IReplayService.LoopRewound"/>
+    /// to surface "Rewind: loop region (start → end)" during A/B loop
+    /// playback (the v3.9.0 MINOR P1 event contract promised this but
+    /// the UI subscriber was never wired up).
+    /// </summary>
+    [ObservableProperty]
+    private string _statusMessage = "Ready";
+
     [ObservableProperty]
     // v3.8.1 PATCH: 5 v3.8.0 commands gate CanExecute on IsLoaded (or on
     // LoopRegions.Count which expands only after IsLoaded=true). This
@@ -304,6 +314,12 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         // Previously no consumer subscribed to this event (Phase 2.5 finding
         // in the v1.4.2 PATCH spec).
         _service.PlaybackEnded += OnPlaybackEnded;
+        // v3.9.2 PATCH H1: subscribe to LoopRewound. The v3.9.0 MINOR P1
+        // contract promised "Rewind: loop region X" status feedback but
+        // no UI consumer was ever wired. Now marshal the (Start, End)
+        // tuple to the captured SynchronizationContext and surface via
+        // StatusMessage so the user sees the rewind.
+        _service.LoopRewound += OnLoopRewound;
         // v1.5.0 MINOR Task 5: seed Loop from the service so the CheckBox
         // reflects the current state at startup (and after a future
         // LoadAsync that may reset it).
@@ -1091,6 +1107,29 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         }
         // Whether the end was normal (EOF) or error, stop playing.
         IsPlaying = false;
+    }
+
+    /// <summary>
+    /// v3.9.2 PATCH H1: handler for
+    /// <see cref="IReplayService.LoopRewound"/>. Surfaced via
+    /// <see cref="StatusMessage"/> so the user sees the rewind happen
+    /// during A/B loop playback. Fired on the timer-callback thread —
+    /// marshal to <see cref="SynchronizationContext"/> like the
+    /// sibling <see cref="OnFrameEmitted"/> / <see cref="OnPlaybackEnded"/>
+    /// handlers.
+    /// </summary>
+    private void OnLoopRewound(object? sender, LoopRegionRewoundEventArgs e)
+    {
+        if (_syncContext is not null)
+        {
+            _syncContext.Post(_ => StatusMessage = $"Rewind: loop region ({e.Start:F2}s → {e.End:F2}s)", null);
+        }
+        else
+        {
+            // Test path: no SynchronizationContext. Direct call is safe
+            // because tests assert on the state immediately after the event.
+            StatusMessage = $"Rewind: loop region ({e.Start:F2}s → {e.End:F2}s)";
+        }
     }
 
     /// <summary>
