@@ -106,20 +106,23 @@
                         <Border Background="White" BorderBrush="#CCC" BorderThickness="1"
                                 CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
                             <StackPanel Orientation="Horizontal">
-                                <!-- v3.11.6 PATCH: replaced the
-                                     ConverterParameter-nested-Binding pattern
-                                     (caused MarkupExtensionDynamicOrBindingOnClrProp
-                                     XamlParseException after first .asc load).
-                                     Now uses a MultiBinding + IMultiValueConverter
-                                     (SourceIdEqualsMasterConverter) which is the
-                                     standard WPF idiom for "is this row's value
-                                     equal to the parent's current selection?". -->
+                                <!-- v3.11.7 PATCH: v3.11.6 PATCH shipped a MultiBinding
+                                     with ConvertBack that threw NotSupportedException.
+                                     RadioButton.IsChecked is a TwoWay DP by default,
+                                     so WPF invoked ConvertBack during the initial
+                                     Activate() path; the throw bubbled up through
+                                     PropertyPathWorker.CheckReadOnly → MultiBindingExpression.
+                                     AttachBindingExpression and surfaced as XamlParseException
+                                     AFTER the first asc load (when the per-source legend
+                                     DataTemplate materialized). Fix: set Mode="OneWay" on
+                                     the MultiBinding so WPF never calls ConvertBack. -->
                                 <RadioButton GroupName="MasterGroup" Margin="0,0,6,0" VerticalAlignment="Center"
                                              Command="{Binding DataContext.SetMasterCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                              CommandParameter="{Binding SourceId}"
                                              ToolTip="Make this the master (clock source)">
                                     <RadioButton.IsChecked>
-                                        <MultiBinding Converter="{x:Static conv:SourceIdEqualsMasterConverter.Instance}">
+                                        <MultiBinding Converter="{x:Static conv:SourceIdEqualsMasterConverter.Instance}"
+                                                      Mode="OneWay">
                                             <Binding Path="SourceId"/>
                                             <Binding Path="DataContext.MasterSourceId"
                                                      RelativeSource="{RelativeSource AncestorType=Window}"/>
