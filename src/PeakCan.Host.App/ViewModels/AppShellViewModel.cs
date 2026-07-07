@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Views;
@@ -505,14 +506,17 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand]
     private void ShowTrace()
     {
-        if (_traceView == null)
-        {
-            _traceView = new TraceView { DataContext = _traceViewModel };
-            // First-show sets the default tab so the very first render
-            // after VM construction lands on the trace grid.
-            if (CurrentView == null) CurrentView = _traceView;
-        }
-        CurrentView = _traceView;
+        // v3.11.1 PATCH M3: extract the lazy-view-create / cache-resume
+        // pattern into ViewSwitcher.Show. The original inline body
+        // (4 lines including the first-show default-tab comment) is now
+        // a single helper call. Show preserves the DataContext bind +
+        // first-show CurrentView=null fallback behaviour (helper just
+        // calls setCurrent).
+        ViewSwitcher.Show(
+            factory: () => new TraceView { DataContext = _traceViewModel },
+            cache: ref _traceView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowTrace));
     }
 
     [RelayCommand]
@@ -521,112 +525,118 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand]
     private void ShowSend()
     {
-        if (_sendView == null)
-        {
-            _sendView = new SendView { DataContext = _sendViewModel };
-            if (CurrentView == null) CurrentView = _sendView;
-        }
-        CurrentView = _sendView;
+        // v3.11.1 PATCH M3: see ShowTrace — same ViewSwitcher extraction.
+        ViewSwitcher.Show(
+            factory: () => new SendView { DataContext = _sendViewModel },
+            cache: ref _sendView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowSend));
     }
 
     [RelayCommand]
     private void ShowSignals()
     {
-        // Task 16: Signal tab (DBC-decoded live signals). Mirrors
-        // ShowSend: lazily create the view on first Show so the shell
-        // ctor stays STA-free; reuse the same instance thereafter so
-        // DataGrid virtualization state survives menu round-trips.
-        if (_signalView == null)
-        {
-            _signalView = new SignalView { DataContext = _signalViewModel };
-            if (CurrentView == null) CurrentView = _signalView;
-        }
-        CurrentView = _signalView;
+        // Task 16: Signal tab (DBC-decoded live signals). v3.11.1 PATCH M3:
+        // extracted into ViewSwitcher — same lazy-create / cache-resume
+        // behaviour, DataContext bind at first-show, DataGrid
+        // virtualization state preserved across menu round-trips.
+        ViewSwitcher.Show(
+            factory: () => new SignalView { DataContext = _signalViewModel },
+            cache: ref _signalView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowSignals));
     }
 
     [RelayCommand]
     private void ShowStats()
     {
-        // Task 17: Stats tab (1 Hz OxyPlot charts). Same lazy-view
-        // pattern as ShowSignals / ShowSend. The StatsView hosts an
-        // OxyPlot.PlotView bound to StatsViewModel.PlotModel; the
-        // StatisticsService pushes snapshots at 1 Hz on its own thread
-        // and the VM marshals to the UI dispatcher.
-        if (_statsView == null)
-        {
-            _statsView = new StatsView { DataContext = _statsViewModel };
-            if (CurrentView == null) CurrentView = _statsView;
-        }
-        CurrentView = _statsView;
+        // Task 17: Stats tab (1 Hz OxyPlot charts). v3.11.1 PATCH M3:
+        // extracted into ViewSwitcher — same lazy-create / cache-resume
+        // behaviour. The StatsView hosts an OxyPlot.PlotView bound to
+        // StatsViewModel.PlotModel; the StatisticsService pushes snapshots
+        // at 1 Hz on its own thread and the VM marshals to the UI
+        // dispatcher.
+        ViewSwitcher.Show(
+            factory: () => new StatsView { DataContext = _statsViewModel },
+            cache: ref _statsView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowStats));
     }
 
     [RelayCommand]
     private void ShowScript()
     {
-        // v1.0.0: Script tab (JavaScript automation). Same lazy-view
-        // pattern as ShowStats / ShowSignals. The ScriptView hosts a
-        // WebView2 with CodeMirror 6 editor and an output panel.
-        if (_scriptView == null)
-        {
-            _scriptView = new ScriptView { DataContext = _scriptViewModel };
-            if (CurrentView == null) CurrentView = _scriptView;
-        }
-        CurrentView = _scriptView;
+        // v1.0.0: Script tab (JavaScript automation). v3.11.1 PATCH M3:
+        // extracted into ViewSwitcher. The ScriptView hosts a WebView2
+        // with CodeMirror 6 editor and an output panel.
+        ViewSwitcher.Show(
+            factory: () => new ScriptView { DataContext = _scriptViewModel },
+            cache: ref _scriptView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowScript));
     }
 
     [RelayCommand]
     private void ShowUds()
     {
-        // v1.1.0: UDS diagnostic tab. Same lazy-view pattern.
-        if (_udsView == null)
-        {
-            _udsView = new UdsView { DataContext = _udsViewModel };
-            if (CurrentView == null) CurrentView = _udsView;
-        }
-        CurrentView = _udsView;
+        // v1.1.0: UDS diagnostic tab. v3.11.1 PATCH M3: extracted into
+        // ViewSwitcher. Same lazy-create / cache-resume pattern as the
+        // other tabs.
+        ViewSwitcher.Show(
+            factory: () => new UdsView { DataContext = _udsViewModel },
+            cache: ref _udsView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowUds));
     }
 
     [RelayCommand]
     private void ShowRecord()
     {
-        // v1.2.11 PATCH Item 6: Recording tab. Same lazy-view pattern
-        // as the other tabs — view is constructed on first Show so the
-        // shell ctor stays STA-free.
-        if (_recordView == null)
-        {
-            _recordView = new RecordView { DataContext = _recordViewModel };
-            if (CurrentView == null) CurrentView = _recordView;
-        }
-        CurrentView = _recordView;
+        // v1.2.11 PATCH Item 6: Recording tab. v3.11.1 PATCH M3:
+        // extracted into ViewSwitcher — view is constructed on first Show
+        // so the shell ctor stays STA-free.
+        ViewSwitcher.Show(
+            factory: () => new RecordView { DataContext = _recordViewModel },
+            cache: ref _recordView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowRecord));
     }
 
     [RelayCommand]
     private void ShowReplay()
     {
-        // v2.1.4 PATCH: Replay tab. Same lazy-view pattern as ShowRecord.
-        // Closes the v1.4.0 MINOR orphan — the tab was fully built
-        // (ReplayView + ReplayViewModel + IReplayService + tests) but
-        // AppShell had no ShowReplayCommand and AppHostBuilder had no
-        // ReplayViewModel DI registration, so the tab was unreachable.
-        if (_replayView == null)
-        {
-            _replayView = new ReplayView { DataContext = _replayViewModel };
-            if (CurrentView == null) CurrentView = _replayView;
-        }
-        CurrentView = _replayView;
+        // v2.1.4 PATCH: Replay tab (closes the v1.4.0 MINOR orphan).
+        // v3.11.1 PATCH M3: extracted into ViewSwitcher. The tab was
+        // fully built (ReplayView + ReplayViewModel + IReplayService +
+        // tests) but AppShell had no ShowReplayCommand and AppHostBuilder
+        // had no ReplayViewModel DI registration, so the tab was
+        // unreachable. ViewSwitcher.Show preserves the same lazy-create
+        // + cache-resume behaviour.
+        ViewSwitcher.Show(
+            factory: () => new ReplayView { DataContext = _replayViewModel },
+            cache: ref _replayView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowReplay));
     }
 
     [RelayCommand]
     private void OpenMultiFrame()
     {
-        // v2.1.7 PATCH: Multi-frame send window from the AppShell View menu.
-        // Closes the v2.1.0 MINOR Pattern A2 orphan — the window + VM were
-        // fully built and SendView held a button to open it, but AppShell
-        // had no menu route. Each menu click opens a fresh window instance
-        // pointing at the shared singleton VM (matches SendViewModel's
-        // lazy-show pattern; if both menus are used, two independent windows
-        // coexist — acceptable for this PATCH; window-state consolidation
-        // is a separate refactor).
+        // v2.1.7 PATCH: Multi-frame send window from the AppShell View
+        // menu. Closes the v2.1.0 MINOR Pattern A2 orphan — the window
+        // + VM were fully built and SendView held a button to open it,
+        // but AppShell had no menu route. Each menu click opens a fresh
+        // window instance pointing at the shared singleton VM (matches
+        // SendViewModel's lazy-show pattern; if both menus are used,
+        // two independent windows coexist — acceptable for this PATCH;
+        // window-state consolidation is a separate refactor).
+        // v3.11.1 PATCH M3 spec notes OpenMultiFrame as one of the 3
+        // secondary-window commands using the ShowWindow path, but the
+        // current behaviour opens a FRESH window on every click (no
+        // cache) — preserving that semantics here means a plain
+        // factory invocation is correct. If a future PATCH wants to
+        // cache the window, swap to ViewSwitcher.ShowWindow with a
+        // nullable cache field (matches the Trace Viewer precedent).
         var win = new MultiFrameSendWindow(_multiFrameSendViewModel);
         if (Application.Current?.MainWindow is { } owner && owner != win)
             win.Owner = owner;
@@ -636,39 +646,41 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand]
     private void ShowTraceViewer()
     {
-        // v3.0 MINOR Task 7: Trace Viewer non-modal window from the AppShell
-        // View menu. Closes the v3.0 Pattern A orphan — TraceViewerView +
-        // TraceViewerViewModel + ITraceViewerService were all built in Tasks
-        // 1-6 but AppShell had no menu route. **No bus writes**: this is a
-        // read-only inspection surface over the loaded ASC + optional DBC.
-        // Reuses the OpenMultiFrame lazy-cached-window pattern (each
-        // menu click re-shows the cached window; closing resets the
-        // reference so the next click opens a fresh window). The window
-        // is non-modal and not owned by AppShell so the user can keep the
-        // ASC open while interacting with the main tabs.
-        if (_traceViewerView == null)
-        {
-            // Build a fresh window with the shared singleton VM. VM
-            // survives the window (independent lifetime), so re-opening
-            // a closed window preserves the loaded ASC + signal list +
-            // chart scrubber position only as long as the underlying
-            // VM is the same instance — which it is, by ctor injection
-            // (registered singleton in AppHostBuilder).
-            _traceViewerView = new TraceViewerView(_traceViewerViewModel);
-            // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
-            // main window cascade-closes the Trace Viewer. Without
-            // Owner, Trace Viewer is an owner-less top-level Window;
-            // WPF's default ShutdownMode=OnLastWindowClose keeps the
-            // dispatcher running while Trace Viewer is visible, so the
-            // user sees Trace Viewer survive AppShell close. Mirrors
-            // OpenMultiFrame (line 606-609) and SendViewModel's
-            // OpenMultiFrameSend (SendViewModel.cs:522-525) — both
-            // already set Owner. Application.Current.MainWindow is
-            // assigned to AppShell in App.OnStartup.
-            if (Application.Current?.MainWindow is { } owner && owner != _traceViewerView)
-                _traceViewerView.Owner = owner;
-            _traceViewerView.Closed += (_, _) => _traceViewerView = null;
-        }
+        // v3.0 MINOR Task 7: Trace Viewer non-modal window from the
+        // AppShell View menu. Closes the v3.0 Pattern A orphan —
+        // TraceViewerView + TraceViewerViewModel + ITraceViewerService
+        // were all built in Tasks 1-6 but AppShell had no menu route.
+        // **No bus writes**: this is a read-only inspection surface
+        // over the loaded ASC + optional DBC. Reuses the OpenMultiFrame
+        // lazy-cached-window pattern (each menu click re-shows the
+        // cached window; closing resets the reference so the next
+        // click opens a fresh window). The window is non-modal and not
+        // owned by AppShell so the user can keep the ASC open while
+        // interacting with the main tabs.
+        // v3.11.1 PATCH M3: factory + cache lifecycle extracted into
+        // ViewSwitcher.ShowWindow. The helper wires the Closed-reset
+        // automatically (v3.9.1 PATCH B1 pattern) so the explicit
+        // Closed subscription is gone. Owner assignment + Show/Activate
+        // stay here because they need Application.Current.MainWindow,
+        // which only resolves inside App.OnStartup's STA context.
+        ViewSwitcher.ShowWindow(
+            factory: () => new TraceViewerView(_traceViewerViewModel),
+            cache: ref _traceViewerView);
+        if (_traceViewerView is null) return; // defensive — cache cannot be null after ShowWindow
+
+        // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
+        // main window cascade-closes the Trace Viewer. Without
+        // Owner, Trace Viewer is an owner-less top-level Window;
+        // WPF's default ShutdownMode=OnLastWindowClose keeps the
+        // dispatcher running while Trace Viewer is visible, so the
+        // user sees Trace Viewer survive AppShell close. Mirrors
+        // OpenMultiFrame and SendViewModel's OpenMultiFrameSend
+        // (SendViewModel.cs:522-525) — both already set Owner.
+        // Application.Current.MainWindow is assigned to AppShell in
+        // App.OnStartup.
+        if (Application.Current?.MainWindow is { } owner && owner != _traceViewerView)
+            _traceViewerView.Owner = owner;
+
         if (!_traceViewerView.IsVisible)
         {
             _traceViewerView.Show();
