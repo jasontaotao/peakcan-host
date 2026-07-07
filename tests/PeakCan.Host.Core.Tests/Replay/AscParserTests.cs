@@ -390,5 +390,136 @@ base 0x7e0 500k
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             _inner.ReadAsync(buffer, cancellationToken);
     }
+
+    // ===== v3.11.5 PATCH: CANoe Vector ASC v1.3 format support =====
+
+    /// <summary>
+    /// v3.11.5 PATCH Gap #1: Vector convention is hex ID + trailing 'x' for
+    /// extended frames. The parser must strip the 'x' before hex-parsing.
+    /// </summary>
+    [Fact]
+    public async Task Parse_CanoeExtendedFrameId_StripsTrailingX()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  18FF60A2x       Rx   d 8 01 D3 27 DE 36 41 27 00
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        frames.Should().HaveCount(1);
+        frames[0].Id.Should().Be(0x18FF60A2u, "trailing 'x' must be stripped before hex parse");
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0x01, 0xD3, 0x27, 0xDE, 0x36, 0x41, 0x27, 0x00);
+    }
+
+    /// <summary>
+    /// v3.11.5 PATCH Gap #2: Vector convention wraps DLC in 'd N' (classic)
+    /// or 'l N' (CAN FD). The parser must accept both forms and infer
+    /// FrameFlags.Fd from 'l'.
+    /// </summary>
+    [Fact]
+    public async Task Parse_CanoeClassicDlc_DToken()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  d 8  AA BB CC DD EE FF 00 11
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        frames.Should().HaveCount(1);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeFalse("'d' = classic, FrameFlags.Fd must NOT be set");
+    }
+
+    [Fact]
+    public async Task Parse_CanoeFdDlc_LToken_SetsFdFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  l 8  AA BB CC DD EE FF 00 11
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        frames.Should().HaveCount(1);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeTrue("'l' = CAN FD, FrameFlags.Fd MUST be set");
+    }
+
+    /// <summary>
+    /// v3.11.5 PATCH Gap #3: 'Rx' / 'Tx' are direction tokens, not data bytes.
+    /// The parser must classify them as flags (currently silently dropped;
+    /// direction tracking is a future-PATCH concern, not this PATCH).
+    /// </summary>
+    [Fact]
+    public async Task Parse_CanoeRxTx_DirectionToken_NotMalformed()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  Rx  d 8  AA BB CC DD EE FF 00 11
+155564.432900 1  100  Tx  d 8  11 22 33 44 55 66 77 88
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        frames.Should().HaveCount(2, "Rx + Tx direction tokens must not be parsed as data bytes");
+        frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[1].Data.Should().Equal(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
+    }
+
+    /// <summary>
+    /// v3.11.5 PATCH Gap #4: Vector appends 'Length = N BitCount = N ID = Nx'
+    /// after the data bytes. The parser must stop reading data bytes at the
+    /// 'Length' marker and accept the trailing metadata without rejecting
+    /// the line as malformed.
+    /// </summary>
+    [Fact]
+    public async Task Parse_CanoeTrailingMetadata_LengthBitCountId_NotMalformed()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  18FF60A2x       Rx   d 8 01 D3 27 DE 36 41 27 00  Length = 270000 BitCount = 139 ID = 419389602x
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        frames.Should().HaveCount(1);
+        frames[0].Data.Should().Equal(0x01, 0xD3, 0x27, 0xDE, 0x36, 0x41, 0x27, 0x00);
+    }
+
+    /// <summary>
+    /// v3.11.5 PATCH end-to-end: a minimal CANoe-format .asc with all 4
+    /// gaps present in a single line. The fixture matches a slice of the
+    /// user's real Logging.asc file (first ~10 lines of CANoe v13 export).
+    /// </summary>
+    [Fact]
+    public async Task Parse_CanoeFormat_FullLine_All4Gaps_HandlesCleanly()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01.000 am 2026
+base hex  timestamps absolute
+internal events logged
+// version 13.0.0
+Begin TriggerBlock Wed Jul 1 08:32:01.000 am 2026
+   0.000000 Start of measurement
+155564.432800 1  Statistic: D 0 R 0 XD 0 XR 0 E 0 O 0 B 0.00%
+155564.432800 1  18FF60A2x       Rx   d 8 01 D3 27 DE 36 41 27 00  Length = 270000 BitCount = 139 ID = 419389602x
+155564.435600 1  18FECAEFx       Rx   d 8 00 00 00 00 00 00 FF 00  Length = 280000 BitCount = 144 ID = 419351279x
+155564.436100 1  18EF4AEFx       Rx   d 8 00 00 00 00 00 00 00 00  Length = 284000 BitCount = 146 ID = 418335471x
+155564.436700 1  C001024x        Rx   d 8 00 00 00 7D 00 00 00 00  Length = 286000 BitCount = 147 ID = 201330724x
+End TriggerBlock
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+        // The 2 'Statistic:' / 'Start of measurement' lines have < 4 tokens
+        // and will be rejected as malformed; the 4 CANoe data lines must parse.
+        frames.Should().HaveCount(4, "only the 4 real CANoe data lines should parse; header/event lines are skipped or rejected as malformed");
+        frames[0].Id.Should().Be(0x18FF60A2u);
+        frames[1].Id.Should().Be(0x18FECAEFu);
+        frames[2].Id.Should().Be(0x18EF4AEFu);
+        frames[3].Id.Should().Be(0x0C001024u, "C001024x = 0x0C001024 (29-bit ID, padded to 8 hex chars)");
+    }
 }
 
