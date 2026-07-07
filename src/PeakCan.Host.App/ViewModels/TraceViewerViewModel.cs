@@ -855,6 +855,33 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // v3.11.0 MINOR T4 (H8): 145-LoC body split into 3 sub-methods.
+        // Behavior preserved exactly — same filter resolution, same sort,
+        // same chart-series construction, same axes-sync finalization.
+        var byId = BucketFramesByCanId(allowed);
+        var rows = BuildSignalRows(byId, dbc);
+        foreach (var row in rows)
+        {
+            Signals.Add(row);
+        }
+        BuildChartSeries(allowed, dbc);
+
+        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
+        ChartViewModel.SyncYAxes();
+        ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
+    }
+
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): bucket all loaded frames by CAN ID across
+    /// every registered source, applying per-source overrides of the
+    /// global allow-list. Returns a dict from CAN ID → ordered list of
+    /// matching <see cref="ReplayFrame"/>s (insertion order = source
+    /// iteration order, which matches the registry's order). Replaces
+    /// the first half of the original 145-LoC <c>RebuildSignalsCore</c>
+    /// body.
+    /// </summary>
+    private Dictionary<uint, List<ReplayFrame>> BucketFramesByCanId(IReadOnlySet<uint>? globalAllowed)
+    {
         // v3.2.0 MINOR: bucket frames from all loaded sources by CAN ID.
         var byId = new Dictionary<uint, List<ReplayFrame>>();
         foreach (var source in _registry.Sources)
@@ -863,7 +890,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             // per-source → fall through to globalAllowed (inherit). Non-empty
             // → use the per-source parse result exclusively.
             var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
-            var effective = perSourceAllowed ?? allowed;
+            var effective = perSourceAllowed ?? globalAllowed;
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
                 if (effective is not null && !effective.Contains(f.Id)) continue;
@@ -875,7 +902,24 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 list.Add(f);
             }
         }
+        return byId;
+    }
 
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): walk <paramref name="dbc"/>.Messages and
+    /// produce one <see cref="TraceSignalRow"/> per signal for every
+    /// message with at least one matching frame in
+    /// <paramref name="byId"/>. The LatestValue column is decoded from
+    /// the LAST matching frame in each CAN-ID bucket so the column
+    /// reflects the most recent sample (matches the pre-refactor v3.2.0
+    /// semantics). Rows are returned sorted by
+    /// (CanIdHex, SignalName) ordinal order — also matches the
+    /// pre-refactor v3.2.0 sort key.
+    /// </summary>
+    private List<TraceSignalRow> BuildSignalRows(
+        Dictionary<uint, List<ReplayFrame>> byId,
+        DbcDocument dbc)
+    {
         var rows = new List<TraceSignalRow>();
         foreach (var msg in dbc.Messages)
         {
@@ -905,21 +949,33 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             var byId2 = string.CompareOrdinal(a.CanIdHex, b.CanIdHex);
             return byId2 != 0 ? byId2 : string.CompareOrdinal(a.SignalName, b.SignalName);
         });
-        foreach (var row in rows)
-        {
-            Signals.Add(row);
-        }
+        return rows;
+    }
 
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): emit one <see cref="TraceChartSeries"/>
+    /// per (source, message, signal) triple whose per-source bucket
+    /// contains at least one frame. The per-source re-group (a
+    /// per-source bucket dict) is required because the chart's
+    /// <see cref="TraceChartSeries"/> is per-source — the global
+    /// <see cref="BucketFramesByCanId"/> output spans all sources and
+    /// can't be used directly. The per-source filter resolution
+    /// mirrors the bucket loop so behavior is preserved exactly.
+    /// </summary>
+    private void BuildChartSeries(
+        IReadOnlySet<uint>? globalAllowed,
+        DbcDocument dbc)
+    {
         // v3.4.0 MINOR: emit one TraceChartSeries per (source, signal) pair.
-        // Per-source re-group: the byId dict above is global (across sources);
-        // chart series need per-source frames per CAN ID, so re-group here.
-        // Independent of the Signals population loop above — the two loops
-        // share dbc.Messages but read from different frame buckets.
+        // Per-source re-group: chart series need per-source frames per CAN
+        // ID, so re-group from the registry here (independent of the Signals
+        // population loop above — the two loops share dbc.Messages but read
+        // from different frame buckets).
         foreach (var source in _registry.Sources)
         {
             // v3.4.3 PATCH: same per-source resolution as the byId loop above.
             var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
-            var effective = perSourceAllowed ?? allowed;
+            var effective = perSourceAllowed ?? globalAllowed;
             var srcById = new Dictionary<uint, List<ReplayFrame>>();
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
@@ -983,10 +1039,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 }
             }
         }
-
-        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
-        ChartViewModel.SyncYAxes();
-        ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
     }
 
     /// <summary>
