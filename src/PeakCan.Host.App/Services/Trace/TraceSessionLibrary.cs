@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using OxyPlot;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.App.Services.Trace;
 
@@ -30,9 +31,21 @@ public sealed partial class TraceSessionLibrary
     /// </summary>
     public const string CurrentSchema = "tmtrace/v1";
 
+    /// <summary>
+    /// v3.10.0 MINOR T3 (H4): hard cap on .tmtrace file size the
+    /// loader is willing to read+deserialize. Mirrors
+    /// <see cref="RecentSessionsService.MaxLoadFileBytes"/> pattern
+    /// (v3.8.8 PATCH F2). 50 MB is far above any legitimate bundle
+    /// (200 sources + 1000 bookmarks ≈ 200 KB) and gives 250x headroom
+    /// for future growth.
+    /// </summary>
+    public const int MaxLoadFileBytes = 50 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
+        MaxDepth = 64,                                       // v3.10.0 T3 (H4 + L7)
+        ReferenceHandler = ReferenceHandler.IgnoreCycles,   // v3.10.0 T3
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         Converters =
         {
@@ -61,25 +74,53 @@ public sealed partial class TraceSessionLibrary
 
     /// <summary>
     /// Read a bundle from <paramref name="path"/>. Returns <c>null</c> if
-    /// the file is missing or corrupt (logged at Error). Callers should
-    /// show a <c>MessageBox</c> on null returns from non-empty paths so
-    /// users can investigate via the log file.
+    /// the file is missing, oversized, traversal-style, or corrupt
+    /// (logged at Error or Warning). Callers should show a
+    /// <c>MessageBox</c> on null returns from non-empty paths so users
+    /// can investigate via the log file.
     /// </summary>
     public TraceSessionBundleDto? Load(string path)
     {
         if (string.IsNullOrEmpty(path))
             return null;
-        if (!File.Exists(path))
-            return null;
+        // v3.10.0 MINOR T3 (H4): defense-in-depth path validation.
+        // Mirrors TraceViewerService.LoadAsync (v3.9.1) pattern. Reject
+        // relative paths + traversal segments + null bytes at the loader
+        // boundary, keeping the corrupt-recovery contract — never throw.
+        string normalized;
         try
         {
-            var json = File.ReadAllText(path);
+            normalized = PathNormalizer.Normalize(path);
+        }
+        catch (PathNormalizationException ex)
+        {
+            LogCorrupt(_logger, path, ex);
+            return null;
+        }
+        if (!File.Exists(normalized))
+            return null;
+        // v3.10.0 MINOR T3 (H4): oversized-file precheck. Without this
+        // guard, a user who drops a large file at the persisted path
+        // would block the WPF dispatcher for the full File.ReadAllText +
+        // JsonSerializer.Deserialize duration — a 1 GB file risks OOM.
+        // Refuse to deserialize anything beyond MaxLoadFileBytes and
+        // treat as corrupt — same defensive contract as
+        // RecentSessionsService.LoadAsync (v3.8.8 PATCH F2).
+        var info = new FileInfo(normalized);
+        if (info.Length > MaxLoadFileBytes)
+        {
+            LogOversized(_logger, normalized, info.Length, MaxLoadFileBytes);
+            return null;
+        }
+        try
+        {
+            var json = File.ReadAllText(normalized);
             var dto = JsonSerializer.Deserialize<TraceSessionBundleDto>(json, JsonOpts);
             return dto;
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
-            LogCorrupt(_logger, path, ex);
+            LogCorrupt(_logger, normalized, ex);
             return null;
         }
     }
@@ -151,6 +192,10 @@ public sealed partial class TraceSessionLibrary
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Trace session bundle corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
+
+    // v3.10.0 MINOR T3 (H4): oversized-file load rejection.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Trace session bundle exceeds size cap ({Actual} > {Cap} bytes), treating as corrupt: {Path}")]
+    private static partial void LogOversized(ILogger logger, string path, long actual, int cap);
 
     [LoggerMessage(EventId = 9001, Level = LogLevel.Error, Message = "TraceSessionLibrary save to {Path} failed")]
     private static partial void LogSaveFailed(ILogger logger, Exception ex, string path);

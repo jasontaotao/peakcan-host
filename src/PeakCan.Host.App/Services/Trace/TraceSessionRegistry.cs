@@ -15,13 +15,26 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
 {
     private readonly ITracePalette _palette;
     private readonly ILoggerFactory _loggerFactory;
+    // v3.10.0 MINOR T4 (H5): thread ReplayOptions down to each per-load
+    // TraceViewerService so the operator's appsettings.json:Replay:MaxFileSizeBytes
+    // value reaches the parser layer in production. Pre-fix, the 1-arg
+    // TraceViewerService ctor defaulted to ReplayOptions.Default (200 MB)
+    // and the DI-injected ReplayOptions singleton was silently discarded —
+    // the configurability goal in the ReplayOptions XML doc was unmet.
+    private readonly ReplayOptions _options;
 
     private readonly Dictionary<string, Entry> _sources = new(StringComparer.Ordinal);
 
     public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory)
+        : this(palette, loggerFactory, ReplayOptions.Default)
+    {
+    }
+
+    public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory, ReplayOptions options)
     {
         _palette = palette ?? throw new ArgumentNullException(nameof(palette));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     public IReadOnlyList<TraceSource> Sources =>
@@ -41,7 +54,9 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         // 2. Load the ASC into a fresh service instance. If the parse throws,
         //    we propagate without touching the palette (no slot is burned).
         var logger = _loggerFactory.CreateLogger<TraceViewerService>();
-        var service = new TraceViewerService(logger);
+        // v3.10.0 MINOR T4 (H5): pass the configured ReplayOptions so the
+        // parser-layer cap honors the operator's appsettings.json override.
+        var service = new TraceViewerService(logger, _options);
         await service.LoadAsync(path, ct).ConfigureAwait(false);
 
         // 3. Now that the parse succeeded, allocate the palette slot. Past

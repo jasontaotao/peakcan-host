@@ -23,12 +23,36 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
     public const long MaxAscFileBytes = 200L * 1024 * 1024;
 
     private readonly ILogger<TraceViewerService> _logger;
+    private readonly ReplayOptions _options;
     private readonly ReplayTimeline _timeline;
     private IReadOnlyList<ReplayFrame> _frames = Array.Empty<ReplayFrame>();
 
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): 1-arg ctor retained for back-compat with
+    /// existing test harnesses (TraceSessionRegistry, TraceViewerServiceTests)
+    /// that construct via <c>new TraceViewerService(NullLogger&lt;...&gt;.Instance)</c>.
+    /// Defaults <see cref="_options"/> to <see cref="ReplayOptions.Default"/>
+    /// so the legacy code path remains cap-protected at 200 MB.
+    /// </summary>
     public TraceViewerService(ILogger<TraceViewerService> logger)
+        : this(logger, ReplayOptions.Default)
     {
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): 2-arg ctor threads the
+    /// <see cref="ReplayOptions"/> cap down into <see cref="AscParser.ParseAsync"/>
+    /// so the parser-layer cap can be dialed via appsettings.json without a
+    /// recompile. The service-layer precheck
+    /// (<see cref="MaxAscFileBytes"/> = 200 MB) is now duplicated by the
+    /// parser-layer cap for defense-in-depth.
+    /// </summary>
+    public TraceViewerService(ILogger<TraceViewerService> logger, ReplayOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(options);
         _logger = logger;
+        _options = options;
         _timeline = new ReplayTimeline(
             emit: EmitFrame,
             onPlaybackEnded: RaisePlaybackEnded,
@@ -85,7 +109,15 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
                 FileShare.Read,
                 bufferSize: 4096,
                 useAsync: true);
-            _frames = await AscParser.ParseAsync(fs, ct).ConfigureAwait(false);
+            // v3.10.0 MINOR T4 (H5): thread the ReplayOptions cap down to
+            // the parser layer for defense-in-depth. The service-layer
+            // precheck above (FileInfo.Length > MaxAscFileBytes) already
+            // gates the .asc file on disk; the parser-layer cap protects
+            // direct AscParser callers (e.g. tests, future replay
+            // pipelines) and gives AscParser itself an OOM guardrail.
+            // Pass `null` for logger explicitly to disambiguate from the
+            // 2-arg (Stream, CancellationToken) overload.
+            _frames = await AscParser.ParseAsync(fs, _options, null, ct).ConfigureAwait(false);
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)

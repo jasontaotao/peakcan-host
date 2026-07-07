@@ -133,7 +133,10 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     recentTemp),
-                Substitute.For<IFileDialogService>());
+                Substitute.For<IFileDialogService>(),
+                // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+                // (the 2 missing-.asc call sites route through this).
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
     }
 
     /// <summary>
@@ -454,7 +457,10 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
-                Substitute.For<IFileDialogService>());
+                Substitute.For<IFileDialogService>(),
+                // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+                // (the 2 missing-.asc call sites route through this).
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -538,7 +544,10 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
-                Substitute.For<IFileDialogService>());
+                Substitute.For<IFileDialogService>(),
+                // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+                // (the 2 missing-.asc call sites route through this).
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
     }
 
     [Fact]
@@ -665,7 +674,10 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
-                Substitute.For<IFileDialogService>());
+                Substitute.For<IFileDialogService>(),
+                // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+                // (the 2 missing-.asc call sites route through this).
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -950,7 +962,10 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
-                Substitute.For<IFileDialogService>());
+                Substitute.For<IFileDialogService>(),
+                // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+                // (the 2 missing-.asc call sites route through this).
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
 
         // ACT
@@ -1043,6 +1058,9 @@ public class AppShellViewModelTests
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
             Substitute.For<IFileDialogService>(),
+            // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
+            // (the 2 missing-.asc call sites route through this).
+            Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             enumerator,
             writableConfig);
     }

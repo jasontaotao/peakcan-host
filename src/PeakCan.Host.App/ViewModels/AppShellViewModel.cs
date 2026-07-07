@@ -111,6 +111,11 @@ public sealed partial class AppShellViewModel : ObservableObject
     // menu commands can be unit-tested with a fake (no WPF Application
     // needed). Production DI wires the WPF impl.
     private readonly IFileDialogService _fileDialogs;
+    // v3.10.0 MINOR T1 (C1): IMessageBoxPrompt seam so the 2
+    // missing-.asc modals in OpenSessionAsync / OpenRecentSessionAsync
+    // can route through a testable abstraction (no WPF MessageBox.Show
+    // at VM layer). Production DI wires the WPF impl.
+    private readonly IMessageBoxPrompt _messageBoxPrompt;
     // v1.5.0 MINOR: persistence for SelectedChannel (Channel:SelectedHandle).
     private readonly IConfiguration _configuration;
     // v1.5.0 MINOR: persisted handle from ctor, applied on first EnumerateChannels.
@@ -290,6 +295,12 @@ public sealed partial class AppShellViewModel : ObservableObject
         TraceViewerViewModel traceViewerViewModel,
         RecentSessionsService recentSessions,
         IFileDialogService fileDialogs,
+        // v3.10.0 MINOR T1 (C1): required ctor arg so the 2
+        // missing-.asc MessageBox.Show call sites can route through
+        // IMessageBoxPrompt — restoring VM unit testability. DI
+        // always wires the WPF impl; test sites inject
+        // Substitute.For<IMessageBoxPrompt>().
+        IMessageBoxPrompt messageBoxPrompt,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -326,6 +337,12 @@ public sealed partial class AppShellViewModel : ObservableObject
         _recentSessions = recentSessions ?? throw new ArgumentNullException(nameof(recentSessions));
         _recentSessions.PropertyChanged += (_, __) => RefreshRecentEntries();
         _fileDialogs = fileDialogs ?? throw new ArgumentNullException(nameof(fileDialogs));
+        // v3.10.0 MINOR T1 (C1): route the missing-.asc information
+        // modals through the existing IMessageBoxPrompt seam so the
+        // VM remains unit-testable (no WPF MessageBox.Show at VM
+        // layer). The IFileDialogService parameter above follows the
+        // same pattern — both are owner-bound modal abstractions.
+        _messageBoxPrompt = messageBoxPrompt ?? throw new ArgumentNullException(nameof(messageBoxPrompt));
         // v3.6.0 MINOR T3: load the persisted MRU list at startup so
         // the File ▸ Open Recent submenu is populated. Fire-and-forget
         // — the service never throws on load (corrupt → empty list)
@@ -385,11 +402,15 @@ public sealed partial class AppShellViewModel : ObservableObject
             .ConfigureAwait(true);
         if (missing.Count > 0)
         {
-            MessageBox.Show(
-                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+            // v3.10.0 MINOR T1 (C1): route through IMessageBoxPrompt
+            // instead of MessageBox.Show so the VM stays unit-testable.
+            // The WPF impl mirrors the previous OK + Warning image
+            // contract; tests substitute a fake to assert invocation.
+            await _messageBoxPrompt.ShowInformationAsync(
                 "Open Session",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+                Application.Current?.MainWindow)
+                .ConfigureAwait(true);
         }
         _recentSessions.Add(path, "trace");
     }
@@ -432,11 +453,14 @@ public sealed partial class AppShellViewModel : ObservableObject
             .ConfigureAwait(true);
         if (missing.Count > 0)
         {
-            MessageBox.Show(
-                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+            // v3.10.0 MINOR T1 (C1): see OpenSessionAsync — same
+            // IMessageBoxPrompt seam, distinct title so the user
+            // can tell which menu path triggered the warning.
+            await _messageBoxPrompt.ShowInformationAsync(
                 "Open Recent Session",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                $"These .asc files are missing:\n{string.Join("\n", missing)}",
+                Application.Current?.MainWindow)
+                .ConfigureAwait(true);
         }
         _recentSessions.Add(path, "trace");
     }

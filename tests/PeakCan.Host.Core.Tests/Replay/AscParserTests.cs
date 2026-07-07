@@ -292,5 +292,103 @@ base 0x7e0 500k
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
     }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): seekable stream whose Length exceeds the cap
+    /// must throw <see cref="ReplayLoadException"/> from the
+    /// <c>ParseAsync(Stream, ReplayOptions, ...)</c> overload. Pre-check
+    /// uses the cheap <c>FileInfo.Length</c> style stat (no stream walk)
+    /// so a multi-GB ASC never enters the read loop.
+    /// </summary>
+    [Fact]
+    public async Task Parse_OversizeSeekableStream_ThrowsReplayLoadException()
+    {
+        // Arrange — 1 MB stream with a 100 KB cap.
+        var content = new string('A', 1_048_576);
+        using var stream = MakeAscStream(content);
+        var options = new ReplayOptions(MaxFileSizeBytes: 100L * 1024);
+
+        // Act + Assert
+        Func<Task> act = () => AscParser.ParseAsync(stream, options);
+        await act.Should().ThrowAsync<ReplayLoadException>(
+            "seekable streams past the cap must fail fast before ReadLineAsync");
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): non-seekable stream must be wrapped in the
+    /// <c>CountingStream</c> inner helper. Once cumulative bytes read
+    /// exceed the cap, the next <c>ReadAsync</c> call throws
+    /// <see cref="ReplayLoadException"/>. The ASC parse loop is single-pass
+    /// so we never need to seek the wrapper.
+    /// </summary>
+    [Fact]
+    public async Task Parse_OversizeNonSeekableStream_ThrowsReplayLoadException()
+    {
+        // Arrange — 1 MB seekable backing store wrapped in a non-seekable
+        // delegating stream so we exercise the CanSeek=false branch.
+        var backing = MakeAscStream(new string('B', 1_048_576));
+        using var nonSeekable = new NonSeekableReadOnlyStream(backing);
+        var options = new ReplayOptions(MaxFileSizeBytes: 100L * 1024);
+
+        // Act + Assert
+        Func<Task> act = () => AscParser.ParseAsync(nonSeekable, options);
+        await act.Should().ThrowAsync<ReplayLoadException>(
+            "non-seekable streams past the cap must be caught by CountingStream mid-walk");
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): undersize stream with a generous cap parses
+    /// normally. Confirms the new overload does not regress the happy path
+    /// for valid ASC content below the cap.
+    /// </summary>
+    [Fact]
+    public async Task Parse_UndersizeStream_ParsesNormally()
+    {
+        const string asc = @"
+date Wed Jun 28 10:00:00 2026
+base 0x7e0 500k
+ 0.000000 51  100  8  AA BB CC DD EE FF 00 11
+ 1.000000 51  200  4  01 02 03 04
+";
+        using var stream = MakeAscStream(asc);
+        var options = new ReplayOptions(MaxFileSizeBytes: 1L * 1024 * 1024);
+
+        var frames = await AscParser.ParseAsync(stream, options);
+
+        frames.Should().HaveCount(2);
+        frames[0].Id.Should().Be(0x100u);
+        frames[1].Id.Should().Be(0x200u);
+    }
+
+    /// <summary>
+    /// Test helper: wraps a seekable stream in a non-seekable facade so
+    /// we can drive the CountingStream code path without needing a
+    /// real pipe / socket. Forwarding <see cref="ReadAsync(byte[], int, int, CancellationToken)"/>
+    /// is enough because <c>StreamReader</c> reads via that overload.
+    /// </summary>
+    private sealed class NonSeekableReadOnlyStream : Stream
+    {
+        private readonly Stream _inner;
+        public NonSeekableReadOnlyStream(Stream inner) => _inner = inner;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) =>
+            _inner.Read(buffer, offset, count);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            _inner.ReadAsync(buffer, offset, count, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(buffer, cancellationToken);
+    }
 }
 

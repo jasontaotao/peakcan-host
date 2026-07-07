@@ -1,4 +1,6 @@
+using System.IO;
 using System.Linq;
+using System.Globalization;
 using Serilog;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -504,5 +506,153 @@ public class AppHostBuilderTests
         {
             Log.Logger = previousLogger;
         }
+    }
+
+    // ---------- v3.10.0 MINOR T4 (H5): ReplayOptions DI binding ----------
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): the DI factory that produces
+    /// <see cref="ReplayOptions"/> must read the operator's
+    /// <c>Replay:MaxFileSizeBytes</c> override from the supplied
+    /// <see cref="IConfiguration"/>. Without this binding the production
+    /// <see cref="TraceSessionRegistry"/> always receives
+    /// <see cref="ReplayOptions.Default"/> (200 MB hardcoded) and the
+    /// configurability goal in the <see cref="ReplayOptions"/> XML doc
+    /// is unmet.
+    /// </summary>
+    [Fact]
+    public void ReplayOptions_DI_BindsFromConfiguration_OperatorOverride()
+    {
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Replay:MaxFileSizeBytes"] = (100L * 1024).ToString(CultureInfo.InvariantCulture),
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(config);
+        // Mirror the production factory from AppHostBuilder.cs so the test
+        // covers the exact closure bound by Build(). Drift between the two
+        // (e.g. someone changes the key in production but not here) would
+        // pass this test and silently break production; the second test
+        // (Load_OneMegabyteAsc_ThroughRegistry_RejectsAtConfiguredCap)
+        // catches that drift via end-to-end behavior.
+        services.AddSingleton(sp =>
+        {
+            var c = sp.GetRequiredService<IConfiguration>();
+            var maxBytes = c.GetValue<long?>("Replay:MaxFileSizeBytes")
+                ?? ReplayOptions.DefaultMaxFileSizeBytes;
+            return new ReplayOptions(MaxFileSizeBytes: maxBytes);
+        });
+        using var sp = services.BuildServiceProvider();
+
+        var options = sp.GetRequiredService<ReplayOptions>();
+
+        options.MaxFileSizeBytes.Should().Be(100L * 1024,
+            "the DI factory must read Replay:MaxFileSizeBytes from IConfiguration " +
+            "and bind it onto the ReplayOptions singleton");
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): end-to-end verification that the
+    /// configured <see cref="ReplayOptions"/> cap reaches the parser
+    /// layer via the production DI graph
+    /// (<see cref="IConfiguration"/> → <see cref="ReplayOptions"/> →
+    /// <see cref="TraceSessionRegistry"/> → <see cref="TraceViewerService"/>).
+    /// A 1 MB ASC loaded through a registry whose
+    /// <c>Replay:MaxFileSizeBytes = 100 KB</c> override must throw
+    /// <see cref="ReplayLoadException"/>; without the DI fix, the
+    /// registry would receive <see cref="ReplayOptions.Default"/>
+    /// (200 MB) and silently load the file.
+    /// </summary>
+    [Fact]
+    public async Task Load_OneMegabyteAsc_ThroughRegistry_RejectsAtConfiguredCap()
+    {
+        // 1. Compose the production DI graph (ReplayOptions factory +
+        //    TraceSessionRegistry) with a hermetic in-memory IConfiguration
+        //    whose Replay:MaxFileSizeBytes override caps the parser at 100 KB.
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Replay:MaxFileSizeBytes"] = (100L * 1024).ToString(CultureInfo.InvariantCulture),
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton(sp =>
+        {
+            var c = sp.GetRequiredService<IConfiguration>();
+            var maxBytes = c.GetValue<long?>("Replay:MaxFileSizeBytes")
+                ?? ReplayOptions.DefaultMaxFileSizeBytes;
+            return new ReplayOptions(MaxFileSizeBytes: maxBytes);
+        });
+        services.AddSingleton<PeakCan.Host.App.Services.Trace.ITracePalette,
+            PeakCan.Host.App.Services.Trace.TableauPalette>();
+        services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>(sp =>
+            new PeakCan.Host.App.Services.Trace.TraceSessionRegistry(
+                sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITracePalette>(),
+                sp.GetRequiredService<ILoggerFactory>(),
+                sp.GetRequiredService<ReplayOptions>()));
+        using var sp = services.BuildServiceProvider();
+        var registry = sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>();
+
+        // 2. Write a 1 MB .asc file. One ASCII frame line is ~32 bytes;
+        //    32 * 32 768 ≈ 1 048 576 bytes (exactly 1 MiB). The ASC parser
+        //    counts bytes via a CountingStream wrapper, so the actual
+        //    content can be valid-looking or junk — what matters is the
+        //    stream length crossing MaxFileSizeBytes.
+        var dir = Path.Combine(Path.GetTempPath(), "peakcan-host-tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "one-mib.asc");
+        try
+        {
+            await File.WriteAllBytesAsync(path, new byte[1L * 1024 * 1024]);
+
+            // 3. The configured cap is 100 KB but the file is 1 MB, so the
+            //    registry's per-load TraceViewerService must throw
+            //    ReplayLoadException (via AscParser.CountingStream). Pre-fix,
+            //    the registry used ReplayOptions.Default (200 MB) and the
+            //    load would have succeeded.
+            var act = async () => await registry.LoadAsync(path);
+            await act.Should().ThrowAsync<ReplayLoadException>(
+                "the configured 100 KB cap must reject a 1 MB ASC at the parser layer");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T4 (H5): when <c>Replay:MaxFileSizeBytes</c> is
+    /// absent from <see cref="IConfiguration"/>, the DI factory must
+    /// fall back to <see cref="ReplayOptions.DefaultMaxFileSizeBytes"/>
+    /// (200 MB) so legacy operators see no observable change. This
+    /// pins the back-compat default.
+    /// </summary>
+    [Fact]
+    public void ReplayOptions_DI_FallsBackToDefault_WhenConfigAbsent()
+    {
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton(sp =>
+        {
+            var c = sp.GetRequiredService<IConfiguration>();
+            var maxBytes = c.GetValue<long?>("Replay:MaxFileSizeBytes")
+                ?? ReplayOptions.DefaultMaxFileSizeBytes;
+            return new ReplayOptions(MaxFileSizeBytes: maxBytes);
+        });
+        using var sp = services.BuildServiceProvider();
+
+        var options = sp.GetRequiredService<ReplayOptions>();
+
+        options.MaxFileSizeBytes.Should().Be(ReplayOptions.DefaultMaxFileSizeBytes,
+            "the DI factory must default to 200 MB when Replay:MaxFileSizeBytes is absent " +
+            "so legacy operators see no observable behavior change");
     }
 }

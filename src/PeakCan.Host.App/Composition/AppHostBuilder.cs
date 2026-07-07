@@ -388,8 +388,30 @@ public class AppHostBuilder
         // registry owns its service instances.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITracePalette,
                                        PeakCan.Host.App.Services.Trace.TableauPalette>();
+        // v3.10.0 MINOR T4 (H5): bind ReplayOptions from configuration.
+        // Mirrors DbcOptions / PathOptions / ScriptEngineOptions factory-closure
+        // pattern so the operator can dial the ASC parser size cap via
+        // appsettings.json:Replay:MaxFileSizeBytes without a recompile. When
+        // the section is absent the 200 MB default (ReplayOptions.DefaultMaxFileSizeBytes)
+        // is preserved, so legacy operators see no observable change.
+        builder.Services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var maxBytes = config.GetValue<long?>("Replay:MaxFileSizeBytes")
+                ?? ReplayOptions.DefaultMaxFileSizeBytes;
+            return new ReplayOptions(MaxFileSizeBytes: maxBytes);
+        });
+        // v3.10.0 MINOR T4 (H5): inject the configured ReplayOptions into
+        // the registry so each per-load TraceViewerService receives the
+        // operator's appsettings.json override. Pre-fix, the registry's
+        // 2-arg ctor used ReplayOptions.Default internally and the DI
+        // binding above was silently discarded — configurability goal unmet.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry,
-                                       PeakCan.Host.App.Services.Trace.TraceSessionRegistry>();
+                                       PeakCan.Host.App.Services.Trace.TraceSessionRegistry>(sp =>
+            new PeakCan.Host.App.Services.Trace.TraceSessionRegistry(
+                sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITracePalette>(),
+                sp.GetRequiredService<ILoggerFactory>(),
+                sp.GetRequiredService<ReplayOptions>()));
         // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.
@@ -619,6 +641,11 @@ public class AppHostBuilder
             sp.GetRequiredService<TraceViewerViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.RecentSessionsService>(),
             sp.GetRequiredService<PeakCan.Host.Core.IFileDialogService>(),
+            // v3.10.0 MINOR T1 (C1): IMessageBoxPrompt seam — replaces
+            // the direct MessageBox.Show calls in OpenSessionAsync /
+            // OpenRecentSessionAsync (WPFMessageBoxPrompt wired by DI
+            // registration above; tests inject Substitute.For<...>()).
+            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
         builder.Services.AddSingleton<TraceViewModel>();

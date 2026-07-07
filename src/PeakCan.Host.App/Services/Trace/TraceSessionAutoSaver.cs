@@ -95,44 +95,31 @@ public interface IMessageBoxPrompt
         string title,
         string message,
         Window? owner);
+
+    /// <summary>
+    /// v3.10.0 MINOR T1 (C1): show an information-only OK modal owned
+    /// by <paramref name="owner"/>. Returns <see cref="MessageBoxResult.OK"/>
+    /// unconditionally (the WPF <see cref="MessageBox"/> API does not
+    /// surface a distinct result for OK-only modals). Mirrors the
+    /// existing <see cref="ShowAsync"/> Yes/No pattern, but uses
+    /// <see cref="MessageBoxButton.OK"/> + <see cref="MessageBoxImage.Warning"/>.
+    /// </summary>
+    Task<MessageBoxResult> ShowInformationAsync(
+        string title,
+        string message,
+        Window? owner);
 }
 
 /// <summary>
-/// v3.6.0 MINOR T2: persists the user's Trace Viewer session to a
-/// well-known location on app close, and offers to restore it on next
-/// startup. Singleton — owns the auto-save file path and the
-/// user-supplied opt-out flag.
-/// <para>
-/// <b>Lifecycle:</b>
-/// <list type="number">
-/// <item><see cref="App.OnExit"/> calls
-/// <see cref="TrySaveAutoSnapshotAsync"/> BEFORE
-/// <c>_host.StopAsync</c> so a clean shutdown always writes the
-/// current bundle (5s cap so we don't blow the 10s shutdown budget
-/// if the disk is slow).</item>
-/// <item><see cref="App.OnStartup"/> chains
-/// <see cref="ApplyAutoSnapshotAsync"/> AFTER <c>shell.Show()</c> so
-/// the modal has an owner window and is visible to the user.</item>
-/// </list>
-/// </para>
-/// <para>
-/// <b>Fail-safe contract:</b> every public method swallows
-/// <see cref="Exception"/> internally and logs at Warning — auto-save
-/// must never crash the host. The caller's catch is purely defensive.
-/// </para>
+/// v3.10.0 MINOR T2 (C3): Trace-specific thin subclass of
+/// <see cref="SessionAutoSaver{TVm}"/>. Owns only the config that
+/// differentiates Trace from Replay (provider, "has content" check,
+/// restore prompt title, auto-save path). All orchestration lives in
+/// the base class.
 /// </summary>
-public sealed partial class TraceSessionAutoSaver
+public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<TraceViewerViewModel>
 {
     private readonly ITraceViewerViewModelProvider _vmProvider;
-    private readonly TraceSessionLibrary _library;
-    private readonly IAutoSavePrefsStore _prefs;
-    private readonly IMessageBoxPrompt _prompt;
-    private readonly ILogger<TraceSessionAutoSaver> _logger;
-
-    /// <summary>The on-disk location of the auto-save bundle. Always
-    /// under <c>%APPDATA%/PeakCan.Host/</c> regardless of the user's
-    /// chosen save folder, so the bundle survives across projects.</summary>
-    public string AutoSavePath { get; }
 
     /// <summary>Production ctor: defaults the auto-save path to
     /// <c>%APPDATA%/PeakCan.Host/trace-session-auto.tmtrace</c>.</summary>
@@ -142,7 +129,10 @@ public sealed partial class TraceSessionAutoSaver
         IAutoSavePrefsStore prefs,
         IMessageBoxPrompt prompt,
         ILogger<TraceSessionAutoSaver> logger)
-        : this(vmProvider, library, prefs, prompt, logger, DefaultPath()) { }
+        : base(library, prefs, prompt, logger, DefaultPath())
+    {
+        _vmProvider = vmProvider ?? throw new ArgumentNullException(nameof(vmProvider));
+    }
 
     /// <summary>Test ctor with explicit path.</summary>
     public TraceSessionAutoSaver(
@@ -152,139 +142,50 @@ public sealed partial class TraceSessionAutoSaver
         IMessageBoxPrompt prompt,
         ILogger<TraceSessionAutoSaver> logger,
         string autoSavePath)
+        : base(library, prefs, prompt, logger, autoSavePath)
     {
         _vmProvider = vmProvider ?? throw new ArgumentNullException(nameof(vmProvider));
-        _library = library ?? throw new ArgumentNullException(nameof(library));
-        _prefs = prefs ?? throw new ArgumentNullException(nameof(prefs));
-        _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        AutoSavePath = autoSavePath ?? throw new ArgumentNullException(nameof(autoSavePath));
-        var dir = Path.GetDirectoryName(AutoSavePath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     }
 
-    /// <summary>
-    /// Best-effort snapshot write. Returns <c>true</c> when the
-    /// bundle was written; <c>false</c> when the VM was unavailable
-    /// (DI disposed) or had no sources (nothing to save). Never
-    /// throws — failures are logged at Warning so the caller's
-    /// catch is purely defensive.
-    /// </summary>
-    public async Task<bool> TrySaveAutoSnapshotAsync(CancellationToken ct)
-    {
-        try
-        {
-            var vm = _vmProvider.GetCurrent();
-            if (vm is null)
-            {
-                LogNoVm(_logger);
-                return false;
-            }
-            // Read Sources.Count on the calling thread; BuildSnapshot
-            // touches only in-memory VM state. Push the JSON
-            // serialization + file write off-thread so the WPF STA
-            // thread isn't blocked during the ~50ms worst case.
-            var sourcesCount = vm.Sources.Count;
-            if (sourcesCount == 0) return false;
-            var dto = vm.BuildSnapshot();
-            await Task.Run(() => _library.Save(dto, AutoSavePath), ct).ConfigureAwait(false);
-            LogSaved(_logger, AutoSavePath, sourcesCount);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            LogSaveFailed(_logger, ex, AutoSavePath);
-            return false;
-        }
-    }
+    protected override TraceViewerViewModel? GetActiveVm() => _vmProvider.GetCurrent();
 
-    /// <summary>
-    /// Read the auto-save bundle from disk. Returns
-    /// <see cref="AutoLoadResult.None"/> when the file is missing or
-    /// corrupt. Never throws — corrupt files are logged at Error
-    /// inside <see cref="TraceSessionLibrary.Load"/>.
-    /// </summary>
-    public Task<AutoLoadResult> TryLoadAutoSnapshotAsync(CancellationToken ct)
-    {
-        // TraceSessionLibrary.Load is synchronous + log-on-error. Wrap
-        // in Task.Run so the WPF STA thread isn't blocked; the load
-        // is sub-millisecond for the typical < 10KB bundle.
-        return Task.Run(() =>
-        {
-            if (!File.Exists(AutoSavePath)) return AutoLoadResult.None;
-            var dto = _library.Load(AutoSavePath);
-            if (dto is null) return AutoLoadResult.None;
-            return new AutoLoadResult(dto, AutoSavePath, dto.SavedAt);
-        }, ct);
-    }
+    protected override bool HasContentToSave(TraceViewerViewModel vm) =>
+        vm.Sources.Count > 0;
 
-    /// <summary>
-    /// Prompt the user to restore the previous auto-saved session.
-    /// Idempotent against the NeverRestore flag: a subsequent call
-    /// returns immediately without showing the modal. Returns
-    /// <see cref="RestoreAnswer.NoFile"/> when no bundle exists;
-    /// <see cref="RestoreAnswer.NeverRestore"/> when the user has
-    /// previously opted out.
-    /// <para>
-    /// Fail-safe: prompt or apply exceptions return
-    /// <see cref="RestoreOutcome"/> with
-    /// <see cref="RestoreAnswer.ApplyFailed"/> so the caller can log
-    /// the failure and continue.
-    /// </para>
-    /// </summary>
-    public async Task<RestoreOutcome> ApplyAutoSnapshotAsync(
-        TraceViewerViewModel vm,
-        CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(vm);
-        try
-        {
-            var prefs = await _prefs.LoadAsync(ct).ConfigureAwait(true);
-            if (prefs.NeverRestore)
-                return new RestoreOutcome(false, false, RestoreAnswer.NeverRestore);
+    protected override TraceSessionBundleDto BuildSnapshot(TraceViewerViewModel vm) =>
+        vm.BuildSnapshot();
 
-            var load = await TryLoadAutoSnapshotAsync(ct).ConfigureAwait(true);
-            if (load.Dto is null)
-                return new RestoreOutcome(false, false, RestoreAnswer.NoFile);
+    protected override Task<IReadOnlyList<string>> ApplySnapshotToVmAsync(
+        TraceViewerViewModel vm, string sourceFile) =>
+        vm.OpenSessionAsync(sourceFile);
 
-            // Find the owner window by walking up from any live UI
-            // element. vm itself isn't a FrameworkElement, so we
-            // resolve via the active Application's MainWindow. Falls
-            // back to null (unparented modal) which WPF still shows.
-            var owner = Application.Current?.MainWindow;
-            var title = "Restore previous trace session?";
-            var message = load.SavedAt == DateTimeOffset.MinValue
-                ? "A previously-saved trace session was found. Restore it?"
-                : $"A trace session was auto-saved {load.SavedAt:yyyy-MM-dd HH:mm}. Restore it?";
-            var answer = await _prompt.ShowAsync(title, message, owner).ConfigureAwait(true);
+    protected override string RestorePromptTitle =>
+        "Restore previous trace session?";
 
-            if (answer != MessageBoxResult.Yes)
-            {
-                // "No" persists the NeverRestore flag so we never
-                // prompt again. "Cancel" (which we never offer) is
-                // treated identically — same UX outcome.
-                await _prefs.SaveAsync(
-                    new AutoSavePrefs(NeverRestore: true), ct).ConfigureAwait(true);
-                return new RestoreOutcome(false, true, RestoreAnswer.No);
-            }
-
-            var missing = await vm.OpenSessionAsync(load.SourceFile).ConfigureAwait(true);
-            if (missing.Count > 0)
-                LogMissing(_logger, load.SourceFile, missing.Count);
-            return new RestoreOutcome(true, true, RestoreAnswer.Yes);
-        }
-        catch (Exception ex)
-        {
-            LogApplyFailed(_logger, ex);
-            return new RestoreOutcome(false, true, RestoreAnswer.ApplyFailed);
-        }
-    }
+    protected override string FormatRestoreMessage(DateTimeOffset savedAt) =>
+        savedAt == DateTimeOffset.MinValue
+            ? "A previously-saved trace session was found. Restore it?"
+            : $"A trace session was auto-saved {savedAt:yyyy-MM-dd HH:mm}. Restore it?";
 
     private static string DefaultPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         return Path.Combine(appData, "PeakCan.Host", "trace-session-auto.tmtrace");
     }
+
+    // v3.10.0 T2 R1: log hooks are plain methods (not partial), so
+    // they can override the base virtual hooks across inheritance.
+    // They forward to [LoggerMessage] source-gen partials declared at
+    // the bottom of this file.
+    protected override void OnNoVm() => LogNoVm(Logger);
+    protected override void OnSaved(string path, int sourcesCount) =>
+        LogSaved(Logger, path, sourcesCount);
+    protected override void OnSaveFailed(Exception ex, string path) =>
+        LogSaveFailed(Logger, ex, path);
+    protected override void OnMissing(string path, int count) =>
+        LogMissing(Logger, path, count);
+    protected override void OnApplyFailed(Exception ex) =>
+        LogApplyFailed(Logger, ex);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Auto-save skipped: no live TraceViewerViewModel")]
     private static partial void LogNoVm(ILogger logger);

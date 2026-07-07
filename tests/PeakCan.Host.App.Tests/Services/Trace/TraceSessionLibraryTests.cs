@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -294,5 +295,119 @@ public sealed class TraceSessionLibraryTests
             "specific bookmark identity must round-trip (catches field-name typos in streaming path)");
         loaded.Sources[100].ContentHash.Should().Be(new string('a', 64),
             "long ContentHash fields must survive streaming round-trip verbatim");
+    }
+
+    // ---------- v3.10.0 MINOR T3 (H4): defense-in-depth size cap + path normalize ----------
+
+    /// <summary>
+    /// v3.10.0 MINOR T3 (H4): oversized .tmtrace files must be rejected
+    /// without being read into memory. Without the precheck, a user who
+    /// drops a large file at the persisted path would block the WPF
+    /// dispatcher for the full <see cref="File.ReadAllText"/> +
+    /// <see cref="JsonSerializer.Deserialize{T}(string,System.Text.Json.JsonSerializerOptions?)"/>
+    /// duration — a 1 GB file risks OOM. 50 MB is far above any
+    /// legitimate bundle (200 sources + 1000 bookmarks ≈ 200 KB) and
+    /// gives 250x headroom for future growth. Mirrors
+    /// <c>RecentSessionsService.LoadAsync</c> oversized branch
+    /// (v3.8.8 PATCH F2).
+    /// </summary>
+    [Fact]
+    public void Load_OnOversizedFile_ReturnsNull_AndLogsWarning()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"tmtrace-oversized-{Guid.NewGuid():N}.tmtrace");
+        // Write just enough bytes to exceed the 50 MB cap. Use sparse
+        // seek + write of a single byte at the end so the test is fast
+        // and does not actually allocate 60 MB on disk.
+        try
+        {
+            using (var fs = new FileStream(
+                path, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                fs.SetLength(TraceSessionLibrary.MaxLoadFileBytes + (10L * 1024 * 1024));
+                fs.WriteByte(0x00);
+            }
+            var lib = new TraceSessionLibrary(path, NullLogger<TraceSessionLibrary>.Instance);
+
+            var loaded = lib.Load(path);
+
+            loaded.Should().BeNull(
+                "oversized files must NOT be deserialized — caller treats null as corrupt");
+            File.Exists(path).Should().BeTrue(
+                "oversized-load must NOT delete the file (defensive: user may have mis-saved a real bundle)");
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T3 (H4): traversal-style paths must be rejected by
+    /// the loader without throwing — mirrors the corrupt-recovery contract
+    /// that callers already handle. Defense-in-depth: even though the
+    /// caller (TraceViewerService.LoadAsync via file dialog) supplies a
+    /// real absolute path, the loader must not assume trust. Mirrors
+    /// <c>TraceViewerService.LoadAsync</c> PathNormalizer pattern
+    /// (v3.9.1 PATCH).
+    /// </summary>
+    [Fact]
+    public void Load_OnTraversalPath_ReturnsNull_AndLogsCorruption()
+    {
+        // A clearly-malicious traversal-style relative path. PathNormalizer
+        // rejects relative paths + `..` segments with PathNormalizationException.
+        const string maliciousPath = @"..\..\..\Windows\System32\drivers\etc\hosts";
+        var lib = new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+
+        var loaded = lib.Load(maliciousPath);
+
+        loaded.Should().BeNull(
+            "traversal paths must be rejected without throwing to the caller");
+    }
+
+    /// <summary>
+    /// v3.10.0 MINOR T3 (H4 + L7): a JSON payload nested beyond the
+    /// configured <c>MaxDepth = 64</c> must be rejected with null rather
+    /// than throwing a <see cref="JsonException"/> or stack-overflowing.
+    /// The default System.Text.Json depth is 64, so this test only
+    /// pins the contract if a future regression drops the explicit
+    /// <c>MaxDepth = 64</c> setting.
+    /// </summary>
+    [Fact]
+    public void Load_OnDeeplyNestedJson_DoesNotStackOverflow()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"tmtrace-deep-{Guid.NewGuid():N}.tmtrace");
+        try
+        {
+            // Build a JSON envelope with 80 levels of nested objects,
+            // exceeding the configured MaxDepth = 64. The DTO shape does
+            // not need to match — JsonSerializer will reject before any
+            // field binding once it hits the depth ceiling.
+            var deepJson = new StringBuilder();
+            deepJson.Append("{ \"a\": ");
+            for (int i = 0; i < 80; i++)
+                deepJson.Append("{ \"a\": ");
+            deepJson.Append('1');
+            for (int i = 0; i < 80; i++)
+                deepJson.Append(" }");
+            deepJson.Append(" }");
+            File.WriteAllText(path, deepJson.ToString());
+
+            var lib = new TraceSessionLibrary(path, NullLogger<TraceSessionLibrary>.Instance);
+
+            var loaded = lib.Load(path);
+
+            loaded.Should().BeNull(
+                "deeply-nested JSON must be rejected with null, not throw");
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

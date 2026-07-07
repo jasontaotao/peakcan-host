@@ -57,4 +57,51 @@ public sealed class WpfMessageBoxPrompt : IMessageBoxPrompt
                 MessageBoxImage.Question,
                 MessageBoxResult.No);
     }
+
+    /// <inheritdoc />
+    public Task<MessageBoxResult> ShowInformationAsync(
+        string title,
+        string message,
+        Window? owner)
+    {
+        // v3.10.0 MINOR T1 (C1): information-only OK modal. Mirror
+        // the ShowAsync dispatcher pattern so a WPF STA thread
+        // requirement is upheld when an owner Window is supplied.
+        // Direct synchronous call when no Application exists (e.g.
+        // a unit test that forgot to inject a fake) — same fallback
+        // semantics as the Yes/No path.
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            return Task.FromResult(ShowInformationInternal(title, message, owner));
+        }
+        return dispatcher.InvokeAsync(
+            () => ShowInformationInternal(title, message, owner)).Task;
+    }
+
+    private static MessageBoxResult ShowInformationInternal(
+        string title,
+        string message,
+        Window? owner)
+    {
+        // Warning icon (matches the pre-T1 MessageBox.Show call sites
+        // in AppShellViewModel.OpenSessionAsync / OpenRecentSessionAsync
+        // — missing .asc files is a user-actionable warning, not a
+        // pure info banner). OK-only with OK default — there's no
+        // "Cancel" affordance to misclick into.
+        return owner is not null
+            ? MessageBox.Show(
+                owner,
+                message,
+                title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning,
+                MessageBoxResult.OK)
+            : MessageBox.Show(
+                message,
+                title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning,
+                MessageBoxResult.OK);
+    }
 }
