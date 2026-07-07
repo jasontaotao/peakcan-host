@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -62,6 +61,13 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     // the default ("trace") which the chunk-2 implementer will swap.
     private readonly RecentSessionsService _recentSessions;
     private readonly ILogger<ReplayViewModel> _logger;
+    // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic. Replay +
+    // Trace VMs delegate the scalar envelope + content-hash computation
+    // to this helper; VM-specific Sources / Playback / Viewports stay on
+    // the caller. Sync shim BuildSnapshot() preserves back-compat with
+    // the existing SessionAutoSaver.BuildSnapshot(vm) override (T3
+    // refactors the auto-saver to await BuildSnapshotAsync directly).
+    private readonly TraceSessionSnapshotBuilder _builder;
     // v1.4.0 MINOR Task 4 (memory I-5 follow-up): FrameEmitted fires on
     // the timeline's timer thread. We must Post the binding update back
     // to the captured UI context or WPF will throw. Null is a valid
@@ -298,7 +304,8 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         IAscLocator ascLocator,
         TraceSessionLibrary library,
         RecentSessionsService recentSessions,
-        ILogger<ReplayViewModel>? logger = null)
+        ILogger<ReplayViewModel>? logger = null,
+        TraceSessionSnapshotBuilder? builder = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _fileDialog = fileDialog ?? throw new ArgumentNullException(nameof(fileDialog));
@@ -307,6 +314,11 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         _library = library ?? throw new ArgumentNullException(nameof(library));
         _recentSessions = recentSessions ?? throw new ArgumentNullException(nameof(recentSessions));
         _logger = logger ?? NullLogger<ReplayViewModel>.Instance;
+        // v3.11.0 MINOR T2 (H7): default to a builder wrapping the same
+        // hasher so existing test ctor calls (no builder arg) keep
+        // compiling. Production DI wires a singleton builder; the
+        // default keeps unit-test hermeticity — no DI container required.
+        _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
         _syncContext = SynchronizationContext.Current;
         _service.FrameEmitted += OnFrameEmitted;
         // v1.4.2 PATCH Item 3: subscribe to PlaybackEnded so sink failures
@@ -556,45 +568,51 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// via the new <see cref="BundlePlaybackDto.ReplayCanIdFilterText"/>
     /// field (chunk 2 documents the schema).
     /// <para>
-    /// The contentHash is computed synchronously via
-    /// <c>GetAwaiter().GetResult()</c> on the hasher — same pattern
-    /// the Trace Viewer uses (v3.6.4 PATCH). For typical .asc files
-    /// (10–500 MB) the SHA-256 round-trip is &lt; 2 s; BuildSnapshot
-    /// is invoked from a <c>Task.Run</c>-wrapped save on the
-    /// SaveCommand path, so the UI thread is not blocked.
+    /// v3.11.0 MINOR T2 (H7): the scalar envelope (Version / Schema /
+    /// SavedAt / AppVersion / DbcPath / GlobalCanIdFilter) + content-hash
+    /// computation now lives in <see cref="TraceSessionSnapshotBuilder"/>.
+    /// This method is the thin sync shim over <see cref="BuildSnapshotAsync"/>;
+    /// new callers should prefer the async form.
     /// </para>
     /// </summary>
-    public TraceSessionBundleDto BuildSnapshot()
+    public TraceSessionBundleDto BuildSnapshot() =>
+        BuildSnapshotAsync().GetAwaiter().GetResult();
+
+    /// <summary>
+    /// v3.11.0 MINOR T2 (H7): async BuildSnapshot entry point. Builds
+    /// the scaffold from the VM's bindable state, asks the shared
+    /// builder for the scalar envelope + content hash, then appends
+    /// the Replay-specific <see cref="TraceSessionBundleDto.Sources"/>
+    /// and <see cref="TraceSessionBundleDto.Playback"/> envelopes.
+    /// <see cref="TraceSessionBundleDto.Viewports"/> stays empty (Replay
+    /// has no chart subplots). CT propagates to the hasher for the
+    /// SHA-256 round-trip.
+    /// </summary>
+    public async Task<TraceSessionBundleDto> BuildSnapshotAsync(CancellationToken ct = default)
     {
-        var hash = "";
-        if (!string.IsNullOrEmpty(LoadedFilePath) && File.Exists(LoadedFilePath))
-        {
-            try
-            {
-                hash = _hasher.ComputeAsync(LoadedFilePath).GetAwaiter().GetResult();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-            {
-                // Hashing failed (locked file / ACL). Skip — the
-                // bundle still saves with contentHash="" and the
-                // path-only resolution covers it on reload.
-                LogHashFailed(_logger, ex, LoadedFilePath);
-                hash = "";
-            }
-        }
+        // Scaffold fields mirror the VM's bindable state at Build time.
+        // Start/End default to 0.0 when the range filter is unbounded
+        // (matches the legacy "no filter" semantics).
+        var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
+            LoadedFilePath: LoadedFilePath,
+            CurrentTimestamp: CurrentTimestamp,
+            Speed: Speed,
+            Loop: Loop,
+            StartTimestamp: StartTimestamp ?? 0.0,
+            EndTimestamp: EndTimestamp ?? 0.0,
+            CanIdFilterText: CanIdFilterText ?? "",
+            DbcPath: "");
+        var dto = await _builder.BuildAsync(scaffold, ct).ConfigureAwait(true);
+
         var displayName = string.IsNullOrEmpty(LoadedFilePath)
             ? ""
             : Path.GetFileNameWithoutExtension(LoadedFilePath);
         var sourceId = Guid.NewGuid().ToString("N");
-        var dto = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = GetAppVersion(),
-            DbcPath = "",
-            GlobalCanIdFilter = "",
-        };
+        // Builder pre-populated Sources[0] with the hash. We rebuild the
+        // single entry to add the per-source display metadata + GUID id;
+        // carry the builder's hash over so bundle hash-based relocation
+        // (v3.6.4 PATCH) keeps working on reload.
+        var builderHash = dto.Sources.Count > 0 ? dto.Sources[0].ContentHash : "";
         dto.Sources = new List<BundleSourceDto>
         {
             new()
@@ -608,7 +626,7 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
                 ColorB = 0,
                 StrokeStyle = "Solid",
                 CanIdFilter = "",
-                ContentHash = hash,
+                ContentHash = builderHash,
             },
         };
         dto.Playback = new BundlePlaybackDto
@@ -1031,31 +1049,11 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     private bool CanAddLoopRegion() => IsLoaded;
     private bool CanClearLoopRegions() => LoopRegions.Count > 0;
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
-    private static partial void LogHashFailed(ILogger logger, Exception ex, string? path);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
     private static partial void LogSourceMissing(ILogger logger, string? path, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
     private static partial void LogRelocated(ILogger logger, string? oldPath, string? newPath);
-
-    /// <summary>
-    /// v3.6.0 MINOR T1.A pattern: read version from assembly metadata
-    /// instead of a hardcoded string. Mirrors
-    /// <see cref="TraceViewerViewModel.GetAppVersion"/>. Strip a
-    /// trailing <c>+git&lt;sha&gt;</c> suffix that LocalBuilder adds so
-    /// the bundle round-trips cleanly across builds.
-    /// </summary>
-    private static string GetAppVersion()
-    {
-        var info = typeof(App).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (string.IsNullOrEmpty(info)) return "0.0.0";
-        var plus = info.IndexOf('+');
-        return plus > 0 ? info[..plus] : info;
-    }
 
     /// <summary>
     /// FrameEmitted is invoked on the timer callback thread. We Post the

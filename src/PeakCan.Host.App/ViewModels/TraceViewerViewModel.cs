@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -70,6 +69,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // DI wires the real SHA-256 hasher + file-system locator.
     private readonly IAscContentHasher _hasher;
     private readonly IAscLocator _locator;
+    // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic. Trace +
+    // Replay VMs delegate the scalar envelope to this helper; the
+    // Trace VM still iterates Sources itself (N sources, per-source
+    // color + stroke style + filter) but uses the builder for the
+    // version / schema / savedAt / appVersion envelope.
+    private readonly TraceSessionSnapshotBuilder _builder;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -145,7 +150,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         TraceSessionLibrary sessionLibrary,
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
-        IAscLocator? locator = null)
+        IAscLocator? locator = null,
+        TraceSessionSnapshotBuilder? builder = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
@@ -158,6 +164,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // exercise hash-based relocation inject real or fake instances.
         _hasher = hasher ?? NullAscContentHasher.Instance;
         _locator = locator ?? NullAscLocator.Instance;
+        // v3.11.0 MINOR T2 (H7): default to a builder wrapping the same
+        // hasher so existing test ctor calls (no builder arg) keep
+        // compiling. Production DI wires a singleton builder; the
+        // default keeps unit-test hermeticity — no DI container required.
+        _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
@@ -433,33 +444,53 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <c>public</c> so <see cref="TraceSessionAutoSaver"/> can snapshot
     /// the live VM during <c>App.OnExit</c>. Behavior unchanged.
     /// </para>
+    /// <para>
+    /// v3.11.0 MINOR T2 (H7): the scalar envelope (Version / Schema /
+    /// SavedAt / AppVersion / DbcPath / GlobalCanIdFilter) now lives in
+    /// <see cref="TraceSessionSnapshotBuilder"/>. This method is the
+    /// thin sync shim over <see cref="BuildSnapshotAsync"/>; new
+    /// callers should prefer the async form. Per-source iteration +
+    /// per-source hashing still lives here (N sources + per-source
+    /// color / stroke style / filter).
+    /// </para>
     /// </summary>
-    public TraceSessionBundleDto BuildSnapshot()
+    public TraceSessionBundleDto BuildSnapshot() =>
+        BuildSnapshotAsync().GetAwaiter().GetResult();
+
+    /// <summary>
+    /// v3.11.0 MINOR T2 (H7): async BuildSnapshot entry point. Same
+    /// shape as <see cref="BuildSnapshot"/> but awaits the shared
+    /// builder's scalar envelope assembly. CT propagates to each
+    /// per-source hasher call.
+    /// </summary>
+    public async Task<TraceSessionBundleDto> BuildSnapshotAsync(CancellationToken ct = default)
     {
-        var dto = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = GetAppVersion(),
-            DbcPath = LoadedDbcPath ?? "",
-            GlobalCanIdFilter = CanIdFilter ?? "",
-        };
+        var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
+            LoadedFilePath: null,    // Trace iterates N sources — the builder's single-source path is unused
+            CurrentTimestamp: ScrubberValue,
+            Speed: Speed,
+            Loop: Loop,
+            StartTimestamp: 0.0,
+            EndTimestamp: 0.0,
+            CanIdFilterText: CanIdFilter ?? "",
+            DbcPath: LoadedDbcPath ?? "");
+        var dto = await _builder.BuildAsync(scaffold, ct).ConfigureAwait(true);
+
+        // Per-source assembly stays on the VM: N sources, per-source
+        // color + stroke style + filter, plus N per-source hashes
+        // (the builder's single-source pre-population is overwritten).
         dto.Sources = new List<BundleSourceDto>(Sources.Count);
         foreach (var src in Sources)
         {
             // v3.6.4 PATCH: populate contentHash when the source's
             // .asc still exists on disk so the bundle can later be
-            // relocated via the SHA-256 lookup. Hashing is synchronous
-            // here because BuildSnapshot is invoked from a
-            // Task.Run-wrapped save (SaveSessionAsync wraps the call);
-            // we await it inline below.
+            // relocated via the SHA-256 lookup.
             var hash = "";
             if (!string.IsNullOrEmpty(src.Path) && File.Exists(src.Path))
             {
                 try
                 {
-                    hash = _hasher.ComputeAsync(src.Path).GetAwaiter().GetResult();
+                    hash = await _hasher.ComputeAsync(src.Path, ct).ConfigureAwait(true);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
@@ -855,6 +886,33 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // v3.11.0 MINOR T4 (H8): 145-LoC body split into 3 sub-methods.
+        // Behavior preserved exactly — same filter resolution, same sort,
+        // same chart-series construction, same axes-sync finalization.
+        var byId = BucketFramesByCanId(allowed);
+        var rows = BuildSignalRows(byId, dbc);
+        foreach (var row in rows)
+        {
+            Signals.Add(row);
+        }
+        BuildChartSeries(allowed, dbc);
+
+        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
+        ChartViewModel.SyncYAxes();
+        ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
+    }
+
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): bucket all loaded frames by CAN ID across
+    /// every registered source, applying per-source overrides of the
+    /// global allow-list. Returns a dict from CAN ID → ordered list of
+    /// matching <see cref="ReplayFrame"/>s (insertion order = source
+    /// iteration order, which matches the registry's order). Replaces
+    /// the first half of the original 145-LoC <c>RebuildSignalsCore</c>
+    /// body.
+    /// </summary>
+    private Dictionary<uint, List<ReplayFrame>> BucketFramesByCanId(IReadOnlySet<uint>? globalAllowed)
+    {
         // v3.2.0 MINOR: bucket frames from all loaded sources by CAN ID.
         var byId = new Dictionary<uint, List<ReplayFrame>>();
         foreach (var source in _registry.Sources)
@@ -863,7 +921,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             // per-source → fall through to globalAllowed (inherit). Non-empty
             // → use the per-source parse result exclusively.
             var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
-            var effective = perSourceAllowed ?? allowed;
+            var effective = perSourceAllowed ?? globalAllowed;
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
                 if (effective is not null && !effective.Contains(f.Id)) continue;
@@ -875,7 +933,24 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 list.Add(f);
             }
         }
+        return byId;
+    }
 
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): walk <paramref name="dbc"/>.Messages and
+    /// produce one <see cref="TraceSignalRow"/> per signal for every
+    /// message with at least one matching frame in
+    /// <paramref name="byId"/>. The LatestValue column is decoded from
+    /// the LAST matching frame in each CAN-ID bucket so the column
+    /// reflects the most recent sample (matches the pre-refactor v3.2.0
+    /// semantics). Rows are returned sorted by
+    /// (CanIdHex, SignalName) ordinal order — also matches the
+    /// pre-refactor v3.2.0 sort key.
+    /// </summary>
+    private List<TraceSignalRow> BuildSignalRows(
+        Dictionary<uint, List<ReplayFrame>> byId,
+        DbcDocument dbc)
+    {
         var rows = new List<TraceSignalRow>();
         foreach (var msg in dbc.Messages)
         {
@@ -905,21 +980,33 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             var byId2 = string.CompareOrdinal(a.CanIdHex, b.CanIdHex);
             return byId2 != 0 ? byId2 : string.CompareOrdinal(a.SignalName, b.SignalName);
         });
-        foreach (var row in rows)
-        {
-            Signals.Add(row);
-        }
+        return rows;
+    }
 
+    /// <summary>
+    /// v3.11.0 MINOR T4 (H8): emit one <see cref="TraceChartSeries"/>
+    /// per (source, message, signal) triple whose per-source bucket
+    /// contains at least one frame. The per-source re-group (a
+    /// per-source bucket dict) is required because the chart's
+    /// <see cref="TraceChartSeries"/> is per-source — the global
+    /// <see cref="BucketFramesByCanId"/> output spans all sources and
+    /// can't be used directly. The per-source filter resolution
+    /// mirrors the bucket loop so behavior is preserved exactly.
+    /// </summary>
+    private void BuildChartSeries(
+        IReadOnlySet<uint>? globalAllowed,
+        DbcDocument dbc)
+    {
         // v3.4.0 MINOR: emit one TraceChartSeries per (source, signal) pair.
-        // Per-source re-group: the byId dict above is global (across sources);
-        // chart series need per-source frames per CAN ID, so re-group here.
-        // Independent of the Signals population loop above — the two loops
-        // share dbc.Messages but read from different frame buckets.
+        // Per-source re-group: chart series need per-source frames per CAN
+        // ID, so re-group from the registry here (independent of the Signals
+        // population loop above — the two loops share dbc.Messages but read
+        // from different frame buckets).
         foreach (var source in _registry.Sources)
         {
             // v3.4.3 PATCH: same per-source resolution as the byId loop above.
             var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
-            var effective = perSourceAllowed ?? allowed;
+            var effective = perSourceAllowed ?? globalAllowed;
             var srcById = new Dictionary<uint, List<ReplayFrame>>();
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
@@ -983,10 +1070,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 }
             }
         }
-
-        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
-        ChartViewModel.SyncYAxes();
-        ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
     }
 
     /// <summary>
@@ -1002,23 +1085,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return (id & IdeBit) == 0
             ? $"0x{id:X3}"
             : $"0x{id:X8}";
-    }
-
-    /// <summary>
-    /// v3.6.0 MINOR T1.A: read version from assembly metadata instead of
-    /// a hardcoded string. Mirrors the
-    /// <see cref="AppShellViewModel.WindowTitle"/> pattern. Strip a
-    /// trailing "+git&lt;sha&gt;" suffix that LocalBuilder adds so the
-    /// bundle round-trips cleanly across builds.
-    /// </summary>
-    private static string GetAppVersion()
-    {
-        var info = typeof(App).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (string.IsNullOrEmpty(info)) return "0.0.0";
-        var plus = info.IndexOf('+');
-        return plus > 0 ? info[..plus] : info;
     }
 
     /// <summary>
