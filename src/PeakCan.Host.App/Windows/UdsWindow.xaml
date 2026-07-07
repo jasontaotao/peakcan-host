@@ -1,10 +1,15 @@
-<UserControl x:Class="PeakCan.Host.App.Views.UdsView"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+<Window x:Class="PeakCan.Host.App.Windows.UdsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:UdsViewModel}"
+        Title="UDS Diagnostics"
+        Width="1100" Height="700"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="True">
 
     <DockPanel>
         <!-- Top: Session header strip -->
@@ -47,7 +52,7 @@
             </DockPanel>
         </Border>
 
-        <!-- Middle: TabControl -->
+        <!-- Middle: TabControl (DIDs / Routines / DTCs) -->
         <TabControl>
             <TabItem Header="DIDs">
                 <Grid>
@@ -85,16 +90,7 @@
 
             <TabItem Header="Routines">
                 <DockPanel>
-                    <!-- v2.0.6 PATCH Bug-4: previously the button
-                         StackPanel was the LAST child of the DockPanel
-                         (no DockPanel.Dock="Top"), so it filled the
-                         remaining horizontal space and stretched the
-                         Start / Stop / Query buttons to fill the entire
-                         bottom strip. Reorder: button row docks to Top
-                         with fixed height, DataGrid fills the remaining
-                         space. Mirrors the DTC tab's layout (which
-                         worked correctly because its button row was
-                         already DockPanel.Dock="Top"). -->
+                    <!-- v2.0.6 PATCH Bug-4: see UdsView.xaml history. Reorder: button row docks to Top. -->
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
                         <Button Content="Start" Command="{Binding Routine.StartRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
                         <Button Content="Stop"  Command="{Binding Routine.StopRoutineCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
@@ -131,4 +127,4 @@
             </TabItem>
         </TabControl>
     </DockPanel>
-</UserControl>
+</Window>

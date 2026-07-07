@@ -5,14 +5,19 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using PeakCan.Host.App.ViewModels.Uds;
 
-namespace PeakCan.Host.App.Views;
+namespace PeakCan.Host.App.Windows;
 
 /// <summary>
-/// UDS diagnostic tab view. Hosts the 4-panel orchestrator's data context
-/// and listens to the shared OutputLog ObservableCollection to append
-/// color-coded Runs into the RichTextBox.
+/// v3.11.3 PATCH: UDS diagnostic surface migrated from an in-place
+/// <c>UserControl</c> tab to a separate non-modal <see cref="Window"/>.
+/// Hosts the same 4-panel orchestrator (<see cref="UdsViewModel"/>) and
+/// listens to the shared <c>OutputLog</c> <see cref="ObservableCollection{T}"/>
+/// to append color-coded Runs into the RichTextBox. Behaviour is byte-
+/// identical to the v1.1.0 UdsView.xaml.cs — only the root type and
+/// namespace moved from <c>PeakCan.Host.App.Views</c> to
+/// <c>PeakCan.Host.App.Windows</c>.
 /// </summary>
-public partial class UdsView : UserControl
+public partial class UdsWindow : Window
 {
     private static readonly SolidColorBrush WarnBrush  = Freeze(new(Color.FromRgb(0xDC, 0xDC, 0xAA)));
     private static readonly SolidColorBrush ErrorBrush = Freeze(new(Color.FromRgb(0xF4, 0x87, 0x71)));
@@ -23,7 +28,7 @@ public partial class UdsView : UserControl
         return brush;
     }
 
-    public UdsView()
+    public UdsWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
