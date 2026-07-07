@@ -5,6 +5,7 @@
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
         xmlns:trace="clr-namespace:PeakCan.Host.App.Services.Trace"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -105,15 +106,26 @@
                         <Border Background="White" BorderBrush="#CCC" BorderThickness="1"
                                 CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
                             <StackPanel Orientation="Horizontal">
-                                <!-- v3.3.0 MINOR: per-source "make master" radio. Bound TwoWay via SetMasterCommand. -->
+                                <!-- v3.11.6 PATCH: replaced the
+                                     ConverterParameter-nested-Binding pattern
+                                     (caused MarkupExtensionDynamicOrBindingOnClrProp
+                                     XamlParseException after first .asc load).
+                                     Now uses a MultiBinding + IMultiValueConverter
+                                     (SourceIdEqualsMasterConverter) which is the
+                                     standard WPF idiom for "is this row's value
+                                     equal to the parent's current selection?". -->
                                 <RadioButton GroupName="MasterGroup" Margin="0,0,6,0" VerticalAlignment="Center"
-                                             IsChecked="{Binding SourceId,
-                                                                 Converter={StaticResource MasterRadio},
-                                                                 ConverterParameter={Binding DataContext.MasterSourceId,
-                                                                                             RelativeSource={RelativeSource AncestorType=Window}}}"
                                              Command="{Binding DataContext.SetMasterCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                              CommandParameter="{Binding SourceId}"
-                                             ToolTip="Make this the master (clock source)" />
+                                             ToolTip="Make this the master (clock source)">
+                                    <RadioButton.IsChecked>
+                                        <MultiBinding Converter="{x:Static conv:SourceIdEqualsMasterConverter.Instance}">
+                                            <Binding Path="SourceId"/>
+                                            <Binding Path="DataContext.MasterSourceId"
+                                                     RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                        </MultiBinding>
+                                    </RadioButton.IsChecked>
+                                </RadioButton>
                                 <Rectangle Width="14" Height="14" Margin="0,0,6,0"
                                            VerticalAlignment="Center"
                                            Fill="{Binding Color, Converter={StaticResource OxyColorToBrush}}" />
