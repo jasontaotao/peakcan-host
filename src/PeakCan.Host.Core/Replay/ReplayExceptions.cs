@@ -1,6 +1,21 @@
 namespace PeakCan.Host.Core.Replay;
 
-/// <summary>Base class for Replay load/format errors.</summary>
+/// <summary>
+/// Base class for all Replay-domain exceptions. Concrete subclasses:
+/// <list type="bullet">
+///   <item><see cref="ReplayFormatException"/> — asc/blf file parser
+///   found malformed content (header, tokens, frames).</item>
+///   <item><see cref="ReplayLoadException"/> — pre-parse load failure
+///   (file not found, file too large, permission denied).</item>
+///   <item><see cref="ReplaySendException"/> — runtime playback sink
+///   failure (CAN bus write failed mid-stream).</item>
+/// </list>
+/// New concrete subclasses MUST describe a single failure class
+/// (parse | load | runtime) — never mix. Callers (Replay VM + Trace
+/// Viewer VM) catch <see cref="ReplayException"/> to surface ALL
+/// replay-related failures via ErrorMessage; catch a concrete subclass
+/// only when the recovery path is subclass-specific.
+/// </summary>
 public abstract class ReplayException : Exception
 {
     protected ReplayException(string message) : base(message) { }
