@@ -139,7 +139,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private SignalView? _signalView;
     private StatsView? _statsView;
     private ScriptView? _scriptView;
-    private UdsView? _udsView;
+    private UdsWindow? _udsWindow;
     private RecordView? _recordView;
     private ReplayView? _replayView;
     // v3.0 MINOR Task 7: TraceViewerView is a non-modal Window (not a
@@ -579,14 +579,40 @@ public sealed partial class AppShellViewModel : ObservableObject
     [RelayCommand]
     private void ShowUds()
     {
-        // v1.1.0: UDS diagnostic tab. v3.11.1 PATCH M3: extracted into
-        // ViewSwitcher. Same lazy-create / cache-resume pattern as the
-        // other tabs.
-        ViewSwitcher.Show(
-            factory: () => new UdsView { DataContext = _udsViewModel },
-            cache: ref _udsView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowUds));
+        // v3.11.3 PATCH: UDS migrated from an in-place UserControl tab to
+        // a separate non-modal Window. Mirrors the v3.9.1 PATCH B1 + v3.11.1
+        // PATCH M3 secondary-window precedent established by ShowTraceViewer:
+        // factory + cache lifecycle owned by ViewSwitcher.ShowWindow
+        // (auto Closed-reset); Owner + Show/Activate owned by the caller
+        // (Application.Current.MainWindow only resolves inside App.OnStartup's
+        // STA context).
+        //
+        // Behaviour parity with the pre-PATCH UserControl path:
+        // - First Show creates the window from the factory.
+        // - Second Show reuses the cached instance (window position + size +
+        //   SelectedDid + Did/Routine/Dtc selections all preserved).
+        // - Closing the window clears the cache so the next Show opens fresh.
+        // - Closing AppShell cascade-closes the UDS window via the Owner
+        //   assignment below (mirrors ShowTraceViewer at line 681).
+        ViewSwitcher.ShowWindow(
+            factory: () => new UdsWindow { DataContext = _udsViewModel },
+            cache: ref _udsWindow);
+        if (_udsWindow is null) return; // defensive — cache cannot be null after ShowWindow
+
+        if (Application.Current?.MainWindow is { } owner && owner != _udsWindow)
+            _udsWindow.Owner = owner;
+
+        if (!_udsWindow.IsVisible)
+        {
+            _udsWindow.Show();
+        }
+        else
+        {
+            // Already shown — bring to the foreground instead of re-activating
+            // (which on Windows flashes the taskbar icon for an already-visible
+            // window and looks like a bug). Same precedent as ShowTraceViewer.
+            _udsWindow.Activate();
+        }
     }
 
     [RelayCommand]
