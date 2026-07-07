@@ -88,4 +88,108 @@ public sealed class ReplayViewModelPartialSplitTests
             $"v3.12.0 MINOR C2 split moves logic out of ReplayViewModel.cs into .partial.cs files; " +
             $"the core file must stay under 500 LoC to keep the god-class regression from re-emerging");
     }
+
+    /// <summary>
+    /// Asserts the Loader partial contains the file-open command,
+    /// the bundle-open method, and the recent-sessions projection.
+    /// If a future contributor merges these back into the core file
+    /// (or moves them to a different region), this test fires.
+    /// </summary>
+    [Fact]
+    public void LoaderPartial_ContainsExpectedPublicSurface()
+    {
+        var asmDir = Path.GetDirectoryName(typeof(PeakCan.Host.App.ViewModels.ReplayViewModel).Assembly.Location)!;
+        var dir = new DirectoryInfo(asmDir);
+        string? path = null;
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "PeakCan.Host.App", "ViewModels", "ReplayViewModel.Loader.partial.cs");
+            if (File.Exists(candidate)) { path = candidate; break; }
+            dir = dir.Parent;
+        }
+        path.Should().NotBeNull("Loader partial must exist after Tasks 2-5");
+
+        var content = File.ReadAllText(path!);
+        content.Should().Contain("OpenAsync", "Loader owns the file-open command");
+        content.Should().Contain("OpenSessionAsync", "Loader owns the bundle-open method");
+        content.Should().Contain("RefreshRecentEntries", "Loader owns the recent-sessions refresh");
+        content.Should().Contain("RecentSessionEntries", "Loader owns the recent-sessions VM projection");
+    }
+
+    /// <summary>
+    /// Asserts the Playback partial contains the transport commands,
+    /// the filter callbacks, and the frame-step binary searches.
+    /// </summary>
+    [Fact]
+    public void PlaybackPartial_ContainsExpectedPublicSurface()
+    {
+        var asmDir = Path.GetDirectoryName(typeof(PeakCan.Host.App.ViewModels.ReplayViewModel).Assembly.Location)!;
+        var dir = new DirectoryInfo(asmDir);
+        string? path = null;
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "PeakCan.Host.App", "ViewModels", "ReplayViewModel.Playback.partial.cs");
+            if (File.Exists(candidate)) { path = candidate; break; }
+            dir = dir.Parent;
+        }
+        path.Should().NotBeNull("Playback partial must exist after Tasks 2-5");
+
+        var content = File.ReadAllText(path!);
+        content.Should().Contain("NextFrame", "Playback owns the frame-step-forward command");
+        content.Should().Contain("PrevFrame", "Playback owns the frame-step-back command");
+        content.Should().Contain("SetSpeed", "Playback owns the speed-multiplier command");
+        content.Should().Contain("SeekTo", "Playback owns the absolute-timestamp seek command");
+        content.Should().Contain("OnCanIdFilterTextChanged", "Playback owns the CAN-ID filter partial callback");
+    }
+
+    /// <summary>
+    /// Asserts the Bookmarks partial contains the bookmark + loop-region
+    /// commands and the public collections backing them.
+    /// </summary>
+    [Fact]
+    public void BookmarksPartial_ContainsExpectedPublicSurface()
+    {
+        var asmDir = Path.GetDirectoryName(typeof(PeakCan.Host.App.ViewModels.ReplayViewModel).Assembly.Location)!;
+        var dir = new DirectoryInfo(asmDir);
+        string? path = null;
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "PeakCan.Host.App", "ViewModels", "ReplayViewModel.Bookmarks.partial.cs");
+            if (File.Exists(candidate)) { path = candidate; break; }
+            dir = dir.Parent;
+        }
+        path.Should().NotBeNull("Bookmarks partial must exist after Tasks 2-5");
+
+        var content = File.ReadAllText(path!);
+        content.Should().Contain("AddBookmark", "Bookmarks owns the bookmark-capture command");
+        content.Should().Contain("AddLoopRegion", "Bookmarks owns the loop-region-capture command");
+        content.Should().Contain("ClearLoopRegions", "Bookmarks owns the loop-region-clear command");
+        content.Should().Contain("public ObservableCollection<BookmarkVm>", "Bookmarks owns the public bookmarks collection");
+        content.Should().Contain("public ObservableCollection<LoopRegionVm>", "Bookmarks owns the public loop-regions collection");
+    }
+
+    /// <summary>
+    /// Asserts the Bundle partial contains the snapshot builder + the
+    /// save/open bundle commands + the logger-message helpers.
+    /// </summary>
+    [Fact]
+    public void BundlePartial_ContainsExpectedPublicSurface()
+    {
+        var asmDir = Path.GetDirectoryName(typeof(PeakCan.Host.App.ViewModels.ReplayViewModel).Assembly.Location)!;
+        var dir = new DirectoryInfo(asmDir);
+        string? path = null;
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "PeakCan.Host.App", "ViewModels", "ReplayViewModel.Bundle.partial.cs");
+            if (File.Exists(candidate)) { path = candidate; break; }
+            dir = dir.Parent;
+        }
+        path.Should().NotBeNull("Bundle partial must exist after Tasks 2-5");
+
+        var content = File.ReadAllText(path!);
+        content.Should().Contain("BuildSnapshot", "Bundle owns the sync snapshot builder");
+        content.Should().Contain("BuildSnapshotAsync", "Bundle owns the async snapshot builder");
+        content.Should().Contain("SaveAsync", "Bundle owns the save-bundle command");
+        content.Should().Contain("LogSourceMissing", "Bundle owns the source-missing log helper");
+    }
 }
