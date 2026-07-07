@@ -198,8 +198,50 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </para>
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanAddTrace))]
-    public async Task AddTraceAsync(string path)
+    public async Task AddTraceAsync()
     {
+        // v3.11.4 PATCH: the file dialog moved from the View (CommandParameter=""
+        // hack) into the VM via the already-injected IFileDialogService. The
+        // empty-string path that triggered the "Unexpected error: path must be
+        // non-empty" user-facing regression can no longer reach the registry —
+        // the dialog either returns a real path or null (cancellation).
+        var dialog = _fileDialog;
+        if (dialog is null)
+        {
+            // Defensive fallback when IFileDialogService wasn't injected (e.g.,
+            // unit-test fixtures that build the VM without DI). Surface as an
+            // error rather than crashing — the user can still type the path
+            // manually via the .tmtrace session Save/Open flow.
+            ErrorMessage = "File dialog service unavailable. Use File ▸ Open Session... instead.";
+            StatusMessage = "Add trace unavailable";
+            LogLoadFailed(_logger, new InvalidOperationException("IFileDialogService not injected"), "(no dialog)");
+            return;
+        }
+
+        string? path;
+        try
+        {
+            path = dialog.ShowOpenDialog("ASC files|*.asc;*.ASC|All files|*.*");
+        }
+        catch (Exception ex)
+        {
+            // The WPF OpenFileDialog throws if no Application is running or if
+            // the dispatcher is shutting down. Surface as a user-visible error
+            // and stay silent otherwise.
+            LogLoadFailed(_logger, ex, "(dialog)");
+            ErrorMessage = $"File dialog failed: {ex.Message}";
+            StatusMessage = "Add trace failed";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            // Cancellation (dialog returned null) or pathological empty-string
+            // return (impossible from production OpenFileDialog but defended
+            // for test fakes). Silent no-op per v3.11.4 PATCH contract.
+            return;
+        }
+
         try
         {
             ErrorMessage = null;
@@ -219,19 +261,17 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             ErrorMessage = ex.Message;
             StatusMessage = "Load failed";
         }
-        // v3.9.2 PATCH H10: defensive fallback catch. AddTraceAsync is
-        // invoked through an async-void command (the source-gen
-        // AddTraceCommand), so any exception that escapes the typed
-        // arms above would propagate to WPF DispatcherUnhandledException,
-        // where App.xaml.cs:332 deliberately does NOT mark Handled —
-        // resulting in process termination. TraceViewerService.LoadAsync
-        // already wraps nearly every I/O failure in ReplayLoadException,
-        // but a registry hook (e.g. SourcesChanged listener throwing)
-        // or an unexpected exception in ApplyAutoSnapshotAsync could
-        // still escape. Log + ErrorMessage + StatusMessage keeps the
-        // user in control instead of killing the app.
         catch (Exception ex)
         {
+            // v3.9.2 PATCH H10: defensive fallback catch. AddTraceAsync is
+            // invoked through an async-void command, so any exception that
+            // escapes the typed arms above would propagate to WPF
+            // DispatcherUnhandledException, where App.xaml.cs:332 deliberately
+            // does NOT mark Handled — resulting in process termination.
+            // v3.11.4 PATCH: this catch can no longer be reached for the
+            // empty-path case (dialog validates before the path is forwarded),
+            // but the defensive arm stays for registry hook throws (SourcesChanged
+            // listener, ApplyAutoSnapshotAsync, etc.).
             LogLoadFailed(_logger, ex, path);
             ErrorMessage = $"Unexpected error: {ex.Message}";
             StatusMessage = "Load failed";
@@ -257,7 +297,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <see cref="AddTraceCommand"/>. Disables the toolbar button while a
     /// load is in flight.
     /// </summary>
-    private bool CanAddTrace(string? path) => !IsLoading;
+    // v3.11.4 PATCH: AddTraceCommand is parameterless now (the VM owns the
+    // file-dialog flow). The CanExecute predicate must NOT take a path arg —
+    // any CanExecute(string.Empty) call would silently disable the command,
+    // which was the v3.9.1 PATCH B2 root cause.
+    private bool CanAddTrace() => !IsLoading;
 
     /// <summary>
     /// v3.3.0 MINOR: switch the master source mid-session. Stops playback,

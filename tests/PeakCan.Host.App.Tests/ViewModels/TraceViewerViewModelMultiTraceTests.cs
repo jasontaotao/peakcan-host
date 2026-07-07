@@ -7,6 +7,7 @@ using OxyPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -53,9 +54,14 @@ public class TraceViewerViewModelMultiTraceTests
         });
 
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync is parameterless now; the file dialog
+        // is wired via IFileDialogService. Stub the dialog to return the path
+        // the test wants the registry to receive.
+        var dialog = Substitute.For<PeakCan.Host.Core.IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/b.asc");
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await vm.AddTraceAsync("C:/b.asc");
+        await vm.AddTraceAsync();
 
         await registry.Received(1).LoadAsync("C:/b.asc", Arg.Any<CancellationToken>());
     }

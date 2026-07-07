@@ -8,6 +8,7 @@ using OxyPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -77,6 +78,38 @@ public class TraceViewerViewModelTests
             MakeFakeDbcService(),
             MakeFakeLogger(),
             library);
+
+    // v3.11.4 PATCH: no-args overload that the CanExecute test
+    // (CanAddTrace_True_When_IsLoading_False_Regardless_Of_Argument)
+    // depends on. Delegates to the real TraceSessionLibrary ctor with a
+    // per-test temp path (mirrors AppShellViewModelTests.NewFakeSessionLibrary).
+    private static TraceViewerViewModel NewVm()
+        => new TraceViewerViewModel(
+            MakeFakeRegistry(),
+            MakeFakeDbcService(),
+            MakeFakeLogger(),
+            new TraceSessionLibrary(
+                Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+                NullLogger<TraceSessionLibrary>.Instance));
+
+    /// <summary>
+    /// v3.11.4 PATCH: factory that wires the explicit <see cref="IFileDialogService"/>
+    /// and <see cref="ITraceSessionRegistry"/> substitutes the new tests
+    /// need. Mirrors the existing <c>NewVm()</c> shape but takes both
+    /// substitutes as parameters so each test controls dialog return value +
+    /// registry assertion target.
+    /// </summary>
+    private static TraceViewerViewModel NewVmWithDialog(
+        ITraceSessionRegistry registry,
+        IFileDialogService dialog)
+    {
+        var logger = NullLogger<TraceViewerViewModel>.Instance;
+        var dbcService = MakeFakeDbcService();
+        var sessionLibrary = new TraceSessionLibrary(
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            NullLogger<TraceSessionLibrary>.Instance);
+        return new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, dialog);
+    }
 
     // Seed the fake registry with one source having the requested
     // DisplayName + Color. Returns the seeded TraceSource so callers can
@@ -190,9 +223,14 @@ public class TraceViewerViewModelTests
     {
         // v3.9.2 PATCH H2: OpenFileAsync (legacy v3.0 alias) was deleted;
         // these tests now exercise the canonical AddTraceAsync directly.
+        // v3.11.4 PATCH: AddTraceAsync is parameterless; the path comes from
+        // the IFileDialogService.ShowOpenDialog call. Stub the dialog to
+        // return the path the test expects to be forwarded to the registry.
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.AddTraceAsync("C:/fake.asc");
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        await sut.AddTraceAsync();
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
 
@@ -252,9 +290,12 @@ public class TraceViewerViewModelTests
         svc.GetFrames(Arg.Any<string>()).Returns(new[] { Frame(0x100, 0x42, 0x00) });
         // No DBC set — DbcService.Current remains null.
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await sut.AddTraceAsync("C:/fake.asc");
+        await sut.AddTraceAsync();
 
         sut.Signals.Should().BeEmpty();
     }
@@ -328,9 +369,12 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await sut.AddTraceAsync("C:/fake.asc");
+        await sut.AddTraceAsync();
 
         sut.Signals.Should().BeEmpty();
     }
@@ -1313,10 +1357,13 @@ public class TraceViewerViewModelTests
         registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<Task<TraceSource>>(_ =>
                 throw new ReplayLoadException("ASC file not found: C:/missing.asc"));
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/missing.asc");
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
         // Act — must NOT throw (absorbed into ErrorMessage)
-        await sut.AddTraceAsync("C:/missing.asc");
+        await sut.AddTraceAsync();
 
         // Assert
         sut.IsLoading.Should().BeFalse("IsLoading must reset in finally so the Add button re-enables");
@@ -1339,9 +1386,12 @@ public class TraceViewerViewModelTests
         registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<Task<TraceSource>>(_ =>
                 throw new ReplayFormatException("Empty ASC file (0 parseable frames)"));
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/empty.asc");
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await sut.AddTraceAsync("C:/empty.asc");
+        await sut.AddTraceAsync();
 
         sut.IsLoading.Should().BeFalse();
         sut.ErrorMessage.Should().Contain("Empty ASC");
@@ -1363,9 +1413,12 @@ public class TraceViewerViewModelTests
         registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<Task<TraceSource>>(_ =>
                 throw new OperationCanceledException("user cancelled"));
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await sut.AddTraceAsync("C:/whatever.asc");
+        await sut.AddTraceAsync();
 
         sut.IsLoading.Should().BeFalse();
         sut.ErrorMessage.Should().BeNull(
@@ -1411,13 +1464,113 @@ public class TraceViewerViewModelTests
         // the awaited call so the async machinery sees the exception.
         registry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(async _ => throw new InvalidOperationException("registry hook blew up"));
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
 
-        await sut.AddTraceAsync("C:/whatever.asc");
+        await sut.AddTraceAsync();
 
         sut.ErrorMessage.Should().Contain("Unexpected error").And.Contain("registry hook blew up");
         sut.StatusMessage.Should().Be("Load failed");
         sut.IsLoading.Should().BeFalse(
             "v3.9.2 PATCH H10: IsLoading must reset to false on the fallback catch arm");
+    }
+
+    // ===== v3.11.4 PATCH: 4 STA tests for the file-dialog flow =====
+
+    // v3.11.4 PATCH: regression coverage for the empty-path "Unexpected error:
+    // path must be non-empty" regression. The fix moves file-dialog flow into
+    // the VM via IFileDialogService. Cancellation = silent no-op.
+    [Fact]
+    public async Task AddTraceAsync_FileDialog_Cancelled_Is_SilentNoOp()
+    {
+        // ARRANGE
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        var vm = NewVmWithDialog(registry, dialog);
+
+        var initialStatus = vm.StatusMessage;
+        var initialError = vm.ErrorMessage;
+
+        // ACT
+        await vm.AddTraceAsync();   // parameterless — dialog drives path
+
+        // ASSERT
+        dialog.Received(1).ShowOpenDialog(Arg.Any<string>());
+        await registry.DidNotReceive().LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        vm.ErrorMessage.Should().Be(initialError, "cancellation must not surface an error message");
+        vm.StatusMessage.Should().Be(initialStatus, "cancellation must not change the status banner");
+        vm.IsLoading.Should().BeFalse("IsLoading must reset in finally regardless of dialog outcome");
+    }
+
+    [Fact]
+    public async Task AddTraceAsync_FileDialog_Returns_ValidPath_Calls_Registry_LoadAsync()
+    {
+        // ARRANGE
+        const string path = @"C:\fake\trace.asc";
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns(path);
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        // v3.11.4 PATCH: ITraceSessionRegistry.LoadAsync returns
+        // Task<TraceSource> (not Task), so the stub must return a
+        // TraceSource — Task.CompletedTask would fail NSubstitute's
+        // type-mismatch check. The exact TraceSource doesn't matter
+        // for this test (the VM doesn't read it back).
+        var fakeSource = new TraceSource(
+            "guid-test", "fake", path, OxyColors.Blue);
+        registry.LoadAsync(path, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(fakeSource));
+        var vm = NewVmWithDialog(registry, dialog);
+
+        // ACT
+        await vm.AddTraceAsync();
+
+        // ASSERT
+        dialog.Received(1).ShowOpenDialog(Arg.Any<string>());
+        await registry.Received(1).LoadAsync(path, Arg.Any<CancellationToken>());
+        vm.IsLoading.Should().BeFalse("IsLoading must reset after a successful load");
+        vm.StatusMessage.Should().Contain("Loaded", "successful load must update the status banner");
+        vm.ErrorMessage.Should().BeNull("successful load must clear any prior error");
+    }
+
+    [Fact]
+    public async Task AddTraceAsync_Never_Passes_EmptyPath_To_Registry()
+    {
+        // v3.11.4 PATCH regression guard: the file-dialog flow lives in the VM
+        // now, so the registry NEVER sees an empty path — the validator
+        // (PathNormalizer.Normalize → "path must be non-empty") can only fire
+        // if the dialog returned a literally-empty string, which the production
+        // OpenFileDialog never does. This test pins the contract.
+        // ARRANGE
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns(string.Empty);  // pathological
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        var vm = NewVmWithDialog(registry, dialog);
+
+        // ACT
+        await vm.AddTraceAsync();
+
+        // ASSERT
+        await registry.DidNotReceive().LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // The empty path from the dialog must be rejected by the VM, not
+        // forwarded to the registry. v3.11.4 PATCH contract: empty string from
+        // dialog is treated like null (cancellation).
+        vm.ErrorMessage.Should().BeNull("empty-path must NOT surface as an error — the dialog should never return empty in production, and treating it as cancellation matches the null branch");
+    }
+
+    [Fact]
+    public void CanAddTrace_True_When_IsLoading_False_Regardless_Of_Argument()
+    {
+        // v3.11.4 PATCH: AddTraceCommand becomes parameterless (no path arg).
+        // The CanExecute predicate must NOT depend on the path argument any
+        // more — it gates solely on IsLoading.
+        var vm = NewVm();
+        vm.IsLoading = false;
+
+        vm.AddTraceCommand.CanExecute(null).Should().BeTrue("IsLoading=false must enable the command");
+        vm.AddTraceCommand.CanExecute(string.Empty).Should().BeTrue("an empty path arg must NOT disable the command (was the v3.9.1 root cause)");
+        vm.AddTraceCommand.CanExecute(@"C:\anything.asc").Should().BeTrue("any path arg must NOT disable the command");
     }
 }

@@ -21,8 +21,12 @@
                  on IsLoading actually gates the button (greys out during load).
                  The Command binding here calls into the same VM method
                  (AddTraceAsync) that the click handler called. -->
+            <!-- v3.11.4 PATCH: CommandParameter="" was the regression root cause —
+                 it forced AddTraceAsync to receive an empty string, which then
+                 tripped PathNormalizer.Normalize's "path must be non-empty" guard.
+                 The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
-                    CommandParameter="" Padding="8,2" Margin="0,0,4,0" />
+                    Padding="8,2" Margin="0,0,4,0" />
             <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
             <!-- v3.6.0 MINOR T3: Save/Open .tmtrace session buttons moved to
                  the AppShell File menu (Open Session... / Save Session... +
