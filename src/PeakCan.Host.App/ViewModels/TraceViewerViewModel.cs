@@ -363,6 +363,53 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private static partial void LogBundleDbcLoadFailed(ILogger logger, string path, Exception ex);
 
     /// <summary>
+    /// v3.13.0 PATCH F2: clear all mutable UI state when the Trace Viewer
+    /// window closes. Prevents the "close + reopen shows stale state / NRE"
+    /// bug because the singleton VM (shared with AppShell OpenSession/
+    /// SaveSession menu commands) accumulates state across opens. Called
+    /// from AppShellViewModel.ShowTraceViewer's Closed handler.
+    /// <para>
+    /// Strategy: snapshot the current sourceIds, then unload each via the
+    /// registry (the only contract surface that drops sources + cascades
+    /// INPC). <see cref="Signals"/> + <see cref="ChartViewModel.Series"/>
+    /// are dropped in turn. Per-source state lives on each TraceSource
+    /// and is reclaimed when the source is unloaded.
+    /// </para>
+    /// <para>
+    /// Does NOT clear <see cref="LoadedDbcPath"/> — that's restored from the
+    /// loaded .tmtrace bundle on next OpenSession and is not "open-window
+    /// state" in the same sense. Does NOT unsubscribe from
+    /// <c>_registry.SourcesChanged</c> / <c>_dbcService.PropertyChanged</c>
+    /// — those are VM-lifetime subscriptions, not window-lifetime.
+    /// </para>
+    /// </summary>
+    public void Reset()
+    {
+        // Snapshot sourceIds before unloading — _registry.Sources shrinks
+        // as we unload, so iterating the live list would mutate-while-
+        // iterate. The registry allows this safely, but copying is clearer.
+        var sourceIds = _registry.Sources.Select(s => s.SourceId).ToList();
+        foreach (var sourceId in sourceIds)
+        {
+            // UnloadAsync is fire-and-forget by contract (returns a Task
+            // but we have no continuation). Capturing the task and not
+            // awaiting keeps Reset() synchronous, matching the WPF Closed
+            // handler's fire-and-forget nature.
+            _ = _registry.UnloadAsync(sourceId);
+        }
+        Signals.Clear();
+        ChartViewModel.Series.Clear();
+        ScrubberValue = 0;
+        Speed = 1.0;
+        Loop = false;
+        MasterSourceId = "";
+        CanIdFilter = "";
+        ErrorMessage = null;
+        StatusMessage = "Status: ready";
+        IsLoading = false;
+    }
+
+    /// <summary>
     /// Load a DBC into <see cref="DbcService"/>. Updates
     /// <see cref="LoadedDbcPath"/>; <see cref="RebuildSignalsAsync"/>
     /// picks up the new document on next signal rebuild.
