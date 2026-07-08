@@ -28,6 +28,10 @@
                  The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
                     Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.16.0 MINOR: opens DbcTreePickerWindow for the user
+                 to pick DBC signals to add to the watch list. -->
+            <Button Content="+ Add to watch…" Click="OnAddToWatchClick"
+                    Padding="8,2" Margin="0,0,4,0" />
             <!-- v3.15.0 MINOR: loaded DBC path (filename only) shown in
                  the toolbar; full path in tooltip. B1 fix for the
                  "LoadedDbcPath always empty" bug. -->

@@ -150,6 +150,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             ? ""
             : System.IO.Path.GetFileName(LoadedDbcPath);
 
+    /// <summary>v3.16.0 MINOR: return the current DBC for the
+    /// <c>DbcTreePickerWindow</c> to walk, or null if no DBC is
+    /// loaded (in which case the picker would be empty anyway).
+    /// </summary>
+    public DbcDocument? GetDbcForPicker() => _dbcService.Current;
+
     public TraceViewerViewModel(
         ITraceSessionRegistry registry,
         DbcService dbcService,

@@ -91,6 +91,23 @@ public partial class TraceViewerView : Window
     /// it — the UI-side IsChecked is the source of truth at click time.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// v3.16.0 MINOR: open the DBC tree picker dialog. The user
+    /// selects one or more signals; we call
+    /// <c>TraceViewerViewModel.AddToWatch</c> for each (cross-source).
+    /// </summary>
+    private void OnAddToWatchClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not TraceViewerViewModel vm) return;
+        var doc = vm.GetDbcForPicker();
+        if (doc is null) return;  // VM already surfaced a status message
+        var pickerVm = new DbcTreePickerViewModel(doc);
+        var dialog = new DbcTreePickerWindow(pickerVm) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        foreach (var (canId, signalName) in dialog.SelectedSignals)
+            vm.AddToWatch(canId, signalName, "");
+    }
+
     private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
     {
         if (sender is CheckBox { IsChecked: bool isChecked } cb
