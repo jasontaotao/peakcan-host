@@ -272,8 +272,17 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             // empty-path case (dialog validates before the path is forwarded),
             // but the defensive arm stays for registry hook throws (SourcesChanged
             // listener, ApplyAutoSnapshotAsync, etc.).
+            // v3.13.0 PATCH F1: include ex.GetType().Name + first stack
+            // frame so the user sees the throw type AND the originating
+            // call site inline (e.g. "NullReferenceException: ... |
+            // at Foo.Bar() in C:\src\X.cs:line 42") without opening
+            // the Serilog file. ex.Message alone is often too generic
+            // to diagnose (e.g. NRE's "Object reference not set to an
+            // instance of an object." gives no class/method hint).
+            // Full stack trace is still captured in the log.
+            var firstFrame = ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim() ?? "";
             LogLoadFailed(_logger, ex, path);
-            ErrorMessage = $"Unexpected error: {ex.Message}";
+            ErrorMessage = $"Unexpected error ({ex.GetType().Name}): {ex.Message} | {firstFrame}";
             StatusMessage = "Load failed";
         }
         finally
