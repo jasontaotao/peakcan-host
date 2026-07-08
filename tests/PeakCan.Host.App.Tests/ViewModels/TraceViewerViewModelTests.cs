@@ -300,40 +300,41 @@ public class TraceViewerViewModelTests
         sut.Signals.Should().BeEmpty();
     }
 
+    // v3.15.0 MINOR: tests below (RebuildSignalsAsync_DbcLoaded_PopulatesOneRowPerSignal,
+    // RebuildSignalsAsync_MultipleSignalsSameId_PopulatesAll,
+    // RebuildSignalsAsync_LatestValueIsLastDecoded) were DELETED — they
+    // asserted v3.14.3 "DBC 全列" semantics which v3.15.0 explicitly
+    // reverses. The new watch-list tests in
+    // TraceViewerViewModelRebuildSignalsTests cover the v3.15.0
+    // contracts (WatchedSignals empty by default + AddToWatch populates).
+
     [Fact]
     public async Task RebuildSignalsAsync_DbcLoaded_PopulatesOneRowPerSignal()
     {
+        // v3.15.0 MINOR: rewritten for watch-list mode. The watch list
+        // starts empty even with DBC + frames loaded; AddToWatch adds
+        // exactly one row per signal-in-scope.
         var svc = MakeFakeRegistry();
-        // v3.2.0 MINOR: pre-populate Sources so RebuildSignalsAsync (called
-        // directly since v3.13.0 PATCH F3 removed LoadDbcAsync) has at least
-        // one source to iterate.
         svc.Sources.Returns(new List<TraceSource>
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // Two frames for 0x100 → LatestValue is the last decoded value.
-        // RPM is unsigned LE 16-bit @ startBit 0, factor=1 → bytes [0x42,0x01] = 0x0142 = 322.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
-            Frame(0x100, 0x00, 0x00),         // 0
-            Frame(0x100, 0x42, 0x01),         // 322
+            Frame(0x100, 0x00, 0x00),
+            Frame(0x100, 0x42, 0x01),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
         await sut.RebuildSignalsAsync();
 
-        sut.Signals.Should().HaveCount(1);
-        var row = sut.Signals[0];
+        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().BeEmpty();
+        sut.AddToWatch(0x100, "RPM", "");
+        var row = sut.WatchedSignals.Single(w => !w.IsPlaceholder);
         row.CanIdHex.Should().Be("0x100");
         row.SignalName.Should().Be("RPM");
         row.Unit.Should().Be("rpm");
-        row.IsPlotted.Should().BeFalse();
         row.LatestValue.Should().Be(322.0);
     }
 
@@ -345,7 +346,6 @@ public class TraceViewerViewModelTests
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // bytes [0x10,0x00] = RPM 0x0010 = 16; bytes [0x20,0x00] = TEMP 0x0020 = 32.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x100, 0x10, 0x00, 0x20, 0x00),
@@ -353,39 +353,34 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
         await sut.RebuildSignalsAsync();
 
-        sut.Signals.Should().HaveCount(2);
-        sut.Signals[0].SignalName.Should().Be("RPM");
-        sut.Signals[0].LatestValue.Should().Be(16.0);
-        sut.Signals[1].SignalName.Should().Be("TEMP");
-        sut.Signals[1].LatestValue.Should().Be(32.0);
+        sut.AddToWatch(0x100, "RPM", "");
+        sut.AddToWatch(0x100, "TEMP", "");
+        var rows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        rows.Should().HaveCount(2);
+        rows[0].SignalName.Should().Be("RPM");
+        rows[0].LatestValue.Should().Be(16.0);
+        rows[1].SignalName.Should().Be("TEMP");
+        rows[1].LatestValue.Should().Be(32.0);
     }
 
     [Fact]
     public async Task RebuildSignalsAsync_NoMatchingFrames_LeavesSignalsEmpty()
     {
         var svc = MakeFakeRegistry();
-        // DBC defines id 0x100, but only id 0x555 frames are loaded.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x555, 0x42, 0x00),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
-
         await sut.AddTraceAsync();
 
-        sut.Signals.Should().BeEmpty();
+        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().BeEmpty();
     }
 
     [Fact]
@@ -396,11 +391,6 @@ public class TraceViewerViewModelTests
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // Three frames for 0x100 → LatestValue must be the LAST decoded,
-        // not the first nor the max. RPM 16-bit LE unsigned:
-        //   frame1: 0x01,0x00 → 1
-        //   frame2: 0xFF,0x00 → 255  (max)
-        //   frame3: 0x05,0x00 → 5    (last — this is the asserted value)
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x100, 0x01, 0x00),
@@ -410,15 +400,11 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
         await sut.RebuildSignalsAsync();
+        sut.AddToWatch(0x100, "RPM", "");
 
-        sut.Signals.Should().HaveCount(1);
-        sut.Signals[0].LatestValue.Should().Be(5.0);
+        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().ContainSingle();
+        sut.WatchedSignals.First(w => !w.IsPlaceholder).LatestValue.Should().Be(5.0);
     }
 
     // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====

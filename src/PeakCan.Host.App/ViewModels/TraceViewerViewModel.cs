@@ -127,11 +127,28 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private string _statusMessage = "Status: ready";
 
     public ObservableCollection<TraceSignalRow> Signals { get; } = new();
+
+    /// <summary>v3.15.0 MINOR: watch list (default empty; user adds
+    /// explicitly via + Add to watch…). Replaces v3.14.3's
+    /// "DBC 全列" `Signals` collection conceptually but keeps the
+    /// legacy collection for back-compat until the v3.14.3 tests
+    /// are migrated. New XAML binds to <see cref="WatchedSignals"/>
+    /// instead.</summary>
+    public ObservableCollection<WatchedSignalRow> WatchedSignals { get; } = new();
+
     public TraceChartViewModel ChartViewModel { get; } = new();
 
     /// <summary>v3.2.0 MINOR: read-through to the registry. XAML binds the
     /// legend strip against this property (one entry per loaded source).</summary>
     public IReadOnlyList<TraceSource> Sources => _registry.Sources;
+
+    // v3.15.0 MINOR: filename-only display of LoadedDbcPath for the
+    // toolbar TextBlock. Full path is in the tooltip. Empty when no
+    // DBC is loaded (B1 fix).
+    public string LoadedDbcPathDisplay
+        => string.IsNullOrEmpty(LoadedDbcPath)
+            ? ""
+            : System.IO.Path.GetFileName(LoadedDbcPath);
 
     public TraceViewerViewModel(
         ITraceSessionRegistry registry,
@@ -841,13 +858,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.14.3 PATCH: re-walk every loaded source's frames, count
-    /// matches per (CAN ID, signal name) pair, and update each
-    /// existing <see cref="TraceSignalRow.FrameCount"/> +
-    /// <see cref="TraceSignalRow.LatestValue"/> in place. Does NOT
-    /// clear <see cref="Signals"/> or
-    /// <see cref="TraceChartViewModel.Series"/> — user opt-ins (chart
-    /// rows) survive.
+    /// v3.14.3 PATCH + v3.15.0 MINOR: re-walk every loaded source's
+    /// frames, count matches per (CAN ID, signal name) pair, and
+    /// update each existing <see cref="WatchedSignalRow.FrameCount"/>
+    /// + <see cref="WatchedSignalRow.LatestValue"/> in place. Iterates
+    /// <see cref="WatchedSignals"/> (the user's explicit watch list),
+    /// NOT the v3.14.3 DBC 全列. Does NOT clear WatchedSignals or
+    /// <see cref="TraceChartViewModel.Series"/> — user watch entries
+    /// (chart rows) survive.
     /// </summary>
     private void RefreshFrameCounts()
     {
@@ -855,9 +873,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var dbc = _dbcService.Current;
         var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
         var byId = BucketFramesByCanId(allowed);
-        foreach (var row in Signals)
+        foreach (var row in WatchedSignals)
         {
-            // lookup the matching bucket via SignalKey's idHex prefix
+            // Skip the placeholder row (no real canId to decode).
+            if (row.IsPlaceholder) continue;
+
             var dot = row.SignalKey.IndexOf('.');
             if (dot <= 0) continue;
             var idHexStr = row.SignalKey.Substring(0, dot);
@@ -867,16 +887,42 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                                null, out var canId)) continue;
             var lookupId = canId & 0x7FFFFFFFu;
             var matching = byId.TryGetValue(lookupId, out var list) ? list : null;
-            var count = matching?.Count ?? 0;
+
+            // v3.15.0 MINOR: source-pinned watches filter the frame
+            // count by that specific SourceId. Cross-source watches
+            // (SourceId == null) see all-source totals.
+            int count;
+            ReplayFrame? lastFrame = null;
+            if (row.SourceId is null)
+            {
+                count = matching?.Count ?? 0;
+                lastFrame = matching is { Count: > 0 } ? matching[^1] : null;
+            }
+            else
+            {
+                var perSourceFrames = matching?.Where(f =>
+                {
+                    // Look up which source this frame belongs to by
+                    // walking _registry.Sources — ReplayFrame doesn't
+                    // carry SourceId. For now, count by per-source
+                    // registry lookup.
+                    var src = _registry.Sources.FirstOrDefault(s =>
+                        _registry.GetFrames(s.SourceId).Contains(f));
+                    return src?.SourceId == row.SourceId;
+                }).ToList();
+                count = perSourceFrames?.Count ?? 0;
+                lastFrame = perSourceFrames is { Count: > 0 } ? perSourceFrames[^1] : null;
+            }
+
             row.FrameCount = count;
-            if (matching is { Count: > 0 })
+            if (lastFrame is not null)
             {
                 var sig = dbc.Messages
                     .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
                     .SelectMany(m => m.Signals)
                     .FirstOrDefault(s => s.Name == row.SignalName);
                 if (sig is not null)
-                    row.LatestValue = SignalDecoder.Decode(matching[^1].Data, sig);
+                    row.LatestValue = SignalDecoder.Decode(lastFrame.Data, sig);
             }
         }
     }
@@ -906,7 +952,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <c>UpdateSourceTrigger=PropertyChanged</c>).
     /// </summary>
     [RelayCommand]
-    public void TogglePlot(TraceSignalRow row)
+    public void TogglePlot(WatchedSignalRow row)
     {
         if (row is null) throw new ArgumentNullException(nameof(row));
         if (row.IsPlotted)
@@ -918,11 +964,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <summary>
     /// v3.14.3 PATCH: explicit opt-in. Tests and programmatic callers
     /// use this directly (no binding lag concerns). Production XAML
-    /// uses <see cref="TogglePlot(TraceSignalRow)"/> which inspects
-    /// the row's <see cref="TraceSignalRow.IsPlotted"/> after the
+    /// uses <see cref="TogglePlot(WatchedSignalRow)"/> which inspects
+    /// the row's <see cref="WatchedSignalRow.IsPlotted"/> after the
     /// binding has updated it.
     /// </summary>
-    public void SetPlotOptIn(TraceSignalRow row, bool optIn)
+    public void SetPlotOptIn(WatchedSignalRow row, bool optIn)
     {
         if (row is null) throw new ArgumentNullException(nameof(row));
         if (optIn)
@@ -932,12 +978,139 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.14.3 PATCH: invoked by <see cref="TogglePlot"/> when the user
-    /// checks the box. Creates one <see cref="TraceChartSeries"/> per
-    /// source that has matching frames. Graceful no-op if no source
-    /// has frames (user can still toggle; nothing to chart).
+    /// v3.14.3 PATCH back-compat: legacy overload accepting the old
+    /// <see cref="TraceSignalRow"/> record. Wraps the call by
+    /// forwarding via the row's INPC fields (SignalKey / SignalName /
+    /// CanIdHex). New code should call the
+    /// <see cref="SetPlotOptIn(WatchedSignalRow, bool)"/> overload
+    /// directly. The wrapping builds a transient
+    /// <see cref="WatchedSignalRow"/> from the legacy row's fields.
     /// </summary>
-    private void PlotSignalFromTableRow(TraceSignalRow row)
+    public void SetPlotOptIn(TraceSignalRow row, bool optIn)
+    {
+        if (row is null) throw new ArgumentNullException(nameof(row));
+        var transient = new WatchedSignalRow(
+            canIdHex: row.CanIdHex,
+            messageName: "",
+            signalName: row.SignalName,
+            unit: row.Unit);
+        SetPlotOptIn(transient, optIn);
+    }
+
+    /// <summary>
+    /// v3.15.0 MINOR: add a signal to the user's watch list. Invoked
+    /// from the <c>+ Add to watch…</c> toolbar button (which opens a
+    /// <c>DbcTreePickerWindow</c> for the user to pick a message +
+    /// signal). Creates a new <see cref="WatchedSignalRow"/>,
+    /// appends to <see cref="WatchedSignals"/>, and immediately plots
+    /// the chart series for the watched source(s). Idempotent on
+    /// duplicate (canId, signalName, sourceId) — silently no-ops if
+    /// the row already exists.
+    /// <para>
+    /// Not decorated with <c>[RelayCommand]</c> because the toolkit's
+    /// generator does not support 3-arg signatures. Callers (XAML
+    /// code-behind, programmatic) invoke this method directly.
+    /// </para>
+    /// </summary>
+    public void AddToWatch(uint canId, string signalName, string sourceId)
+    {
+        if (_dbcService.Current is null) return;
+        var dbc = _dbcService.Current;
+
+        // Lookup the message + signal in the DBC.
+        var maskedId = canId & 0x7FFFFFFFu;
+        var msg = dbc.Messages.FirstOrDefault(m => (m.Id & 0x7FFFFFFFu) == maskedId);
+        if (msg is null) return;
+        var sig = msg.Signals.FirstOrDefault(s => s.Name == signalName);
+        if (sig is null) return;
+
+        // Treat empty string as "all sources" (cross-source watch).
+        string? pinnedSource = string.IsNullOrEmpty(sourceId) ? null : sourceId;
+
+        // Idempotent: dedupe on (canId, signalName, sourceId).
+        var canIdHex = FormatCanIdHex(maskedId);
+        var existing = WatchedSignals.FirstOrDefault(w =>
+            !w.IsPlaceholder
+            && w.CanIdHex == canIdHex
+            && w.SignalName == signalName
+            && w.SourceId == pinnedSource);
+        if (existing is not null) return;
+
+        var row = new WatchedSignalRow(
+            canIdHex: canIdHex,
+            messageName: msg.Name,
+            signalName: signalName,
+            unit: sig.Unit,
+            sourceId: pinnedSource);
+        WatchedSignals.Add(row);
+
+        // v3.15.0 MINOR: refresh FrameCount + LatestValue for the new
+        // row from the current bucket so the watch list immediately
+        // shows how many frames are available.
+        RefreshFrameCounts();
+
+        // Auto-plot: the user just added this — show them the data
+        // immediately. PlotSignalFromTableRow accepts a WatchedSignalRow.
+        PlotSignalFromTableRow(row);
+
+        // Drop any placeholder row when the first real watch entry is added.
+        var placeholders = WatchedSignals.Where(w => w.IsPlaceholder).ToList();
+        foreach (var ph in placeholders)
+            WatchedSignals.Remove(ph);
+    }
+
+    /// <summary>
+    /// v3.15.0 MINOR: remove a watch entry. Unplots any chart series
+    /// that came from this row, then removes from
+    /// <see cref="WatchedSignals"/>.
+    /// </summary>
+    [RelayCommand]
+    public void RemoveFromWatch(WatchedSignalRow row)
+    {
+        if (row is null) return;
+        if (row.IsPlaceholder) return;
+        UnplotSignalFromTableRow(row);
+        WatchedSignals.Remove(row);
+        EnsurePlaceholderRow();
+    }
+
+    /// <summary>
+    /// v3.15.0 MINOR: ensure the watch list shows a contextual
+    /// placeholder row when it's empty. Called from
+    /// <see cref="RebuildSignalsCore"/> + <see cref="OnRegistrySourcesChanged"/>
+    /// + <see cref="OnDbcLoaded"/> + <see cref="RemoveFromWatch"/>.
+    /// </summary>
+    private void EnsurePlaceholderRow()
+    {
+        // Don't add a duplicate placeholder.
+        if (WatchedSignals.Any(w => w.IsPlaceholder)) return;
+        var dbc = _dbcService.Current;
+        var asc = _registry.Sources.Count;
+        string msg;
+        if (dbc is null && asc == 0)
+            msg = "(no DBC and no .asc loaded — open DBC tab + File ▸ Add trace…)";
+        else if (dbc is null)
+            msg = "(no DBC loaded — open DBC from DBC tab to enable watch list)";
+        else if (asc == 0)
+            msg = "(no .asc loaded — File ▸ Add trace… to populate)";
+        else
+            msg = "(no signals in watch list — click + Add to watch…)";
+        WatchedSignals.Add(new WatchedSignalRow(
+            canIdHex: "—",
+            messageName: msg,
+            signalName: "",
+            unit: "",
+            isPlaceholder: true));
+    }
+
+    /// <summary>
+    /// v3.15.0 MINOR: invoked by <see cref="TogglePlot"/> (legacy
+    /// v3.14.3 path) and by <see cref="AddToWatch"/> (new v3.15.0
+    /// path). Creates one <see cref="TraceChartSeries"/> per source
+    /// that has matching frames. Graceful no-op if no source has
+    /// frames (user can still toggle; nothing to chart).
+    /// </summary>
+    private void PlotSignalFromTableRow(WatchedSignalRow row)
     {
         if (_dbcService.Current is null) return;
         var dbc = _dbcService.Current;
@@ -958,6 +1131,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var created = 0;
         foreach (var source in _registry.Sources)
         {
+            // v3.15.0 MINOR: source-pinned watches only plot against
+            // their pinned source; cross-source watches (SourceId null)
+            // plot all sources.
+            if (row.SourceId is not null && source.SourceId != row.SourceId) continue;
             var built = BuildOneChartSeriesForSource(source, sig, lookupId, row.CanIdHex, row.SignalName);
             if (built is null) continue;  // no frames in this source
             ChartViewModel.AddSeries(built);
@@ -972,12 +1149,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.14.3 PATCH: remove all chart series whose
+    /// v3.14.3 PATCH + v3.15.0 MINOR: remove all chart series whose
     /// <see cref="TraceChartSeries.SignalKey"/> matches
     /// <paramref name="row"/>.SignalKey. Inverse of
     /// <see cref="PlotSignalFromTableRow"/>.
     /// </summary>
-    private void UnplotSignalFromTableRow(TraceSignalRow row)
+    private void UnplotSignalFromTableRow(WatchedSignalRow row)
     {
         var key = row.SignalKey;
         // Snapshot because RemoveSeries mutates the collection.
@@ -1015,14 +1192,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     // v3.13.2 PATCH F5: rebuild Signals + chart subplots when a DBC is
-    // loaded via the DbcView tab. Mirrors the same rebuild path that
-    // fires on SourcesChanged / per-source INPC. DbcDocument does not
-    // currently expose a SourcePath property, so LoadedDbcPath is left
-    // for the next .tmtrace OpenSession to restore — the user-visible
-    // bug (empty subplots after DBC load) is fixed by the rebuild alone.
+    // loaded via the DbcView tab. v3.15.0 MINOR: also update
+    // LoadedDbcPath so the XAML top bar reflects the currently loaded
+    // DBC file (DbcDocument.SourcePath was added in v3.15.0).
     private void OnDbcLoaded(DbcDocument doc)
     {
-        _ = doc; // path-sync intentionally skipped: DbcDocument has no SourcePath.
+        LoadedDbcPath = doc.SourcePath ?? "";
         RebuildSignalsCore();
     }
 
@@ -1160,32 +1335,22 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private void RebuildSignalsCore()
     {
-        Signals.Clear();
-        ChartViewModel.Series.Clear();   // v3.14.3 PATCH: rebuild on DBC change = wipe all chart rows
-        // v3.4.2 PATCH: parse the global filter once per rebuild. null = no filter.
-        var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
-        var dbc = _dbcService.Current;
-        if (dbc is null)
+        // v3.15.0 MINOR: rebuild only re-runs the per-watch-list frame
+        // refresh; WatchedSignals is NOT cleared (user's watch list
+        // is the source of truth, survives rebuild). The legacy
+        // v3.14.3 `Signals` collection is left in place but no longer
+        // populated — it will be removed when the v3.14.3 tests are
+        // migrated to WatchedSignals. BuildChartSeries (v3.14.3 stub)
+        // stays as no-op since chart rows are still user opt-in via
+        // TogglePlot.
+        var placeholders = WatchedSignals.Where(w => w.IsPlaceholder).ToList();
+        foreach (var ph in placeholders)
+            WatchedSignals.Remove(ph);
+        if (_dbcService.Current is not null)
         {
-            // No DBC — nothing to decode against.
-            return;
+            RefreshFrameCounts();
         }
-
-        // v3.11.0 MINOR T4 (H8): 145-LoC body split into 3 sub-methods.
-        // v3.14.3 PATCH: BuildSignalRowsFromDbcOnly emits ALL DBC signals
-        // regardless of frame presence; BuildChartSeries is now a no-op
-        // stub (chart rows are user-opt-in via TogglePlot).
-        var byId = BucketFramesByCanId(allowed);
-        var rows = BuildSignalRowsFromDbcOnly(byId, dbc);
-        foreach (var row in rows)
-        {
-            Signals.Add(row);
-        }
-#pragma warning disable CS0618 // intentional use of obsolete stub
-        BuildChartSeries(allowed, dbc);
-#pragma warning restore CS0618
-
-        // v3.4.0 MINOR: synchronize axes now that all subplots exist.
+        EnsurePlaceholderRow();
         ChartViewModel.SyncYAxes();
         ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
     }

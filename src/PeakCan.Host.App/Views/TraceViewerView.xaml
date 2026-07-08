@@ -28,6 +28,13 @@
                  The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
                     Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.15.0 MINOR: loaded DBC path (filename only) shown in
+                 the toolbar; full path in tooltip. B1 fix for the
+                 "LoadedDbcPath always empty" bug. -->
+            <TextBlock VerticalAlignment="Center" Margin="8,0,4,0"
+                       Foreground="Gray"
+                       Text="{Binding LoadedDbcPathDisplay}"
+                       ToolTip="{Binding LoadedDbcPath}" />
             <!-- v3.13.0 PATCH F3: removed "Load DBC…" toolbar button. DbcView
                  tab is the single entry point for DBC loading (the Trace
                  Viewer still reads _dbcService.Current for decoding — no

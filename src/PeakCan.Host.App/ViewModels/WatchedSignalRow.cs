@@ -1,0 +1,97 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace PeakCan.Host.App.ViewModels;
+
+/// <summary>
+/// v3.15.0 MINOR: a signal the user has explicitly added to the Trace
+/// Viewer's watch list. Default empty (the watch list is opt-in per
+/// user intent — not the v3.14.3 "show every DBC signal" behavior).
+/// <para>
+/// One <see cref="WatchedSignalRow"/> represents one user intent:
+/// "show me <c>CanIdHex / SignalName</c> on <c>SourceId</c> (or all
+/// sources if <see cref="SourceId"/> is null)". The row carries a
+/// stable <see cref="WatchId"/> for removal + persistence; the
+/// inherited INPC fields (IsPlotted, FrameCount, LatestValue) drive
+/// the per-row chart state and per-frame stats columns.
+/// </para>
+/// <para>
+/// Reuses the v3.14.3 <see cref="TraceSignalRow"/> INPC fields
+/// (IsPlotted, FrameCount, LatestValue). The <see cref="SourceId"/>
+/// field is new — null means "all sources" (default opt-in behavior);
+/// non-null pins the watch entry to a specific source.
+/// </para>
+/// </summary>
+public sealed partial class WatchedSignalRow : ObservableObject
+{
+    /// <summary>Stable identity for remove-by-WatchId + .tmtrace
+    /// round-trip. Generated once at construction.</summary>
+    public string WatchId { get; }
+
+    public string CanIdHex { get; init; }
+    public string MessageName { get; init; }
+    public string SignalName { get; init; }
+    public string Unit { get; init; }
+
+    /// <summary>Null = "all sources" (cross-source watch). Non-null =
+    /// pinned to one specific loaded source.</summary>
+    public string? SourceId { get; init; }
+
+    /// <summary>True when the chart series has been added to
+    /// ChartViewModel.Series; false after the user unchecks Plot.
+    /// TogglePlotCommand flips this; PlotSignalFromTableRow /
+    /// UnplotSignalFromTableRow read it to decide chart-side action.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isPlotted = true;
+
+    /// <summary>Frame count for this signal across the watched source(s).
+    /// RefreshFrameCounts updates this in place when ASC loads arrive.
+    /// 0 for signals whose CAN ID has no frames in any watched source.</summary>
+    [ObservableProperty]
+    private int _frameCount;
+
+    /// <summary>Last decoded value across the watched source(s). Set
+    /// once at AddToWatch + refreshed when ASC reloads. NaN when no
+    /// frames exist yet (DBC loaded but no ASC).</summary>
+    [ObservableProperty]
+    private double _latestValue = double.NaN;
+
+    /// <summary>True for the single placeholder row shown when the
+    /// watch list is empty. Placeholder rows are not interactive —
+    /// they're a UX hint, not a real watch entry.</summary>
+    [ObservableProperty]
+    private bool _isPlaceholder;
+
+    public WatchedSignalRow(
+        string canIdHex,
+        string messageName,
+        string signalName,
+        string unit,
+        string? sourceId = null,
+        bool isPlotted = true,
+        int frameCount = 0,
+        double latestValue = double.NaN,
+        bool isPlaceholder = false)
+    {
+        WatchId = Guid.NewGuid().ToString("N");
+        CanIdHex = canIdHex;
+        MessageName = messageName;
+        SignalName = signalName;
+        Unit = unit;
+        SourceId = sourceId;
+        _isPlotted = isPlotted;
+        _frameCount = frameCount;
+        _latestValue = latestValue;
+        _isPlaceholder = isPlaceholder;
+    }
+
+    /// <summary>v3.15.0 MINOR: lookup key for chart-side operations.
+    /// Matches <see cref="TraceChartSeries.SignalKey"/> format
+    /// ("{idHex}.{signalName}"). Source-pinned watches append
+    /// ".{sourceId}" so two watches of the same signal on different
+    /// sources get distinct chart series.</summary>
+    public string SignalKey
+        => SourceId is null
+            ? $"{CanIdHex}.{SignalName}"
+            : $"{CanIdHex}.{SignalName}.{SourceId}";
+}
