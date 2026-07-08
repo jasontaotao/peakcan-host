@@ -120,18 +120,23 @@ public partial class TraceViewerView : Window
 
     private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
     {
-        // v3.16.3 PATCH BUGFIX: DataContext is WatchedSignalRow, not
-        // TraceSignalRow (v3.15.0 swapped the signal table collection).
-        // Casting to TraceSignalRow silently failed, so the click
-        // handler returned without doing anything. The Plot checkbox
-        // appeared to be a no-op.
+        // v3.16.4 PATCH BUGFIX (multi-agent review): the prior guard
+        // `if (row.IsPlotted == isChecked) return;` was the cause of
+        // the "☑ Plot click is a no-op" symptom. The CheckBox's
+        // TwoWay binding writes the new IsPlotted value to
+        // `row.IsPlotted` BEFORE the Click event fires, so by the
+        // time we read it here, `row.IsPlotted == isChecked` is
+        // ALWAYS true. The guard fired on every click → SetPlotOptIn
+        // was never called → chart series was never added/removed.
+        //
+        // The fix: unconditionally call SetPlotOptIn with the
+        // CheckBox.IsChecked (the UI's truth at click time). The VM
+        // uses the new value to decide plot vs unplot. Matches the
+        // working pattern in SignalView.xaml.cs:61-69.
         if (sender is CheckBox { IsChecked: bool isChecked } cb
             && cb.DataContext is WatchedSignalRow row
             && DataContext is TraceViewerViewModel vm)
         {
-            // Ignore stale reentry if row was already at this state
-            // (e.g. virtualizing recycle of an off-screen row).
-            if (row.IsPlotted == isChecked) return;
             vm.SetPlotOptIn(row, isChecked);
         }
     }

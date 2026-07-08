@@ -1612,12 +1612,21 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var plotModel = new PlotModel();
         plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom });
         plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Left });
+        // v3.16.4 PATCH BUGFIX: materialize the ItemsSource to a
+        // List<DataPoint>. The previous deferred LINQ chain
+        // (Enumerable.Range(...).Select(...)) was an IEnumerable that
+        // OxyPlot's WPF binding machinery does not enumerate reliably
+        // — the LineSeries would render with zero points. Forcing
+        // .ToList() materializes the data so OxyPlot gets a stable
+        // IList it can render.
+        var dataPoints = new List<DataPoint>(frames.Count);
+        for (int i = 0; i < frames.Count; i++)
+            dataPoints.Add(new DataPoint(xs[i], ys[i]));
         var line = new LineSeries
         {
             Color = source.Color,
             LineStyle = source.StrokeStyle,
-            ItemsSource = Enumerable.Range(0, frames.Count)
-                .Select(i => new DataPoint(xs[i], ys[i])),
+            ItemsSource = dataPoints,
         };
         plotModel.Series.Add(line);
 
