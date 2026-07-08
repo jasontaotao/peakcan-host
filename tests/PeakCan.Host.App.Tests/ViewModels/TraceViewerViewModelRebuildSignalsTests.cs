@@ -272,4 +272,48 @@ public class TraceViewerViewModelRebuildSignalsTests
         var placeholder = sut.WatchedSignals.Single(w => w.IsPlaceholder);
         placeholder.MessageName.Should().Contain("Add to watch");
     }
+
+    /// <summary>
+    /// v3.16.2 PATCH: picker batch add (N signals at once) must
+    /// leave the watch list in a consistent state — N added rows,
+    /// 0 placeholders, 1 chart series per matching source per
+    /// row. The old per-row "Add + Remove placeholder" sequence
+    /// confused WPF's ItemContainerGenerator; the new design does
+    /// all Adds first, then a single Remove pass via
+    /// <c>FinalizePickerAdds</c>.
+    /// </summary>
+    [Fact]
+    public async Task FinalizePickerAdds_BatchInsert_LeavesConsistentState()
+    {
+        var registry = MakeFakeRegistry();
+        var svc = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+        });
+        registry.GetService("a").Returns(svc);
+        registry.GetFrames("a").Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x200, 0x20, 0x00),
+        });
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithTwoMessages());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        await sut.RebuildSignalsAsync();
+
+        // 1 placeholder before picker batch.
+        sut.WatchedSignals.Should().ContainSingle(w => w.IsPlaceholder);
+
+        // Picker selects 2 signals.
+        var r1 = sut.AddToWatchForPicker(0x100, "RPM", "");
+        var r2 = sut.AddToWatchForPicker(0x200, "Temp", "");
+        sut.FinalizePickerAdds(new[] { r1, r2 });
+
+        sut.WatchedSignals.Where(w => w.IsPlaceholder).Should().BeEmpty(
+            "v3.16.2 PATCH: FinalizePickerAdds drops the placeholder after the Add burst");
+        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().HaveCount(2);
+        sut.ChartViewModel.Series.Should().HaveCount(2);
+    }
 }

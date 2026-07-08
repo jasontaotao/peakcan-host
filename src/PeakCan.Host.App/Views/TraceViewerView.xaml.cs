@@ -95,6 +95,12 @@ public partial class TraceViewerView : Window
     /// v3.16.0 MINOR: open the DBC tree picker dialog. The user
     /// selects one or more signals; we call
     /// <c>TraceViewerViewModel.AddToWatch</c> for each (cross-source).
+    /// v3.16.2 PATCH BUGFIX: after the picker returns, finalize the
+    /// watch state (drop placeholder + refresh frame counts + plot all
+    /// in one WPF render pass). This avoids the ItemContainerGenerator
+    /// confusion that arises when AddToWatch's internal "Add row +
+    /// Remove placeholder" sequence interleaves with the picker's
+    /// burst of multiple AddToWatch calls.
     /// </summary>
     private void OnAddToWatchClick(object sender, RoutedEventArgs e)
     {
@@ -104,8 +110,12 @@ public partial class TraceViewerView : Window
         var pickerVm = new DbcTreePickerViewModel(doc);
         var dialog = new DbcTreePickerWindow(pickerVm) { Owner = this };
         if (dialog.ShowDialog() != true) return;
+        var added = new List<PeakCan.Host.App.ViewModels.WatchedSignalRow>();
         foreach (var (canId, signalName) in dialog.SelectedSignals)
-            vm.AddToWatch(canId, signalName, "");
+            added.Add(vm.AddToWatchForPicker(canId, signalName, ""));
+        // Finalize after the AddToWatch burst settles: drop the
+        // placeholder (if any), refresh frame counts, plot. One pass.
+        vm.FinalizePickerAdds(added);
     }
 
     private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)

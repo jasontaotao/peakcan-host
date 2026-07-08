@@ -1048,6 +1048,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             signalName: signalName,
             unit: sig.Unit,
             sourceId: pinnedSource);
+        // v3.16.2 PATCH: back to the original single-call semantics —
+        // Add + RefreshFrameCounts + Plot + remove placeholder all in
+        // one pass. Safe when called once (tests, programmatic) — the
+        // ItemContainerGenerator confusion only happens with rapid
+        // bursts of multiple AddToWatch calls (the picker flow), which
+        // uses the new AddToWatchForPicker + FinalizePickerAdds pair.
         WatchedSignals.Add(row);
 
         // v3.15.0 MINOR: refresh FrameCount + LatestValue for the new
@@ -1063,6 +1069,78 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var placeholders = WatchedSignals.Where(w => w.IsPlaceholder).ToList();
         foreach (var ph in placeholders)
             WatchedSignals.Remove(ph);
+    }
+
+    /// <summary>
+    /// v3.16.2 PATCH: picker-friendly AddToWatch that returns the
+    /// created row. The caller collects all rows in a list, then
+    /// invokes <see cref="FinalizePickerAdds"/> once to drop the
+    /// placeholder + refresh frame counts + plot — keeping the
+    /// WatchedSignals collection edit pattern as "N adds then 1
+    /// remove" (WPF ItemContainerGenerator-friendly) rather than
+    /// the previous "add + remove + add + add + remove" interleave.
+    /// </summary>
+    public WatchedSignalRow AddToWatchForPicker(uint canId, string signalName, string sourceId)
+    {
+        if (_dbcService.Current is null) return null!;
+        var dbc = _dbcService.Current;
+        var maskedId = canId & 0x7FFFFFFFu;
+        var msg = dbc.Messages.FirstOrDefault(m => (m.Id & 0x7FFFFFFFu) == maskedId);
+        if (msg is null) return null!;
+        var sig = msg.Signals.FirstOrDefault(s => s.Name == signalName);
+        if (sig is null) return null!;
+
+        string? pinnedSource = string.IsNullOrEmpty(sourceId) ? null : sourceId;
+        var canIdHex = FormatCanIdHex(maskedId);
+        var existing = WatchedSignals.FirstOrDefault(w =>
+            !w.IsPlaceholder
+            && w.CanIdHex == canIdHex
+            && w.SignalName == signalName
+            && w.SourceId == pinnedSource);
+        if (existing is not null) return existing;
+
+        var row = new WatchedSignalRow(
+            canIdHex: canIdHex,
+            messageName: msg.Name,
+            signalName: signalName,
+            unit: sig.Unit,
+            sourceId: pinnedSource);
+        WatchedSignals.Add(row);
+        return row;
+    }
+
+    /// <summary>
+    /// v3.16.2 PATCH: finalize a batch of picker additions. Drops
+    /// any placeholder, refreshes frame counts, and plots each
+    /// added row. Designed to be called once after the picker
+    /// returns, so the WatchedSignals collection has a single
+    /// "add N rows" event followed by a single "remove placeholder"
+    /// event (rather than the interleave that caused
+    /// ItemContainerGenerator confusion in v3.16.1).
+    /// </summary>
+    public void FinalizePickerAdds(IReadOnlyList<WatchedSignalRow> addedRows)
+    {
+        if (addedRows is null || addedRows.Count == 0)
+        {
+            // Even on no-op, ensure placeholder state is correct.
+            EnsurePlaceholderRow();
+            return;
+        }
+
+        // Drop any placeholder row.
+        var placeholders = WatchedSignals.Where(w => w.IsPlaceholder).ToList();
+        foreach (var ph in placeholders)
+            WatchedSignals.Remove(ph);
+
+        // Refresh frame counts for the watch list.
+        RefreshFrameCounts();
+
+        // Plot each newly added row.
+        foreach (var row in addedRows)
+        {
+            if (row is null) continue;
+            PlotSignalFromTableRow(row);
+        }
     }
 
     /// <summary>
