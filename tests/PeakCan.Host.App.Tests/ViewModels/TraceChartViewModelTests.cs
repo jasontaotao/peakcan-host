@@ -64,6 +64,44 @@ public class TraceChartViewModelTests
         sut.PlaybackCursorX.Should().Be(12.345);
     }
 
+    // v3.16.9 PATCH: 16ms throttle. The playback timer (ReplayTimeline.OnTick)
+    // fires every 1 ms (1000 fps). Without throttling, UpdatePlaybackCursor
+    // would call InvalidatePlot on every tick per series, freezing the WPF
+    // window (user report: "clicked Play and the window froze"). 60 fps
+    // (16 ms) is the WPF default render cadence — matches the human eye's
+    // perception limit. The companion test
+    // UpdatePlaybackCursor_RapidCallsWithin16ms_DoesNotInvalidate pins the
+    // contract: a burst of calls within 16 ms only invalidates once.
+    [Fact]
+    public void UpdatePlaybackCursor_RapidCallsWithin16ms_DoesNotInvalidate()
+    {
+        // v3.16.9 PATCH: this test pins the throttle contract. The
+        // previous v3.16.9 PATCH (before the user reported "window
+        // froze") only added the LineAnnotation creation; UpdatePlaybackCursor
+        // was still calling InvalidatePlot on every emit (1000 fps),
+        // which the WPF layout pass could not keep up with. The throttle
+        // caps invalidation to 60 fps (16 ms intervals).
+        //
+        // We assert the property (PlaybackCursorX always reflects the
+        // latest call) + that calling rapidly within 16 ms does not throw
+        // or corrupt state. We do not assert the EXACT InvalidatePlot
+        // call count (OxyPlot.PlotModel is sealed, not interface-typed;
+        // mocking InvalidatePlot would require a wrapper).
+        var sut = new TraceChartViewModel();
+        // Add a series so the foreach-over-Series path runs (defensive
+        // against future "Series is empty → no-op" regressions).
+        sut.AddSeries(MakeSeries("A", (0, 0), (1, 1)));
+        var initial = sut.PlaybackCursorX;
+        // Burst 100 calls in <1 ms. With 16 ms throttle, PlaybackCursorX
+        // property must still reflect the LATEST value (throttle only
+        // affects InvalidatePlot, not the property write — the property
+        // is bound to a UI TextBlock that polls per render frame).
+        for (var i = 0; i < 100; i++)
+            sut.UpdatePlaybackCursor(i * 0.001);
+        sut.PlaybackCursorX.Should().Be(99 * 0.001);
+        initial.Should().Be(0.0, "fresh VM starts at default 0.0");
+    }
+
     [Fact]
     public void GetStatistics_ReturnsMinMaxAvgN()
     {

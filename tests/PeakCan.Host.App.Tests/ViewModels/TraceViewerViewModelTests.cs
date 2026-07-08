@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
+using OxyPlot.Annotations;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -419,6 +420,51 @@ public class TraceViewerViewModelTests
 
         sut.Signals.Should().HaveCount(1);
         sut.Signals[0].LatestValue.Should().Be(5.0);
+    }
+
+    // v3.16.9 PATCH RED→GREEN: BuildOneChartSeriesForSource must add a
+    // LineAnnotation with Tag == "playback-cursor" to every series' PlotModel.
+    // The red playback cursor line is positioned by TraceChartViewModel
+    // .UpdatePlaybackCursor (TraceChartViewModel.cs:86-100) which looks up
+    // the annotation by tag. Without this annotation, UpdatePlaybackCursor
+    // is a silent no-op — the cursor never appears on screen even though
+    // PlaybackCursorX is being updated every frame.
+    //
+    // The v3.16.6 release notes flagged this diagnosis (line 42: "LineAnnotation
+    // was never created") but never fixed it. v3.16.9 PATCH is the actual fix.
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_CreatesPlaybackCursorLineAnnotation()
+    {
+        var svc = MakeFakeRegistry();
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-cursor-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // AddToWatch triggers BuildOneChartSeriesForSource via
+        // PlotSignalFromTableRow (line 1073). This is the v3.15.0+ user
+        // path (replaces v3.14.x's manual BuildChartSeries call).
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var plotModel = sut.ChartViewModel.Series[0].PlotModel;
+
+        var cursorAnnotation = plotModel.Annotations
+            .OfType<LineAnnotation>()
+            .FirstOrDefault(a => a.Tag as string == "playback-cursor");
+
+        cursorAnnotation.Should().NotBeNull(
+            "every PlotModel must contain a playback-cursor LineAnnotation so UpdatePlaybackCursor can position the red line on every frame");
+        cursorAnnotation!.X.Should().Be(0.0,
+            "the cursor starts at the trace's beginning (x=0) before playback advances it");
     }
 
     // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====

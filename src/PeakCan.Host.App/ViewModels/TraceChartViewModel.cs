@@ -83,10 +83,41 @@ public sealed class TraceChartViewModel : ObservableObject
         }
     }
 
+    // v3.16.9 PATCH: throttling state for UpdatePlaybackCursor. The
+    // playback timer fires every 1 ms (ReplayTimeline.OnTick period=1),
+    // but OxyPlot.PlotModel.InvalidatePlot on every 1 ms call causes
+    // the WPF window to freeze (the layout pass for the chart cannot
+    // keep up with 1000 plot invalidations / second per series).
+    // Throttle to one update per ~16 ms (60 fps) — the human eye cannot
+    // distinguish 60 fps cursor motion from 1000 fps cursor motion, and
+    // 60 fps is the WPF default render cadence. The skip count + last
+    // timestamp fields are instance state, not static, so multiple
+    // TraceChartViewModel instances (one per Trace Viewer window) do
+    // not interfere.
+    private DateTime _lastCursorInvalidate = DateTime.MinValue;
+    private double _lastCursorX = double.NaN;
+    private const double CursorInvalidateIntervalMs = 16.0;
+
     public void UpdatePlaybackCursor(double x)
     {
         PlaybackCursorX = x;
-        // Re-position red LineAnnotation on every subplot
+        // Skip the actual InvalidatePlot call if either:
+        // (a) the new X is the same as the last-rendered X (no movement),
+        //     which happens when OnTick emits multiple frames at the
+        //     same timestamp (rounded values), or
+        // (b) less than 16 ms has passed since the last invalidate.
+        // Without (a), a duplicate-timestamp frame burst would burn the
+        // full 1000 fps invalidate rate. Without (b), the user's
+        // window freezes mid-playback. Both are empirical findings from
+        // v3.16.9 PATCH user reproduction: "clicked Play and the window
+        // froze" — root-caused to UpdatePlaybackCursor invalidating at
+        // the timer cadence (1 ms) instead of the render cadence (16 ms).
+        var now = DateTime.UtcNow;
+        var elapsedMs = (now - _lastCursorInvalidate).TotalMilliseconds;
+        if (x == _lastCursorX || elapsedMs < CursorInvalidateIntervalMs)
+            return;
+        _lastCursorInvalidate = now;
+        _lastCursorX = x;
         foreach (var s in Series)
         {
             var cursor = s.PlotModel.Annotations.OfType<OxyPlot.Annotations.LineAnnotation>()
