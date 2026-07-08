@@ -28,6 +28,17 @@
                  The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
                     Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.16.0 MINOR: opens DbcTreePickerWindow for the user
+                 to pick DBC signals to add to the watch list. -->
+            <Button Content="+ Add to watch…" Click="OnAddToWatchClick"
+                    Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.15.0 MINOR: loaded DBC path (filename only) shown in
+                 the toolbar; full path in tooltip. B1 fix for the
+                 "LoadedDbcPath always empty" bug. -->
+            <TextBlock VerticalAlignment="Center" Margin="8,0,4,0"
+                       Foreground="Gray"
+                       Text="{Binding LoadedDbcPathDisplay}"
+                       ToolTip="{Binding LoadedDbcPath}" />
             <!-- v3.13.0 PATCH F3: removed "Load DBC…" toolbar button. DbcView
                  tab is the single entry point for DBC loading (the Trace
                  Viewer still reads _dbcService.Current for decoding — no
@@ -176,16 +187,40 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left: signal list -->
+            <!-- v3.15.0 MINOR: watch list (default empty; user adds via
+                 + Add to watch…). v3.16.1 PATCH BUGFIX: previously bound
+                 to the obsolete v3.14.3 `Signals` collection, which
+                 v3.15.0 stopped populating — the table always looked
+                 empty even when watch entries existed. Now bound to
+                 `WatchedSignals` (the v3.15.0 source of truth). -->
             <DataGrid Grid.Column="0"
-                      ItemsSource="{Binding Signals}"
+                      ItemsSource="{Binding WatchedSignals}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
                       RowHeight="22">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="80" />
+                    <DataGridTextColumn Header="Message" Binding="{Binding MessageName}" Width="160" />
                     <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
-                    <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
                     <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="60" />
+                    <DataGridTemplateColumn Header="Plot" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Click="OnPlotCheckboxClick"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="40" />
+                    <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
                 </DataGrid.Columns>
             </DataGrid>
 

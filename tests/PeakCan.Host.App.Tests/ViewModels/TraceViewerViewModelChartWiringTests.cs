@@ -17,12 +17,10 @@ using ValueType = PeakCan.Host.Core.Dbc.ValueType;
 namespace PeakCan.Host.App.Tests.ViewModels;
 
 /// <summary>
-/// v3.4.0 MINOR: pins the chart series production wiring that was
-/// dead code in v3.2.0 / v3.3.x. After this MINOR,
-/// <c>TraceViewerViewModel.RebuildSignalsAsync</c> populates
-/// <c>ChartViewModel.Series</c> with one subplot per (source, signal)
-/// pair, sets each subplot's LineSeries.LineStyle from the source's
-/// <c>StrokeStyle</c>, and calls <c>SyncYAxes()</c> after population.
+/// v3.15.0 MINOR: chart wiring tests rewritten for watch-list mode.
+/// Chart series are created via <c>AddToWatch</c>, not via
+/// <c>RebuildSignalsAsync</c>. Each watch row can fan out to one
+/// chart series per source that has matching frames.
 /// </summary>
 public class TraceViewerViewModelChartWiringTests
 {
@@ -41,12 +39,9 @@ public class TraceViewerViewModelChartWiringTests
     private static ILogger<TraceViewerViewModel> MakeFakeLogger()
         => Substitute.For<ILogger<TraceViewerViewModel>>();
 
-    // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
-    // path. Tests in this file do not assert on bundle round-trip; the
-    // library is wired so the VM ctor is satisfied.
     private static TraceSessionLibrary MakeFakeSessionLibrary()
         => new TraceSessionLibrary(
-            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
+            Path.Combine(Path.GetTempPath(), $"tmtrace-vm-chart-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
 
     private static ITraceViewerService MakeFakeService()
@@ -84,33 +79,29 @@ public class TraceViewerViewModelChartWiringTests
             Data: data, Flags: FrameFlags.None);
 
     [Fact]
-    public async Task RebuildSignalsAsync_AfterLoadDbc_PopulatesChartSeries()
+    public async Task AddToWatch_OneSource_AddsOneSeries()
     {
-        // v3.4.0 MINOR: was 0 chart series in v3.3.x (dead code). After
-        // wiring, RebuildSignalsAsync produces 1 chart series per
-        // (source, signal) pair.
         var registry = MakeFakeRegistry();
-        var svcA = MakeFakeService();
+        var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
             new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
         });
-        registry.GetService("a").Returns(svcA);
+        registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x42, 0x01) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
-
-        sut.ChartViewModel.Series.Should().HaveCount(1);
+        sut.ChartViewModel.Series.Should().BeEmpty();
+        sut.AddToWatch(0x100, "RPM", "");
+        sut.ChartViewModel.Series.Should().ContainSingle();
     }
 
     [Fact]
-    public async Task RebuildSignalsAsync_TwoSources_SameSignal_CreatesTwoSeriesWithDistinctStrokes()
+    public async Task AddToWatch_TwoSourcesSameSignal_CreatesTwoSeriesWithDistinctStrokes()
     {
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
@@ -129,20 +120,10 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
+        sut.AddToWatch(0x100, "RPM", "");
 
         sut.ChartViewModel.Series.Should().HaveCount(2);
-        // v3.14.2 PATCH: per-signal PlotModel is built lazily on user
-        // opt-in. The chart-wiring tests inspect LineStyle on the
-        // PlotModel.Series[0], so opt both signals in to populate.
-        // Materialize the Series first because PlotSignal mutates the
-        // collection (Series[idx] = updated) — iterating a mutating
-        // ObservableCollection throws.
-        var seriesSnapshot = sut.ChartViewModel.Series.ToList();
-        foreach (var s in seriesSnapshot)
-            sut.PlotSignal(s);
         var styles = sut.ChartViewModel.Series
             .Select(s => s.PlotModel!.Series.OfType<LineSeries>().Single().LineStyle)
             .ToList();
@@ -151,11 +132,8 @@ public class TraceViewerViewModelChartWiringTests
     }
 
     [Fact]
-    public async Task RebuildSignalsAsync_CallsSyncYAxesAfterPopulation()
+    public async Task AddToWatch_SyncYAxes_SharedAcrossSeries()
     {
-        // v3.4.0 MINOR: after populating ChartViewModel.Series, the VM
-        // must call SyncYAxes() so the chart renders with synchronized
-        // Y axes across sources (v3.3.2 method).
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
         var svcB = MakeFakeService();
@@ -179,22 +157,9 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
+        sut.AddToWatch(0x100, "RPM", "");
 
-        // v3.14.2 PATCH: opt both signals in to populate the Y axis
-        // ranges. Pre-fix the eager build had already populated them.
-        // Materialize the Series first because PlotSignal mutates the
-        // collection (Series[idx] = updated) — iterating a mutating
-        // ObservableCollection throws.
-        var seriesSnapshot = sut.ChartViewModel.Series.ToList();
-        foreach (var s in seriesSnapshot)
-            sut.PlotSignal(s);
-
-        // Both subplots must have the same Y axis range (synchronized
-        // by SignalKey via v3.3.2's SyncYAxes). Range A: 16..32,
-        // Range B: 48..64; global 16..64; +5% padding → 13.6..66.4.
         var yA = sut.ChartViewModel.Series[0].PlotModel!.Axes
             .OfType<OxyPlot.Axes.LinearAxis>()
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
@@ -203,20 +168,5 @@ public class TraceViewerViewModelChartWiringTests
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
         yA.Minimum.Should().BeApproximately(yB.Minimum, 0.001);
         yA.Maximum.Should().BeApproximately(yB.Maximum, 0.001);
-    }
-
-    [Fact]
-    public async Task RebuildSignalsAsync_NoSourcesLoaded_ChartSeriesEmpty()
-    {
-        var registry = MakeFakeRegistry();
-        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
-        await sut.RebuildSignalsAsync();
-
-        sut.ChartViewModel.Series.Should().BeEmpty();
     }
 }

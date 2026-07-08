@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -715,6 +716,18 @@ public sealed partial class AppShellViewModel : ObservableObject
         // App.OnStartup.
         if (Application.Current?.MainWindow is { } owner && owner != _traceViewerView)
             _traceViewerView.Owner = owner;
+
+        // v3.16.6 PATCH BUGFIX (defense-in-depth): WPF does not expose
+        // a public IsClosed bool on Window; the "still alive" check is
+        // membership in Application.Current.Windows. A closed window
+        // has been removed from the collection. If we somehow hold a
+        // closed reference here, drop it and let the next click rebuild.
+        if (Application.Current?.Windows.Cast<Window>()
+                .Any(w => ReferenceEquals(w, _traceViewerView)) != true)
+        {
+            _traceViewerView = null;
+            return;
+        }
 
         if (!_traceViewerView.IsVisible)
         {

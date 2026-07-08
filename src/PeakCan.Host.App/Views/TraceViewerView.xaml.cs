@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Win32;
 using PeakCan.Host.App.ViewModels;
 
@@ -72,6 +73,71 @@ public partial class TraceViewerView : Window
         if (DataContext is TraceViewerViewModel vm)
         {
             vm.ChartViewModel.ChartAreaHeight = e.NewSize.Height;
+        }
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: checkbox Click handler for the opt-in column.
+    /// Mirrors the v1.2.7 SignalView pattern — WPF's
+    /// DataGridCheckBoxColumn edit lifecycle is unreliable on .NET 10
+    /// when the parent grid is IsReadOnly=True. The Click event fires
+    /// regardless of edit-mode state, so it's the primary path for
+    /// chart-plot opt-in.
+    /// <para>
+    /// Reads the CheckBox.IsChecked UI value (just toggled by the
+    /// click) and forwards the explicit opt-in intent to the VM via
+    /// <c>SetPlotOptIn</c>. The TwoWay binding on IsPlotted updates
+    /// the row's INPC field as a side effect, but we don't depend on
+    /// it — the UI-side IsChecked is the source of truth at click time.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// v3.16.0 MINOR: open the DBC tree picker dialog. The user
+    /// selects one or more signals; we call
+    /// <c>TraceViewerViewModel.AddToWatch</c> for each (cross-source).
+    /// v3.16.2 PATCH BUGFIX: after the picker returns, finalize the
+    /// watch state (drop placeholder + refresh frame counts + plot all
+    /// in one WPF render pass). This avoids the ItemContainerGenerator
+    /// confusion that arises when AddToWatch's internal "Add row +
+    /// Remove placeholder" sequence interleaves with the picker's
+    /// burst of multiple AddToWatch calls.
+    /// </summary>
+    private void OnAddToWatchClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not TraceViewerViewModel vm) return;
+        var doc = vm.GetDbcForPicker();
+        if (doc is null) return;  // VM already surfaced a status message
+        var pickerVm = new DbcTreePickerViewModel(doc);
+        var dialog = new DbcTreePickerWindow(pickerVm) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        var added = new List<PeakCan.Host.App.ViewModels.WatchedSignalRow>();
+        foreach (var (canId, signalName) in dialog.SelectedSignals)
+            added.Add(vm.AddToWatchForPicker(canId, signalName, ""));
+        // Finalize after the AddToWatch burst settles: drop the
+        // placeholder (if any), refresh frame counts, plot. One pass.
+        vm.FinalizePickerAdds(added);
+    }
+
+    private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
+    {
+        // v3.16.4 PATCH BUGFIX (multi-agent review): the prior guard
+        // `if (row.IsPlotted == isChecked) return;` was the cause of
+        // the "☑ Plot click is a no-op" symptom. The CheckBox's
+        // TwoWay binding writes the new IsPlotted value to
+        // `row.IsPlotted` BEFORE the Click event fires, so by the
+        // time we read it here, `row.IsPlotted == isChecked` is
+        // ALWAYS true. The guard fired on every click → SetPlotOptIn
+        // was never called → chart series was never added/removed.
+        //
+        // The fix: unconditionally call SetPlotOptIn with the
+        // CheckBox.IsChecked (the UI's truth at click time). The VM
+        // uses the new value to decide plot vs unplot. Matches the
+        // working pattern in SignalView.xaml.cs:61-69.
+        if (sender is CheckBox { IsChecked: bool isChecked } cb
+            && cb.DataContext is WatchedSignalRow row
+            && DataContext is TraceViewerViewModel vm)
+        {
+            vm.SetPlotOptIn(row, isChecked);
         }
     }
 }

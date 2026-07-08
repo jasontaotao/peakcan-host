@@ -53,10 +53,32 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         _logger = logger;
         _options = options;
+        // v3.16.8.2 PATCH: BYPASS Serilog. 4 channels — file (hardcoded
+        // absolute path, no Serilog), stdout, VS Output, DebugView.
+        try
+        {
+            var hardcodedLog = @"D:\claude_proj2\peakcan-host\debug-smoke.log";
+            System.IO.File.AppendAllText(hardcodedLog,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}" + Environment.NewLine);
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[SMOKE v3.16.8.2] FALLBACK-FILE-WRITE-FAILED: {ex.Message}");
+        }
+        System.Console.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        System.Diagnostics.Debug.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        System.Diagnostics.Trace.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        _logger.LogInformation("[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={Max}",
+            _options.MaxFileSizeBytes);
         _timeline = new ReplayTimeline(
             emit: EmitFrame,
             onPlaybackEnded: RaisePlaybackEnded,
-            onSinkThrew: null);   // no sink — pass null
+            onSinkThrew: null,   // no sink — pass null
+            // v3.16.7 PATCH: forward the service's logger so ReplayTimeline's
+            // diagnostic logs (Play/OnTick entry, frame-emit count) actually
+            // reach Serilog. Previously the timeline got NullLogger.Instance
+            // and the logs were silently swallowed.
+            logger: _logger);
     }
 
     public ReplayState State => !_timeline.HasStarted

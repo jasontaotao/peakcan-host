@@ -149,7 +149,12 @@ public partial class DbcService
             ct.ThrowIfCancellationRequested();
             if (r.IsSuccess)
             {
-                Current = r.Value;
+                // v3.15.0 MINOR: stamp the source path onto the document so
+                // the Trace Viewer (and any other consumer) can display
+                // which DBC is currently loaded. SetCurrentForTests leaves
+                // SourcePath empty by design — tests that need a path can
+                // stamp it manually.
+                Current = r.Value with { SourcePath = path };
                 LogLoadSucceeded(_logger, path, Current!.Messages.Count);
                 DbcLoaded?.Invoke(Current);
             }

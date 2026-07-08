@@ -142,15 +142,25 @@ internal sealed partial class ReplayTimeline
 
     public void Play()
     {
+        LogPlayEntry(_logger, _frames.Count, _isPlaying, _hasStarted, _currentTimestamp);
         lock (_lock)
         {
-            if (_isPlaying) return;
-            if (_frames.Count == 0) return; // nothing to play; leave state as Stopped
+            if (_isPlaying)
+            {
+                LogPlayAlreadyRunning(_logger);
+                return;
+            }
+            if (_frames.Count == 0)
+            {
+                LogPlayNoFrames(_logger);
+                return; // nothing to play; leave state as Stopped
+            }
             _playStartWallClock = DateTime.UtcNow;
             _playStartTimestamp = _currentTimestamp;
             _isPlaying = true;
             _hasStarted = true;
             _timer ??= new Timer(OnTick, null, dueTime: 1, period: 1);
+            LogPlayStarted(_logger, _currentTimestamp, _frames.Count);
         }
     }
 
@@ -221,6 +231,8 @@ internal sealed partial class ReplayTimeline
 
     private void OnTick(object? state)
     {
+        // v3.16.7 DIAG: log every tick to see if timer is actually firing
+        LogOnTickEntry(_logger, _isPlaying, _frames.Count, _nextFrameIndex, _currentTimestamp);
         List<ReplayFrame>? toEmit = null;
         bool endReached = false;
         // v3.9.0 MINOR P1: A/B loop-region rewind. Captured inside the
@@ -230,7 +242,7 @@ internal sealed partial class ReplayTimeline
         (double Start, double End)? rewindRegion = null;
         lock (_lock)
         {
-            if (!_isPlaying) return;
+            if (!_isPlaying) { LogOnTickNotPlaying(_logger); return; }
             var now = PlayedTimestamp;
             // v1.5.1 PATCH Task 2: range filter at the iteration boundary.
             // null on either side means unbounded on that side. The filter
@@ -270,6 +282,11 @@ internal sealed partial class ReplayTimeline
                 toEmit.Add(_frames[_nextFrameIndex]);
                 _currentTimestamp = _frames[_nextFrameIndex].Timestamp;
                 _nextFrameIndex++;
+            }
+            // v3.16.7 DIAG: log how many frames we decided to emit this tick
+            if (toEmit is { Count: > 0 })
+            {
+                LogOnTickEmitting(_logger, toEmit.Count, now, _currentTimestamp);
             }
             // v3.9.0 MINOR P1: A/B loop-region rewind. If the cursor has
             // reached or crossed the active region's End (or EOF after
@@ -400,4 +417,34 @@ internal sealed partial class ReplayTimeline
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Invalid loop region (Start > End: {Start} > {End}); rewind disabled, playback continues to natural EOF")]
     private static partial void LogInvalidLoopRegion(ILogger logger, double start, double end);
+
+    // v3.16.7 DIAG: Play() entry log — fires every time user hits Play
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "ReplayTimeline.Play() ENTER: _frames.Count={Count} _isPlaying={Playing} _hasStarted={Started} _currentTimestamp={Ts}")]
+    private static partial void LogPlayEntry(ILogger logger, int count, bool playing, bool started, double ts);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "ReplayTimeline.Play() skipped: already playing")]
+    private static partial void LogPlayAlreadyRunning(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "ReplayTimeline.Play() skipped: 0 frames loaded")]
+    private static partial void LogPlayNoFrames(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "ReplayTimeline.Play() STARTED: timer=1ms, _currentTimestamp={Ts}, _frames.Count={Count}")]
+    private static partial void LogPlayStarted(ILogger logger, double ts, int count);
+
+    // v3.16.7 DIAG: OnTick entry — fires every 1ms when timer is running
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "OnTick: _isPlaying={Playing} _frames.Count={Count} _nextFrameIndex={Idx} _currentTimestamp={Ts}")]
+    private static partial void LogOnTickEntry(ILogger logger, bool playing, int count, int idx, double ts);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "OnTick: !_isPlaying — early return, no emit")]
+    private static partial void LogOnTickNotPlaying(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "OnTick EMIT: {Count} frames to emit, now={Now} new _currentTimestamp={Ts}")]
+    private static partial void LogOnTickEmitting(ILogger logger, int count, double now, double ts);
 }
