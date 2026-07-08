@@ -187,17 +187,14 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left: signal list -->
-            <!-- v3.14.3 PATCH: 7-column DBC-driven catalog. Independent
-                 of any ASC load: shows every DBC signal the moment the
-                 DBC is loaded. Users opt-in chart subplots via the
-                 Plot checkbox column (DataGridTemplateColumn +
-                 CheckBox + Click handler — the same pattern as
-                 SignalView.xaml:71-80; DataGridCheckBoxColumn is broken
-                 on .NET 10 with IsReadOnly=True). N column shows frame
-                 count from loaded ASC (0 for DBC-only rows). Latest
-                 column is "NaN" until at least one frame exists. -->
+            <!-- v3.15.0 MINOR: watch list (default empty; user adds via
+                 + Add to watch…). v3.16.1 PATCH BUGFIX: previously bound
+                 to the obsolete v3.14.3 `Signals` collection, which
+                 v3.15.0 stopped populating — the table always looked
+                 empty even when watch entries existed. Now bound to
+                 `WatchedSignals` (the v3.15.0 source of truth). -->
             <DataGrid Grid.Column="0"
-                      ItemsSource="{Binding Signals}"
+                      ItemsSource="{Binding WatchedSignals}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       EnableRowVirtualization="True"
