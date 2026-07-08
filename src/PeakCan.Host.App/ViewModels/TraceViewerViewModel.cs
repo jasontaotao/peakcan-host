@@ -793,6 +793,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// duration, refresh LoadedTracePath (legacy binding). v3.3.0 MINOR:
     /// attach FrameEmitted + master PlaybackEnded handlers and propagate
     /// Loop/Speed to every newly registered service.
+    /// <para>
+    /// v3.14.1 PATCH: also call <see cref="RebuildSignalsCore"/> at the
+    /// end so loading a new .asc via <c>AddTraceAsync</c> re-decodes the
+    /// (already-loaded) DBC messages against the new source's frames.
+    /// Pre-fix this method updated the service dictionary + master but
+    /// never rebuilt signals — the user had to reload the DBC to refresh.
+    /// </para>
     /// </summary>
     private void OnRegistrySourcesChanged()
     {
@@ -827,6 +834,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         TotalDuration = _masterService?.TotalDuration ?? 0.0;
         ChartViewModel.SetTotalDuration(TotalDuration);
         ChartViewModel.Series.Clear();
+        // v3.14.1 PATCH: rebuild Signals + chart subplots when a new
+        // source is added. The DBC may already be loaded (in which case
+        // OnDbcLoaded fired the initial build) — re-running the build
+        // picks up the new source's frames. The rebuild is a no-op when
+        // no DBC is loaded (RebuildSignalsCore returns early).
+        RebuildSignalsCore();
     }
 
     // v3.4.3 PATCH: detach per-source INPC subscriptions. Idempotent —
@@ -1073,11 +1086,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var rows = new List<TraceSignalRow>();
         foreach (var msg in dbc.Messages)
         {
-            if (!byId.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
+            // v3.14.1 PATCH: strip the DBC IDE-bit (0x80000000) before
+            // looking up in byId. The DBC stores extended-frame IDs with
+            // the IDE bit set in bit 31 (e.g. 0x1802F3D0 | 0x80000000 =
+            // 0x9802F3D0), but BucketFramesByCanId keys by raw ASC
+            // frame ids which are 29-bit (no IDE bit). Mask the DBC
+            // side to match. msg.Id itself is preserved (callers can
+            // still see the original via msg.Id).
+            if (!byId.TryGetValue(msg.Id & 0x7FFFFFFFu, out var matching) || matching.Count == 0)
             {
                 continue;
             }
-            var idHex = FormatCanIdHex(msg.Id);
+            var idHex = FormatCanIdHex(msg.Id & 0x7FFFFFFFu);
             foreach (var sig in msg.Signals)
             {
                 // Latest = decoded value of the last matching frame.
@@ -1139,9 +1159,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             }
             foreach (var msg in dbc.Messages)
             {
-                if (!srcById.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
+                // v3.14.1 PATCH: same IDE-bit mask as BuildSignalRows.
+                if (!srcById.TryGetValue(msg.Id & 0x7FFFFFFFu, out var matching) || matching.Count == 0)
                     continue;
-                var idHex = FormatCanIdHex(msg.Id);
+                var idHex = FormatCanIdHex(msg.Id & 0x7FFFFFFFu);
                 foreach (var sig in msg.Signals)
                 {
                     var xs = new List<double>(matching.Count);

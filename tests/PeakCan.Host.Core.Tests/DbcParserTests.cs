@@ -51,8 +51,14 @@ public class DbcParserTests
     [Fact]
     public void Parses_Extended_Id_With_Ide_Bit()
     {
-        // PEAK convention: extended frame IDs in DBC carry the IDE bit (bit 31).
-        // 0x80001000 = 2147487744 (extended, low 29 bits = 0x1000).
+        // v3.14.1 PATCH: PEAK convention stores extended-frame DBC IDs
+        // with the IDE bit set in bit 31 (0x80001000 = 2147487744). Pre-fix,
+        // the parser keyed MessagesById by the raw DBC value (with IDE bit
+        // set), so a runtime lookup against an incoming .asc frame id
+        // (which is the masked 29-bit raw) NEVER matched. Post-fix,
+        // MessagesById is keyed by the masked 29-bit value. m.Id itself
+        // is still the raw DBC value (with IDE bit) so callers that want
+        // the IDE-merged form still get it via m.Id.
         var src = """
         BU_: ECU
         BO_ 2147487744 ExtMsg: 8 ECU
@@ -61,9 +67,14 @@ public class DbcParserTests
         var r = DbcParser.Parse(src);
         if (!r.IsSuccess) throw new Xunit.Sdk.XunitException($"Parse failed: {r.Error!.Code} {r.Error.Message}");
         r.IsSuccess.Should().BeTrue();
-        r.Value!.MessagesById.ContainsKey(0x80001000u).Should().BeTrue();
-        // IDE bit set => extended
-        ((r.Value.MessagesById[0x80001000u].Id & 0x80000000u) != 0).Should().BeTrue();
+        // m.Id preserves the IDE-bit-set raw DBC value
+        r.Value!.Messages[0].Id.Should().Be(0x80001000u);
+        // MessagesById is keyed by the masked 29-bit value (0x1000)
+        r.Value.MessagesById.ContainsKey(0x1000u).Should().BeTrue(
+            "v3.14.1 PATCH: MessagesById must key by the masked 29-bit value so it matches incoming .asc frame ids");
+        // The masked key, when looked up, returns the message whose raw
+        // Id still carries the IDE bit (callers that need it).
+        ((r.Value.MessagesById[0x1000u].Id & 0x80000000u) != 0).Should().BeTrue();
     }
 
     [Fact]
