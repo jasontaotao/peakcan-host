@@ -66,6 +66,13 @@ public static class SignalDecoder
             ValueType.Unsigned => raw,
             // Mask to the signal's bit width so a Signed 8-bit -1 returns
             // 0xFF (the bit pattern), not 0xFFFFFFFFFFFFFFFF (sign-extended).
+            // Special case length >= 64: in C# `1UL << 64 == 1` (the shift amount is
+            // taken modulo 64), so the mask `((1UL << 64) - 1)` would be 0 and any
+            // 64-bit Signed decode would silently return 0. SignExtend already
+            // returns the correct long for the full 64-bit pattern, so the mask is
+            // unnecessary at the register width. This guards any 64-bit signed
+            // signal in a CAN FD DBC (CAN FD permits signal widths up to 64 bits).
+            ValueType.Signed when signal.Length >= 64 => (ulong)SignExtend(raw, signal.Length),
             ValueType.Signed => (ulong)SignExtend(raw, signal.Length) & ((1UL << signal.Length) - 1UL),
             ValueType.Float => raw & 0xFFFFFFFFUL,
             ValueType.Double => raw,
