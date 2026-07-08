@@ -23,16 +23,12 @@ public partial class TraceViewerView : Window
     // CommandParameter="" and surfaces failures via vm.ErrorMessage /
     // vm.StatusMessage.
 
-    private async void OnLoadDbcClick(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog { Filter = "DBC files|*.dbc;*.DBC|All files|*.*" };
-        if (dlg.ShowDialog(this) != true) return;
-        if (DataContext is TraceViewerViewModel vm)
-        {
-            try { await vm.LoadDbcAsync(dlg.FileName); }
-            catch (System.Exception ex) { MessageBox.Show(this, ex.Message, "DBC load failed"); }
-        }
-    }
+    // DELETED (v3.13.0 PATCH F3): OnLoadDbcClick. The Trace Viewer
+    // toolbar "Load DBC…" button (XAML line 31) was removed because
+    // LoadedDbcPath was never bound in TraceViewerView.xaml — the
+    // toolbar click had no UI feedback. The Trace Viewer still reads
+    // _dbcService.Current for decoding; DbcView tab is now the single
+    // entry point for DBC loading.
 
     // v3.0.2 PATCH Task 2: header buttons inside each subplot DataTemplate.
     // DataContext inside the template is the TraceChartSeries row, so we

@@ -359,8 +359,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     // v3.9.2 PATCH L1: source-gen'd log helper for the bundle DBC load
     // fallback catch (was bare catch { } before).
+    // v3.13.0 PATCH F3: renamed from LogBundleDbcLoadFailed → LogBundleDbcLoadFailedInline
+    // (signature unchanged). The LoadDbcAsync public method was removed
+    // (toolbar "Load DBC…" button had no UI feedback because LoadedDbcPath
+    // was never bound in TraceViewerView.xaml). The bundle-load catch arm
+    // at the former line 678 is the LAST remaining caller; DbcView tab is
+    // now the single entry point for ad-hoc DBC loading.
     [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle DBC load failed for {Path}")]
-    private static partial void LogBundleDbcLoadFailed(ILogger logger, string path, Exception ex);
+    private static partial void LogBundleDbcLoadFailedInline(ILogger logger, string path, Exception ex);
 
     /// <summary>
     /// v3.13.0 PATCH F2: clear all mutable UI state when the Trace Viewer
@@ -407,26 +413,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         ErrorMessage = null;
         StatusMessage = "Status: ready";
         IsLoading = false;
-    }
-
-    /// <summary>
-    /// Load a DBC into <see cref="DbcService"/>. Updates
-    /// <see cref="LoadedDbcPath"/>; <see cref="RebuildSignalsAsync"/>
-    /// picks up the new document on next signal rebuild.
-    /// <para>
-    /// v3.9.2 PATCH H2: was <c>[RelayCommand]</c>-attributed but XAML
-    /// wires <c>Click="OnLoadDbcClick"</c> (calls method directly) —
-    /// the source-gen <c>LoadDbcCommand</c> property had no consumer.
-    /// Method stays as a public API (consumed by code-behind + 11
-    /// tests + chart/filter test classes); the RelayCommand wrapper
-    /// is dropped.
-    /// </para>
-    /// </summary>
-    public async Task LoadDbcAsync(string path)
-    {
-        await _dbcService.LoadAsync(path).ConfigureAwait(true);
-        LoadedDbcPath = path;
-        await RebuildSignalsAsync().ConfigureAwait(true);
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
@@ -725,7 +711,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 // surfaces it on the toolbar; the source still loads (the
                 // bundle is path-reference only, so a missing/bad DBC is
                 // not fatal — the user can reload manually).
-                LogBundleDbcLoadFailed(_logger, dto.DbcPath, ex);
+                // v3.13.0 PATCH F3: renamed helper (was LogBundleDbcLoadFailed).
+                // LoadDbcAsync's deletion made the old name misleading; this
+                // arm is now the only caller.
+                LogBundleDbcLoadFailedInline(_logger, dto.DbcPath, ex);
                 StatusMessage = $"DBC load failed: {ex.Message}";
             }
             LoadedDbcPath = dto.DbcPath;
@@ -961,7 +950,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <see cref="ITraceSessionRegistry.GetFrames"/> per source so multi-trace
     /// overlays see all frames across all loaded sources.
     /// </summary>
-    private async Task RebuildSignalsAsync()
+    // v3.13.0 PATCH F3: changed from `private` to `internal` so the test
+    // assembly can drive it directly. LoadDbcAsync was deleted (the
+    // "Load DBC…" toolbar button was dead — no UI feedback), but the
+    // tests still need a way to trigger a rebuild against a pre-loaded
+    // DBC (set via DbcService.SetCurrentForTests). Visible to
+    // PeakCan.Host.App.Tests via the existing InternalsVisibleTo attr.
+    internal async Task RebuildSignalsAsync()
     {
         RebuildSignalsCore();
         await Task.CompletedTask;

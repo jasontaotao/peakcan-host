@@ -305,7 +305,8 @@ public class TraceViewerViewModelTests
     {
         var svc = MakeFakeRegistry();
         // v3.2.0 MINOR: pre-populate Sources so RebuildSignalsAsync (called
-        // from LoadDbcAsync) has at least one source to iterate.
+        // directly since v3.13.0 PATCH F3 removed LoadDbcAsync) has at least
+        // one source to iterate.
         svc.Sources.Returns(new List<TraceSource>
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
@@ -321,7 +322,11 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
+        // "Load DBC…" button had no UI feedback; DbcView tab is the
+        // single entry point). Tests now drive RebuildSignalsAsync
+        // directly against a DBC pre-loaded via SetCurrentForTests.
+        await sut.RebuildSignalsAsync();
 
         sut.Signals.Should().HaveCount(1);
         var row = sut.Signals[0];
@@ -349,7 +354,11 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
+        // "Load DBC…" button had no UI feedback; DbcView tab is the
+        // single entry point). Tests now drive RebuildSignalsAsync
+        // directly against a DBC pre-loaded via SetCurrentForTests.
+        await sut.RebuildSignalsAsync();
 
         sut.Signals.Should().HaveCount(2);
         sut.Signals[0].SignalName.Should().Be("RPM");
@@ -402,7 +411,11 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
+        // "Load DBC…" button had no UI feedback; DbcView tab is the
+        // single entry point). Tests now drive RebuildSignalsAsync
+        // directly against a DBC pre-loaded via SetCurrentForTests.
+        await sut.RebuildSignalsAsync();
 
         sut.Signals.Should().HaveCount(1);
         sut.Signals[0].LatestValue.Should().Be(5.0);

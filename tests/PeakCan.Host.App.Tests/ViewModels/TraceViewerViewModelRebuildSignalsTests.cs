@@ -20,7 +20,12 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 /// v3.11.0 MINOR T4 (H8): end-to-end behavior coverage for the three
 /// private sub-methods extracted from
 /// <see cref="TraceViewerViewModel.RebuildSignalsCore"/>.
-/// The tests drive the public surface (<c>LoadDbcAsync</c> + setting
+/// The tests drive the public surface (<c>RebuildSignalsAsync</c> after
+/// setting <c>CanIdFilter</c>) and assert on the bindable <c>Signals</c> +
+/// <c>ChartViewModel.Series</c> outputs. v3.13.0 PATCH F3 changed the
+/// public surface: <c>LoadDbcAsync</c> was deleted (toolbar button had
+/// no UI feedback); tests now call <c>RebuildSignalsAsync</c> directly
+/// against a DBC pre-loaded via <see cref="DbcService.SetCurrentForTests"/>.
 /// <c>CanIdFilter</c>) and assert on the bindable <c>Signals</c> +
 /// <c>ChartViewModel.Series</c> outputs. They pin:
 /// <list type="bullet">
@@ -120,7 +125,10 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly. The DBC is pre-loaded via
+        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
+        await sut.RebuildSignalsAsync();
 
         // Baseline (no filter): both messages contribute → 2 signal rows.
         sut.Signals.Should().HaveCount(2);
@@ -169,7 +177,10 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly. The DBC is pre-loaded via
+        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
+        await sut.RebuildSignalsAsync();
 
         // Establish global filter to 0x100; both sources narrow to 0x100.
         sut.CanIdFilter = "0x100";
@@ -220,7 +231,10 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly. The DBC is pre-loaded via
+        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
+        await sut.RebuildSignalsAsync();
 
         // Assert: 0x200 has no matching frames, so BuildSignalRows skips it.
         // Only the 0x100/RPM row survives, with LatestValue = last decoded.
@@ -260,7 +274,10 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly. The DBC is pre-loaded via
+        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
+        await sut.RebuildSignalsAsync();
 
         // Assert: BuildSignalRows skips both messages → Signals is empty.
         sut.Signals.Should().BeEmpty(
@@ -295,7 +312,10 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly. The DBC is pre-loaded via
+        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
+        await sut.RebuildSignalsAsync();
 
         // Assert: BuildChartSeries produces exactly one series for the
         // (source "a", 0x100/RPM) triple.
