@@ -447,8 +447,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public void Play()
     {
-        foreach (var svc in _allServices.Values)
+        // v3.16.7 DIAG: log PlayCommand entry with full state
+        _logger.LogInformation("TraceViewerViewModel.Play() ENTER: _allServices.Count={Count} masterId={Master} HasSources={Has}",
+            _allServices.Count, MasterSourceId, HasSources);
+        foreach (var (id, svc) in _allServices)
+        {
+            _logger.LogInformation("  calling svc.Play() for SourceId={Id} TotalDuration={Dur}",
+                id, svc.TotalDuration);
             svc.Play();
+        }
     }
 
     [RelayCommand]
@@ -1445,6 +1452,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnAnyFrameEmitted(ReplayFrame frame)
     {
+        // v3.16.7 DIAG: log every FrameEmitted to see if events actually fire
+        // (only log first 5 + every 100th to avoid flooding)
+        _onAnyFrameEmittedCount++;
+        if (_onAnyFrameEmittedCount <= 5 || _onAnyFrameEmittedCount % 100 == 0)
+        {
+            _logger.LogInformation("OnAnyFrameEmitted #{Count}: frame.ts={Ts} frame.id=0x{Id:X} masterId={Master} syncCtx={HasCtx}",
+                _onAnyFrameEmittedCount, frame.Timestamp, frame.Id,
+                MasterSourceId, _syncContext is not null);
+        }
         // v3.16.3 PATCH BUGFIX: also update ScrubberValue so the UI
         // scrubber follows playback. The v3.3.0 architecture was
         // scrubber-driven (drag → seek), but Playback left the scrubber
@@ -1464,6 +1480,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             ScrubberValue = t;
         }
     }
+    private int _onAnyFrameEmittedCount;
 
     /// <summary>
     /// Rebuild the left-side <see cref="Signals"/> collection from the
