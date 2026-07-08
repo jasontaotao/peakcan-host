@@ -171,6 +171,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
+        // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace
+        // Viewer auto-rebuilds Signals + chart subplots when a DBC is loaded
+        // via the DbcView tab. The xmldoc above (line 388) historically
+        // documented this as "_dbcService.PropertyChanged" but DbcService
+        // does not implement INotifyPropertyChanged — it exposes the typed
+        // DbcLoaded event. DbcService is a DI singleton so no unsubscribe
+        // is needed; the subscription lives for the app lifetime.
+        _dbcService.DbcLoaded += OnDbcLoaded;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
         // OnRegistrySourcesChanged populates _allServices and rebinds master;
         // a bare RebindMasterFromRegistry would leave _allServices empty.
@@ -833,6 +841,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private void OnAnySourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(TraceSource.CanIdFilter)) return;
+        RebuildSignalsCore();
+    }
+
+    // v3.13.2 PATCH F5: rebuild Signals + chart subplots when a DBC is
+    // loaded via the DbcView tab. Mirrors the same rebuild path that
+    // fires on SourcesChanged / per-source INPC. DbcDocument does not
+    // currently expose a SourcePath property, so LoadedDbcPath is left
+    // for the next .tmtrace OpenSession to restore — the user-visible
+    // bug (empty subplots after DBC load) is fixed by the rebuild alone.
+    private void OnDbcLoaded(DbcDocument doc)
+    {
+        _ = doc; // path-sync intentionally skipped: DbcDocument has no SourcePath.
         RebuildSignalsCore();
     }
 
