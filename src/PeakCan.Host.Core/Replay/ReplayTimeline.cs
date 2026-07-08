@@ -1,4 +1,6 @@
 using System.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PeakCan.Host.Core.Replay;
 
@@ -8,9 +10,15 @@ namespace PeakCan.Host.Core.Replay;
 /// state on <see cref="Play"/>/<see cref="Pause"/>/<see cref="Resume"/>/
 /// <see cref="Seek"/>/<see cref="SetSpeed"/>/<see cref="Stop"/>.
 /// </summary>
-internal sealed class ReplayTimeline
+internal sealed partial class ReplayTimeline
 {
     private readonly object _lock = new();
+    // v3.14.0 MINOR A7: optional logger. Defaults to NullLogger so the
+    // existing 25+ test sites that construct ReplayTimeline without an
+    // ILogger continue to work. ReplayService passes its ILogger<ReplayService>
+    // so the A7 invalid-loop-region warning lands in the same Serilog pipeline
+    // as the rest of the Replay subsystem's diagnostics.
+    private readonly ILogger _logger;
     private readonly Action<ReplayFrame> _emit;
     private readonly Action<PlaybackEndedEventArgs>? _onPlaybackEnded;
     private readonly Action<Exception>? _onSinkThrew;
@@ -59,13 +67,18 @@ internal sealed class ReplayTimeline
         // v3.9.0 MINOR P1: A/B loop-rewind callback. Raised when the
         // cursor is rewound to region.Start after crossing region.End.
         // Optional (defaults to null = silent rewind).
-        Action<(double Start, double End)>? onLoopRewound = null)
+        Action<(double Start, double End)>? onLoopRewound = null,
+        // v3.14.0 MINOR A7: optional logger for diagnostics. Defaults
+        // to NullLogger so existing test sites that don't pass one
+        // continue to work without change.
+        ILogger? logger = null)
     {
         _emit = emit;
         _onPlaybackEnded = onPlaybackEnded;
         _onSinkThrew = onSinkThrew;
         _activeLoopRegionGetter = activeLoopRegion;
         _onLoopRewound = onLoopRewound;
+        _logger = logger ?? NullLogger.Instance;
     }
 
     public double CurrentTimestamp { get { lock (_lock) return _currentTimestamp; } }
@@ -281,31 +294,50 @@ internal sealed class ReplayTimeline
             if (_activeLoopRegionGetter is { } getRegion)
             {
                 var region = getRegion();
-                if (region is { } r && _currentTimestamp >= r.End)
+                if (region is { } r)
                 {
-                    _currentTimestamp = r.Start;
-                    _playStartTimestamp = r.Start;
-                    _playStartWallClock = DateTime.UtcNow;
-                    // Reset _nextFrameIndex to 0 then walk forward past
-                    // every pre-region frame. Why reset to 0: the cursor
-                    // may have been AT or PAST region.End in the previous
-                    // tick (e.g. _nextFrameIndex == _frames.Count - 1
-                    // when the End frame emitted). Walking forward from
-                    // 0 finds the first in-range frame (Timestamp >=
-                    // region.Start); the existing frame[].Timestamp >
-                    // r.Start check filters out the others.
-                    // Without the reset, the walk-forward-past loop
-                    // would short-circuit (frame[_nextFrameIndex].ts is
-                    // > region.Start) and the next tick would have
-                    // _nextFrameIndex pointing at a frame past the
-                    // region, so the cursor would never re-emit.
-                    _nextFrameIndex = 0;
-                    while (_nextFrameIndex < _frames.Count
-                        && _frames[_nextFrameIndex].Timestamp < r.Start)
+                    // v3.14.0 MINOR A7: defensive guard against user-supplied
+                    // Start > End (ReplayViewModel.ActiveLoopRegion setter
+                    // doesn't validate — see IReplayService.StartTimestamp
+                    // xmldoc "The service does NOT validate Start <= End").
+                    // Pre-fix, _currentTimestamp >= r.End immediately
+                    // re-triggered on the next tick after a rewind to
+                    // r.Start (which is > r.End), burning 100% CPU in an
+                    // infinite rewind loop. Skip the rewind; the timeline
+                    // will play to natural EOF. _currentTimestamp is left
+                    // untouched so the comparison on the next tick is
+                    // stable (no flicker) and OnLoopRewound is NOT raised
+                    // (no UI rewind event for an invalid region).
+                    if (r.Start > r.End)
                     {
-                        _nextFrameIndex++;
+                        LogInvalidLoopRegion(_logger, r.Start, r.End);
                     }
-                    rewindRegion = r;
+                    else if (_currentTimestamp >= r.End)
+                    {
+                        _currentTimestamp = r.Start;
+                        _playStartTimestamp = r.Start;
+                        _playStartWallClock = DateTime.UtcNow;
+                        // Reset _nextFrameIndex to 0 then walk forward past
+                        // every pre-region frame. Why reset to 0: the cursor
+                        // may have been AT or PAST region.End in the previous
+                        // tick (e.g. _nextFrameIndex == _frames.Count - 1
+                        // when the End frame emitted). Walking forward from
+                        // 0 finds the first in-range frame (Timestamp >=
+                        // region.Start); the existing frame[].Timestamp >
+                        // r.Start check filters out the others.
+                        // Without the reset, the walk-forward-past loop
+                        // would short-circuit (frame[_nextFrameIndex].ts is
+                        // > region.Start) and the next tick would have
+                        // _nextFrameIndex pointing at a frame past the
+                        // region, so the cursor would never re-emit.
+                        _nextFrameIndex = 0;
+                        while (_nextFrameIndex < _frames.Count
+                            && _frames[_nextFrameIndex].Timestamp < r.Start)
+                        {
+                            _nextFrameIndex++;
+                        }
+                        rewindRegion = r;
+                    }
                 }
             }
             // Detect EOF this tick: cursor walked off the end while still playing.
@@ -359,4 +391,13 @@ internal sealed class ReplayTimeline
         // 2-arg call so the public EventArgs type can carry them.
         if (rewindRegion is { } rr) _onLoopRewound?.Invoke(rr);
     }
+
+    // LoggerMessage source-generated helper (CA1848). v3.14.0 MINOR A7:
+    // raised when the active loop region has Start > End (a user-set
+    // inverted region). Logs once per OnTick where the condition is
+    // true; consumers of the log can dedupe upstream. The guard itself
+    // is in OnTick above.
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Invalid loop region (Start > End: {Start} > {End}); rewind disabled, playback continues to natural EOF")]
+    private static partial void LogInvalidLoopRegion(ILogger logger, double start, double end);
 }

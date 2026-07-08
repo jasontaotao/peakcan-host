@@ -39,7 +39,11 @@ public sealed partial class ReplayService : IReplayService, IDisposable
             // active region mid-playback without rebuilding the timeline.
             activeLoopRegion: () => _activeLoopRegion,
             onLoopRewound: r => LoopRewound?.Invoke(this,
-                new LoopRegionRewoundEventArgs(r.Start, r.End)));
+                new LoopRegionRewoundEventArgs(r.Start, r.End)),
+            // v3.14.0 MINOR A7: pass our logger so the
+            // LogInvalidLoopRegion warning lands in the same Serilog
+            // pipeline as the rest of the Replay subsystem's diagnostics.
+            logger: _logger);
     }
 
     public ReplayState State => !_timeline.HasStarted
@@ -214,37 +218,43 @@ public sealed partial class ReplayService : IReplayService, IDisposable
             return; // filter rejects this frame; no sink call, no event raise
         }
 
-        // v1.4.2 PATCH Item 3: block on the sink so a first-failure
-        // (ReplaySendException) propagates to the timeline's foreach catch.
-        // CAN bus writes are bounded (<1 ms typical), so blocking the 1 ms
-        // timer thread is acceptable. ReplaySendException is rethrown to
-        // surface via onSinkThrew; other exceptions are logged and swallowed
-        // (preserves the v1.4.0 tolerance for non-send failures).
-        try
+        // v3.14.0 MINOR A6: fire-and-forget. Sync wait on a 1ms timer
+        // thread blocks the entire timeline when the PEAK driver blocks
+        // (USB unplug / driver busy). The self-contradicting xmldoc
+        // previously here claimed "intentionally fire-and-forget" but
+        // the implementation was sync wait — implementation now matches
+        // the intent. ReplaySendException no longer rethrows from the
+        // timer thread; it propagates via OnSinkThrewFromTimeline on the
+        // threadpool, which captures it as first-failure + pauses +
+        // raises PlaybackEnded (same first-failure-wins contract as
+        // v1.4.2 PATCH Item 3, just not on the timer thread anymore).
+        // Other exceptions are logged + swallowed (preserves the
+        // v1.4.0 tolerance for non-send failures).
+        _ = Task.Run(async () =>
         {
-            EmitFrameToSinkAsync(frame).GetAwaiter().GetResult();
-        }
-        catch (ReplaySendException)
-        {
-            throw;  // propagate to OnTick foreach catch → OnSinkThrewFromTimeline
-        }
-        catch (Exception ex)
-        {
-            LogSinkThrew(_logger, ex, frame.Id, frame.Timestamp);
-        }
+            try
+            {
+                await EmitFrameToSinkAsync(frame).ConfigureAwait(false);
+            }
+            catch (ReplaySendException ex)
+            {
+                OnSinkThrewFromTimeline(ex);
+            }
+            catch (Exception ex)
+            {
+                LogSinkThrew(_logger, ex, frame.Id, frame.Timestamp);
+            }
+        });
         FrameEmitted?.Invoke(frame);
     }
 
-    // CA2012: ValueTask is intentionally fire-and-forget — Timer callbacks are
-    // synchronous and we cannot await here. The task is stored in a field long
-    // enough for the runtime to observe completion; downstream sink errors are
-    // caught by the timer-level try/catch in ReplayTimeline.OnTick.
-#pragma warning disable CA2012
+    // v3.14.0 MINOR A6: EmitFrameToSinkAsync now runs inside a
+    // Task.Run (fire-and-forget) from EmitFrame on the timer thread,
+    // so the await is observed by the threadpool, not the timer.
     private async Task EmitFrameToSinkAsync(ReplayFrame frame)
     {
         await _sink.SendFrameAsync(frame, CancellationToken.None).ConfigureAwait(false);
     }
-#pragma warning restore CA2012
 
     // LoggerMessage source-generated helper (CA1848). Replaces
     // _logger.LogWarning(ex, "...", frame.Id, frame.Timestamp) which the
