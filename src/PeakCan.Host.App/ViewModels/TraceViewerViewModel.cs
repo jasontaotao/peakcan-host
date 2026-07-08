@@ -176,8 +176,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // via the DbcView tab. The xmldoc above (line 388) historically
         // documented this as "_dbcService.PropertyChanged" but DbcService
         // does not implement INotifyPropertyChanged — it exposes the typed
-        // DbcLoaded event. DbcService is a DI singleton so no unsubscribe
-        // is needed; the subscription lives for the app lifetime.
+        // DbcLoaded event. The handler is cancelled in Dispose() per
+        // v3.14.0 MINOR A4; DbcService is a DI singleton so without that
+        // cancellation the subscription would pin the VM for the app
+        // lifetime (the singleton holds a strong reference to the handler
+        // closure, which transitively pins the VM and its Frames /
+        // Signals / ChartViewModel state).
         _dbcService.DbcLoaded += OnDbcLoaded;
         // Initial pull — captures any pre-loaded sources (none in normal startup).
         // OnRegistrySourcesChanged populates _allServices and rebinds master;
@@ -1205,11 +1209,24 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Unsubscribe from the registry + master service and stop playback.
     /// Safe to call multiple times — <c>_disposed</c> guards re-entry.
+    /// <para>
+    /// v3.14.0 MINOR A4: cancel the v3.13.2 PATCH F5 DbcLoaded
+    /// subscription. The ctor xmldoc at line 174-180 previously
+    /// defended "no unsubscribe because DbcService is a DI singleton"
+    /// — backwards reasoning. The singleton holds a strong reference
+    /// to the handler closure, which pins the VM (and its Frames /
+    /// Signals / ChartViewModel state) for the app lifetime. Each
+    /// Trace Viewer close+reopen without this unsubscribe leaks a
+    /// full VM.
+    /// </para>
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        // v3.14.0 MINOR A4: cancel the DbcLoaded subscription. Matches
+        // the += in the ctor.
+        _dbcService.DbcLoaded -= OnDbcLoaded;
         DetachAllServiceHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
         GC.SuppressFinalize(this);

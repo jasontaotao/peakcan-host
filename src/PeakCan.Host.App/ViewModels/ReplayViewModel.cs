@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -292,9 +293,23 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         // / LoadAsync. Initial RefreshRecentEntries runs synchronously
         // — the service leaves the list empty until LoadAsync returns,
         // so an empty refresh is the correct first state.
-        _recentSessions.PropertyChanged += (_, __) => RefreshRecentEntries();
+        // v3.14.0 MINOR A3: promoted from a lambda to
+        // OnRecentSessionsPropertyChanged so Dispose can -= it.
+        // RecentSessionsService is a DI singleton; without -= the
+        // closure chain singleton → old-VM → old-entries prevents
+        // old-VM GC. Lambdas can't be -=ed by reference.
+        _recentSessions.PropertyChanged += OnRecentSessionsPropertyChanged;
         RefreshRecentEntries();
     }
+
+    /// <summary>
+    /// v3.14.0 MINOR A3: handler for <see cref="RecentSessionsService"/>'s
+    /// INPC. Promoted from a lambda in the ctor so Dispose can cancel
+    /// the subscription. Lambdas are not referenceable from -= and
+    /// would otherwise pin this VM to the singleton's lifetime.
+    /// </summary>
+    private void OnRecentSessionsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        => RefreshRecentEntries();
 
     /// <summary>
     /// FrameEmitted is invoked on the timer callback thread. We Post the
@@ -375,11 +390,28 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     /// Unsubscribe from <see cref="IReplayService.FrameEmitted"/> and
     /// stop playback. Safe to call multiple times — the service is
     /// thread-safe and <see cref="ReplayService.Stop"/> is idempotent.
+    /// <para>
+    /// v3.14.0 MINOR A2: cancel the v3.9.0 MINOR P1 LoopRewound subscription.
+    /// <see cref="IReplayService"/> is a DI singleton, so without the -=
+    /// the closure chain singleton → old-VM → old-frames prevents
+    /// old-VM GC.
+    /// </para>
+    /// <para>
+    /// v3.14.0 MINOR A3: cancel the <see cref="RecentSessionsService"/>
+    /// PropertyChanged subscription. The lambda in the ctor was promoted
+    /// to <see cref="OnRecentSessionsPropertyChanged"/> so Dispose can
+    /// -= it (lambdas can't be -=ed by reference). RecentSessionsService
+    /// is a DI singleton so without the -= the closure chain pins the VM.
+    /// </para>
     /// </summary>
     public void Dispose()
     {
+        _service.LoopRewound -= OnLoopRewound;
         _service.FrameEmitted -= OnFrameEmitted;
         _service.PlaybackEnded -= OnPlaybackEnded;
+        // v3.14.0 MINOR A3: cancel the RecentSessionsService.PropertyChanged
+        // subscription. Matches the += in the ctor (promoted from lambda).
+        _recentSessions.PropertyChanged -= OnRecentSessionsPropertyChanged;
         _service.Stop();
         GC.SuppressFinalize(this);
     }

@@ -187,4 +187,54 @@ public class SignalDecoderTests
         data[38] = 0x0F;
         SignalDecoder.Decode(data, sig).Should().Be(0xFF);
     }
+
+    // v3.14.0 MINOR A1 regression: pre-fix `ValueType.Signed` arm in DecodeRaw
+    // computed `((1UL << signal.Length) - 1UL)` as the bit-width mask. In C#,
+    // the shift amount of `<<` on `ulong` is taken modulo 64, so
+    // `1UL << 64 == 1UL << 0 == 1` and the mask collapses to 0. Any 64-bit
+    // signed signal in a DBC (CAN FD permits signal widths up to 64 bits) would
+    // therefore always decode to 0 — silent data corruption for the
+    // 0xFF..FF wire pattern. Fix: special-case length >= 64 before the shift.
+    [Fact]
+    public void DecodeRaw_64BitSigned_AllOnes_ReturnsAllOnesBitPattern()
+    {
+        var sig = new Signal("S", 0, 64, ByteOrder.LittleEndian, DbcValueType.Signed,
+            1.0, 0.0, long.MinValue, long.MaxValue, "u", Array.Empty<string>());
+        var data = new byte[8];
+        for (int i = 0; i < 8; i++) data[i] = 0xFF;
+        SignalDecoder.DecodeRaw(data, sig).Should().Be(0xFFFFFFFFFFFFFFFFUL,
+            "v3.14.0 MINOR A1: 64-bit signed -1 must decode to all-bits-set, not 0");
+    }
+
+    [Fact]
+    public void DecodeRaw_64BitSigned_Zero_ReturnsZeroBitPattern()
+    {
+        var sig = new Signal("S", 0, 64, ByteOrder.LittleEndian, DbcValueType.Signed,
+            1.0, 0.0, long.MinValue, long.MaxValue, "u", Array.Empty<string>());
+        SignalDecoder.DecodeRaw(new byte[8], sig).Should().Be(0UL);
+    }
+
+    [Fact]
+    public void Decode_64BitSigned_AllOnes_ReturnsNegativeOne()
+    {
+        var sig = new Signal("S", 0, 64, ByteOrder.LittleEndian, DbcValueType.Signed,
+            1.0, 0.0, long.MinValue, long.MaxValue, "u", Array.Empty<string>());
+        var data = new byte[8];
+        for (int i = 0; i < 8; i++) data[i] = 0xFF;
+        SignalDecoder.Decode(data, sig).Should().Be(-1.0);
+    }
+
+    [Fact]
+    public void DecodeRaw_32BitSigned_RegressionGuard()
+    {
+        // Sanity check the path that does NOT trigger the new `length >= 64`
+        // guard: a 32-bit signed -1 (0xFFFFFFFF) must still mask to 0xFFFFFFFF,
+        // not 0xFFFFFFFFFFFFFFFF. This guards against an over-eager fix that
+        // skips the mask for any width the guard would not match.
+        var sig = new Signal("S", 0, 32, ByteOrder.LittleEndian, DbcValueType.Signed,
+            1.0, 0.0, int.MinValue, int.MaxValue, "u", Array.Empty<string>());
+        var data = new byte[4];
+        for (int i = 0; i < 4; i++) data[i] = 0xFF;
+        SignalDecoder.DecodeRaw(data, sig).Should().Be(0xFFFFFFFFUL);
+    }
 }
