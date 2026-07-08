@@ -56,7 +56,12 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
         _timeline = new ReplayTimeline(
             emit: EmitFrame,
             onPlaybackEnded: RaisePlaybackEnded,
-            onSinkThrew: null);   // no sink — pass null
+            onSinkThrew: null,   // no sink — pass null
+            // v3.16.7 PATCH: forward the service's logger so ReplayTimeline's
+            // diagnostic logs (Play/OnTick entry, frame-emit count) actually
+            // reach Serilog. Previously the timeline got NullLogger.Instance
+            // and the logs were silently swallowed.
+            logger: _logger);
     }
 
     public ReplayState State => !_timeline.HasStarted
