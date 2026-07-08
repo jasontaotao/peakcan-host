@@ -134,8 +134,17 @@ public class TraceViewerViewModelChartWiringTests
         await sut.RebuildSignalsAsync();
 
         sut.ChartViewModel.Series.Should().HaveCount(2);
+        // v3.14.2 PATCH: per-signal PlotModel is built lazily on user
+        // opt-in. The chart-wiring tests inspect LineStyle on the
+        // PlotModel.Series[0], so opt both signals in to populate.
+        // Materialize the Series first because PlotSignal mutates the
+        // collection (Series[idx] = updated) — iterating a mutating
+        // ObservableCollection throws.
+        var seriesSnapshot = sut.ChartViewModel.Series.ToList();
+        foreach (var s in seriesSnapshot)
+            sut.PlotSignal(s);
         var styles = sut.ChartViewModel.Series
-            .Select(s => s.PlotModel.Series.OfType<LineSeries>().Single().LineStyle)
+            .Select(s => s.PlotModel!.Series.OfType<LineSeries>().Single().LineStyle)
             .ToList();
         styles.Should().Contain(LineStyle.Solid);
         styles.Should().Contain(LineStyle.Dash);
@@ -174,13 +183,22 @@ public class TraceViewerViewModelChartWiringTests
         // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
 
+        // v3.14.2 PATCH: opt both signals in to populate the Y axis
+        // ranges. Pre-fix the eager build had already populated them.
+        // Materialize the Series first because PlotSignal mutates the
+        // collection (Series[idx] = updated) — iterating a mutating
+        // ObservableCollection throws.
+        var seriesSnapshot = sut.ChartViewModel.Series.ToList();
+        foreach (var s in seriesSnapshot)
+            sut.PlotSignal(s);
+
         // Both subplots must have the same Y axis range (synchronized
         // by SignalKey via v3.3.2's SyncYAxes). Range A: 16..32,
         // Range B: 48..64; global 16..64; +5% padding → 13.6..66.4.
-        var yA = sut.ChartViewModel.Series[0].PlotModel.Axes
+        var yA = sut.ChartViewModel.Series[0].PlotModel!.Axes
             .OfType<OxyPlot.Axes.LinearAxis>()
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
-        var yB = sut.ChartViewModel.Series[1].PlotModel.Axes
+        var yB = sut.ChartViewModel.Series[1].PlotModel!.Axes
             .OfType<OxyPlot.Axes.LinearAxis>()
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
         yA.Minimum.Should().BeApproximately(yB.Minimum, 0.001);

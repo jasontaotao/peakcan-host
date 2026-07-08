@@ -317,16 +317,24 @@ public class TraceViewerViewModelRebuildSignalsTests
         // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Assert: BuildChartSeries produces exactly one series for the
-        // (source "a", 0x100/RPM) triple.
+        // v3.14.2 PATCH: per-signal PlotModel + decoded values are
+        // now built lazily on user opt-in (PlotSignal). The series row
+        // is registered at load time with a placeholder PlotModel +
+        // empty XValues/YValues + IsPlotPending=true. Opt in here to
+        // assert the decoded values materialize correctly.
         sut.ChartViewModel.Series.Should().ContainSingle();
         var series = sut.ChartViewModel.Series[0];
         series.SourceId.Should().Be("a");
         series.Unit.Should().Be("rpm");
         series.Color.Should().Be(OxyColors.Blue);
         series.DisplayName.Should().Contain("RPM");
-        // The series data must contain both decoded values.
-        series.YValues.Should().Equal(16.0, 32.0);
+        series.IsPlotPending.Should().BeTrue();
+        series.YValues.Should().BeEmpty();
+        // Opt the signal in: the PlotModel + YValues populate.
+        sut.PlotSignal(series);
+        var plotted = sut.ChartViewModel.Series[0];
+        plotted.IsPlotPending.Should().BeFalse();
+        plotted.YValues.Should().Equal(16.0, 32.0);
     }
 
     /// <summary>
