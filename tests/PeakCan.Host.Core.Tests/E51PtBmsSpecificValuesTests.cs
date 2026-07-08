@@ -39,7 +39,9 @@ public class E51PtBmsSpecificValuesTests
         if (!r.IsSuccess) throw new Xunit.Sdk.XunitException(
             $"Parse failed: code={r.Error!.Code} message={r.Error.Message}");
 
-        var msg = r.Value!.MessagesById[0xC0000000u];  // 3221225472
+        // v3.14.1 PATCH: MessagesById is keyed by masked 29-bit raw ID.
+        // 0xC0000000 & 0x7FFFFFFF = 0x40000000.
+        var msg = r.Value!.MessagesById[0xC0000000u & 0x7FFFFFFFu];
         msg.Name.Should().Be("VECTOR__INDEPENDENT_SIG_MSG");
         msg.Dlc.Should().Be(0, "Vector convention: BO_ with no payload has DLC=0");
         msg.Signals.Should().HaveCount(2);

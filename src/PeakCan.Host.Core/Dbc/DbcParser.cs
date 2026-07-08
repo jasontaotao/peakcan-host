@@ -220,7 +220,19 @@ public static class DbcParser
                 }
             }
 
-            var byId = _pendingMessages.ToDictionary(m => m.Id);
+            var byId = _pendingMessages.ToDictionary(m => m.Id & 0x7FFFFFFFu);
+            // v3.14.1 PATCH: strip the DBC IDE-bit (0x80000000) from the
+            // 32-bit ID before keying MessagesById. The DBC stores
+            // extended-frame IDs as `<29-bit-raw> | 0x80000000` (e.g.
+            // 0x1802F3D0 | 0x80000000 = 0x9802F3D0 = 2550330320 dec),
+            // but Vector .asc extended-frame IDs are just the 29-bit raw
+            // with a trailing 'x' marker stripped at parse time. To make
+            // runtime lookup against incoming frame ids work (the docstring
+            // contract on DbcDocument.MessagesById), normalize all keys
+            // by masking off the IDE bit. m.Id itself is preserved (callers
+            // that want the IDE-merged value still see the original).
+            // The mask is a no-op for standard-frame IDs (already
+            // < 0x800) and a strip for extended-frame IDs.
             // v1.2.9: merge inline VAL_ value tables collected during
             // ParseValForSignal into the document-level dict. Inline
             // definitions take precedence over a pre-existing VAL_TABLE_

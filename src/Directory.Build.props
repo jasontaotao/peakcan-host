@@ -6,9 +6,9 @@
          to test projects (tests don't ship a UI). Overrides the
          repo-root Directory.Build.props Version=2.0.0 default for
          shipping artifacts only. -->
-    <Version>3.13.3</Version>
-    <AssemblyVersion>3.13.3.0</AssemblyVersion>
-    <FileVersion>3.13.3.0</FileVersion>
-    <InformationalVersion>3.13.3</InformationalVersion>
+    <Version>3.14.1</Version>
+    <AssemblyVersion>3.14.1.0</AssemblyVersion>
+    <FileVersion>3.14.1.0</FileVersion>
+    <InformationalVersion>3.14.1</InformationalVersion>
   </PropertyGroup>
 </Project>
