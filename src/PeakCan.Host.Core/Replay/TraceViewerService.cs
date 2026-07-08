@@ -53,6 +53,14 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         _logger = logger;
         _options = options;
+        // v3.16.8 PATCH: SMOKE TEST log — if this line never appears in
+        // %LOCALAPPDATA%/PeakCan.Host/logs/peak-{date}.log, the Serilog
+        // pipeline itself is broken (or the user is looking at the wrong
+        // file). Confirms that TraceViewerService was constructed AND
+        // that the logger field is non-null AND that the Serilog sink
+        // can write to the file.
+        _logger.LogInformation("[SMOKE v3.16.8] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={Max}",
+            _options.MaxFileSizeBytes);
         _timeline = new ReplayTimeline(
             emit: EmitFrame,
             onPlaybackEnded: RaisePlaybackEnded,

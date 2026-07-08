@@ -133,6 +133,16 @@ public class AppHostBuilder
             // are preserved in the default appsettings.json.
             .ReadFrom.Configuration(builder.Configuration)
             .CreateLogger();
+        // v3.16.8 PATCH: SMOKE TEST — write directly to Console
+        // (bypasses Serilog entirely) so the user can confirm at
+        // least the AppHostBuilder.Build() was reached, even if
+        // Serilog's File sink is broken. If the user runs
+        // PeakCan.Host.exe from cmd / PowerShell and sees this line,
+        // they know the app is alive and Serilog is at least
+        // configured (the .LogInformation() call below writes through
+        // Serilog to BOTH the File sink AND this Console for one line).
+        System.Console.WriteLine("[SMOKE v3.16.8] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
+        Log.Logger.Information("[SMOKE v3.16.8] AppHostBuilder.Build() Serilog Logger ready");
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
 
         // v1.5.0 MINOR: expose the host's IConfiguration as a singleton so
@@ -420,6 +430,12 @@ public class AppHostBuilder
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
         // OpenSessionAsync commands.
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
+        // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic for Trace +
+        // Replay VMs. Both VMs delegate the scalar envelope + content-hash
+        // computation to this helper; VM-specific Sources / Playback /
+        // Viewports stay on the caller. Singleton because it owns no
+        // state (only a hasher reference + a logger).
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionSnapshotBuilder>();
         // v3.6.4 PATCH: hash-based .asc relocation. IAscContentHasher
         // computes SHA-256 of an .asc's contents (stored alongside the
         // path in the bundle); IAscLocator walks user-known directories
