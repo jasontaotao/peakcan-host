@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -9,7 +10,7 @@ using PeakCan.Host.App.Services.Trace;
 
 namespace PeakCan.Host.App.ViewModels;
 
-public sealed class TraceChartViewModel : ObservableObject
+public sealed partial class TraceChartViewModel : ObservableObject
 {
     /// <summary>One statistics entry per charted signal.</summary>
     public sealed record TraceChartStatistics(
@@ -90,13 +91,33 @@ public sealed class TraceChartViewModel : ObservableObject
     // keep up with 1000 plot invalidations / second per series).
     // Throttle to one update per ~16 ms (60 fps) — the human eye cannot
     // distinguish 60 fps cursor motion from 1000 fps cursor motion, and
-    // 60 fps is the WPF default render cadence. The skip count + last
-    // timestamp fields are instance state, not static, so multiple
-    // TraceChartViewModel instances (one per Trace Viewer window) do
-    // not interfere.
-    private DateTime _lastCursorInvalidate = DateTime.MinValue;
+    // 60 fps is the WPF default render cadence.
+    // v3.16.9.1 PATCH (code-review H1): use Stopwatch ticks (monotonic,
+    // high-resolution, immune to wall-clock NTP/clock-jump adjustments)
+    // instead of DateTime.UtcNow. The project already uses Stopwatch in
+    // RateLimitedSendService.cs:50,105,110,130 — using it here is
+    // consistent with existing patterns. DateTime.UtcNow would silently
+    // disable the throttle on a clock-jump backward, re-creating the
+    // original freeze bug.
+    // v3.16.9.1 PATCH: sentinel value for "never invalidated". Must be 0
+    // (not long.MinValue) because (Stopwatch.GetTimestamp() - long.MinValue)
+    // overflows to a NEGATIVE number on the first call, which would
+    // cause elapsedMs < 16 to be FALSE (negative number is < 16 is true,
+    // so the throttle would skip the first invalidate). 0 means
+    // "uninitialized" — the first call's elapsedMs will be a large
+    // positive number (current ticks - 0), and the throttle will allow
+    // the first invalidate.
+    private long _lastCursorInvalidateTicks = 0L;
     private double _lastCursorX = double.NaN;
     private const double CursorInvalidateIntervalMs = 16.0;
+    private static readonly double StopwatchTicksToMs = 1000.0 / Stopwatch.Frequency;
+    // v3.16.9.1 PATCH (code-review M2): test hook. The throttle test
+    // needs an observable InvalidatePlot call count; without this,
+    // removing the throttle would still pass the test (false-positive
+    // green). Counter increments inside the foreach so per-series
+    // invalidations are summed.
+    [ObservableProperty]
+    private int _invalidatePlotCallCount;
 
     public void UpdatePlaybackCursor(double x)
     {
@@ -105,18 +126,20 @@ public sealed class TraceChartViewModel : ObservableObject
         // (a) the new X is the same as the last-rendered X (no movement),
         //     which happens when OnTick emits multiple frames at the
         //     same timestamp (rounded values), or
-        // (b) less than 16 ms has passed since the last invalidate.
+        // (b) less than 16 ms (Stopwatch ticks) have passed since the
+        //     last invalidate. Using Stopwatch (not DateTime) avoids
+        //     wall-clock-jump disarming the throttle.
         // Without (a), a duplicate-timestamp frame burst would burn the
         // full 1000 fps invalidate rate. Without (b), the user's
         // window freezes mid-playback. Both are empirical findings from
         // v3.16.9 PATCH user reproduction: "clicked Play and the window
         // froze" — root-caused to UpdatePlaybackCursor invalidating at
         // the timer cadence (1 ms) instead of the render cadence (16 ms).
-        var now = DateTime.UtcNow;
-        var elapsedMs = (now - _lastCursorInvalidate).TotalMilliseconds;
+        var nowTicks = Stopwatch.GetTimestamp();
+        var elapsedMs = (nowTicks - _lastCursorInvalidateTicks) * StopwatchTicksToMs;
         if (x == _lastCursorX || elapsedMs < CursorInvalidateIntervalMs)
             return;
-        _lastCursorInvalidate = now;
+        _lastCursorInvalidateTicks = nowTicks;
         _lastCursorX = x;
         foreach (var s in Series)
         {
@@ -126,6 +149,7 @@ public sealed class TraceChartViewModel : ObservableObject
             {
                 cursor.X = x;
                 s.PlotModel.InvalidatePlot(false);
+                InvalidatePlotCallCount++;
             }
         }
     }
