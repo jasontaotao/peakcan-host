@@ -1213,6 +1213,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         if (sig is null) return;
 
         var created = 0;
+        TraceChartSeries? firstBuilt = null;
         foreach (var source in _registry.Sources)
         {
             // v3.15.0 MINOR: source-pinned watches only plot against
@@ -1223,12 +1224,33 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             if (built is null) continue;  // no frames in this source
             ChartViewModel.AddSeries(built);
             created++;
+            firstBuilt ??= built;
         }
         if (created > 0)
         {
             ChartViewModel.SyncYAxes();
-            ChartViewModel.SyncXAxis(_masterService?.CurrentTimestamp ?? 0.0,
-                                      _masterService?.TotalDuration ?? 0.0);
+            // v3.16.5 PATCH BUGFIX (4-agent root-cause): use the new
+            // series' own XValues range, not the master service's
+            // [CurrentTimestamp, TotalDuration]. The previous
+            // CurrentTimestamp-based call overwrote EVERY series' X
+            // axis (the loop in SyncXAxis iterates Series), and
+            // CurrentTimestamp during playback = the live cursor
+            // (e.g. 350s into a 650s trace), which narrowed the X
+            // range to [350, 650] and pushed xs[0]..xs[N-1] frames
+            // with x < 350 outside the viewport — OxyPlot rendered
+            // the line off-canvas and the user saw "no chart".
+            // Mirrors the working PlotSignal path at line 1725.
+            var xMin = firstBuilt!.XValues[0];
+            var xMax = firstBuilt.XValues[^1];
+            // Defensive: if a degenerate series (single point), fall
+            // back to master service's full range so OxyPlot has a
+            // non-zero axis width.
+            if (xMax <= xMin)
+            {
+                xMin = 0;
+                xMax = _masterService?.TotalDuration > 0 ? _masterService.TotalDuration : 1.0;
+            }
+            ChartViewModel.SyncXAxis(xMin, xMax);
         }
     }
 
