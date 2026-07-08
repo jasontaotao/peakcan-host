@@ -1117,6 +1117,22 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// "add N rows" event followed by a single "remove placeholder"
     /// event (rather than the interleave that caused
     /// ItemContainerGenerator confusion in v3.16.1).
+    /// <para>
+    /// v3.16.6 PATCH BUGFIX (2-agent root-cause): the v3.16.2 design
+    /// still fired N Add + 1 Remove events back-to-back, which races
+    /// with the WPF ItemContainerGenerator's Recycling-mode bookkeeping
+    /// when DataGrid EnableRowVirtualization=True. With 6+ signals
+    /// selected in the picker, the Generator's cumulative count drifted
+    /// by 1 from Items.Count ("累计计数 5 与实际计数 6 不相同") and
+    /// threw InvalidOperationException on the next Refresh pass.
+    /// <b>Fix:</b> collapse the picker finalize to a single Reset
+    /// event (Clear) followed by all real rows in a deterministic
+    /// order. Clear() forces the Generator to re-sync its cumulative
+    /// count to 0 before the N Adds land — the cumulative count then
+    /// matches Items.Count exactly. RefreshFrameCounts runs after
+    /// the rebuild so FrameCount is correct on the first binding
+    /// pass (no stale 0 values).
+    /// </para>
     /// </summary>
     public void FinalizePickerAdds(IReadOnlyList<WatchedSignalRow> addedRows)
     {
@@ -1127,12 +1143,32 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Drop any placeholder row.
-        var placeholders = WatchedSignals.Where(w => w.IsPlaceholder).ToList();
-        foreach (var ph in placeholders)
-            WatchedSignals.Remove(ph);
+        // v3.16.6 PATCH: snapshot real rows (skip placeholder), Clear
+        // the collection (1 Reset event → Generator re-syncs cumulative
+        // count to 0), then re-Add the kept rows + the new picker rows
+        // in a deterministic order. This avoids the N-Add + 1-Remove
+        // interleave that races with WPF's Recycling generator
+        // bookkeeping when DataGrid is virtualized.
+        // v3.16.6 PATCH (B1 of this PATCH): dedupe addedRows against
+        // `kept` by WatchId. AddToWatchForPicker returns the EXISTING
+        // row (not a new one) when the user re-picks an already-watched
+        // signal, and FinalizePickerAdds's contract is "addedRows are
+        // rows to plot" — adding them all back to the collection would
+        // double-list existing watches after the Clear. Match by WatchId
+        // (the dedupe key) so the post-Clear state is identical to the
+        // pre-Clear state + newly-added rows.
+        var kept = WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        var keptIds = new HashSet<string>(kept.Select(r => r.WatchId), StringComparer.Ordinal);
+        WatchedSignals.Clear();
+        foreach (var row in kept) WatchedSignals.Add(row);
+        foreach (var row in addedRows)
+        {
+            if (row is null) continue;
+            if (keptIds.Contains(row.WatchId)) continue;  // already in kept — no re-add
+            WatchedSignals.Add(row);
+        }
 
-        // Refresh frame counts for the watch list.
+        // Refresh frame counts for the watch list (now sees all rows).
         RefreshFrameCounts();
 
         // Plot each newly added row.

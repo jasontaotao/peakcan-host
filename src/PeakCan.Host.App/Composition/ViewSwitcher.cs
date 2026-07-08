@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Linq;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -110,6 +111,44 @@ public static class ViewSwitcher
         where TWindow : Window
     {
         ArgumentNullException.ThrowIfNull(factory);
+        // v3.16.6 PATCH BUGFIX (multi-agent root-cause): also detect
+        // cache != null but the window is no longer in the WPF window
+        // collection. WPF does not expose a public IsClosed bool, so
+        // we use `Application.Current.Windows.Contains(...)` as the
+        // "still alive" check — a closed window has been removed from
+        // this collection. The pre-PATCH code only checked
+        // `cache is null`, which left `_traceViewerView` holding a
+        // closed window; the next ShowTraceViewer call then invoked
+        // `Show()` on a closed window → WPF throws
+        // `InvalidOperationException: 关闭窗口后，无法设置可见性`
+        // ("cannot set visibility, Show, ShowDialog, or
+        // WindowInteropHelper.EnsureHandle on a closed window").
+        // Fix: treat any stale window as a dead cache, null it, and
+        // let the factory rebuild.
+        if (cache is not null)
+        {
+            // Capture in a local so the lambda doesn't capture the ref
+            // parameter (lambdas can't capture ref/out/in locals).
+            // v3.16.6 PATCH: only mark cache as stale when we can
+            // positively confirm the window is gone (via
+            // Application.Current.Windows membership). In STA test
+            // threads (no Application.Current), or before
+            // App.OnStartup, Application.Current is null — fall back
+            // to "trust the cache" so unit tests that round-trip
+            // ShowWindow + cache reuse still pass. Production runs
+            // always have Application.Current; the check fires there.
+            var cached = cache;
+            var app = Application.Current;
+            if (app is not null)
+            {
+                var stillAlive = app.Windows.Cast<Window>()
+                    .Any(w => ReferenceEquals(w, cached));
+                if (!stillAlive)
+                {
+                    cache = null;
+                }
+            }
+        }
         if (cache is null)
         {
             // v3.11.1 PATCH M3: route the Closed-reset wiring through a
