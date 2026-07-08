@@ -1165,48 +1165,32 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 var idHex = FormatCanIdHex(msg.Id & 0x7FFFFFFFu);
                 foreach (var sig in msg.Signals)
                 {
-                    var xs = new List<double>(matching.Count);
-                    var ys = new List<double>(matching.Count);
-                    foreach (var f in matching)
-                    {
-                        xs.Add(f.Timestamp);
-                        ys.Add(SignalDecoder.Decode(f.Data, sig));
-                    }
-                    var plotModel = new PlotModel();
-                    plotModel.Axes.Add(new LinearAxis
-                    {
-                        Position = AxisPosition.Bottom,
-                        Title = "Time (s)",
-                    });
-                    plotModel.Axes.Add(new LinearAxis
-                    {
-                        Position = AxisPosition.Left,
-                        Title = sig.Unit,
-                    });
-                    var line = new LineSeries
-                    {
-                        Title = $"{source.DisplayName}/{sig.Name}",
-                        Color = source.Color,
-                        // v3.4.0 MINOR: stroke style for color-blind accessibility.
-                        LineStyle = source.StrokeStyle,
-                    };
-                    for (int i = 0; i < xs.Count; i++)
-                        line.Points.Add(new DataPoint(xs[i], ys[i]));
-                    plotModel.Series.Add(line);
+                    // v3.14.2 PATCH: the inner per-frame loop allocates a
+                    // List<double> per signal + a PlotModel + 2 LinearAxis
+                    // + LineSeries, ALL synchronously on the UI thread.
+                    // For the user's 99,728-frame / 316-signal test
+                    // files this was 500K+ SignalDecoder.Decode calls
+                    // = ~30 second UI hang on Add Trace. Now we register
+                    // a placeholder TraceChartSeries (no per-frame data
+                    // decoded) and lazily decode when the user opts
+                    // the signal in via PlotSignal(). All series are
+                    // initially visible-but-empty (folded); a "Plot
+                    // this signal" button populates the PlotModel.
                     var displayName = $"{source.DisplayName}.{idHex}.{sig.Name}";
                     ChartViewModel.AddSeries(new TraceChartSeries(
                         SignalKey: $"{idHex}.{sig.Name}",
                         DisplayName: displayName,
                         Unit: sig.Unit,
                         Color: source.Color,
-                        PlotModel: plotModel,
-                        XValues: xs,
-                        YValues: ys,
-                        MinValue: ys.Min(),
-                        MaxValue: ys.Max(),
+                        PlotModel: new PlotModel(),  // placeholder; axes added on PlotSignal()
+                        XValues: Array.Empty<double>(),  // placeholder
+                        YValues: Array.Empty<double>(),  // placeholder
+                        MinValue: 0.0,
+                        MaxValue: 0.0,
                         IsFocused: false,
                         IsCollapsed: false,
-                        SourceId: source.SourceId));
+                        SourceId: source.SourceId,
+                        IsPlotPending: true));
                 }
             }
         }
@@ -1225,6 +1209,107 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return (id & IdeBit) == 0
             ? $"0x{id:X3}"
             : $"0x{id:X8}";
+    }
+
+    /// <summary>
+    /// v3.14.2 PATCH: build the per-frame PlotModel + XValues + YValues
+    /// for a single TraceChartSeries on demand. Called when the user
+    /// opts a signal in (clicks the chart row's "Plot" affordance).
+    /// The Trace Viewer registers a placeholder per (source, signal) row
+    /// at load time and only decodes the per-frame data on user demand.
+    /// This is the user-facing fix for the "Add Trace hangs 30+ seconds"
+    /// bug — the prior eager build decoded 500K+ frames synchronously on
+    /// the UI thread.
+    /// <para>
+    /// Implementation: matches the eager-build loop body verbatim but
+    /// runs once per call instead of once per (source, msg, sig) tuple.
+    /// Safe to call multiple times — clears the existing PlotModel first.
+    /// </para>
+    /// </summary>
+    public void PlotSignal(TraceChartSeries series)
+    {
+        if (series is null) throw new ArgumentNullException(nameof(series));
+        if (!series.IsPlotPending) return;  // already plotted
+
+        // Find the source + DBC message that produced this series. The
+        // SignalKey is "{idHex}.{sig.Name}" — we need the original
+        // uint canId to look up frames. Parse the hex back.
+        var dot = series.SignalKey.IndexOf('.');
+        if (dot <= 0) return;
+        var idHexStr = series.SignalKey.Substring(0, dot);
+        if (!idHexStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return;
+        if (!uint.TryParse(idHexStr.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var canId)) return;
+        // Apply the same IDE-bit mask as the lookup keys (v3.14.1).
+        var lookupId = canId & 0x7FFFFFFFu;
+
+        // Find the source
+        var source = _registry.Sources.FirstOrDefault(s => s.SourceId == series.SourceId);
+        if (source is null) return;
+
+        // Reconstruct the signal from the DBC + name. We re-load the
+        // DBC's Current doc each call to find the signal definition.
+        // DisplayName format: "{sourceDisplayName}.{idHex}.{sig.Name}"
+        // (3 parts); the sig.Name is the LAST segment.
+        var dbc = _dbcService.Current;
+        if (dbc is null) return;
+        var lastDot = series.DisplayName.LastIndexOf('.');
+        if (lastDot < 0) return;
+        var sigName = series.DisplayName.Substring(lastDot + 1);
+        var sig = dbc.Messages
+            .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+            .SelectMany(m => m.Signals)
+            .FirstOrDefault(s => s.Name == sigName);
+        if (sig is null) return;
+
+        // Decode per-frame.
+        var frames = _registry.GetFrames(source.SourceId)
+            .Where(f => (f.Id & 0x7FFFFFFFu) == lookupId)
+            .ToList();
+        if (frames.Count == 0) return;
+
+        var xs = new List<double>(frames.Count);
+        var ys = new List<double>(frames.Count);
+        foreach (var f in frames)
+        {
+            xs.Add(f.Timestamp);
+            ys.Add(SignalDecoder.Decode(f.Data, sig));
+        }
+
+        // Build the PlotModel + LineSeries.
+        var plotModel = new PlotModel();
+        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom, Title = "Time (s)" });
+        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = series.Unit });
+        var line = new LineSeries
+        {
+            Title = series.DisplayName,
+            Color = source.Color,
+            LineStyle = source.StrokeStyle,
+        };
+        for (int i = 0; i < xs.Count; i++)
+            line.Points.Add(new DataPoint(xs[i], ys[i]));
+        plotModel.Series.Add(line);
+
+        // Replace the placeholder in place (TraceChartSeries is a record;
+        // we mutate the chart via the CollectionViewModel).
+        var idx = ChartViewModel.Series.IndexOf(series);
+        if (idx < 0) return;
+        var updated = series with
+        {
+            PlotModel = plotModel,
+            XValues = xs,
+            YValues = ys,
+            MinValue = ys.Min(),
+            MaxValue = ys.Max(),
+            IsPlotPending = false,
+        };
+        ChartViewModel.Series[idx] = updated;
+        // v3.14.2 PATCH: resync Y axes + X axis now that the series
+        // has real data. RebuildSignalsCore's initial SyncYAxes ran
+        // against the empty placeholder, leaving axes at default
+        // (NaN). Re-run after the lazy fill so the chart renders
+        // with the correct ranges on the very first opt-in.
+        ChartViewModel.SyncYAxes();
+        ChartViewModel.SyncXAxis(xs[0], xs[^1]);
     }
 
     /// <summary>

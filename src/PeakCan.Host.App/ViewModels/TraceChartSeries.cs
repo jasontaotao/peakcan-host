@@ -33,6 +33,14 @@ public sealed record TraceChartSeries(
     double MaxValue,
     bool IsFocused,
     bool IsCollapsed,
+    // v3.14.2 PATCH: when true, the PlotModel + XValues + YValues
+    // are not yet populated. The Trace Viewer registers a placeholder
+    // per (source, signal) row in the chart strip at load time and
+    // lazily builds the per-frame data when the user opts the signal
+    // in via PlotSignal(). The prior eager build blocked the UI thread
+    // for 30+ seconds on a 99k-frame .asc with 316 signals (500K
+    // SignalDecoder.Decode calls).
+    bool IsPlotPending = false,
     // v3.2.0 MINOR: empty string for v3.0 single-trace callers; non-empty
     // GUID assigned by TraceSessionRegistry when the series originates
     // from a loaded TraceSource.
