@@ -228,7 +228,27 @@ public sealed partial class ChannelRouter : IFrameSource
                     // exception is captured via `when` filter + scope; the
                     // structured exception object carries the full ToString.
                     LogSinkOnError(_logger, onErrorEx, s.GetType().Name);
-                    DetachSink(s);
+                    // v3.14.0 MINOR A5: wrap DetachSink in an inner try/catch.
+                    // The class xmldoc (lines 67-71) says "do not reorder and
+                    // do not wrap DetachSink in another try/catch". The intent
+                    // is "the secondary exception must be observable" — that
+                    // is satisfied by routing through ILogger (same pattern as
+                    // LogSinkOnError directly above). Letting DetachSink
+                    // throw would propagate to the channel read loop, count
+                    // as a consecutive iteration failure, and after ~100
+                    // iterations kill the read loop — apparent CAN bus death
+                    // requires Disconnect+Connect to recover. We keep the
+                    // observability promise (the exception is logged with its
+                    // type name) and the DetachSink call still runs under the
+                    // class-level lock, but its failure no longer escapes.
+                    try
+                    {
+                        DetachSink(s);
+                    }
+                    catch (Exception detachEx)
+                    {
+                        LogDetachSinkFailed(_logger, detachEx, s.GetType().Name);
+                    }
                 }
             }
         }
@@ -262,5 +282,24 @@ public sealed partial class ChannelRouter : IFrameSource
     private static partial void LogChannelRouterSinkOnFrameFailed(
         ILogger logger,
         Exception originalException,
+        string sinkType);
+
+    // v3.14.0 MINOR A5: log DetachSink failure during the inner onError
+    // catch. The pre-fix behaviour let this exception escape to the channel
+    // read loop, where it counted toward consecutive iteration failures;
+    // after ~100 consecutive failures the read loop gave up, logging
+    // "ReadLoopGivingUp" and freezing the entire CAN bus from the user's
+    // perspective until Disconnect+Connect. We preserve the xmldoc's
+    // observability promise by logging the secondary exception with its
+    // type name and a message that frames it as collateral (the primary
+    // failure is already in the outer LogSinkOnError / LogChannelRouter
+    // SinkOnFrameFailed above). The DetachSink call still removes the
+    // misbehaving sink from _sinks on success — only its *own* failure
+    // path is now contained. EventId 6011. See class xmldoc lines 58-71
+    // for the pre-fix exception-ordering contract this preserves.
+    [LoggerMessage(EventId = 6011, Level = LogLevel.Warning, Message = "ChannelRouter.DetachSink failed for sink {SinkType} (primary sink error already logged; this detach failure is collateral and contained — see v3.14.0 MINOR A5)")]
+    private static partial void LogDetachSinkFailed(
+        ILogger logger,
+        Exception ex,
         string sinkType);
 }
