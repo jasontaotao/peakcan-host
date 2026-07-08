@@ -57,7 +57,17 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         // v3.10.0 MINOR T4 (H5): pass the configured ReplayOptions so the
         // parser-layer cap honors the operator's appsettings.json override.
         var service = new TraceViewerService(logger, _options);
-        await service.LoadAsync(path, ct).ConfigureAwait(false);
+        // v3.13.1 PATCH F4: default ConfigureAwait(true) so the post-await
+        // continuation runs on the UI thread. The subsequent SourcesChanged
+        // dispatch fires OnRegistrySourcesChanged which mutates WPF-bound
+        // ObservableCollections (TraceViewerViewModel.ChartViewModel.Series);
+        // those mutations throw NotSupportedException ("CollectionView does
+        // not support changes to its SourceCollection from a thread other
+        // than the dispatcher thread") when invoked off the UI thread. The
+        // inner ConfigureAwait(false) inside TraceViewerService.LoadAsync
+        // is safe — its catch-arm translates exceptions to ReplayException
+        // and never touches the UI.
+        await service.LoadAsync(path, ct).ConfigureAwait(true);
 
         // 3. Now that the parse succeeded, allocate the palette slot. Past
         //    10 sources, the palette falls back to a hash-based color (v3.3.1
