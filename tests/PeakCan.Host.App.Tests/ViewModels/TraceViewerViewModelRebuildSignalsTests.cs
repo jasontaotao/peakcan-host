@@ -328,4 +328,61 @@ public class TraceViewerViewModelRebuildSignalsTests
         // The series data must contain both decoded values.
         series.YValues.Should().Equal(16.0, 32.0);
     }
+
+    /// <summary>
+    /// v3.13.2 PATCH F5: when a DBC is loaded via <see cref="DbcService.DbcLoaded"/>
+    /// (the only path remaining after v3.13.0 F3 — the DbcView tab is the
+    /// sole entry point), the Trace Viewer must rebuild its Signals + chart
+    /// subplots. The xmldoc on the TVM (line 388) historically documented
+    /// a <c>_dbcService.PropertyChanged</c> subscription, but DbcService
+    /// does not implement INotifyPropertyChanged — it exposes a typed
+    /// <c>DbcLoaded</c> event. The ctor now subscribes via <c>+=</c>;
+    /// this test pins the contract so the subscription cannot silently
+    /// regress back to a dead INPC stub.
+    /// </summary>
+    [Fact]
+    public void DbcService_DbcLoaded_Fires_RebuildSignalsCore()
+    {
+        // Arrange: one source emitting 0x100 frames. No DBC loaded yet →
+        // RebuildSignalsCore at ctor time sees zero decoded rows. The
+        // DBC is then installed via SetCurrentForTests (does NOT raise
+        // the event — see DbcService.cs:101); the test manually raises
+        // DbcLoaded to drive the OnDbcLoaded handler.
+        var registry = MakeFakeRegistry();
+        var svc = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+        });
+        registry.GetService("a").Returns(svc);
+        registry.GetFrames("a").Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x20, 0x00),
+        });
+
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        // Construct TVM BEFORE the DBC exists — mirrors the user flow
+        // "open Trace Viewer → load DBC via DbcView tab → Trace Viewer
+        // auto-rebuilds". At ctor time Signals is empty (no DBC).
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.Signals.Should().BeEmpty("no DBC loaded yet at TVM construction time");
+
+        // Act: install the DBC + raise DbcLoaded. The TVM's OnDbcLoaded
+        // handler must call RebuildSignalsCore, which decodes frames
+        // against the now-available DBC and populates Signals + chart.
+        dbc.SetCurrentForTests(DocWithTwoMessages());
+        dbc.GetType().GetEvent(nameof(DbcService.DbcLoaded))!
+            .RaiseMethod(dbc, DocWithTwoMessages());
+
+        // Assert: Signals populated — at least the 0x100 row (0x200 has
+        // no matching frames in this test, so it is skipped by
+        // BuildSignalRows, mirroring test 4 above). The contract under
+        // test is "rebuild fired after DbcLoaded", not a specific row
+        // count, so we assert "non-zero" rather than an exact figure.
+        sut.Signals.Should().NotBeEmpty(
+            "DbcLoaded must trigger RebuildSignalsCore so the Trace Viewer populates");
+        sut.Signals[0].CanIdHex.Should().Be("0x100");
+        sut.Signals[0].SignalName.Should().Be("RPM");
+    }
 }
