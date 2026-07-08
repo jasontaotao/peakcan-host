@@ -120,8 +120,13 @@ public partial class TraceViewerView : Window
 
     private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
     {
+        // v3.16.3 PATCH BUGFIX: DataContext is WatchedSignalRow, not
+        // TraceSignalRow (v3.15.0 swapped the signal table collection).
+        // Casting to TraceSignalRow silently failed, so the click
+        // handler returned without doing anything. The Plot checkbox
+        // appeared to be a no-op.
         if (sender is CheckBox { IsChecked: bool isChecked } cb
-            && cb.DataContext is TraceSignalRow row
+            && cb.DataContext is WatchedSignalRow row
             && DataContext is TraceViewerViewModel vm)
         {
             // Ignore stale reentry if row was already at this state

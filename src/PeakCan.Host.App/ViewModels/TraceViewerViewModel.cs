@@ -1387,10 +1387,24 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnAnyFrameEmitted(ReplayFrame frame)
     {
+        // v3.16.3 PATCH BUGFIX: also update ScrubberValue so the UI
+        // scrubber follows playback. The v3.3.0 architecture was
+        // scrubber-driven (drag → seek), but Playback left the scrubber
+        // frozen because FrameEmitted never wrote back to ScrubberValue.
+        // WPF data binding throttles the visible slider motion naturally
+        // (DataBinding is coalesced per render frame).
+        var t = _masterService?.CurrentTimestamp ?? 0.0;
         if (_syncContext is not null)
-            _syncContext.Post(_ => ChartViewModel.UpdatePlaybackCursor(_masterService?.CurrentTimestamp ?? 0.0), null);
+            _syncContext.Post(_ =>
+            {
+                ChartViewModel.UpdatePlaybackCursor(t);
+                ScrubberValue = t;
+            }, null);
         else
-            ChartViewModel.UpdatePlaybackCursor(_masterService?.CurrentTimestamp ?? 0.0);
+        {
+            ChartViewModel.UpdatePlaybackCursor(t);
+            ScrubberValue = t;
+        }
     }
 
     /// <summary>
