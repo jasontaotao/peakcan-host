@@ -28,7 +28,10 @@
                  The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
                     Padding="8,2" Margin="0,0,4,0" />
-            <Button Content="Load DBC…" Click="OnLoadDbcClick" Padding="8,2" Margin="0,0,4,0" />
+            <!-- v3.13.0 PATCH F3: removed "Load DBC…" toolbar button. DbcView
+                 tab is the single entry point for DBC loading (the Trace
+                 Viewer still reads _dbcService.Current for decoding — no
+                 behavior change). -->
             <!-- v3.6.0 MINOR T3: Save/Open .tmtrace session buttons moved to
                  the AppShell File menu (Open Session... / Save Session... +
                  Open Recent submenu). The toolbar buttons are removed; the

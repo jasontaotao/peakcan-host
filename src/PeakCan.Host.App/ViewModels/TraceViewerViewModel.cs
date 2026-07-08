@@ -272,8 +272,17 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             // empty-path case (dialog validates before the path is forwarded),
             // but the defensive arm stays for registry hook throws (SourcesChanged
             // listener, ApplyAutoSnapshotAsync, etc.).
+            // v3.13.0 PATCH F1: include ex.GetType().Name + first stack
+            // frame so the user sees the throw type AND the originating
+            // call site inline (e.g. "NullReferenceException: ... |
+            // at Foo.Bar() in C:\src\X.cs:line 42") without opening
+            // the Serilog file. ex.Message alone is often too generic
+            // to diagnose (e.g. NRE's "Object reference not set to an
+            // instance of an object." gives no class/method hint).
+            // Full stack trace is still captured in the log.
+            var firstFrame = ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim() ?? "";
             LogLoadFailed(_logger, ex, path);
-            ErrorMessage = $"Unexpected error: {ex.Message}";
+            ErrorMessage = $"Unexpected error ({ex.GetType().Name}): {ex.Message} | {firstFrame}";
             StatusMessage = "Load failed";
         }
         finally
@@ -350,27 +359,60 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     // v3.9.2 PATCH L1: source-gen'd log helper for the bundle DBC load
     // fallback catch (was bare catch { } before).
+    // v3.13.0 PATCH F3: renamed from LogBundleDbcLoadFailed → LogBundleDbcLoadFailedInline
+    // (signature unchanged). The LoadDbcAsync public method was removed
+    // (toolbar "Load DBC…" button had no UI feedback because LoadedDbcPath
+    // was never bound in TraceViewerView.xaml). The bundle-load catch arm
+    // at the former line 678 is the LAST remaining caller; DbcView tab is
+    // now the single entry point for ad-hoc DBC loading.
     [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle DBC load failed for {Path}")]
-    private static partial void LogBundleDbcLoadFailed(ILogger logger, string path, Exception ex);
+    private static partial void LogBundleDbcLoadFailedInline(ILogger logger, string path, Exception ex);
 
     /// <summary>
-    /// Load a DBC into <see cref="DbcService"/>. Updates
-    /// <see cref="LoadedDbcPath"/>; <see cref="RebuildSignalsAsync"/>
-    /// picks up the new document on next signal rebuild.
+    /// v3.13.0 PATCH F2: clear all mutable UI state when the Trace Viewer
+    /// window closes. Prevents the "close + reopen shows stale state / NRE"
+    /// bug because the singleton VM (shared with AppShell OpenSession/
+    /// SaveSession menu commands) accumulates state across opens. Called
+    /// from AppShellViewModel.ShowTraceViewer's Closed handler.
     /// <para>
-    /// v3.9.2 PATCH H2: was <c>[RelayCommand]</c>-attributed but XAML
-    /// wires <c>Click="OnLoadDbcClick"</c> (calls method directly) —
-    /// the source-gen <c>LoadDbcCommand</c> property had no consumer.
-    /// Method stays as a public API (consumed by code-behind + 11
-    /// tests + chart/filter test classes); the RelayCommand wrapper
-    /// is dropped.
+    /// Strategy: snapshot the current sourceIds, then unload each via the
+    /// registry (the only contract surface that drops sources + cascades
+    /// INPC). <see cref="Signals"/> + <see cref="ChartViewModel.Series"/>
+    /// are dropped in turn. Per-source state lives on each TraceSource
+    /// and is reclaimed when the source is unloaded.
+    /// </para>
+    /// <para>
+    /// Does NOT clear <see cref="LoadedDbcPath"/> — that's restored from the
+    /// loaded .tmtrace bundle on next OpenSession and is not "open-window
+    /// state" in the same sense. Does NOT unsubscribe from
+    /// <c>_registry.SourcesChanged</c> / <c>_dbcService.PropertyChanged</c>
+    /// — those are VM-lifetime subscriptions, not window-lifetime.
     /// </para>
     /// </summary>
-    public async Task LoadDbcAsync(string path)
+    public void Reset()
     {
-        await _dbcService.LoadAsync(path).ConfigureAwait(true);
-        LoadedDbcPath = path;
-        await RebuildSignalsAsync().ConfigureAwait(true);
+        // Snapshot sourceIds before unloading — _registry.Sources shrinks
+        // as we unload, so iterating the live list would mutate-while-
+        // iterate. The registry allows this safely, but copying is clearer.
+        var sourceIds = _registry.Sources.Select(s => s.SourceId).ToList();
+        foreach (var sourceId in sourceIds)
+        {
+            // UnloadAsync is fire-and-forget by contract (returns a Task
+            // but we have no continuation). Capturing the task and not
+            // awaiting keeps Reset() synchronous, matching the WPF Closed
+            // handler's fire-and-forget nature.
+            _ = _registry.UnloadAsync(sourceId);
+        }
+        Signals.Clear();
+        ChartViewModel.Series.Clear();
+        ScrubberValue = 0;
+        Speed = 1.0;
+        Loop = false;
+        MasterSourceId = "";
+        CanIdFilter = "";
+        ErrorMessage = null;
+        StatusMessage = "Status: ready";
+        IsLoading = false;
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
@@ -669,7 +711,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
                 // surfaces it on the toolbar; the source still loads (the
                 // bundle is path-reference only, so a missing/bad DBC is
                 // not fatal — the user can reload manually).
-                LogBundleDbcLoadFailed(_logger, dto.DbcPath, ex);
+                // v3.13.0 PATCH F3: renamed helper (was LogBundleDbcLoadFailed).
+                // LoadDbcAsync's deletion made the old name misleading; this
+                // arm is now the only caller.
+                LogBundleDbcLoadFailedInline(_logger, dto.DbcPath, ex);
                 StatusMessage = $"DBC load failed: {ex.Message}";
             }
             LoadedDbcPath = dto.DbcPath;
@@ -905,7 +950,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// <see cref="ITraceSessionRegistry.GetFrames"/> per source so multi-trace
     /// overlays see all frames across all loaded sources.
     /// </summary>
-    private async Task RebuildSignalsAsync()
+    // v3.13.0 PATCH F3: changed from `private` to `internal` so the test
+    // assembly can drive it directly. LoadDbcAsync was deleted (the
+    // "Load DBC…" toolbar button was dead — no UI feedback), but the
+    // tests still need a way to trigger a rebuild against a pre-loaded
+    // DBC (set via DbcService.SetCurrentForTests). Visible to
+    // PeakCan.Host.App.Tests via the existing InternalsVisibleTo attr.
+    internal async Task RebuildSignalsAsync()
     {
         RebuildSignalsCore();
         await Task.CompletedTask;

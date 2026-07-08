@@ -102,7 +102,9 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         sut.ChartViewModel.Series.Should().HaveCount(1);
     }
@@ -127,7 +129,9 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         sut.ChartViewModel.Series.Should().HaveCount(2);
         var styles = sut.ChartViewModel.Series
@@ -166,7 +170,9 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         // Both subplots must have the same Y axis range (synchronized
         // by SignalKey via v3.3.2's SyncYAxes). Range A: 16..32,
@@ -189,7 +195,9 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         sut.ChartViewModel.Series.Should().BeEmpty();
     }

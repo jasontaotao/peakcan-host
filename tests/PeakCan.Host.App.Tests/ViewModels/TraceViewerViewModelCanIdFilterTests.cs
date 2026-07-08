@@ -107,7 +107,9 @@ public class TraceViewerViewModelCanIdFilterTests
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Load DBC → unfiltered rebuild (2 signals, 2 series).
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
         sut.Signals.Should().HaveCount(2);
         sut.ChartViewModel.Series.Should().HaveCount(2);
 
@@ -143,7 +145,9 @@ public class TraceViewerViewModelCanIdFilterTests
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
         sut.CanIdFilter = "0x200";
         sut.Signals.Should().HaveCount(1);
 
@@ -188,7 +192,9 @@ public class TraceViewerViewModelCanIdFilterTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         // Establish baseline: no filters → 2 signals (one per message) and
         // 4 chart series (2 sources × 2 messages × 1 signal each).
@@ -252,7 +258,9 @@ public class TraceViewerViewModelCanIdFilterTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         // Act: set global filter to 0x100. Per-source filters stay empty.
         sut.CanIdFilter = "0x100";
@@ -287,7 +295,9 @@ public class TraceViewerViewModelCanIdFilterTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        await sut.LoadDbcAsync("C:/fake.dbc");
+        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
+        // RebuildSignalsAsync directly against the pre-loaded DBC.
+        await sut.RebuildSignalsAsync();
 
         // Baseline: 2 signals, 2 series.
         sut.Signals.Should().HaveCount(2);

@@ -694,6 +694,15 @@ public sealed partial class AppShellViewModel : ObservableObject
             cache: ref _traceViewerView);
         if (_traceViewerView is null) return; // defensive — cache cannot be null after ShowWindow
 
+        // v3.13.0 PATCH F2: hook the window's Closed event to clear
+        // the singleton VM's mutable UI state on close. The VM is
+        // shared with OpenSessionAsync / SaveSessionAsync (File menu),
+        // so we cannot swap it per open — instead we reset its
+        // observable state when the user closes the Trace Viewer
+        // window. ViewSwitcher subscribes its OWN Closed handler to
+        // null the cache; both fire (order doesn't matter).
+        _traceViewerView.Closed += (_, _) => _traceViewerViewModel.Reset();
+
         // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
         // main window cascade-closes the Trace Viewer. Without
         // Owner, Trace Viewer is an owner-less top-level Window;
