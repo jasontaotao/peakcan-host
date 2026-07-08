@@ -50,6 +50,14 @@
          PeakCan.Host.App.* (defined per .cs file). -->
     <AssemblyName>PeakCan.Host</AssemblyName>
     <RootNamespace>PeakCan.Host.App</RootNamespace>
+    <!-- v3.13.3 PATCH F6: Version + InformationalVersion + AssemblyVersion
+         + FileVersion are set by src/Directory.Build.props (auto-imported
+         by .NET after the repo-root Directory.Build.props). Do NOT
+         hardcode <Version> here — the ship script regenerates
+         src/Directory.Build.props per PATCH. Without this, AppShellViewModel
+         reads AssemblyInformationalVersion and falls back to git-describe
+         hash (e.g. 'v3.8.7-33-gb75317d') instead of the actual shipped
+         PATCH version. -->
   </PropertyGroup>
 
   <!-- v1.5.0 MINOR: Host.CreateApplicationBuilder automatically loads
