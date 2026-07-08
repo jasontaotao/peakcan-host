@@ -16,16 +16,6 @@ using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 
-/// <summary>
-/// One row in the left-side signal list. Static per loaded trace; the
-/// LatestValue column is updated as the playback cursor moves.
-/// </summary>
-public sealed record TraceSignalRow(
-    string CanIdHex,
-    string SignalName,
-    string Unit,
-    bool IsPlotted,
-    double LatestValue);
 
 /// <summary>
 /// v3.0 MINOR Trace Viewer: orchestration VM that bridges
@@ -793,6 +783,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// duration, refresh LoadedTracePath (legacy binding). v3.3.0 MINOR:
     /// attach FrameEmitted + master PlaybackEnded handlers and propagate
     /// Loop/Speed to every newly registered service.
+    /// <para>
+    /// v3.14.1 PATCH: also call <see cref="RebuildSignalsCore"/> at the
+    /// end so loading a new .asc via <c>AddTraceAsync</c> re-decodes the
+    /// (already-loaded) DBC messages against the new source's frames.
+    /// Pre-fix this method updated the service dictionary + master but
+    /// never rebuilt signals — the user had to reload the DBC to refresh.
+    /// </para>
     /// </summary>
     private void OnRegistrySourcesChanged()
     {
@@ -826,7 +823,170 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
         TotalDuration = _masterService?.TotalDuration ?? 0.0;
         ChartViewModel.SetTotalDuration(TotalDuration);
-        ChartViewModel.Series.Clear();
+        // v3.14.3 PATCH: do NOT clear ChartViewModel.Series — preserve
+        // user opt-ins (rows they previously checked in the signal
+        // table). Orphan chart series (sources unloaded) are removed
+        // below by RemoveOrphanChartSeries().
+        // v3.14.3 PATCH: do NOT call RebuildSignalsCore (which clears
+        // Signals). Use RefreshFrameCounts instead — it updates per-row
+        // FrameCount + LatestValue in place without rebuilding the row
+        // catalog. The DBC has not changed here; only data sources.
+        if (_dbcService.Current is not null)
+        {
+            RefreshFrameCounts();
+            RemoveOrphanChartSeries();
+            ChartViewModel.SyncYAxes();
+            ChartViewModel.SyncXAxis(0, _masterService?.TotalDuration ?? 0);
+        }
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: re-walk every loaded source's frames, count
+    /// matches per (CAN ID, signal name) pair, and update each
+    /// existing <see cref="TraceSignalRow.FrameCount"/> +
+    /// <see cref="TraceSignalRow.LatestValue"/> in place. Does NOT
+    /// clear <see cref="Signals"/> or
+    /// <see cref="TraceChartViewModel.Series"/> — user opt-ins (chart
+    /// rows) survive.
+    /// </summary>
+    private void RefreshFrameCounts()
+    {
+        if (_dbcService.Current is null) return;
+        var dbc = _dbcService.Current;
+        var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
+        var byId = BucketFramesByCanId(allowed);
+        foreach (var row in Signals)
+        {
+            // lookup the matching bucket via SignalKey's idHex prefix
+            var dot = row.SignalKey.IndexOf('.');
+            if (dot <= 0) continue;
+            var idHexStr = row.SignalKey.Substring(0, dot);
+            if (!idHexStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!uint.TryParse(idHexStr.AsSpan(2),
+                               System.Globalization.NumberStyles.HexNumber,
+                               null, out var canId)) continue;
+            var lookupId = canId & 0x7FFFFFFFu;
+            var matching = byId.TryGetValue(lookupId, out var list) ? list : null;
+            var count = matching?.Count ?? 0;
+            row.FrameCount = count;
+            if (matching is { Count: > 0 })
+            {
+                var sig = dbc.Messages
+                    .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+                    .SelectMany(m => m.Signals)
+                    .FirstOrDefault(s => s.Name == row.SignalName);
+                if (sig is not null)
+                    row.LatestValue = SignalDecoder.Decode(matching[^1].Data, sig);
+            }
+        }
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: walk <see cref="ChartViewModel.Series"/> and
+    /// remove any chart row whose <see cref="TraceChartSeries.SourceId"/>
+    /// is no longer present in the registry. Called from
+    /// <see cref="OnRegistrySourcesChanged"/> after an unload.
+    /// </summary>
+    private void RemoveOrphanChartSeries()
+    {
+        var liveSources = new HashSet<string>(_registry.Sources.Select(s => s.SourceId));
+        var snapshot = ChartViewModel.Series
+            .Where(s => !liveSources.Contains(s.SourceId))
+            .ToList();
+        foreach (var orphan in snapshot)
+            ChartViewModel.RemoveSeries(orphan);
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: opt-in/opt-out handler invoked from the DataGrid
+    /// checkbox Click handler in <c>TraceViewerView.xaml.cs</c>.
+    /// Decides whether to add or remove chart series based on the
+    /// new <see cref="TraceSignalRow.IsPlotted"/> value (the binding
+    /// updates it before this method fires, thanks to
+    /// <c>UpdateSourceTrigger=PropertyChanged</c>).
+    /// </summary>
+    [RelayCommand]
+    public void TogglePlot(TraceSignalRow row)
+    {
+        if (row is null) throw new ArgumentNullException(nameof(row));
+        if (row.IsPlotted)
+            PlotSignalFromTableRow(row);
+        else
+            UnplotSignalFromTableRow(row);
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: explicit opt-in. Tests and programmatic callers
+    /// use this directly (no binding lag concerns). Production XAML
+    /// uses <see cref="TogglePlot(TraceSignalRow)"/> which inspects
+    /// the row's <see cref="TraceSignalRow.IsPlotted"/> after the
+    /// binding has updated it.
+    /// </summary>
+    public void SetPlotOptIn(TraceSignalRow row, bool optIn)
+    {
+        if (row is null) throw new ArgumentNullException(nameof(row));
+        if (optIn)
+            PlotSignalFromTableRow(row);
+        else
+            UnplotSignalFromTableRow(row);
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: invoked by <see cref="TogglePlot"/> when the user
+    /// checks the box. Creates one <see cref="TraceChartSeries"/> per
+    /// source that has matching frames. Graceful no-op if no source
+    /// has frames (user can still toggle; nothing to chart).
+    /// </summary>
+    private void PlotSignalFromTableRow(TraceSignalRow row)
+    {
+        if (_dbcService.Current is null) return;
+        var dbc = _dbcService.Current;
+        var dot = row.SignalKey.IndexOf('.');
+        if (dot <= 0) return;
+        var idHexStr = row.SignalKey.Substring(0, dot);
+        if (!idHexStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return;
+        if (!uint.TryParse(idHexStr.AsSpan(2),
+                           System.Globalization.NumberStyles.HexNumber,
+                           null, out var canId)) return;
+        var lookupId = canId & 0x7FFFFFFFu;
+        var sig = dbc.Messages
+            .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+            .SelectMany(m => m.Signals)
+            .FirstOrDefault(s => s.Name == row.SignalName);
+        if (sig is null) return;
+
+        var created = 0;
+        foreach (var source in _registry.Sources)
+        {
+            var built = BuildOneChartSeriesForSource(source, sig, lookupId, row.CanIdHex, row.SignalName);
+            if (built is null) continue;  // no frames in this source
+            ChartViewModel.AddSeries(built);
+            created++;
+        }
+        if (created > 0)
+        {
+            ChartViewModel.SyncYAxes();
+            ChartViewModel.SyncXAxis(_masterService?.CurrentTimestamp ?? 0.0,
+                                      _masterService?.TotalDuration ?? 0.0);
+        }
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: remove all chart series whose
+    /// <see cref="TraceChartSeries.SignalKey"/> matches
+    /// <paramref name="row"/>.SignalKey. Inverse of
+    /// <see cref="PlotSignalFromTableRow"/>.
+    /// </summary>
+    private void UnplotSignalFromTableRow(TraceSignalRow row)
+    {
+        var key = row.SignalKey;
+        // Snapshot because RemoveSeries mutates the collection.
+        var matches = ChartViewModel.Series
+            .Where(s => s.SignalKey == key
+                        || s.SignalKey.EndsWith("." + key, StringComparison.Ordinal))
+            .ToList();
+        foreach (var s in matches)
+            ChartViewModel.RemoveSeries(s);
     }
 
     // v3.4.3 PATCH: detach per-source INPC subscriptions. Idempotent —
@@ -839,13 +999,19 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     // v3.4.3 PATCH: react to TraceSource.CanIdFilter changes by
-    // rebuilding the chart + signal rows synchronously. The TraceSource
-    // instance only exposes CanIdFilter as INPC today, so the filter
-    // guard is a safety net for future fields.
+    // refreshing frame counts + removing orphan chart series
+    // synchronously. The TraceSource instance only exposes CanIdFilter
+    // as INPC today, so the filter guard is a safety net for future
+    // fields. v3.14.3 PATCH: do NOT call RebuildSignalsCore — user
+    // opt-ins in the signal table must survive filter changes; only
+    // the per-row FrameCount + LatestValue columns are refreshed.
     private void OnAnySourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(TraceSource.CanIdFilter)) return;
-        RebuildSignalsCore();
+        if (_dbcService.Current is null) return;
+        RefreshFrameCounts();
+        RemoveOrphanChartSeries();
+        ChartViewModel.SyncYAxes();
     }
 
     // v3.13.2 PATCH F5: rebuild Signals + chart subplots when a DBC is
@@ -995,7 +1161,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private void RebuildSignalsCore()
     {
         Signals.Clear();
-        ChartViewModel.Series.Clear();   // v3.4.0 MINOR: also clear chart series
+        ChartViewModel.Series.Clear();   // v3.14.3 PATCH: rebuild on DBC change = wipe all chart rows
         // v3.4.2 PATCH: parse the global filter once per rebuild. null = no filter.
         var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
         var dbc = _dbcService.Current;
@@ -1006,15 +1172,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         }
 
         // v3.11.0 MINOR T4 (H8): 145-LoC body split into 3 sub-methods.
-        // Behavior preserved exactly — same filter resolution, same sort,
-        // same chart-series construction, same axes-sync finalization.
+        // v3.14.3 PATCH: BuildSignalRowsFromDbcOnly emits ALL DBC signals
+        // regardless of frame presence; BuildChartSeries is now a no-op
+        // stub (chart rows are user-opt-in via TogglePlot).
         var byId = BucketFramesByCanId(allowed);
-        var rows = BuildSignalRows(byId, dbc);
+        var rows = BuildSignalRowsFromDbcOnly(byId, dbc);
         foreach (var row in rows)
         {
             Signals.Add(row);
         }
+#pragma warning disable CS0618 // intentional use of obsolete stub
         BuildChartSeries(allowed, dbc);
+#pragma warning restore CS0618
 
         // v3.4.0 MINOR: synchronize axes now that all subplots exist.
         ChartViewModel.SyncYAxes();
@@ -1056,41 +1225,55 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.11.0 MINOR T4 (H8): walk <paramref name="dbc"/>.Messages and
-    /// produce one <see cref="TraceSignalRow"/> per signal for every
-    /// message with at least one matching frame in
-    /// <paramref name="byId"/>. The LatestValue column is decoded from
-    /// the LAST matching frame in each CAN-ID bucket so the column
-    /// reflects the most recent sample (matches the pre-refactor v3.2.0
-    /// semantics). Rows are returned sorted by
-    /// (CanIdHex, SignalName) ordinal order — also matches the
-    /// pre-refactor v3.2.0 sort key.
+    /// v3.14.3 PATCH: DBC-driven signal row builder. Walks every
+    /// message + every signal in <paramref name="dbc"/> and emits
+    /// exactly one row per signal — even if no frames match. The
+    /// <see cref="TraceSignalRow.FrameCount"/> and
+    /// <see cref="TraceSignalRow.LatestValue"/> columns are populated
+    /// from the bucket (default 0 / NaN when no frames exist).
+    /// <para>
+    /// The signal catalog is independent of whether data has been
+    /// loaded: the user sees every DBC signal the moment a DBC is
+    /// loaded, and <see cref="RefreshFrameCounts"/> updates the
+    /// <c>N</c> + <c>Latest</c> columns in place when an .asc arrives.
+    /// </para>
+    /// <para>
+    /// Rows are sorted by (CanIdHex, SignalName) ordinal order,
+    /// preserving the pre-v3.14.3 sort key.
+    /// </para>
     /// </summary>
-    private List<TraceSignalRow> BuildSignalRows(
+    private List<TraceSignalRow> BuildSignalRowsFromDbcOnly(
         Dictionary<uint, List<ReplayFrame>> byId,
         DbcDocument dbc)
     {
         var rows = new List<TraceSignalRow>();
         foreach (var msg in dbc.Messages)
         {
-            if (!byId.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
-            {
-                continue;
-            }
-            var idHex = FormatCanIdHex(msg.Id);
+            // v3.14.1 PATCH: strip the DBC IDE-bit (0x80000000) before
+            // looking up in byId. The DBC stores extended-frame IDs with
+            // the IDE bit set in bit 31, but BucketFramesByCanId keys by
+            // raw ASC frame ids which are 29-bit (no IDE bit). Mask the
+            // DBC side to match. msg.Id itself is preserved (callers
+            // can still see the original via msg.Id).
+            var maskedId = msg.Id & 0x7FFFFFFFu;
+            byId.TryGetValue(maskedId, out var matching);
+            var frameCount = matching?.Count ?? 0;
+            var idHex = FormatCanIdHex(maskedId);
             foreach (var sig in msg.Signals)
             {
-                // Latest = decoded value of the last matching frame.
-                // Use the existing decode path so signed/float/factor/offset
-                // semantics match the live Trace Chart VM exactly.
-                var lastFrame = matching[^1];
-                var value = SignalDecoder.Decode(lastFrame.Data, sig);
+                double latest = double.NaN;
+                if (matching is { Count: > 0 })
+                {
+                    latest = SignalDecoder.Decode(matching[^1].Data, sig);
+                }
                 rows.Add(new TraceSignalRow(
-                    CanIdHex: idHex,
-                    SignalName: sig.Name,
-                    Unit: sig.Unit,
-                    IsPlotted: false,
-                    LatestValue: value));
+                    canIdHex: idHex,
+                    messageName: msg.Name,
+                    signalName: sig.Name,
+                    unit: sig.Unit,
+                    isPlotted: false,
+                    frameCount: frameCount,
+                    latestValue: latest));
             }
         }
 
@@ -1103,92 +1286,92 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// v3.11.0 MINOR T4 (H8): emit one <see cref="TraceChartSeries"/>
-    /// per (source, message, signal) triple whose per-source bucket
-    /// contains at least one frame. The per-source re-group (a
-    /// per-source bucket dict) is required because the chart's
-    /// <see cref="TraceChartSeries"/> is per-source — the global
-    /// <see cref="BucketFramesByCanId"/> output spans all sources and
-    /// can't be used directly. The per-source filter resolution
-    /// mirrors the bucket loop so behavior is preserved exactly.
+    /// v3.14.3 PATCH: stub. Chart series are no longer auto-built at
+    /// load time — the user opts in per-signal via the Plot checkbox
+    /// in the signal table, which calls <see cref="TogglePlot"/> →
+    /// <see cref="PlotSignalFromTableRow"/> → <see cref="BuildOneChartSeriesForSource"/>.
+    /// Kept as a no-op stub for legacy callers (the original
+    /// implementation eagerly allocated 316 placeholder PlotModels
+    /// per ASC load).
     /// </summary>
+    [System.Obsolete("v3.14.3 PATCH: chart series are now user-opt-in via TogglePlot; BuildChartSeries is a no-op stub.", false)]
     private void BuildChartSeries(
         IReadOnlySet<uint>? globalAllowed,
         DbcDocument dbc)
     {
-        // v3.4.0 MINOR: emit one TraceChartSeries per (source, signal) pair.
-        // Per-source re-group: chart series need per-source frames per CAN
-        // ID, so re-group from the registry here (independent of the Signals
-        // population loop above — the two loops share dbc.Messages but read
-        // from different frame buckets).
-        foreach (var source in _registry.Sources)
+        // No-op. Chart rows are created lazily on user opt-in.
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: build one chart subplot for one (source, signal)
+    /// pair — the shared body for <see cref="PlotSignal(TraceChartSeries)"/>
+    /// (placeholder replacement path) and <see cref="PlotSignalFromTableRow"/>
+    /// (creation path). Returns the populated <see cref="TraceChartSeries"/>,
+    /// or null if no matching frames exist in this source.
+    /// <para>
+    /// Honors the source's per-source <c>CanIdFilter</c> override so
+    /// the chart matches what the user sees in the signal table's
+    /// <c>N</c> column (consistent with the pre-v3.14.3 behavior
+    /// where <c>BuildChartSeries</c> applied the same per-source
+    /// resolution).
+    /// </para>
+    /// </summary>
+    private TraceChartSeries? BuildOneChartSeriesForSource(
+        TraceSource source, Signal sig, uint lookupId, string idHex, string sigName)
+    {
+        // v3.4.3 PATCH per-source filter override: if this source has
+        // a non-empty per-source filter, use it as the allow-list;
+        // otherwise inherit the global one.
+        var globalAllowed = CanIdListParser.Parse(CanIdFilter).AllowList;
+        var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
+        var effective = perSourceAllowed ?? globalAllowed;
+
+        var frames = _registry.GetFrames(source.SourceId)
+            .Where(f => (f.Id & 0x7FFFFFFFu) == lookupId
+                        && (effective is null || effective.Contains(f.Id)))
+            .OrderBy(f => f.Timestamp)
+            .ToList();
+        if (frames.Count == 0) return null;
+
+        var xs = new double[frames.Count];
+        var ys = new double[frames.Count];
+        var min = double.PositiveInfinity;
+        var max = double.NegativeInfinity;
+        for (int i = 0; i < frames.Count; i++)
         {
-            // v3.4.3 PATCH: same per-source resolution as the byId loop above.
-            var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
-            var effective = perSourceAllowed ?? globalAllowed;
-            var srcById = new Dictionary<uint, List<ReplayFrame>>();
-            foreach (var f in _registry.GetFrames(source.SourceId))
-            {
-                if (effective is not null && !effective.Contains(f.Id)) continue;
-                if (!srcById.TryGetValue(f.Id, out var list))
-                {
-                    list = new List<ReplayFrame>();
-                    srcById[f.Id] = list;
-                }
-                list.Add(f);
-            }
-            foreach (var msg in dbc.Messages)
-            {
-                if (!srcById.TryGetValue(msg.Id, out var matching) || matching.Count == 0)
-                    continue;
-                var idHex = FormatCanIdHex(msg.Id);
-                foreach (var sig in msg.Signals)
-                {
-                    var xs = new List<double>(matching.Count);
-                    var ys = new List<double>(matching.Count);
-                    foreach (var f in matching)
-                    {
-                        xs.Add(f.Timestamp);
-                        ys.Add(SignalDecoder.Decode(f.Data, sig));
-                    }
-                    var plotModel = new PlotModel();
-                    plotModel.Axes.Add(new LinearAxis
-                    {
-                        Position = AxisPosition.Bottom,
-                        Title = "Time (s)",
-                    });
-                    plotModel.Axes.Add(new LinearAxis
-                    {
-                        Position = AxisPosition.Left,
-                        Title = sig.Unit,
-                    });
-                    var line = new LineSeries
-                    {
-                        Title = $"{source.DisplayName}/{sig.Name}",
-                        Color = source.Color,
-                        // v3.4.0 MINOR: stroke style for color-blind accessibility.
-                        LineStyle = source.StrokeStyle,
-                    };
-                    for (int i = 0; i < xs.Count; i++)
-                        line.Points.Add(new DataPoint(xs[i], ys[i]));
-                    plotModel.Series.Add(line);
-                    var displayName = $"{source.DisplayName}.{idHex}.{sig.Name}";
-                    ChartViewModel.AddSeries(new TraceChartSeries(
-                        SignalKey: $"{idHex}.{sig.Name}",
-                        DisplayName: displayName,
-                        Unit: sig.Unit,
-                        Color: source.Color,
-                        PlotModel: plotModel,
-                        XValues: xs,
-                        YValues: ys,
-                        MinValue: ys.Min(),
-                        MaxValue: ys.Max(),
-                        IsFocused: false,
-                        IsCollapsed: false,
-                        SourceId: source.SourceId));
-                }
-            }
+            xs[i] = frames[i].Timestamp;
+            ys[i] = SignalDecoder.Decode(frames[i].Data, sig);
+            if (ys[i] < min) min = ys[i];
+            if (ys[i] > max) max = ys[i];
         }
+
+        var displayName = $"{source.DisplayName}.{idHex}.{sigName}";
+        var plotModel = new PlotModel();
+        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom });
+        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Left });
+        var line = new LineSeries
+        {
+            Color = source.Color,
+            LineStyle = source.StrokeStyle,
+            ItemsSource = Enumerable.Range(0, frames.Count)
+                .Select(i => new DataPoint(xs[i], ys[i])),
+        };
+        plotModel.Series.Add(line);
+
+        return new TraceChartSeries(
+            SignalKey: $"{idHex}.{sigName}",
+            DisplayName: displayName,
+            Unit: sig.Unit,
+            Color: source.Color,
+            PlotModel: plotModel,
+            XValues: xs,
+            YValues: ys,
+            MinValue: min,
+            MaxValue: max,
+            IsFocused: false,
+            IsCollapsed: false,
+            SourceId: source.SourceId,
+            IsPlotPending: false);
     }
 
     /// <summary>
@@ -1204,6 +1387,70 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return (id & IdeBit) == 0
             ? $"0x{id:X3}"
             : $"0x{id:X8}";
+    }
+
+    /// <summary>
+    /// v3.14.2 PATCH: build the per-frame PlotModel + XValues + YValues
+    /// for a single TraceChartSeries on demand. Called when the user
+    /// opts a signal in (clicks the chart row's "Plot" affordance).
+    /// The Trace Viewer registers a placeholder per (source, signal) row
+    /// at load time and only decodes the per-frame data on user demand.
+    /// This is the user-facing fix for the "Add Trace hangs 30+ seconds"
+    /// bug — the prior eager build decoded 500K+ frames synchronously on
+    /// the UI thread.
+    /// <para>
+    /// Implementation: matches the eager-build loop body verbatim but
+    /// runs once per call instead of once per (source, msg, sig) tuple.
+    /// Safe to call multiple times — clears the existing PlotModel first.
+    /// </para>
+    /// </summary>
+    public void PlotSignal(TraceChartSeries series)
+    {
+        if (series is null) throw new ArgumentNullException(nameof(series));
+        if (!series.IsPlotPending) return;  // already plotted
+
+        // v3.14.3 PATCH: shared body via BuildOneChartSeriesForSource.
+        // Parse SignalKey ("{idHex}.{sig.Name}") to recover the lookup
+        // canId; the IDE-bit mask is applied at lookup time so it
+        // matches the BucketFramesByCanId keys.
+        var dot = series.SignalKey.IndexOf('.');
+        if (dot <= 0) return;
+        var idHexStr = series.SignalKey.Substring(0, dot);
+        if (!idHexStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return;
+        if (!uint.TryParse(idHexStr.AsSpan(2),
+                           System.Globalization.NumberStyles.HexNumber,
+                           null, out var canId)) return;
+        var lookupId = canId & 0x7FFFFFFFu;
+
+        var source = _registry.Sources.FirstOrDefault(s => s.SourceId == series.SourceId);
+        if (source is null) return;
+
+        // SignalKey is "{idHex}.{sig.Name}" — the sig.Name is the
+        // LAST segment (post-dot). Lookup the Signal in the DBC.
+        var dbc = _dbcService.Current;
+        if (dbc is null) return;
+        var sigName = series.SignalKey.Substring(dot + 1);
+        var sig = dbc.Messages
+            .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+            .SelectMany(m => m.Signals)
+            .FirstOrDefault(s => s.Name == sigName);
+        if (sig is null) return;
+
+        var built = BuildOneChartSeriesForSource(source, sig, lookupId, idHexStr, sigName);
+        if (built is null) return;
+
+        // Replace the placeholder in place (TraceChartSeries is a record;
+        // we mutate the chart via the CollectionViewModel).
+        var idx = ChartViewModel.Series.IndexOf(series);
+        if (idx < 0) return;
+        ChartViewModel.Series[idx] = built;
+        // v3.14.2 PATCH: resync Y axes + X axis now that the series
+        // has real data. RebuildSignalsCore's initial SyncYAxes ran
+        // against the empty placeholder, leaving axes at default
+        // (NaN). Re-run after the lazy fill so the chart renders
+        // with the correct ranges on the very first opt-in.
+        ChartViewModel.SyncYAxes();
+        ChartViewModel.SyncXAxis(built.XValues[0], built.XValues[^1]);
     }
 
     /// <summary>

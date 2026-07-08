@@ -176,16 +176,43 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left: signal list -->
+            <!-- v3.14.3 PATCH: 7-column DBC-driven catalog. Independent
+                 of any ASC load: shows every DBC signal the moment the
+                 DBC is loaded. Users opt-in chart subplots via the
+                 Plot checkbox column (DataGridTemplateColumn +
+                 CheckBox + Click handler — the same pattern as
+                 SignalView.xaml:71-80; DataGridCheckBoxColumn is broken
+                 on .NET 10 with IsReadOnly=True). N column shows frame
+                 count from loaded ASC (0 for DBC-only rows). Latest
+                 column is "NaN" until at least one frame exists. -->
             <DataGrid Grid.Column="0"
                       ItemsSource="{Binding Signals}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
                       RowHeight="22">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="80" />
+                    <DataGridTextColumn Header="Message" Binding="{Binding MessageName}" Width="160" />
                     <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
-                    <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
                     <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="60" />
+                    <DataGridTemplateColumn Header="Plot" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Click="OnPlotCheckboxClick"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="40" />
+                    <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
                 </DataGrid.Columns>
             </DataGrid>
 

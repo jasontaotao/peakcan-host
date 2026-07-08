@@ -17,11 +17,11 @@ using ValueType = PeakCan.Host.Core.Dbc.ValueType;
 namespace PeakCan.Host.App.Tests.ViewModels;
 
 /// <summary>
-/// v3.4.2 PATCH: pins the global CanIdFilter wiring against
-/// <see cref="TraceViewerViewModel.RebuildSignalsAsync"/>. Setting the
-/// filter must restrict the rebuilt Signals + ChartViewModel.Series to
-/// frames whose CAN ID is in the parsed allow-set. Clearing restores
-/// the unfiltered state.
+/// v3.4.2 PATCH + v3.14.3 PATCH: pins the global CanIdFilter
+/// wiring. v3.14.3 PATCH: filter restricts FrameCount +
+/// LatestValue per row (does NOT drop rows — DBC-driven catalog
+/// is independent of data). Chart rows are NOT auto-built;
+/// user must opt in via TogglePlot.
 /// </summary>
 public class TraceViewerViewModelCanIdFilterTests
 {
@@ -106,22 +106,24 @@ public class TraceViewerViewModelCanIdFilterTests
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // Load DBC → unfiltered rebuild (2 signals, 2 series).
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
+        // v3.14.3 PATCH: signal table shows BOTH messages (DBC-driven).
         sut.Signals.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().HaveCount(2);
+        // v3.14.3 PATCH: chart is empty until user opts in.
+        sut.ChartViewModel.Series.Should().BeEmpty();
 
-        // Act: set the filter to a single ID; rebuild should narrow to 1.
+        // Act: set the filter to a single ID.
         sut.CanIdFilter = "0x100";
 
-        // The setter is fully synchronous — partial change handler calls
-        // RebuildSignalsCore inline, no Task continuation race.
-        // Assert: only 0x100's signal row survives; only 0x100's chart series survives.
-        sut.Signals.Should().HaveCount(1);
-        sut.Signals[0].CanIdHex.Should().Be("0x100");
-        sut.ChartViewModel.Series.Should().HaveCount(1);
+        // v3.14.3 PATCH: filter does NOT drop rows. Both DBC signals
+        // still appear; only their FrameCount + LatestValue reflect the
+        // filter (0x200 has 0 frames after the filter).
+        sut.Signals.Should().HaveCount(2);
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100.FrameCount.Should().Be(1, "0x100 frame survives the 0x100-only filter");
+        row200.FrameCount.Should().Be(0, "0x200 frame is excluded by the 0x100-only filter");
+        row200.LatestValue.Should().Be(double.NaN, "0x200 has no surviving frames → NaN");
     }
 
     [Fact]
@@ -145,19 +147,20 @@ public class TraceViewerViewModelCanIdFilterTests
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
         sut.CanIdFilter = "0x200";
-        sut.Signals.Should().HaveCount(1);
+        // v3.14.3 PATCH: filter changes FrameCount, not row count.
+        sut.Signals.Should().HaveCount(2);
 
         // Act: invoke the clear command.
         sut.ClearCanIdFilterCommand.Execute(null);
 
-        // Assert: filter cleared, all signals back.
+        // Assert: filter cleared.
         sut.CanIdFilter.Should().BeEmpty();
-        sut.Signals.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().HaveCount(2);
+        sut.Signals.Should().HaveCount(2,
+            "v3.14.3 PATCH: clearing the filter restores FrameCount to original; rows were never dropped");
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        row100.FrameCount.Should().Be(1, "0x100 frame count restored after clear");
     }
 
     // v3.4.3 PATCH: per-source filter overrides. The global filter applies
@@ -196,39 +199,31 @@ public class TraceViewerViewModelCanIdFilterTests
         // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
 
-        // Establish baseline: no filters → 2 signals (one per message) and
-        // 4 chart series (2 sources × 2 messages × 1 signal each).
+        // Establish baseline: no filters → 2 signals (DBC-driven catalog).
+        // v3.14.3 PATCH: chart is empty (no auto-build).
         sut.Signals.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().HaveCount(4);
+        sut.ChartViewModel.Series.Should().BeEmpty();
 
         // Act 1: set the global filter to 0x100.
         sut.CanIdFilter = "0x100";
 
-        // Assert 1: both sources now narrow to 0x100 only → 1 signal (RPM) and
-        // 2 chart series (one per source, both RPM).
-        sut.Signals.Should().HaveCount(1);
-        sut.Signals[0].CanIdHex.Should().Be("0x100");
-        sut.ChartViewModel.Series.Should().HaveCount(2);
+        // Assert 1: filter changes FrameCount, not row count.
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100.FrameCount.Should().Be(2, "0x100 has 1 frame per source × 2 sources = 2");
+        row200.FrameCount.Should().Be(0, "0x200 is excluded by the 0x100-only filter");
 
         // Act 2: set source A's per-source filter to "0x200" — INPC fires,
-        // RebuildSignalsCore runs, source A flips to 0x200 only.
+        // OnAnySourcePropertyChanged runs RefreshFrameCounts.
         srcA.CanIdFilter = "0x200";
 
-        // Assert 2: source A now shows 0x200 (Temp), source B still shows 0x100 (RPM).
-        // byId sees both 0x100 (from B) and 0x200 (from A) → 2 signal rows.
+        // Assert 2: per-source A flips 0x100 to 0 (A's 0x100 excluded);
+        // 0x200 flips to 1 (only A contributes). Source B unchanged.
         sut.Signals.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().HaveCount(2);
-        var seriesIds = sut.ChartViewModel.Series
-            .Select(s => s.SourceId)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToList();
-        seriesIds.Should().Equal("a", "b");
-        // Source A's series must be the 0x200 series (Temp signal, Unit "C").
-        // Source B's series must be the 0x100 series (RPM signal, Unit "rpm").
-        var seriesA = sut.ChartViewModel.Series.Single(s => s.SourceId == "a");
-        var seriesB = sut.ChartViewModel.Series.Single(s => s.SourceId == "b");
-        seriesA.DisplayName.Should().Contain("Temp");
-        seriesB.DisplayName.Should().Contain("RPM");
+        var row100After = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200After = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100After.FrameCount.Should().Be(1, "source A excluded → only B contributes 0x100");
+        row200After.FrameCount.Should().Be(1, "source A only contributes 0x200");
     }
 
     [Fact]
@@ -265,12 +260,15 @@ public class TraceViewerViewModelCanIdFilterTests
         // Act: set global filter to 0x100. Per-source filters stay empty.
         sut.CanIdFilter = "0x100";
 
-        // Assert: both sources show 0x100 (RPM) only — 1 signal row, 2 chart series
-        // (one per source, both RPM).
-        sut.Signals.Should().HaveCount(1);
-        sut.Signals[0].CanIdHex.Should().Be("0x100");
-        sut.ChartViewModel.Series.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().OnlyContain(s => s.DisplayName.Contains("RPM"));
+        // v3.14.3 PATCH: filter does NOT drop rows. Both messages still
+        // appear; only FrameCount + LatestValue reflect the filter.
+        sut.Signals.Should().HaveCount(2);
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100.FrameCount.Should().Be(2, "0x100 has 1 frame per source × 2 sources = 2");
+        row200.FrameCount.Should().Be(0, "0x200 excluded by 0x100-only filter");
+        // v3.14.3 PATCH: chart empty until user opts in.
+        sut.ChartViewModel.Series.Should().BeEmpty();
     }
 
     [Fact]
@@ -299,15 +297,17 @@ public class TraceViewerViewModelCanIdFilterTests
         // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
 
-        // Baseline: 2 signals, 2 series.
+        // v3.14.3 PATCH: signal table shows both DBC signals regardless.
         sut.Signals.Should().HaveCount(2);
 
-        // Act: set per-source filter with invalid token. xyz is silently dropped,
-        // 256 (= 0x100) and 0x200 are valid → both signals + both series survive.
+        // Act: set per-source filter with invalid token. xyz is silently
+        // dropped, 256 (= 0x100) and 0x200 are valid → both rows survive
+        // with their FrameCount reflecting the filter.
         src.CanIdFilter = "256, xyz, 0x200";
 
-        // Assert: invalid token does not cause empty rebuild — both messages survive.
+        // Assert: invalid token does not cause empty rebuild — both
+        // signals survive. Chart empty until user opts in.
         sut.Signals.Should().HaveCount(2);
-        sut.ChartViewModel.Series.Should().HaveCount(2);
+        sut.ChartViewModel.Series.Should().BeEmpty();
     }
 }

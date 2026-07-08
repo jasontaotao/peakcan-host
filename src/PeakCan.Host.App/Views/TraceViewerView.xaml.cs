@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Win32;
 using PeakCan.Host.App.ViewModels;
 
@@ -72,6 +73,34 @@ public partial class TraceViewerView : Window
         if (DataContext is TraceViewerViewModel vm)
         {
             vm.ChartViewModel.ChartAreaHeight = e.NewSize.Height;
+        }
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: checkbox Click handler for the opt-in column.
+    /// Mirrors the v1.2.7 SignalView pattern — WPF's
+    /// DataGridCheckBoxColumn edit lifecycle is unreliable on .NET 10
+    /// when the parent grid is IsReadOnly=True. The Click event fires
+    /// regardless of edit-mode state, so it's the primary path for
+    /// chart-plot opt-in.
+    /// <para>
+    /// Reads the CheckBox.IsChecked UI value (just toggled by the
+    /// click) and forwards the explicit opt-in intent to the VM via
+    /// <c>SetPlotOptIn</c>. The TwoWay binding on IsPlotted updates
+    /// the row's INPC field as a side effect, but we don't depend on
+    /// it — the UI-side IsChecked is the source of truth at click time.
+    /// </para>
+    /// </summary>
+    private void OnPlotCheckboxClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { IsChecked: bool isChecked } cb
+            && cb.DataContext is TraceSignalRow row
+            && DataContext is TraceViewerViewModel vm)
+        {
+            // Ignore stale reentry if row was already at this state
+            // (e.g. virtualizing recycle of an off-screen row).
+            if (row.IsPlotted == isChecked) return;
+            vm.SetPlotOptIn(row, isChecked);
         }
     }
 }

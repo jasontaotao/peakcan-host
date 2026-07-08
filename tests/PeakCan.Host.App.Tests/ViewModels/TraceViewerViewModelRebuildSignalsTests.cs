@@ -99,11 +99,12 @@ public class TraceViewerViewModelRebuildSignalsTests
             Data: data, Flags: FrameFlags.None);
 
     /// <summary>
-    /// v3.11.0 T4 (H8): when the global <c>CanIdFilter</c> is set to
-    /// a single ID, the bucket loop in <c>BucketFramesByCanId</c>
-    /// must exclude any frame whose ID is not in the allow-set. The
-    /// signal-list and chart outputs must therefore only contain
-    /// rows/series for the matching ID.
+    /// v3.11.0 T4 (H8) + v3.14.3 PATCH: when the global <c>CanIdFilter</c>
+    /// is set to a single ID, <c>BucketFramesByCanId</c> excludes
+    /// non-matching frames. v3.14.3 PATCH: the SIGNAL TABLE is
+    /// DBC-driven and shows ALL signals regardless of frame presence;
+    /// only the <c>FrameCount</c> column reflects the filter. Chart
+    /// rows are NOT auto-built — user opt-in creates them.
     /// </summary>
     [Fact]
     public async Task BucketFramesByCanId_WithGlobalFilter_ExcludesNonMatchingIds()
@@ -125,31 +126,38 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly. The DBC is pre-loaded via
-        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Baseline (no filter): both messages contribute → 2 signal rows.
-        sut.Signals.Should().HaveCount(2);
+        // v3.14.3 PATCH: all DBC signals appear regardless of frames.
+        sut.Signals.Should().HaveCount(2,
+            "v3.14.3 PATCH: signal table is DBC-driven and shows ALL signals, not just those with matching frames");
+        sut.Signals[0].CanIdHex.Should().Be("0x100");
+        sut.Signals[0].FrameCount.Should().Be(1, "0x100 source has 1 frame in the bucket");
+        sut.Signals[1].CanIdHex.Should().Be("0x200");
+        sut.Signals[1].FrameCount.Should().Be(1, "0x200 source has 1 frame in the bucket");
+
+        // v3.14.3 PATCH: chart series is NOT auto-built. Empty by default.
+        sut.ChartViewModel.Series.Should().BeEmpty(
+            "v3.14.3 PATCH: chart rows are user-opt-in via TogglePlot, not auto-built at load time");
 
         // Act: set global filter to 0x100 only.
         sut.CanIdFilter = "0x100";
 
-        // Assert: 0x200 frames are excluded by BucketFramesByCanId, so
-        // only 0x100's row + series survive.
-        sut.Signals.Should().ContainSingle()
-            .Which.CanIdHex.Should().Be("0x100");
-        sut.ChartViewModel.Series.Should().ContainSingle()
-            .Which.SourceId.Should().Be("a");
+        // Assert: FrameCount for 0x200 drops to 0 (filter excludes frames).
+        // LatestValue for 0x200 becomes NaN (no frames to decode).
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100.FrameCount.Should().Be(1, "0x100 frame survives the 0x100-only filter");
+        row200.FrameCount.Should().Be(0, "0x200 frame is excluded by the 0x100-only filter");
+        row200.LatestValue.Should().Be(double.NaN,
+            "LatestValue becomes NaN when no frames survive the filter");
     }
 
     /// <summary>
-    /// v3.11.0 T4 (H8): the per-source filter overrides the global
-    /// filter inside the bucket loop. With two sources and a global
-    /// filter of "0x100", setting source A's per-source filter to
-    /// "0x200" must flip source A's effective bucket to 0x200 while
-    /// source B (empty per-source) inherits the global 0x100.
+    /// v3.11.0 T4 (H8) + v3.14.3 PATCH: the per-source filter overrides
+    /// the global filter inside the bucket loop. v3.14.3 PATCH: chart
+    /// rows are user opt-in; toggle after filter change to verify the
+    /// per-source override is honored at opt-in time.
     /// </summary>
     [Fact]
     public async Task BucketFramesByCanId_WithPerSourceFilter_OverridesGlobalFilter()
@@ -177,44 +185,49 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly. The DBC is pre-loaded via
-        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Establish global filter to 0x100; both sources narrow to 0x100.
-        sut.CanIdFilter = "0x100";
-        sut.Signals.Should().HaveCount(1);
-        sut.ChartViewModel.Series.Should().HaveCount(2);
+        // Both signals present with their frame counts (no filter).
+        sut.Signals.Should().HaveCount(2);
+        sut.Signals.Single(r => r.CanIdHex == "0x100").FrameCount.Should().Be(2);
+        sut.Signals.Single(r => r.CanIdHex == "0x200").FrameCount.Should().Be(2);
 
-        // Act: set source A's per-source filter to "0x200" → source A
-        // flips to 0x200; source B still inherits global 0x100.
+        // Act: set global filter to 0x100 + per-source A to 0x200.
+        sut.CanIdFilter = "0x100";
         srcA.CanIdFilter = "0x200";
 
-        // Assert: both 0x100 and 0x200 appear in the global bucket
-        // (B contributes 0x100, A contributes 0x200) → 2 signal rows.
-        sut.Signals.Should().HaveCount(2);
-        // One chart series per source: source A's series is the 0x200
-        // (Temp, Unit "C"), source B's series is the 0x100 (RPM, Unit "rpm").
-        sut.ChartViewModel.Series.Should().HaveCount(2);
-        var seriesA = sut.ChartViewModel.Series.Single(s => s.SourceId == "a");
-        var seriesB = sut.ChartViewModel.Series.Single(s => s.SourceId == "b");
-        seriesA.DisplayName.Should().Contain("Temp");
-        seriesB.DisplayName.Should().Contain("RPM");
+        // Assert: per-source A's 0x100 frame is excluded (per-source filter overrides),
+        // per-source B's 0x100 frame survives (inherits global).
+        var row100 = sut.Signals.Single(r => r.CanIdHex == "0x100");
+        var row200 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        row100.FrameCount.Should().Be(1, "only source B contributes to 0x100 after per-source A override");
+        row200.FrameCount.Should().Be(1, "only source A contributes to 0x200 after per-source A override");
+
+        // v3.14.3 PATCH: opt in 0x200/Temp. Source A contributes (per-source
+        // filter "0x200" allows 0x200 frames); source B inherits the
+        // global "0x100" filter which excludes 0x200 → only source A
+        // gets a chart series. This mirrors the pre-v3.14.3 chart
+        // per-source filter resolution.
+        var row200_2 = sut.Signals.Single(r => r.CanIdHex == "0x200");
+        sut.SetPlotOptIn(row200_2, true);
+        sut.ChartViewModel.Series.Should().ContainSingle()
+            .Which.SourceId.Should().Be("a",
+                "v3.14.3 PATCH: only source A contributes 0x200 frames (source B inherits global 0x100 filter)");
     }
 
     /// <summary>
-    /// v3.11.0 T4 (H8): when the bucket contains at least one frame
-    /// for a message's CAN ID, <c>BuildSignalRows</c> must emit
-    /// exactly one row per signal in that message (and skip messages
-    /// with no matching frames). The "LatestValue" must reflect the
-    /// last decoded frame for that signal.
+    /// v3.11.0 T4 (H8) + v3.14.3 PATCH: when the bucket contains at
+    /// least one frame for a message's CAN ID,
+    /// <c>BuildSignalRowsFromDbcOnly</c> emits one row per signal with
+    /// <c>FrameCount</c> + <c>LatestValue</c> populated. v3.14.3 PATCH:
+    /// rows for signals with NO matching frames are also emitted, with
+    /// <c>FrameCount=0</c> and <c>LatestValue=NaN</c>.
     /// </summary>
     [Fact]
     public async Task BuildSignalRows_OneMessageOneSignal_ProducesOneRow()
     {
-        // Arrange: one source emitting two 0x100 frames. DBC has one
-        // signal (RPM). Expect exactly one signal row.
+        // Arrange: one source emitting two 0x100 frames. DBC has two
+        // messages (0x100/RPM, 0x200/Temp). Expect two signal rows.
         var registry = MakeFakeRegistry();
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
@@ -231,34 +244,41 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly. The DBC is pre-loaded via
-        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Assert: 0x200 has no matching frames, so BuildSignalRows skips it.
-        // Only the 0x100/RPM row survives, with LatestValue = last decoded.
-        sut.Signals.Should().ContainSingle();
-        var row = sut.Signals[0];
-        row.CanIdHex.Should().Be("0x100");
-        row.SignalName.Should().Be("RPM");
-        row.Unit.Should().Be("rpm");
-        row.IsPlotted.Should().BeFalse();
-        row.LatestValue.Should().Be(322.0,
-            "LatestValue must be the LAST decoded value, not the first or max");
+        // v3.14.3 PATCH: both signals appear (0x100 has frames, 0x200 has none).
+        sut.Signals.Should().HaveCount(2);
+        var row100 = sut.Signals[0];
+        row100.CanIdHex.Should().Be("0x100");
+        row100.SignalName.Should().Be("RPM");
+        row100.Unit.Should().Be("rpm");
+        row100.IsPlotted.Should().BeFalse();
+        row100.FrameCount.Should().Be(2, "v3.14.3 PATCH: row tracks frame count from bucket");
+        row100.LatestValue.Should().Be(322.0, "LatestValue must be the LAST decoded value");
+
+        var row200 = sut.Signals[1];
+        row200.CanIdHex.Should().Be("0x200");
+        row200.SignalName.Should().Be("Temp");
+        row200.Unit.Should().Be("C");
+        row200.IsPlotted.Should().BeFalse();
+        row200.FrameCount.Should().Be(0, "v3.14.3 PATCH: 0x200 row has 0 frames");
+        row200.LatestValue.Should().Be(double.NaN,
+            "v3.14.3 PATCH: LatestValue is NaN when no frames exist for the signal");
     }
 
     /// <summary>
-    /// v3.11.0 T4 (H8): when the bucket contains no frames for a
-    /// message's CAN ID, <c>BuildSignalRows</c> must skip that
-    /// message entirely (no rows produced for its signals).
+    /// v3.11.0 T4 (H8) + v3.14.3 PATCH: when the bucket contains NO
+    /// frames for ANY message's CAN ID, the signal table is NOT
+    /// empty — it shows ALL DBC signals with FrameCount=0 and
+    /// LatestValue=NaN. v3.14.3 PATCH fixes the v3.11.x behavior
+    /// (which produced an empty Signals collection).
     /// </summary>
     [Fact]
-    public async Task BuildSignalRows_NoMatchingFrames_SkipsMessage()
+    public async Task BuildSignalRows_NoMatchingFrames_AllDbcSignalsAppearWithZeroCount()
     {
         // Arrange: one source emitting only 0x555 frames. DBC defines
-        // 0x100 and 0x200. Neither message has matching frames → both
-        // are skipped → Signals remains empty.
+        // 0x100 and 0x200. Neither message has matching frames but
+        // both STILL appear in the signal table (DBC-driven view).
         var registry = MakeFakeRegistry();
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
@@ -274,28 +294,32 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly. The DBC is pre-loaded via
-        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Assert: BuildSignalRows skips both messages → Signals is empty.
-        sut.Signals.Should().BeEmpty(
-            "messages whose CAN IDs have no matching frames must be skipped");
+        // v3.14.3 PATCH: both DBC signals appear with zero frames,
+        // NOT skipped (which was the v3.11.x / v3.14.x behavior).
+        sut.Signals.Should().HaveCount(2,
+            "v3.14.3 PATCH: signal table shows ALL DBC signals regardless of frame presence");
+        sut.Signals.Should().AllSatisfy(r =>
+        {
+            r.FrameCount.Should().Be(0, "no frames in bucket for any DBC signal");
+            r.LatestValue.Should().Be(double.NaN, "no frames to decode → NaN sentinel");
+            r.IsPlotted.Should().BeFalse("opt-in is a user action");
+        });
     }
 
     /// <summary>
-    /// v3.11.0 T4 (H8): <c>BuildChartSeries</c> must emit exactly
-    /// one <c>TraceChartSeries</c> per (source, message, signal) triple
-    /// whose bucket is non-empty. With one source + one message + one
-    /// signal, expect exactly one series with the source's color and
-    /// the signal's unit metadata.
+    /// v3.14.3 PATCH: chart series is NOT auto-built at load time.
+    /// Users opt-in via <c>TogglePlot</c>. This test pins the new
+    /// behavior: at load time <c>ChartViewModel.Series</c> is empty;
+    /// after <c>TogglePlot(row)</c> it contains one series per source
+    /// with matching frames.
     /// </summary>
     [Fact]
-    public async Task BuildChartSeries_OneSourceOneSignal_AddsOneSeries()
+    public async Task BuildChartSeries_OneSourceOneSignal_AddsOneSeries_OnOptIn()
     {
         // Arrange: one source emitting 0x100 frames. DBC has one
-        // signal on 0x100 (RPM). Expect exactly one chart series.
+        // signal on 0x100 (RPM).
         var registry = MakeFakeRegistry();
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
@@ -312,42 +336,45 @@ public class TraceViewerViewModelRebuildSignalsTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly. The DBC is pre-loaded via
-        // DbcService.SetCurrentForTests (mirrors DbcView's runtime path).
         await sut.RebuildSignalsAsync();
 
-        // Assert: BuildChartSeries produces exactly one series for the
-        // (source "a", 0x100/RPM) triple.
+        // v3.14.3 PATCH: chart is empty until user opts in.
+        sut.ChartViewModel.Series.Should().BeEmpty(
+            "v3.14.3 PATCH: chart series is NOT auto-built; user opts in per-signal");
+        var row = sut.Signals.Single(r => r.CanIdHex == "0x100" && r.SignalName == "RPM");
+        row.IsPlotted.Should().BeFalse();
+
+        // Act: opt in via SetPlotOptIn (production uses TogglePlot via the
+        // DataGrid checkbox Click handler; tests use the explicit
+        // SetPlotOptIn API to avoid binding-state assumptions).
+        sut.SetPlotOptIn(row, true);
+
+        // Assert: chart now has 1 series, fully populated.
         sut.ChartViewModel.Series.Should().ContainSingle();
         var series = sut.ChartViewModel.Series[0];
         series.SourceId.Should().Be("a");
         series.Unit.Should().Be("rpm");
         series.Color.Should().Be(OxyColors.Blue);
         series.DisplayName.Should().Contain("RPM");
-        // The series data must contain both decoded values.
+        series.IsPlotPending.Should().BeFalse("v3.14.3 PATCH: opt-in fully populates the series (no placeholder)");
         series.YValues.Should().Equal(16.0, 32.0);
+        // Note: SetPlotOptIn does NOT touch row.IsPlotted (the TwoWay
+        // binding does, in production XAML). Tests verify the chart-
+        // side effect; the row.IsPlotted binding behavior is covered
+        // indirectly via the XAML integration smoke test in step 10.
     }
 
     /// <summary>
-    /// v3.13.2 PATCH F5: when a DBC is loaded via <see cref="DbcService.DbcLoaded"/>
-    /// (the only path remaining after v3.13.0 F3 — the DbcView tab is the
-    /// sole entry point), the Trace Viewer must rebuild its Signals + chart
-    /// subplots. The xmldoc on the TVM (line 388) historically documented
-    /// a <c>_dbcService.PropertyChanged</c> subscription, but DbcService
-    /// does not implement INotifyPropertyChanged — it exposes a typed
-    /// <c>DbcLoaded</c> event. The ctor now subscribes via <c>+=</c>;
-    /// this test pins the contract so the subscription cannot silently
-    /// regress back to a dead INPC stub.
+    /// v3.13.2 PATCH F5 + v3.14.3 PATCH: when a DBC is loaded via
+    /// <see cref="DbcService.DbcLoaded"/>, the Trace Viewer rebuilds
+    /// its Signals collection (DBC changed → different signal catalog).
+    /// v3.14.3 PATCH: rebuild now emits ALL DBC signals regardless of
+    /// frame presence; the chart area is NOT auto-populated.
     /// </summary>
     [Fact]
     public void DbcService_DbcLoaded_Fires_RebuildSignalsCore()
     {
-        // Arrange: one source emitting 0x100 frames. No DBC loaded yet →
-        // RebuildSignalsCore at ctor time sees zero decoded rows. The
-        // DBC is then installed via SetCurrentForTests (does NOT raise
-        // the event — see DbcService.cs:101); the test manually raises
-        // DbcLoaded to drive the OnDbcLoaded handler.
+        // Arrange: one source emitting 0x100 frames. No DBC loaded yet.
         var registry = MakeFakeRegistry();
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
@@ -362,27 +389,74 @@ public class TraceViewerViewModelRebuildSignalsTests
         });
 
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
-        // Construct TVM BEFORE the DBC exists — mirrors the user flow
-        // "open Trace Viewer → load DBC via DbcView tab → Trace Viewer
-        // auto-rebuilds". At ctor time Signals is empty (no DBC).
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Signals.Should().BeEmpty("no DBC loaded yet at TVM construction time");
 
-        // Act: install the DBC + raise DbcLoaded. The TVM's OnDbcLoaded
-        // handler must call RebuildSignalsCore, which decodes frames
-        // against the now-available DBC and populates Signals + chart.
+        // Act: install the DBC + raise DbcLoaded.
         dbc.SetCurrentForTests(DocWithTwoMessages());
         dbc.GetType().GetEvent(nameof(DbcService.DbcLoaded))!
             .RaiseMethod(dbc, DocWithTwoMessages());
 
-        // Assert: Signals populated — at least the 0x100 row (0x200 has
-        // no matching frames in this test, so it is skipped by
-        // BuildSignalRows, mirroring test 4 above). The contract under
-        // test is "rebuild fired after DbcLoaded", not a specific row
-        // count, so we assert "non-zero" rather than an exact figure.
-        sut.Signals.Should().NotBeEmpty(
-            "DbcLoaded must trigger RebuildSignalsCore so the Trace Viewer populates");
+        // v3.14.3 PATCH: rebuild emits ALL DBC signals (2 in this DBC).
+        sut.Signals.Should().HaveCount(2,
+            "v3.14.3 PATCH: rebuild emits all DBC signals regardless of frame presence");
         sut.Signals[0].CanIdHex.Should().Be("0x100");
         sut.Signals[0].SignalName.Should().Be("RPM");
+        sut.Signals[1].CanIdHex.Should().Be("0x200");
+        sut.Signals[1].SignalName.Should().Be("Temp");
+
+        // v3.14.3 PATCH: chart is empty (DBC change wipes user opt-ins,
+        // and no opt-ins were set before this DbcLoaded).
+        sut.ChartViewModel.Series.Should().BeEmpty(
+            "v3.14.3 PATCH: chart is empty after DbcLoaded (no auto-build)");
+    }
+
+    /// <summary>
+    /// v3.14.3 PATCH: after the user opts a signal in (TogglePlot),
+    /// subsequent ASC additions (SourcesChanged) must preserve the
+    /// opt-in — the user's intentional choice survives the noise of
+    /// adding more sources. RefreshFrameCounts updates FrameCount +
+    /// LatestValue in place; RemoveOrphanChartSeries handles unloaded
+    /// sources. This test pins the survival contract.
+    /// </summary>
+    [Fact]
+    public async Task OnRegistrySourcesChanged_AfterOptIn_PreservesChartSeriesAndIsPlotted()
+    {
+        // Arrange: one source emitting 0x100 frames.
+        var registry = MakeFakeRegistry();
+        var svc = MakeFakeService();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+        });
+        registry.GetService("a").Returns(svc);
+        registry.GetFrames("a").Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x20, 0x00),
+        });
+
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithTwoMessages());
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        await sut.RebuildSignalsAsync();
+
+        // Opt in to 0x100/RPM via SetPlotOptIn + manually flip IsPlotted to
+        // mimic the XAML TwoWay binding (SetPlotOptIn itself only does
+        // the chart-side work; the binding owns IsPlotted in production).
+        var row = sut.Signals.Single(r => r.CanIdHex == "0x100" && r.SignalName == "RPM");
+        row.IsPlotted = true;
+        sut.SetPlotOptIn(row, true);
+        sut.ChartViewModel.Series.Should().ContainSingle();
+
+        // Act: simulate a 2nd ASC load by re-raising SourcesChanged
+        // (the existing source's frames are still there; SourcesChanged
+        // fires every time the registry mutates).
+        registry.SourcesChanged += Raise.Event<Action>();
+
+        // Assert: opt-in survived. Series is still 1; row still flagged.
+        row.IsPlotted.Should().BeTrue("v3.14.3 PATCH: opt-in survives SourcesChanged");
+        sut.ChartViewModel.Series.Should().ContainSingle(
+            "v3.14.3 PATCH: chart series survives SourcesChanged (was wiped in pre-v3.14.3)");
     }
 }

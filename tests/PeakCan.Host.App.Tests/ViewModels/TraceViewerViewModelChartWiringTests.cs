@@ -84,11 +84,12 @@ public class TraceViewerViewModelChartWiringTests
             Data: data, Flags: FrameFlags.None);
 
     [Fact]
-    public async Task RebuildSignalsAsync_AfterLoadDbc_PopulatesChartSeries()
+    public async Task RebuildSignalsAsync_AfterLoadDbc_PopulatesChartSeriesOnOptIn()
     {
         // v3.4.0 MINOR: was 0 chart series in v3.3.x (dead code). After
         // wiring, RebuildSignalsAsync produces 1 chart series per
-        // (source, signal) pair.
+        // (source, signal) pair — but ONLY after the user opts in via
+        // the Plot checkbox (v3.14.3 PATCH).
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
@@ -102,16 +103,25 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
 
-        sut.ChartViewModel.Series.Should().HaveCount(1);
+        // v3.14.3 PATCH: chart is empty at load time (opt-in only).
+        sut.ChartViewModel.Series.Should().BeEmpty(
+            "v3.14.3 PATCH: chart is NOT auto-built; user opts in via TogglePlot");
+        var row = sut.Signals.Single();
+        row.IsPlotted.Should().BeFalse();
+
+        // Opt in → 1 chart series.
+        sut.SetPlotOptIn(row, true);
+        sut.ChartViewModel.Series.Should().ContainSingle();
     }
 
     [Fact]
-    public async Task RebuildSignalsAsync_TwoSources_SameSignal_CreatesTwoSeriesWithDistinctStrokes()
+    public async Task RebuildSignalsAsync_TwoSources_SameSignal_CreatesTwoSeriesWithDistinctStrokes_OnOptIn()
     {
+        // v3.14.3 PATCH: same opt-in pattern, two sources with same
+        // signal — opt-in creates one series per source, with the
+        // source's stroke style.
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
         var svcB = MakeFakeService();
@@ -129,13 +139,17 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
 
+        // v3.14.3 PATCH: chart empty at load time.
+        sut.ChartViewModel.Series.Should().BeEmpty();
+
+        // Opt in → 2 series (one per source).
+        var row = sut.Signals.Single();
+        sut.SetPlotOptIn(row, true);
         sut.ChartViewModel.Series.Should().HaveCount(2);
         var styles = sut.ChartViewModel.Series
-            .Select(s => s.PlotModel.Series.OfType<LineSeries>().Single().LineStyle)
+            .Select(s => s.PlotModel!.Series.OfType<LineSeries>().Single().LineStyle)
             .ToList();
         styles.Should().Contain(LineStyle.Solid);
         styles.Should().Contain(LineStyle.Dash);
@@ -144,9 +158,9 @@ public class TraceViewerViewModelChartWiringTests
     [Fact]
     public async Task RebuildSignalsAsync_CallsSyncYAxesAfterPopulation()
     {
-        // v3.4.0 MINOR: after populating ChartViewModel.Series, the VM
-        // must call SyncYAxes() so the chart renders with synchronized
-        // Y axes across sources (v3.3.2 method).
+        // v3.4.0 MINOR: after the user opts in, the VM must call
+        // SyncYAxes() so the chart renders with synchronized Y axes
+        // across sources (v3.3.2 method).
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
         var svcB = MakeFakeService();
@@ -170,17 +184,19 @@ public class TraceViewerViewModelChartWiringTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted — tests now drive
-        // RebuildSignalsAsync directly against the pre-loaded DBC.
         await sut.RebuildSignalsAsync();
+
+        // Opt in (single row covers both sources → 2 chart series).
+        var row = sut.Signals.Single();
+        sut.SetPlotOptIn(row, true);
 
         // Both subplots must have the same Y axis range (synchronized
         // by SignalKey via v3.3.2's SyncYAxes). Range A: 16..32,
         // Range B: 48..64; global 16..64; +5% padding → 13.6..66.4.
-        var yA = sut.ChartViewModel.Series[0].PlotModel.Axes
+        var yA = sut.ChartViewModel.Series[0].PlotModel!.Axes
             .OfType<OxyPlot.Axes.LinearAxis>()
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
-        var yB = sut.ChartViewModel.Series[1].PlotModel.Axes
+        var yB = sut.ChartViewModel.Series[1].PlotModel!.Axes
             .OfType<OxyPlot.Axes.LinearAxis>()
             .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
         yA.Minimum.Should().BeApproximately(yB.Minimum, 0.001);
