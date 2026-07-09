@@ -451,6 +451,63 @@ public class TraceViewerViewModelTests
             "LatestValue must reflect the LAST decoded frame, not the first or max");
     }
 
+    // v3.16.9.2 PATCH (origin cherry-pick df653b1): reverse-trigger guard.
+    // Playback's OnAnyFrameEmitted writes ScrubberValue = t every frame;
+    // without the guard, the setter calls SeekAllToProportionalTime ->
+    // master.Seek(t) -> ReplayTimeline.Seek(t) resets _playStartTimestamp.
+    // Effect: PlayedTimestamp jumps to trace end on first emit + 5000 frames
+    // emit in 0.013s (production observation). User symptom: "progress bar
+    // jumps straight to end" -- the v3.16.3 PATCH-introduced regression.
+    //
+    // Fix: OnScrubberValueChanged now checks master.State == Playing; if so,
+    // ScrubberValue setter writes are writebacks from FrameEmitted, not user
+    // input -- skip the seek. User drag unaffected (master paused during drag).
+    [Fact]
+    public void FrameEmitted_DuringPlay_DoesNotTriggerSeek_ReverseTriggerGuard()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Playing);  // master is playing
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // Simulate a FrameEmitted during playback. OnAnyFrameEmitted writes
+        // ScrubberValue = master.CurrentTimestamp. Without the guard, this
+        // triggers Seek -> reset _playStartTimestamp -> playback fast-forwards
+        // to trace end. With the guard, seek is suppressed.
+        sut.GetType().GetMethod("OnAnyFrameEmitted",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(sut, [new ReplayFrame(0.5, 0x100, 2, [0x00, 0x00], FrameFlags.None)]);
+
+        svc.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    // v3.16.9.2 PATCH (origin cherry-pick df653b1): counter-positive -- user
+    // drag (master paused) MUST still trigger seek. Without this the guard
+    // would over-suppress and the scrubber becomes read-only.
+    [Fact]
+    public void UserDrag_ScrubberValue_TriggersSeek_WhenMasterPaused()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Paused);  // master paused (user drag context)
+        svc.TotalDuration.Returns(10.0);
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.ScrubberValue = 5.0;
+
+        svc.Received(1).Seek(5.0);
+    }
+
     // v3.16.9 PATCH RED→GREEN: BuildOneChartSeriesForSource must add a
     // LineAnnotation with Tag == "playback-cursor" to every series' PlotModel.
     // The red playback cursor line is positioned by TraceChartViewModel
@@ -1781,3 +1838,4 @@ public class TraceViewerViewModelTests
     }
 
 }
+ (fix(traceviewer): reverse-trigger guard in OnScrubberValueChanged via master.State == Playing check (v3.16.9.2 PATCH))
