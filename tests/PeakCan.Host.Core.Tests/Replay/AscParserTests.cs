@@ -521,5 +521,41 @@ End TriggerBlock
         frames[2].Id.Should().Be(0x18EF4AEFu);
         frames[3].Id.Should().Be(0x0C001024u, "C001024x = 0x0C001024 (29-bit ID, padded to 8 hex chars)");
     }
+
+    /// <summary>
+    /// v3.18.0 PATCH (Trace Viewer Enhancements): when the ASC carries a
+    /// `date Wed Jul 1 08:32:01.000 am 2026` header, the new ParseAsync
+    /// overload must capture the wall-clock origin so the X axis can
+    /// display it. The user-reported case: an ASC recorded across 43
+    /// hours — the wall-clock origin lets the chart show real dates,
+    /// not raw `155564.4328` seconds.
+    /// </summary>
+    [Fact]
+    public async Task ParseAsync_NewOverload_WithDateHeader_ReturnsWallClockOrigin()
+    {
+        const string asc = @"
+date Wed Jul 1 08:32:01.000 am 2026
+base hex  timestamps absolute
+internal events logged
+// version 13.0.0
+// Measurement UUID: b79905f3-f762-42f6-9c95-1f1ca188008c
+Begin TriggerBlock Wed Jul 1 08:32:01.000 am 2026
+ 0.000000 Start of measurement
+ 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41
+";
+        using var stream = MakeAscStream(asc);
+
+        // The new overload is the one we are about to add in Task 3.
+        var result = await AscParser.ParseAsyncWithHeaderAsync(stream);
+
+        result.WallClockOrigin.Should().Be(
+            new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local),
+            "the 'date Wed Jul 1 08:32:01.000 am 2026' line is the wall-clock origin");
+        result.TimestampsAreAbsolute.Should().BeTrue(
+            "the 'base hex  timestamps absolute' line sets the mode");
+        result.Frames.Should().HaveCount(1,
+            "the Start-of-measurement line is filtered out (no CAN id token); only the 18FF60A2x line parses");
+        result.Frames[0].Timestamp.Should().Be(1.0);
+    }
 }
 
