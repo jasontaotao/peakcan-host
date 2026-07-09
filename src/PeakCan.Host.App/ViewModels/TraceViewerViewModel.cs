@@ -489,7 +489,27 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     partial void OnScrubberValueChanged(double value)
     {
-        if (TotalDuration > 0 && _masterService is not null)
+        // v3.16.9.2 PATCH: reverse-trigger guard. Playback's
+        // OnAnyFrameEmitted writes ScrubberValue = t every frame;
+        // without this guard, the setter calls SeekAllToProportionalTime
+        // → master.Seek(t) → ReplayTimeline.Seek(t) resets
+        // _playStartTimestamp = t (line 181). Effect: PlayedTimestamp
+        // = t + elapsed_after_seek where t = frame.ts of the emit, so
+        // every tick "advances" by elapsed but t also advances by
+        // ~0.1s per emit. Net: cursor snaps to trace-end on the first
+        // emit, then continues at trace-end in a fast-forward loop
+        // (5000 frames in 0.013s observed in production). User
+        // symptom: "progress bar jumps straight to end" — exactly the
+        // v3.16.3 PATCH-introduced regression.
+        //
+        // Guard: when master is actively playing, the ScrubberValue
+        // setter writes are writebacks from FrameEmitted, not user
+        // input. Skip the seek in that case. User drag is unaffected
+        // (master is not playing during drag because Pause would be
+        // hit first, or IsPlaying=false).
+        if (_masterService is null) return;
+        if (_masterService.State == ReplayState.Playing) return;
+        if (TotalDuration > 0)
             SeekAllToProportionalTime(value);
     }
 
@@ -1453,15 +1473,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnAnyFrameEmitted(ReplayFrame frame)
     {
-        // v3.16.7 DIAG: log every FrameEmitted to see if events actually fire
-        // (only log first 5 + every 100th to avoid flooding)
-        _onAnyFrameEmittedCount++;
-        if (_onAnyFrameEmittedCount <= 5 || _onAnyFrameEmittedCount % 100 == 0)
-        {
-            _logger.LogInformation("OnAnyFrameEmitted #{Count}: frame.ts={Ts} frame.id=0x{Id:X} masterId={Master} syncCtx={HasCtx}",
-                _onAnyFrameEmittedCount, frame.Timestamp, frame.Id,
-                MasterSourceId, _syncContext is not null);
-        }
         // v3.16.3 PATCH BUGFIX: also update ScrubberValue so the UI
         // scrubber follows playback. The v3.3.0 architecture was
         // scrubber-driven (drag → seek), but Playback left the scrubber

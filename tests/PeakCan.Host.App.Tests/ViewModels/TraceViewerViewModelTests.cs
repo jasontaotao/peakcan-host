@@ -235,6 +235,65 @@ public class TraceViewerViewModelTests
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
 
+    // v3.16.9.2 PATCH: reverse-trigger guard. Without the guard,
+    // OnAnyFrameEmitted writes ScrubberValue = t every frame, which
+    // calls OnScrubberValueChanged → SeekAllToProportionalTime →
+    // master.Seek(t) → ReplayTimeline.Seek(t) resets
+    // _playStartTimestamp = t. Effect: PlayedTimestamp jumps to trace
+    // end on first emit + 5000 frames emit in 0.013s (production
+    // observation). User symptom: "progress bar jumps straight to end".
+    //
+    // The fix guards OnScrubberValueChanged with
+    // `if (master.State == Playing) return` — during playback the
+    // ScrubberValue writebacks are NOT user input, skip the seek.
+    // User drag still works (master is paused/stopped during drag).
+    [Fact]
+    public void FrameEmitted_DuringPlay_DoesNotTriggerSeek_ReverseTriggerGuard()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Playing);  // master is playing
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // Simulate a FrameEmitted during playback. OnAnyFrameEmitted
+        // writes ScrubberValue = master.CurrentTimestamp. Without the
+        // guard, this triggers Seek → reset _playStartTimestamp →
+        // playback fast-forwards to trace end. With the guard, seek
+        // is suppressed.
+        sut.GetType().GetMethod("OnAnyFrameEmitted",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(sut, [new ReplayFrame(0.5, 0x100, 2, [0x00, 0x00], FrameFlags.None)]);
+
+        svc.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    // v3.16.9.2 PATCH: counter-positive — user drag (master paused)
+    // MUST still trigger seek. Without this the guard would over-suppress
+    // and the scrubber becomes read-only.
+    [Fact]
+    public void UserDrag_ScrubberValue_TriggersSeek_WhenMasterPaused()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Paused);  // master paused (user drag context)
+        svc.TotalDuration.Returns(10.0);
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.ScrubberValue = 5.0;
+
+        svc.Received(1).Seek(5.0);
+    }
+
     [Fact]
     public void PlayCommand_InvokesServicePlay()
     {
