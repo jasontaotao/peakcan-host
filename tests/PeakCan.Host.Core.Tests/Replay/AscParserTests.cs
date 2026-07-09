@@ -574,5 +574,33 @@ End TriggerBlock
         result.Frames[0].Data.Length.Should().Be(8,
             "the 8-byte payload (01 D3 27 DE 36 41 7B 9F) matches the declared DLC=8");
     }
+
+    /// <summary>
+    /// v3.18.0 PATCH: ASC files without a `date` header (some Vector
+    /// exports skip it) must produce a null origin so the X-axis
+    /// formatter falls back to elapsed-time display. The fix must NOT
+    /// throw or invent a fake origin.
+    /// </summary>
+    [Fact]
+    public async Task ParseAsync_NewOverload_WithoutDateHeader_ReturnsNullOrigin()
+    {
+        // No `date` line; only `base` and data lines. The data lines
+        // include the canonical Vector v1.3 trailing metadata tail
+        // ("Length = N BitCount = N ID = Nx") so the parser's
+        // existing `goto EndDataBytes` branch filters the metadata and
+        // accepts the 8 declared DLC bytes.
+        const string asc = @"
+base hex  timestamps relative
+ 0.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41 7B 9F Length = 64 BitCount = 64 ID = 18FF60A2x
+ 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 42 7C A0 Length = 64 BitCount = 64 ID = 18FF60A2x
+";
+        using var stream = MakeAscStream(asc);
+        var result = await AscParser.ParseAsyncWithHeaderAsync(stream);
+
+        result.WallClockOrigin.Should().BeNull(
+            "absence of the 'date' header must produce a null origin (formatter falls back to elapsed)");
+        result.TimestampsAreAbsolute.Should().BeFalse();
+        result.Frames.Should().HaveCount(2);
+    }
 }
 
