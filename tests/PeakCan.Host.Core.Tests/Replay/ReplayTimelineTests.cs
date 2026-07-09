@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -117,7 +118,7 @@ public class ReplayTimelineTests
 
         timeline.SetSpeed(2.0);
         timeline.Play();
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         await Task.Delay(1500);  // should fire both frames well within 1.5s at 2x
         timeline.Stop();
         sw.Stop();
@@ -127,6 +128,42 @@ public class ReplayTimelineTests
         // Widened from 2000ms to 5000ms (v3.4.5): latent CI flake risk per same
         // shape as SequenceSendServiceTests.SendAsync_Sequential_DelayRespectedBetweenFrames.
         sw.ElapsedMilliseconds.Should().BeLessThan(5000L);
+    }
+
+    // v3.16.9.3 PATCH: SetSpeed on a never-played timeline must NOT snap
+    // _currentTimestamp to a value derived from DateTime.MinValue
+    // (the field default of _playStartWallClock). The previous code
+    // order computed PlayedTimestamp first (using the stale wallclock),
+    // then updated wallclock — the elapsed calculation produced a
+    // ~6×10^10 second offset, which leaked into _currentTimestamp and
+    // propagated to master.CurrentTimestamp. The VM then wrote that
+    // absurd value to ScrubberValue, which (without v3.16.9.2 guard
+    // checking master.State) triggered SeekAllToProportionalTime,
+    // snapping the scrubber to trace end. User symptom: "progress bar
+    // jumps straight to end" on the very first frame after AddTraceAsync.
+    //
+    // Fix: SetSpeed reorders — wallclock is updated FIRST, so
+    // PlayedTimestamp computes with the new wallclock (elapsed=0 on a
+    // never-played timeline → PlayedTimestamp = _playStartTimestamp = 0).
+    [Fact]
+    public void SetSpeed_OnNeverPlayedTimeline_DoesNotSnapTimestampToStaleWallclock()
+    {
+        var frames = MakeFrames((0.0, 0x100), (100.0, 0x200));
+        var timeline = new ReplayTimeline(_ => { });
+        timeline.SetFrames(frames);
+
+        // No Play() call — _playStartWallClock is still the field
+        // default (DateTime.MinValue). The previous SetSpeed would
+        // compute PlayedTimestamp using MinValue as the wallclock
+        // anchor, producing an absurd timestamp.
+        timeline.SetSpeed(1.0);
+
+        // _currentTimestamp must be 0 (or at most, a small value
+        // corresponding to "just barely started"), NOT a 6×10^10
+        // offset. Trace total duration is 100s; a 1e10 offset would
+        // be obvious in any reasonable sanity check.
+        timeline.CurrentTimestamp.Should().BeLessThan(100.0,
+            "SetSpeed on a never-played timeline must use the new wallclock for PlayedTimestamp, not the field default");
     }
 
     /// <summary>
