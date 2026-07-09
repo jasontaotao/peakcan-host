@@ -1632,4 +1632,18 @@ public class TraceViewerViewModelTests
         vm.AddTraceCommand.CanExecute(string.Empty).Should().BeTrue("an empty path arg must NOT disable the command (was the v3.9.1 root cause)");
         vm.AddTraceCommand.CanExecute(@"C:\anything.asc").Should().BeTrue("any path arg must NOT disable the command");
     }
+
+    /// <summary>
+    /// v3.18.0 PATCH: every freshly-constructed TraceSource must have
+    /// a null WallClockOrigin (no header parsed yet). The field is
+    /// populated later by TraceViewerService.LoadAsync when the ASC
+    /// parser hands back a non-null origin.
+    /// </summary>
+    [Fact]
+    public void TraceSource_NewInstance_WallClockOriginIsNull()
+    {
+        var src = new TraceSource("a", "A", "C:/a.asc", OxyColors.Blue);
+        src.WallClockOrigin.Should().BeNull(
+            "the field defaults to null and is set later by the loader after ASC header parse");
+    }
 }
