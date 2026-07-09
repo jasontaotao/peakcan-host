@@ -533,6 +533,18 @@ End TriggerBlock
     [Fact]
     public async Task ParseAsync_NewOverload_WithDateHeader_ReturnsWallClockOrigin()
     {
+        // Real Vector CANoe fixture (mirrors the user's production ASC):
+        // - date header carries the wall-clock origin
+        // - base hex  timestamps absolute confirms the seconds column is absolute
+        // - Begin TriggerBlock + End TriggerBlock + Start of measurement are
+        //   section delimiters (headers, not data) — must be skipped, not
+        //   counted as malformed data lines
+        // - The 18FF60A2x frame line includes the canonical Vector v1.3
+        //   trailing metadata tail ("Length = N BitCount = N ID = Nx") —
+        //   8 data bytes plus 3 metadata fields. The trailing metadata
+        //   is filtered out by the parser's existing `goto EndDataBytes`
+        //   branch (triggered by the `=` character inside the metadata
+        //   tokens); the 8 declared DLC bytes parse cleanly.
         const string asc = @"
 date Wed Jul 1 08:32:01.000 am 2026
 base hex  timestamps absolute
@@ -541,7 +553,8 @@ internal events logged
 // Measurement UUID: b79905f3-f762-42f6-9c95-1f1ca188008c
 Begin TriggerBlock Wed Jul 1 08:32:01.000 am 2026
  0.000000 Start of measurement
- 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41
+ 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41 7B 9F Length = 64 BitCount = 64 ID = 18FF60A2x
+End TriggerBlock
 ";
         using var stream = MakeAscStream(asc);
 
@@ -554,8 +567,12 @@ Begin TriggerBlock Wed Jul 1 08:32:01.000 am 2026
         result.TimestampsAreAbsolute.Should().BeTrue(
             "the 'base hex  timestamps absolute' line sets the mode");
         result.Frames.Should().HaveCount(1,
-            "the Start-of-measurement line is filtered out (no CAN id token); only the 18FF60A2x line parses");
+            "Begin/End TriggerBlock + Start of measurement are headers (skipped); only the 18FF60A2x frame parses");
         result.Frames[0].Timestamp.Should().Be(1.0);
+        result.Frames[0].Id.Should().Be(0x18FF60A2u,
+            "the '18FF60A2x' frame id parses cleanly once the trailing 'Length = ...' metadata is filtered out");
+        result.Frames[0].Data.Length.Should().Be(8,
+            "the 8-byte payload (01 D3 27 DE 36 41 7B 9F) matches the declared DLC=8");
     }
 }
 
