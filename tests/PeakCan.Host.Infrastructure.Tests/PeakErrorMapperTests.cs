@@ -13,7 +13,7 @@ namespace PeakCan.Host.Infrastructure.Tests;
 public class PeakErrorMapperTests
 {
     [Theory]
-    [InlineData(0x00000000u, ErrorCode.Unknown)]                  // PCAN_ERROR_OK
+    [InlineData(0x00000000u, ErrorCode.Ok)]                       // PCAN_ERROR_OK
     [InlineData(0x00000001u, ErrorCode.HardwareBusy)]            // PCAN_ERROR_XMTFULL
     [InlineData(0x00000009u, ErrorCode.HardwareNotAvailable)]    // PCAN_ERROR_ILLHW — "illegal hardware" = not available
     [InlineData(0x00000020u, ErrorCode.HardwareNotAvailable)]    // PCAN_ERROR_NODRIVER
@@ -29,6 +29,16 @@ public class PeakErrorMapperTests
     {
         var (_, message) = PeakErrorMapper.ToErrorCode(PeakError.OK);
         message.Should().Be("OK");
+    }
+
+    [Fact]
+    public void Ok_Status_Returns_Ok_ErrorCode()
+    {
+        // v3.16.9.5 PATCH: success no longer falls through to ErrorCode.Unknown.
+        // Semantic correctness: callers can now branch on ErrorCode.Ok without
+        // a prior IsOk() check.
+        var (code, _) = PeakErrorMapper.ToErrorCode(PeakError.OK);
+        code.Should().Be(ErrorCode.Ok);
     }
 
     [Fact]
@@ -93,9 +103,8 @@ public class PeakErrorMapperTests
     {
         // 0x40000000u = PCAN_ERROR_INITIALIZE flag; base error is 0
         PeakErrorMapper.IsOk(0x40000000u).Should().BeTrue();
-        // Note: existing mapper returns ErrorCode.Unknown for raw==0 (preserved for
-        // backward compat — see PeakErrorMapper.ToErrorCode OK arm).
-        PeakErrorMapper.ToErrorCode(0x40000000u).Code.Should().Be(ErrorCode.Unknown);
+        // v3.16.9.5 PATCH: base 0 now maps to ErrorCode.Ok (was Unknown).
+        PeakErrorMapper.ToErrorCode(0x40000000u).Code.Should().Be(ErrorCode.Ok);
         PeakErrorMapper.ToErrorCode(0x40000000u).Message.Should().Be("OK");
     }
 
@@ -104,7 +113,8 @@ public class PeakErrorMapperTests
     {
         // 0x00010000u = PCAN_ERROR_RESOURCE flag; base error is 0
         PeakErrorMapper.IsOk(0x00010000u).Should().BeTrue();
-        PeakErrorMapper.ToErrorCode(0x00010000u).Code.Should().Be(ErrorCode.Unknown);
+        // v3.16.9.5 PATCH: base 0 now maps to ErrorCode.Ok (was Unknown).
+        PeakErrorMapper.ToErrorCode(0x00010000u).Code.Should().Be(ErrorCode.Ok);
         PeakErrorMapper.ToErrorCode(0x00010000u).Message.Should().Be("OK");
     }
 
@@ -130,8 +140,9 @@ public class PeakErrorMapperTests
     public void ToErrorCode_Resource_Only_Returns_Ok()
     {
         // 0x00010000u = PCAN_ERROR_RESOURCE only (no error code, just flag).
-        // After strip, raw==0 → OK message preserved.
-        PeakErrorMapper.ToErrorCode(0x00010000u).Code.Should().Be(ErrorCode.Unknown);
+        // After strip, raw==0 → ErrorCode.Ok + "OK" message preserved.
+        // v3.16.9.5 PATCH: was ErrorCode.Unknown.
+        PeakErrorMapper.ToErrorCode(0x00010000u).Code.Should().Be(ErrorCode.Ok);
         PeakErrorMapper.ToErrorCode(0x00010000u).Message.Should().Be("OK");
     }
 }
