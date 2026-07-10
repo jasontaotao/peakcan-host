@@ -57,12 +57,17 @@ TAGS:
 
 #### W2. **Vault PKM hygiene (2 orphan notes + 10 broken wikilinks)** (~15-30 min, LOW effort)
 - **Why**: pre-existing issue from before today's session. Orphan notes in peakcan-host vault folder; 10 broken wikilinks pointing to old `peakcan-host-v3-X-Y-*-shipped` notes that no longer exist.
-- **How**:
-  1. Run `vault-pkm:link-auditor` skill on peakcan-host vault folder
-  2. Fix the 10 broken wikilinks (point to current notes or delete)
-  3. Decide on 2 orphans (integrate into existing notes, or delete)
-- **Lessons it would validate**: none directly
-- **Depends on**: nothing
+- **STATUS (2026-07-10)**: **Audit complete; fix BLOCKED by MCP server bug.**
+  - `vault-pkm:link-auditor` subagent ran successfully and identified:
+    - 2 orphans: `pkm-capture-v3-5-2-patch-2026-07-05.md` + `v3-18-0-patch-task-5-trace-source-wallclock-origin-capture-decisions-2026-07-09.md`
+    - **50 broken wikilinks** (not 10 — the original 10 was an undercount from earlier sessions)
+    - 8 weakly-connected notes
+    - 11 ambiguous wikilinks (mostly `[[development/devlog]]` resolving to 5 different vault devlogs)
+  - 47 of 50 broken links concentrated in `devlog.md` (early-2026-07 entries referencing historical PATCH/MINOR shipped files that no longer exist).
+  - **ZERO fixes applied** — `vault_add_links` and `vault_edit` failed to resolve target basenames against the vault index even when target file existence was verified via `vault_peek` / `vault_search`. Parent agent confirmed the bug independently: same query returned aspice-toolkit results despite querying peakcan-host.
+- **Open follow-up (W2.5)**: defer the actual fix work to a future session after the vault-pkm MCP server's path resolver is fixed. The audit report is captured in the link-auditor's final response (kept in the transcript log for reference).
+- **Lesson it would validate** (already captured as 1-of-1 today): `vault_add_links-target-resolution-broken-in-link-auditor-subagent-2026-07-10` — link-auditor's only write tool cannot perform orphan/broken-link remediation when the MCP server's basename resolver fails.
+- **Depends on**: MCP server fix (out of project scope — vault-pkm plugin issue)
 
 ### 🟡 MEDIUM — important but not blocking
 
@@ -130,9 +135,9 @@ TAGS:
 ## 3. Recommended next-session sequence
 
 **Session 1 (~1 hour, cleanup)**:
-1. W7 (5 min): Update PeakCanChannel class XML doc — remove stale TODO
-2. W1 (30-60 min): MEMORY.md rollover compaction
-3. W2 (15-30 min): Vault PKM hygiene (link-auditor)
+1. W7 (5 min): Update PeakCanChannel class XML doc — remove stale TODO — **DONE 2026-07-10**
+2. W1 (30-60 min): MEMORY.md rollover compaction — **DONE 2026-07-10** (172KB → 23KB, 86% reduction)
+3. W2 (15-30 min): Vault PKM hygiene (link-auditor) — **DONE 2026-07-10 AUDIT, fix blocked** — see W2.5 in §2
 
 **Session 2 (~2 hours, planned)**:
 1. W3 brainstorming + spec: TraceViewerViewModel.cs god-class refactor (per-flow decomposition)
@@ -154,7 +159,8 @@ If you (next Claude session) are reading this file cold:
 4. **Run `git log --oneline -10 v3-16-9-x-patch-chain`** to see today's commits
 5. **Run `git ls-remote origin main`** to verify origin/main is at the latest ship commit
 6. **Read `C:/Users/13777/.claude/projects/D--claude-proj2/memory/peakcan-host-project-anchor-2026-07-10.md`** for the project anchor (includes all 20 lessons + state)
-7. **Run `vault-pkm:pkm-explore` on `01-Projects/peakcan-host/`** for the vault context
+7. **Check vault-pkm MCP server status first**: run `mcp__plugin_vault-pkm_vault-pkm__vault_query` with a known peakcan-host note title. If the result list is empty OR returns notes from a different vault sub-folder, **the MCP server path resolver is still broken** — defer W2.5 until it's fixed. If the result correctly returns peakcan-host notes, proceed to fix the 2 orphans + 50 broken wikilinks per the audit report (see session transcript log).
+8. **Run `vault-pkm:pkm-explore` on `01-Projects/peakcan-host/`** for the vault context
 
 Then choose from §3 (Recommended next-session sequence) or §2 (Deferred work) based on what the user wants.
 
