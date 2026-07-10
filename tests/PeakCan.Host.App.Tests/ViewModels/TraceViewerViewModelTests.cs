@@ -284,6 +284,12 @@ public class TraceViewerViewModelTests
     }
 
     // ===== v3.0.1 PATCH Task 2: per-signal DBC decode =====
+    // v3.16.9.3 PATCH: these tests originally asserted sut.Signals (the
+    // v3.14.3 legacy DBC 全列 collection). v3.15.0 MINOR changed the
+    // contract to user opt-in via WatchedSignals — the Signals
+    // collection is preserved for back-compat but no longer populated
+    // (see TraceViewerViewModel.cs:131-138). Tests rewritten to drive
+    // AddToWatch first, then assert WatchedSignals content + LatestValue.
 
     [Fact]
     public async Task RebuildSignalsAsync_NoDbc_LeavesSignalsEmpty()
@@ -300,7 +306,11 @@ public class TraceViewerViewModelTests
 
         await sut.AddTraceAsync();
 
+        // v3.15.0 contract: Signals is intentionally empty (no DBC +
+        // no AddToWatch). Asserting empty documents the v3.15.0 design
+        // and guards against any future regression that auto-populates.
         sut.Signals.Should().BeEmpty();
+        sut.WatchedSignals.Should().BeEmpty();
     }
 
     [Fact]
@@ -325,18 +335,21 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
+        // v3.16.9.3 PATCH: drive AddToWatch first (v3.15.0 opt-in contract),
+        // then RebuildSignalsAsync (which updates FrameCount + LatestValue).
+        sut.AddToWatch(0x100, "RPM", "");
         await sut.RebuildSignalsAsync();
 
-        sut.Signals.Should().HaveCount(1);
-        var row = sut.Signals[0];
+        sut.Signals.Should().BeEmpty("v3.15.0 contract: legacy Signals collection is no longer populated");
+        // RebuildSignalsCore calls EnsurePlaceholderRow which re-adds a placeholder;
+        // filter it out before asserting on the user-added row.
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(1);
+        var row = realRows[0];
         row.CanIdHex.Should().Be("0x100");
         row.SignalName.Should().Be("RPM");
         row.Unit.Should().Be("rpm");
-        row.IsPlotted.Should().BeFalse();
+        row.IsPlotted.Should().BeTrue("v3.16.x AddToWatch auto-plots the just-added row (PlotSignalFromTableRow at line 1075)");
         row.LatestValue.Should().Be(322.0);
     }
 
@@ -357,17 +370,19 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
+        // v3.16.9.3 PATCH: AddToWatch twice (once per signal) for the same
+        // CAN ID — WatchedSignals grows by 1 per call.
+        sut.AddToWatch(0x100, "RPM", "");
+        sut.AddToWatch(0x100, "TEMP", "");
         await sut.RebuildSignalsAsync();
 
-        sut.Signals.Should().HaveCount(2);
-        sut.Signals[0].SignalName.Should().Be("RPM");
-        sut.Signals[0].LatestValue.Should().Be(16.0);
-        sut.Signals[1].SignalName.Should().Be("TEMP");
-        sut.Signals[1].LatestValue.Should().Be(32.0);
+        sut.Signals.Should().BeEmpty();
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(2);
+        realRows[0].SignalName.Should().Be("RPM");
+        realRows[0].LatestValue.Should().Be(16.0);
+        realRows[1].SignalName.Should().Be("TEMP");
+        realRows[1].LatestValue.Should().Be(32.0);
     }
 
     [Fact]
@@ -388,7 +403,9 @@ public class TraceViewerViewModelTests
 
         await sut.AddTraceAsync();
 
+        // v3.15.0 contract: nothing populated without an explicit AddToWatch.
         sut.Signals.Should().BeEmpty();
+        sut.WatchedSignals.Should().BeEmpty();
     }
 
     [Fact]
@@ -414,14 +431,14 @@ public class TraceViewerViewModelTests
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        // v3.13.0 PATCH F3: LoadDbcAsync was deleted (the toolbar
-        // "Load DBC…" button had no UI feedback; DbcView tab is the
-        // single entry point). Tests now drive RebuildSignalsAsync
-        // directly against a DBC pre-loaded via SetCurrentForTests.
+        // v3.16.9.3 PATCH: drive AddToWatch first.
+        sut.AddToWatch(0x100, "RPM", "");
         await sut.RebuildSignalsAsync();
 
-        sut.Signals.Should().HaveCount(1);
-        sut.Signals[0].LatestValue.Should().Be(5.0);
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(1);
+        realRows[0].LatestValue.Should().Be(5.0,
+            "LatestValue must reflect the LAST decoded frame, not the first or max");
     }
 
     // v3.16.9 PATCH RED→GREEN: BuildOneChartSeriesForSource must add a
