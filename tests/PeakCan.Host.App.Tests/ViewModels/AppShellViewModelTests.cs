@@ -490,6 +490,11 @@ public class AppShellViewModelTests
         public bool IsConnected { get; private set; }
 #pragma warning disable CS0067 // event never used in this test double
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this test fake, but must exist to satisfy the interface.
+#pragma warning disable CS0067
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
 #pragma warning restore CS0067
         public FakeCanChannel(ChannelId id) { Id = id; }
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
@@ -589,6 +594,9 @@ public class AppShellViewModelTests
         public bool IsConnected { get; private set; }
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this throwing fake, but must exist to satisfy the interface.
+        public event Action<ReadLoopError>? ReadLoopError;
 #pragma warning restore CS0067
         public ThrowingFakeCanChannel(ChannelId id) { Id = id; }
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
@@ -811,6 +819,9 @@ public class AppShellViewModelTests
         public bool WasDisposed { get; private set; }
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this tracking fake, but must exist to satisfy the interface.
+        public event Action<ReadLoopError>? ReadLoopError;
 #pragma warning restore CS0067
         public DisposeTrackingChannel(ChannelId id) { Id = id; }
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
@@ -887,6 +898,11 @@ public class AppShellViewModelTests
                 "simulated RegisterChannel event-subscribe failure");
             remove { }
         }
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this throwing-subscribe fake, but must exist to satisfy the interface.
+#pragma warning disable CS0067
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
         public FrameReceivedAddThrowingChannel(ChannelId id) { Id = id; }
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
         {
