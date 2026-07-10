@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Trace Viewer ▶ Play 架构图 (v3.16.8)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 20px; background: #fafafa; }
+  h1 { color: #222; border-bottom: 2px solid #444; padding-bottom: 8px; }
+  h2 { color: #444; margin-top: 32px; }
+  .mermaid { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin: 12px 0; }
+  .legend { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  .legend dt { font-weight: bold; color: #1976d2; }
+  .legend dd { margin-left: 24px; margin-bottom: 4px; }
+  .patch { background: #fff3e0; border-left: 4px solid #ff9800; padding: 8px 12px; margin: 8px 0; }
+  .patch-shipped { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 8px 12px; margin: 8px 0; }
+  .patch-failed { background: #ffebee; border-left: 4px solid #f44336; padding: 8px 12px; margin: 8px 0; }
+  pre { background: #263238; color: #aed581; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>Trace Viewer ▶ Play 完整调用链 + PATCH 历史 (v3.14.0 → v3.16.8)</h1>
+
+<h2>1. 完整调用链 (用户点 ▶ Play → 帧到 UI)</h2>
+<div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant XAML as TraceViewerView.xaml<br/>(UI thread)
+    participant VM as TraceViewerViewModel<br/>(UI thread)
+    participant SVC as TraceViewerService<br/>(UI thread 薄壳)
+    participant TL as ReplayTimeline<br/>(UI thread 启动 timer)
+    participant T as ThreadPool<br/>(OnTick 1ms 周期)
+    participant T2 as UI thread Dispatcher<br/>(via _syncContext.Post)
+
+    U->>XAML: 点击 ▶ Button
+    XAML->>VM: PlayCommand.Execute()
+    Note over VM: _logger.LogInformation<br/>"TraceViewerViewModel.Play() ENTER"<br/>[v3.16.8]
+    VM->>SVC: svc.Play() (foreach _allServices)
+    SVC->>TL: _timeline.Play()
+    Note over TL: LogPlayEntry (count=N)<br/>[v3.16.7]
+    alt _frames.Count == 0
+        TL-->>SVC: return (静默早退!)
+        Note over TL: LogPlayNoFrames (WARNING)<br/>[v3.16.7]
+    else 有帧
+        TL->>TL: _isPlaying = true<br/>new Timer(OnTick, null, 1, 1)
+        Note over TL: LogPlayStarted<br/>[v3.16.7]
+    end
+
+    loop 每 1ms
+        T->>TL: OnTick()
+        Note over TL: LogOnTickEntry<br/>[v3.16.7]
+        alt !_isPlaying
+            TL-->>T: return
+            Note over TL: LogOnTickNotPlaying<br/>[v3.16.7]
+        else isPlaying
+            TL->>TL: 计算 now = PlayedTimestamp<br/>扫描 _frames 找 in-range
+            TL->>T: _emit(frame) foreach
+            Note over TL: LogOnTickEmitting (N frames)<br/>[v3.16.7]
+        end
+    end
+
+    T->>SVC: EmitFrame(frame)
+    SVC->>VM: FrameEmitted?.Invoke(this, frame)
+    Note over VM: LogInformation<br/>(前 5 + 每 100th)<br/>[v3.16.7]
+    VM->>VM: var t = _masterService.CurrentTimestamp
+    alt _syncContext is not null
+        VM->>T2: _syncContext.Post(...)
+        T2->>VM: ScrubberValue = t
+        T2->>VM: ChartViewModel.UpdatePlaybackCursor(t)
+    else _syncContext is null
+        VM->>VM: ScrubberValue = t<br/>ChartViewModel.UpdatePlaybackCursor(t)
+    end
+</div>
+
+<h2>2. 文件依赖图</h2>
+<div class="mermaid">
+flowchart LR
+    subgraph App["src/PeakCan.Host.App/ (WPF UI)"]
+        A1[TraceViewerView.xaml<br/>用户界面 + 控件]
+        A2[TraceViewerView.xaml.cs<br/>XAML code-behind<br/>OnAddToWatchClick<br/>OnPlotCheckboxClick]
+        A3[TraceViewerViewModel.cs<br/>1859 行 业务编排]
+        A4[WatchedSignalRow.cs<br/>watch list row]
+        A5[TraceChartViewModel.cs<br/>chart VM + Series]
+        A6[AppHostBuilder.cs<br/>DI + Serilog 配置]
+    end
+    subgraph Core["src/PeakCan.Host.Core/ (业务逻辑)"]
+        C1[ITraceViewerService.cs<br/>接口]
+        C2[TraceViewerService.cs<br/>166 行 薄壳]
+        C3[ReplayTimeline.cs<br/>450 行 Timer + 状态机]
+        C4[ReplayFrame.cs<br/>数据 record]
+        C5[ReplayOptions.cs<br/>配置]
+        C6[AscParser.cs<br/>ASC 解析]
+    end
+
+    A1 -->|DataContext| A3
+    A2 -->|uses| A3
+    A3 -->|has many| A4
+    A3 -->|has| A5
+    A3 -->|implements| C1
+    C2 -.implements.-> C1
+    C2 -->|owns| C3
+    C3 -->|emits| C4
+    C3 -->|configured by| C5
+    C2 -->|loads via| C6
+    C6 -->|produces| C4
+    A6 -->|DI singleton| C2
+    A6 -->|DI singleton| A3
+    A6 -->|configures| Serilog[Serilog<br/>File sink + Console smoke]
+    Serilog -->|writes to| LogFile["%LOCALAPPDATA%/PeakCan.Host/logs/<br/>peak-{date}.log"]
+</div>
+
+<h2>3. Serilog 链路 (v3.16.7 / 7.1 / 8)</h2>
+<div class="mermaid">
+flowchart TB
+    Start([App.OnStartup<br/>App.xaml.cs:81])
+    Start --> Build[AppHostBuilder.Build<br/>AppHostBuilder.cs:96]
+    Build --> SerilogCfg["Log.Logger = new LoggerConfiguration()<br/>.ReadFrom.Configuration(appsettings.json)<br/>[v3.16.8: + Console.WriteLine SMOKE<br/>+ Log.Logger.Information SMOKE]"]
+    SerilogCfg --> FileSink["WriteTo: File<br/>path: %LOCALAPPDATA%/PeakCan.Host/logs/peak-.log<br/>rollingInterval: Day"]
+    SerilogCfg --> HostBuild["builder.Logging.ClearProviders().AddSerilog()"]
+
+    HostBuild --> DISetup["DI container built<br/>ITraceViewerService singleton<br/>TraceViewerViewModel singleton"]
+    DISetup --> SvcCtor["TraceViewerService ctor<br/>(line 50)<br/>ILogger&lt;TraceViewerService&gt; injected"]
+    SvcCtor --> Smoke1["[v3.16.8] _logger.LogInformation<br/>'[SMOKE v3.16.8] TraceViewerService ctor ENTER'"]
+    SvcCtor --> TlCtor["new ReplayTimeline(<br/>  emit, onPlaybackEnded, onSinkThrew,<br/>  logger: _logger  ← v3.16.7.1 修复<br/>(之前默认 NullLogger → log 吞)"]
+    TlCtor --> TlLogger["ReplayTimeline._logger<br/>= _logger (非 NullLogger!)"]
+
+    FileSink -.写到.-> LogFile[("peak-{date}.log")]
+    LogFile -.用户看不到?!.-> User([用户])
+
+    Smoke1 -.走 Serilog.-> FileSink
+    Smoke1 -.走 Serilog.-> SerilogCfg
+    SerilogCfg -.绕过 Serilog 走 Console.-> ConsoleOut[("cmd stdout")]
+    ConsoleOut -.用户能看到?!.-> User
+
+    style Smoke1 fill:#fff3e0
+    style TlCtor fill:#fff3e0
+    style User fill:#ffcdd2
+    style LogFile fill:#ffcdd2
+</div>
+
+<h2>4. ▶ Play 链路 4 个 PATCH 都没修对的根因 (按代码事实)</h2>
+
+<div class="patch-failed">
+<strong>❌ v3.16.3 PATCH</strong> 修了 "OnAnyFrameEmitted 没写回 ScrubberValue"。<br/>
+<strong>真问题</strong>: ScrubberValue setter 触发 OnScrubberValueChanged → SeekAllToProportionalTime → 每 tick 重置 _playStartWallClock → cursor 永远 ≤ frame[0].Timestamp → 0 帧 emit<br/>
+<strong>我猜对了症状，没猜对根因</strong>。
+</div>
+
+<div class="patch-failed">
+<strong>❌ v3.16.4 PATCH</strong> 修了 "☑ Plot Click 守卫 + OxyPlot ItemsSource 物化"。<br/>
+<strong>真问题</strong>: 这两个修对了，但 add to watch 仍然不出图——根因是 SyncXAxis 用了 masterService.CurrentTimestamp (line 1230-1231 v3.16.4)<br/>
+<strong>修了对的地方，漏了另一个</strong>。
+</div>
+
+<div class="patch-failed">
+<strong>❌ v3.16.5 PATCH</strong> 修了 "SyncXAxis 用 firstBuilt.XValues 而非 masterService.CurrentTimestamp"。<br/>
+<strong>真问题</strong>: 这修对了 add-to-watch，但 ▶ Play 仍然不动——因为 ▶ Play 链路压根没被这个 PATCH 碰过<br/>
+<strong>修了对的 bug，但用户报的 ▶ Play 还没修</strong>。
+</div>
+
+<div class="patch-failed">
+<strong>❌ v3.16.6 / 7 / 7.1 / 8 PATCH</strong> 加了 log + logger forward + smoke test。<br/>
+<strong>真问题</strong>: 3 个 log PATCH 全部声称加 log，<strong>用户跑了 0 行 log 出现</strong>。<br/>
+<strong>我的 3 个 "加 log" PATCH 全失败</strong>——但失败原因我不知道（你装的是不是真 v3.16.8? log 写到哪了? Serilog config 配了吗?）。
+</div>
+
+<h2>5. ▶ Play 链路 — 我**猜**的 3 个可能卡点（不修，先列出来）</h2>
+
+<div class="legend">
+<dl>
+<dt>卡点 A: <code>_frames.Count == 0</code> 静默早 return</dt>
+<dd><code>ReplayTimeline.cs:148</code>: <code>if (_frames.Count == 0) return;</code><br/>
+如果 <code>LoadAsync</code> 没成功 parse（_frames 是空），Play 静默 return，timer 不启动<br/>
+<strong>检查方法</strong>: 你的 ASC 文件 <code>_frames.Count</code> 是几？LoadAsync 抛没抛异常？</dd>
+
+<dt>卡点 B: <code>OnTick</code> 内 <code>!_isPlaying</code> 早 return</dt>
+<dd><code>ReplayTimeline.cs:233</code>: <code>if (!_isPlaying) return;</code><br/>
+如果 timer 启动后 <code>_isPlaying</code> 被某处改成 false，OnTick 一直早 return<br/>
+<strong>检查方法</strong>: OnTick 第一次跑时 <code>_isPlaying</code> 是什么？</dd>
+
+<dt>卡点 C: <code>OnTick</code> 跑了但 <code>_emit</code> 没调</dt>
+<dd><code>ReplayTimeline.cs:264-273</code> while 循环需要 <code>_frames[next].Timestamp &lt;= now</code><br/>
+如果 <code>now</code> 永远 ≤ 第一个 frame 的 Timestamp，循环不进入<br/>
+<strong>检查方法</strong>: 第一个 frame 的 Timestamp 是几？PlayedTimestamp 算出来是多少？</dd>
+</dl>
+</div>
+
+<h2>6. 用户需要查什么（给你查的清单）</h2>
+
+<div class="legend">
+<ol>
+<li>打开文件 <code>src/PeakCan.Host.Core/Replay/AscParser.cs</code> — 看你的 ASC 文件能 parse 出几帧</li>
+<li>打开文件 <code>src/PeakCan.Host.Core/Replay/ReplayTimeline.cs:143-155</code> — 看 <code>Play()</code> 第一个 if 是不是 <code>_frames.Count == 0</code></li>
+<li>打开文件 <code>src/PeakCan.Host.Core/Replay/TraceViewerService.cs:50-100</code> — 看 ctor 是不是真的收到 ILogger</li>
+<li>打开文件 <code>src/PeakCan.Host.App/Composition/AppHostBuilder.cs:114-145</code> — 看 Serilog 配的 sink 有没有 File</li>
+<li>打开文件 <code>appsettings.json</code> — 看 Serilog:WriteTo:Args:path 是不是 <code>%LOCALAPPDATA%/PeakCan.Host/logs/peak-.log</code></li>
+</ol>
+</div>
+
+<h2>7. PATCH 真实历史 (按 origin/main commit 时间线)</h2>
+
+<pre>ada4162  v3.14.0 MINOR (基线 — ▶ Play 正常)
+1b3f576  v3.13.3 PATCH (window title version)
+0353dc8  v3.13.2 PATCH (DbcLoaded INPC)
+526c96c  v3.13.1 PATCH (TraceSessionRegistry STA)
+e316ca1  v3.13.0 PATCH (Trace Viewer error debug)
+8b911ee  v3.12.0 MINOR (ReplayViewModel split)
+... 后续 8 个 PATCH 全部 Tier 3 force-push:
+b823ba6  v3.16.4 PATCH (☑ Plot 守卫 + ItemsSource 物化)
+7f9224c  v3.16.5 PATCH (SyncXAxis firstBuilt.XValues)
+d989bde  v3.16.6 PATCH (DataGrid Clear+Re-Add + Window cache)
+0e4bde9  v3.16.7 PATCH (8 个 log)
+da08f34  v3.16.7.1 PATCH (TraceViewerService logger forward)
+c1a552d  v3.16.8 PATCH (3 个 SMOKE log)
+d07cb77  v3.16.8 hotfix (Directory.Build.props version)
+</pre>
+
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'default' });
+</script>
+</body>
+</html>
