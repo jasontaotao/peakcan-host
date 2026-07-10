@@ -55,8 +55,17 @@ public sealed partial class ReplaySessionAutoSaver : SessionAutoSaver<ReplayView
     protected override bool HasContentToSave(ReplayViewModel vm) =>
         !string.IsNullOrEmpty(vm.LoadedFilePath);
 
+    /// <summary>
+    /// v3.11.0 MINOR T2 (H7): delegate to the VM's async BuildSnapshot
+    /// entry point. Same rationale as
+    /// <see cref="TraceSessionAutoSaver.BuildSnapshot"/> — the sync
+    /// shim <c>vm.BuildSnapshot()</c> would also work but calling the
+    /// async form here keeps the call site explicit about its
+    /// sync-over-async dependency (T3 will refactor the auto-saver's
+    /// TrySaveAutoSnapshotAsync to await the call properly).
+    /// </summary>
     protected override TraceSessionBundleDto BuildSnapshot(ReplayViewModel vm) =>
-        vm.BuildSnapshot();
+        vm.BuildSnapshotAsync().GetAwaiter().GetResult();
 
     protected override Task<IReadOnlyList<string>> ApplySnapshotToVmAsync(
         ReplayViewModel vm, string sourceFile) =>

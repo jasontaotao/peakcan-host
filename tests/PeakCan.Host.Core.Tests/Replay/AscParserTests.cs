@@ -521,5 +521,87 @@ End TriggerBlock
         frames[2].Id.Should().Be(0x18EF4AEFu);
         frames[3].Id.Should().Be(0x0C001024u, "C001024x = 0x0C001024 (29-bit ID, padded to 8 hex chars)");
     }
+
+    /// <summary>
+    /// v3.18.0 PATCH (Trace Viewer Enhancements): when the ASC carries a
+    /// `date Wed Jul 1 08:32:01.000 am 2026` header, the new ParseAsync
+    /// overload must capture the wall-clock origin so the X axis can
+    /// display it. The user-reported case: an ASC recorded across 43
+    /// hours — the wall-clock origin lets the chart show real dates,
+    /// not raw `155564.4328` seconds.
+    /// </summary>
+    [Fact]
+    public async Task ParseAsync_NewOverload_WithDateHeader_ReturnsWallClockOrigin()
+    {
+        // Real Vector CANoe fixture (mirrors the user's production ASC):
+        // - date header carries the wall-clock origin
+        // - base hex  timestamps absolute confirms the seconds column is absolute
+        // - Begin TriggerBlock + End TriggerBlock + Start of measurement are
+        //   section delimiters (headers, not data) — must be skipped, not
+        //   counted as malformed data lines
+        // - The 18FF60A2x frame line includes the canonical Vector v1.3
+        //   trailing metadata tail ("Length = N BitCount = N ID = Nx") —
+        //   8 data bytes plus 3 metadata fields. The trailing metadata
+        //   is filtered out by the parser's existing `goto EndDataBytes`
+        //   branch (triggered by the `=` character inside the metadata
+        //   tokens); the 8 declared DLC bytes parse cleanly.
+        const string asc = @"
+date Wed Jul 1 08:32:01.000 am 2026
+base hex  timestamps absolute
+internal events logged
+// version 13.0.0
+// Measurement UUID: b79905f3-f762-42f6-9c95-1f1ca188008c
+Begin TriggerBlock Wed Jul 1 08:32:01.000 am 2026
+ 0.000000 Start of measurement
+ 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41 7B 9F Length = 64 BitCount = 64 ID = 18FF60A2x
+End TriggerBlock
+";
+        using var stream = MakeAscStream(asc);
+
+        // The new overload is the one we are about to add in Task 3.
+        var result = await AscParser.ParseAsyncWithHeaderAsync(stream);
+
+        result.WallClockOrigin.Should().Be(
+            new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local),
+            "the 'date Wed Jul 1 08:32:01.000 am 2026' line is the wall-clock origin");
+        result.TimestampsAreAbsolute.Should().BeTrue(
+            "the 'base hex  timestamps absolute' line sets the mode");
+        result.Frames.Should().HaveCount(1,
+            "Begin/End TriggerBlock + Start of measurement are headers (skipped); only the 18FF60A2x frame parses");
+        result.Frames[0].Timestamp.Should().Be(1.0);
+        result.Frames[0].Id.Should().Be(0x18FF60A2u,
+            "the '18FF60A2x' frame id parses cleanly once the trailing 'Length = ...' metadata is filtered out");
+        result.Frames[0].Data.Length.Should().Be(8,
+            "the 8-byte payload (01 D3 27 DE 36 41 7B 9F) matches the declared DLC=8");
+    }
+
+    /// <summary>
+    /// v3.18.0 PATCH: ASC files without a `date` header (some Vector
+    /// exports skip it) must produce a null origin so the X-axis
+    /// formatter falls back to elapsed-time display. The fix must NOT
+    /// throw or invent a fake origin.
+    /// </summary>
+    [Fact]
+    public async Task ParseAsync_NewOverload_WithoutDateHeader_ReturnsNullOrigin()
+    {
+        // No `date` line; only `base` and data lines. The data lines
+        // include the canonical Vector v1.3 trailing metadata tail
+        // ("Length = N BitCount = N ID = Nx") so the parser's
+        // existing `goto EndDataBytes` branch filters the metadata and
+        // accepts the 8 declared DLC bytes.
+        const string asc = @"
+base hex  timestamps relative
+ 0.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 41 7B 9F Length = 64 BitCount = 64 ID = 18FF60A2x
+ 1.000000 1 18FF60A2x Rx d 8 01 D3 27 DE 36 42 7C A0 Length = 64 BitCount = 64 ID = 18FF60A2x
+";
+        using var stream = MakeAscStream(asc);
+        var result = await AscParser.ParseAsyncWithHeaderAsync(stream);
+
+        result.WallClockOrigin.Should().BeNull(
+            "absence of the 'date' header must produce a null origin (formatter falls back to elapsed)");
+        result.TimestampsAreAbsolute.Should().BeFalse();
+        result.Frames.Should().HaveCount(2);
+    }
+
 }
 

@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
+using OxyPlot.Annotations;
+using OxyPlot.Axes;
+using OxyPlot.Series;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -281,6 +284,12 @@ public class TraceViewerViewModelTests
     }
 
     // ===== v3.0.1 PATCH Task 2: per-signal DBC decode =====
+    // v3.16.9.3 PATCH: these tests originally asserted sut.Signals (the
+    // v3.14.3 legacy DBC 全列 collection). v3.15.0 MINOR changed the
+    // contract to user opt-in via WatchedSignals — the Signals
+    // collection is preserved for back-compat but no longer populated
+    // (see TraceViewerViewModel.cs:131-138). Tests rewritten to drive
+    // AddToWatch first, then assert WatchedSignals content + LatestValue.
 
     [Fact]
     public async Task RebuildSignalsAsync_NoDbc_LeavesSignalsEmpty()
@@ -297,7 +306,11 @@ public class TraceViewerViewModelTests
 
         await sut.AddTraceAsync();
 
+        // v3.15.0 contract: Signals is intentionally empty (no DBC +
+        // no AddToWatch). Asserting empty documents the v3.15.0 design
+        // and guards against any future regression that auto-populates.
         sut.Signals.Should().BeEmpty();
+        sut.WatchedSignals.Should().BeEmpty();
     }
 
     // v3.15.0 MINOR: tests below (RebuildSignalsAsync_DbcLoaded_PopulatesOneRowPerSignal,
@@ -315,6 +328,10 @@ public class TraceViewerViewModelTests
         // starts empty even with DBC + frames loaded; AddToWatch adds
         // exactly one row per signal-in-scope.
         var svc = MakeFakeRegistry();
+        // v3.2.0 MINOR: pre-populate Sources so RebuildSignalsAsync (called
+        // directly since v3.13.0 PATCH F3 removed LoadDbcAsync) has at least
+        // one source to iterate.
+
         svc.Sources.Returns(new List<TraceSource>
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
@@ -329,12 +346,22 @@ public class TraceViewerViewModelTests
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
-        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().BeEmpty();
+        // v3.16.9.3 PATCH: drive AddToWatch first (v3.15.0 opt-in contract),
+        // then RebuildSignalsAsync (which updates FrameCount + LatestValue).
         sut.AddToWatch(0x100, "RPM", "");
-        var row = sut.WatchedSignals.Single(w => !w.IsPlaceholder);
+        await sut.RebuildSignalsAsync();
+
+        sut.Signals.Should().BeEmpty("v3.15.0 contract: legacy Signals collection is no longer populated");
+        // RebuildSignalsCore calls EnsurePlaceholderRow which re-adds a placeholder;
+        // filter it out before asserting on the user-added row.
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(1);
+        var row = realRows[0];
         row.CanIdHex.Should().Be("0x100");
         row.SignalName.Should().Be("RPM");
         row.Unit.Should().Be("rpm");
+        row.IsPlotted.Should().BeTrue("v3.16.x AddToWatch auto-plots the just-added row (PlotSignalFromTableRow at line 1075)");
+
         row.LatestValue.Should().Be(322.0);
     }
 
@@ -355,14 +382,20 @@ public class TraceViewerViewModelTests
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
+        // v3.16.9.3 PATCH: AddToWatch twice (once per signal) for the same
+        // CAN ID — WatchedSignals grows by 1 per call.
         sut.AddToWatch(0x100, "RPM", "");
         sut.AddToWatch(0x100, "TEMP", "");
-        var rows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
-        rows.Should().HaveCount(2);
-        rows[0].SignalName.Should().Be("RPM");
-        rows[0].LatestValue.Should().Be(16.0);
-        rows[1].SignalName.Should().Be("TEMP");
-        rows[1].LatestValue.Should().Be(32.0);
+        await sut.RebuildSignalsAsync();
+
+        sut.Signals.Should().BeEmpty();
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(2);
+        realRows[0].SignalName.Should().Be("RPM");
+        realRows[0].LatestValue.Should().Be(16.0);
+        realRows[1].SignalName.Should().Be("TEMP");
+        realRows[1].LatestValue.Should().Be(32.0);
+
     }
 
     [Fact]
@@ -375,12 +408,17 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
+        // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+
         await sut.AddTraceAsync();
 
-        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().BeEmpty();
+        // v3.15.0 contract: nothing populated without an explicit AddToWatch.
+        sut.Signals.Should().BeEmpty();
+        sut.WatchedSignals.Should().BeEmpty();
+
     }
 
     [Fact]
@@ -403,8 +441,220 @@ public class TraceViewerViewModelTests
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");
 
-        sut.WatchedSignals.Where(w => !w.IsPlaceholder).Should().ContainSingle();
-        sut.WatchedSignals.First(w => !w.IsPlaceholder).LatestValue.Should().Be(5.0);
+        // v3.16.9.3 PATCH: drive AddToWatch first.
+        sut.AddToWatch(0x100, "RPM", "");
+        await sut.RebuildSignalsAsync();
+
+        var realRows = sut.WatchedSignals.Where(w => !w.IsPlaceholder).ToList();
+        realRows.Should().HaveCount(1);
+        realRows[0].LatestValue.Should().Be(5.0,
+            "LatestValue must reflect the LAST decoded frame, not the first or max");
+    }
+
+    // v3.16.9.2 PATCH (origin cherry-pick df653b1): reverse-trigger guard.
+    // Playback's OnAnyFrameEmitted writes ScrubberValue = t every frame;
+    // without the guard, the setter calls SeekAllToProportionalTime ->
+    // master.Seek(t) -> ReplayTimeline.Seek(t) resets _playStartTimestamp.
+    // Effect: PlayedTimestamp jumps to trace end on first emit + 5000 frames
+    // emit in 0.013s (production observation). User symptom: "progress bar
+    // jumps straight to end" -- the v3.16.3 PATCH-introduced regression.
+    //
+    // Fix: OnScrubberValueChanged now checks master.State == Playing; if so,
+    // ScrubberValue setter writes are writebacks from FrameEmitted, not user
+    // input -- skip the seek. User drag unaffected (master paused during drag).
+    [Fact]
+    public void FrameEmitted_DuringPlay_DoesNotTriggerSeek_ReverseTriggerGuard()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Playing);  // master is playing
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // Simulate a FrameEmitted during playback. OnAnyFrameEmitted writes
+        // ScrubberValue = master.CurrentTimestamp. Without the guard, this
+        // triggers Seek -> reset _playStartTimestamp -> playback fast-forwards
+        // to trace end. With the guard, seek is suppressed.
+        sut.GetType().GetMethod("OnAnyFrameEmitted",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(sut, [new ReplayFrame(0.5, 0x100, 2, [0x00, 0x00], FrameFlags.None)]);
+
+        svc.DidNotReceive().Seek(Arg.Any<double>());
+    }
+
+    // v3.16.9.2 PATCH (origin cherry-pick df653b1): counter-positive -- user
+    // drag (master paused) MUST still trigger seek. Without this the guard
+    // would over-suppress and the scrubber becomes read-only.
+    [Fact]
+    public void UserDrag_ScrubberValue_TriggersSeek_WhenMasterPaused()
+    {
+        var svc = MakeFakeService();
+        svc.State.Returns(ReplayState.Paused);  // master paused (user drag context)
+        svc.TotalDuration.Returns(10.0);
+        var registry = MakeFakeRegistry();
+        registry.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-1", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        registry.GetService(Arg.Any<string>()).Returns(svc);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        sut.ScrubberValue = 5.0;
+
+        svc.Received(1).Seek(5.0);
+    }
+
+    // v3.16.9 PATCH RED→GREEN: BuildOneChartSeriesForSource must add a
+    // LineAnnotation with Tag == "playback-cursor" to every series' PlotModel.
+    // The red playback cursor line is positioned by TraceChartViewModel
+    // .UpdatePlaybackCursor (TraceChartViewModel.cs:86-100) which looks up
+    // the annotation by tag. Without this annotation, UpdatePlaybackCursor
+    // is a silent no-op — the cursor never appears on screen even though
+    // PlaybackCursorX is being updated every frame.
+    //
+    // The v3.16.6 release notes flagged this diagnosis (line 42: "LineAnnotation
+    // was never created") but never fixed it. v3.16.9 PATCH is the actual fix.
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_CreatesPlaybackCursorLineAnnotation()
+    {
+        var svc = MakeFakeRegistry();
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-cursor-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+
+        // AddToWatch triggers BuildOneChartSeriesForSource via
+        // PlotSignalFromTableRow (line 1073). This is the v3.15.0+ user
+        // path (replaces v3.14.x's manual BuildChartSeries call).
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var plotModel = sut.ChartViewModel.Series[0].PlotModel;
+
+        var cursorAnnotation = plotModel.Annotations
+            .OfType<LineAnnotation>()
+            .FirstOrDefault(a => a.Tag as string == "playback-cursor");
+
+        cursorAnnotation.Should().NotBeNull(
+            "every PlotModel must contain a playback-cursor LineAnnotation so UpdatePlaybackCursor can position the red line on every frame");
+        cursorAnnotation!.X.Should().Be(0.0,
+            "the cursor starts at the trace's beginning (x=0) before playback advances it");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: LineSeries must show discrete CAN sample
+    // points as circle markers so the user can distinguish "trend line"
+    // (interpolation) from "real CAN frame" (discrete event).
+    // Spec: docs/superpowers/specs/2026-07-09-trace-viewer-enhancements-design.md
+    // §3.6 MarkerType.Circle, MarkerSize=3.
+    // Without markers, OxyPlot's LineSeries default is MarkerType.None
+    // (a continuous line with no per-point visibility).
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_LineSeries_HasMarkerTypeCircle()
+    {
+        var svc = MakeFakeRegistry();
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-marker-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var plotModel = sut.ChartViewModel.Series[0].PlotModel;
+        var lineSeries = plotModel.Series.OfType<LineSeries>().Single();
+        lineSeries.MarkerType.Should().Be(MarkerType.Circle,
+            "v3.16.9.2 PATCH: discrete sample points must render as circles so user sees real CAN frames vs interpolation");
+        lineSeries.MarkerSize.Should().Be(3.0,
+            "MarkerSize=3 is small enough to not occlude the line but visible at 1920x1080 (per spec §3.6 R1)");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: X-axis LabelFormatter when WallClockOrigin
+    // is present. Spec §3.4 line 131-139: format as 'MM/dd HH:mm:ss' using
+    // (origin + TimeSpan.FromSeconds(x)) and CultureInfo.InvariantCulture.
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_XAxis_WithWallClockOrigin_FormatsAsMmDdHhMmSs()
+    {
+        var origin = new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local);
+        var svc = MakeFakeRegistry();
+        var source = new TraceSource("guid-wallclock-test", "fake", "C:/fake.asc", OxyColors.Blue)
+        {
+            WallClockOrigin = origin,
+        };
+        svc.Sources.Returns(new List<TraceSource> { source });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var bottomAxis = sut.ChartViewModel.Series[0].PlotModel.Axes
+            .OfType<LinearAxis>().Single(a => a.Position == AxisPosition.Bottom);
+
+        bottomAxis.LabelFormatter.Should().NotBeNull(
+            "v3.16.9.2 PATCH: when source has WallClockOrigin, bottom axis must format ticks as wall-clock");
+        // Sample at x=0.0 (origin point) -> "07/01 08:32:01"
+        bottomAxis.LabelFormatter!(0.0).Should().Be("07/01 08:32:01");
+        // Sample at x=86400.0 (1 day later) -> "07/02 08:32:01"
+        bottomAxis.LabelFormatter!(86400.0).Should().Be("07/02 08:32:01");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: X-axis LabelFormatter when WallClockOrigin
+    // is null. Spec §3.4 line 136-138: 3-tier elapsed fallback (>=1d, >=1h, <1h).
+    [Theory]
+    [InlineData(90061.0, "1.0d 01:01:01")] // >= 1d: "{x/86400:F1}d {hh:mm:ss}" (F1 → 1 decimal place)
+    [InlineData(86400.0, "1.0d 00:00:00")] // exact 1d boundary
+    [InlineData(3725.0,  "01:02:05")]       // >= 1h: "hh:mm:ss"
+    [InlineData(3600.0,  "01:00:00")]       // exact 1h boundary
+    [InlineData(3599.99, "59:59.9")]        // just under 1h boundary
+    [InlineData(125.5,   "02:05.5")]        // < 1h:  "mm:ss.f"
+    public async Task BuildOneChartSeriesForSource_XAxis_WithoutWallClockOrigin_FallsBackToElapsed(double x, string expected)
+    {
+        var svc = MakeFakeRegistry();
+        // Note: WallClockOrigin defaults to null (verified in TraceSourceTests.WallClockOrigin_DefaultsToNull)
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-elapsed-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        var bottomAxis = sut.ChartViewModel.Series[0].PlotModel.Axes
+            .OfType<LinearAxis>().Single(a => a.Position == AxisPosition.Bottom);
+
+        bottomAxis.LabelFormatter.Should().NotBeNull();
+        bottomAxis.LabelFormatter!(x).Should().Be(expected);
+
     }
 
     // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====
@@ -1572,4 +1822,19 @@ public class TraceViewerViewModelTests
         vm.AddTraceCommand.CanExecute(string.Empty).Should().BeTrue("an empty path arg must NOT disable the command (was the v3.9.1 root cause)");
         vm.AddTraceCommand.CanExecute(@"C:\anything.asc").Should().BeTrue("any path arg must NOT disable the command");
     }
+
+    /// <summary>
+    /// v3.18.0 PATCH: every freshly-constructed TraceSource must have
+    /// a null WallClockOrigin (no header parsed yet). The field is
+    /// populated later by TraceViewerService.LoadAsync when the ASC
+    /// parser hands back a non-null origin.
+    /// </summary>
+    [Fact]
+    public void TraceSource_NewInstance_WallClockOriginIsNull()
+    {
+        var src = new TraceSource("a", "A", "C:/a.asc", OxyColors.Blue);
+        src.WallClockOrigin.Should().BeNull(
+            "the field defaults to null and is set later by the loader after ASC header parse");
+    }
 }
+

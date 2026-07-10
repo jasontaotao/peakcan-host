@@ -64,6 +64,55 @@ public class TraceChartViewModelTests
         sut.PlaybackCursorX.Should().Be(12.345);
     }
 
+    // v3.16.9 PATCH: 16ms throttle. The playback timer (ReplayTimeline.OnTick)
+    // fires every 1 ms (1000 fps). Without throttling, UpdatePlaybackCursor
+    // would call InvalidatePlot on every tick per series, freezing the WPF
+    // window (user report: "clicked Play and the window froze"). 60 fps
+    // (16 ms) is the WPF default render cadence — matches the human eye's
+    // perception limit.
+    // v3.16.9.1 PATCH (code-review M2): the previous test only asserted
+    // PlaybackCursorX which is set UNCONDITIONALLY before the throttle
+    // check — that assertion passes EVEN with the throttle completely
+    // removed (false-positive green). The new test asserts
+    // InvalidatePlotCallCount which IS only incremented inside the
+    // throttle-allowed path: 100 rapid calls within 16 ms should produce
+    // exactly 1 invalidate (the first call), not 100. A future
+    // "simplification" PR that removes the throttle will fail this
+    // test loudly.
+    [Fact]
+    public void UpdatePlaybackCursor_RapidCallsWithin16ms_DoesNotInvalidate()
+    {
+        var sut = new TraceChartViewModel();
+        // Add a series with a playback-cursor LineAnnotation so the
+        // foreach-over-Series path actually finds the annotation and
+        // calls InvalidatePlot on the first allowed call.
+        var series = MakeSeries("A", (0, 0), (1, 1));
+        series.PlotModel.Annotations.Add(new OxyPlot.Annotations.LineAnnotation
+        {
+            Type = OxyPlot.Annotations.LineAnnotationType.Vertical,
+            X = 0.0,
+            Tag = "playback-cursor",
+        });
+        sut.AddSeries(series);
+        var beforeCount = sut.InvalidatePlotCallCount;
+        // Burst 100 calls in <1 ms (sub-16ms window). With the 16 ms
+        // throttle, only the FIRST call (which is the only one allowed
+        // before _lastCursorInvalidateTicks is set) should reach the
+        // InvalidatePlot call. The remaining 99 are skipped.
+        for (var i = 0; i < 100; i++)
+            sut.UpdatePlaybackCursor(i * 0.001);
+        var afterCount = sut.InvalidatePlotCallCount;
+        // The first call enters the invalidate path; calls 2..100 are
+        // all within the 16 ms window AND have unique x values, so they
+        // all get skipped. Result: exactly 1 invalidate in the burst.
+        (afterCount - beforeCount).Should().Be(1,
+            "100 rapid calls within 16 ms must collapse to 1 InvalidatePlot call (v3.16.9 PATCH 16ms throttle contract)");
+        // Property must still reflect the LATEST value (throttle only
+        // affects InvalidatePlot, not the property write — the property
+        // is bound to a UI TextBlock that polls per render frame).
+        sut.PlaybackCursorX.Should().Be(99 * 0.001);
+    }
+
     [Fact]
     public void GetStatistics_ReturnsMinMaxAvgN()
     {

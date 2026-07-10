@@ -194,10 +194,29 @@ internal sealed partial class ReplayTimeline
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(multiplier);
         lock (_lock)
         {
-            // Re-anchor play start to preserve current playback position at new speed
+            // v3.16.9.3 PATCH: re-anchor wallclock BEFORE computing
+            // PlayedTimestamp. The previous order computed PlayedTimestamp
+            // first (using the stale _playStartWallClock, which is
+            // DateTime.MinValue on a never-played timeline), then
+            // updated wallclock. With MinValue wallclock, PlayedTimestamp
+            // = _playStartTimestamp + (UtcNow - MinValue) * _speed is a
+            // ~6×10^10 second offset — a value well beyond any real
+            // trace timestamp. This leaked into _currentTimestamp and
+            // propagated to master.CurrentTimestamp, which the VM
+            // (via OnAnyFrameEmitted or other paths) then wrote to
+            // ScrubberValue, which (without v3.16.9.2 guard checking
+            // master.State) triggered SeekAllToProportionalTime with
+            // an absurd value, snapping the scrubber to the trace
+            // end. User symptom: "progress bar jumps straight to
+            // end" on the very first frame after AddTraceAsync.
+            //
+            // Fix: update wallclock FIRST so the subsequent
+            // PlayedTimestamp calculation uses the new wallclock (and
+            // elapsed is 0 for a never-played timeline → PlayedTimestamp
+            // = _playStartTimestamp = 0).
+            _playStartWallClock = DateTime.UtcNow;
             _currentTimestamp = PlayedTimestamp;
             _playStartTimestamp = _currentTimestamp;
-            _playStartWallClock = DateTime.UtcNow;
             _speed = multiplier;
         }
     }

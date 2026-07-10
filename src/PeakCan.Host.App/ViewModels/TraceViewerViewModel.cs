@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using OxyPlot;
+using OxyPlot.Annotations;
 using OxyPlot.Axes;
 using OxyPlot.Series;
 using PeakCan.Host.App.Services;
@@ -488,7 +490,27 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     partial void OnScrubberValueChanged(double value)
     {
-        if (TotalDuration > 0 && _masterService is not null)
+        // v3.16.9.2 PATCH: reverse-trigger guard. Playback's
+        // OnAnyFrameEmitted writes ScrubberValue = t every frame;
+        // without this guard, the setter calls SeekAllToProportionalTime
+        // → master.Seek(t) → ReplayTimeline.Seek(t) resets
+        // _playStartTimestamp = t (line 181). Effect: PlayedTimestamp
+        // = t + elapsed_after_seek where t = frame.ts of the emit, so
+        // every tick "advances" by elapsed but t also advances by
+        // ~0.1s per emit. Net: cursor snaps to trace-end on the first
+        // emit, then continues at trace-end in a fast-forward loop
+        // (5000 frames in 0.013s observed in production). User
+        // symptom: "progress bar jumps straight to end" — exactly the
+        // v3.16.3 PATCH-introduced regression.
+        //
+        // Guard: when master is actively playing, the ScrubberValue
+        // setter writes are writebacks from FrameEmitted, not user
+        // input. Skip the seek in that case. User drag is unaffected
+        // (master is not playing during drag because Pause would be
+        // hit first, or IsPlaying=false).
+        if (_masterService is null) return;
+        if (_masterService.State == ReplayState.Playing) return;
+        if (TotalDuration > 0)
             SeekAllToProportionalTime(value);
     }
 
@@ -1452,15 +1474,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnAnyFrameEmitted(ReplayFrame frame)
     {
-        // v3.16.7 DIAG: log every FrameEmitted to see if events actually fire
-        // (only log first 5 + every 100th to avoid flooding)
-        _onAnyFrameEmittedCount++;
-        if (_onAnyFrameEmittedCount <= 5 || _onAnyFrameEmittedCount % 100 == 0)
-        {
-            _logger.LogInformation("OnAnyFrameEmitted #{Count}: frame.ts={Ts} frame.id=0x{Id:X} masterId={Master} syncCtx={HasCtx}",
-                _onAnyFrameEmittedCount, frame.Timestamp, frame.Id,
-                MasterSourceId, _syncContext is not null);
-        }
         // v3.16.3 PATCH BUGFIX: also update ScrubberValue so the UI
         // scrubber follows playback. The v3.3.0 architecture was
         // scrubber-driven (drag → seek), but Playback left the scrubber
@@ -1685,7 +1698,45 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
         var displayName = $"{source.DisplayName}.{idHex}.{sigName}";
         var plotModel = new PlotModel();
-        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom });
+        // v3.16.9.2 PATCH: X-axis LabelFormatter formats ticks as wall-clock
+        // when source carries a WallClockOrigin (parsed from ASC 'date' header);
+        // otherwise falls back to a 3-tier elapsed formatter (>=1d / >=1h / <1h).
+        // Spec: docs/superpowers/specs/2026-07-09-trace-viewer-enhancements-design.md
+        // §3.4 lines 131-139. Uses InvariantCulture so locale cannot change
+        // the 'MM/dd' ordering or the decimal point.
+        //
+        // NB: DateTimeKind.Local arithmetic does NOT normalize across DST
+        // transitions. Traces spanning spring-forward may show one-hour gaps;
+        // traces spanning fall-back may show repeated hours. Acceptable per
+        // spec §7 (local time is the canonical interpretation of Vector's
+        // 'date' header). v3.16.9.2 review-MEDIUM-2.
+        //
+        // NB: lambda captures the `source` reference, NOT the current
+        // WallClockOrigin value (spec §3.4 R2). If source.WallClockOrigin is
+        // mutated after this axis is created, the formatter re-resolves on
+        // every LabelFormatter call so the new origin takes effect.
+        // v3.16.9.2 review-HIGH.
+        var bottomAxis = new LinearAxis { Position = AxisPosition.Bottom };
+        bottomAxis.LabelFormatter = x =>
+        {
+            var o = source.WallClockOrigin;
+            if (o is not null)
+                return (o.Value + TimeSpan.FromSeconds(x))
+                    .ToString("MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+            // 3-tier elapsed fallback per spec §3.4 (>=1d / >=1h / <1h).
+            // v3.16.9.2 review-MEDIUM-1: explicit InvariantCulture on all
+            // branches so locale cannot change the decimal point.
+            if (x >= 86400.0)
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:F1}d {1:hh\\:mm\\:ss}",
+                    x / 86400.0,
+                    TimeSpan.FromSeconds(x));
+            if (x >= 3600.0)
+                return TimeSpan.FromSeconds(x).ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
+            return TimeSpan.FromSeconds(x).ToString(@"mm\:ss\.f", CultureInfo.InvariantCulture);
+        };
+        plotModel.Axes.Add(bottomAxis);
         plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Left });
         // v3.16.4 PATCH BUGFIX: materialize the ItemsSource to a
         // List<DataPoint>. The previous deferred LINQ chain
@@ -1697,13 +1748,37 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var dataPoints = new List<DataPoint>(frames.Count);
         for (int i = 0; i < frames.Count; i++)
             dataPoints.Add(new DataPoint(xs[i], ys[i]));
+        // v3.16.9.2 PATCH: show discrete CAN sample points as circle markers
+        // so the user can distinguish "trend line" (interpolation) from
+        // "real CAN frame" (discrete event). MarkerSize=3 is small enough
+        // not to occlude the line at 1920x1080. Spec §3.6.
         var line = new LineSeries
         {
             Color = source.Color,
             LineStyle = source.StrokeStyle,
             ItemsSource = dataPoints,
+            MarkerType = MarkerType.Circle,
+            MarkerSize = 3.0,
         };
         plotModel.Series.Add(line);
+        // v3.16.9 PATCH: add a vertical LineAnnotation tagged "playback-cursor"
+        // so ChartViewModel.UpdatePlaybackCursor (TraceChartViewModel.cs:86-100)
+        // can find + reposition the red cursor line on every frame.
+        // The cursor is a vertical line spanning the full Y axis at X = 0
+        // (start of trace). The companion test
+        // BuildOneChartSeriesForSource_CreatesPlaybackCursorLineAnnotation
+        // pins this contract.
+        // The bug was diagnosed in v3.16.6 release notes (line 42: "LineAnnotation
+        // was never created") but never actually fixed.
+        plotModel.Annotations.Add(new LineAnnotation
+        {
+            Type = LineAnnotationType.Vertical,
+            X = 0.0,
+            Color = OxyColors.Red,
+            LineStyle = LineStyle.Solid,
+            StrokeThickness = 1.5,
+            Tag = "playback-cursor",
+        });
 
         return new TraceChartSeries(
             SignalKey: $"{idHex}.{sigName}",

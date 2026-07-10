@@ -63,6 +63,32 @@ public sealed class TraceSource : INotifyPropertyChanged
         }
     }
 
+    private DateTime? _wallClockOrigin;
+
+    /// <summary>
+    /// v3.18.0 PATCH (Trace Viewer Enhancements): wall-clock origin
+    /// parsed from the ASC `date` header line. Null means "no header
+    /// parsed yet" (default) or "no `date` line in the file" — the
+    /// X-axis formatter in TraceChartViewModel falls back to elapsed
+    /// time when this is null. Public setter (not internal) so
+    /// `TraceViewerService` in `PeakCan.Host.Core` can write the value
+    /// after ASC parse; the only legitimate consumer is the parser
+    /// hand-off in Task 6b. The INPC notification fires on every
+    /// change so the chart rebinds when a bundle reload sets the
+    /// value asynchronously.
+    /// </summary>
+    public DateTime? WallClockOrigin
+    {
+        get => _wallClockOrigin;
+        set
+        {
+            if (_wallClockOrigin == value) return;
+            _wallClockOrigin = value;
+            PropertyChanged?.Invoke(this,
+                new PropertyChangedEventArgs(nameof(WallClockOrigin)));
+        }
+    }
+
     // Explicit ctor preserves the v3.2.0 positional call-site shape:
     //   new TraceSource("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid)
     public TraceSource(

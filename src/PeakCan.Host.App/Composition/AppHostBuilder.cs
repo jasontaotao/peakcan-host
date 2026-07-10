@@ -133,16 +133,32 @@ public class AppHostBuilder
             // are preserved in the default appsettings.json.
             .ReadFrom.Configuration(builder.Configuration)
             .CreateLogger();
-        // v3.16.8 PATCH: SMOKE TEST — write directly to Console
-        // (bypasses Serilog entirely) so the user can confirm at
-        // least the AppHostBuilder.Build() was reached, even if
-        // Serilog's File sink is broken. If the user runs
-        // PeakCan.Host.exe from cmd / PowerShell and sees this line,
-        // they know the app is alive and Serilog is at least
-        // configured (the .LogInformation() call below writes through
-        // Serilog to BOTH the File sink AND this Console for one line).
-        System.Console.WriteLine("[SMOKE v3.16.8] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
-        Log.Logger.Information("[SMOKE v3.16.8] AppHostBuilder.Build() Serilog Logger ready");
+        // v3.16.8.2 PATCH: BYPASS Serilog entirely. The File sink configured
+        // via appsettings.json (path: %LOCALAPPDATA%/PeakCan.Host/logs/peak-.log)
+        // is somehow not writing — after v3.16.8.1 install the log directory's
+        // newest file is 2026-07-06 17:58 (2+ days stale) even though the
+        // app is running today. Don't trust Serilog. Write to 4 channels:
+        //   1. System.IO.File.WriteAllText to a hard-coded absolute path
+        //      (no env var, no relative path, no Serilog at all)
+        //   2. System.Console.WriteLine (stdout, visible if launched from cmd)
+        //   3. System.Diagnostics.Debug.WriteLine (VS Output window)
+        //   4. System.Diagnostics.Trace.WriteLine (DebugView if attached)
+        // Whichever channel the user is looking at, at least one will fire.
+        try
+        {
+            var hardcodedLog = @"D:\claude_proj2\peakcan-host\debug-smoke.log";
+            System.IO.File.AppendAllText(hardcodedLog,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json" + Environment.NewLine);
+        }
+        catch (Exception ex)
+        {
+            // Even file write failed — fall back to whatever we can
+            System.Console.WriteLine($"[SMOKE v3.16.8.2] FALLBACK-FILE-WRITE-FAILED: {ex.Message}");
+        }
+        System.Console.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
+        System.Diagnostics.Debug.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
+        System.Diagnostics.Trace.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
+        Log.Logger.Information("[SMOKE v3.16.8.2] AppHostBuilder.Build() Serilog Logger ready");
         builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
 
         // v1.5.0 MINOR: expose the host's IConfiguration as a singleton so

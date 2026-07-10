@@ -53,13 +53,22 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         _logger = logger;
         _options = options;
-        // v3.16.8 PATCH: SMOKE TEST log — if this line never appears in
-        // %LOCALAPPDATA%/PeakCan.Host/logs/peak-{date}.log, the Serilog
-        // pipeline itself is broken (or the user is looking at the wrong
-        // file). Confirms that TraceViewerService was constructed AND
-        // that the logger field is non-null AND that the Serilog sink
-        // can write to the file.
-        _logger.LogInformation("[SMOKE v3.16.8] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={Max}",
+        // v3.16.8.2 PATCH: BYPASS Serilog. 4 channels — file (hardcoded
+        // absolute path, no Serilog), stdout, VS Output, DebugView.
+        try
+        {
+            var hardcodedLog = @"D:\claude_proj2\peakcan-host\debug-smoke.log";
+            System.IO.File.AppendAllText(hardcodedLog,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}" + Environment.NewLine);
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[SMOKE v3.16.8.2] FALLBACK-FILE-WRITE-FAILED: {ex.Message}");
+        }
+        System.Console.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        System.Diagnostics.Debug.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        System.Diagnostics.Trace.WriteLine($"[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={_options.MaxFileSizeBytes}");
+        _logger.LogInformation("[SMOKE v3.16.8.2] TraceViewerService ctor ENTER; options.MaxFileSizeBytes={Max}",
             _options.MaxFileSizeBytes);
         _timeline = new ReplayTimeline(
             emit: EmitFrame,
@@ -79,6 +88,17 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
     public double TotalDuration => _frames.Count > 0 ? _frames[^1].Timestamp : 0.0;
     public double Speed => _timeline.Speed;
     public IReadOnlyList<ReplayFrame> LoadedFrames => _frames;
+    /// <summary>
+    /// v3.18.0 PATCH (Trace Viewer Enhancements): the result of the
+    /// most recent <see cref="LoadAsync"/>. Exposes the wall-clock
+    /// origin (parsed from the ASC <c>date</c> header) so the
+    /// caller (TraceViewerViewModel) can bind it to the matching
+    /// <c>TraceSource</c>. Null before the first successful load.
+    /// The service does not hold a registry reference; the caller
+    /// owns the source/registry pairing and is the only place that
+    /// can do the binding.
+    /// </summary>
+    public AscParseResult? LastParseResult { get; private set; }
     public event Action<ReplayFrame>? FrameEmitted;
 
     public bool Loop
@@ -130,7 +150,14 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
             // pipelines) and gives AscParser itself an OOM guardrail.
             // Pass `null` for logger explicitly to disambiguate from the
             // 2-arg (Stream, CancellationToken) overload.
-            _frames = await AscParser.ParseAsync(fs, _options, null, ct).ConfigureAwait(false);
+            // v3.18.0 PATCH: use the header-aware parser overload so we
+            // can hand the wall-clock origin back to the caller. The
+            // header-less overload remains available for tests that
+            // don't care about the origin.
+            var parsed = await AscParser.ParseAsyncWithHeaderAsync(
+                fs, _options, null, ct).ConfigureAwait(false);
+            _frames = parsed.Frames;
+            LastParseResult = parsed;
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)
