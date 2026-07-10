@@ -1837,3 +1837,4 @@ public class TraceViewerViewModelTests
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
 }
+
