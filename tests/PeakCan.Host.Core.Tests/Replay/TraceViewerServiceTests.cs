@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -148,5 +149,40 @@ public class TraceViewerServiceTests
         // Load + Play not invoked → no frames have been emitted.
         emitted.Should().BeNull();
         sut.State.Should().Be(ReplayState.Stopped);
+    }
+
+    /// <summary>
+    /// v3.18.0 PATCH: TraceViewerService must expose the parsed
+    /// AscParseResult (or at minimum the WallClockOrigin) so the
+    /// caller can bind the origin to the source. The service has
+    /// no registry reference; binding is the caller's job.
+    /// </summary>
+    [Fact]
+    public void LastParseResult_AfterLoadAsync_ExposesWallClockOrigin()
+    {
+        var svc = new TraceViewerService(NullLogger<TraceViewerService>.Instance);
+        svc.LastParseResult.Should().BeNull(
+            "before any load, the result is null");
+
+        // After a synchronous LoadAsync against a tiny inline ASC,
+        // LastParseResult must carry the origin.
+        const string asc = @"
+date Wed Jul 1 08:32:01.000 am 2026
+base hex  timestamps absolute
+ 0.000000 1 100 2 01 02
+";
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"trace-{Guid.NewGuid():N}.asc");
+        System.IO.File.WriteAllText(path, asc);
+        try
+        {
+            svc.LoadAsync(path).GetAwaiter().GetResult();
+            svc.LastParseResult.Should().NotBeNull();
+            svc.LastParseResult!.WallClockOrigin.Should().Be(
+                new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local));
+        }
+        finally
+        {
+            if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+        }
     }
 }
