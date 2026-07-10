@@ -70,13 +70,17 @@ public sealed class TraceSource : INotifyPropertyChanged
     /// parsed from the ASC `date` header line. Null means "no header
     /// parsed yet" (default) or "no `date` line in the file" — the
     /// X-axis formatter in TraceChartViewModel falls back to elapsed
-    /// time when this is null. Internal setter so the loader can
-    /// write the value after ASC parse; external code must not mutate.
+    /// time when this is null. Public setter (not internal) so
+    /// `TraceViewerService` in `PeakCan.Host.Core` can write the value
+    /// after ASC parse; the only legitimate consumer is the parser
+    /// hand-off in Task 6b. The INPC notification fires on every
+    /// change so the chart rebinds when a bundle reload sets the
+    /// value asynchronously.
     /// </summary>
     public DateTime? WallClockOrigin
     {
         get => _wallClockOrigin;
-        internal set
+        set
         {
             if (_wallClockOrigin == value) return;
             _wallClockOrigin = value;
