@@ -9,10 +9,11 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// BUSOFF both surface as <see cref="ErrorCode.HardwareBusy"/>) so the UI
 /// can render a small finite set of recovery hints.
 /// <para>
-/// Caller contract: <c>0</c> is <i>not</i> an error. Use <see cref="IsOk"/>
-/// before calling <see cref="ToErrorCode"/> when the source might return
-/// success. Mapping <c>0</c> through <see cref="ToErrorCode"/> is supported
-/// (it yields <c>(ErrorCode.Unknown, "OK")</c>) but is wasteful.
+/// v3.16.9.5 PATCH: success status (<c>0</c>) now maps to
+/// <see cref="ErrorCode.Ok"/> instead of <see cref="ErrorCode.Unknown"/>.
+/// Pre-patch callers were advised to call <see cref="IsOk"/> first to
+/// distinguish success from failure; post-patch the mapping is
+/// semantically correct on its own.
 /// </para>
 /// <para>
 /// Composite status: PEAK drivers may OR non-error flag bits
@@ -43,14 +44,15 @@ public static class PeakErrorMapper
     /// flag bits are stripped before the switch so a composite like
     /// <c>BUSOFF | INITIALIZE</c> maps to BUSOFF. Unknown statuses fall
     /// through to <c>(ErrorCode.Unknown, "Unknown PCAN status 0xXXXXXXXX")</c>
-    /// so the UI can still display something.
+    /// so the UI can still display something. v3.16.9.5 PATCH: success
+    /// (<c>0</c>) now maps to <c>(ErrorCode.Ok, "OK")</c>.
     /// </summary>
     public static (ErrorCode Code, string Message) ToErrorCode(uint raw)
     {
         var baseError = raw & ~FlagMask;
         return baseError switch
         {
-            PeakError.OK => (ErrorCode.Unknown, "OK"),
+            PeakError.OK => (ErrorCode.Ok, "OK"),
             PeakError.XMTFULL => (ErrorCode.HardwareBusy, "Transmit buffer full"),
             PeakError.OVERRUN => (ErrorCode.IoError, "Receive overrun"),
             PeakError.BUSLIGHT => (ErrorCode.IoError, "Bus light error"),
