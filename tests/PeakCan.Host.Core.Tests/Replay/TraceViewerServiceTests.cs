@@ -158,13 +158,13 @@ public class TraceViewerServiceTests
     /// no registry reference; binding is the caller's job.
     /// </summary>
     [Fact]
-    public void LastParseResult_AfterLoadAsync_ExposesWallClockOrigin()
+    public async Task LastParseResult_AfterLoadAsync_ExposesWallClockOrigin()
     {
         var svc = new TraceViewerService(NullLogger<TraceViewerService>.Instance);
         svc.LastParseResult.Should().BeNull(
             "before any load, the result is null");
 
-        // After a synchronous LoadAsync against a tiny inline ASC,
+        // After a LoadAsync against a tiny inline ASC,
         // LastParseResult must carry the origin.
         const string asc = @"
 date Wed Jul 1 08:32:01.000 am 2026
@@ -172,10 +172,10 @@ base hex  timestamps absolute
  0.000000 1 100 2 01 02
 ";
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"trace-{Guid.NewGuid():N}.asc");
-        System.IO.File.WriteAllText(path, asc);
+        await System.IO.File.WriteAllTextAsync(path, asc);
         try
         {
-            svc.LoadAsync(path).GetAwaiter().GetResult();
+            await svc.LoadAsync(path);
             svc.LastParseResult.Should().NotBeNull();
             svc.LastParseResult!.WallClockOrigin.Should().Be(
                 new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local));

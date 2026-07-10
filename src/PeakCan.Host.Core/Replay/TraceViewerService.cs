@@ -88,6 +88,17 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
     public double TotalDuration => _frames.Count > 0 ? _frames[^1].Timestamp : 0.0;
     public double Speed => _timeline.Speed;
     public IReadOnlyList<ReplayFrame> LoadedFrames => _frames;
+    /// <summary>
+    /// v3.18.0 PATCH (Trace Viewer Enhancements): the result of the
+    /// most recent <see cref="LoadAsync"/>. Exposes the wall-clock
+    /// origin (parsed from the ASC <c>date</c> header) so the
+    /// caller (TraceViewerViewModel) can bind it to the matching
+    /// <c>TraceSource</c>. Null before the first successful load.
+    /// The service does not hold a registry reference; the caller
+    /// owns the source/registry pairing and is the only place that
+    /// can do the binding.
+    /// </summary>
+    public AscParseResult? LastParseResult { get; private set; }
     public event Action<ReplayFrame>? FrameEmitted;
 
     public bool Loop
@@ -139,7 +150,14 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
             // pipelines) and gives AscParser itself an OOM guardrail.
             // Pass `null` for logger explicitly to disambiguate from the
             // 2-arg (Stream, CancellationToken) overload.
-            _frames = await AscParser.ParseAsync(fs, _options, null, ct).ConfigureAwait(false);
+            // v3.18.0 PATCH: use the header-aware parser overload so we
+            // can hand the wall-clock origin back to the caller. The
+            // header-less overload remains available for tests that
+            // don't care about the origin.
+            var parsed = await AscParser.ParseAsyncWithHeaderAsync(
+                fs, _options, null, ct).ConfigureAwait(false);
+            _frames = parsed.Frames;
+            LastParseResult = parsed;
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)
