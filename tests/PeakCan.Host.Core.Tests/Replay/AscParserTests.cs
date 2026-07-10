@@ -602,5 +602,6 @@ base hex  timestamps relative
         result.TimestampsAreAbsolute.Should().BeFalse();
         result.Frames.Should().HaveCount(2);
     }
+
 }
 

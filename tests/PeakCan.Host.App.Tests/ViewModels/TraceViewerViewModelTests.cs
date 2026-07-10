@@ -313,27 +313,38 @@ public class TraceViewerViewModelTests
         sut.WatchedSignals.Should().BeEmpty();
     }
 
+    // v3.15.0 MINOR: tests below (RebuildSignalsAsync_DbcLoaded_PopulatesOneRowPerSignal,
+    // RebuildSignalsAsync_MultipleSignalsSameId_PopulatesAll,
+    // RebuildSignalsAsync_LatestValueIsLastDecoded) were DELETED — they
+    // asserted v3.14.3 "DBC 全列" semantics which v3.15.0 explicitly
+    // reverses. The new watch-list tests in
+    // TraceViewerViewModelRebuildSignalsTests cover the v3.15.0
+    // contracts (WatchedSignals empty by default + AddToWatch populates).
+
     [Fact]
     public async Task RebuildSignalsAsync_DbcLoaded_PopulatesOneRowPerSignal()
     {
+        // v3.15.0 MINOR: rewritten for watch-list mode. The watch list
+        // starts empty even with DBC + frames loaded; AddToWatch adds
+        // exactly one row per signal-in-scope.
         var svc = MakeFakeRegistry();
         // v3.2.0 MINOR: pre-populate Sources so RebuildSignalsAsync (called
         // directly since v3.13.0 PATCH F3 removed LoadDbcAsync) has at least
         // one source to iterate.
+
         svc.Sources.Returns(new List<TraceSource>
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // Two frames for 0x100 → LatestValue is the last decoded value.
-        // RPM is unsigned LE 16-bit @ startBit 0, factor=1 → bytes [0x42,0x01] = 0x0142 = 322.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
-            Frame(0x100, 0x00, 0x00),         // 0
-            Frame(0x100, 0x42, 0x01),         // 322
+            Frame(0x100, 0x00, 0x00),
+            Frame(0x100, 0x42, 0x01),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        await sut.RebuildSignalsAsync();
 
         // v3.16.9.3 PATCH: drive AddToWatch first (v3.15.0 opt-in contract),
         // then RebuildSignalsAsync (which updates FrameCount + LatestValue).
@@ -350,6 +361,7 @@ public class TraceViewerViewModelTests
         row.SignalName.Should().Be("RPM");
         row.Unit.Should().Be("rpm");
         row.IsPlotted.Should().BeTrue("v3.16.x AddToWatch auto-plots the just-added row (PlotSignalFromTableRow at line 1075)");
+
         row.LatestValue.Should().Be(322.0);
     }
 
@@ -361,7 +373,6 @@ public class TraceViewerViewModelTests
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // bytes [0x10,0x00] = RPM 0x0010 = 16; bytes [0x20,0x00] = TEMP 0x0020 = 32.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x100, 0x10, 0x00, 0x20, 0x00),
@@ -369,6 +380,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        await sut.RebuildSignalsAsync();
 
         // v3.16.9.3 PATCH: AddToWatch twice (once per signal) for the same
         // CAN ID — WatchedSignals grows by 1 per call.
@@ -383,13 +395,13 @@ public class TraceViewerViewModelTests
         realRows[0].LatestValue.Should().Be(16.0);
         realRows[1].SignalName.Should().Be("TEMP");
         realRows[1].LatestValue.Should().Be(32.0);
+
     }
 
     [Fact]
     public async Task RebuildSignalsAsync_NoMatchingFrames_LeavesSignalsEmpty()
     {
         var svc = MakeFakeRegistry();
-        // DBC defines id 0x100, but only id 0x555 frames are loaded.
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x555, 0x42, 0x00),
@@ -406,6 +418,7 @@ public class TraceViewerViewModelTests
         // v3.15.0 contract: nothing populated without an explicit AddToWatch.
         sut.Signals.Should().BeEmpty();
         sut.WatchedSignals.Should().BeEmpty();
+
     }
 
     [Fact]
@@ -416,11 +429,6 @@ public class TraceViewerViewModelTests
         {
             new("guid-test", "fake", "C:/fake.asc", OxyColors.Blue),
         });
-        // Three frames for 0x100 → LatestValue must be the LAST decoded,
-        // not the first nor the max. RPM 16-bit LE unsigned:
-        //   frame1: 0x01,0x00 → 1
-        //   frame2: 0xFF,0x00 → 255  (max)
-        //   frame3: 0x05,0x00 → 5    (last — this is the asserted value)
         svc.GetFrames(Arg.Any<string>()).Returns(new[]
         {
             Frame(0x100, 0x01, 0x00),
@@ -430,6 +438,8 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        await sut.RebuildSignalsAsync();
+        sut.AddToWatch(0x100, "RPM", "");
 
         // v3.16.9.3 PATCH: drive AddToWatch first.
         sut.AddToWatch(0x100, "RPM", "");
@@ -587,6 +597,7 @@ public class TraceViewerViewModelTests
 
         bottomAxis.LabelFormatter.Should().NotBeNull();
         bottomAxis.LabelFormatter!(x).Should().Be(expected);
+
     }
 
     // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====
@@ -1768,4 +1779,5 @@ public class TraceViewerViewModelTests
         src.WallClockOrigin.Should().BeNull(
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
+
 }
