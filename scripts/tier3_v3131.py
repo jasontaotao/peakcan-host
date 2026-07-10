@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.13.0 PATCH ship parent on origin/main.
 
 - Parent SHA = e316ca14628dc358887b9efcb75bb401d7a67896 (v3.13.0 PATCH ship commit on origin/main)
-- Overlay = 1 commit from feature/v3-12-0-minor (local 9f5d9f3)
+- Overlay = 1 commit from v3-16-9-x-patch-chain (local 9f5d9f3)
   - 1 prod file: TraceSessionRegistry.cs (1-line ConfigureAwait(false) → true)
 - Result: new commit on origin/main + new tag v3.13.1 + new GitHub release
 """

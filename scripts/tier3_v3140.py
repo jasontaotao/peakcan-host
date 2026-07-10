@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.13.3 PATCH ship parent on origin/main.
 
 - Parent SHA = 1b3f57608f4c105523692d1a17e50d5fec96af34 (v3.13.3 PATCH ship commit on origin/main)
-- Overlay = 4 task commits from feature/v3-12-0-minor (local 2e9f173)
+- Overlay = 4 task commits from v3-16-9-x-patch-chain (local 2e9f173)
   - U1 A1: SignalDecoder 64-bit signed (commit f778203)
   - U2 A5: ChannelRouter DetachSink catch (commit 62df020)
   - U3 A2+A3+A4: Dispose audit (commit fa647cf)
