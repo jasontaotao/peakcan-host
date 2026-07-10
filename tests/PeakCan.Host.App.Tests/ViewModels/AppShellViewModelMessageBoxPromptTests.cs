@@ -182,6 +182,11 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
         public bool IsConnected { get; private set; }
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this test fake, but must exist to satisfy the interface.
+#pragma warning disable CS0067
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
 #pragma warning restore CS0067
         public FakeCanChannel(ChannelId id) { Id = id; }
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)

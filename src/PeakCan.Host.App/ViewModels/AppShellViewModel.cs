@@ -831,6 +831,12 @@ public sealed partial class AppShellViewModel : ObservableObject
             {
                 _activeChannel = channel;
                 _router.RegisterChannel(channel);
+                // v3.16.9.4 PATCH: subscribe to read-loop errors so bus-off /
+                // driver unload / hardware faults surface on the UI status
+                // bar. Event fires on the SDK read thread; the handler must
+                // marshal to the UI thread itself (we use the captured sync
+                // context — same pattern as TraceViewerViewModel.OnAnyFrameEmitted).
+                channel.ReadLoopError += OnReadLoopError;
                 // Set IsConnected=true BEFORE publishing the channel to
                 // SendService so that any binding observer sees "connected"
                 // and an available channel atomically — no window where
@@ -895,6 +901,13 @@ public sealed partial class AppShellViewModel : ObservableObject
         {
             await _activeChannel.DisconnectAsync().ConfigureAwait(true);
             _router.UnregisterChannel(_activeChannel);
+            // v3.16.9.4 PATCH: unsubscribe from read-loop errors before
+            // dropping the channel reference. Without this, a subsequent
+            // Connect → Disconnect cycle would leave the old channel's
+            // ReadLoopError event holding a strong reference to this VM
+            // (closure pins the captured `this`). Match the source-gen
+            // delegate equality used by PeakCanChannel.ReadLoopError.
+            _activeChannel.ReadLoopError -= OnReadLoopError;
             _sendService.ActiveChannel = null;
             IsConnected = false;
             ConnectionState = "Disconnected";
@@ -928,6 +941,45 @@ public sealed partial class AppShellViewModel : ObservableObject
     }
 
     private bool CanDisconnect() => IsConnected;
+
+    /// <summary>
+    /// v3.16.9.4 PATCH: handler for <see cref="ICanChannel.ReadLoopError"/>.
+    /// Fires on the SDK read thread; we marshal to the UI thread by setting
+    /// <see cref="StatusMessage"/> via the [ObservableProperty] source-gen
+    /// setter (which raises PropertyChanged on the captured sync context —
+    /// or directly if no sync context, matching the same pattern as
+    /// <see cref="TraceViewerViewModel.OnAnyFrameEmitted"/>).
+    /// <para>
+    /// The handler does NOT auto-disconnect — bus-off is often transient
+    /// (PCANBasic automatically re-enters ERROR_ACTIVE after the bus
+    /// recovers). Surfacing the error gives the operator the information
+    /// to decide; the read loop's existing MaxConsecutiveReadFailures=100
+    /// give-up mechanism handles the genuinely-dead-bus case.
+    /// </para>
+    /// </summary>
+    private void OnReadLoopError(ReadLoopError err)
+    {
+        var msg = err.Kind switch
+        {
+            ReadLoopErrorKind.ClassicReadException =>
+                $"Read loop error (classic): {err.Exception?.Message ?? "(no exception)"} — bus may be off",
+            ReadLoopErrorKind.FdReadException =>
+                $"Read loop error (FD): {err.Exception?.Message ?? "(no exception)"} — driver may be unloaded",
+            ReadLoopErrorKind.LoopGivingUp =>
+                $"Read loop abandoned after 100 failures — call Disconnect + Connect to recover",
+            _ => $"Read loop error: kind={err.Kind}",
+        };
+        // Mark StatusMessage as the error message; the toolbar binding picks
+        // it up. (YAGNI for a separate red-color binding — the StatusMessage
+        // already conveys the error and the operator can correlate with the
+        // "connected but no frames" symptom.)
+        StatusMessage = msg;
+        ConnectionState = $"Connected (read loop degraded: {err.Kind})";
+        LogReadLoopError(_logger, err.Handle, err.Kind.ToString(), err.Exception);
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Read loop error surfaced to UI: handle=0x{Handle:X2} kind={Kind}")]
+    private static partial void LogReadLoopError(ILogger logger, ushort handle, string kind, Exception? ex);
 
     // LoggerMessage source-generated helpers silence CA1848 (use LoggerMessage
     // source generators) and CA1873 (avoid expensive arg computation in

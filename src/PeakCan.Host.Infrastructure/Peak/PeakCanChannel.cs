@@ -73,6 +73,14 @@ public sealed partial class PeakCanChannel : ICanChannel
     public ChannelId Id { get; }
     public bool IsConnected => _gate.IsConnected;
     public event Action<CanFrame>? FrameReceived;
+    /// <summary>
+    /// v3.16.9.4 PATCH: surface read-loop failures to the UI layer. Raised
+    /// on the SDK read thread (subscribers must marshal to UI). Fires
+    /// <i>in addition to</i> the existing ILogger.LogError / LogCritical
+    /// calls — the event is additive so production Serilog captures still
+    /// include the full stack trace for post-mortem.
+    /// </summary>
+    public event Action<ReadLoopError>? ReadLoopError;
 
     public PeakCanChannel(ChannelId id, ILogger<PeakCanChannel>? logger = null, IPcanReader? reader = null)
     {
@@ -230,6 +238,10 @@ public sealed partial class PeakCanChannel : ICanChannel
             catch (Exception ex)
             {
                 LogReadLoopException(_logger, Id.Handle, "classic", ex);
+                // v3.16.9.4 PATCH: surface to UI in addition to ILogger.
+                // Bus-off / driver unload typically throws on the classic
+                // path first; the FD path is rarely reached in that state.
+                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.ClassicReadException, ex));
                 iterationFailed = true;
             }
             try
@@ -243,6 +255,8 @@ public sealed partial class PeakCanChannel : ICanChannel
             catch (Exception ex)
             {
                 LogReadLoopException(_logger, Id.Handle, "FD", ex);
+                // v3.16.9.4 PATCH: surface to UI in addition to ILogger.
+                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.FdReadException, ex));
                 iterationFailed = true;
             }
             // Count per-iteration, not per-throw, so a worst-case iteration
@@ -258,6 +272,12 @@ public sealed partial class PeakCanChannel : ICanChannel
                 // from the SDK's perspective so a manual disconnect
                 // (and a fresh Connect) can recover.
                 LogReadLoopGivingUp(_logger, Id.Handle, consecutiveIterationsWithFailure);
+                // v3.16.9.4 PATCH: notify UI the loop has abandoned. No
+                // Exception carried here — the per-iteration catch above
+                // already surfaced the underlying cause. Subscribers should
+                // interpret LoopGivingUp as "channel is effectively dead,
+                // user must Disconnect+Connect to recover".
+                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.LoopGivingUp, null));
                 return;
             }
 
@@ -274,6 +294,32 @@ public sealed partial class PeakCanChannel : ICanChannel
 
     [LoggerMessage(Level = LogLevel.Critical, Message = "Read loop giving up on handle 0x{Handle:X2} after {Failures} consecutive failures — bus appears dead, call Disconnect+Connect to recover")]
     private static partial void LogReadLoopGivingUp(ILogger logger, ushort handle, int failures);
+
+    /// <summary>
+    /// v3.16.9.4 PATCH: invoke <see cref="ReadLoopError"/> with a per-subscriber
+    /// try/catch so a misbehaving subscriber (e.g. a UI handler that throws on
+    /// a disposed Dispatcher) cannot crash the SDK read loop. Mirrors the
+    /// sink-OnError isolation pattern in <c>ChannelRouter</c>: the loop is
+    /// the high-priority thread, the subscriber is best-effort.
+    /// </summary>
+    private void SafeEmitReadLoopError(ReadLoopError err)
+    {
+        var handler = ReadLoopError;
+        if (handler is null) return;
+        // Invoke per-subscriber via GetInvocationList so one bad handler
+        // does not prevent the next from firing (ChannelRouter contract).
+        foreach (Action<ReadLoopError> sub in handler.GetInvocationList())
+        {
+            try { sub(err); }
+            catch (Exception ex)
+            {
+                LogReadLoopSubscriberThrew(_logger, Id.Handle, sub.Method.DeclaringType?.FullName ?? "?", ex);
+            }
+        }
+    }
+
+    [LoggerMessage(EventId = 6020, Level = LogLevel.Warning, Message = "ReadLoopError subscriber {Subscriber} threw on handle 0x{Handle:X2}; isolating (read loop continues)")]
+    private static partial void LogReadLoopSubscriberThrew(ILogger logger, ushort handle, string subscriber, Exception ex);
 
     private void EmitClassic(TPCANMsg m, TPCANTimestamp ts)
     {

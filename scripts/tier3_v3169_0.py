@@ -15,7 +15,7 @@ Usage (REVIEW first, then):
 
 Prerequisites:
 - `gh` CLI authenticated with repo:scope 'repo'
-- Local branch `feature/v3-12-0-minor` at `5b19838`
+- Local branch `v3-16-9-x-patch-chain` at `5b19838`
 - `git fetch` to confirm `origin/main` is at `d07cb77` (v3.16.8 hotfix)
 
 Process pattern (CONFIRMED 2nd time today):

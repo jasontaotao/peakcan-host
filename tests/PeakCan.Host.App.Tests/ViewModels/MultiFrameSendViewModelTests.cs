@@ -28,6 +28,11 @@ public sealed class MultiFrameSendViewModelTests
         public RecordingChannel(ChannelId id) { Id = id; IsConnected = true; }
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in this test fake, but must exist to satisfy the interface.
+#pragma warning disable CS0067
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
 #pragma warning restore CS0067
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
         { IsConnected = true; return Task.FromResult(Result<Unit>.Ok(default)); }

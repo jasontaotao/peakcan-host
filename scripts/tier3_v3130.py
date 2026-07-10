@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.12.0 MINOR ship parent on origin/main.
 
 - Parent SHA = 8b911eefb1182da2fa31c8104cf6a3d93be54781 (v3.12.0 MINOR ship commit on origin/main)
-- Overlay = 3 commits from feature/v3-12-0-minor (local cc19bf4)
+- Overlay = 3 commits from v3-16-9-x-patch-chain (local cc19bf4)
   - F1 include exception type in Unexpected error (1e3cd2f) — 1 prod file
   - F2 reset VM mutable state on Trace Viewer window close (327bae9) — 2 prod files
   - F3 remove dead Load DBC button + LoadDbcAsync (cc19bf4) — 3 prod files + test adaptations

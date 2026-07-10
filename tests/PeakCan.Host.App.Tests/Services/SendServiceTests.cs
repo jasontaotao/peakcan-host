@@ -36,6 +36,9 @@ public class SendServiceTests
         public FakeChannel(ChannelId id) { Id = id; IsConnected = true; }
 #pragma warning disable CS0067 // Event is never raised; SendService never subscribes in these tests
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in SendService tests, but must exist to satisfy the interface.
+        public event Action<ReadLoopError>? ReadLoopError;
 #pragma warning restore CS0067
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
         { IsConnected = true; return Task.FromResult(Result<Unit>.Ok(default)); }
@@ -75,6 +78,9 @@ public class SendServiceTests
         }
 #pragma warning disable CS0067
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: ICanChannel gained ReadLoopError event — unused
+        // in OceFakeChannel, but must exist to satisfy the interface.
+        public event Action<ReadLoopError>? ReadLoopError;
 #pragma warning restore CS0067
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
         { IsConnected = true; return Task.FromResult(Result<Unit>.Ok(default)); }

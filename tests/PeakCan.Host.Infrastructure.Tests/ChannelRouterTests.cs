@@ -484,6 +484,11 @@ public class ChannelRouterTests
         public ChannelId Id => ChannelId.None;
         public bool IsConnected => true;
         public event Action<CanFrame>? FrameReceived;
+        // v3.16.9.4 PATCH: new event from ICanChannel — unused in these
+        // router tests but must exist to satisfy the interface contract.
+#pragma warning disable CS0067
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
         public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default) => throw new NotSupportedException();
         public Task DisconnectAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default) => throw new NotSupportedException();

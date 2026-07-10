@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.11.7 PATCH ship parent on origin/main.
 
 - Parent SHA = 23da0505... (v3.11.7 PATCH ship commit on origin/main)
-- Overlay = 1 commit from feature/v3-12-0-minor (local c70234c)
+- Overlay = 1 commit from v3-16-9-x-patch-chain (local c70234c)
   - C2 ReplayViewModel partial split (commit 02c03ca) — 5 prod files
   - M3 converter smoke tests (commits b691e44 + c70234c) — 1 test file
   - H1 LoopRewound contract test (commit 1a6e0e4) — 1 test file

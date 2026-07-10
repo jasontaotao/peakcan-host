@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.13.2 PATCH ship parent on origin/main.
 
 - Parent SHA = 0353dc8ce7f89f965f274b3e9b656accf21fed8c (v3.13.2 PATCH ship commit on origin/main)
-- Overlay = 1 commit from feature/v3-12-0-minor (F6 fix)
+- Overlay = 1 commit from v3-16-9-x-patch-chain (F6 fix)
   - 1 NEW file: src/Directory.Build.props (pins Version=3.13.3 + AssemblyVersion/FileVersion/InformationalVersion)
   - 1 MODIFIED file: src/PeakCan.Host.App/PeakCan.Host.App.csproj (comment explaining the version source)
   - 1 NEW file: docs/release-notes-v3.13.3.md (release body for the GitHub release)

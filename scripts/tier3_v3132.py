@@ -4,7 +4,7 @@
 Pattern: 1-commit overlay on the v3.13.1 PATCH ship parent on origin/main.
 
 - Parent SHA = 526c96cefb250366ed3a8cd2cf12a314cec0ad78 (v3.13.1 PATCH ship commit on origin/main)
-- Overlay = 1 commit from feature/v3-12-0-minor (local 1e44765)
+- Overlay = 1 commit from v3-16-9-x-patch-chain (local 1e44765)
   - 1 prod file: TraceViewerViewModel.cs (+1 += + 1 handler)
   - 1 test file: TraceViewerViewModelRebuildSignalsTests.cs OR TraceViewerViewModelDbcTests.cs
 - Result: new commit on origin/main + new tag v3.13.2 + new GitHub release
