@@ -89,13 +89,18 @@ docs/release-notes-v3.16.9.2.md (this file)
 
 - **New tests**: 5 (1 marker + 1 wall-clock formatter + 3 elapsed fallback InlineData)
 - **New tests pass**: 5/5
-- **Pre-existing failures**: 3 `RebuildSignalsAsync_*` tests fail with
-  empty `sut.Signals` on DBC-loaded + frames-present path. **Verified
-  via `git stash` that these fail on HEAD `52cf3d6` without this
-  PATCH's changes** — caused by commit `ea51d2f` ("switch to
-  header-aware parser + expose LastParseResult") changing
-  `TraceViewerService` init flow. **Out of scope** for this PATCH;
-  to be addressed in a dedicated v3.16.9.3 follow-up PATCH.
+- **Pre-existing failures (ROOT CAUSE CORRECTED 2026-07-10 v3.16.9.3)**:
+  3 `RebuildSignalsAsync_*` tests fail with empty `sut.Signals` on
+  DBC-loaded + frames-present path. **Originally attributed** to
+  commit `ea51d2f` ("switch to header-aware parser + expose
+  LastParseResult") — **WRONG**. Real root cause is **v3.15.0 MINOR's
+  contract change**: `TraceViewerViewModel.Signals` is intentionally
+  no longer populated; the design moved to user opt-in via
+  `WatchedSignals` + `AddToWatch`. The legacy collection is preserved
+  for back-compat. Commit `ea51d2f` merely re-surfaced the failures by
+  changing `TraceViewerService` init flow. **Closed by v3.16.9.3 PATCH
+  (commit `6ac2fa1`)** — 5 tests migrated to v3.15.0+ contract, all
+  pass. See `docs/release-notes-v3.16.9.3.md` for the migration.
 - **Full test result**: Core.Tests 448 pass / 0 fail;
   Infrastructure.Tests 85 pass / 0 fail / 2 skip;
   App.Tests 793 pass / 3 fail (pre-existing) / 3 skip.

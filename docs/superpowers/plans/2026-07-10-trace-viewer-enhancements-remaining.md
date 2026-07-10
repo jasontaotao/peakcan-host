@@ -129,7 +129,18 @@ Three sub-cases per spec §3.4 (≥1d, ≥1h, <1h). Verify fallback formatter pr
 - [ ] Tag v3.16.9.2 (or v3.16.10 if version bump warrants)
 - [ ] docs/release-notes-v3.16.9.2.md
 
-## 6.1 Pre-existing test failures (out of scope for this PATCH)
+## 6.1 Pre-existing test failures (out of scope for this PATCH) — ROOT CAUSE CORRECTED 2026-07-10
+
+> **Correction (2026-07-10, v3.16.9.3 PATCH root-cause analysis):**
+> The attribution below to commit `ea51d2f` is **WRONG**. The real
+> root cause is **v3.15.0 MINOR's contract change** — the
+> `TraceViewerViewModel.Signals` collection is intentionally preserved
+> for back-compat but no longer populated (the watch list migrated to
+> `WatchedSignals` + `AddToWatch`). Commit `ea51d2f` merely
+> re-surfaced the failures by changing `TraceViewerService` init flow;
+> the tests were already broken in the v3.15.0 MINOR ship but never
+> migrated. **Closed by v3.16.9.3 PATCH (commit `6ac2fa1`)** —
+> see `docs/release-notes-v3.16.9.3.md` for the migration.
 
 Verified 2026-07-10 via `git stash` (revert working tree) that the
 following 3 tests fail on HEAD `52cf3d6` **without** this PATCH's changes:
@@ -141,16 +152,16 @@ following 3 tests fail on HEAD `52cf3d6` **without** this PATCH's changes:
 Pattern: tests with DBC loaded + frames present expect `sut.Signals` to
 be populated, but `sut.Signals` is empty. Two sibling tests that expect
 empty Signals (`NoDbc_LeavesSignalsEmpty`, `NoMatchingFrames_LeavesSignalsEmpty`)
-pass. Failure is stable (not flaky).
+pass vacuously. Failure is stable (not flaky).
 
-**Root cause is HEAD commit `ea51d2f` ("switch to header-aware parser
-+ expose LastParseResult")**, which changed `TraceViewerService` init
-flow. `RebuildSignalsAsync` likely depends on a service field that the
-header-aware refactor no longer populates.
+**Root cause (CORRECTED)**: v3.15.0 MINOR changed the design from
+auto-populate (`Signals`) to user opt-in (`WatchedSignals` +
+`AddToWatch`). The legacy `Signals` collection is intentionally left
+in place but no longer populated (see `TraceViewerViewModel.cs:131-138`).
 
 **Out of scope** for this PATCH (X-axis formatter + MarkerType). To be
-addressed in a dedicated follow-up PATCH (suggested: v3.16.9.3
-"RebuildSignalsAsync regression closure").
+addressed in a dedicated follow-up PATCH — **shipped as v3.16.9.3
+(commit `6ac2fa1`)**.
 
 ## 7. Files touched
 
