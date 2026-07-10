@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OxyPlot;
 using OxyPlot.Annotations;
+using OxyPlot.Axes;
+using OxyPlot.Series;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -465,6 +467,109 @@ public class TraceViewerViewModelTests
             "every PlotModel must contain a playback-cursor LineAnnotation so UpdatePlaybackCursor can position the red line on every frame");
         cursorAnnotation!.X.Should().Be(0.0,
             "the cursor starts at the trace's beginning (x=0) before playback advances it");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: LineSeries must show discrete CAN sample
+    // points as circle markers so the user can distinguish "trend line"
+    // (interpolation) from "real CAN frame" (discrete event).
+    // Spec: docs/superpowers/specs/2026-07-09-trace-viewer-enhancements-design.md
+    // §3.6 MarkerType.Circle, MarkerSize=3.
+    // Without markers, OxyPlot's LineSeries default is MarkerType.None
+    // (a continuous line with no per-point visibility).
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_LineSeries_HasMarkerTypeCircle()
+    {
+        var svc = MakeFakeRegistry();
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-marker-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var plotModel = sut.ChartViewModel.Series[0].PlotModel;
+        var lineSeries = plotModel.Series.OfType<LineSeries>().Single();
+        lineSeries.MarkerType.Should().Be(MarkerType.Circle,
+            "v3.16.9.2 PATCH: discrete sample points must render as circles so user sees real CAN frames vs interpolation");
+        lineSeries.MarkerSize.Should().Be(3.0,
+            "MarkerSize=3 is small enough to not occlude the line but visible at 1920x1080 (per spec §3.6 R1)");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: X-axis LabelFormatter when WallClockOrigin
+    // is present. Spec §3.4 line 131-139: format as 'MM/dd HH:mm:ss' using
+    // (origin + TimeSpan.FromSeconds(x)) and CultureInfo.InvariantCulture.
+    [Fact]
+    public async Task BuildOneChartSeriesForSource_XAxis_WithWallClockOrigin_FormatsAsMmDdHhMmSs()
+    {
+        var origin = new DateTime(2026, 7, 1, 8, 32, 1, DateTimeKind.Local);
+        var svc = MakeFakeRegistry();
+        var source = new TraceSource("guid-wallclock-test", "fake", "C:/fake.asc", OxyColors.Blue)
+        {
+            WallClockOrigin = origin,
+        };
+        svc.Sources.Returns(new List<TraceSource> { source });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        sut.ChartViewModel.Series.Should().HaveCount(1);
+        var bottomAxis = sut.ChartViewModel.Series[0].PlotModel.Axes
+            .OfType<LinearAxis>().Single(a => a.Position == AxisPosition.Bottom);
+
+        bottomAxis.LabelFormatter.Should().NotBeNull(
+            "v3.16.9.2 PATCH: when source has WallClockOrigin, bottom axis must format ticks as wall-clock");
+        // Sample at x=0.0 (origin point) -> "07/01 08:32:01"
+        bottomAxis.LabelFormatter!(0.0).Should().Be("07/01 08:32:01");
+        // Sample at x=86400.0 (1 day later) -> "07/02 08:32:01"
+        bottomAxis.LabelFormatter!(86400.0).Should().Be("07/02 08:32:01");
+    }
+
+    // ===== v3.16.9.2 PATCH RED: X-axis LabelFormatter when WallClockOrigin
+    // is null. Spec §3.4 line 136-138: 3-tier elapsed fallback (>=1d, >=1h, <1h).
+    [Theory]
+    [InlineData(90061.0, "1.0d 01:01:01")] // >= 1d: "{x/86400:F1}d {hh:mm:ss}" (F1 → 1 decimal place)
+    [InlineData(86400.0, "1.0d 00:00:00")] // exact 1d boundary
+    [InlineData(3725.0,  "01:02:05")]       // >= 1h: "hh:mm:ss"
+    [InlineData(3600.0,  "01:00:00")]       // exact 1h boundary
+    [InlineData(3599.99, "59:59.9")]        // just under 1h boundary
+    [InlineData(125.5,   "02:05.5")]        // < 1h:  "mm:ss.f"
+    public async Task BuildOneChartSeriesForSource_XAxis_WithoutWallClockOrigin_FallsBackToElapsed(double x, string expected)
+    {
+        var svc = MakeFakeRegistry();
+        // Note: WallClockOrigin defaults to null (verified in TraceSourceTests.WallClockOrigin_DefaultsToNull)
+        svc.Sources.Returns(new List<TraceSource>
+        {
+            new("guid-elapsed-test", "fake", "C:/fake.asc", OxyColors.Blue),
+        });
+        svc.GetFrames(Arg.Any<string>()).Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x100, 0x42, 0x01),
+        });
+        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
+        dbc.SetCurrentForTests(DocWithRpmSignal());
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        sut.AddToWatch(0x100, "RPM", "");
+
+        var bottomAxis = sut.ChartViewModel.Series[0].PlotModel.Axes
+            .OfType<LinearAxis>().Single(a => a.Position == AxisPosition.Bottom);
+
+        bottomAxis.LabelFormatter.Should().NotBeNull();
+        bottomAxis.LabelFormatter!(x).Should().Be(expected);
     }
 
     // ===== v3.3.0 MINOR Task 2: proportional seek + Loop + Speed =====

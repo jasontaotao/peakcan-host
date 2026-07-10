@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -1686,7 +1687,45 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
         var displayName = $"{source.DisplayName}.{idHex}.{sigName}";
         var plotModel = new PlotModel();
-        plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom });
+        // v3.16.9.2 PATCH: X-axis LabelFormatter formats ticks as wall-clock
+        // when source carries a WallClockOrigin (parsed from ASC 'date' header);
+        // otherwise falls back to a 3-tier elapsed formatter (>=1d / >=1h / <1h).
+        // Spec: docs/superpowers/specs/2026-07-09-trace-viewer-enhancements-design.md
+        // §3.4 lines 131-139. Uses InvariantCulture so locale cannot change
+        // the 'MM/dd' ordering or the decimal point.
+        //
+        // NB: DateTimeKind.Local arithmetic does NOT normalize across DST
+        // transitions. Traces spanning spring-forward may show one-hour gaps;
+        // traces spanning fall-back may show repeated hours. Acceptable per
+        // spec §7 (local time is the canonical interpretation of Vector's
+        // 'date' header). v3.16.9.2 review-MEDIUM-2.
+        //
+        // NB: lambda captures the `source` reference, NOT the current
+        // WallClockOrigin value (spec §3.4 R2). If source.WallClockOrigin is
+        // mutated after this axis is created, the formatter re-resolves on
+        // every LabelFormatter call so the new origin takes effect.
+        // v3.16.9.2 review-HIGH.
+        var bottomAxis = new LinearAxis { Position = AxisPosition.Bottom };
+        bottomAxis.LabelFormatter = x =>
+        {
+            var o = source.WallClockOrigin;
+            if (o is not null)
+                return (o.Value + TimeSpan.FromSeconds(x))
+                    .ToString("MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+            // 3-tier elapsed fallback per spec §3.4 (>=1d / >=1h / <1h).
+            // v3.16.9.2 review-MEDIUM-1: explicit InvariantCulture on all
+            // branches so locale cannot change the decimal point.
+            if (x >= 86400.0)
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:F1}d {1:hh\\:mm\\:ss}",
+                    x / 86400.0,
+                    TimeSpan.FromSeconds(x));
+            if (x >= 3600.0)
+                return TimeSpan.FromSeconds(x).ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
+            return TimeSpan.FromSeconds(x).ToString(@"mm\:ss\.f", CultureInfo.InvariantCulture);
+        };
+        plotModel.Axes.Add(bottomAxis);
         plotModel.Axes.Add(new LinearAxis { Position = AxisPosition.Left });
         // v3.16.4 PATCH BUGFIX: materialize the ItemsSource to a
         // List<DataPoint>. The previous deferred LINQ chain
@@ -1698,11 +1737,17 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         var dataPoints = new List<DataPoint>(frames.Count);
         for (int i = 0; i < frames.Count; i++)
             dataPoints.Add(new DataPoint(xs[i], ys[i]));
+        // v3.16.9.2 PATCH: show discrete CAN sample points as circle markers
+        // so the user can distinguish "trend line" (interpolation) from
+        // "real CAN frame" (discrete event). MarkerSize=3 is small enough
+        // not to occlude the line at 1920x1080. Spec §3.6.
         var line = new LineSeries
         {
             Color = source.Color,
             LineStyle = source.StrokeStyle,
             ItemsSource = dataPoints,
+            MarkerType = MarkerType.Circle,
+            MarkerSize = 3.0,
         };
         plotModel.Series.Add(line);
         // v3.16.9 PATCH: add a vertical LineAnnotation tagged "playback-cursor"
