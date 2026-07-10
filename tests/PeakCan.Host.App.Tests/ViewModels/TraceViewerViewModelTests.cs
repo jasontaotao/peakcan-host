@@ -1836,6 +1836,4 @@ public class TraceViewerViewModelTests
         src.WallClockOrigin.Should().BeNull(
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
-
 }
- (fix(traceviewer): reverse-trigger guard in OnScrubberValueChanged via master.State == Playing check (v3.16.9.2 PATCH))
