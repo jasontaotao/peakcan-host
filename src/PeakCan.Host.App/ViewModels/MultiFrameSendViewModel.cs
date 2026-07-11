@@ -502,13 +502,5 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
         return id;
     }
 
-    public void Dispose()
-    {
-        _progressPollTimer.Stop();
-        _runCts?.Cancel();
-        _runCts?.Dispose();
-        if (_dbcService is not null)
-            _dbcService.DbcLoaded -= OnDbcLoaded;
-        GC.SuppressFinalize(this);
-    }
+    // === Flow E methods moved to MultiFrameSendViewModel/LifecycleFlow.cs (W7 Task 1) ===
 }
