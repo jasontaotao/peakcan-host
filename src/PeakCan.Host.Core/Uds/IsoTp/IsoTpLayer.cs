@@ -735,31 +735,6 @@ public sealed partial class IsoTpLayer : IDisposable
         _sendFrame?.Invoke(frame);
     }
 
-    // v1.2.12 PATCH Item 2: log send-callback exceptions at Error. The upper
-    // layers (UdsClient's P2* timeout, BS-gate timeout) provide back-pressure,
-    // so a single failed send is logged and the transport continues.
-    //
-    // `internal` (not `private`) so the App factory can call this directly
-    // instead of maintaining a duplicate log helper (single source of truth
-    // for the event id). Core grants InternalsVisibleTo("PeakCan.Host.App")
-    // in AssemblyInfo.cs.
-    [LoggerMessage(EventId = 3001, Level = LogLevel.Error, Message = "IsoTpLayer send failed for ID 0x{Id:X}")]
-    internal static partial void LogIsoTpSendFailed(ILogger logger, Exception ex, uint id);
-
-    // v1.2.12 PATCH Item 3: log MessageReceived subscriber exceptions at Error.
-    // The receive handler is invoked outside the lock so the layer's
-    // reassembly state remains intact; a throwing subscriber must NOT
-    // propagate onto the SDK read thread nor poison subsequent frames.
-    // Single source of truth for the "handler threw" event (id 3002).
-    [LoggerMessage(EventId = 3002, Level = LogLevel.Error, Message = "IsoTpLayer MessageReceived handler threw for {Length}-byte message")]
-    private static partial void LogIsoTpHandlerFailed(ILogger logger, Exception ex, int length);
-
-    // v1.2.12 PATCH Item 8: log rejected FirstFrame at Warning. The frame
-    // is dropped (not propagated) so the SDK read thread stays unblocked,
-    // but operators need visibility into an ECU that's streaming malformed
-    // FFs (likely a fuzz harness or a misconfigured sender).
-    [LoggerMessage(EventId = 3003, Level = LogLevel.Warning, Message = "IsoTp FirstFrame length {Length} exceeds MaxMessageLength {Max}, dropping")]
-    private static partial void LogIsoTpFfLengthTooLarge(ILogger logger, int length, int max);
 }
 
 /// <summary>
@@ -779,4 +754,5 @@ public sealed record CanIdConfig
     /// </summary>
     public uint? FunctionalId { get; init; }
     // === Flow F methods moved to IsoTpLayer/FlowControlFlow.cs (W9 Task 1) ===
+    // === Flow G methods moved to IsoTpLayer/LoggingFlow.cs (W9 Task 2) ===
 }
