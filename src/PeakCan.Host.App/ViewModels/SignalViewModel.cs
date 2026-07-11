@@ -465,63 +465,6 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     public void HandlePlotCheckboxClick(SignalEntry entry, bool isChecked)
         => OnSignalSelectionChanged(entry.Message, entry.Signal, isChecked);
 
-    /// <summary>
-    /// Export charted signal data to CSV. Prompts for file path via
-    /// <see cref="SaveFileDialog"/>.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(HasChartedSignals))]
-    private void ExportChartCsv()
-    {
-        if (_chartVm is null) return;
-        var dlg = new SaveFileDialog
-        {
-            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-            DefaultExt = ".csv",
-            FileName = "signal-chart.csv",
-        };
-        if (dlg.ShowDialog() == true)
-        {
-            _chartVm.ExportToCsv(dlg.FileName);
-        }
-    }
-
-    /// <summary>
-    /// Clear all charted signals and reset the chart.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(HasChartedSignals))]
-    private void ClearChart()
-    {
-        if (_chartVm is null) return;
-        // Uncheck all IsSelected flags in the grid.
-        foreach (var entry in Latest)
-            entry.IsSelected = false;
-        _chartVm.Reset();
-    }
-
-    /// <summary>Select all signals for charting.</summary>
-    [RelayCommand]
-    private void PlotAll()
-    {
-        if (_chartVm is null) return;
-        foreach (var entry in Latest)
-        {
-            if (!entry.IsSelected)
-            {
-                entry.IsSelected = true;
-                _chartVm.AddSignal($"{entry.Message}.{entry.Signal}", entry.Signal);
-            }
-        }
-    }
-
-    /// <summary>Deselect all signals and clear the chart.</summary>
-    [RelayCommand]
-    private void PlotNone()
-    {
-        if (_chartVm is null) return;
-        foreach (var entry in Latest)
-            entry.IsSelected = false;
-        _chartVm.Reset();
-    }
 
     // Upsert by (Message, Signal). The grid is small (one row per signal
     // per loaded message — typically < 100 rows) so a linear scan is
@@ -561,4 +504,5 @@ private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).
     }
 
     // === Flow D methods moved to SignalViewModel/FilterFlow.cs (W5 Task 1) ===
+    // === Flow C methods moved to SignalViewModel/ChartFlow.cs (W5 Task 2) ===
 }
