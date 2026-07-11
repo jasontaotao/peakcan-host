@@ -720,31 +720,6 @@ public sealed partial class IsoTpLayer : IDisposable
         }
     }
 
-    private void HandleFlowControl(IsoTpFrame frame)
-    {
-        lock (_txLock)
-        {
-            if (!_txWaitingForFc)
-                return;
-
-            _txBlockSize = frame.BlockSize;
-            _txStMin = frame.StMin;
-            _txWaitingForFc = false;
-        }
-    }
-
-    private void SendFlowControl()
-    {
-        // Send Flow Control with BS=0 (unlimited), STmin=0 (no delay)
-        var fc = new IsoTpFrame(
-            IsoTpFrameType.FlowControl,
-            sequenceOrStatus: 0, // Continue to send
-            blockSize: 0,       // Unlimited
-            stMin: 0);          // No delay
-
-        var canData = fc.Encode();
-        SendCanFrame(canData);
-    }
 
     private void SendCanFrame(byte[] data)
     {
@@ -803,4 +778,5 @@ public sealed record CanIdConfig
     /// Used for functional addressing (e.g., 0x7DF for OBD-II).
     /// </summary>
     public uint? FunctionalId { get; init; }
+    // === Flow F methods moved to IsoTpLayer/FlowControlFlow.cs (W9 Task 1) ===
 }
