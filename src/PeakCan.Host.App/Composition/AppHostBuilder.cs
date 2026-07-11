@@ -59,7 +59,7 @@ namespace PeakCan.Host.App.Composition;
 /// corresponding <c>With*</c> setter.
 /// </para>
 /// </remarks>
-public class AppHostBuilder
+public partial class AppHostBuilder
 {
     /// <summary>
     /// PEAK PCAN-USB FD first-channel handle. Per the inline amendment to
@@ -93,73 +93,11 @@ public class AppHostBuilder
         return this;
     }
 
+
     public IHost Build()
     {
-        // v3.9.0 MINOR P5: create the IHostBuilder FIRST so its
-        // IConfiguration (populated from appsettings.json +
-        // environment variables + command line) is available to
-        // Serilog's ReadFrom.Configuration. Pre-fix, the LoggerConfiguration
-        // was self-contained and didn't read from the host's config.
-        // The order matters: Serilog reads the Serilog section from
-        // the configuration the host built, so the host's appsettings.json
-        // must be loaded BEFORE CreateLogger is called.
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
-
-        // v3.9.0 MINOR P5: the log directory is now created by Serilog
-        // itself when it opens the WriteTo.File sink (the sink's path
-        // is configured via appsettings.json's Serilog:WriteTo:Args:path).
-        // The default appsettings.json ships
-        // LocalAppData/PeakCan.Host/logs/peak-.log as the path, which
-        // matches the v3.8.0-v3.8.8 hardcoded behavior.
-        Log.Logger = new LoggerConfiguration()
-            // v3.9.0 MINOR P5: ReadFrom.Configuration replaces the
-            // hardcoded MinimumLevel.Information() + WriteTo.File(...)
-            // chain. The operator can now edit appsettings.json's
-            // Serilog section to override MinLevel (e.g. bump to
-            // "Debug" for production debugging) + add sinks + add
-            // enrichers without recompiling. The default appsettings.json
-            // ships a Serilog section that mirrors the prior hardcoded
-            // behavior (MinimumLevel=Information, WriteTo=File with
-            // rollingInterval=Day, retainedFileCountLimit=14) so the
-            // observable behavior is unchanged when the operator
-            // doesn't edit the config.
-            //
-            // Migration note: the hardcoded WriteTo.File(rollingInterval:Day,
-            // retainedFileCountLimit:14) call is REMOVED. If the operator
-            // needs a different rolling interval or retention, they edit
-            // the Serilog:WriteTo section in appsettings.json. The
-            // formatProvider (CultureInfo.InvariantCulture) and the
-            // logPath pattern (LocalAppData/PeakCan.Host/logs/peak-.log)
-            // are preserved in the default appsettings.json.
-            .ReadFrom.Configuration(builder.Configuration)
-            .CreateLogger();
-        // v3.16.8.2 PATCH: BYPASS Serilog entirely. The File sink configured
-        // via appsettings.json (path: %LOCALAPPDATA%/PeakCan.Host/logs/peak-.log)
-        // is somehow not writing — after v3.16.8.1 install the log directory's
-        // newest file is 2026-07-06 17:58 (2+ days stale) even though the
-        // app is running today. Don't trust Serilog. Write to 4 channels:
-        //   1. System.IO.File.WriteAllText to a hard-coded absolute path
-        //      (no env var, no relative path, no Serilog at all)
-        //   2. System.Console.WriteLine (stdout, visible if launched from cmd)
-        //   3. System.Diagnostics.Debug.WriteLine (VS Output window)
-        //   4. System.Diagnostics.Trace.WriteLine (DebugView if attached)
-        // Whichever channel the user is looking at, at least one will fire.
-        try
-        {
-            var hardcodedLog = @"D:\claude_proj2\peakcan-host\debug-smoke.log";
-            System.IO.File.AppendAllText(hardcodedLog,
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json" + Environment.NewLine);
-        }
-        catch (Exception ex)
-        {
-            // Even file write failed — fall back to whatever we can
-            System.Console.WriteLine($"[SMOKE v3.16.8.2] FALLBACK-FILE-WRITE-FAILED: {ex.Message}");
-        }
-        System.Console.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
-        System.Diagnostics.Debug.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
-        System.Diagnostics.Trace.WriteLine("[SMOKE v3.16.8.2] AppHostBuilder.Build() ENTER; Serilog configured via appsettings.json");
-        Log.Logger.Information("[SMOKE v3.16.8.2] AppHostBuilder.Build() Serilog Logger ready");
-        builder.Logging.ClearProviders().AddSerilog(Log.Logger, dispose: true);
+        // === Flow A: Logging setup extracted to AppHostBuilder/LoggingFlow.cs (W11 Task 1) ===
+        ConfigureLoggingAndBuilder(out var builder);
 
         // v1.5.0 MINOR: expose the host's IConfiguration as a singleton so
         // the AppShellViewModel can persist SelectedChannel to
@@ -168,334 +106,20 @@ public class AppHostBuilder
         // environment variables + command line.
         builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
-        // Core infrastructure
-        // v1.2.12 PATCH Item 11: ChannelRouter now accepts an ILogger<ChannelRouter>
-        // so the secondary OnError catch (which auto-detaches misbehaving sinks)
-        // is observable in Release builds. The logger is optional in the ctor
-        // (NullLogger fallback) but production DI always wires one.
-        builder.Services.AddSingleton<ChannelRouter>(sp =>
-            new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
-        builder.Services.AddSingleton<BusStatisticsCollector>();
-        // v3.5.2 PATCH: ITimerFactory seam so RecordService +
-        // StatisticsService can be unit-tested with a deterministic
-        // FakeTimerFactory (no wall-clock dependency). v3.5.4 PATCH:
-        // switched to CyclicTimerFactory so the same singleton handles
-        // both IPeriodicTimer (RecordService/StatisticsService/TraceService)
-        // and ICyclicTimer (CyclicSendService/CyclicDbcSendService). The
-        // factory is stateless — only the dispatch shape differs.
-        builder.Services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
-                                      PeakCan.Host.Core.Services.CyclicTimerFactory>();
-        // Task 18: extracted PEAK SDK probe call into a swappable
-        // service so the App assembly has no Peak.Can.Basic dependency
-        // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
-                                       PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
-        // v0.4.0: multi-channel enumerator. Probes PCAN-USB 1–16.
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelEnumerator,
-                                       PeakCan.Host.Infrastructure.Peak.PeakChannelEnumerator>();
-
-        // Task T3 (H4): the App-layer VM no longer news PeakCanChannel
-        // directly; it asks the factory for an ICanChannel. Production DI
-        // binds the PEAK implementation; tests inject a fake to drive the
-        // connect/disconnect state machine without hardware.
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelFactory,
-                                      PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
-
-        // v0.4.0: IPcanReader abstracts the PEAK SDK read calls so
-        // PeakCanChannel's read loop can be unit-tested without hardware.
-        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.IPcanReader,
-                                      PeakCan.Host.Infrastructure.Peak.PcanReader>();
+        // === Flow B: Core infrastructure extracted to AppHostBuilder/CoreInfrastructureFlow.cs (W11 Task 2) ===
+        RegisterCoreInfrastructure(builder.Services);
 
         // App services
-        // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
-        // so its OnError path is observable in Release builds (Debug.WriteLine
-        // was previously stripped). Production DI resolves the logger from
-        // the host's LoggingServiceCollection; NullLogger fallback exists
-        // for tests that do not assert on log output.
-        builder.Services.AddSingleton<TraceService>(sp =>
-            new TraceService(
-                sp.GetRequiredService<TraceViewModel>(),
-                sp.GetRequiredService<ILogger<TraceService>>()));
-        // TraceService is a BackgroundService; its 50ms drain loop lives in
-        // ExecuteAsync and only fires when the host starts it. Without this
-        // AddHostedService line, frames pile up in the bounded channel and
-        // TotalFrameCount stays 0 even though fan-out delivers them. Same
-        // bug pattern as the IHost.StartAsync miss in App.xaml.cs.
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<TraceService>());
-        // v1.6.5 PATCH Item 1: token-bucket send-rate-limit decorator.
-        // Register CoreSendService (raw, exempt from rate-limit) and a
-        // SendService factory that wraps it with RateLimitedSendService.
-        // UI callers (CanApi, SendViewModel, DbcSendViewModel,
-        // CyclicSendService, CyclicDbcSendService) resolve SendService
-        // via C# polymorphism and receive the decorator; Replay +
-        // IsoTp resolve CoreSendService directly (see below).
-        builder.Services.AddSingleton<CoreSendService>();
-        builder.Services.AddSingleton<SendService>(sp => new RateLimitedSendService(
-            inner: sp.GetRequiredService<CoreSendService>(),
-            maxFramesPerSecond: sp.GetRequiredService<IConfiguration>()
-                .GetValue<int>("Send:MaxFramesPerSecond"),
-            logger: sp.GetRequiredService<ILogger<RateLimitedSendService>>()));
-        // v1.6.6 PATCH Item 1: DBC size + message-count caps, opt-in via
-        // appsettings.json:Dbc section. DbcOptions.Unlimited when both
-        // caps are 0 or absent — back-compat baseline preserved.
-        builder.Services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<IConfiguration>().GetSection("Dbc");
-            return new DbcOptions(
-                MaxFileSizeBytes: config.GetValue<long>("MaxFileSizeBytes"),
-                MaxMessageCount: config.GetValue<int>("MaxMessageCount"));
-        });
-        builder.Services.AddSingleton<DbcService>(sp =>
-            new DbcService(
-                sp.GetRequiredService<ILogger<DbcService>>(),
-                sp.GetRequiredService<DbcOptions>()));
-        // v1.6.10 PATCH Item 2: opt-in extension of v1.6.4 PATCH hardcoded
-        // allowlist — config-driven via Path:AllowedRoots:[] in appsettings.json.
-        builder.Services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<IConfiguration>().GetSection("Path");
-            var allowedRoots = config.GetSection("AllowedRoots").Get<string[]>()
-                ?? new[] { PathNormalizer.LocalAppDataPeakCanRoot };
-            return new PathOptions(allowedRoots);
-        });
-        // v1.7.0 MINOR Item 1: V8 isolate resource caps for the script
-        // engine. Bound from appsettings.json:Script section — see
-        // ScriptEngineOptions for default values (64 MB heap, 16 MiB
-        // new, 48 MiB old). Mirrors DbcOptions factory-closure pattern.
-        builder.Services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<IConfiguration>().GetSection("Script");
-            return new PeakCan.Host.App.Services.Scripting.ScriptEngineOptions(
-                MaxHeapSizeMB: config.GetValue<int?>("MaxHeapSizeMB") ?? 64,
-                MaxNewSpaceSizeMB: config.GetValue<int?>("MaxNewSpaceSizeMB") ?? 16,
-                MaxOldSpaceSizeMB: config.GetValue<int?>("MaxOldSpaceSizeMB") ?? 48);
-        });
-        builder.Services.AddSingleton<StatisticsService>();
-        // StatisticsService is a BackgroundService; its 1Hz snapshot loop
-        // needs IHostedService registration too. Without this, Stats view
-        // never refreshes — matches TraceService bug pattern.
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<StatisticsService>());
-        // v0.5.0: frame recording (ASC/CSV) and cyclic send.
-        builder.Services.AddSingleton<RecordService>();
-        // v1.2.12 PATCH Item 5: RecordService is a BackgroundService; its
-        // writer thread + 1Hz flush need IHostedService registration.
-        // Without this, ExecuteAsync never starts and frames never reach disk.
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordService>());
-        builder.Services.AddSingleton<CyclicSendService>();
-        // v1.2.11 PATCH Item 3: register cyclic service as its interface
-        // so SendViewModel can be tested with a fake via ICyclicSendService.
-        builder.Services.AddSingleton<ICyclicSendService>(sp =>
-            sp.GetRequiredService<CyclicSendService>());
-        // v1.2.11 PATCH Item 5: named-frame library persistence.
-        builder.Services.AddSingleton<SendFrameLibrary>();
+        // === Flow C: App services extracted to AppHostBuilder/AppServicesFlow.cs (W11 Task 3) ===
+        RegisterAppServices(builder.Services);
 
-        // v1.4.0 MINOR Replay: ReplayFrameSinkAdapter wraps SendService so
-        // replay frames traverse the same outbound path as the SendView
-        // (the adapter's XML doc explains why SendService and not
-        // ChannelRouter — ChannelRouter is receive-only fan-out).
-        // v1.6.5 PATCH Item 1: REPLAY IS EXEMPT from rate-limit —
-        // timeline-driven playback must honor ASC timestamps; gating
-        // it would scramble the timeline. Inject CoreSendService (raw)
-        // instead of letting DI auto-resolve SendService (which would
-        // be the RateLimitedSendService decorator).
-        // Register the concrete type first so the IReplayFrameSink factory
-        // and any direct IReplayService consumer share the same instance.
-        builder.Services.AddSingleton<ReplayFrameSinkAdapter>(sp =>
-            new ReplayFrameSinkAdapter(sp.GetRequiredService<CoreSendService>()));
-        builder.Services.AddSingleton<IReplayFrameSink>(sp =>
-            sp.GetRequiredService<ReplayFrameSinkAdapter>());
-        builder.Services.AddSingleton<IReplayService, ReplayService>();
-        // v1.4.0 MINOR Send DBC: stateless DbcEncodeService singleton
-        // shared by DbcSendViewModel.
-        builder.Services.AddSingleton<DbcEncodeService>();
-        // v1.5.1 PATCH Item 2 (Periodic DBC send): independent service
-        // per Decision 7 — does NOT share code with CyclicSendService.
-        // Register concrete type first so the IReplayService-style
-        // "interface and concrete resolve to same instance" pattern is
-        // preserved.
-        builder.Services.AddSingleton<CyclicDbcSendService>();
-        builder.Services.AddSingleton<ICyclicDbcSendService>(sp =>
-            sp.GetRequiredService<CyclicDbcSendService>());
-        // v2.0.6 PATCH Bug-2: DbcSendViewModel must be registered as a
-        // singleton so SendViewModel.DbcSend resolves to a real instance
-        // in production (its ctor param defaults to null and DI never
-        // wired it up). Without this, SendView.xaml's
-        // DataContext="{Binding DbcSend}" evaluates to null, the DBC
-        // sub-panel's ComboBox / DataGrid / Send button all bind to
-        // nothing, and "DBC mode" appears empty even after a successful
-        // DBC load. Dependencies (DbcEncodeService, SendService,
-        // DbcService, ICyclicDbcSendService) are registered above.
-        builder.Services.AddSingleton<DbcSendViewModel>(sp =>
-        {
-            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
-            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
-                ? () => rateLimited.RejectedFrameCount
-                : null;
-            return new DbcSendViewModel(
-                sp.GetRequiredService<DbcEncodeService>(),
-                sendSvc,
-                sp.GetRequiredService<DbcService>(),
-                sp.GetRequiredService<ICyclicDbcSendService>(),
-                // v3.1.0 MINOR: real ILogger<> (W1 silent-log fix).
-                sp.GetRequiredService<ILogger<DbcSendViewModel>>(),
-                rateLimitRejectedCountProvider: rejectedCountProvider);
-        });
-        // v2.1.0 MINOR: multi-frame sequence send. SequenceSendService
-        // wraps SendService for concurrent/sequential frame dispatch;
-        // MultiFrameSendViewModel drives the non-modal window's UI.
-        // The Window itself is NOT DI-registered — WPF Window
-        // construction requires STA + live Application, so DI
-        // resolution throws on the test thread. SendViewModel
-        // lazy-creates the Window on first OpenMultiFrameSend call.
-        // v2.1.1 PATCH: SequenceSendService now also depends on
-        // DbcEncodeService + DbcService for DBC-row encoding; the
-        // MultiFrameSendViewModel depends on DbcService for the
-        // message picker. Both already registered above.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(sp =>
-            new PeakCan.Host.App.Services.MultiFrame.SequenceSendService(
-                sp.GetRequiredService<PeakCan.Host.App.Services.SendService>(),
-                sp.GetRequiredService<PeakCan.Host.Core.Dbc.DbcEncodeService>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
-        // v2.1.2 PATCH: SequenceLibrary persists named sequences to
-        // %APPDATA%\PeakCan.Host\sequences.json. Wired into the
-        // multi-frame VM factory so SaveCurrent / LoadSaved / DeleteSaved
-        // commands reach the library.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Sequence.SequenceLibrary>();
-        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(sp =>
-        {
-            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
-            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
-                ? () => rateLimited.RejectedFrameCount
-                : null;
-            return new PeakCan.Host.App.ViewModels.MultiFrameSendViewModel(
-                sp.GetRequiredService<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.Sequence.SequenceLibrary>(),
-                // v3.1.0 MINOR: real ILogger<> (W1 silent-log fix).
-                sp.GetRequiredService<ILogger<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>>(),
-                rateLimitRejectedCountProvider: rejectedCountProvider);
-        });
-        // v1.2.11 PATCH Item 6: Recording tab VM (wraps RecordService).
-        // v1.2.12 PATCH Item 6: also register as IHostedService so the
-        // host disposes it on shutdown — the VM's DispatcherTimer would
-        // otherwise keep ticking (and keep the VM alive) until process
-        // exit, leaking in STA-WPF xunit fixtures and across shell
-        // navigation in production.
-        builder.Services.AddSingleton<RecordViewModel>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<RecordViewModel>());
-        // v2.1.4 PATCH: Replay tab VM. Closes the v1.4.0 MINOR orphan —
-        // ReplayView + IReplayService were wired but ReplayViewModel
-        // itself was never registered, so AppShell could not navigate to
-        // the tab. Standard AddSingleton matches the RecordViewModel
-        // precedent (no IHostedService — ReplayVM has no Dispose-time
-        // background timer that needs host shutdown).
-        builder.Services.AddSingleton<ReplayViewModel>();
+        // === Flow D: ViewModels batch 1 extracted to AppHostBuilder/ViewModelsBatch1Flow.cs (W11 Task 4) ===
+        RegisterViewModelsBatch1(builder.Services);
 
-        // v3.0 MINOR Task 7: Trace Viewer (non-modal inspection window —
-        // see docs/superpowers/specs/2026-07-03-trace-viewer-design.md).
-        // ITraceViewerService follows the IReplayService precedent — singleton
-        // so the ReplayTimeline + loaded ASC state is shared across consumers.
-        // TraceViewerViewModel is a singleton so AppShellViewModel (also a
-        // singleton) constructs with the same instance, preserving the
-        // loaded trace + signal list + chart scrubber position across menu
-        // round-trips. TraceViewerView itself is NOT registered with DI: WPF
-        // Window ctor requires STA, and the AppShell shell already owns a
-        // cached lazy field (_traceViewerView) matching the ShowReplayCommand
-        // precedent — see AppShellViewModel.ShowTraceViewer for the resolve
-        // path (resolves TraceViewerViewModel from DI on first show, news
-        // a TraceViewerView with it).
-        // v3.2.0 MINOR: TraceViewerViewModel is now backed by ITraceSessionRegistry
-        // instead of a single ITraceViewerService. The per-load
-        // TraceViewerService instances live inside the registry (created on
-        // LoadAsync, disposed on UnloadAsync). Palette (Tableau-10) is wired
-        // before the registry so the registry ctor can resolve colors.
-        // ITraceViewerService is no longer registered as a singleton — the
-        // registry owns its service instances.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITracePalette,
-                                       PeakCan.Host.App.Services.Trace.TableauPalette>();
-        // v3.10.0 MINOR T4 (H5): bind ReplayOptions from configuration.
-        // Mirrors DbcOptions / PathOptions / ScriptEngineOptions factory-closure
-        // pattern so the operator can dial the ASC parser size cap via
-        // appsettings.json:Replay:MaxFileSizeBytes without a recompile. When
-        // the section is absent the 200 MB default (ReplayOptions.DefaultMaxFileSizeBytes)
-        // is preserved, so legacy operators see no observable change.
-        builder.Services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var maxBytes = config.GetValue<long?>("Replay:MaxFileSizeBytes")
-                ?? ReplayOptions.DefaultMaxFileSizeBytes;
-            return new ReplayOptions(MaxFileSizeBytes: maxBytes);
-        });
-        // v3.10.0 MINOR T4 (H5): inject the configured ReplayOptions into
-        // the registry so each per-load TraceViewerService receives the
-        // operator's appsettings.json override. Pre-fix, the registry's
-        // 2-arg ctor used ReplayOptions.Default internally and the DI
-        // binding above was silently discarded — configurability goal unmet.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry,
-                                       PeakCan.Host.App.Services.Trace.TraceSessionRegistry>(sp =>
-            new PeakCan.Host.App.Services.Trace.TraceSessionRegistry(
-                sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITracePalette>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ReplayOptions>()));
-        // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
-        // DbcService is registered above (singleton, AddSingleton with factory);
-        // the logger is auto-wired by Microsoft.Extensions.Hosting.
-        builder.Services.AddSingleton<TraceViewerViewModel>();
-        // v3.5.0 MINOR: persists Trace Viewer multi-trace sessions to .tmtrace
-        // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
-        // OpenSessionAsync commands.
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionLibrary>();
-        // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic for Trace +
-        // Replay VMs. Both VMs delegate the scalar envelope + content-hash
-        // computation to this helper; VM-specific Sources / Playback /
-        // Viewports stay on the caller. Singleton because it owns no
-        // state (only a hasher reference + a logger).
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionSnapshotBuilder>();
-        // v3.6.4 PATCH: hash-based .asc relocation. IAscContentHasher
-        // computes SHA-256 of an .asc's contents (stored alongside the
-        // path in the bundle); IAscLocator walks user-known directories
-        // when the recorded path is missing and recovers the file via
-        // hash match. The search-dir list lives at
-        // %APPDATA%/PeakCan.Host/asc-search-dirs.json (a future MINOR
-        // can add a Settings UI; this PATCH keeps the surface minimal).
-        builder.Services.AddSingleton<PeakCan.Host.Core.Services.IAscContentHasher,
-                                       PeakCan.Host.Core.Services.Sha256AscContentHasher>();
-        builder.Services.AddSingleton<PeakCan.Host.Core.Services.IAscLocator,
-                                       PeakCan.Host.Core.Services.FileSystemAscLocator>();
-        // v3.6.0 MINOR T3: most-recently-used list backing the AppShell
-        // File ▸ Open Recent menu. Singleton so AppShell and any future
-        // consumer (e.g. keyboard shortcut handler) observe the same
-        // ordering. Persists to %APPDATA%/PeakCan.Host/recent-sessions.json
-        // via internal DefaultPath (mirrors TraceSessionLibrary pattern).
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Trace.RecentSessionsService>();
 
-        // v3.6.0 MINOR T2: auto-save + auto-restore prompt. Wired into
-        // App.OnExit (flush) and App.OnStartup (prompt) so users get
-        // their session back across app restarts without manual Save.
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.TraceSessionAutoSaver>();
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.ITraceViewerViewModelProvider,
-            PeakCan.Host.App.Services.Trace.ServiceProviderTraceViewerViewModelProvider>();
-        // v3.7.0 MINOR Chunk 3: Replay auto-save + restore-prompt. Shares
-        // the same IAutoSavePrefsStore / IMessageBoxPrompt singletons as
-        // Trace (one opt-out flag for both tabs).
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.ReplaySessionAutoSaver>();
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.IReplayViewModelProvider,
-            PeakCan.Host.App.Services.Trace.ServiceProviderReplayViewModelProvider>();
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.IAutoSavePrefsStore>(sp =>
-            new PeakCan.Host.App.Services.Trace.FileAutoSavePrefsStore(
-                Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "PeakCan.Host", "auto-save-prefs.json"),
-                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Trace.FileAutoSavePrefsStore>>()));
-        builder.Services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.IMessageBoxPrompt,
-            PeakCan.Host.App.Services.Trace.WpfMessageBoxPrompt>();
+        // === Flow E: ViewModels batch 2 (Range A: TraceViewer section) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
+        RegisterViewModelsBatch2(builder.Services);
 
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.Host.Core.IFileDialogService,
@@ -680,65 +304,13 @@ public class AppHostBuilder
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
-        builder.Services.AddSingleton<TraceViewModel>();
-        // A4 orphan PATCH (v3.0.8): SendViewModel needs a
-        // Func<long> that returns the current rate-limit rejected
-        // frame count. Resolved by pattern-matching the registered
-        // SendService against RateLimitedSendService. The null branch
-        // is defensive-only — current DI always wraps the SendService
-        // in a RateLimitedSendService decorator (line 175-180 below
-        // registers a factory that always returns the decorator, even
-        // when MaxFramesPerSecond=0 the decorator instance is still
-        // constructed and its RejectedFrameCount stays at 0). The
-        // pattern-match is future-proofing against a DI refactor that
-        // might bypass the decorator for callers that opt out of rate
-        // limiting.
-        builder.Services.AddSingleton<SendViewModel>(sp =>
-        {
-            var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
-            Func<long>? rejectedCountProvider = sendSvc is PeakCan.Host.App.Services.RateLimitedSendService rateLimited
-                ? () => rateLimited.RejectedFrameCount
-                : null;
-            return new SendViewModel(
-                sendSvc,
-                sp.GetRequiredService<ILogger<SendViewModel>>(),
-                sp.GetRequiredService<ICyclicSendService>(),
-                sp.GetService<SendFrameLibrary>(),
-                dbcSend: sp.GetRequiredService<DbcSendViewModel>(),
-                multiFrameVm: sp.GetRequiredService<MultiFrameSendViewModel>(),
-                rateLimitRejectedCountProvider: rejectedCountProvider);
-        });
-        // v1.2.12 PATCH Item 6: also register as IHostedService so the
-        // host disposes it on shutdown (same rationale as RecordViewModel).
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<SendViewModel>());
-        builder.Services.AddSingleton<DbcViewModel>();
-        // v0.8.0: signal chart VM must be registered before SignalViewModel
-        // (SignalViewModel depends on it via constructor injection).
-        builder.Services.AddSingleton<SignalChartViewModel>();
-        builder.Services.AddSingleton<SignalViewModel>();
-        // v1.2.12 PATCH Item 6: also register as IHostedService so the
-        // host disposes the System.Threading.Timer drain on shutdown.
-        // Without this, the timer's strong ref to the VM keeps the VM
-        // alive across STA-WPF xunit fixtures and after shell teardown.
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<SignalViewModel>());
-        builder.Services.AddSingleton<StatsViewModel>();
-        builder.Services.AddSingleton<ScriptViewModel>();
 
-        // Windows: AppShell is a WPF Window whose ctor requires an STA thread
-        // (xunit's MTA threadpool cannot instantiate it). Register via a
-        // factory that the host resolves on demand; production callers must
-        // resolve AppShell from the STA thread (App.OnStartup qualifies).
-        // The factory wires the VM via DataContext so XAML bindings resolve.
-        builder.Services.AddSingleton<AppShell>(sp => new AppShell
-        {
-            DataContext = sp.GetRequiredService<AppShellViewModel>()
-        });
+        // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
+        RegisterViewModelsBatch2(builder.Services);
 
-        // Task 13: hosted service that wires the App-layer sinks
-        // (TraceService + BusStatisticsCollector) into ChannelRouter at
-        // host startup. Closes the Task 12 gap where the two were
-        // registered as singletons but never connected.
-        builder.Services.AddHostedService<SinkWiringService>();
+        // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
+        RegisterWindowAndHostedServices(builder.Services);
+
         return builder.Build();
     }
 }
