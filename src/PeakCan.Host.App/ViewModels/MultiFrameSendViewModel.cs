@@ -101,13 +101,6 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
             ? System.Windows.Visibility.Visible
             : System.Windows.Visibility.Collapsed;
 
-    /// <summary>
-    /// v3.0.9 PATCH: re-raise PropertyChanged for the computed
-    /// <see cref="RateLimitRejectedVisibility"/> whenever the underlying
-    /// <see cref="RateLimitRejectedCount"/> changes.
-    /// </summary>
-    partial void OnRateLimitRejectedCountChanged(long value)
-        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
 
     public MultiFrameSendViewModel(SequenceSendService service)
         : this(service, null, null, Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiFrameSendViewModel>.Instance, null) { }
@@ -199,19 +192,6 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
         RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
 
-    private void OnDbcLoaded(DbcDocument doc)
-    {
-        // DbcLoaded fires on a worker thread (DbcService.LoadAsync);
-        // ObservableCollection mutation must happen on the UI
-        // dispatcher. RunOnUi pattern matches DbcViewModel /
-        // DbcSendViewModel.
-        ((Action)(() =>
-        {
-            AvailableDbcMessages.Clear();
-            foreach (var msg in doc.Messages)
-                AvailableDbcMessages.Add(msg);
-        })).RunOnUi();
-    }
 
     private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         RefreshProgressMax();
@@ -503,4 +483,5 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     }
 
     // === Flow E methods moved to MultiFrameSendViewModel/LifecycleFlow.cs (W7 Task 1) ===
+    // === Flow D methods moved to MultiFrameSendViewModel/DbcIntegrationFlow.cs (W7 Task 2) ===
 }
