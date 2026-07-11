@@ -329,42 +329,6 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         return flags;
     }
 
-    // v1.2.11 PATCH Item 3: cyclic-send commands exposed to SendView.xaml.
-
-    [RelayCommand]
-    private void StartCyclic()
-    {
-        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
-        {
-            Status = $"Invalid ID: {IdText}";
-            return;
-        }
-        if (!int.TryParse(CyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
-            || ms < 1 || ms > 60_000)
-        {
-            Status = $"Invalid interval: {CyclicIntervalText} (must be 1..60000 ms)";
-            return;
-        }
-        if (IsRtr && IsFd)
-        {
-            Status = "RTR is not valid for CAN FD (classic CAN only)";
-            return;
-        }
-        var bytes = ParseHex(DataText);
-        var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var frame = new CanFrame(canId, bytes, BuildFlags(), ChannelId.None, default);
-        _cyclic.Start(frame, TimeSpan.FromMilliseconds(ms));
-        IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic started: every {ms} ms";
-    }
-
-    [RelayCommand]
-    private void StopCyclic()
-    {
-        _cyclic.Stop();
-        IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic stopped ({CyclicSuccessCount} ok / {CyclicFailureCount} fail)";
-    }
 
     // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.
 
@@ -520,4 +484,5 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         Status = "Multi-frame send window opened";
     }
     // === Flow D methods moved to SendViewModel/LifecycleFlow.cs (W6 Task 1) ===
+    // === Flow B methods moved to SendViewModel/CyclicFlow.cs (W6 Task 2) ===
 }
