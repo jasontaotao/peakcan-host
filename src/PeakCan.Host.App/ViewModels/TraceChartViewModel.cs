@@ -156,49 +156,6 @@ public sealed partial class TraceChartViewModel : ObservableObject
 
     public void SetTotalDuration(double seconds) => TotalDuration = seconds;
 
-    public IEnumerable<TraceChartStatistics> GetStatistics()
-    {
-        foreach (var s in Series)
-        {
-            if (s.YValues.Count == 0)
-            {
-                yield return new TraceChartStatistics(s.SignalKey, double.NaN, double.NaN, double.NaN, 0);
-                continue;
-            }
-            var min = s.YValues.Min();
-            var max = s.YValues.Max();
-            var avg = s.YValues.Average();
-            yield return new TraceChartStatistics(s.SignalKey, min, max, avg, s.YValues.Count);
-        }
-    }
-
-    public void ExportToCsv(string filePath)
-    {
-        if (Series.Count == 0) return;
-        var sb = new StringBuilder();
-        sb.Append("Time (s)");
-        foreach (var s in Series) sb.Append(',').Append(s.DisplayName);
-        sb.AppendLine();
-        var allX = Series.SelectMany(s => s.XValues).Distinct().OrderBy(x => x).ToList();
-        var lookups = Series.ToDictionary(s => s.SignalKey, s =>
-        {
-            var dict = new Dictionary<double, double>(s.XValues.Count);
-            for (int i = 0; i < s.XValues.Count; i++) dict[s.XValues[i]] = s.YValues[i];
-            return dict;
-        });
-        foreach (var x in allX)
-        {
-            sb.Append(x.ToString("F3", CultureInfo.InvariantCulture));
-            foreach (var s in Series)
-            {
-                sb.Append(',');
-                if (lookups[s.SignalKey].TryGetValue(x, out var y))
-                    sb.Append(y.ToString("G", CultureInfo.InvariantCulture));
-            }
-            sb.AppendLine();
-        }
-        File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
-    }
 
 
     /// <summary>
@@ -397,4 +354,5 @@ public sealed partial class TraceChartViewModel : ObservableObject
         if (changed && (anyFocused || anyCollapsed)) RecomputeHeights();
     }
     // === Flow D methods moved to TraceChartViewModel/FocusCollapseFlow.cs (W8 Task 1) ===
+    // === Flow C methods moved to TraceChartViewModel/StatisticsFlow.cs (W8 Task 2) ===
 }
