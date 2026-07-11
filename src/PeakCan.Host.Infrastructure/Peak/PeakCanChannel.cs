@@ -42,6 +42,18 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// read in the same iteration.
 /// </para>
 /// <para>
+/// <b>v3.16.9.4 PATCH — read-loop errors surface to UI:</b> in addition
+/// to the <c>ILogger</c> calls above, every per-iteration failure also
+/// raises <see cref="ICanChannel.ReadLoopError"/>, and the give-up event
+/// (after <see cref="MaxConsecutiveReadFailures"/> failures) raises the
+/// same event with <see cref="ReadLoopErrorKind.LoopGivingUp"/>. Production
+/// UI (e.g. <c>AppShellViewModel</c>) subscribes to this event and updates
+/// the StatusMessage so bus-off / driver-unload / hardware-fault conditions
+/// are visible to the operator instead of looking like a "connected but
+/// no frames" state. Pre-v3.16.9.4 the read loop only logged; see
+/// <c>docs/release-notes-v3.16.9.4.md</c> for the full rationale.
+/// </para>
+/// <para>
 /// <b>Classic baud dispatch:</b> <see cref="BaudRate"/> in Core
 /// no longer carries the PEAK <c>TPCANBaudrate?</c> field (Core must not
 /// depend on the PEAK SDK per NetArchTest rule 2). For classic CAN
