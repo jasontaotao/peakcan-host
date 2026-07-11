@@ -1,0 +1,46 @@
+# v3.18.0 PATCH: normalize line endings to LF
+#
+# Background: The repo's local config has `core.eol=lf` but no
+# `.gitattributes` enforcement. When a developer on Windows (default
+# CRLF in many editors) commits a file, git stores CRLF in the index.
+# Future merges against files that were committed with LF then treat
+# every line as a whitespace conflict, producing 12-file merge bombs
+# even when content is byte-identical.
+#
+# This file normalizes line endings on commit (LF for text) while
+# preserving CRLF in working trees where it's intentional (none, for
+# this repo).
+#
+# Symptom this fixes: `git merge` produces conflict markers spanning
+# hundreds of lines on files where HEAD=CRLF and origin/main=LF.
+
+# Default: detect text/binary automatically, normalize to LF on commit
+* text=auto eol=lf
+
+# Force LF for code files even if some tool misclassifies them
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.sln text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.xml text eol=lf
+*.xaml text eol=lf
+*.cshtml text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+
+# Binary files (explicit, just to be safe)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.pdb binary
+*.zip binary
+*.pdf binary
