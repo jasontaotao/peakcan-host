@@ -108,16 +108,6 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
             ? System.Windows.Visibility.Visible
             : System.Windows.Visibility.Collapsed;
 
-    /// <summary>
-    /// Raised by <see cref="OnRateLimitRejectedCountChanged"/> whenever
-    /// <see cref="RateLimitRejectedCount"/> changes so WPF re-evaluates
-    /// <see cref="RateLimitRejectedVisibility"/>. Without this hook the
-    /// Visibility binding would not refresh because the underlying
-    /// property change notification is for the long, not the computed
-    /// Visibility.
-    /// </summary>
-    partial void OnRateLimitRejectedCountChanged(long value)
-        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
 
     // v1.2.11 PATCH Item 5 UI: library list bound to the SendView DataGrid.
     [ObservableProperty]
@@ -202,17 +192,6 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
 
-    /// <summary>
-    /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM
-    /// can be GC'd after the shell navigates away. Production callers
-    /// should dispose the VM when the Send tab is closed; tests ignore
-    /// (timer keeps running but the xunit fixture ends before it matters).
-    /// </summary>
-    public void Dispose()
-    {
-        _pollTimer.Stop();
-        GC.SuppressFinalize(this);
-    }
 
     // v1.2.12 PATCH Item 6: IHostedService no-op implementations. See
     // RecordViewModel for rationale — the VM is a passive sink, the
@@ -221,79 +200,6 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     Task IHostedService.StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    [RelayCommand]
-    private async Task SendAsync()
-    {
-        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
-        {
-            Status = $"Invalid ID: {IdText}";
-            LogInvalidId(_logger, IdText);
-            return;
-        }
-        // Pre-validate ID against the chosen frame format. CanId ctor
-        // throws ArgumentOutOfRangeException for out-of-range raw values;
-        // we surface a friendly status here instead of letting the
-        // SDK exception path handle it.
-        var maxId = IsExtended ? 0x1FFFFFFFu : 0x7FFu;
-        if (raw > maxId)
-        {
-            Status = $"ID 0x{raw:X} exceeds max for {(IsExtended ? "Extended (29-bit)" : "Standard (11-bit)")} (max 0x{maxId:X})";
-            LogInvalidId(_logger, IdText);
-            return;
-        }
-        byte[] bytes;
-        try
-        {
-            bytes = ParseHex(DataText);
-        }
-        catch (FormatException ex)
-        {
-            // Defensive: ParseHex only throws on a non-hex character that
-            // survived the strip-separator step, OR on an all-separator
-            // input that strips down to empty (footgun: user clicks Send
-            // after clearing the data field). Treat both as a user input
-            // error, not a bug.
-            Status = $"Invalid data: {ex.Message}";
-            LogInvalidData(_logger, DataText, ex);
-            return;
-        }
-        var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        // v1.2.11 PATCH Item 4: RTR + FD is not a valid CAN frame per the
-        // ISO 11898-1 spec (RTR applies to classic CAN only). Reject loudly
-        // so the user fixes the input rather than seeing a silent zero-byte
-        // classic frame go out.
-        if (IsRtr && IsFd)
-        {
-            Status = "RTR is not valid for CAN FD (classic CAN only)";
-            LogInvalidId(_logger, "RTR+FD");
-            return;
-        }
-        var flags = BuildFlags();
-        var frame = new CanFrame(canId, bytes, flags, ChannelId.None, default);
-        try
-        {
-            var r = await _svc.SendAsync(frame).ConfigureAwait(true);
-            Status = r.IsSuccess
-                ? $"Sent {bytes.Length} bytes @ 0x{canId}"
-                : $"FAIL: {r.Error!.Code} {r.Error.Message}";
-            if (r.IsSuccess)
-            {
-                LogSendOk(_logger, canId, bytes.Length);
-            }
-            else
-            {
-                LogSendFailed(_logger, canId, r.Error!.Code, r.Error.Message);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Never let an SDK / channel exception escape the command —
-            // the WPF dispatcher would surface it as an unhandled
-            // exception and crash the app on a non-issue.
-            Status = $"FAIL: {ex.Message}";
-            LogSendThrew(_logger, canId, ex);
-        }
-    }
 
     /// <summary>
     /// Parse a hex string into bytes. Accepts optional spaces and dashes
@@ -340,194 +246,12 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         return flags;
     }
 
-    // v1.2.11 PATCH Item 3: cyclic-send commands exposed to SendView.xaml.
 
-    [RelayCommand]
-    private void StartCyclic()
-    {
-        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
-        {
-            Status = $"Invalid ID: {IdText}";
-            return;
-        }
-        if (!int.TryParse(CyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
-            || ms < 1 || ms > 60_000)
-        {
-            Status = $"Invalid interval: {CyclicIntervalText} (must be 1..60000 ms)";
-            return;
-        }
-        if (IsRtr && IsFd)
-        {
-            Status = "RTR is not valid for CAN FD (classic CAN only)";
-            return;
-        }
-        var bytes = ParseHex(DataText);
-        var canId = new CanId(raw, IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var frame = new CanFrame(canId, bytes, BuildFlags(), ChannelId.None, default);
-        _cyclic.Start(frame, TimeSpan.FromMilliseconds(ms));
-        IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic started: every {ms} ms";
-    }
 
-    [RelayCommand]
-    private void StopCyclic()
-    {
-        _cyclic.Stop();
-        IsCyclicRunning = _cyclic.IsRunning;
-        Status = $"Cyclic stopped ({CyclicSuccessCount} ok / {CyclicFailureCount} fail)";
-    }
 
-    // v1.2.11 PATCH Item 5 UI: library commands bound to the SendView Expander.
 
-    [RelayCommand]
-    private void RefreshLibrary()
-    {
-        Library.Clear();
-        if (_libraryService is null) return;
-        foreach (var f in _libraryService.Load()) Library.Add(f);
-    }
-
-    [RelayCommand]
-    private void SaveCurrentToLibrary(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            Status = "Frame name is required";
-            return;
-        }
-        if (!uint.TryParse(IdText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
-        {
-            Status = $"Invalid ID: {IdText}";
-            return;
-        }
-        if (_libraryService is null)
-        {
-            Status = "Library unavailable";
-            return;
-        }
-        byte[] bytes;
-        try { bytes = ParseHex(DataText); }
-        catch (FormatException ex)
-        {
-            Status = $"Invalid data: {ex.Message}";
-            return;
-        }
-        var saved = new SendFrameLibrary.SavedFrame(
-            name, raw, IsExtended, IsFd, IsRtr, IsBitRateSwitch,
-            Convert.ToHexString(bytes), DateTimeOffset.UtcNow);
-        // v1.2.12 PATCH Item 1: route through the atomic Add so concurrent
-        // Save calls (e.g. double-clicked button) don't drop each other's
-        // read-modify-write. Catch IO / JSON exceptions and surface as a
-        // FAIL status rather than letting them escape the WPF dispatcher.
-        try
-        {
-            _libraryService.Add(saved);
-            RefreshLibrary();
-            Status = $"Saved '{name}' to library ({_libraryService.Count} frames).";
-        }
-        catch (Exception ex)
-        {
-            Status = $"FAIL: Save '{name}' to library: {ex.Message}";
-            LogSaveToLibraryFailed(_logger, ex, name);
-        }
-    }
-
-    [RelayCommand]
-    private void LoadFromLibrary(SendFrameLibrary.SavedFrame? frame)
-    {
-        if (frame is null) return;
-        IdText = frame.RawId.ToString("X", CultureInfo.InvariantCulture);
-        IsExtended = frame.IsExtended;
-        IsFd = frame.IsFd;
-        IsRtr = frame.IsRtr;
-        IsBitRateSwitch = frame.BitRateSwitch;
-        DataText = frame.DataHex;
-        Status = $"Loaded '{frame.Name}'";
-    }
-
-    [RelayCommand]
-    private void DeleteFromLibrary(SendFrameLibrary.SavedFrame? frame)
-    {
-        if (frame is null || _libraryService is null) return;
-        // v1.2.12 PATCH Item 1: route through the atomic Remove so concurrent
-        // Delete calls don't drop each other's read-modify-write. Report
-        // a friendly status when the frame was already gone (idempotent
-        // delete), and surface IO failures as FAIL.
-        try
-        {
-            if (_libraryService.Remove(frame.Name))
-            {
-                RefreshLibrary();
-                Status = $"Removed '{frame.Name}' from library.";
-            }
-            else
-            {
-                Status = $"'{frame.Name}' not found in library (already removed?).";
-            }
-        }
-        catch (Exception ex)
-        {
-            Status = $"FAIL: Remove '{frame.Name}': {ex.Message}";
-            LogDeleteFromLibraryFailed(_logger, ex, frame.Name);
-        }
-    }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid ID hex '{Input}'")]
-    private static partial void LogInvalidId(ILogger logger, string input);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Send rejected: invalid data hex '{Input}'")]
-    private static partial void LogInvalidData(ILogger logger, string input, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Sent CAN frame {CanId} ({Length} bytes)")]
-    private static partial void LogSendOk(ILogger logger, CanId canId, int length);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Send failed for {CanId}: {Code} {Message}")]
-    private static partial void LogSendFailed(ILogger logger, CanId canId, ErrorCode code, string message);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Send threw for {CanId}")]
-    private static partial void LogSendThrew(ILogger logger, CanId canId, Exception ex);
-
-    // v1.2.12 PATCH Item 1: log IO / JSON failures from the atomic library
-    // Add/Remove path. The Status string is user-facing; these messages
-    // are the operator-facing diagnostics that survive a UI crash.
-    [LoggerMessage(EventId = 2001, Level = LogLevel.Error, Message = "Save '{Name}' to library failed")]
-    private static partial void LogSaveToLibraryFailed(ILogger logger, Exception ex, string name);
-
-    [LoggerMessage(EventId = 2002, Level = LogLevel.Error, Message = "Delete '{Name}' from library failed")]
-    private static partial void LogDeleteFromLibraryFailed(ILogger logger, Exception ex, string name);
-
-    // v2.1.0 MINOR: open the multi-frame send window (non-modal).
-    // The window is lazy-created on first call: WPF Window construction
-    // requires an STA thread + a live Application, so we can't
-    // resolve a Window from DI at container-build time. The VM is
-    // DI-resolved (singleton) but the Window itself is owned by
-    // SendViewModel and kept alive for the SendView's lifetime.
-    private MultiFrameSendWindow? _openMultiFrameWindow;
-
-    [RelayCommand]
-    private void OpenMultiFrameSend()
-    {
-        if (_multiFrameVm is null)
-        {
-            Status = "Multi-frame window unavailable";
-            return;
-        }
-        if (_openMultiFrameWindow is { } existing && existing.IsVisible)
-        {
-            if (existing.WindowState == WindowState.Minimized)
-                existing.WindowState = WindowState.Normal;
-            existing.Activate();
-            return;
-        }
-        _openMultiFrameWindow = new MultiFrameSendWindow(_multiFrameVm);
-        if (Application.Current?.MainWindow is { } owner && owner != _openMultiFrameWindow)
-            _openMultiFrameWindow.Owner = owner;
-        // v3.9.2 PATCH L3: mirror the v3.9.1 PATCH B1 fix
-        // (AppShellViewModel._traceViewerView.Closed reset) so the next
-        // OpenMultiFrameSend click takes the fresh-window path instead
-        // of stomp-and-leak on a closed instance.
-        _openMultiFrameWindow.Closed += (_, _) => _openMultiFrameWindow = null;
-        _openMultiFrameWindow.Show();
-        Status = "Multi-frame send window opened";
-    }
+    // === Flow D methods moved to SendViewModel/LifecycleFlow.cs (W6 Task 1) ===
+    // === Flow B methods moved to SendViewModel/CyclicFlow.cs (W6 Task 2) ===
+    // === Flow C methods moved to SendViewModel/LibraryFlow.cs (W6 Task 3) ===
+    // === Flow A methods moved to SendViewModel/FrameSendFlow.cs (W6 Task 4) ===
 }
