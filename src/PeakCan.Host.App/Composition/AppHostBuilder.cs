@@ -106,44 +106,9 @@ public partial class AppHostBuilder
         // environment variables + command line.
         builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 
-        // Core infrastructure
-        // v1.2.12 PATCH Item 11: ChannelRouter now accepts an ILogger<ChannelRouter>
-        // so the secondary OnError catch (which auto-detaches misbehaving sinks)
-        // is observable in Release builds. The logger is optional in the ctor
-        // (NullLogger fallback) but production DI always wires one.
-        builder.Services.AddSingleton<ChannelRouter>(sp =>
-            new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
-        builder.Services.AddSingleton<BusStatisticsCollector>();
-        // v3.5.2 PATCH: ITimerFactory seam so RecordService +
-        // StatisticsService can be unit-tested with a deterministic
-        // FakeTimerFactory (no wall-clock dependency). v3.5.4 PATCH:
-        // switched to CyclicTimerFactory so the same singleton handles
-        // both IPeriodicTimer (RecordService/StatisticsService/TraceService)
-        // and ICyclicTimer (CyclicSendService/CyclicDbcSendService). The
-        // factory is stateless — only the dispatch shape differs.
-        builder.Services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
-                                      PeakCan.Host.Core.Services.CyclicTimerFactory>();
-        // Task 18: extracted PEAK SDK probe call into a swappable
-        // service so the App assembly has no Peak.Can.Basic dependency
-        // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
-                                       PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
-        // v0.4.0: multi-channel enumerator. Probes PCAN-USB 1–16.
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelEnumerator,
-                                       PeakCan.Host.Infrastructure.Peak.PeakChannelEnumerator>();
-
-        // Task T3 (H4): the App-layer VM no longer news PeakCanChannel
-        // directly; it asks the factory for an ICanChannel. Production DI
-        // binds the PEAK implementation; tests inject a fake to drive the
-        // connect/disconnect state machine without hardware.
-        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelFactory,
-                                      PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
-
-        // v0.4.0: IPcanReader abstracts the PEAK SDK read calls so
-        // PeakCanChannel's read loop can be unit-tested without hardware.
-        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.IPcanReader,
-                                      PeakCan.Host.Infrastructure.Peak.PcanReader>();
+        // === Flow B: Core infrastructure extracted to AppHostBuilder/CoreInfrastructureFlow.cs (W11 Task 2) ===
+        RegisterCoreInfrastructure(builder.Services);
 
         // App services
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
