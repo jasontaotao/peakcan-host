@@ -202,17 +202,6 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
     }
 
-    /// <summary>
-    /// v1.2.11 PATCH review fix: stop and detach the poll timer so the VM
-    /// can be GC'd after the shell navigates away. Production callers
-    /// should dispose the VM when the Send tab is closed; tests ignore
-    /// (timer keeps running but the xunit fixture ends before it matters).
-    /// </summary>
-    public void Dispose()
-    {
-        _pollTimer.Stop();
-        GC.SuppressFinalize(this);
-    }
 
     // v1.2.12 PATCH Item 6: IHostedService no-op implementations. See
     // RecordViewModel for rationale — the VM is a passive sink, the
@@ -530,4 +519,5 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         _openMultiFrameWindow.Show();
         Status = "Multi-frame send window opened";
     }
+    // === Flow D methods moved to SendViewModel/LifecycleFlow.cs (W6 Task 1) ===
 }
