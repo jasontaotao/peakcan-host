@@ -308,21 +308,9 @@ public partial class AppHostBuilder
         // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
         RegisterViewModelsBatch2(builder.Services);
 
-        // Windows: AppShell is a WPF Window whose ctor requires an STA thread
-        // (xunit's MTA threadpool cannot instantiate it). Register via a
-        // factory that the host resolves on demand; production callers must
-        // resolve AppShell from the STA thread (App.OnStartup qualifies).
-        // The factory wires the VM via DataContext so XAML bindings resolve.
-        builder.Services.AddSingleton<AppShell>(sp => new AppShell
-        {
-            DataContext = sp.GetRequiredService<AppShellViewModel>()
-        });
+        // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
+        RegisterWindowAndHostedServices(builder.Services);
 
-        // Task 13: hosted service that wires the App-layer sinks
-        // (TraceService + BusStatisticsCollector) into ChannelRouter at
-        // host startup. Closes the Task 12 gap where the two were
-        // registered as singletons but never connected.
-        builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();
     }
 }
