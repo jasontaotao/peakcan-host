@@ -193,78 +193,6 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     }
 
 
-    private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        RefreshProgressMax();
-
-    private void RefreshProgressMax()
-    {
-        ProgressMax = Math.Max(0, Rows.Count) * Math.Max(1, Iterations);
-    }
-
-    partial void OnIterationsChanged(int value) => RefreshProgressMax();
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void AddRow()
-    {
-        Rows.Add(new MultiFrameSequenceRow());
-        SelectedRow = Rows[^1];
-    }
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void RemoveRow()
-    {
-        if (SelectedRow is null) return;
-        var idx = Rows.IndexOf(SelectedRow);
-        Rows.Remove(SelectedRow);
-        if (Rows.Count > 0)
-            SelectedRow = Rows[Math.Min(idx, Rows.Count - 1)];
-        else
-            SelectedRow = null;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void DuplicateRow()
-    {
-        if (SelectedRow is null) return;
-        var idx = Rows.IndexOf(SelectedRow);
-        var clone = new MultiFrameSequenceRow
-        {
-            Id = SelectedRow.Id,
-            DataHex = SelectedRow.DataHex,
-            IsExtended = SelectedRow.IsExtended,
-            IsFd = SelectedRow.IsFd,
-            IsRtr = SelectedRow.IsRtr,
-            IsBitRateSwitch = SelectedRow.IsBitRateSwitch,
-            IsErrorStateIndicator = SelectedRow.IsErrorStateIndicator,
-        };
-        Rows.Insert(idx + 1, clone);
-        SelectedRow = clone;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void MoveUp()
-    {
-        if (SelectedRow is null) return;
-        var idx = Rows.IndexOf(SelectedRow);
-        if (idx <= 0) return;
-        Rows.Move(idx, idx - 1);
-    }
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void MoveDown()
-    {
-        if (SelectedRow is null) return;
-        var idx = Rows.IndexOf(SelectedRow);
-        if (idx < 0 || idx >= Rows.Count - 1) return;
-        Rows.Move(idx, idx + 1);
-    }
-
-    [RelayCommand(CanExecute = nameof(CanEditRows))]
-    private void ClearRows()
-    {
-        Rows.Clear();
-        SelectedRow = null;
-    }
 
     private bool CanEditRows() => !IsRunning;
 
@@ -289,4 +217,5 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     // === Flow D methods moved to MultiFrameSendViewModel/DbcIntegrationFlow.cs (W7 Task 2) ===
     // === Flow C methods moved to MultiFrameSendViewModel/LibraryFlow.cs (W7 Task 3) ===
     // === Flow B methods moved to MultiFrameSendViewModel/SendFlow.cs (W7 Task 4) ===
+    // === Flow A methods moved to MultiFrameSendViewModel/RowManagementFlow.cs (W7 Task 5) ===
 }
