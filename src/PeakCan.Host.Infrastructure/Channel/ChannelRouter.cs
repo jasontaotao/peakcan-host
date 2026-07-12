@@ -109,29 +109,6 @@ public sealed partial class ChannelRouter : IFrameSource
     /// the channel's <c>FrameReceived</c> event directly.
     /// </para>
     /// </summary>
-    public void RegisterChannel(ICanChannel channel)
-    {
-        ArgumentNullException.ThrowIfNull(channel);
-        lock (_gate)
-        {
-            if (_channels.Contains(channel)) return;
-            _channels.Add(channel);
-            channel.FrameReceived += OnChannelFrame;
-        }
-    }
-
-    /// <summary>Unsubscribe from <paramref name="channel"/>. Idempotent.</summary>
-    public void UnregisterChannel(ICanChannel channel)
-    {
-        ArgumentNullException.ThrowIfNull(channel);
-        lock (_gate)
-        {
-            if (_channels.Remove(channel))
-            {
-                channel.FrameReceived -= OnChannelFrame;
-            }
-        }
-    }
 
     /// <summary>Add a sink to the fan-out list. Idempotent.</summary>
 
