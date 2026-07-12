@@ -6,7 +6,7 @@
 
 <meta charset="UTF-8">
 
-<title>PeakCan Host 用户使用手册 (v3.0.4)</title>
+<title>PeakCan Host 用户使用手册 (v3.39.0)</title>
 
 <style>
 
@@ -130,7 +130,7 @@
 
   <div class="meta">
 
-    <span>版本：<strong>v3.0.4</strong></span>
+    <span>版本：<strong>v3.39.0</strong></span>
 
     <span>框架：WPF · .NET 10</span>
 
@@ -2378,6 +2378,8 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
   <tr><td><strong>v3.0.2 ✅</strong></td><td>PATCH：v3.0.0 V1 UI stub 闭合——<code>PlotView.Height</code> 绑定 <code>TraceChartSeries.AdaptiveHeight</code>（不再 hardcode 160 px），由 <code>TraceChartViewModel.ChartAreaHeight</code> + <code>Compute</code> 静态算法按 spec §3 计算（collapsed 24 / focused <code>clamp(H·0.5, 80, 250)</code> / 其余 <code>clamp((H·0.5)/max(N-1,1), 80, 250)</code> / 一般 <code>clamp(H/N, 80, 250)</code>）；子图 header 增加 <code>[Focus]</code> + <code>[▼ Collapse]</code> 两个内联按钮；<code>Loaded</code> + <code>SizeChanged</code> 双 hook 驱动 <code>ChartAreaHeight</code> 实时同步窗口尺寸。</td></tr>
 
+  <tr><td><strong>v3.39.0 ✅</strong></td><td>MINOR：<strong>ChannelRouter god-class 重构</strong>（21st god-class refactor in W3-W25 series）——<code>src/PeakCan.Host.Infrastructure/Channel/ChannelRouter.cs</code> 拆分为 3 个 partial-class（<code>ChannelRouter/FrameRouting.partial.cs</code> + <code>ChannelRouter/Sinks.partial.cs</code> + <code>ChannelRouter/Channels.partial.cs</code>）。<strong>无 user-facing 行为变更</strong>——<code>ChannelRouter</code> 公开 API（<code>IFrameSource</code> + <code>RegisterChannel</code> + <code>UnregisterChannel</code> + <code>AttachSink</code> + <code>DetachSink</code>）签名、<code>Volatile.Read/Write</code> 内存语义、3 个 EventId（<code>6004</code> sink OnError + <code>6010</code> sink OnFrame + <code>6011</code> DetachSink 失败）全部保留不变；DI 注册路径 <code>AppHostBuilder.cs</code> 无修改。0 个 PEAK SDK 调用点受影响。用户视角无差异：连接/断开/帧分发/sink 注册逻辑完全一致。详见 <code>docs/release-notes-v3.39.0.md</code>。</td></tr>
+
   <tr><td><strong>v2.2 🔜</strong></td><td>ODX CONDITIONAL / ECU-VARIANT DIAG-LAYER 子类型支持 + V8 沙箱 ODX 加载白名单（安全审查后）。</td></tr>
 
 </table>
@@ -2478,7 +2480,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <footer>
 
-  PeakCan Host v3.0.4 用户使用手册 · 更新于 2026-07-04 ·
+  PeakCan Host v3.39.0 用户使用手册 · 更新于 2026-07-12 ·
 
   与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
 
