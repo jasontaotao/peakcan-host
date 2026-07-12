@@ -122,32 +122,7 @@ public sealed partial class ScriptEngine : IDisposable
     /// </para>
     /// </summary>
 
-    /// <summary>
-    /// Emit an output line to subscribers.
-    /// </summary>
-    internal void EmitOutput(ScriptOutputLine line)
-    {
-        OutputReceived?.Invoke(line);
-    }
 
-    /// <summary>
-    /// v1.7.3 PATCH Item 1: heuristic discrimination of V8 resource-cap
-    /// violations from generic runtime errors. ClearScript 7.4.5 has no
-    /// first-class <c>V8RuntimeViolationException</c> type (that name is
-    /// 7.5+); all V8 script errors surface as
-    /// <see cref="ScriptEngineException"/>. The filter matches broad V8
-    /// resource-violation keywords (heap, allocation, limit, memory) — if
-    /// ClearScript or V8 changes the message text, this helper is the
-    /// single tuning point.
-    /// </summary>
-    private static bool IsResourceLimit(ScriptEngineException ex)
-    {
-        var msg = ex.Message;
-        return msg.Contains("heap", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("allocation", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("limit", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("memory", StringComparison.OrdinalIgnoreCase);
-    }
 
     public void Dispose()
     {
@@ -221,4 +196,5 @@ public enum ScriptOutputLevel
     Error
     // === Flow A methods moved to ScriptEngine/ExecutionLifecycleFlow.cs (W14 Task 1) ===
     // === Flow B methods moved to ScriptEngine/CreateEngineFlow.cs (W14 Task 2) ===
+    // === Flow C methods moved to ScriptEngine/ScriptHelpersFlow.cs (W14 Task 3) ===
 }
