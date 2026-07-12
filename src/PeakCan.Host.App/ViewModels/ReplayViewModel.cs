@@ -160,79 +160,6 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     // old value. Now both stay in sync: rejected update = no field
     // change = UI TextBox reads old value via binding.
 
-    private double? _startTimestamp;
-
-    /// <summary>
-    /// Inclusive lower bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>.
-    /// null = unbounded below. Setter validates against <see cref="EndTimestamp"/>;
-    /// rejected updates keep the prior value and surface
-    /// <see cref="RangeFilterError"/>.
-    /// </summary>
-    public double? StartTimestamp
-    {
-        get => _startTimestamp;
-        set
-        {
-            if (!IsValidRange(value, _endTimestamp))
-            {
-                // Rejected: do NOT touch backing field, do NOT push to
-                // service. UI binding reads back the old value via the
-                // unchanged getter. RangeFilterError surfaces the reason.
-                RangeFilterError = "Start must be ≤ End";
-                return;
-            }
-            if (!EqualityComparer<double?>.Default.Equals(_startTimestamp, value))
-            {
-                _startTimestamp = value;
-                OnPropertyChanged();
-            }
-            _service.StartTimestamp = value;
-            RangeFilterError = null;
-        }
-    }
-
-    private double? _endTimestamp;
-
-    /// <summary>
-    /// Inclusive upper bound on emitted frames' <see cref="ReplayFrame.Timestamp"/>.
-    /// null = unbounded above. Mirrors <see cref="StartTimestamp"/> validation.
-    /// </summary>
-    public double? EndTimestamp
-    {
-        get => _endTimestamp;
-        set
-        {
-            if (!IsValidRange(_startTimestamp, value))
-            {
-                RangeFilterError = "Start must be ≤ End";
-                return;
-            }
-            if (!EqualityComparer<double?>.Default.Equals(_endTimestamp, value))
-            {
-                _endTimestamp = value;
-                OnPropertyChanged();
-            }
-            _service.EndTimestamp = value;
-            RangeFilterError = null;
-        }
-    }
-
-    /// <summary>
-    /// Range constraint validator shared by <see cref="StartTimestamp"/>
-    /// and <see cref="EndTimestamp"/> setters. Returns true when at least
-    /// one endpoint is null, or when start &lt;= end.
-    /// </summary>
-    private static bool IsValidRange(double? start, double? end)
-        => !(start.HasValue && end.HasValue && start > end);
-
-    // v1.5.1 PATCH Task 2: inline error shown next to the range
-    // TextBoxes when Start > End. Null when the range is valid (or
-    // both bounds are null / Start ≤ End). Single shared error
-    // property for both boxes — same conceptual error class.
-    [ObservableProperty]
-    private string? _rangeFilterError;
-
-    /// <summary>Inverse of <see cref="IsLoaded"/>. Convenience for XAML <c>IsEnabled</c> bindings.</summary>
     public bool IsNotLoaded => !IsLoaded;
 
     /// <summary>
@@ -302,119 +229,6 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
         RefreshRecentEntries();
     }
 
-    /// <summary>
-    /// v3.14.0 MINOR A3: handler for <see cref="RecentSessionsService"/>'s
-    /// INPC. Promoted from a lambda in the ctor so Dispose can cancel
-    /// the subscription. Lambdas are not referenceable from -= and
-    /// would otherwise pin this VM to the singleton's lifetime.
-    /// </summary>
-    private void OnRecentSessionsPropertyChanged(object? sender, PropertyChangedEventArgs e)
-        => RefreshRecentEntries();
-
-    /// <summary>
-    /// FrameEmitted is invoked on the timer callback thread. We Post the
-    /// timestamp update to the captured <see cref="SynchronizationContext"/>
-    /// so the binding writes occur on the UI thread. Without this, WPF
-    /// throws on cross-thread collection / DP access.
-    /// </summary>
-    private void OnFrameEmitted(ReplayFrame frame)
-    {
-        if (_syncContext is not null)
-        {
-            _syncContext.Post(_ => CurrentTimestamp = frame.Timestamp, null);
-        }
-        else
-        {
-            // Test path: no SynchronizationContext. Direct set is safe
-            // because tests don't pump the dispatcher — they assert on
-            // the value immediately after raising the event.
-            CurrentTimestamp = frame.Timestamp;
-        }
-    }
-
-    /// <summary>
-    /// v1.4.2 PATCH Item 3: invoked on the timer callback thread when
-    /// playback ends (EOF or sink failure). Surfaces sink failures in
-    /// <see cref="ErrorMessage"/>; on normal EOF, just resets
-    /// <see cref="IsPlaying"/>. Marshals to the captured
-    /// <see cref="SynchronizationContext"/> like <see cref="OnFrameEmitted"/>.
-    /// </summary>
-    private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
-    {
-        if (_syncContext is not null)
-        {
-            _syncContext.Post(_ => ApplyPlaybackEnded(e), null);
-        }
-        else
-        {
-            // Test path: no SynchronizationContext. Direct call is safe
-            // because tests assert on the state immediately after the event.
-            ApplyPlaybackEnded(e);
-        }
-    }
-
-    private void ApplyPlaybackEnded(PlaybackEndedEventArgs e)
-    {
-        if (e.Error is not null)
-        {
-            ErrorMessage = $"Replay aborted: {e.Error.Message}";
-        }
-        // Whether the end was normal (EOF) or error, stop playing.
-        IsPlaying = false;
-    }
-
-    /// <summary>
-    /// v3.9.2 PATCH H1: handler for
-    /// <see cref="IReplayService.LoopRewound"/>. Surfaced via
-    /// <see cref="StatusMessage"/> so the user sees the rewind happen
-    /// during A/B loop playback. Fired on the timer-callback thread —
-    /// marshal to <see cref="SynchronizationContext"/> like the
-    /// sibling <see cref="OnFrameEmitted"/> / <see cref="OnPlaybackEnded"/>
-    /// handlers.
-    /// </summary>
-    private void OnLoopRewound(object? sender, LoopRegionRewoundEventArgs e)
-    {
-        if (_syncContext is not null)
-        {
-            _syncContext.Post(_ => StatusMessage = $"Rewind: loop region ({e.Start:F2}s → {e.End:F2}s)", null);
-        }
-        else
-        {
-            // Test path: no SynchronizationContext. Direct call is safe
-            // because tests assert on the state immediately after the event.
-            StatusMessage = $"Rewind: loop region ({e.Start:F2}s → {e.End:F2}s)";
-        }
-    }
-
-    /// <summary>
-    /// Unsubscribe from <see cref="IReplayService.FrameEmitted"/> and
-    /// stop playback. Safe to call multiple times — the service is
-    /// thread-safe and <see cref="ReplayService.Stop"/> is idempotent.
-    /// <para>
-    /// v3.14.0 MINOR A2: cancel the v3.9.0 MINOR P1 LoopRewound subscription.
-    /// <see cref="IReplayService"/> is a DI singleton, so without the -=
-    /// the closure chain singleton → old-VM → old-frames prevents
-    /// old-VM GC.
-    /// </para>
-    /// <para>
-    /// v3.14.0 MINOR A3: cancel the <see cref="RecentSessionsService"/>
-    /// PropertyChanged subscription. The lambda in the ctor was promoted
-    /// to <see cref="OnRecentSessionsPropertyChanged"/> so Dispose can
-    /// -= it (lambdas can't be -=ed by reference). RecentSessionsService
-    /// is a DI singleton so without the -= the closure chain pins the VM.
-    /// </para>
-    /// </summary>
-    public void Dispose()
-    {
-        _service.LoopRewound -= OnLoopRewound;
-        _service.FrameEmitted -= OnFrameEmitted;
-        _service.PlaybackEnded -= OnPlaybackEnded;
-        // v3.14.0 MINOR A3: cancel the RecentSessionsService.PropertyChanged
-        // subscription. Matches the += in the ctor (promoted from lambda).
-        _recentSessions.PropertyChanged -= OnRecentSessionsPropertyChanged;
-        _service.Stop();
-        GC.SuppressFinalize(this);
-    }
 }
 
 /// <summary>
@@ -460,4 +274,6 @@ public sealed record LoopRegionVm(LoopRegionDto Dto)
     public string Display => Label is { Length: > 0 }
         ? $"[{Dto.Start:F3} – {Dto.End:F3}] {Label}"
         : $"[{Dto.Start:F3} – {Dto.End:F3}]";
+    // === Flow A members moved to ReplayViewModel.RangeFilter.partial.cs (W16 Task 1) ===
+    // === Flow B members moved to ReplayViewModel.PlaybackEvents.partial.cs (W16 Task 2) ===
 }
