@@ -42,7 +42,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// <see cref="StatsViewModel"/> and <see cref="SignalViewModel"/>.
 /// </para>
 /// </summary>
-public sealed class SignalChartViewModel : ObservableObject
+public sealed partial class SignalChartViewModel : ObservableObject
 {
     /// <summary>Per-signal statistics for the charted window.</summary>
     public sealed record SignalStatistics(
