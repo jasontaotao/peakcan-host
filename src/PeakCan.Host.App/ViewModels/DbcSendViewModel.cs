@@ -108,14 +108,6 @@ public sealed partial class DbcSendViewModel : ObservableObject
             ? System.Windows.Visibility.Visible
             : System.Windows.Visibility.Collapsed;
 
-    /// <summary>
-    /// v3.0.9 PATCH: re-raise PropertyChanged for the computed
-    /// <see cref="RateLimitRejectedVisibility"/> whenever the underlying
-    /// <see cref="RateLimitRejectedCount"/> changes.
-    /// </summary>
-    partial void OnRateLimitRejectedCountChanged(long value)
-        => OnPropertyChanged(nameof(RateLimitRejectedVisibility));
-
     public DbcSendViewModel(
         DbcEncodeService encoder,
         SendService sendService,
@@ -167,88 +159,7 @@ public sealed partial class DbcSendViewModel : ObservableObject
     }
 
     /// <summary>
-    /// v1.5.1 PATCH Item 2 (expanded v3.0.9): refresh the observable
-    /// properties from their authoritative sources. Called every 200 ms
-    /// by the <see cref="DispatcherTimer"/> in production, and directly
-    /// by tests (the DispatcherTimer doesn't fire in xunit's STA-WPF
-    /// test fixtures). Marked <c>internal</c> so the App.Tests assembly
-    /// can invoke it via <c>[InternalsVisibleTo("PeakCan.Host.App.Tests")]</c>.
-    /// </summary>
-    internal void Poll()
-    {
-        IsDbcCyclicRunning = _cyclicDbc.IsRunning;
-        DbcCyclicSuccessCount = _cyclicDbc.SuccessCount;
-        DbcCyclicFailureCount = _cyclicDbc.FailureCount;
-        // v3.1.0 MINOR: try/catch + [LoggerMessage] factored into the
-        // shared RateLimitStatus helper (3-way DRY refactor). W1 also
-        // fixed: logger was previously hardcoded to NullLogger<...>,
-        // silently dropping provider exceptions.
-        RateLimitRejectedCount = RateLimitStatus.Refresh(_getRejectedCount, RateLimitRejectedCount, _logger);
-    }
-
-    /// <summary>
-    /// v1.4.1 PATCH Item 3: repopulate <see cref="DbcMessages"/> when a
-    /// new DBC document is loaded after this VM was constructed.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="DbcService.LoadAsync"/> raises this event on its worker
-    /// thread (see the threading remarks on <see cref="DbcService"/>). The handler
-    /// body mutates <see cref="ObservableCollection{T}"/> instances bound
-    /// to WPF <c>ItemsControl</c>s, which throws
-    /// <see cref="NotSupportedException"/> on cross-thread mutation. The
-    /// <see cref="DispatcherExtensions.RunOnUi"/> chokepoint marshals the
-    /// body to the UI dispatcher. Mirrors the <see cref="DbcViewModel.OnLoaded"/>
-    /// pattern which uses the same chokepoint.
-    /// </remarks>
-    private void OnLoaded(DbcDocument doc)
-    {
-        ((Action)(() =>
-        {
-            // Reset selection FIRST so OnSelectedDbcMessageChanged(null)
-            // clears SignalRows via the partial method. Without this, the
-            // old selection's Signal objects (now stale) would persist
-            // until the user manually changes selection.
-            SelectedDbcMessage = null;
-            DbcMessages.Clear();
-            foreach (var msg in doc.Messages)
-            {
-                DbcMessages.Add(msg);
-            }
-            // Reset prior error so a stale failure from a previous
-            // message selection doesn't linger into the new document.
-            ErrorMessage = null;
-        })).RunOnUi();
-    }
-
-    /// <summary>
-    /// Selection-change hook (CommunityToolkit.Mvvm source generator).
-    /// Clears the previous signal rows and rebuilds from the new
-    /// message's signal list. Null selection leaves the rows empty.
-    /// <para>
-    /// v1.5.1 PATCH Item 2 (Periodic DBC send): if the user changes the
-    /// selected DBC message while periodic send is running, auto-stop the
-    /// periodic send first. Allowing the periodic send to continue with
-    /// stale SignalRows + a new Message would cause encode failures every
-    /// tick (the service's Message-id auto-stop would catch this anyway,
-    /// but a clean explicit stop + service call is more obvious to debug).
-    /// </para>
-    /// </summary>
-    partial void OnSelectedDbcMessageChanged(Message? value)
-    {
-        if (IsDbcCyclicRunning)
-        {
-            _cyclicDbc.Stop();
-            IsDbcCyclicRunning = false;
-        }
-        SignalRows.Clear();
-        if (value is null) return;
-        foreach (var sig in value.Signals)
-        {
-            SignalRows.Add(new DbcSignalRowViewModel(sig));
-        }
-        // StartDbcCyclic's CanExecute depends on SelectedDbcMessage.
-        StartDbcCyclicCommand.NotifyCanExecuteChanged();
-    }
+    // === Flow C methods moved to DbcSendViewModel/DbcLoadingFlow.cs (W24 Task 3) ===
 
     /// <summary>
     /// Encode the per-signal <see cref="DbcSignalRowViewModel.Value"/>
@@ -295,66 +206,9 @@ public sealed partial class DbcSendViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// v1.5.1 PATCH Item 2: start periodic DBC transmission on the
-    /// selected message at <see cref="DbcCyclicIntervalText"/> ms.
-    /// The frame provider supplies the current <see cref="SelectedDbcMessage"/>
-    /// + per-signal values, so user edits to the SignalRows DataGrid
-    /// flow into the periodic send path on the next tick (Decision 8).
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanStartDbcCyclic))]
-    private void StartDbcCyclic()
-    {
-        if (SelectedDbcMessage is null) return;
-        // v1.5.1 PATCH Item 2: interval is MILLISECONDS (UI label says so),
-        // not a TimeSpan string. TimeSpan.TryParse("100") returns 100 days,
-        // which would silently make the periodic send a 100-day timer.
-        // Mirror SendViewModel.cs:279-282 pattern: int.TryParse + bounds 1..60000.
-        if (!int.TryParse(DbcCyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
-            || ms < 1 || ms > 60_000)
-        {
-            ErrorMessage = $"Invalid interval: '{DbcCyclicIntervalText}' (must be 1..60000 ms)";
-            return;
-        }
-        var interval = TimeSpan.FromMilliseconds(ms);
-        _cyclicDbc.Start(
-            () => (SelectedDbcMessage!, BuildCurrentSignalValues()),
-            interval);
-        IsDbcCyclicRunning = true;
-    }
+    // === Flow B methods moved to DbcSendViewModel/CyclicFlow.cs (W24 Task 2) ===
 
-    /// <summary>v1.5.1 PATCH Item 2: stop the periodic DBC transmission.</summary>
-    [RelayCommand(CanExecute = nameof(CanStopDbcCyclic))]
-    private void StopDbcCyclic()
-    {
-        _cyclicDbc.Stop();
-        IsDbcCyclicRunning = false;
-    }
-
-    private bool CanStartDbcCyclic() =>
-        SelectedDbcMessage is not null
-        && !IsDbcCyclicRunning
-        && int.TryParse(DbcCyclicIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms)
-        && ms >= 1 && ms <= 60_000;
-
-    private bool CanStopDbcCyclic() => IsDbcCyclicRunning;
-
-    /// <summary>
-    /// v1.5.1 PATCH Item 2: capture the current per-signal values into
-    /// a fresh dictionary snapshot. The Func&lt;...&gt; provided to
-    /// <see cref="CyclicDbcSendService.Start"/> invokes this on each
-    /// tick, so user edits to the SignalRows DataGrid flow into the
-    /// periodic encode path naturally.
-    /// </summary>
-    private Dictionary<string, double> BuildCurrentSignalValues()
-    {
-        var values = new Dictionary<string, double>(StringComparer.Ordinal);
-        foreach (var row in SignalRows)
-        {
-            if (row.Value.HasValue) values[row.Signal.Name] = row.Value.Value;
-        }
-        return values;
-    }
+    // === Flow A methods moved to DbcSendViewModel/SendFlow.cs (W24 Task 1) ===
 }
 
 /// <summary>
