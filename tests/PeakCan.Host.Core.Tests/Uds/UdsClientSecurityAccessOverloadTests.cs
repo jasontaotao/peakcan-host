@@ -138,18 +138,30 @@ public class UdsClientSecurityAccessOverloadTests
     [Fact]
     public void TwoArg_Overload_XmlDoc_Mentions_MidHandshake_Race()
     {
-        // Read the source file for the 2-arg overload and assert the
+        // Read the source for the 2-arg overload and assert the
         // <remarks> block documents the mid-handshake race. We slice
         // out the method's XML doc region by finding the method
         // signature and walking back to the preceding '///' comments.
-        var sourcePath = System.IO.Path.Combine(
+        // W12 PATCH: after the UdsClient god-class refactor (v3.27.0), the
+        // 2-arg overload's source lives in the SecurityFlow partial. Read
+        // both partial files so the xmldoc invariant holds regardless of
+        // which file the partial lands in for future refactors.
+        var baseDir = System.IO.Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "..", "..",
-            "src", "PeakCan.Host.Core", "Uds", "UdsClient.cs");
-        Assert.True(File.Exists(sourcePath),
-            $"Expected source at {sourcePath} (cwd: {AppContext.BaseDirectory})");
-
-        var source = File.ReadAllText(sourcePath);
+            "src", "PeakCan.Host.Core", "Uds");
+        var candidates = new[] { "UdsClient.cs", "UdsClient/SecurityFlow.cs" };
+        string? combined = null;
+        foreach (var name in candidates)
+        {
+            var p = System.IO.Path.Combine(baseDir, name);
+            if (File.Exists(p))
+            {
+                combined = (combined is null ? "" : combined) + File.ReadAllText(p);
+            }
+        }
+        Assert.NotNull(combined);
+        var source = combined!;
         Assert.Contains("mid-handshake", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)",
             source, StringComparison.Ordinal);
