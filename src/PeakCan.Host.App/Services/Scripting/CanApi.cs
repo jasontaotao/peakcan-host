@@ -53,49 +53,6 @@ public sealed partial class CanApi : IFrameSink, IScriptCanApi
         _channelRouter.AttachSink(this);
     }
 
-    /// <summary>
-    /// Send a CAN frame.
-    /// </summary>
-    /// <param name="id">CAN ID (11-bit or 29-bit).</param>
-    /// <param name="data">Raw data bytes (max 8 for classic, 64 for FD).</param>
-    /// <param name="fd">If true, send as CAN FD frame.</param>
-    /// <param name="extended">If true, use 29-bit extended ID format.</param>
-    /// <returns>True if the frame was sent successfully.</returns>
-    public async Task<bool> Send(int id, byte[] data, bool fd = false, bool extended = false)
-    {
-        if (id < 0 || id > 0x1FFFFFFF)
-        {
-            LogInvalidCanId(_logger, id);
-            return false;
-        }
-
-        if (data is null || data.Length == 0)
-        {
-            LogSendEmptyData(_logger);
-            return false;
-        }
-
-        int maxDlc = fd ? 64 : 8;
-        if (data.Length > maxDlc)
-        {
-            LogDataTooLong(_logger, data.Length, maxDlc, fd ? "FD" : "classic");
-            return false;
-        }
-
-        var format = extended ? FrameFormat.Extended : FrameFormat.Standard;
-        var canId = new CanId((uint)id, format);
-        var flags = fd ? FrameFlags.Fd : FrameFlags.None;
-        var frame = new CanFrame(canId, data, flags, default, default);
-
-        var result = await _sendService.SendAsync(frame).ConfigureAwait(false);
-        if (!result.IsSuccess)
-        {
-            LogSendFailed(_logger, result.Error?.Message ?? "Unknown error");
-            return false;
-        }
-
-        return true;
-    }
 
     /// <summary>
     /// Register a callback for all received frames.
@@ -107,7 +64,6 @@ public sealed partial class CanApi : IFrameSink, IScriptCanApi
     /// <summary>
     /// Check if a CAN channel is currently connected.
     /// </summary>
-    public bool IsConnected() => _sendService.ActiveChannel is { IsConnected: true };
 
     /// <summary>
     /// v1.7.1 PATCH Item 1: explicit interface implementation of
@@ -145,7 +101,6 @@ public sealed partial class CanApi : IFrameSink, IScriptCanApi
     /// Get the channel ID string (e.g., "PCAN_USBBUS1").
     /// Returns null if no channel is connected.
     /// </summary>
-    public string? GetChannelId() => _sendService.ActiveChannel?.Id.Handle.ToString("X2", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Called by ChannelRouter when a frame is received.
