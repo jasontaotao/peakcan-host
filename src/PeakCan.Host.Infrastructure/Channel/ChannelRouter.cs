@@ -134,51 +134,6 @@ public sealed partial class ChannelRouter : IFrameSource
     }
 
     /// <summary>Add a sink to the fan-out list. Idempotent.</summary>
-    public void AttachSink(IFrameSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        lock (_gate)
-        {
-            var current = _sinks ?? EmptySinks;
-            // Linear scan is fine: AttachSink runs at registration time
-            // (typically 4-5 sinks, once per app lifetime), not per-frame.
-            if (Array.IndexOf(current, sink) >= 0) return;
-            var next = new IFrameSink[current.Length + 1];
-            Array.Copy(current, next, current.Length);
-            next[current.Length] = sink;
-            // v3.5.7 PATCH: Volatile.Write gives the publish a release
-            // fence — OnChannelFrame's Volatile.Read sees the new array
-            // with all prior writes (the Array.Copy + last-element
-            // assignment) visible.
-            Volatile.Write(ref _sinks, next);
-        }
-    }
-
-    /// <summary>Remove a sink from the fan-out list. Idempotent.</summary>
-    public void DetachSink(IFrameSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        lock (_gate)
-        {
-            var current = _sinks;
-            if (current is null || current.Length == 0) return;
-            var idx = Array.IndexOf(current, sink);
-            if (idx < 0) return;
-            // Replace the array with a copy that omits the sink. If we
-            // just removed the last sink, publish null so OnChannelFrame
-            // can fast-path on `_sinks is null` (rare in practice — most
-            // apps have at least one persistent sink).
-            IFrameSink[]? next = (current.Length == 1)
-                ? null
-                : new IFrameSink[current.Length - 1];
-            if (next is not null)
-            {
-                Array.Copy(current, 0, next, 0, idx);
-                Array.Copy(current, idx + 1, next, idx, current.Length - idx - 1);
-            }
-            Volatile.Write(ref _sinks, next);
-        }
-    }
 
 
     // v3.5.7 PATCH: ReadSinksAcquire helper removed — replaced by direct
