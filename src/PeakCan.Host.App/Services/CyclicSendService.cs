@@ -92,67 +92,6 @@ public sealed partial class CyclicSendService : ICyclicSendService, IDisposable
         _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
     }
 
-    private async void OnTimerTick(object? state)
-    {
-        CanFrame frame;
-        TimeSpan interval;
-        long generation;
-        CancellationToken ct;
-        lock (this)
-        {
-            if (!_isRunning) return;
-            frame = _frame;
-            interval = _interval;
-            generation = _generation;
-            // v1.6.2 PATCH Item 1a: snapshot CTS.Token under the same lock
-            // as _isRunning + _frame + _generation so the tick sees a
-            // coherent view. If Start replaced _cts after the timer fired
-            // but before we acquired the lock, the snapshot reflects the
-            // current CTS — Stop on the new CTS will cancel this tick.
-            ct = _cts?.Token ?? CancellationToken.None;
-        }
-        // Stale-timer drop: if this Timer was disposed (Start re-entered)
-        // its captured generation no longer matches the service's. Bail
-        // before touching SendAsync.
-        if (state is long tickGen && tickGen != generation) return;
-
-        try
-        {
-            // v1.6.2 PATCH Item 1a: pass CT so Stop() can abort the in-flight
-            // channel write. _sendService.SendAsync forwards ct to
-            // ch.WriteAsync(frame, ct) which honors the token.
-            var result = await _sendService.SendAsync(frame, ct).ConfigureAwait(false);
-            if (result.IsSuccess)
-            {
-                Interlocked.Increment(ref _sendSuccessCount);
-            }
-            else
-            {
-                // Don't spam logs — only log every 100th failure.
-                var count = Interlocked.Increment(ref _sendFailureCount);
-                if (count % 100 == 0 && _logger is not null)
-                {
-                    LogCyclicSendFailed(_logger, frame.Id, result.Error!.Code, result.Error.Message);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // v1.6.2 PATCH Item 1a: expected on Stop(). async void timer
-            // callback would crash the process if OCE propagated uncaught.
-            // Do NOT increment FailureCount — Stop is user-initiated, not
-            // a hardware failure.
-        }
-        catch (Exception ex)
-        {
-            var count = Interlocked.Increment(ref _sendFailureCount);
-            if (count % 100 == 0 && _logger is not null)
-            {
-                LogCyclicSendThrew(_logger, frame.Id, ex);
-            }
-        }
-    }
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Cyclic send started: {Id} every {Interval}ms")]
     private static partial void LogCyclicStarted(ILogger logger, CanId id, double interval);
 
