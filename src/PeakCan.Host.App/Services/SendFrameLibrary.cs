@@ -105,11 +105,6 @@ public sealed partial class SendFrameLibrary
 
 
 
-    private static string DefaultPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appData, "PeakCan.Host", "send-library.json");
-    }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Send library corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
