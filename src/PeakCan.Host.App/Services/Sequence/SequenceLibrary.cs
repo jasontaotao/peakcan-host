@@ -107,85 +107,10 @@ public sealed partial class SequenceLibrary
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     }
 
-    /// <summary>
-    /// Read the library from disk. Returns an empty list if the file is
-    /// missing or corrupt (corrupt is logged at Error level so the user
-    /// can investigate via the log file).
-    /// </summary>
-    public IReadOnlyList<SavedSequence> Load()
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            return LoadUnlocked();
-        }
-    }
 
-    /// <summary>
-    /// Persist the entire library atomically: write to
-    /// <c>{path}.tmp</c>, then rename over <c>{path}</c>. A crash
-    /// mid-rename leaves either the old file or the new file — never
-    /// a half-written one.
-    /// </summary>
-    public void Save(IEnumerable<SavedSequence> sequences)
-    {
-        var snapshot = sequences.ToList();
-        lock (_gate)
-        {
-            SaveUnlocked(snapshot);
-            _cachedCount = snapshot.Count;
-        }
-    }
 
-    /// <summary>
-    /// Atomic Add. Loads the current list, appends
-    /// <paramref name="sequence"/>, saves — all under the gate so two
-    /// callers don't drop each other's changes. Returns the new count.
-    /// If a sequence with the same name already exists, it's replaced
-    /// (last-wins, mirrors <c>DidDatabase.AddRange</c>).
-    /// </summary>
-    public int Add(SavedSequence sequence)
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            var current = LoadUnlocked().ToList();
-            current.RemoveAll(s => s.Name == sequence.Name);
-            current.Add(sequence);
-            SaveUnlocked(current);
-            _cachedCount = current.Count;
-            return _cachedCount;
-        }
-    }
 
-    /// <summary>Atomic Remove-by-Name. Returns true if a sequence was removed.</summary>
-    public bool Remove(string name)
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            var current = LoadUnlocked().ToList();
-            int before = current.Count;
-            current.RemoveAll(s => s.Name == name);
-            if (current.Count == before) return false;
-            SaveUnlocked(current);
-            _cachedCount = current.Count;
-            return true;
-        }
-    }
 
-    /// <summary>Number of saved sequences.</summary>
-    public int Count
-    {
-        get
-        {
-            lock (_gate)
-            {
-                EnsureLoaded();
-                return _cachedCount;
-            }
-        }
-    }
 
 
 
