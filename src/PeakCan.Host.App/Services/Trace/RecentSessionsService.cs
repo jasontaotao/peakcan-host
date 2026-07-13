@@ -106,28 +106,6 @@ public sealed partial class RecentSessionsService : INotifyPropertyChanged
         }
     }
 
-
-
-    private static string DefaultPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appData, "PeakCan.Host", "recent-sessions.json");
-    }
-
-    /// <summary>On-disk shape. Internal — public only so
-    /// <see cref="JsonSerializer"/> can serialize it.</summary>
-    public sealed class Envelope
-    {
-        [JsonPropertyName("schema")]
-        public string Schema { get; set; } = CurrentSchema;
-
-        [JsonPropertyName("version")]
-        public int Version { get; set; } = 1;
-
-        [JsonPropertyName("recent")]
-        public List<RecentSessionDto> Recent { get; set; } = new();
-    }
-
     [LoggerMessage(Level = LogLevel.Error, Message = "Recent-sessions file corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
 
