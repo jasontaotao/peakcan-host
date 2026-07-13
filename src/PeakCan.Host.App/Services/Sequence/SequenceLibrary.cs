@@ -187,49 +187,8 @@ public sealed partial class SequenceLibrary
         }
     }
 
-    private void EnsureLoaded()
-    {
-        if (_cachedCount >= 0) return;
-        _cachedCount = LoadUnlocked().Count;
-    }
 
-    private IReadOnlyList<SavedSequence> LoadUnlocked()
-    {
-        if (!File.Exists(_path)) return Array.Empty<SavedSequence>();
-        try
-        {
-            var json = File.ReadAllText(_path);
-            var file = JsonSerializer.Deserialize<LibraryFile>(json, JsonOpts);
-            return file?.Sequences ?? new List<SavedSequence>();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException)
-        {
-            LogCorrupt(_logger, _path, ex);
-            return Array.Empty<SavedSequence>();
-        }
-    }
 
-    private void SaveUnlocked(IEnumerable<SavedSequence> sequences)
-    {
-        var file = new LibraryFile { Sequences = sequences.ToList() };
-        var json = JsonSerializer.Serialize(file, JsonOpts);
-        var tmp = _path + ".tmp";
-        try
-        {
-            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            // Atomic on POSIX (rename) and Windows (MoveFileEx
-            // MOVEFILE_REPLACE_EXISTING). Mirrors SendFrameLibrary
-            // v1.2.13 PATCH Item 8 — no TOCTOU window between Exists
-            // check and rename.
-            File.Move(tmp, _path, overwrite: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            try { File.Delete(tmp); } catch { /* best effort */ }
-            LogSaveFailed(_logger, ex, _path);
-            throw;
-        }
-    }
 
     private static string DefaultPath()
     {
