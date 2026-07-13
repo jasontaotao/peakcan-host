@@ -28,7 +28,7 @@ namespace PeakCan.Host.App.Services.MultiFrame;
 /// sub-tasks on first cancel.
 /// </para>
 /// </summary>
-public sealed class SequenceSendService
+public sealed partial class SequenceSendService
 {
     private readonly SendService _sendService;
     private readonly DbcEncodeService? _dbcEncodeService;
