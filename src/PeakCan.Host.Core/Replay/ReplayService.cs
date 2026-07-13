@@ -119,30 +119,7 @@ public sealed partial class ReplayService : IReplayService, IDisposable
 
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
 
-    /// <summary>
-    /// Forwards the timeline's playback-ended callback to the public event.
-    /// Invoked on the timer thread; UI subscribers must marshal to the UI thread.
-    /// v1.4.2 PATCH Item 3: carries <see cref="PlaybackEndedEventArgs.Error"/>
-    /// from the timeline so UI can surface sink failures.
-    /// </summary>
-    private void RaisePlaybackEnded(PlaybackEndedEventArgs args)
-        => PlaybackEnded?.Invoke(this, args);
 
-    /// <summary>
-    /// v1.4.2 PATCH Item 3: invoked by the timeline when a sink callback
-    /// throws (e.g. <see cref="ReplaySendException"/> from a failed
-    /// <c>SendService.SendAsync</c>). Captures the first exception, pauses
-    /// the timeline, and raises <see cref="PlaybackEnded"/> with the error.
-    /// </summary>
-    private void OnSinkThrewFromTimeline(Exception ex)
-    {
-        if (_sinkException is null)
-        {
-            _sinkException = ex;
-            _timeline.Pause();  // ensure _isPlaying=false
-            RaisePlaybackEnded(new PlaybackEndedEventArgs(ex));
-        }
-    }
 
     /// <summary>
     /// Disposes the playback timer. Safe to call multiple times.
@@ -158,56 +135,10 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     public void Stop() => _timeline.Stop();
 
 
-    private void EmitFrame(ReplayFrame frame)
-    {
-        // v1.5.0 MINOR Task 4: tri-state CAN-ID filter. null = pass all;
-        // empty set = pass none; non-empty = only matching IDs.
-        var filter = CanIdFilter;
-        if (filter is not null && !filter.Contains(frame.Id))
-        {
-            return; // filter rejects this frame; no sink call, no event raise
-        }
-
-        // v3.14.0 MINOR A6: fire-and-forget. Sync wait on a 1ms timer
-        // thread blocks the entire timeline when the PEAK driver blocks
-        // (USB unplug / driver busy). The self-contradicting xmldoc
-        // previously here claimed "intentionally fire-and-forget" but
-        // the implementation was sync wait — implementation now matches
-        // the intent. ReplaySendException no longer rethrows from the
-        // timer thread; it propagates via OnSinkThrewFromTimeline on the
-        // threadpool, which captures it as first-failure + pauses +
-        // raises PlaybackEnded (same first-failure-wins contract as
-        // v1.4.2 PATCH Item 3, just not on the timer thread anymore).
-        // Other exceptions are logged + swallowed (preserves the
-        // v1.4.0 tolerance for non-send failures).
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await EmitFrameToSinkAsync(frame).ConfigureAwait(false);
-            }
-            catch (ReplaySendException ex)
-            {
-                OnSinkThrewFromTimeline(ex);
-            }
-            catch (Exception ex)
-            {
-                LogSinkThrew(_logger, ex, frame.Id, frame.Timestamp);
-            }
-        });
-        FrameEmitted?.Invoke(frame);
-    }
 
     // v3.14.0 MINOR A6: EmitFrameToSinkAsync now runs inside a
     // Task.Run (fire-and-forget) from EmitFrame on the timer thread,
     // so the await is observed by the threadpool, not the timer.
-    private async Task EmitFrameToSinkAsync(ReplayFrame frame)
-    {
-        await _sink.SendFrameAsync(frame, CancellationToken.None).ConfigureAwait(false);
-    }
-
-    // LoggerMessage source-generated helper (CA1848). Replaces
-    // _logger.LogWarning(ex, "...", frame.Id, frame.Timestamp) which the
     // analyzer flags for using LoggerExtensions instead of a generated delegate.
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Replay sink threw for frame {FrameId} at t={Timestamp}")]
