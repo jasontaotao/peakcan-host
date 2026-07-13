@@ -107,135 +107,14 @@ public sealed partial class SequenceLibrary
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
     }
 
-    /// <summary>
-    /// Read the library from disk. Returns an empty list if the file is
-    /// missing or corrupt (corrupt is logged at Error level so the user
-    /// can investigate via the log file).
-    /// </summary>
-    public IReadOnlyList<SavedSequence> Load()
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            return LoadUnlocked();
-        }
-    }
 
-    /// <summary>
-    /// Persist the entire library atomically: write to
-    /// <c>{path}.tmp</c>, then rename over <c>{path}</c>. A crash
-    /// mid-rename leaves either the old file or the new file — never
-    /// a half-written one.
-    /// </summary>
-    public void Save(IEnumerable<SavedSequence> sequences)
-    {
-        var snapshot = sequences.ToList();
-        lock (_gate)
-        {
-            SaveUnlocked(snapshot);
-            _cachedCount = snapshot.Count;
-        }
-    }
 
-    /// <summary>
-    /// Atomic Add. Loads the current list, appends
-    /// <paramref name="sequence"/>, saves — all under the gate so two
-    /// callers don't drop each other's changes. Returns the new count.
-    /// If a sequence with the same name already exists, it's replaced
-    /// (last-wins, mirrors <c>DidDatabase.AddRange</c>).
-    /// </summary>
-    public int Add(SavedSequence sequence)
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            var current = LoadUnlocked().ToList();
-            current.RemoveAll(s => s.Name == sequence.Name);
-            current.Add(sequence);
-            SaveUnlocked(current);
-            _cachedCount = current.Count;
-            return _cachedCount;
-        }
-    }
 
-    /// <summary>Atomic Remove-by-Name. Returns true if a sequence was removed.</summary>
-    public bool Remove(string name)
-    {
-        lock (_gate)
-        {
-            EnsureLoaded();
-            var current = LoadUnlocked().ToList();
-            int before = current.Count;
-            current.RemoveAll(s => s.Name == name);
-            if (current.Count == before) return false;
-            SaveUnlocked(current);
-            _cachedCount = current.Count;
-            return true;
-        }
-    }
 
-    /// <summary>Number of saved sequences.</summary>
-    public int Count
-    {
-        get
-        {
-            lock (_gate)
-            {
-                EnsureLoaded();
-                return _cachedCount;
-            }
-        }
-    }
 
-    private void EnsureLoaded()
-    {
-        if (_cachedCount >= 0) return;
-        _cachedCount = LoadUnlocked().Count;
-    }
 
-    private IReadOnlyList<SavedSequence> LoadUnlocked()
-    {
-        if (!File.Exists(_path)) return Array.Empty<SavedSequence>();
-        try
-        {
-            var json = File.ReadAllText(_path);
-            var file = JsonSerializer.Deserialize<LibraryFile>(json, JsonOpts);
-            return file?.Sequences ?? new List<SavedSequence>();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException)
-        {
-            LogCorrupt(_logger, _path, ex);
-            return Array.Empty<SavedSequence>();
-        }
-    }
 
-    private void SaveUnlocked(IEnumerable<SavedSequence> sequences)
-    {
-        var file = new LibraryFile { Sequences = sequences.ToList() };
-        var json = JsonSerializer.Serialize(file, JsonOpts);
-        var tmp = _path + ".tmp";
-        try
-        {
-            File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            // Atomic on POSIX (rename) and Windows (MoveFileEx
-            // MOVEFILE_REPLACE_EXISTING). Mirrors SendFrameLibrary
-            // v1.2.13 PATCH Item 8 — no TOCTOU window between Exists
-            // check and rename.
-            File.Move(tmp, _path, overwrite: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            try { File.Delete(tmp); } catch { /* best effort */ }
-            LogSaveFailed(_logger, ex, _path);
-            throw;
-        }
-    }
 
-    private static string DefaultPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appData, "PeakCan.Host", "sequences.json");
-    }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Sequence library corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
