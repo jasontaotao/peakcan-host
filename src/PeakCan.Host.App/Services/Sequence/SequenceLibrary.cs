@@ -115,11 +115,6 @@ public sealed partial class SequenceLibrary
 
 
 
-    private static string DefaultPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appData, "PeakCan.Host", "sequences.json");
-    }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Sequence library corrupt or unreadable: {Path}")]
     private static partial void LogCorrupt(ILogger logger, string path, Exception ex);
