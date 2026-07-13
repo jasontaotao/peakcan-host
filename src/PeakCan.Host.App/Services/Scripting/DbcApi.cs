@@ -51,83 +51,8 @@ public sealed partial class DbcApi : IScriptDbcApi
     }
 
 
-    /// <summary>
-    /// Decode a received frame using the loaded DBC document.
-    /// </summary>
-    /// <param name="frame">The CAN frame to decode.</param>
-    /// <returns>Decoded message object with signals, or null if no DBC loaded or message not found.</returns>
-    public object? Decode(CanFrame frame)
-    {
-        var doc = _currentDocument;
-        if (doc is null) return null;
 
-        var message = doc.Messages.FirstOrDefault(m => m.Id == frame.Id.Raw);
-        if (message is null) return null;
 
-        var signals = new Dictionary<string, object>();
-        foreach (var signal in message.Signals)
-        {
-            var physicalValue = SignalDecoder.Decode(frame.Data.Span, signal);
-            var rawValue = (physicalValue - signal.Offset) / signal.Factor;
-
-            var key = $"{message.Name}.{signal.Name}";
-            _signalValues[key] = new SignalSnapshot(physicalValue, rawValue, signal.Unit, DateTimeOffset.UtcNow);
-
-            signals[signal.Name] = new
-            {
-                value = physicalValue,
-                raw = rawValue,
-                unit = signal.Unit ?? ""
-            };
-        }
-
-        return new
-        {
-            message = message.Name,
-            signals
-        };
-    }
-
-    /// <summary>
-    /// Get the most recent value of a specific signal.
-    /// </summary>
-    /// <param name="messageName">DBC message name.</param>
-    /// <param name="signalName">DBC signal name.</param>
-    /// <returns>Signal value object, or null if not yet received.</returns>
-    public object? GetSignal(string messageName, string signalName)
-    {
-        var key = $"{messageName}.{signalName}";
-        if (_signalValues.TryGetValue(key, out var snapshot))
-        {
-            return new
-            {
-                value = snapshot.PhysicalValue,
-                raw = snapshot.RawValue,
-                unit = snapshot.Unit ?? "",
-                timestamp = snapshot.Timestamp.ToUnixTimeMilliseconds()
-            };
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// List all messages in the loaded DBC document.
-    /// </summary>
-    /// <returns>Array of message info objects, or empty array if no DBC loaded.</returns>
-    public object[] GetMessages()
-    {
-        var doc = _currentDocument;
-        if (doc is null) return [];
-
-        return doc.Messages.Select(m => new
-        {
-            id = (int)m.Id,
-            name = m.Name,
-            dlc = m.Dlc,
-            sender = m.Sender ?? ""
-        }).ToArray();
-    }
 
     /// <summary>
     /// Called when DbcService loads a new document.
