@@ -149,37 +149,6 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     /// </summary>
     public void Dispose() => _timeline.Stop();
 
-    public async Task LoadAsync(string path, CancellationToken ct = default)
-    {
-        // v3.8.5 PATCH H1: defensive reset on entry. Clear `_frames` +
-        // push to the timeline BEFORE the parse attempt so a failed
-        // load (parse exception, file not found, IO error) leaves the
-        // service in a clean "no file loaded" state rather than
-        // silently retaining the prior file's frames. Defense-in-depth
-        // alongside the v3.8.4 H2 `Reset()` call from OpenSessionAsync
-        // -- this LoadAsync-level reset fires automatically without
-        // caller cooperation.
-        _frames = Array.Empty<ReplayFrame>();
-        _timeline.SetFrames(_frames);
-
-        // v1.4.0 MINOR Replay: open file → parse → set frames.
-        // ParseExceptions propagate; FileNotFound/IO wrap into ReplayLoadException.
-        try
-        {
-            await using var fs = File.OpenRead(PathNormalizer.Normalize(path));
-            _frames = await AscParser.ParseAsync(fs, ct).ConfigureAwait(false);
-        }
-        catch (ReplayException) { throw; }
-        catch (FileNotFoundException ex)
-        {
-            throw new ReplayLoadException($"ASC file not found: {path}", ex);
-        }
-        catch (Exception ex)
-        {
-            throw new ReplayLoadException($"Failed to read ASC file: {path}", ex);
-        }
-        _timeline.SetFrames(_frames);
-    }
 
     public void Play() => _timeline.Play();
     public void Pause() => _timeline.Pause();
@@ -188,25 +157,6 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     public void SetSpeed(double multiplier) => _timeline.SetSpeed(multiplier);
     public void Stop() => _timeline.Stop();
 
-    /// <summary>
-    /// v3.8.4 PATCH H2: drop the loaded frame buffer and reset the
-    /// internal timeline. After <c>Reset</c>, <see cref="Frames"/> is
-    /// empty and <see cref="TotalDuration"/> is 0.0; the service is in
-    /// the same "no file loaded" state as a freshly-constructed instance
-    /// (the timer is stopped by <c>_timeline.Stop()</c>).
-    /// <para>
-    /// Used by <c>ReplayViewModel.OpenSessionAsync</c> on the
-    /// failure-teardown branch. Distinct from <see cref="Stop"/>, which
-    /// only halts the timer (frames are preserved so a subsequent
-    /// <c>Play()</c> can resume).
-    /// </para>
-    /// </summary>
-    public void Reset()
-    {
-        _timeline.Stop();
-        _frames = Array.Empty<ReplayFrame>();
-        _timeline.SetFrames(_frames);
-    }
 
     private void EmitFrame(ReplayFrame frame)
     {
