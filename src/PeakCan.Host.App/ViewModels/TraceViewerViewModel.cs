@@ -172,13 +172,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
         IAscLocator? locator = null,
-        TraceSessionSnapshotBuilder? builder = null,
-        // v3.49.0 MINOR Q2: Recording panel migrated from AppShell tab
-        // into a collapsible Expander inside the Trace Viewer window.
-        // AppHostBuilder already registers RecordViewModel as singleton;
-        // wiring it here means TraceViewerView.xaml can bind the
-        // RecordView UserControl directly via {Binding RecordingViewModel}.
-        RecordViewModel? recordingViewModel = null)
+        TraceSessionSnapshotBuilder? builder = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
@@ -214,12 +208,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // OnRegistrySourcesChanged populates _allServices and rebinds master;
         // a bare RebindMasterFromRegistry would leave _allServices empty.
         OnRegistrySourcesChanged();
-        // v3.49.0 MINOR Q2: expose the DI-injected RecordViewModel so the
-        // TraceViewerView XAML can bind the RecordView UserControl.
-        // null-tolerant: tests that construct TraceViewerViewModel without
-        // a RecordViewModel (legacy ctor) leave RecordingViewModel = null
-        // and the Recording Expander binding silently no-ops.
-        RecordingViewModel = recordingViewModel;
         // v3.49.0 MINOR Q1: hook WatchedSignals collection mutation so the
         // Sampling Table right-edge panel stays in sync.
         WatchedSignals.CollectionChanged += (_, _) => RefreshSamplingTable();

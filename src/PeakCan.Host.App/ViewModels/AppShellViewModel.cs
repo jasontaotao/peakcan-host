@@ -86,6 +86,12 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly StatsViewModel _statsViewModel;
     private readonly ScriptViewModel _scriptViewModel;
     private readonly UdsViewModel _udsViewModel;
+    // v3.50.1 PATCH-A: RecordViewModel injected for the AppShell toolbar
+    // Recording panel (replaces v3.49 Q2's "Recording inside Trace Viewer
+    // Expander" design and v3.50.1 first-draft's "Recording as a tab" —
+    // both conflated Recording with a different surface; user wants a
+    // public/easy-to-open location shared across all surfaces).
+    private readonly RecordViewModel _recordingPanel;
     // v2.1.4 PATCH: Replay tab was orphaned since v1.4.0 MINOR — ReplayViewModel
     // exists (with the full ReplayView UI behind it) but no AppShell-level
     // navigation route reached it. Wiring the VM through DI + ctor is the first
@@ -253,6 +259,10 @@ public sealed partial class AppShellViewModel : ObservableObject
         StatsViewModel statsViewModel,
         ScriptViewModel scriptViewModel,
         UdsViewModel udsViewModel,
+        // v3.50.1 PATCH-A: RecordViewModel ctor arg added (Recording panel
+        // exposed from AppShell toolbar — not a tab, not embedded in any
+        // other view; user wanted a public/easy-to-open location).
+        RecordViewModel recordingPanel,
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
         TraceViewerViewModel traceViewerViewModel,
@@ -279,6 +289,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
         _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
         _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
+        // v3.50.1 PATCH-A: RecordViewModel field assignment.
+        _recordingPanel = recordingPanel ?? throw new ArgumentNullException(nameof(recordingPanel));
         _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
         _multiFrameSendViewModel = multiFrameSendViewModel ?? throw new ArgumentNullException(nameof(multiFrameSendViewModel));
         // v3.0 MINOR Task 7: Trace Viewer non-modal window. Required ctor
@@ -334,6 +346,25 @@ public sealed partial class AppShellViewModel : ObservableObject
         {
             _persistedHandleOnStartup = h;
         }
+    }
+
+    // === v3.50.1 PATCH-A: Recording panel public location ===
+    // Recording was a Trace Viewer Expander in v3.49 Q2 (conflated
+    // playback with capture) and a tab in v3.50.1 first-draft (still
+    // surfaced only via menu, not easily discoverable). User asked for
+    // a "public / easy-to-open" location accessible from anywhere —
+    // AppShell toolbar hosts a permanent Record button that toggles a
+    // docked panel inside the AppShell window. No more single-view
+    // routing; no more Trace Viewer entanglement.
+    public RecordViewModel RecordingPanel => _recordingPanel;
+
+    [ObservableProperty]
+    private bool _isRecordingPanelOpen;
+
+    [RelayCommand]
+    private void ToggleRecordingPanel()
+    {
+        IsRecordingPanelOpen = !IsRecordingPanelOpen;
     }
 
 
