@@ -140,4 +140,78 @@ public partial class TraceViewerView : Window
             vm.SetPlotOptIn(row, isChecked);
         }
     }
+
+    // === v3.50.0 MINOR T3: green-line anchor drag handlers ===
+
+    /// <summary>True while the user is dragging inside any PlotView. Gates
+    /// <see cref="OnPlotViewMouseMove"/> so we only forward anchor updates
+    /// during an active drag (otherwise every mouse hover would commit an
+    /// anchor at the cursor X).</summary>
+    private bool _isDraggingGreenLine;
+
+    private void OnPlotViewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Left button only; right/middle click is unrelated to anchor drag.
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
+        if (TryGetAnchorSeconds(sender, e, out var ts))
+        {
+            _isDraggingGreenLine = true;
+            // Capture the mouse so MouseMove keeps firing even when the
+            // cursor leaves the PlotView bounds mid-drag.
+            if (sender is System.Windows.IInputElement ie) ie.CaptureMouse();
+            CommitAnchor(ts);
+            e.Handled = true;
+        }
+    }
+
+    private void OnPlotViewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!_isDraggingGreenLine) return;
+        _isDraggingGreenLine = false;
+        if (sender is System.Windows.IInputElement ie) ie.ReleaseMouseCapture();
+        e.Handled = true;
+    }
+
+    private void OnPlotViewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_isDraggingGreenLine) return;
+        // Only the Left button held counts as a drag — releasing the
+        // button while moving won't trigger MouseUp reliably across DPI
+        // switches, so guard here too.
+        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+        if (TryGetAnchorSeconds(sender, e, out var ts))
+        {
+            CommitAnchor(ts);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Inverse-transform the cursor X through the PlotView's
+    /// bottom XAxis to a timestamp in seconds. Returns false when the
+    /// PlotView's model has no axes yet (uninitialized chart) or the
+    /// cursor is outside the plot area.</summary>
+    private bool TryGetAnchorSeconds(object sender, System.Windows.Input.MouseEventArgs e,
+                                     out double timestampSeconds)
+    {
+        timestampSeconds = double.NaN;
+        if (sender is not OxyPlot.Wpf.PlotView pv) return false;
+        var model = pv.Model;
+        if (model is null) return false;
+        // Bottom X-axis by convention (matches the playback-cursor
+        // LineAnnotation added by ChartSeriesFlow).
+        var xAxis = model.Axes.OfType<OxyPlot.Axes.Axis>().FirstOrDefault(a => a.Position == OxyPlot.Axes.AxisPosition.Bottom);
+        if (xAxis is null) return false;
+        var pos = e.GetPosition(pv);
+        // InverseTransform returns the data value at the given pixel.
+        timestampSeconds = xAxis.InverseTransform(pos.X);
+        return !double.IsNaN(timestampSeconds) && !double.IsInfinity(timestampSeconds);
+    }
+
+    private void CommitAnchor(double timestampSeconds)
+    {
+        if (DataContext is TraceViewerViewModel vm)
+        {
+            vm.RefreshAtAnchor(timestampSeconds);
+        }
+    }
 }

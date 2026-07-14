@@ -253,7 +253,22 @@
                                         <Button Content="[Focus]" Click="OnFocusSubplotClick" Margin="8,0,4,0" Padding="4,0" />
                                         <Button Content="[▼ Collapse]" Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0" />
                                     </StackPanel>
-                                    <oxy:PlotView Model="{Binding PlotModel}" Height="{Binding AdaptiveHeight}" />
+                                    <!-- v3.50.0 MINOR T3: PlotView drag handler.
+                                         Background=Transparent is REQUIRED so the
+                                         PlotView captures MouseLeftButtonDown
+                                         (default Background=null lets the event
+                                         fall through to the parent panel).
+                                         PreviewMouseLeftButtonDown+Move commits
+                                         the anchor at every drag tick; PreviewMouseLeftButtonUp
+                                         clears the hover-capture flag. Forwarded
+                                         to vm.RefreshAtAnchor(x) where x = the
+                                         X-axis inverse-transform of pos.X. -->
+                                    <oxy:PlotView Model="{Binding PlotModel}"
+                                                  Height="{Binding AdaptiveHeight}"
+                                                  Background="Transparent"
+                                                  PreviewMouseLeftButtonDown="OnPlotViewMouseDown"
+                                                  PreviewMouseLeftButtonUp="OnPlotViewMouseUp"
+                                                  PreviewMouseMove="OnPlotViewMouseMove" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
