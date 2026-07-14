@@ -108,53 +108,6 @@ public sealed partial class PeakCanChannel : ICanChannel
 
 
 
-    public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
-    {
-        if (!IsConnected)
-        {
-            return ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "Not connected"));
-        }
-        try
-        {
-            TPCANStatus status;
-            if (frame.IsFd)
-            {
-                var msgType = TPCANMessageType.PCAN_MESSAGE_FD
-                              | (frame.Id.IsExtended ? TPCANMessageType.PCAN_MESSAGE_EXTENDED : TPCANMessageType.PCAN_MESSAGE_STANDARD);
-                if ((frame.Flags & FrameFlags.BitRateSwitch) != 0) msgType |= TPCANMessageType.PCAN_MESSAGE_BRS;
-                if ((frame.Flags & FrameFlags.ErrorStateIndicator) != 0) msgType |= TPCANMessageType.PCAN_MESSAGE_ESI;
-                var m = new TPCANMsgFD
-                {
-                    ID = frame.Id.Raw,
-                    MSGTYPE = msgType,
-                    DLC = (byte)Math.Min(frame.Dlc, (byte)15),
-                    DATA = PeakCanFrameFormatter.ToFixedBytes64(frame.Data),
-                };
-                status = PCANBasic.WriteFD(_handle, ref m);
-            }
-            else
-            {
-                var msgType = frame.Id.IsExtended
-                    ? TPCANMessageType.PCAN_MESSAGE_EXTENDED
-                    : TPCANMessageType.PCAN_MESSAGE_STANDARD;
-                var m = new TPCANMsg
-                {
-                    ID = frame.Id.Raw,
-                    MSGTYPE = msgType,
-                    LEN = (byte)Math.Min(frame.Dlc, (byte)8),
-                    DATA = PeakCanFrameFormatter.ToFixedBytes8(frame.Data),
-                };
-                status = PCANBasic.Write(_handle, ref m);
-            }
-            return PeakErrorMapper.IsOk((uint)status)
-                ? ValueTask.FromResult(Result<Unit>.Ok(default))
-                : ValueTask.FromResult(MakeError(status));
-        }
-        catch (Exception ex)
-        {
-            return ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.IoError, ex.Message));
-        }
-    }
 
 
     static partial void LogReadLoopException(ILogger logger, ushort handle, string kind, Exception error);
