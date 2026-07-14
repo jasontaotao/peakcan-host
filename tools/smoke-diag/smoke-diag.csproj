@@ -2,6 +2,11 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- v3.48.2 PATCH: brand the diagnostic tool exe with the same
+         icon as the main app so it doesn't show a generic WPF stub
+         in the taskbar / Alt-Tab when an operator runs it. Path is
+         relative to the tools/smoke-diag/ folder. -->
+    <ApplicationIcon>..\..\src\PeakCan.Host.App\Assets\peakcan-host-logo.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>

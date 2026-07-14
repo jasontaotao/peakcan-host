@@ -1,5 +1,7 @@
 # PeakCan Host
 
+<img src="src/PeakCan.Host.App/Assets/peakcan-host-banner.png" alt="PeakCan Host logo — stylized CAN-bus waveform in a connector frame, PEAK orange + navy + signal cyan" width="640">
+
 Windows-only WPF desktop host for **PEAK PCAN-USB FD / Pro FD** — generic
 CAN bus monitor with DBC decoding, manual send, real-time signal view,
 and 1 Hz bus statistics.
