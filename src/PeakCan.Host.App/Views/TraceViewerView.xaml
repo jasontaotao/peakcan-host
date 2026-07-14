@@ -190,12 +190,14 @@
             <rec:RecordView DataContext="{Binding RecordingViewModel}" />
         </Expander>
 
-        <!-- Main split: signal list (left) + chart subplots (right) -->
+        <!-- Main split: signal list (left) + chart subplots (middle) + sampling table (right) -->
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="240" />
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="3*" MinWidth="400" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="280" MinWidth="240" />
             </Grid.ColumnDefinitions>
 
             <!-- Left: signal list -->
@@ -258,6 +260,26 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
+
+            <!-- v3.49.0 MINOR Q1: Sampling Table (multi-signal sync sampling
+                 at current scrubber position). Right-edge panel. Hidden when
+                 no watched signals exist; refreshed on WatchedSignals
+                 CollectionChanged (see TraceViewerViewModel ctor hook). -->
+            <Border Grid.Column="3" BorderBrush="#DDD" BorderThickness="1,0,0,0"
+                    Visibility="{Binding HasWatchedSignals, Converter={StaticResource BoolToVis}}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Sampling Table" FontWeight="SemiBold" Margin="6,4" />
+                    <DataGrid ItemsSource="{Binding SamplingRows}"
+                              AutoGenerateColumns="False" IsReadOnly="True"
+                              EnableRowVirtualization="False" RowHeight="22">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
+                            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="40" />
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="60" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
         </Grid>
     </DockPanel>
 </Window>

@@ -219,6 +219,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // a RecordViewModel (legacy ctor) leave RecordingViewModel = null
         // and the Recording Expander binding silently no-ops.
         RecordingViewModel = recordingViewModel;
+        // v3.49.0 MINOR Q1: hook WatchedSignals collection mutation so the
+        // Sampling Table right-edge panel stays in sync.
+        WatchedSignals.CollectionChanged += (_, _) => RefreshSamplingTable();
     }
 
 
