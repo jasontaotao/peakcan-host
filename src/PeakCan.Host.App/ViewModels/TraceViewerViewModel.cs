@@ -296,6 +296,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         ErrorMessage = null;
         StatusMessage = "Status: ready";
         IsLoading = false;
+
+        // v3.50.1 PATCH: singleton VM is reused across Trace Viewer
+        // close+reopen cycles (ViewSwitcher caches the window, AppShell
+        // hands the same VM back via DI). The pre-v3.50.1 Reset only
+        // cleared the v3.0 MINOR-era fields above; v3.15.0+ collections
+        // (WatchedSignals), v3.50 caches (_signalByKey + anchor state),
+        // and v3.49 right-edge panel state (SamplingRows) survived
+        // close+reopen — leaving the watch list visually empty
+        // (DataGrid bound to a populated ObservableCollection with no
+        // INPC diff signal after the window's visual tree is rebuilt,
+        // the Generator doesn't re-materialize rows for the cached VM)
+        // or with stale DbcSignal refs pointing at the previous DBC.
+        // Clear every mutable UI collection + cache before the window
+        // teardown returns to the caller.
+        WatchedSignals.Clear();
+        _signalByKey.Clear();
+        _anchorTimestampSeconds = double.NaN;
+        OnPropertyChanged(nameof(IsGreenLineAnchorActive));
+        // UpdateAllGreenLines is idempotent and removes every existing
+        // green-anchor LineAnnotation; with _anchorTimestampSeconds =
+        // NaN the IsGreenLineAnchorActive gate skips adding a new one,
+        // so this is effectively a "drop all green lines" pass.
+        UpdateAllGreenLines();
+        SamplingRows.Clear();
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
