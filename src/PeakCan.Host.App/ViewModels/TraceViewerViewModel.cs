@@ -15,6 +15,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
+using System.Collections.Specialized;
 using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -222,6 +223,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // v3.49.0 MINOR Q1: hook WatchedSignals collection mutation so the
         // Sampling Table right-edge panel stays in sync.
         WatchedSignals.CollectionChanged += (_, _) => RefreshSamplingTable();
+        // v3.50.0 MINOR Q1 redesign: pre-resolve DbcSignal reference per
+        // watched row so RefreshAtAnchor (T2) can decode raw bits at the
+        // anchor timestamp without an extra DBC scan on the UI thread.
+        WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSignalCache;
+    }
+
+    private readonly Dictionary<string, PeakCan.Host.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
+
+    private void OnWatchedSignalsCollectionChangedForSignalCache(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is null) return;
+        var dbc = _dbcService.Current;
+        if (dbc is null) return;
+        foreach (WatchedSignalRow row in e.NewItems)
+        {
+            var key = row.SignalKey;
+            if (_signalByKey.ContainsKey(key)) continue;
+            // Inline message lookup by (id + name) — DbcDocument has no
+            // FindSignal helper, so walk Messages once per add.
+            var msg = dbc.MessagesById.Values.FirstOrDefault(m => m.Name == row.MessageName);
+            var sig = msg?.Signals.FirstOrDefault(s => s.Name == row.SignalName);
+            _signalByKey[key] = sig;
+            row.Signal = sig;
+        }
     }
 
 
