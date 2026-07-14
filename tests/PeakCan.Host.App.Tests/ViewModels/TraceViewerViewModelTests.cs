@@ -1836,5 +1836,60 @@ public class TraceViewerViewModelTests
         src.WallClockOrigin.Should().BeNull(
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
+
+    // === v3.50.1 PATCH: Reset() now clears every v3.15.0+ mutable
+    //     collection + cache so a Trace Viewer close+reopen cycle on
+    //     the singleton VM doesn't leave the watch list visually empty
+    //     (rows surviving in WatchedSignals but the cached window's
+    //     DataGrid ItemContainerGenerator doesn't re-materialize them
+    //     because the underlying ObservableCollection emitted no
+    //     Reset INPC during the window teardown). ===
+
+    [Fact]
+    public void Reset_Clears_WatchedSignals_Collection()
+    {
+        var vm = NewVm();
+        // Pre-populate watch list with a real row (not the placeholder).
+        var row = new WatchedSignalRow(
+            canIdHex: "0x100",
+            messageName: "Msg",
+            signalName: "Sig",
+            unit: "kmh",
+            sourceId: null);
+        vm.WatchedSignals.Add(row);
+        vm.WatchedSignals.Should().HaveCount(1);
+
+        vm.Reset();
+
+        vm.WatchedSignals.Should().BeEmpty(
+            "Reset must drop user watches so a close+reopen cycle starts from a clean watch list, not the cached VM's stale rows");
+    }
+
+    [Fact]
+    public void Reset_Resets_Anchor_To_NaN_And_IsGreenLineAnchorActive_False()
+    {
+        var vm = NewVm();
+        // Set an anchor (non-NaN), verify it's active.
+        vm.RefreshAtAnchor(5.25);
+        vm.IsGreenLineAnchorActive.Should().BeTrue();
+
+        vm.Reset();
+
+        vm.IsGreenLineAnchorActive.Should().BeFalse(
+            "Reset must clear the anchor timestamp so reopened window has no green line drawn");
+    }
+
+    [Fact]
+    public void Reset_Clears_SamplingRows()
+    {
+        var vm = NewVm();
+        vm.SamplingRows.Add(new SamplingTableRow("0x100", "Msg", "Sig", "kmh", "42.0"));
+        vm.SamplingRows.Should().HaveCount(1);
+
+        vm.Reset();
+
+        vm.SamplingRows.Should().BeEmpty(
+            "Reset must clear the v3.49 right-edge Sampling Table rows alongside WatchedSignals");
+    }
 }
 

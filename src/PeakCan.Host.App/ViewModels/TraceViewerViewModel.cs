@@ -15,6 +15,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
+using System.Collections.Specialized;
 using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -222,6 +223,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // v3.49.0 MINOR Q1: hook WatchedSignals collection mutation so the
         // Sampling Table right-edge panel stays in sync.
         WatchedSignals.CollectionChanged += (_, _) => RefreshSamplingTable();
+        // v3.50.0 MINOR Q1 redesign: pre-resolve DbcSignal reference per
+        // watched row so RefreshAtAnchor (T2) can decode raw bits at the
+        // anchor timestamp without an extra DBC scan on the UI thread.
+        WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSignalCache;
+    }
+
+    private readonly Dictionary<string, PeakCan.Host.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
+
+    private void OnWatchedSignalsCollectionChangedForSignalCache(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is null) return;
+        var dbc = _dbcService.Current;
+        if (dbc is null) return;
+        foreach (WatchedSignalRow row in e.NewItems)
+        {
+            var key = row.SignalKey;
+            if (_signalByKey.ContainsKey(key)) continue;
+            // Inline message lookup by (id + name) — DbcDocument has no
+            // FindSignal helper, so walk Messages once per add.
+            var msg = dbc.MessagesById.Values.FirstOrDefault(m => m.Name == row.MessageName);
+            var sig = msg?.Signals.FirstOrDefault(s => s.Name == row.SignalName);
+            _signalByKey[key] = sig;
+            row.Signal = sig;
+        }
     }
 
 
@@ -271,6 +296,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         ErrorMessage = null;
         StatusMessage = "Status: ready";
         IsLoading = false;
+
+        // v3.50.1 PATCH: singleton VM is reused across Trace Viewer
+        // close+reopen cycles (ViewSwitcher caches the window, AppShell
+        // hands the same VM back via DI). The pre-v3.50.1 Reset only
+        // cleared the v3.0 MINOR-era fields above; v3.15.0+ collections
+        // (WatchedSignals), v3.50 caches (_signalByKey + anchor state),
+        // and v3.49 right-edge panel state (SamplingRows) survived
+        // close+reopen — leaving the watch list visually empty
+        // (DataGrid bound to a populated ObservableCollection with no
+        // INPC diff signal after the window's visual tree is rebuilt,
+        // the Generator doesn't re-materialize rows for the cached VM)
+        // or with stale DbcSignal refs pointing at the previous DBC.
+        // Clear every mutable UI collection + cache before the window
+        // teardown returns to the caller.
+        WatchedSignals.Clear();
+        _signalByKey.Clear();
+        _anchorTimestampSeconds = double.NaN;
+        OnPropertyChanged(nameof(IsGreenLineAnchorActive));
+        // UpdateAllGreenLines is idempotent and removes every existing
+        // green-anchor LineAnnotation; with _anchorTimestampSeconds =
+        // NaN the IsGreenLineAnchorActive gate skips adding a new one,
+        // so this is effectively a "drop all green lines" pass.
+        UpdateAllGreenLines();
+        SamplingRows.Clear();
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's

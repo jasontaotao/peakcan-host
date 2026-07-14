@@ -44,6 +44,22 @@ public sealed partial class WatchedSignalRow : ObservableObject
     [ObservableProperty]
     private bool _isPlotted = true;
 
+    /// <summary>v3.50.0 MINOR: cached DBC signal reference, populated by
+    /// TraceViewerViewModel._signalByKey lookup on CollectionChanged.
+    /// Enables SignalDecoder.DecodeRaw(this, frame.Data) per-row when
+    /// green-line anchor refreshes (anchor-driven watch-sync Q1).
+    /// Plain private field (no [ObservableProperty] source-gen) because
+    /// the generated .g.cs file under the XAML temp csproj does not pull
+    /// PeakCan.Host.Core.dll — using global:: still fails to resolve
+    /// core types in the partial .g.cs.</summary>
+    private PeakCan.Host.Core.Dbc.Signal? _signal;
+
+    public PeakCan.Host.Core.Dbc.Signal? Signal
+    {
+        get => _signal;
+        set => SetProperty(ref _signal, value);
+    }
+
     /// <summary>Frame count for this signal across the watched source(s).
     /// RefreshFrameCounts updates this in place when ASC loads arrive.
     /// 0 for signals whose CAN ID has no frames in any watched source.</summary>
