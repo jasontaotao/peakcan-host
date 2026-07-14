@@ -10,6 +10,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
+        xmlns:rec="clr-namespace:PeakCan.Host.App.Views"
         Title="Trace Viewer"
         Width="1200" Height="800">
     <DockPanel>
@@ -177,6 +178,17 @@
             <TextBlock Text="{Binding ErrorMessage}" Foreground="#D62728"
                        FontWeight="SemiBold" TextWrapping="Wrap" />
         </StackPanel>
+
+        <!-- v3.49.0 MINOR Q2: Recording Expander. Migrated from AppShell tab
+             strip so operators can record + view in one window context.
+             Default collapsed so chart subplots dominate vertical space.
+             DataContext bound to RecordingViewModel — TraceViewerViewModel
+             exposes this from its 9th partial. -->
+        <Expander DockPanel.Dock="Bottom"
+                  Header="Recording"
+                  IsExpanded="False">
+            <rec:RecordView DataContext="{Binding RecordingViewModel}" />
+        </Expander>
 
         <!-- Main split: signal list (left) + chart subplots (right) -->
         <Grid>

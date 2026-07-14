@@ -120,7 +120,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -444,7 +443,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -536,7 +534,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -669,7 +666,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -965,7 +961,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -1060,7 +1055,6 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-            new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(
                 Substitute.For<IReplayService>(),
                 Substitute.For<IFileDialogService>(),
@@ -1278,23 +1272,6 @@ public class AppShellViewModelTests
         vm.SelectedChannel = null;
 
         config["Channel:SelectedHandle"].Should().BeNull();
-    }
-
-    // --- v1.2.11 PATCH Item 6 UI: ShowRecord routing ---
-
-    [Fact]
-    public void ShowRecordCommand_Is_Not_Null_And_Can_Execute()
-    {
-        // v1.2.11: ShowRecordCommand must be a non-null IRelayCommand.
-        // The lazy RecordView instantiation is covered by the same pattern
-        // as ShowTrace / ShowSend (manual smoke + existing tab tests); we
-        // skip the STA-RunSta route here because the WPF Application
-        // singleton race between xunit collections makes STA tests
-        // flaky in CI. Manual smoke test (Task 14 §final) confirms the
-        // Record tab swaps in correctly.
-        var shell = NewVm();
-        shell.ShowRecordCommand.Should().NotBeNull();
-        shell.ShowRecordCommand.CanExecute(null).Should().BeTrue();
     }
 
     // --- v2.1.4 PATCH: ShowReplay routing ---
