@@ -132,19 +132,6 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowRecord()
-    {
-        // v1.2.11 PATCH Item 6: Recording tab. v3.11.1 PATCH M3:
-        // extracted into ViewSwitcher — view is constructed on first Show
-        // so the shell ctor stays STA-free.
-        ViewSwitcher.Show(
-            factory: () => new RecordView { DataContext = _recordViewModel },
-            cache: ref _recordView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowRecord));
-    }
-
-    [RelayCommand]
     private void ShowReplay()
     {
         // v2.1.4 PATCH: Replay tab (closes the v1.4.0 MINOR orphan).

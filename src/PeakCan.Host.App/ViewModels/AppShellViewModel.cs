@@ -86,7 +86,6 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly StatsViewModel _statsViewModel;
     private readonly ScriptViewModel _scriptViewModel;
     private readonly UdsViewModel _udsViewModel;
-    private readonly RecordViewModel _recordViewModel;
     // v2.1.4 PATCH: Replay tab was orphaned since v1.4.0 MINOR — ReplayViewModel
     // exists (with the full ReplayView UI behind it) but no AppShell-level
     // navigation route reached it. Wiring the VM through DI + ctor is the first
@@ -141,7 +140,6 @@ public sealed partial class AppShellViewModel : ObservableObject
     private StatsView? _statsView;
     private ScriptView? _scriptView;
     private UdsWindow? _udsWindow;
-    private RecordView? _recordView;
     private ReplayView? _replayView;
     // v3.0 MINOR Task 7: TraceViewerView is a non-modal Window (not a
     // tab in the MainArea ContentControl), so it lives outside the
@@ -255,7 +253,6 @@ public sealed partial class AppShellViewModel : ObservableObject
         StatsViewModel statsViewModel,
         ScriptViewModel scriptViewModel,
         UdsViewModel udsViewModel,
-        RecordViewModel recordViewModel,
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
         TraceViewerViewModel traceViewerViewModel,
@@ -282,7 +279,6 @@ public sealed partial class AppShellViewModel : ObservableObject
         _statsViewModel = statsViewModel ?? throw new ArgumentNullException(nameof(statsViewModel));
         _scriptViewModel = scriptViewModel ?? throw new ArgumentNullException(nameof(scriptViewModel));
         _udsViewModel = udsViewModel ?? throw new ArgumentNullException(nameof(udsViewModel));
-        _recordViewModel = recordViewModel ?? throw new ArgumentNullException(nameof(recordViewModel));
         _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
         _multiFrameSendViewModel = multiFrameSendViewModel ?? throw new ArgumentNullException(nameof(multiFrameSendViewModel));
         // v3.0 MINOR Task 7: Trace Viewer non-modal window. Required ctor
