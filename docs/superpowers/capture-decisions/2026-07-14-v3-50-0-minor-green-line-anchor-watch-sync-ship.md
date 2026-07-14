@@ -23,8 +23,9 @@
 3. `d780e91` — W35 T1 — `WatchedSignalRow.Signal` plain property + `_signalByKey` cache
 4. `a16a15f` — W35 T2 — `GreenLineAnchorFlow.cs` 196 LoC new (11th partial) + 3 tests
 5. `1d29bb2` — W35 T3 — `TraceViewerView.xaml` + `xaml.cs` drag handlers (2 files, +88/-1 LoC net)
-6. `ffc9abb` — W35 T4 — `Directory.Build.props` v3.49.0 → v3.50.0 + `release-notes-v3.50.0.md` (2 files, +99/-4 LoC net)
-7. TBD — W35 T5 — squash-merge via PR + tag v3.50.0
+6. `bae1d70` — W35 T3b — **ship-blocker bug**: `Reset()` clears WatchedSignals + _signalByKey + anchor + SamplingRows (3 new tests in TraceViewerViewModelTests; closes "watch list completely empty after Trace Viewer reopen" symptom caused by ViewSwitcher cache reusing singleton VM whose Reset() only cleared v3.0-era fields)
+7. `ffc9abb` — W35 T4 — `Directory.Build.props` v3.49.0 → v3.50.0 + `release-notes-v3.50.0.md` (2 files, +99/-4 LoC net)
+8. TBD — W35 T5 — squash-merge via PR + tag v3.50.0
 
 ## LoC trajectory (W8.5 D7 32-locked)
 
@@ -65,6 +66,7 @@ v3.50 confirms cross-partial helper visibility works across **11 partials** of T
 |---|---|---|---|
 | T2 GreenLineAnchorFlow.cs | (new file) | +196 | EXACT (target ~120, subagent added comprehensive test coverage + xmldoc) |
 | T3 XAML drag handlers | TraceViewerView.xaml + xaml.cs delta | +88/-1 = +87 net | EXACT (target ~50, drag-gating `_isDraggingGreenLine` + mouse capture added ~40 LoC) |
+| T3b Reset() fix | TraceViewerViewModel.cs + TraceViewerViewModelTests.cs delta | +79 (5 Reset lines + 3 new tests + xmldoc) | EXACT (target ~10 LoC fix, +60 LoC tests + 9 LoC xmldoc — sister pattern of "fix + 3 tests per v3.x PATCH cycle") |
 
 ## Lesson candidate observations
 
@@ -73,6 +75,7 @@ v3.50 confirms cross-partial helper visibility works across **11 partials** of T
 | `green-line-anchor-driven-watch-sync` | **NEW 1/3** | 1st observation: single `_anchorTimestampSeconds` + NaN gate + idempotent LineAnnotation tagged 'green-anchor' + drag handler at PlotView level + real SignalDecoder.Decode |
 | `plotview-drag-handler-requires-transparent-background` | **NEW 1/3** | 1st observation: WPF PlotView default Background=null lets mouse events fall through to parent panel; handler never fires. Fix: `Background="Transparent"` |
 | `mvvm-source-gen-xaml-temp-csproj-cant-pull-core-types` | **NEW 1/3** | 1st observation: CommunityToolkit.Mvvm `[ObservableProperty]` source-gen emits partial .g.cs under XAML temp csproj (obj/*wpftmp.csproj) which can't reference Core.dll. global:: qualifier doesn't help. Fix: plain property + manual SetProperty(ref _field, value) |
+| `reset-must-clear-all-mutable-vm-state-for-singleton-vm-reuse` | **NEW 1/3** | 1st observation: ViewSwitcher cache reuses singleton VM across window close+reopen; pre-v3.50 Reset() only cleared v3.0 MINOR-era fields, leaving v3.15.0+ WatchedSignals + v3.50 caches + v3.49 SamplingRows to survive → "watch list completely empty after reopen" symptom (DataGrid ItemContainerGenerator in the cached window doesn't re-materialize rows from the silent-survived collection) |
 | `sampling-table-panel-shared-cursor-across-multiple-signals` | **DEFERRED** | v3.50 supersedes v3.49's failed panel with anchor pattern. Lesson archived as "v3.49 ship path superseded" |
 | `cross-format-spec-extracted-into-shared-library` | N/A | v3.50 doesn't touch AscFormat |
 | `recording-controls-moved-within-trace-viewer` | N/A | v3.50 doesn't touch Recording |
@@ -118,7 +121,7 @@ v3.50 confirms cross-partial helper visibility works across **11 partials** of T
 - Local `dotnet build src/PeakCan.Host.App/`: 0 errors, 4 pre-existing warnings (2 CS8602 + 1 CS0169 + 1 duplicate, all sister of v3.49.0 + W35 baselines, unrelated to v3.50)
 - Local `dotnet test PeakCan.Host.slnx`:
   - Core.Tests: **457/0/0** (unchanged from v3.49.0)
-  - App.Tests: **803/3 SKIP/0 fail** (filter 86/0/0 TraceViewer + GreenLine)
+  - App.Tests: **806/3 SKIP/0 fail** (803 v3.50 baseline + 3 new Reset() tests; filter 89/0/0 TraceViewer + GreenLine)
   - Infrastructure.Tests: **89/2 SKIP/0** (unchanged, hardware-dependent)
 - CI status: pending T5 squash-merge run
 

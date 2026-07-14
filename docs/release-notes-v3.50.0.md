@@ -51,12 +51,13 @@ v3.50.0 完全脱离 scrubber/Play/Pause/Reset,**用户拖绿线** = 唯一的�
 | T1 | WatchedSignalRow.Signal 引用 + _signalByKey 缓存 | (主 partial 内 inline) | `d780e91` |
 | T2 | 11th partial GreenLineAnchorFlow + RefreshAtAnchor API + 3 tests | +196 | `a16a15f` |
 | T3 | TraceViewerView.xaml + xaml.cs drag handlers | +88 / -1 | `1d29bb2` |
+| T3b | **Reset() bug fix**: clear WatchedSignals + _signalByKey + anchor + SamplingRows on close | +27 / 0 | `bae1d70` |
 | T4 | v3.49.0 → v3.50.0 + release notes | (no src) | this commit |
 
 ## Test outcomes
 
 - **Core.Tests**: 457/0/0(unchanged,v3.49 ASC round-trip test 套不动)
-- **App.Tests**: 803/3 SKIP/0 fail(filter 86/0/0 TraceViewer + GreenLine)
+- **App.Tests**: 806/3 SKIP/0 fail(803 baseline + 3 new Reset() tests;filter 89/0/0 TraceViewer + GreenLine)
 - **Infrastructure.Tests**: 89/2 SKIP/0(unchanged,hardware-dependent)
 - **W23 STRUCT-FABRACTION LESSON 应用**: `SignalDecoder.Decode` 完整路径 (`global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode`) —— W23 教训:XAML temp csproj 源生成器无法通过 `using` 拉 Core 类型
 - **Binary search 改名 `BinarySearchLatestAtOrBeforeAnchor`**:避 CS0111 与 v3.49 SamplingTableFlow 同名 static 方法
@@ -79,6 +80,7 @@ v3.50.0 完全脱离 scrubber/Play/Pause/Reset,**用户拖绿线** = 唯一的�
 | `green-line-anchor-driven-watch-sync` | **NEW 1/3** | v3.50 = 1st observation: 单一 _anchorTimestampSeconds + NaN gate + idempotent LineAnnotation tagged 'green-anchor' + drag handler at PlotView level + real SignalDecoder.Decode |
 | `plotview-drag-handler-requires-transparent-background` | **NEW 1/3** | v3.50 = 1st observation: WPF PlotView 默认 Background=null 让鼠标事件穿透,handler 完全不触发 |
 | `mvvm-source-gen-xaml-temp-csproj-cant-pull-core-types` | **NEW 1/3** | v3.50 = 1st observation: CommunityToolkit.Mvvm `[ObservableProperty]` 生成的 partial .g.cs 落到 obj/*wpftmp.csproj,该 csproj 无法 reference PeakCan.Host.Core.dll → 用 global:: 还是不行,只能改用 plain property + SetProperty |
+| `reset-must-clear-all-mutable-vm-state-for-singleton-vm-reuse` | **NEW 1/3** | v3.50 = 1st observation: ViewSwitcher cache reuses singleton VM across window close+reopen. Pre-v3.50 Reset() only cleared v3.0 MINOR-era fields; v3.15.0+ collections + v3.50 caches + v3.49 panels survived → "watch list completely empty after reopen" symptom. Fix: enumerate every mutable collection + cache the VM owns and clear in Reset |
 
 ## Out of scope (YAGNI)
 
