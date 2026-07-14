@@ -42,6 +42,41 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- v3.48.2 PATCH: ship an ApplicationIcon so the published .exe +
+         Alt-Tab thumbnail show the brand instead of the default WPF
+         stub. Multi-resolution .ico covers 16/32/48/64/128/256 px.
+         Master SVG + per-size PNGs are siblings in Assets/ for
+         other surfaces (README, OG card, vault placeholder). -->
+    <ApplicationIcon>Assets\peakcan-host-logo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- v3.48.2 PATCH: ship the brand assets for non-runtime uses (README
+       banner + GitHub OG card + tools/smoke-diag ApplicationIcon + per-size
+       PNGs available for future pack-URI XAML Icon=). <None> here keeps
+       them in the repository + in the build output without bundling them
+       into the assembly's resource manifest (WPF's <Resource> item type is
+       reserved for non-binary asset embedding; we skip it here because
+       per-window pack-URI XAML Icon= requires resources.g.cs generation
+       that the WPF SDK doesn't emit for raw <Resource> items). The .ico
+       is consumed by <ApplicationIcon> at build time as the .exe's
+       Win32 resource (Alt-Tab thumbnail + taskbar pin icon). -->
+  <ItemGroup>
+    <None Include="Assets\peakcan-host-logo.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-16.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-32.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-48.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-64.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-128.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-180.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-256.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-512.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-logo-1024.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-banner.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-icon-240.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\peakcan-host-og-card.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
     <!-- Task 20: brand the published exe as PeakCan.Host.exe (instead
          of PeakCan.Host.App.exe). The assembly name is also renamed
          from PeakCan.Host.App to PeakCan.Host — the .NET SDK

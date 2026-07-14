@@ -145,7 +145,6 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-            new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(
                 Substitute.For<IReplayService>(),
                 Substitute.For<IFileDialogService>(),

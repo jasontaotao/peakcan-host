@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Windows;
 using FluentAssertions;
+using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;
@@ -79,7 +80,6 @@ public class UdsWindowTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
-            new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(
                 NSubstitute.Substitute.For<IReplayService>(),
                 NSubstitute.Substitute.For<IFileDialogService>(),
