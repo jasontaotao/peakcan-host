@@ -131,6 +131,22 @@ public sealed partial class AppShellViewModel
         }
     }
 
+    // v3.50.1 PATCH-A: ShowRecord restored (reverts v3.49 Q2 which moved
+    // Recording into Trace Viewer window Expander). The Record menu
+    // route is back in AppShell; v1.2.11 PATCH Item 6 design preserved.
+    [RelayCommand]
+    private void ShowRecord()
+    {
+        // v1.2.11 PATCH Item 6: Recording tab. v3.11.1 PATCH M3:
+        // extracted into ViewSwitcher — view is constructed on first Show
+        // so the shell ctor stays STA-free.
+        ViewSwitcher.Show(
+            factory: () => new RecordView { DataContext = _recordViewModel },
+            cache: ref _recordView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowRecord));
+    }
+
     [RelayCommand]
     private void ShowReplay()
     {

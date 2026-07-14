@@ -36,6 +36,11 @@
                 <MenuItem Header="Stats" Command="{Binding ShowStatsCommand}" />
                 <MenuItem Header="Script" Command="{Binding ShowScriptCommand}" />
                 <MenuItem Header="UDS" Command="{Binding ShowUdsCommand}" />
+                <!-- v3.50.1 PATCH-A: Record menu restored. Reverts v3.49 Q2
+                     (Recording was moved into Trace Viewer window Expander
+                     then; conflated playback with capture). Recording
+                     stays in AppShell View menu as the v1.2.11 design. -->
+                <MenuItem Header="Record" Command="{Binding ShowRecordCommand}" />
                 <MenuItem Header="Replay" Command="{Binding ShowReplayCommand}" />
                 <MenuItem Header="Trace Viewer…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="Multi-frame..." Command="{Binding OpenMultiFrameCommand}" />

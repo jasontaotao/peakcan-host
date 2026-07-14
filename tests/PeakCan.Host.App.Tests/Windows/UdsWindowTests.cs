@@ -80,6 +80,8 @@ public class UdsWindowTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+            // v3.50.1 PATCH-A: RecordViewModel arg restored (reverts v3.49 Q2).
+            new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(
                 NSubstitute.Substitute.For<IReplayService>(),
                 NSubstitute.Substitute.For<IFileDialogService>(),
