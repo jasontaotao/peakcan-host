@@ -64,12 +64,38 @@
                 <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="6,2" />
                 <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />
+                <!-- v3.50.1 PATCH-A: Recording moved to a public AppShell
+                     toolbar location. Replaces v3.49 Q2's Trace Viewer
+                     Expander (conflated playback with capture) and the
+                     v3.50.1 first-draft tab. Permanent button + docked
+                     panel below the content area — accessible from every
+                     tab without leaving the active surface. -->
+                <ToggleButton Content="● Record"
+                              IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
+                              Padding="6,2"
+                              ToolTip="Show / hide the Recording panel (Ctrl+R)" />
+                <Separator />
                 <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" />
             </ToolBar>
         </ToolBarTray>
         <StatusBar DockPanel.Dock="Bottom">
             <TextBlock Text="{Binding StatusMessage}" />
         </StatusBar>
+        <!-- v3.50.1 PATCH-A: Recording panel as a docked Expander. Always
+             mounted (cheap), only expanded when the toolbar toggle is on.
+             DataContext = RecordingPanel (the RecordViewModel singleton
+             wired in via DI). Shared by all tabs — the panel survives
+             CurrentView swaps. -->
+        <!-- v3.50.1 PATCH-A: Always-mounted Recording Expander. Toolbar
+             ToggleButton's IsChecked drives IsRecordingPanelOpen which
+             both expands/collapses the expander. The expander is
+             always present (collapsed = 0 vertical space); visibility
+             and height collapse automatically. -->
+        <Expander DockPanel.Dock="Bottom"
+                  Header="Recording"
+                  IsExpanded="{Binding IsRecordingPanelOpen}">
+            <views:RecordView DataContext="{Binding RecordingPanel}" />
+        </Expander>
         <ContentControl Content="{Binding CurrentView}" />
     </DockPanel>
 </Window>

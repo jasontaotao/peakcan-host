@@ -291,6 +291,8 @@ public partial class AppHostBuilder
             sp.GetRequiredService<StatsViewModel>(),
             sp.GetRequiredService<ScriptViewModel>(),
             sp.GetRequiredService<UdsViewModel>(),
+            // v3.50.1 PATCH-A: RecordViewModel wiring restored.
+            sp.GetRequiredService<RecordViewModel>(),
             sp.GetRequiredService<ReplayViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(),
             sp.GetRequiredService<TraceViewerViewModel>(),

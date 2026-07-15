@@ -120,6 +120,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -443,6 +445,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -534,6 +538,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -666,6 +672,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -961,6 +969,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -1055,6 +1065,8 @@ public class AppShellViewModelTests
                 new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
                 new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
                 new DtcPanelViewModel(udsClient)),
+                // v3.50.1 PATCH-A: RecordViewModel arg restored.
+                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
             new ReplayViewModel(
                 Substitute.For<IReplayService>(),
                 Substitute.For<IFileDialogService>(),
@@ -1272,6 +1284,25 @@ public class AppShellViewModelTests
         vm.SelectedChannel = null;
 
         config["Channel:SelectedHandle"].Should().BeNull();
+    }
+
+        // --- v3.50.1 PATCH-A: Recording panel public location ---
+    // Recording was a Trace Viewer Expander (v3.49 Q2) and a tab (first
+    // v3.50.1 draft) — both failed the "easy-to-open public location"
+    // requirement. v3.50.1 redo: Recording lives in a docked Expander
+    // surfaced from the AppShell toolbar via ToggleRecordingPanel.
+    [Fact]
+    public void RecordingPanel_Is_Wired_And_ToggleCommand_Opens()
+    {
+        var shell = NewVm();
+        shell.RecordingPanel.Should().NotBeNull("AppShell must surface the DI-injected RecordViewModel singleton");
+        shell.ToggleRecordingPanelCommand.Should().NotBeNull();
+        shell.ToggleRecordingPanelCommand.CanExecute(null).Should().BeTrue();
+        shell.IsRecordingPanelOpen.Should().BeFalse("panel defaults to closed");
+        shell.ToggleRecordingPanelCommand.Execute(null);
+        shell.IsRecordingPanelOpen.Should().BeTrue("first toggle opens the panel");
+        shell.ToggleRecordingPanelCommand.Execute(null);
+        shell.IsRecordingPanelOpen.Should().BeFalse("second toggle closes the panel");
     }
 
     // --- v2.1.4 PATCH: ShowReplay routing ---
