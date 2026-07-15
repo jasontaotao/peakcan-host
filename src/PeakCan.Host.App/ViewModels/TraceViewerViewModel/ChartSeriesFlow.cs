@@ -151,7 +151,13 @@ public sealed partial class TraceViewerViewModel
             IsFocused: false,
             IsCollapsed: false,
             SourceId: source.SourceId,
-            IsPlotPending: false);
+            IsPlotPending: false,
+            // v3.50.5 PATCH: default PlotController includes a Tracker
+            // that shows the (X, Y) data point on hover. Without this
+            // the PlotView has no controller → no hover tooltip → user
+            // can't see coordinates by clicking on a data point.
+            // PlotController lives in OxyPlot core (not OxyPlot.Wpf).
+            Controller: new PlotController());
     }
 
     /// <summary>

@@ -108,14 +108,18 @@
                  moments). Soft-hide (stroke thickness = 0) when unchecked;
                  anchor state preserved so re-show restores the line at
                  the same X. -->
-            <ToggleButton Content="显示当前锚点"
+            <!-- v3.50.4 PATCH: shortened labels ("● 当前" / "● 比较")
+                 — user reported "显示当前锚点/显示比较锚点 太占地方";
+                 shorter labels fit in toolbar 1-screen at narrower window
+                 widths. Tooltip preserves the full description. -->
+            <ToggleButton Content="● 当前"
                           IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="Toggle the green anchor line (the one that drives the watch list's Latest column)" />
-            <ToggleButton Content="显示比较锚点"
+                          ToolTip="当前锚点: 绿线, 拖动设 anchor 时刻, watch list Latest 列读该时刻解码值" />
+            <ToggleButton Content="● 比较"
                           IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="Toggle the blue comparison anchor line (the one that drives the watch list's Blue column and Δ difference)" />
+                          ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, watch list Blue 列读该时刻解码值, Δ = Blue - 当前" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
@@ -240,6 +244,7 @@
                                          (sister of the v3.50 green-anchor
                                          handler). -->
                                     <oxy:PlotView Model="{Binding PlotModel}"
+                                                  Controller="{Binding Controller}"
                                                   Height="{Binding AdaptiveHeight}"
                                                   Background="Transparent"
                                                   PreviewMouseLeftButtonDown="OnPlotViewMouseDown"
