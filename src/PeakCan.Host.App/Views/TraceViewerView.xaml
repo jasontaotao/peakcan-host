@@ -199,70 +199,21 @@
              window conflated the two concerns. Recording controls restored
              to AppShell View menu (see AppShell.xaml Record menu item). -->
 
-        <!-- Main split: signal list (left) + chart subplots (middle) + sampling table (right) -->
+        <!-- Main split: chart subplots (left, expanding) + watch/sampling side panel (right, always visible) -->
+        <!-- v3.50.4 PATCH: watch list moved from left column 0 to right
+             side panel (TabControl with Sampling Table). User feedback:
+             window resize hid the left-column watch list's DataGrid
+             scrollbars; right-side dock keeps the watch list + sampling
+             table always visible regardless of window width. -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="240" />
-                <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="3*" MinWidth="400" />
                 <ColumnDefinition Width="5" />
-                <ColumnDefinition Width="280" MinWidth="240" />
+                <ColumnDefinition Width="360" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left: signal list -->
-            <!-- v3.15.0 MINOR: watch list (default empty; user adds via
-                 + Add to watch…). v3.16.1 PATCH BUGFIX: previously bound
-                 to the obsolete v3.14.3 `Signals` collection, which
-                 v3.15.0 stopped populating — the table always looked
-                 empty even when watch entries existed. Now bound to
-                 `WatchedSignals` (the v3.15.0 source of truth). -->
-            <DataGrid Grid.Column="0"
-                      ItemsSource="{Binding WatchedSignals}"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      EnableRowVirtualization="True"
-                      EnableColumnVirtualization="True"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling"
-                      VirtualizingPanel.ScrollUnit="Pixel"
-                      ScrollViewer.CanContentScroll="True"
-                      RowHeight="22">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="80" />
-                    <DataGridTextColumn Header="Message" Binding="{Binding MessageName}" Width="160" />
-                    <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
-                    <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="60" />
-                    <DataGridTemplateColumn Header="Plot" Width="40">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <CheckBox IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          Click="OnPlotCheckboxClick"/>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-                    <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="40" />
-                    <DataGridTextColumn Header="Latest"
-                                        Binding="{Binding LatestValue, Converter={StaticResource DoubleNanToStr}}"
-                                        Width="80" />
-                    <!-- v3.50.2 PATCH T3: Delta column. = BlueLatest - Green Latest.
-                         Uses DoubleNanToStr converter so unset/NaN shows
-                         "—" instead of "NaN" (single source of truth for
-                         watch-list double rendering; sister of Latest). -->
-                    <DataGridTextColumn Header="Δ"
-                                        Binding="{Binding DeltaValue, Converter={StaticResource DoubleNanToStr}}"
-                                        Width="80" />
-                    <DataGridTextColumn Header="Blue"
-                                        Binding="{Binding BlueLatestValue, Converter={StaticResource DoubleNanToStr}}"
-                                        Width="80" />
-                </DataGrid.Columns>
-            </DataGrid>
-
-            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
-
-            <!-- Right: chart subplots (per-signal PlotViews) -->
-            <ScrollViewer x:Name="ChartScroll" Grid.Column="2" VerticalScrollBarVisibility="Auto"
+            <!-- Left: chart subplots (per-signal PlotViews) -->
+            <ScrollViewer x:Name="ChartScroll" Grid.Column="0" VerticalScrollBarVisibility="Auto"
                           Loaded="OnChartScrollLoaded" SizeChanged="OnChartScrollSizeChanged">
                 <ItemsControl ItemsSource="{Binding ChartViewModel.Series}">
                     <ItemsControl.ItemTemplate>
@@ -302,24 +253,77 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <!-- v3.49.0 MINOR Q1: Sampling Table (multi-signal sync sampling
-                 at current scrubber position). Right-edge panel. Hidden when
-                 no watched signals exist; refreshed on WatchedSignals
-                 CollectionChanged (see TraceViewerViewModel ctor hook). -->
-            <Border Grid.Column="3" BorderBrush="#DDD" BorderThickness="1,0,0,0"
-                    Visibility="{Binding HasWatchedSignals, Converter={StaticResource BoolToVis}}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Sampling Table" FontWeight="SemiBold" Margin="6,4" />
-                    <DataGrid ItemsSource="{Binding SamplingRows}"
-                              AutoGenerateColumns="False" IsReadOnly="True"
-                              EnableRowVirtualization="False" RowHeight="22">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
-                            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="40" />
-                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="60" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </DockPanel>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
+
+            <!-- Right: side panel with Watch List + Sampling Table tabs.
+                 v3.50.4 PATCH: was two separate right-side panels
+                 (Sampling Table in column 4, Watch List in column 0).
+                 User reported: "watch list 滚动栏能放到显示窗口的右边么
+                 (别窗口大小改变了就找不到了)" — left-column watch list
+                 DataGrid scrollbars disappeared when the window shrank
+                 below ~1000px. TabControl keeps both panels docked on
+                 the right, scrollbars always reachable via window's
+                 right edge. -->
+            <Border Grid.Column="2" BorderBrush="#DDD" BorderThickness="1,0,0,0">
+                <TabControl>
+                    <!-- Tab 1: Watch List (v3.15.0 MINOR source of truth).
+                         Always visible regardless of window size. -->
+                    <TabItem Header="Watch List">
+                        <DataGrid ItemsSource="{Binding WatchedSignals}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  VirtualizingPanel.ScrollUnit="Pixel"
+                                  ScrollViewer.CanContentScroll="True"
+                                  RowHeight="22">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="70" />
+                                <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
+                                <DataGridTemplateColumn Header="Plot" Width="36">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      Click="OnPlotCheckboxClick"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="32" />
+                                <DataGridTextColumn Header="Latest"
+                                                    Binding="{Binding LatestValue, Converter={StaticResource DoubleNanToStr}}"
+                                                    Width="60" />
+                                <!-- v3.50.2 PATCH T3: Delta column. = BlueLatest - Green Latest.
+                                     Uses DoubleNanToStr converter so unset/NaN shows
+                                     "—" instead of "NaN" (single source of truth for
+                                     watch-list double rendering; sister of Latest). -->
+                                <DataGridTextColumn Header="Δ"
+                                                    Binding="{Binding DeltaValue, Converter={StaticResource DoubleNanToStr}}"
+                                                    Width="60" />
+                                <DataGridTextColumn Header="Blue"
+                                                    Binding="{Binding BlueLatestValue, Converter={StaticResource DoubleNanToStr}}"
+                                                    Width="60" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </TabItem>
+                    <!-- Tab 2: Sampling Table (v3.49.0 MINOR Q1). Hidden when
+                         no watched signals exist; otherwise always present. -->
+                    <TabItem Header="Sampling Table"
+                             Visibility="{Binding HasWatchedSignals, Converter={StaticResource BoolToVis}}">
+                        <DataGrid ItemsSource="{Binding SamplingRows}"
+                                  AutoGenerateColumns="False" IsReadOnly="True"
+                                  EnableRowVirtualization="False" RowHeight="22">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
+                                <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="40" />
+                                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="60" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </TabItem>
+                </TabControl>
             </Border>
         </Grid>
     </DockPanel>
