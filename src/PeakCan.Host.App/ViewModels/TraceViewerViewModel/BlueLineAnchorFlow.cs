@@ -1,0 +1,188 @@
+// src/PeakCan.Host.App/ViewModels/TraceViewerViewModel/BlueLineAnchorFlow.cs — v3.50.2 PATCH T1
+// v3.50.2 Q2: 12th partial on TraceViewerViewModel. Sister of v3.50 GreenLineAnchorFlow.
+// 蓝色比较线 (blue-anchor LineAnnotation) + 独立 anchor state + 蓝线 drag handler hook.
+// 跟 v3.50 绿线完全平行但用独立字段 _blueAnchorTimestampSeconds, 互不干扰。
+//
+// 与绿线的关键区别:
+// 1. 蓝线用 OxyColors.Blue, 绿线用 OxyColors.Green
+// 2. 蓝线 Tag = "blue-anchor", 绿线 Tag = "green-anchor"
+// 3. 蓝线更新 LatestBlue/FrameCount (新字段), 绿线更新 LatestValue/FrameCount
+// 4. 蓝线 XAML 触发是右键 (PreviewMouseRightButtonDown), 绿线是左键
+//
+// W23 LESSON: SignalDecoder 完整路径 (global::PeakCan.Host.Core.Dbc.SignalDecoder)
+// 因为 XAML temp csproj 源生成器无法通过 using 拉 Core 类型。
+
+using System;
+using OxyPlot;
+using OxyPlot.Annotations;
+using PeakCan.Host.Core.Replay;
+
+namespace PeakCan.Host.App.ViewModels;
+
+public sealed partial class TraceViewerViewModel
+{
+    private static readonly OxyColor BlueLineColor = OxyColors.Blue;
+    private const double BlueLineStrokeThickness = 2.0;
+
+    /// <summary>v3.50.2 PATCH: blue-line soft-toggle state. Default true
+    /// (blue line shown). Toggled via <see cref="SetBlueLinesVisible"/>,
+    /// sister of the green-line toggle on the toolbar.</summary>
+    private bool _isBlueLineVisible = true;
+
+    /// <summary>v3.50.2 PATCH: public XAML-bindable accessor. Setter
+    /// routes through SetBlueLinesVisible so existing blue-anchor
+    /// LineAnnotation strokes get updated; reads return the cached
+    /// bool for binding round-trip without a recompute.</summary>
+    public bool IsBlueLineVisible
+    {
+        get => _isBlueLineVisible;
+        set => SetBlueLinesVisible(value);
+    }
+
+    /// <summary>v3.50.2 PATCH: soft-toggle blue LineAnnotation visibility.
+    /// Sister of <see cref="SetGreenLinesVisible"/> on the green-anchor
+    /// partial. OxyPlot's LineAnnotation has no IsVisible property, so
+    /// we use 0 stroke thickness as the hide signal (preserves anchor
+    /// state across hide/show round-trips without re-creating the
+    /// annotation).</summary>
+    public void SetBlueLinesVisible(bool visible)
+    {
+        _isBlueLineVisible = visible;
+        foreach (var chart in ChartViewModel.Series)
+        {
+            var blues = chart.PlotModel.Annotations
+                .OfType<LineAnnotation>()
+                .Where(a => a.Tag as string == "blue-anchor");
+            foreach (var b in blues)
+            {
+                b.StrokeThickness = visible ? BlueLineStrokeThickness : 0.0;
+            }
+            chart.PlotModel.InvalidatePlot(false);
+        }
+    }
+
+    /// <summary>
+    /// v3.50.2 PATCH T1: 蓝色比较线 anchor timestamp, 独立于绿线.
+    /// NaN = 无蓝线 (跟绿线一样的约定).
+    /// </summary>
+    private double _blueAnchorTimestampSeconds = double.NaN;
+
+    /// <summary>True when blue-line anchor is active. XAML binds visibility
+    /// from this in a future revision; for now it gates LineAnnotation
+    /// rendering inside UpdateAllBlueLines.</summary>
+    public bool IsBlueLineAnchorActive => !double.IsNaN(_blueAnchorTimestampSeconds);
+
+    /// <summary>Public API: reset blue-line X position + recompute all
+    /// watch rows' BlueLatestValue/BlueFrameCount to <paramref name="ts"/>.
+    /// NaN clears every blue line; Latest stays at the per-row last-decoded
+    /// default (sister of v3.50 RefreshAtAnchor).</summary>
+    public void RefreshAtAnchorBlue(double timestampSeconds)
+    {
+        _blueAnchorTimestampSeconds = timestampSeconds;
+        OnPropertyChanged(nameof(IsBlueLineAnchorActive));
+        UpdateAllBlueLines();
+        RecomputeAllLatestAtBlueAnchor();
+    }
+
+    private void UpdateAllBlueLines()
+    {
+        foreach (var chart in ChartViewModel.Series)
+        {
+            var model = chart.PlotModel;
+
+            // Idempotent removal: drop any existing blue-anchor annotation.
+            var existing = model.Annotations
+                .OfType<LineAnnotation>()
+                .Where(a => a.Tag as string == "blue-anchor")
+                .ToList();
+            foreach (var old in existing) model.Annotations.Remove(old);
+
+            if (!IsBlueLineAnchorActive) continue;
+
+            var line = new LineAnnotation
+            {
+                Type = LineAnnotationType.Vertical,
+                X = _blueAnchorTimestampSeconds,
+                Color = BlueLineColor,
+                // v3.50.2 PATCH: respect visibility toggle (0 stroke
+                // thickness = visually hidden but anchor state intact).
+                StrokeThickness = _isBlueLineVisible ? BlueLineStrokeThickness : 0.0,
+                LineStyle = LineStyle.Solid,
+                Text = "",
+                Tag = "blue-anchor",
+            };
+            model.Annotations.Add(line);
+            model.InvalidatePlot(false);
+        }
+    }
+
+    private void RecomputeAllLatestAtBlueAnchor()
+    {
+        if (!IsBlueLineAnchorActive) return;
+        if (WatchedSignals.Count == 0) return;
+
+        // v3.50.2 PATCH (ChartSourceCoupling): read directly from each
+        // row's chart series YValues so watch list .Blue / .Δ always
+        // matches the chart subplot y value at the same X. Fallback
+        // to direct SignalDecoder.Decode when the row hasn't been
+        // plotted (Plot checkbox unchecked) — sister of the
+        // RefreshFrameCounts fallback in SignalFlow.cs.
+        var masterSource = Sources.FirstOrDefault(s => s.SourceId == MasterSourceId)
+                           ?? Sources.FirstOrDefault();
+        var frames = masterSource is null
+            ? null
+            : _registry.GetFrames(masterSource.SourceId);
+        foreach (var row in WatchedSignals)
+        {
+            if (row.IsPlaceholder) continue;
+
+            var series = FindChartSeriesForRow(row);
+            if (series is not null)
+            {
+                int idx = BinarySearchLatestAtOrBefore(series.XValues, _blueAnchorTimestampSeconds);
+                if (idx < 0)
+                {
+                    row.BlueLatestValue = double.NaN;
+                    row.BlueFrameCount = 0;
+                    continue;
+                }
+                row.BlueLatestValue = series.YValues[idx];
+                row.BlueFrameCount = idx + 1;
+                continue;
+            }
+
+            // Fallback: no chart series — decode directly from the
+            // master source frame at the blue-anchor timestamp.
+            if (frames is null || frames.Count == 0) continue;
+            int frameIdx = BinarySearchLatestAtOrBefore(frames, _blueAnchorTimestampSeconds);
+            if (frameIdx < 0) continue;
+            if (row.Signal is not null)
+            {
+                row.BlueLatestValue = global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(
+                    frames[frameIdx].Data.AsSpan(), row.Signal);
+                row.BlueFrameCount = frameIdx + 1;
+            }
+        }
+    }
+
+    /// <summary>v3.50.2 PATCH T1: soft-toggle the green LineAnnotation
+    /// visibility. Sister of v3.50's RefreshAtAnchor. OxyPlot's
+    /// LineAnnotation has no IsVisible property, so we use 0 stroke
+    /// thickness as the hide signal (preserves anchor state across
+    /// hide/show round-trips without re-creating the annotation).</summary>
+    public void SetGreenLinesVisible(bool visible)
+    {
+        _isGreenLineVisible = visible;
+        foreach (var chart in ChartViewModel.Series)
+        {
+            var greens = chart.PlotModel.Annotations
+                .OfType<LineAnnotation>()
+                .Where(a => a.Tag as string == "green-anchor");
+            foreach (var g in greens)
+            {
+                g.StrokeThickness = visible ? GreenLineStrokeThickness : 0.0;
+            }
+            chart.PlotModel.InvalidatePlot(false);
+        }
+    }
+}

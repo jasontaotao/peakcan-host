@@ -320,6 +320,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // so this is effectively a "drop all green lines" pass.
         UpdateAllGreenLines();
         SamplingRows.Clear();
+        // v3.50.2 PATCH T2: clear blue anchor too. Sister of green.
+        _blueAnchorTimestampSeconds = double.NaN;
+        OnPropertyChanged(nameof(IsBlueLineAnchorActive));
+        UpdateAllBlueLines();
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's

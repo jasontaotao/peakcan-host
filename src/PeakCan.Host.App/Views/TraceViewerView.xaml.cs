@@ -164,6 +164,24 @@ public partial class TraceViewerView : Window
         }
     }
 
+    /// <summary>v3.50.2 PATCH T3: right-button click commits the BLUE
+    /// comparison anchor at the cursor's X. Single-shot (no drag) — right
+    /// drag is not bound to a follow-up, so the blue anchor is a
+    /// discrete "click and place" interaction, distinct from the green
+    /// anchor's drag-to-track UX.</summary>
+    private void OnPlotViewRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Right) return;
+        if (TryGetAnchorSeconds(sender, e, out var ts))
+        {
+            if (DataContext is TraceViewerViewModel vm)
+            {
+                vm.RefreshAtAnchorBlue(ts);
+            }
+            e.Handled = true;
+        }
+    }
+
     private void OnPlotViewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (!_isDraggingGreenLine) return;

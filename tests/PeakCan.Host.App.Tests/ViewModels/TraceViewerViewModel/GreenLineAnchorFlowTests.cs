@@ -41,13 +41,60 @@ public class GreenLineAnchorFlowTests
 
     /// <summary>Inject one <see cref="TraceChartSeries"/> per (chart, model)
     /// pair into the VM's ChartViewModel so UpdateAllGreenLines has a
-    /// non-empty chart list to iterate.</summary>
+    /// non-empty chart list to iterate. v3.50.2 PATCH ChartSourceCoupling
+    /// also requires the YValues to actually hold the per-frame
+    /// decoded signal values (so the watch list's anchor-driven
+    /// Latest can read them back via YValues[idx] and match the
+    /// chart subplot's plotted point at the same X).
+    /// <para>Pass the same frames that SeedWatchedRow will use, plus
+    /// the Signal ref the row caches, so XValues / YValues line up
+    /// with what RecomputeAllLatestAtAnchor will binary-search.</para>
+    /// </summary>
+    private static void SeedChart(
+        TraceViewerViewModel vm,
+        Signal signal,
+        IReadOnlyList<ReplayFrame> frames,
+        params (string key, OxyColor color)[] charts)
+    {
+        var xs = new List<double>(frames.Count);
+        var ys = new List<double>(frames.Count);
+        foreach (var f in frames)
+        {
+            xs.Add(f.Timestamp);
+            ys.Add(global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(f.Data.AsSpan(), signal));
+        }
+        foreach (var (key, color) in charts)
+        {
+            var plot = new PlotModel();
+            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Bottom });
+            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Left });
+            var series = new TraceChartSeries(
+                SignalKey: key,
+                DisplayName: key,
+                Unit: "",
+                Color: color,
+                PlotModel: plot,
+                XValues: xs,
+                YValues: ys,
+                MinValue: ys.Min(),
+                MaxValue: ys.Max(),
+                IsFocused: false,
+                IsCollapsed: false);
+            vm.ChartViewModel.AddSeries(series);
+        }
+    }
+
+    /// <summary>v3.50.2 PATCH: place-holder overload for tests that
+    /// don't care about per-frame data (e.g. anchor-clear test). The
+    /// v3.50.2 ChartSourceCoupling path needs the row's chart series
+    /// to have a real (or default-NaN) YValues, but for tests that
+    /// assert on line annotations instead of Latest, a placeholder
+    /// is fine.</summary>
     private static void SeedChart(TraceViewerViewModel vm, params (string key, OxyColor color)[] charts)
     {
         foreach (var (key, color) in charts)
         {
             var plot = new PlotModel();
-            // Minimal axes so PlotModel is renderable
             plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Bottom });
             plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Left });
             var series = new TraceChartSeries(
@@ -57,7 +104,7 @@ public class GreenLineAnchorFlowTests
                 Color: color,
                 PlotModel: plot,
                 XValues: new List<double> { 0.0 },
-                YValues: new List<double> { 0.0 },
+                YValues: new List<double> { double.NaN },
                 MinValue: 0,
                 MaxValue: 0,
                 IsFocused: false,
@@ -82,8 +129,15 @@ public class GreenLineAnchorFlowTests
         vm.MasterSourceId = sourceId;
         registry.GetFrames(sourceId).Returns(frames);
 
+        // v3.50.2 PATCH ChartSourceCoupling: build a real TraceChartSeries
+        // from frames + signal so FindChartSeriesForRow can find it via
+        // SignalKey match and the new YValues-based Latest path works.
+        var idHex = "0x100";
+        SeedChart(vm, signal, frames,
+            ($"{idHex}.{signal.Name}", OxyColors.Red));
+
         var row = new WatchedSignalRow(
-            canIdHex: "0x100",
+            canIdHex: idHex,
             messageName: "Msg",
             signalName: signal.Name,
             unit: signal.Unit,
@@ -180,5 +234,143 @@ public class GreenLineAnchorFlowTests
             "(frame index 2, Data[0]=30) and decode via Factor=1 / Offset=0 → 30.0");
         row.FrameCount.Should().Be(3,
             "FrameCount is 1-based index of the matched frame: idx+1 = 2+1 = 3");
+    }
+
+    // === v3.50.2 PATCH T1+T2+T3: blue anchor + Delta + show/hide tests ===
+
+    [Fact]
+    public void RefreshAtAnchorBlue_Updates_BlueLatestValue()
+    {
+        // Arrange: 1 frame at t=2.5 with Data[0]=30.
+        var vm = NewVm(out var registry, out _);
+        // SeedWatchedRow below builds the real chart series from frames.
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+
+        // Act
+        vm.RefreshAtAnchorBlue(2.5);
+
+        // Assert
+        var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        row.BlueLatestValue.Should().Be(30.0,
+            "blue anchor at 2.5 must decode Data[0]=30 via SignalDecoder (Factor=1 Offset=0)");
+        row.BlueFrameCount.Should().Be(1, "single frame at t=2.5: BlueFrameCount = idx+1 = 0+1 = 1");
+        vm.IsBlueLineAnchorActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SetGreenLinesVisible_False_ZerosStrokeThickness()
+    {
+        var vm = NewVm(out _, out _);
+        SeedChart(vm, ("0x100.SigA", OxyColors.Red));
+        vm.RefreshAtAnchor(2.5);
+        var chart = vm.ChartViewModel.Series.First();
+        var greenBefore = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "green-anchor");
+        greenBefore.StrokeThickness.Should().Be(2.0);
+
+        // Act
+        vm.SetGreenLinesVisible(false);
+
+        // Assert
+        var greenAfter = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "green-anchor");
+        greenAfter.StrokeThickness.Should().Be(0.0,
+            "soft-hide zeros stroke thickness; anchor X + state preserved");
+        greenAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
+    }
+
+    [Fact]
+    public void RefreshFrameCounts_Leaves_BlueLatestValue_NaN_Until_BlueAnchor_Drag()
+    {
+        // v3.50.2 PATCH (after user feedback): RefreshFrameCounts must
+        // NOT mirror-decode BlueLatestValue from LatestValue. The Δ
+        // column should show "—" (NaN-rendered) until the user
+        // explicitly drags the blue anchor; mirroring hides whether
+        // a comparison target has actually been chosen.
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x100.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x100, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+
+        var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        // The fixture's SeedWatchedRow sets row.Signal but the actual
+        // RefreshFrameCounts path is NSubstitute-skipped (DBC is a
+        // NSubstitute mock). We can only assert the design contract
+        // here: BlueLatestValue stays NaN until RecomputeAllLatestAtBlueAnchor
+        // writes it. Once the user drags the blue anchor, it's set.
+        row.BlueLatestValue.Should().Be(double.NaN,
+            "no mirror; Δ column shows \"—\" until the user drags the blue anchor");
+
+        // User drags green anchor at t=2.5 first, then blue anchor at the
+        // same X. Both anchors sit on the same frame, so Δ = 0.
+        vm.RefreshAtAnchor(2.5);
+        vm.RefreshAtAnchorBlue(2.5);
+        row.LatestValue.Should().Be(30.0,
+            "green anchor at 2.5 reads chart YValues[0] = 30");
+        row.BlueLatestValue.Should().Be(30.0,
+            "blue anchor at 2.5 reads chart YValues[0] = 30");
+        row.DeltaValue.Should().Be(0.0,
+            "Δ = 30 - 30 = 0 (anchor and blue anchor at same X)");
+    }
+
+    [Fact]
+    public void SetBlueLinesVisible_False_ZerosStrokeThickness()
+    {
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+        vm.RefreshAtAnchorBlue(2.5);
+        var chart = vm.ChartViewModel.Series.First();
+        var blueBefore = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "blue-anchor");
+        blueBefore.StrokeThickness.Should().Be(2.0);
+
+        vm.SetBlueLinesVisible(false);
+
+        var blueAfter = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "blue-anchor");
+        blueAfter.StrokeThickness.Should().Be(0.0,
+            "soft-hide zeros stroke thickness; anchor X preserved");
+        blueAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
+    }
+
+    [Fact]
+    public void DeltaValue_Is_BlueMinusGreen()
+    {
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+
+        // Both anchors at same X → Delta = 0
+        vm.RefreshAtAnchor(2.5);
+        vm.RefreshAtAnchorBlue(2.5);
+
+        var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        row.LatestValue.Should().Be(30.0);
+        row.BlueLatestValue.Should().Be(30.0);
+        row.DeltaValue.Should().Be(0.0, "Delta = BlueLatest - Green Latest");
     }
 }
