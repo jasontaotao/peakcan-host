@@ -109,31 +109,37 @@ public sealed partial class TraceViewerViewModel
             row.FrameCount = count;
             if (lastFrame is not null)
             {
-                // v3.50.2 PATCH: prefer the cached Signal reference set by
-                // OnWatchedSignalsCollectionChangedForSignalCache so the
-                // decode uses the same DBC Signal the chart series uses
-                // (sister of v3.50 GreenLineAnchorFlow.RecomputeAllLatestAtAnchor).
-                // Falls back to a DBC lookup only when the cache missed
-                // (e.g. test fixtures that bypass CollectionChanged).
-                var sig = row.Signal
-                    ?? dbc.Messages
-                        .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
-                        .SelectMany(m => m.Signals)
-                        .FirstOrDefault(s => s.Name == row.SignalName);
-                if (sig is not null)
+                // v3.50.2 PATCH (ChartSourceCoupling): prefer the
+                // pre-decoded Y value from the chart series'
+                // YValues[Count-1] (the rightmost data point on
+                // the subplot, which corresponds to the last
+                // loaded frame for this signal). This way the
+                // watch list's default Latest is the same value
+                // the chart subplot's rightmost point already
+                // shows — no second SignalDecoder.Decode path
+                // that could pick a different signal ref, source,
+                // or frame.
+                //
+                // Fallback: if the row hasn't been plotted (Plot
+                // checkbox unchecked), no chart series exists —
+                // fall back to the prior SignalDecoder.Decode path
+                // so the watch list still has a Latest value.
+                var series = FindChartSeriesForRow(row);
+                if (series is not null && series.YValues.Count > 0)
                 {
-                    var decoded = SignalDecoder.Decode(lastFrame.Data, sig);
-                    row.LatestValue = decoded;
-                    // v3.50.2 PATCH: do NOT mirror BlueLatestValue here.
-                    // Before the user drags the blue anchor,
-                    // BlueLatestValue stays NaN and the Δ column renders
-                    // as "—" (no comparison target chosen yet). Once
-                    // the user right-click-drags the blue anchor,
-                    // RecomputeAllLatestAtBlueAnchor overwrites this
-                    // with the actual anchor-time decode.
-                    // (Earlier v3.50.2 build mirrored here; user
-                    // feedback: Δ = 0 hides whether the user has
-                    // actually compared or not.)
+                    row.LatestValue = series.YValues[^1];
+                }
+                else if (lastFrame is not null)
+                {
+                    var sig = row.Signal
+                        ?? dbc.Messages
+                            .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+                            .SelectMany(m => m.Signals)
+                            .FirstOrDefault(s => s.Name == row.SignalName);
+                    if (sig is not null)
+                    {
+                        row.LatestValue = SignalDecoder.Decode(lastFrame.Data, sig);
+                    }
                 }
             }
         }

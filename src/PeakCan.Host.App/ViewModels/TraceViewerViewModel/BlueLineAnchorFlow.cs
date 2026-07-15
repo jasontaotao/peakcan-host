@@ -121,31 +121,47 @@ public sealed partial class TraceViewerViewModel
         if (!IsBlueLineAnchorActive) return;
         if (WatchedSignals.Count == 0) return;
 
+        // v3.50.2 PATCH (ChartSourceCoupling): read directly from each
+        // row's chart series YValues so watch list .Blue / .Δ always
+        // matches the chart subplot y value at the same X. Fallback
+        // to direct SignalDecoder.Decode when the row hasn't been
+        // plotted (Plot checkbox unchecked) — sister of the
+        // RefreshFrameCounts fallback in SignalFlow.cs.
         var masterSource = Sources.FirstOrDefault(s => s.SourceId == MasterSourceId)
                            ?? Sources.FirstOrDefault();
-        if (masterSource is null) return;
-
-        var frames = _registry.GetFrames(masterSource.SourceId);
-        if (frames.Count == 0) return;
-
-        int idx = BinarySearchLatestAtOrBeforeAnchor(frames, _blueAnchorTimestampSeconds);
-
+        var frames = masterSource is null
+            ? null
+            : _registry.GetFrames(masterSource.SourceId);
         foreach (var row in WatchedSignals)
         {
             if (row.IsPlaceholder) continue;
-            if (row.SourceId is not null && row.SourceId != masterSource.SourceId) continue;
 
-            var signal = row.Signal;
-            if (signal is null || idx < 0)
+            var series = FindChartSeriesForRow(row);
+            if (series is not null)
             {
-                row.BlueLatestValue = double.NaN;
-                row.BlueFrameCount = 0;
+                int idx = BinarySearchLatestAtOrBefore(series.XValues, _blueAnchorTimestampSeconds);
+                if (idx < 0)
+                {
+                    row.BlueLatestValue = double.NaN;
+                    row.BlueFrameCount = 0;
+                    continue;
+                }
+                row.BlueLatestValue = series.YValues[idx];
+                row.BlueFrameCount = idx + 1;
                 continue;
             }
 
-            var frame = frames[idx];
-            row.BlueLatestValue = global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(frame.Data.AsSpan(), signal);
-            row.BlueFrameCount = idx + 1;
+            // Fallback: no chart series — decode directly from the
+            // master source frame at the blue-anchor timestamp.
+            if (frames is null || frames.Count == 0) continue;
+            int frameIdx = BinarySearchLatestAtOrBefore(frames, _blueAnchorTimestampSeconds);
+            if (frameIdx < 0) continue;
+            if (row.Signal is not null)
+            {
+                row.BlueLatestValue = global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(
+                    frames[frameIdx].Data.AsSpan(), row.Signal);
+                row.BlueFrameCount = frameIdx + 1;
+            }
         }
     }
 

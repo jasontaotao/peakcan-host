@@ -146,73 +146,157 @@ public sealed partial class TraceViewerViewModel
         if (!IsGreenLineAnchorActive) return;
         if (WatchedSignals.Count == 0) return;
 
-        // Use master source for frame lookup. MasterSourceId may be empty
-        // before the first source loads — fall back to the first loaded
-        // source so the anchor refresh still works in single-source tests
-        // that don't set MasterSourceId.
+        // v3.50.2 PATCH (ChartSourceCoupling): read the anchor-time
+        // decoded value directly from the chart series' YValues
+        // (the same array that drives the subplot line). This
+        // mathematically guarantees watch list .Latest matches the
+        // y-axis value at the green-line X on the chart — both
+        // paths read the same YValues[idx] instead of the watch list
+        // re-decoding via SignalDecoder (which had a real divergence
+        // when row.Signal / _registry.GetFrames / masterSource didn't
+        // line up with the chart series' source + signal).
+        //
+        // Fallback: if the row hasn't been plotted (Plot checkbox
+        // unchecked), no chart series exists — fall back to the
+        // master-source-frame path so the watch list still gets a
+        // Latest value at the anchor timestamp.
         var masterSource = Sources.FirstOrDefault(s => s.SourceId == MasterSourceId)
                            ?? Sources.FirstOrDefault();
-        if (masterSource is null) return;
-
-        var frames = _registry.GetFrames(masterSource.SourceId);
-        if (frames.Count == 0) return;
-
-        int idx = BinarySearchLatestAtOrBeforeAnchor(frames, _anchorTimestampSeconds);
-
+        var frames = masterSource is null
+            ? null
+            : _registry.GetFrames(masterSource.SourceId);
         foreach (var row in WatchedSignals)
         {
             if (row.IsPlaceholder) continue;
-            // Cross-source watches (SourceId == null) follow master;
-            // source-pinned watches only update when their source matches.
-            if (row.SourceId is not null && row.SourceId != masterSource.SourceId) continue;
 
-            var signal = row.Signal;
-            if (signal is null || idx < 0)
+            // Find the chart series that plots THIS signal. Plotting
+            // a signal pins it to a TraceChartSeries whose YValues
+            // are the per-frame decoded values. A row that hasn't
+            // been plotted (user unchecked the Plot checkbox) has no
+            // chart series — skip the anchor refresh for it.
+            var series = FindChartSeriesForRow(row);
+            if (series is not null)
             {
-                row.LatestValue = double.NaN;
-                row.FrameCount = 0;
+                int idx = BinarySearchLatestAtOrBefore(
+                    series.XValues, _anchorTimestampSeconds);
+                if (idx < 0)
+                {
+                    row.LatestValue = double.NaN;
+                    row.FrameCount = 0;
+                    continue;
+                }
+                row.LatestValue = series.YValues[idx];
+                row.FrameCount = idx + 1;
                 continue;
             }
 
-            var frame = frames[idx];
-            // Decode() applies Factor + Offset (engineering convention).
-            // Replaces the v3.49.0 placeholder that read frame.Data[0]
-            // as a raw byte. Returns double directly (no manual cast).
-            row.LatestValue = global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(frame.Data.AsSpan(), signal);
-            row.FrameCount = idx + 1;
+            // Fallback: row hasn't been plotted yet — decode the
+            // anchor frame directly from the master source.
+            if (frames is null || frames.Count == 0) continue;
+            int frameIdx = BinarySearchLatestAtOrBeforeAnchorFrames(frames, _anchorTimestampSeconds);
+            if (frameIdx < 0) continue;
+            if (row.Signal is null) continue;
+            row.LatestValue = global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(
+                frames[frameIdx].Data.AsSpan(), row.Signal);
+            row.FrameCount = frameIdx + 1;
         }
 
-        // Trigger ObservableProperty notifications so the watch list
-        // rebinds the LatestValue / FrameCount columns. The individual
-        // row properties are auto-INPC; the collection-level event
-        // would also suffice but row-level updates are sufficient and
-        // cheaper for an anchor-refresh that can fire on every drag tick.
         OnPropertyChanged(nameof(WatchedSignals));
     }
 
-    /// <summary>
-    /// Standard lower-bound binary search: return the index of the last
-    /// frame whose <see cref="ReplayFrame.Timestamp"/> is
-    /// <c>&lt;= targetTs</c>, or -1 if every frame is later than the target.
-    /// Loop-style (no LINQ) because the per-frame cost matters when the
-    /// drag MouseMove fires 60×/sec across 99k-frame traces.
-    /// </summary>
-    private static int BinarySearchLatestAtOrBeforeAnchor(IReadOnlyList<ReplayFrame> frames, double targetTs)
+    /// <summary>v3.50.2 PATCH: lower-bound binary search on
+    /// <see cref="ReplayFrame.Timestamp"/>. Sister of the
+    /// <c>double</c>-overload used by the chart-series path.</summary>
+    private static int BinarySearchLatestAtOrBeforeAnchorFrames(
+        IReadOnlyList<global::PeakCan.Host.Core.Replay.ReplayFrame> frames, double targetTs)
     {
         int lo = 0, hi = frames.Count - 1, result = -1;
         while (lo <= hi)
         {
             int mid = lo + (hi - lo) / 2;
-            if (frames[mid].Timestamp <= targetTs)
-            {
-                result = mid;
-                lo = mid + 1;
-            }
-            else
-            {
-                hi = mid - 1;
-            }
+            if (frames[mid].Timestamp <= targetTs) { result = mid; lo = mid + 1; }
+            else { hi = mid - 1; }
         }
         return result;
     }
+
+    // Keep the legacy RefreshFrameCounts path (SignalFlow.cs) as the
+    // PRIMARY default — it walks master source frames + the row's
+    // cached Signal ref. The chart-series path above is the
+    // "anchor-time" override that the user drags the green line
+    // triggers. The two paths converge on the same decoded value
+    // when row.Signal matches the chart series' signal ref.
+
+    /// <summary>v3.50.2 PATCH: find the chart TraceChartSeries that
+    /// corresponds to this watch row. Match by parsing both
+    /// SignalKey formats (which don't share a canonical prefix
+    /// — WatchedSignalRow uses "{idHex}.{signalName}[.{sourceId}]"
+    /// while TraceChartSeries uses "{idHex}.{signalName}"). We
+    /// compare on the structural (idHex, signalName) pair so the
+    /// row is matched regardless of source-pinning. Returns null
+    /// if the row has not been plotted (Plot checkbox unchecked)
+    /// so Latest stays NaN until the user opts in.
+    /// </summary>
+    private TraceChartSeries? FindChartSeriesForRow(WatchedSignalRow row)
+    {
+        var (rowIdHex, rowSigName, _) = ParseSignalKey(row.SignalKey);
+        if (rowIdHex is null || rowSigName is null) return null;
+        // Prefer the series with the most non-NaN YValues (i.e. the
+        // real per-frame decoded series, not a placeholder). This
+        // ensures tests that SeedChart() a placeholder before
+        // SeedWatchedRow() (which adds the real one) still find the
+        // real series via the same (idHex, signalName) match.
+        TraceChartSeries? best = null;
+        var bestNonNaN = -1;
+        foreach (var s in ChartViewModel.Series)
+        {
+            var (sIdHex, sSigName, _) = ParseSignalKey(s.SignalKey);
+            if (!string.Equals(sIdHex, rowIdHex, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(sSigName, rowSigName, StringComparison.Ordinal)) continue;
+            var nonNaN = s.YValues.Count(y => !double.IsNaN(y));
+            if (nonNaN > bestNonNaN) { best = s; bestNonNaN = nonNaN; }
+        }
+        return best;
+    }
+
+    private static (string? idHex, string? signalName, string? sourceId)
+        ParseSignalKey(string key)
+    {
+        // SignalKey = "{idHex}.{signalName}[.{sourceId}]" — 2 or 3 parts.
+        var dot1 = key.IndexOf('.');
+        if (dot1 <= 0) return (null, null, null);
+        var idHex = key.Substring(0, dot1);
+        var rest = key.Substring(dot1 + 1);
+        var dot2 = rest.IndexOf('.');
+        if (dot2 < 0) return (idHex, rest, null);
+        return (idHex, rest.Substring(0, dot2), rest.Substring(dot2 + 1));
+    }
+
+    /// <summary>v3.50.2 PATCH: standard lower_bound over a
+    /// monotonically-increasing array of doubles. Returns the index
+    /// of the last entry &lt;= target, or -1 if every entry is
+    /// greater than the target.</summary>
+    private static int BinarySearchLatestAtOrBefore(
+        IReadOnlyList<double> xs, double target)
+    {
+        int lo = 0, hi = xs.Count - 1, result = -1;
+        while (lo <= hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (xs[mid] <= target) { result = mid; lo = mid + 1; }
+            else { hi = mid - 1; }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Standard lower-bound binary search: return the index of the last
+    /// <summary>v3.50.2 PATCH: deleted in favor of the generic
+    /// <see cref="BinarySearchLatestAtOrBefore"/> helper that takes
+    /// <see cref="IReadOnlyList{T}"/> of double X values. The chart
+    /// series' XValues array is the new canonical timestamp source
+    /// — we no longer re-walk <see cref="ReplayFrame"/> because the
+    /// watch list and chart subplot must agree on the anchor frame
+    /// (using the same XValues / YValues pair eliminates the
+    /// multi-source / multi-signal-ref divergence).</summary>
 }
