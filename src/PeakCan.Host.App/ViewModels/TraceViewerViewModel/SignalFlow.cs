@@ -124,14 +124,16 @@ public sealed partial class TraceViewerViewModel
                 {
                     var decoded = SignalDecoder.Decode(lastFrame.Data, sig);
                     row.LatestValue = decoded;
-                    // v3.50.2 PATCH: initial BlueLatestValue mirrors Latest
-                    // when the blue anchor has never been set, so the
-                    // Δ column shows 0 (no comparison target yet) instead
-                    // of NaN. Once the user drags the blue anchor,
-                    // RecomputeAllLatestAtBlueAnchor overwrites this with
-                    // the actual anchor-time decode.
-                    if (double.IsNaN(row.BlueLatestValue))
-                        row.BlueLatestValue = decoded;
+                    // v3.50.2 PATCH: do NOT mirror BlueLatestValue here.
+                    // Before the user drags the blue anchor,
+                    // BlueLatestValue stays NaN and the Δ column renders
+                    // as "—" (no comparison target chosen yet). Once
+                    // the user right-click-drags the blue anchor,
+                    // RecomputeAllLatestAtBlueAnchor overwrites this
+                    // with the actual anchor-time decode.
+                    // (Earlier v3.50.2 build mirrored here; user
+                    // feedback: Δ = 0 hides whether the user has
+                    // actually compared or not.)
                 }
             }
         }
