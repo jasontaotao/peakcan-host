@@ -36,4 +36,17 @@
     <ProjectReference Include="..\..\src/PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!-- v3.50.2: copy real CAN fixtures to bin/ for integration tests.
+       SDK-style csproj auto-includes None items, so explicit copy
+       directives are required. Without these, AppContext.BaseDirectory
+       cannot resolve tests/.../Fixtures/Can/Logging.asc. -->
+  <ItemGroup>
+    <None Include="Fixtures/Can/Logging.asc" Link="Fixtures/Can/Logging.asc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Fixtures/Can/pure_electric_v4.6.dbc" Link="Fixtures/Can/pure_electric_v4.6.dbc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

@@ -233,12 +233,13 @@ public class GreenLineAnchorFlowTests
     }
 
     [Fact]
-    public void RefreshFrameCounts_Initializes_BlueLatestValue_WhenUnset()
+    public void RefreshFrameCounts_Leaves_BlueLatestValue_NaN_Until_BlueAnchor_Drag()
     {
-        // v3.50.2 PATCH: when RefreshFrameCounts decodes the green
-        // LatestValue, it should also mirror-decode the BlueLatestValue
-        // (if still NaN) so the Δ column shows 0 instead of NaN
-        // before the user drags the blue anchor.
+        // v3.50.2 PATCH (after user feedback): RefreshFrameCounts must
+        // NOT mirror-decode BlueLatestValue from LatestValue. The Δ
+        // column should show "—" (NaN-rendered) until the user
+        // explicitly drags the blue anchor; mirroring hides whether
+        // a comparison target has actually been chosen.
         var vm = NewVm(out var registry, out _);
         SeedChart(vm, ("0x100.Speed", OxyColors.Red));
         var frames = new List<ReplayFrame>
@@ -249,22 +250,21 @@ public class GreenLineAnchorFlowTests
         SeedWatchedRow(vm, registry, sig, frames);
 
         var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        // The fixture's SeedWatchedRow sets row.Signal but the actual
+        // RefreshFrameCounts path is NSubstitute-skipped (DBC is a
+        // NSubstitute mock). We can only assert the design contract
+        // here: BlueLatestValue stays NaN until RecomputeAllLatestAtBlueAnchor
+        // writes it. Once the user drags the blue anchor, it's set.
         row.BlueLatestValue.Should().Be(double.NaN,
-            "row is fresh; BlueLatestValue defaults to NaN until the blue anchor is set OR RefreshFrameCounts mirrors LatestValue");
+            "no mirror; Δ column shows \"—\" until the user drags the blue anchor");
 
-        // Reflectively invoke RefreshFrameCounts through the DBC code path.
-        // Real DbcService is NSubstitute; DBC wire-up is the gap that
-        // makes this test only assert the invariant. The full DBC +
-        // RefreshFrameCounts path is covered by SignalFlow tests; here
-        // we just ensure the BlueLatestValue default-init behavior is
-        // preserved when the user later drags a blue anchor.
-        row.LatestValue = 30.0;
-        row.BlueLatestValue = 30.0; // simulate RefreshFrameCounts mirror
-        row.LatestValue.Should().Be(30.0, "Latest set OK");
+        // User drags blue anchor at t=2.5 → BlueLatestValue = 30 (same
+        // frame, same decode, but explicitly user-chosen target).
+        vm.RefreshAtAnchorBlue(2.5);
         row.BlueLatestValue.Should().Be(30.0,
-            "after RefreshFrameCounts-style mirror, BlueLatestValue mirrors LatestValue");
+            "blue anchor at 2.5 sets BlueLatestValue to the anchor-time decode");
         row.DeltaValue.Should().Be(0.0,
-            "Δ = BlueLatest - Latest; both at 30.0 → 0.0 (no comparison target set yet)");
+            "Δ = 30 - 30 = 0 (anchor and blue anchor at same X)");
     }
 
     [Fact]
