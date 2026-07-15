@@ -1,4 +1,7 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.Host.App.Composition.Converters;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -57,7 +60,34 @@ public sealed partial class WatchedSignalRow : ObservableObject
     public PeakCan.Host.Core.Dbc.Signal? Signal
     {
         get => _signal;
-        set => SetProperty(ref _signal, value);
+        set
+        {
+            if (SetProperty(ref _signal, value))
+            {
+                OnPropertyChanged(nameof(LatestText));
+                OnPropertyChanged(nameof(BlueText));
+                OnPropertyChanged(nameof(DeltaText));
+            }
+        }
+    }
+
+    // v3.50.5 PATCH: DBC document reference for VAL_ table lookups.
+    // Sister of the v3.50.0 Signal field: plain C# (NOT [ObservableProperty])
+    // because CommunityToolkit.Mvvm source-gen emits partial .g.cs into the
+    // XAML temp csproj which cannot pull PeakCan.Host.Core.dll.
+    private DbcDocument? _dbc;
+    public DbcDocument? Dbc
+    {
+        get => _dbc;
+        set
+        {
+            if (SetProperty(ref _dbc, value))
+            {
+                OnPropertyChanged(nameof(LatestText));
+                OnPropertyChanged(nameof(BlueText));
+                OnPropertyChanged(nameof(DeltaText));
+            }
+        }
     }
 
     /// <summary>Frame count for this signal across the watched source(s).
@@ -76,7 +106,10 @@ public sealed partial class WatchedSignalRow : ObservableObject
         set
         {
             if (SetProperty(ref _latestValue, value))
+            {
                 OnPropertyChanged(nameof(DeltaValue));
+                OnPropertyChanged(nameof(LatestText));
+            }
         }
     }
 
@@ -93,7 +126,11 @@ public sealed partial class WatchedSignalRow : ObservableObject
         set
         {
             if (SetProperty(ref _blueLatestValue, value))
+            {
                 OnPropertyChanged(nameof(DeltaValue));
+                OnPropertyChanged(nameof(BlueText));
+                OnPropertyChanged(nameof(DeltaText));
+            }
         }
     }
 
@@ -110,6 +147,62 @@ public sealed partial class WatchedSignalRow : ObservableObject
         double.IsNaN(_blueLatestValue) || double.IsNaN(LatestValue)
             ? double.NaN
             : _blueLatestValue - LatestValue;
+
+    // === v3.50.5 PATCH: string-formatted columns for XAML binding ===
+    // Sister pattern of DeltaValue computed property: prefer DBC VAL_ table
+    // text when the signal + Dbc document are bound; fall back to F2 numeric
+    // formatting; NaN → "—" placeholder. These properties drive the watch
+    // list's Latest / Δ / Blue columns; the XAML binding drops the
+    // DoubleNanToStr converter since the .Text properties handle NaN
+    // formatting internally.
+
+    /// <summary>Decoded Latest value as a string for XAML binding.
+    /// Prefers DBC VAL_ table text when available; falls back to F2 numeric.</summary>
+    public string LatestText
+    {
+        get
+        {
+            if (IsPlaceholder || double.IsNaN(_latestValue)) return DoubleNanToStringConverter.Placeholder;
+            if (_signal is not null && _dbc is not null)
+            {
+                var text = SignalDecoder.TryDecodeEnumText(_signal, _latestValue, _dbc);
+                if (text is not null) return text;
+            }
+            return _latestValue.ToString("F2", CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Decoded Blue (comparison anchor) value as a string for XAML binding.
+    /// Same fallback semantics as <see cref="LatestText"/>.</summary>
+    public string BlueText
+    {
+        get
+        {
+            if (double.IsNaN(_blueLatestValue)) return DoubleNanToStringConverter.Placeholder;
+            if (_signal is not null && _dbc is not null)
+            {
+                var text = SignalDecoder.TryDecodeEnumText(_signal, _blueLatestValue, _dbc);
+                if (text is not null) return text;
+            }
+            return _blueLatestValue.ToString("F2", CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Δ as a string for XAML binding. Enum signals show "—" (no
+    /// subtractable semantics between text labels); numeric signals show
+    /// F2 diff. NaN → "—" placeholder.</summary>
+    public string DeltaText
+    {
+        get
+        {
+            if (double.IsNaN(_latestValue) || double.IsNaN(_blueLatestValue))
+                return DoubleNanToStringConverter.Placeholder;
+            // G4: enum signals have no subtractable semantics between text labels.
+            if (_signal?.ValueTableName is not null)
+                return DoubleNanToStringConverter.Placeholder;
+            return (_blueLatestValue - _latestValue).ToString("F2", CultureInfo.InvariantCulture);
+        }
+    }
 
     /// <summary>True for the single placeholder row shown when the
     /// watch list is empty. Placeholder rows are not interactive —

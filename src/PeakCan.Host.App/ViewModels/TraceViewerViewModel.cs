@@ -233,7 +233,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
             var msg = dbc.MessagesById.Values.FirstOrDefault(m => m.Name == row.MessageName);
             var sig = msg?.Signals.FirstOrDefault(s => s.Name == row.SignalName);
             _signalByKey[key] = sig;
+            // v3.50.5 PATCH: bind Signal + Dbc on the row so the
+            // .Text computed properties can resolve VAL_ table entries.
+            // Dbc setter triggers PropertyChanged for LatestText/BlueText/DeltaText.
             row.Signal = sig;
+            row.Dbc = dbc;
         }
     }
 
