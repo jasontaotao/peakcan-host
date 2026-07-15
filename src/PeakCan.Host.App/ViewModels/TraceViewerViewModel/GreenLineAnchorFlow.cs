@@ -29,6 +29,22 @@ public sealed partial class TraceViewerViewModel
     private static readonly OxyColor GreenLineColor = OxyColors.Green;
     private const double GreenLineStrokeThickness = 2.0;
 
+    /// <summary>v3.50.2 PATCH T1: soft-toggle state for green LineAnnotation
+    /// visibility. Default true (green line shown). Toggled via
+    /// <see cref="SetGreenLinesVisible"/> (sister method in 12th partial
+    /// BlueLineAnchorFlow.cs) bound to a toolbar ToggleButton.</summary>
+    private bool _isGreenLineVisible = true;
+
+    /// <summary>v3.50.2 PATCH T3: public XAML-bindable accessor. The
+    /// setter routes through SetGreenLinesVisible so existing LineAnnotation
+    /// strokes get updated; reads return the cached bool for binding
+    /// round-trip without a recompute.</summary>
+    public bool IsGreenLineVisible
+    {
+        get => _isGreenLineVisible;
+        set => SetGreenLinesVisible(value);
+    }
+
     /// <summary>
     /// v3.50.0 MINOR T2: single anchor timestamp driving all per-chart
     /// green LineAnnotation X positions and all WatchedSignals row
@@ -96,12 +112,17 @@ public sealed partial class TraceViewerViewModel
             // v3.50.0 MINOR T2: vertical green LineAnnotation at X = anchor.
             // Same OxyPlot enum + property pattern as ChartSeriesFlow.cs:131
             // (the playback-cursor sister annotation added in v3.16.9.2).
+            // v3.50.2 PATCH T1: when toolbar toggle is off, render the
+            // annotation with 0 stroke thickness (OxyPlot's LineAnnotation
+            // has no IsVisible property; we visually hide by zeroing the
+            // stroke instead of removing the annotation so the anchor
+            // state survives a hide/show round-trip).
             var line = new LineAnnotation
             {
                 Type = LineAnnotationType.Vertical,
                 X = _anchorTimestampSeconds,
                 Color = GreenLineColor,
-                StrokeThickness = GreenLineStrokeThickness,
+                StrokeThickness = _isGreenLineVisible ? GreenLineStrokeThickness : 0.0,
                 LineStyle = LineStyle.Solid,
                 Text = "",
                 Tag = "green-anchor",

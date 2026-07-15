@@ -72,6 +72,33 @@ public sealed partial class WatchedSignalRow : ObservableObject
     [ObservableProperty]
     private double _latestValue = double.NaN;
 
+    // === v3.50.2 PATCH T2: blue-line + Delta column ===
+    // Sister pattern of v3.50 Signal reference: plain property (NOT
+    // [ObservableProperty]) because CommunityToolkit.Mvvm source-gen
+    // emits partial .g.cs into XAML temp csproj which can't pull
+    // PeakCan.Host.Core.dll. SetProperty inline instead.
+
+    private double _blueLatestValue = double.NaN;
+    public double BlueLatestValue
+    {
+        get => _blueLatestValue;
+        set => SetProperty(ref _blueLatestValue, value);
+    }
+
+    private int _blueFrameCount;
+    public int BlueFrameCount
+    {
+        get => _blueFrameCount;
+        set => SetProperty(ref _blueFrameCount, value);
+    }
+
+    /// <summary>Computed Delta = BlueLatest - Green Latest. NaN when
+    /// either side is NaN. Watch list DataGrid binds this column.</summary>
+    public double DeltaValue =>
+        double.IsNaN(_blueLatestValue) || double.IsNaN(LatestValue)
+            ? double.NaN
+            : _blueLatestValue - LatestValue;
+
     /// <summary>True for the single placeholder row shown when the
     /// watch list is empty. Placeholder rows are not interactive —
     /// they're a UX hint, not a real watch entry.</summary>

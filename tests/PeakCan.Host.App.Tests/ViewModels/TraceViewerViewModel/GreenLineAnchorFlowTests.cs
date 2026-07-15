@@ -181,4 +181,76 @@ public class GreenLineAnchorFlowTests
         row.FrameCount.Should().Be(3,
             "FrameCount is 1-based index of the matched frame: idx+1 = 2+1 = 3");
     }
+
+    // === v3.50.2 PATCH T1+T2+T3: blue anchor + Delta + show/hide tests ===
+
+    [Fact]
+    public void RefreshAtAnchorBlue_Updates_BlueLatestValue()
+    {
+        // Arrange: 1 frame at t=2.5 with Data[0]=30.
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+
+        // Act
+        vm.RefreshAtAnchorBlue(2.5);
+
+        // Assert
+        var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        row.BlueLatestValue.Should().Be(30.0,
+            "blue anchor at 2.5 must decode Data[0]=30 via SignalDecoder (Factor=1 Offset=0)");
+        row.BlueFrameCount.Should().Be(1, "single frame at t=2.5: BlueFrameCount = idx+1 = 0+1 = 1");
+        vm.IsBlueLineAnchorActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SetGreenLinesVisible_False_ZerosStrokeThickness()
+    {
+        var vm = NewVm(out _, out _);
+        SeedChart(vm, ("0x100.SigA", OxyColors.Red));
+        vm.RefreshAtAnchor(2.5);
+        var chart = vm.ChartViewModel.Series.First();
+        var greenBefore = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "green-anchor");
+        greenBefore.StrokeThickness.Should().Be(2.0);
+
+        // Act
+        vm.SetGreenLinesVisible(false);
+
+        // Assert
+        var greenAfter = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "green-anchor");
+        greenAfter.StrokeThickness.Should().Be(0.0,
+            "soft-hide zeros stroke thickness; anchor X + state preserved");
+        greenAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
+    }
+
+    [Fact]
+    public void DeltaValue_Is_BlueMinusGreen()
+    {
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+
+        // Both anchors at same X → Delta = 0
+        vm.RefreshAtAnchor(2.5);
+        vm.RefreshAtAnchorBlue(2.5);
+
+        var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
+        row.LatestValue.Should().Be(30.0);
+        row.BlueLatestValue.Should().Be(30.0);
+        row.DeltaValue.Should().Be(0.0, "Delta = BlueLatest - Green Latest");
+    }
 }

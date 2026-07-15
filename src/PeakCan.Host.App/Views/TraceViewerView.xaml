@@ -102,6 +102,13 @@
                     Minimum="0" Maximum="{Binding TotalDuration}"
                     Width="300" Margin="8,0" VerticalAlignment="Center"
                     Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
+            <!-- v3.50.2 PATCH T3: Green-line visibility toggle. Soft-hide
+                 (stroke thickness = 0) when unchecked; anchor state
+                 preserved so re-show restores the line at the same X. -->
+            <ToggleButton Content="绿线"
+                          IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
+                          Padding="6,2" Margin="4,0,0,0"
+                          ToolTip="Show / hide the green anchor line (soft-hide; anchor state preserved)" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
@@ -235,6 +242,10 @@
                     </DataGridTemplateColumn>
                     <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="40" />
                     <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
+                    <!-- v3.50.2 PATCH T3: Delta column. = BlueLatest - Green Latest.
+                         NaN when either side is unset (no anchor active on
+                         that color). Width matches Latest column. -->
+                    <DataGridTextColumn Header="Δ" Binding="{Binding DeltaValue, StringFormat=F2}" Width="80" />
                 </DataGrid.Columns>
             </DataGrid>
 
@@ -262,13 +273,18 @@
                                          the anchor at every drag tick; PreviewMouseLeftButtonUp
                                          clears the hover-capture flag. Forwarded
                                          to vm.RefreshAtAnchor(x) where x = the
-                                         X-axis inverse-transform of pos.X. -->
+                                         X-axis inverse-transform of pos.X.
+                                         v3.50.2 PATCH T3: right-button drag
+                                         commits the BLUE comparison anchor
+                                         (sister of the v3.50 green-anchor
+                                         handler). -->
                                     <oxy:PlotView Model="{Binding PlotModel}"
                                                   Height="{Binding AdaptiveHeight}"
                                                   Background="Transparent"
                                                   PreviewMouseLeftButtonDown="OnPlotViewMouseDown"
                                                   PreviewMouseLeftButtonUp="OnPlotViewMouseUp"
-                                                  PreviewMouseMove="OnPlotViewMouseMove" />
+                                                  PreviewMouseMove="OnPlotViewMouseMove"
+                                                  PreviewMouseRightButtonDown="OnPlotViewRightButtonDown" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
