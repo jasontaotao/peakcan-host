@@ -109,10 +109,17 @@ public sealed partial class TraceViewerViewModel
             row.FrameCount = count;
             if (lastFrame is not null)
             {
-                var sig = dbc.Messages
-                    .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
-                    .SelectMany(m => m.Signals)
-                    .FirstOrDefault(s => s.Name == row.SignalName);
+                // v3.50.2 PATCH: prefer the cached Signal reference set by
+                // OnWatchedSignalsCollectionChangedForSignalCache so the
+                // decode uses the same DBC Signal the chart series uses
+                // (sister of v3.50 GreenLineAnchorFlow.RecomputeAllLatestAtAnchor).
+                // Falls back to a DBC lookup only when the cache missed
+                // (e.g. test fixtures that bypass CollectionChanged).
+                var sig = row.Signal
+                    ?? dbc.Messages
+                        .Where(m => (m.Id & 0x7FFFFFFFu) == lookupId)
+                        .SelectMany(m => m.Signals)
+                        .FirstOrDefault(s => s.Name == row.SignalName);
                 if (sig is not null)
                 {
                     var decoded = SignalDecoder.Decode(lastFrame.Data, sig);

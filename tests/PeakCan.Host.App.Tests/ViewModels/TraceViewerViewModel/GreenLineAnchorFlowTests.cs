@@ -258,7 +258,9 @@ public class GreenLineAnchorFlowTests
         // RefreshFrameCounts path is covered by SignalFlow tests; here
         // we just ensure the BlueLatestValue default-init behavior is
         // preserved when the user later drags a blue anchor.
+        row.LatestValue = 30.0;
         row.BlueLatestValue = 30.0; // simulate RefreshFrameCounts mirror
+        row.LatestValue.Should().Be(30.0, "Latest set OK");
         row.BlueLatestValue.Should().Be(30.0,
             "after RefreshFrameCounts-style mirror, BlueLatestValue mirrors LatestValue");
         row.DeltaValue.Should().Be(0.0,
