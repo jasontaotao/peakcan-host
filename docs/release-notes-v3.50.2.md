@@ -36,10 +36,28 @@ mirror of v3.50 `GreenLineAnchorFlow.cs`:
 
 ```csharp
 private double _blueLatestValue = double.NaN;
-public double BlueLatestValue { get; set; }   // + SetProperty
+public double BlueLatestValue
+{
+    get => _blueLatestValue;
+    set
+    {
+        if (SetProperty(ref _blueLatestValue, value))
+            OnPropertyChanged(nameof(DeltaValue));   // v3.50.2 bugfix v4
+    }
+}
 private int _blueFrameCount;
 public int BlueFrameCount { get; set; }       // + SetProperty
-public double DeltaValue => BlueLatest - Latest;  // computed
+
+// LatestValue 同样 [ObservableProperty] -> 手写 setter, 同步 raise DeltaValue
+// 否则 DataGrid Δ 列永不变 (computed property 必须 PropertyChanged 触发 re-read)
+public double LatestValue
+{
+    get => _latestValue;
+    set { if (SetProperty(ref _latestValue, value)) OnPropertyChanged(nameof(DeltaValue)); }
+}
+
+public double DeltaValue => double.IsNaN(_blueLatestValue) || double.IsNaN(LatestValue)
+    ? double.NaN : _blueLatestValue - LatestValue;  // computed
 ```
 
 ### TraceViewerView.xaml 改
@@ -74,7 +92,17 @@ public double DeltaValue => BlueLatest - Latest;  // computed
 ## Test outcomes
 
 - **Core.Tests**: 457/0/0 (unchanged)
-- **App.Tests**: 809/3 SKIP/0 fail (+3 new tests: RefreshAtAnchorBlue_Updates_BlueLatestValue, SetGreenLinesVisible_False_ZerosStrokeThickness, DeltaValue_Is_BlueMinusGreen)
+- **App.Tests**: **819/3 SKIP/0 fail** (+10 net: 6 anchor/blue/show-hide tests + 4 WatchedSignalRow Δ notification tests)
+  - `RefreshAtAnchorBlue_Updates_BlueLatestValue`
+  - `SetGreenLinesVisible_False_ZerosStrokeThickness`
+  - `SetBlueLinesVisible_False_ZerosStrokeThickness`
+  - `RefreshFrameCounts_Leaves_BlueLatestValue_NaN_Until_BlueAnchor_Drag`
+  - `DeltaValue_Is_BlueMinusGreen`
+  - `SettingBlueLatestValue_RaisesPropertyChanged_ForDeltaValue` ← bugfix v4
+  - `SettingLatestValue_RaisesPropertyChanged_ForDeltaValue`
+  - `DeltaValue_Is_NaN_When_Either_Side_Is_NaN`
+  - `DeltaValue_Recomputes_On_Subsequent_Sets`
+  - `GreenAnchor_DecodesRealV2BSignals_AtAnchorTime` ← integration on real .asc
 - **Infrastructure.Tests**: 89/2 SKIP/0 (unchanged)
 
 ## Notable YAGNI deferrals
