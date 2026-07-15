@@ -102,17 +102,21 @@
                     Minimum="0" Maximum="{Binding TotalDuration}"
                     Width="300" Margin="8,0" VerticalAlignment="Center"
                     Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
-            <!-- v3.50.2 PATCH T3: green + blue line visibility toggles. Soft-hide
-                 (stroke thickness = 0) when unchecked; anchor state
-                 preserved so re-show restores the line at the same X. -->
-            <ToggleButton Content="显示绿线"
+            <!-- v3.50.2 PATCH T3: anchor visibility toggles. Green = current
+                 anchor (the line the user drags to inspect a moment in the
+                 trace). Blue = comparison anchor (drag a second time to
+                 see how each watched signal has changed between the two
+                 moments). Soft-hide (stroke thickness = 0) when unchecked;
+                 anchor state preserved so re-show restores the line at
+                 the same X. -->
+            <ToggleButton Content="显示当前锚点"
                           IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="Show / hide the green anchor line (soft-hide; anchor state preserved)" />
-            <ToggleButton Content="显示蓝线"
+                          ToolTip="Toggle the green anchor line (the one that drives the watch list's Latest column)" />
+            <ToggleButton Content="显示比较锚点"
                           IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="Show / hide the blue comparison line (soft-hide; anchor state preserved)" />
+                          ToolTip="Toggle the blue comparison anchor line (the one that drives the watch list's Blue column and Δ difference)" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored

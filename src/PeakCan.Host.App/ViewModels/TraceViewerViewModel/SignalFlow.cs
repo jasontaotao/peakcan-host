@@ -114,7 +114,18 @@ public sealed partial class TraceViewerViewModel
                     .SelectMany(m => m.Signals)
                     .FirstOrDefault(s => s.Name == row.SignalName);
                 if (sig is not null)
-                    row.LatestValue = SignalDecoder.Decode(lastFrame.Data, sig);
+                {
+                    var decoded = SignalDecoder.Decode(lastFrame.Data, sig);
+                    row.LatestValue = decoded;
+                    // v3.50.2 PATCH: initial BlueLatestValue mirrors Latest
+                    // when the blue anchor has never been set, so the
+                    // Δ column shows 0 (no comparison target yet) instead
+                    // of NaN. Once the user drags the blue anchor,
+                    // RecomputeAllLatestAtBlueAnchor overwrites this with
+                    // the actual anchor-time decode.
+                    if (double.IsNaN(row.BlueLatestValue))
+                        row.BlueLatestValue = decoded;
+                }
             }
         }
     }
