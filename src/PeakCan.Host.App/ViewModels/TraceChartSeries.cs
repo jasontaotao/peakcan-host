@@ -1,4 +1,8 @@
 using OxyPlot;
+// v3.50.5 PATCH: OxyPlot.Wpf exposes the WPF-specific PlotView + Tracker
+// behavior; OxyPlot (core) hosts the cross-platform PlotController type
+// that PlotView.Controller accepts.
+using OxyPlot.Wpf;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -44,7 +48,18 @@ public sealed record TraceChartSeries(
     // v3.2.0 MINOR: empty string for v3.0 single-trace callers; non-empty
     // GUID assigned by TraceSessionRegistry when the series originates
     // from a loaded TraceSource.
-    string SourceId = "")
+    string SourceId = "",
+    // v3.50.5 PATCH: optional OxyPlot WPF PlotController for the
+    // <c>oxy:PlotView</c> bound to <see cref="PlotModel"/>. When set,
+    // the PlotView uses this controller (default has a Tracker that
+    // shows the (X, Y) data point on hover). When null, the PlotView
+    // uses its default no-controller behavior (no hover tooltip).
+    // Set by <c>ChartSeriesFlow.BuildOneChartSeriesForSource</c> to
+    // <c>new PlotController()</c> on real chart series. Test seeds
+    // leave it null (placeholders don't need a controller because
+    // tests don't render the PlotView). PlotController lives in
+    // OxyPlot core (not OxyPlot.Wpf).
+    PlotController? Controller = null)
 {
     /// <summary>
     /// v3.2.0 MINOR: unique lookup key for chart-internal operations
