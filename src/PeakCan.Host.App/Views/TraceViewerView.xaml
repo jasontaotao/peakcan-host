@@ -4,7 +4,6 @@
         xmlns:oxy="http://oxyplot.org/wpf"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
         xmlns:trace="clr-namespace:PeakCan.Host.App.Services.Trace"
-        xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -62,45 +61,31 @@
                       Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
 
             <Separator />
-            <!-- v3.4.2 PATCH: global CAN ID filter — restrict rendered frames -->
-            <TextBlock Text="Filter CAN IDs:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <!-- v3.50.4 PATCH: Filter CAN IDs UI HIDDEN (Visibility=Collapsed)
+                 — user direction 2026-07-15: "Filter CAN IDs 这块是干嘛的"
+                 → user unknown = unused. Hide (not delete) so 1-line restore
+                 possible. VM CanIdFilter field, OnCanIdFilterChanged hook,
+                 RefreshFrameCounts filter logic all preserved (other tests
+                 rely on the field, and the field is still rehydratable from
+                 .tmtrace). To restore: remove the Visibility=Collapsed lines
+                 on the 3 elements below. -->
+            <TextBlock Text="Filter CAN IDs:" VerticalAlignment="Center" Margin="0,0,4,0"
+                       Visibility="Collapsed" />
             <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      Width="180" VerticalAlignment="Center" Margin="0,0,4,0"
-                     ToolTip="Comma-separated CAN IDs to show (decimal or 0x-hex). Empty = all frames." />
+                     ToolTip="Comma-separated CAN IDs to show (decimal or 0x-hex). Empty = all frames."
+                     Visibility="Collapsed" />
             <Button Content="Clear" Command="{Binding ClearCanIdFilterCommand}"
-                    Padding="6,2" Margin="0,0,4,0" ToolTip="Clear filter (show all frames)" />
+                    Padding="6,2" Margin="0,0,4,0" ToolTip="Clear filter (show all frames)"
+                    Visibility="Collapsed" />
 
-            <!-- v3.3.0 MINOR: speed multiplier -->
-            <TextBlock Text="Speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <ComboBox Width="70" VerticalAlignment="Center"
-                      SelectedItem="{Binding Speed, Mode=TwoWay}"
-                      ToolTip="Playback speed multiplier (applied to all sources)">
-                <sys:Double>0.25</sys:Double>
-                <sys:Double>0.5</sys:Double>
-                <sys:Double>1.0</sys:Double>
-                <sys:Double>2.0</sys:Double>
-                <sys:Double>4.0</sys:Double>
-            </ComboBox>
-
-            <!-- v3.3.0 MINOR: global loop toggle -->
-            <CheckBox Content="Loop" VerticalAlignment="Center" Margin="8,0"
-                      IsChecked="{Binding Loop, Mode=TwoWay}"
-                      ToolTip="When the master ends, rewind all sources to 0 and resume" />
-
-            <Separator />
-
-            <!-- v3.3.0 MINOR: visibility flipped from PlaybackControlsVisibility to HasSources
-                 (multi-trace mode now allows playback). -->
-            <Button Content="▶" Command="{Binding PlayCommand}" Width="32"
-                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
-            <Button Content="⏸" Command="{Binding PauseCommand}" Width="32"
-                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
-            <Button Content="⏹" Command="{Binding StopCommand}" Width="32"
-                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
-            <Slider Value="{Binding ScrubberValue, Mode=TwoWay}"
-                    Minimum="0" Maximum="{Binding TotalDuration}"
-                    Width="300" Margin="8,0" VerticalAlignment="Center"
-                    Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
+            <!-- v3.50.4 PATCH: playback controls REMOVED — user-marked
+                 deprecated (2026-07-15: "废弃" = 永久删除). Loop /
+                 Speed / ▶ / ⏸ / ⏹ / Scrubber 全部 移除. Trace Viewer
+                 从此是只读图表面板 (只支持绿/蓝锚点查值 + watch list),
+                 不再含回放控制. 任何残余 PlayCommand/PauseCommand/
+                 StopCommand/Loop/Speed/ScrubberValue 在 VM 端保留
+                 (其他测试可能 mock), 仅 UI 不再暴露. -->
             <!-- v3.50.2 PATCH T3: anchor visibility toggles. Green = current
                  anchor (the line the user drags to inspect a moment in the
                  trace). Blue = comparison anchor (drag a second time to
@@ -285,7 +270,7 @@
                                   ScrollViewer.CanContentScroll="True"
                                   RowHeight="22">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="70" />
+                                <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="64" />
                                 <DataGridTextColumn Header="Signal" Binding="{Binding SignalName}" Width="*" />
                                 <DataGridTemplateColumn Header="Plot" Width="36">
                                     <DataGridTemplateColumn.CellTemplate>
@@ -311,6 +296,27 @@
                                 <DataGridTextColumn Header="Blue"
                                                     Binding="{Binding BlueLatestValue, Converter={StaticResource DoubleNanToStr}}"
                                                     Width="60" />
+                                <!-- v3.50.4 PATCH: ✕ Remove column. VM has
+                                     RemoveFromWatch [RelayCommand] since
+                                     v3.15.0 but XAML never bound it. User
+                                     direction 2026-07-15: "watch list 无法
+                                     remove". Sister pattern of the per-source
+                                     legend ✕ button (line ~171) — DataGrid
+                                     cell template Button + CommandParameter
+                                     = {Binding} (the row). Window-relative
+                                     DataContext lookup for the command so
+                                     the cell template's row-scoped
+                                     DataContext doesn't shadow the VM. -->
+                                <DataGridTemplateColumn Header="" Width="28">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="✕" Padding="2,0"
+                                                    ToolTip="Remove this watch entry"
+                                                    Command="{Binding DataContext.RemoveFromWatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </TabItem>
