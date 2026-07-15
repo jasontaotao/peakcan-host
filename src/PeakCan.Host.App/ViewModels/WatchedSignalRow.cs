@@ -69,8 +69,16 @@ public sealed partial class WatchedSignalRow : ObservableObject
     /// <summary>Last decoded value across the watched source(s). Set
     /// once at AddToWatch + refreshed when ASC reloads. NaN when no
     /// frames exist yet (DBC loaded but no ASC).</summary>
-    [ObservableProperty]
     private double _latestValue = double.NaN;
+    public double LatestValue
+    {
+        get => _latestValue;
+        set
+        {
+            if (SetProperty(ref _latestValue, value))
+                OnPropertyChanged(nameof(DeltaValue));
+        }
+    }
 
     // === v3.50.2 PATCH T2: blue-line + Delta column ===
     // Sister pattern of v3.50 Signal reference: plain property (NOT
@@ -82,7 +90,11 @@ public sealed partial class WatchedSignalRow : ObservableObject
     public double BlueLatestValue
     {
         get => _blueLatestValue;
-        set => SetProperty(ref _blueLatestValue, value);
+        set
+        {
+            if (SetProperty(ref _blueLatestValue, value))
+                OnPropertyChanged(nameof(DeltaValue));
+        }
     }
 
     private int _blueFrameCount;
