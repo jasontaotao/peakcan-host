@@ -24,6 +24,43 @@ public sealed partial class TraceViewerViewModel
     private static readonly OxyColor BlueLineColor = OxyColors.Blue;
     private const double BlueLineStrokeThickness = 2.0;
 
+    /// <summary>v3.50.2 PATCH: blue-line soft-toggle state. Default true
+    /// (blue line shown). Toggled via <see cref="SetBlueLinesVisible"/>,
+    /// sister of the green-line toggle on the toolbar.</summary>
+    private bool _isBlueLineVisible = true;
+
+    /// <summary>v3.50.2 PATCH: public XAML-bindable accessor. Setter
+    /// routes through SetBlueLinesVisible so existing blue-anchor
+    /// LineAnnotation strokes get updated; reads return the cached
+    /// bool for binding round-trip without a recompute.</summary>
+    public bool IsBlueLineVisible
+    {
+        get => _isBlueLineVisible;
+        set => SetBlueLinesVisible(value);
+    }
+
+    /// <summary>v3.50.2 PATCH: soft-toggle blue LineAnnotation visibility.
+    /// Sister of <see cref="SetGreenLinesVisible"/> on the green-anchor
+    /// partial. OxyPlot's LineAnnotation has no IsVisible property, so
+    /// we use 0 stroke thickness as the hide signal (preserves anchor
+    /// state across hide/show round-trips without re-creating the
+    /// annotation).</summary>
+    public void SetBlueLinesVisible(bool visible)
+    {
+        _isBlueLineVisible = visible;
+        foreach (var chart in ChartViewModel.Series)
+        {
+            var blues = chart.PlotModel.Annotations
+                .OfType<LineAnnotation>()
+                .Where(a => a.Tag as string == "blue-anchor");
+            foreach (var b in blues)
+            {
+                b.StrokeThickness = visible ? BlueLineStrokeThickness : 0.0;
+            }
+            chart.PlotModel.InvalidatePlot(false);
+        }
+    }
+
     /// <summary>
     /// v3.50.2 PATCH T1: 蓝色比较线 anchor timestamp, 独立于绿线.
     /// NaN = 无蓝线 (跟绿线一样的约定).
@@ -67,7 +104,9 @@ public sealed partial class TraceViewerViewModel
                 Type = LineAnnotationType.Vertical,
                 X = _blueAnchorTimestampSeconds,
                 Color = BlueLineColor,
-                StrokeThickness = BlueLineStrokeThickness,
+                // v3.50.2 PATCH: respect visibility toggle (0 stroke
+                // thickness = visually hidden but anchor state intact).
+                StrokeThickness = _isBlueLineVisible ? BlueLineStrokeThickness : 0.0,
                 LineStyle = LineStyle.Solid,
                 Text = "",
                 Tag = "blue-anchor",

@@ -233,6 +233,34 @@ public class GreenLineAnchorFlowTests
     }
 
     [Fact]
+    public void SetBlueLinesVisible_False_ZerosStrokeThickness()
+    {
+        var vm = NewVm(out var registry, out _);
+        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        var frames = new List<ReplayFrame>
+        {
+            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+        };
+        var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
+        SeedWatchedRow(vm, registry, sig, frames);
+        vm.RefreshAtAnchorBlue(2.5);
+        var chart = vm.ChartViewModel.Series.First();
+        var blueBefore = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "blue-anchor");
+        blueBefore.StrokeThickness.Should().Be(2.0);
+
+        vm.SetBlueLinesVisible(false);
+
+        var blueAfter = chart.PlotModel.Annotations
+            .OfType<LineAnnotation>()
+            .First(a => a.Tag as string == "blue-anchor");
+        blueAfter.StrokeThickness.Should().Be(0.0,
+            "soft-hide zeros stroke thickness; anchor X preserved");
+        blueAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
+    }
+
+    [Fact]
     public void DeltaValue_Is_BlueMinusGreen()
     {
         var vm = NewVm(out var registry, out _);

@@ -102,13 +102,17 @@
                     Minimum="0" Maximum="{Binding TotalDuration}"
                     Width="300" Margin="8,0" VerticalAlignment="Center"
                     Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
-            <!-- v3.50.2 PATCH T3: Green-line visibility toggle. Soft-hide
+            <!-- v3.50.2 PATCH T3: green + blue line visibility toggles. Soft-hide
                  (stroke thickness = 0) when unchecked; anchor state
                  preserved so re-show restores the line at the same X. -->
-            <ToggleButton Content="绿线"
+            <ToggleButton Content="显示绿线"
                           IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
                           ToolTip="Show / hide the green anchor line (soft-hide; anchor state preserved)" />
+            <ToggleButton Content="显示蓝线"
+                          IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
+                          Padding="6,2" Margin="4,0,0,0"
+                          ToolTip="Show / hide the blue comparison line (soft-hide; anchor state preserved)" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
@@ -241,11 +245,19 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
                     <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="40" />
-                    <DataGridTextColumn Header="Latest" Binding="{Binding LatestValue, StringFormat=F2}" Width="80" />
+                    <DataGridTextColumn Header="Latest"
+                                        Binding="{Binding LatestValue, Converter={StaticResource DoubleNanToStr}}"
+                                        Width="80" />
                     <!-- v3.50.2 PATCH T3: Delta column. = BlueLatest - Green Latest.
-                         NaN when either side is unset (no anchor active on
-                         that color). Width matches Latest column. -->
-                    <DataGridTextColumn Header="Δ" Binding="{Binding DeltaValue, StringFormat=F2}" Width="80" />
+                         Uses DoubleNanToStr converter so unset/NaN shows
+                         "—" instead of "NaN" (single source of truth for
+                         watch-list double rendering; sister of Latest). -->
+                    <DataGridTextColumn Header="Δ"
+                                        Binding="{Binding DeltaValue, Converter={StaticResource DoubleNanToStr}}"
+                                        Width="80" />
+                    <DataGridTextColumn Header="Blue"
+                                        Binding="{Binding BlueLatestValue, Converter={StaticResource DoubleNanToStr}}"
+                                        Width="80" />
                 </DataGrid.Columns>
             </DataGrid>
 
