@@ -48,7 +48,7 @@ function and the UI bindings to surface it.
 - **G4**: The `Δ` column for an enumerated signal shows "—" (no subtractable semantics
   between text labels). For numeric signals it keeps the current numeric diff.
 - **G5**: OxyPlot Tracker tooltip shows four lines per the CANoe screenshot:
-  `SignalName` / decoded text / raw integer / `t = X.XXX s`.
+  `SignalName` / decoded text / decoded value / `t = X.XXX s`.
 - **G6**: The decode path is hot (called on every drag tick for every watched row);
   the lookup must not introduce a measurable frame-rate regression. No special caching
   layer added — dictionary O(1) is sufficient.
@@ -79,8 +79,8 @@ Core layer (no UI dep):
 App layer:
   WatchedSignalRow (src/PeakCan.Host.App/ViewModels/WatchedSignalRow.cs)
     + private PeakCan.Host.Core.Dbc.DbcDocument? _dbc  // plain field, mvvm-gen limitation
-    + public DbcDocument? Dbc { get => _dbc; set { if (SetProperty(...)) { OnPropertyChanged(LatestText); OnPropertyChanged(BlueText); } } }
-    + public Signal? Signal { set } // existing setter, add OnPropertyChanged(LatestText/BlueText)
+    + public DbcDocument? Dbc { get => _dbc; set { if (SetProperty(...)) { OnPropertyChanged(nameof(LatestText)); OnPropertyChanged(nameof(BlueText)); OnPropertyChanged(nameof(DeltaText)); } } }
+    + public Signal? Signal { set } // existing setter, add OnPropertyChanged(nameof(LatestText/BlueText/DeltaText))
     + public string LatestText { get; } // computed
     + public string BlueText { get; }   // computed
     + public string DeltaText { get; }  // computed
@@ -137,7 +137,7 @@ User drags green line to X = 615 s
       foreach row in WatchedSignals:
         frame = _registry.GetFramesAt(X, row.CanId)
         row.LatestValue = SignalDecoder.Decode(frame.Data, row.Signal)
-        // setter triggers OnPropertyChanged(LatestText)
+        // setter triggers OnPropertyChanged(nameof(LatestText))
   → WPF DataGrid re-evaluates Binding → LatestText getter runs
   → LatestText → SignalDecoder.TryDecodeEnumText(Signal, v, Dbc)
                 ?? v.ToString("F2", InvariantCulture)
