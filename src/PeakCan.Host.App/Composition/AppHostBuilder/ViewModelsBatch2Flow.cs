@@ -62,12 +62,20 @@ public partial class AppHostBuilder
         // operator's appsettings.json override. Pre-fix, the registry's
         // 2-arg ctor used ReplayOptions.Default internally and the DI
         // binding above was silently discarded — configurability goal unmet.
-        services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry,
-                                       PeakCan.Host.App.Services.Trace.TraceSessionRegistry>(sp =>
+        //
+        // v3.52.1 PATCH T1 D1: concrete-first dual forward. The concrete
+        // TraceSessionRegistry is registered as the singleton anchor; both
+        // ITraceSessionRegistry and (in AppServicesFlow.cs) IFrameSourceProvider
+        // forward to it. Removes the explicit cast at IFrameSourceProvider
+        // registration (was Minor 1 in v3.52.0 final review). All 3 keys
+        // resolve to the same singleton instance — no double-allocation.
+        services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>(sp =>
             new PeakCan.Host.App.Services.Trace.TraceSessionRegistry(
                 sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITracePalette>(),
                 sp.GetRequiredService<ILoggerFactory>(),
                 sp.GetRequiredService<ReplayOptions>()));
+        services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>(sp =>
+            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
         // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.
