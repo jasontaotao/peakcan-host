@@ -1,8 +1,10 @@
 // ReplayService/FileIoLifecycle.partial.cs — W31 T1 (Flow A, 50 LoC)
-// File-IO lifecycle methods: LoadAsync (file open + AscParser.Parse +
-// defensive-reset-on-entry + exception-wrapping) + Reset (state clear +
-// timeline.Stop + frame buffer reset). Both touch _frames + _timeline
-// + state-management. Sister of W22 RecordService/Lifecycle + W27
+// + v3.51.0 MINOR T3 extension-dispatch (`.blf` → BlfParser, default →
+// AscParser). File-IO lifecycle methods: LoadAsync (file open +
+// extension dispatch + AscParser/BlfParser.Parse + defensive-reset-on-entry
+// + exception-wrapping) + Reset (state clear + timeline.Stop + frame
+// buffer reset). Both touch _frames + _timeline + state-management.
+// Sister of W22 RecordService/Lifecycle + W27
 // RecentSessionsService/PersistenceOps + W28 DbcService/LoadLifecycle
 // file-IO lifecycle sister-pattern.
 //
@@ -33,21 +35,24 @@ public sealed partial class ReplayService
         _frames = Array.Empty<ReplayFrame>();
         _timeline.SetFrames(_frames);
 
-        // v1.4.0 MINOR Replay: open file → parse → set frames.
-        // ParseExceptions propagate; FileNotFound/IO wrap into ReplayLoadException.
         try
         {
             await using var fs = File.OpenRead(PathNormalizer.Normalize(path));
-            _frames = await AscParser.ParseAsync(fs, ct).ConfigureAwait(false);
+            // v3.51.0 MINOR: dispatch by file extension. .blf → BlfParser,
+            // default → AscParser (preserves v3.49.0 behavior for ASC).
+            var options = ReplayOptions.Default;
+            _frames = path.EndsWith(".blf", StringComparison.OrdinalIgnoreCase)
+                ? await BlfParser.ParseAsync(fs, options, _logger, ct).ConfigureAwait(false)
+                : await AscParser.ParseAsync(fs, options, _logger, ct).ConfigureAwait(false);
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)
         {
-            throw new ReplayLoadException($"ASC file not found: {path}", ex);
+            throw new ReplayLoadException($"Replay file not found: {path}", ex);
         }
         catch (Exception ex)
         {
-            throw new ReplayLoadException($"Failed to read ASC file: {path}", ex);
+            throw new ReplayLoadException($"Failed to read replay file: {path}", ex);
         }
         _timeline.SetFrames(_frames);
     }
