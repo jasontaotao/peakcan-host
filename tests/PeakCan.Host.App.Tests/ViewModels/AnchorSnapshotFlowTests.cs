@@ -7,6 +7,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -47,10 +48,21 @@ public class AnchorSnapshotFlowTests
     private static TraceViewerViewModel MakeVm(bool greenSet, bool blueSet)
     {
         var registry = Substitute.For<ITraceSessionRegistry>();
+        var frameSource = Substitute.For<IFrameSourceProvider>();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         var sessionLib = new TraceSessionLibrary(NullLogger<TraceSessionLibrary>.Instance);
         var logger = NullLogger<TraceViewerViewModel>.Instance;
-        var vm = new TraceViewerViewModel(registry, dbc, logger, sessionLib);
+        frameSource.GetFrames(Arg.Any<string>()).Returns(Array.Empty<ReplayFrame>());
+        // v3.52.0 MINOR T9: ctor extended with 5 required analysis params.
+        // AnchorSnapshotFlow tests don't exercise the analysis pipeline,
+        // so passing fresh Core-side stubs is sufficient.
+        var vm = new TraceViewerViewModel(
+            registry, dbc, logger, sessionLib,
+            new EvidenceExtractor(),
+            new LocalAnalyzer(),
+            new AnalysisSessionRegistry(),
+            new NotImplementedLlmProvider(),
+            frameSource);
         if (greenSet) vm.RefreshAtAnchor(1.0);
         if (blueSet) vm.RefreshAtAnchorBlue(1.5);
         return vm;

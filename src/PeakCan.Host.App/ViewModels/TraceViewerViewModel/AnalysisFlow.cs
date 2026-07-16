@@ -6,13 +6,11 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // === Injected via ctor (Task 9 wires DI) ===
-    private readonly EvidenceExtractor _evidenceExtractor = null!;
-    private readonly LocalAnalyzer _localAnalyzer = null!;
-    private readonly AnalysisSessionRegistry _sessionRegistry = null!;
-    private readonly ILlmProvider _llmProvider = null!;
-    // EvidenceExtractor depends on the Core-side frame source abstraction.
-    private readonly IFrameSourceProvider _frameSource = null!;
+    // === Injected via ctor (T9 wires DI: 5 analysis params) ===
+    // Fields are declared on the main partial (TraceViewerViewModel.cs) and
+    // assigned by the ctor there; AnalysisFlow just consumes them.
+    // v3.52.0 MINOR T9: removed the previous `= null!` placeholders that
+    // existed before T9 — the ctor now wires real instances.
 
     /// <summary>Current in-memory analysis session, or null before a successful run.</summary>
     public AnalysisSession? CurrentAnalysisSession { get; private set; }

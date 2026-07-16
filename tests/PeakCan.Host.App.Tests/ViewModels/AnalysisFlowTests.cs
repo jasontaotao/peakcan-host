@@ -46,24 +46,16 @@ public class AnalysisFlowTests
         var logger = NullLogger<TraceViewerViewModel>.Instance;
         frameSource.GetFrames(Arg.Any<string>()).Returns(Array.Empty<ReplayFrame>());
 
-        var vm = new TraceViewerViewModel(registry, dbc, logger, sessionLib);
-        var fields = new[]
-        {
-            ("_evidenceExtractor", (object)new EvidenceExtractor()),
-            ("_localAnalyzer", (object)new LocalAnalyzer()),
-            ("_sessionRegistry", (object)new AnalysisSessionRegistry()),
-            ("_llmProvider", (object)new NotImplementedLlmProvider()),
-            ("_frameSource", (object)frameSource),
-        };
-        foreach (var (name, value) in fields)
-        {
-            var field = typeof(TraceViewerViewModel).GetField(
-                name,
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            field.Should().NotBeNull($"field {name} must exist on TraceViewerViewModel");
-            field!.SetValue(vm, value);
-        }
-
-        return vm;
+        // v3.52.0 MINOR T9: direct ctor call replaces the T8 reflection-based
+        // field injection. T8 used reflection as a temporary seam because the
+        // 5 analysis params were not yet on the ctor; T9 wires them through
+        // the real ctor.
+        return new TraceViewerViewModel(
+            registry, dbc, logger, sessionLib,
+            new EvidenceExtractor(),
+            new LocalAnalyzer(),
+            new AnalysisSessionRegistry(),
+            new NotImplementedLlmProvider(),
+            frameSource);
     }
 }
