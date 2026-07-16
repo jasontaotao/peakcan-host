@@ -1,0 +1,91 @@
+<UserControl x:Class="PeakCan.Host.App.Views.TraceViewerViewAIPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             xmlns:analysis="clr-namespace:PeakCan.Host.Core.Analysis;assembly=PeakCan.Host.Core"
+             mc:Ignorable="d">
+    <Grid>
+        <!-- v3.52.0 MINOR T10: empty-state hint. Visible only when no
+             AnalysisSession has been produced yet. Sister of Watch List
+             + Sampling Table tabs; sits in the right-side panel column.
+             Uses DataTrigger (not NullToVisibilityConverter) because
+             there is no registered inverted-converter key, and an
+             inverted Visibility binding is cleaner with a one-shot
+             trigger than with the existing non-null → Visible converter. -->
+        <TextBlock Text="请先拖绿/蓝锚到故障时刻和对照时刻，然后点『锁定 anchor 状态』，再点『运行分析』"
+                   Foreground="Gray"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextWrapping="Wrap">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding CurrentAnalysisSession}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <!-- Active session view. Uses the existing NullToVisibilityConverter
+             (Visible when bound value is non-null/empty) — see App.xaml. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding CurrentAnalysisSession, Converter={StaticResource NullToVisibilityConverter}}">
+            <StackPanel Margin="8">
+                <!-- Honest banner: no LLM attribution in P0. -->
+                <Border Background="#FFF3CD" BorderBrush="#FFC107" BorderThickness="1"
+                        Padding="8" Margin="0,0,0,8" CornerRadius="3">
+                    <TextBlock Text="本地推断（无归因；无 LLM 验证）"
+                               FontWeight="SemiBold"
+                               Foreground="#856404"
+                               ToolTip="P0 仅本地确定性特征 + 候选排序。归因需 P1 LLM Provider。" />
+                </Border>
+
+                <!-- FaultEvent header -->
+                <TextBlock Text="{Binding CurrentAnalysisSession.FaultEvent.Description}"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="{Binding CurrentAnalysisSession.FaultEvent.CenterTimestampSeconds, StringFormat='Center: {0:F3}s'}"
+                           Foreground="Gray" />
+
+                <!-- Evidence list -->
+                <TextBlock Text="Evidence" FontWeight="SemiBold" Margin="0,8,0,4" />
+                <DataGrid ItemsSource="{Binding CurrentAnalysisSession.Report.Evidence}"
+                          AutoGenerateColumns="False" IsReadOnly="True"
+                          MaxHeight="200" RowHeight="22">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding EvidenceId}" Width="60" />
+                        <DataGridTextColumn Header="Source" Binding="{Binding SourceId}" Width="80" />
+                        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="120" />
+                        <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="60" />
+                        <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Candidates -->
+                <TextBlock Text="Candidate signals (per-source normalized)"
+                           FontWeight="SemiBold" Margin="0,8,0,4" />
+                <DataGrid ItemsSource="{Binding CurrentAnalysisSession.Report.Candidates}"
+                          AutoGenerateColumns="False" IsReadOnly="True"
+                          MaxHeight="200" RowHeight="22">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Source" Binding="{Binding SourceId}" Width="80" />
+                        <DataGridTextColumn Header="Signal" Binding="{Binding SignalKey}" Width="200" />
+                        <DataGridTextColumn Header="Score" Binding="{Binding Score, StringFormat='F2'}" Width="60" />
+                        <DataGridTextColumn Header="Reason" Binding="{Binding ReasonText}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Summary -->
+                <TextBlock Text="{Binding CurrentAnalysisSession.Report.Summary}"
+                           Margin="0,8,0,0"
+                           Foreground="Gray"
+                           FontStyle="Italic" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

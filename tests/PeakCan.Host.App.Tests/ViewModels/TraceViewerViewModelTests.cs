@@ -111,7 +111,7 @@ public class TraceViewerViewModelTests
         var sessionLibrary = new TraceSessionLibrary(
             Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
-        return new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, dialog);
+        return new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, fileDialog: dialog);
     }
 
     // Seed the fake registry with one source having the requested
@@ -232,7 +232,7 @@ public class TraceViewerViewModelTests
         var svc = MakeFakeRegistry();
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
         await sut.AddTraceAsync();
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
@@ -302,7 +302,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -411,7 +411,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1609,7 +1609,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/missing.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         // Act — must NOT throw (absorbed into ErrorMessage)
         await sut.AddTraceAsync();
@@ -1638,7 +1638,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/empty.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1665,7 +1665,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1716,7 +1716,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 

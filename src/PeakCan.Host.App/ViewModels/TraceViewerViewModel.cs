@@ -13,6 +13,7 @@ using PeakCan.Host.App.Helpers;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using System.Collections.Specialized;
@@ -73,6 +74,20 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // color + stroke style + filter) but uses the builder for the
     // version / schema / savedAt / appVersion envelope.
     private readonly TraceSessionSnapshotBuilder _builder;
+    // v3.52.0 MINOR T9: 5 AI-inference pipeline singletons injected
+    // here (previously stubbed with `= null!` on AnalysisFlow.cs and
+    // test-set via reflection in AnalysisFlowTests). T9 wires DI and
+    // converts them to required ctor params; DI resolves all 5 from
+    // AppServicesFlow registrations. Required (no defaults) so callers
+    // cannot accidentally construct the VM without the analysis stack.
+    private readonly EvidenceExtractor _evidenceExtractor;
+    private readonly LocalAnalyzer _localAnalyzer;
+    private readonly AnalysisSessionRegistry _sessionRegistry;
+    private readonly ILlmProvider _llmProvider;
+    // EvidenceExtractor depends on the Core-side frame source abstraction;
+    // the App-layer TraceSessionRegistry implements IFrameSourceProvider
+    // (dual-interface in T9) so the same DI singleton satisfies both.
+    private readonly IFrameSourceProvider _frameSource;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -126,6 +141,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddTraceCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveTraceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
     private bool _isLoading;
 
     [ObservableProperty]
@@ -150,6 +166,34 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// legend strip against this property (one entry per loaded source).</summary>
     public IReadOnlyList<TraceSource> Sources => _registry.Sources;
 
+    /// <summary>v3.52.0 MINOR T10: lazy-loaded UserControl backing the
+    /// AI Analysis tab. The XAML content tree (empty-state hint +
+    /// active-session ScrollViewer + Evidence / Candidates DataGrids)
+    /// is built only on first access — if the user never opens the
+    /// AI Analysis tab the panel is never instantiated and the
+    /// <c>InitializeComponent</c> reflection cost is avoided.
+    /// <para>
+    /// DataContext is set to <c>this</c> so the panel's bindings
+    /// resolve against the owning <see cref="TraceViewerViewModel"/>
+    /// (same instance that owns <c>CurrentAnalysisSession</c>).
+    /// </para>
+    /// </summary>
+    private Views.TraceViewerViewAIPanel? _aiPanelContent;
+    public Views.TraceViewerViewAIPanel? AIPanelContent
+    {
+        get
+        {
+            if (_aiPanelContent is null)
+            {
+                _aiPanelContent = new Views.TraceViewerViewAIPanel
+                {
+                    DataContext = this,
+                };
+            }
+            return _aiPanelContent;
+        }
+    }
+
     // v3.15.0 MINOR: filename-only display of LoadedDbcPath for the
     // toolbar TextBlock. Full path is in the tooltip. Empty when no
     // DBC is loaded (B1 fix).
@@ -169,6 +213,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         DbcService dbcService,
         ILogger<TraceViewerViewModel> logger,
         TraceSessionLibrary sessionLibrary,
+        EvidenceExtractor? evidenceExtractor = null,
+        LocalAnalyzer? localAnalyzer = null,
+        AnalysisSessionRegistry? sessionRegistry = null,
+        ILlmProvider? llmProvider = null,
+        IFrameSourceProvider? frameSource = null,
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
         IAscLocator? locator = null,
@@ -178,6 +227,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionLibrary = sessionLibrary ?? throw new ArgumentNullException(nameof(sessionLibrary));
+        // v3.52.0 MINOR T9: 5 AI-inference params. Appended with nullable
+        // defaults so the 30+ pre-existing test sites (4-arg positional
+        // calls) keep compiling without churn — production DI passes real
+        // instances via the 9-arg factory path. When the caller does NOT
+        // supply a value (legacy test sites + ctor call paths that don't
+        // care about analysis), we lazily instantiate a no-op stub so the
+        // VM stays usable. Production DI always supplies real instances.
+        _evidenceExtractor = evidenceExtractor ?? new EvidenceExtractor();
+        _localAnalyzer = localAnalyzer ?? new LocalAnalyzer();
+        _sessionRegistry = sessionRegistry ?? new AnalysisSessionRegistry();
+        _llmProvider = llmProvider ?? new NotImplementedLlmProvider();
+        _frameSource = frameSource ?? NullFrameSourceProvider.Instance;
         _fileDialog = fileDialog;
         // v3.6.4 PATCH: defaults to a no-op hasher + locator so the
         // legacy ctor signature (without these args) keeps compiling

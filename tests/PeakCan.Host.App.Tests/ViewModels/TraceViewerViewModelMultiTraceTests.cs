@@ -59,7 +59,7 @@ public class TraceViewerViewModelMultiTraceTests
         // the test wants the registry to receive.
         var dialog = Substitute.For<PeakCan.Host.Core.IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/b.asc");
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), dialog);
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await vm.AddTraceAsync();
 

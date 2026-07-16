@@ -155,5 +155,20 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<ILogger<DbcSendViewModel>>(),
                 rateLimitRejectedCountProvider: rejectedCountProvider);
         });
+
+        // v3.52.0 MINOR T9: AI inference analysis pipeline (P0 local-only).
+        // TraceViewerViewModel.AnalysisFlow.cs requires these 5 singletons.
+        // The 5th (IFrameSourceProvider) is registered against the same
+        // TraceSessionRegistry instance that implements ITraceSessionRegistry
+        // — dual-interface in T9 — so the analyzer reads frames via the
+        // Core-side abstraction without taking an App-layer dependency.
+        services.AddSingleton<PeakCan.Host.Core.Analysis.EvidenceExtractor>();
+        services.AddSingleton<PeakCan.Host.Core.Analysis.LocalAnalyzer>();
+        services.AddSingleton<PeakCan.Host.Core.Analysis.AnalysisSessionRegistry>();
+        services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider,
+                               PeakCan.Host.Core.Analysis.NotImplementedLlmProvider>();
+        services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
+            (PeakCan.Host.App.Services.Trace.TraceSessionRegistry)sp.GetRequiredService<
+                PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>());
     }
 }

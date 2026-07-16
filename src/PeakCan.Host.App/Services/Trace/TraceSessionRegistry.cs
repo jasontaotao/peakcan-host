@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using OxyPlot;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.Services.Trace;
@@ -10,8 +11,17 @@ namespace PeakCan.Host.App.Services.Trace;
 /// Each <see cref="LoadAsync"/> call instantiates a fresh
 /// <see cref="TraceViewerService"/> (per-load disposable) — the registry
 /// disposes it on <see cref="UnloadAsync"/>.
+/// <para>
+/// v3.52.0 MINOR T9: also implements <see cref="IFrameSourceProvider"/>
+/// (Core-side abstraction) so Core-layer analyzers
+/// (<c>EvidenceExtractor</c>, <c>LocalAnalyzer</c>) can read frames without
+/// taking a dependency on App. The <see cref="GetFrames"/> method already
+/// matches the <see cref="IFrameSourceProvider.GetFrames"/> contract
+/// (defensive copy at the registry boundary, empty array when source
+/// unknown) — the interface is satisfied automatically.
+/// </para>
 /// </summary>
-public sealed class TraceSessionRegistry : ITraceSessionRegistry
+public sealed class TraceSessionRegistry : ITraceSessionRegistry, IFrameSourceProvider
 {
     private readonly ITracePalette _palette;
     private readonly ILoggerFactory _loggerFactory;
