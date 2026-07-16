@@ -105,6 +105,15 @@
                           IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
                           ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, watch list Blue 列读该时刻解码值, Δ = Blue - 当前" />
+            <Separator />
+            <!-- v3.52.0 MINOR: Lock anchor + Run analysis. Per spec D2: 锁定 requires
+                 both green AND blue anchors set; button greys out until then. -->
+            <Button Content="🔒 锁定 anchor 状态" Command="{Binding LockAnchorCommand}"
+                    Padding="8,2" Margin="4,0,0,0"
+                    ToolTip="锁定当前绿/蓝锚状态为 evidence snapshot 起点（必须双锚齐全）" />
+            <Button Content="🤖 运行分析" Command="{Binding RunAnalysisCommand}"
+                    Padding="8,2" Margin="4,0,0,0"
+                    ToolTip="运行本地 AI 推理分析（P0 仅本地特征；P1 接 LLM）" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
