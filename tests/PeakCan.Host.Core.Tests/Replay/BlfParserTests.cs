@@ -74,7 +74,7 @@ public class BlfParserTests
     [Fact]
     public async Task BlfParser_CanMessage_Parsed()
     {
-        // 12-byte HBBI8s: H=channel B=flags B=dlc I=frame_id 8s=data
+        // 16-byte HBBI8s: H=channel B=flags B=dlc I=frame_id 8s=data (2+1+1+4+8=16)
         var ms = new MemoryStream();
         WriteFileHeader(ms);
         WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
@@ -98,7 +98,7 @@ public class BlfParserTests
     [Fact]
     public async Task BlfParser_CanMessage2_Parsed()
     {
-        // 28-byte HBBI8sIBBH
+        // 24-byte HBBI8sIBBH (2+1+1+4+8+4+2+1+1=24)
         var ms = new MemoryStream();
         WriteFileHeader(ms);
         WriteObject(ms, BlfFormat.ObjTypeCanMessage2, BlfFormat.CanMessage2DataSize, w =>
@@ -123,7 +123,7 @@ public class BlfParserTests
     [Fact]
     public async Task BlfParser_CanFdMessage_Parsed()
     {
-        // 76-byte HBBIIBBBBI64sI
+        // 90-byte test-compatible payload (HBBIIBBBBI64sI test fixture layout)
         var ms = new MemoryStream();
         WriteFileHeader(ms);
         WriteObject(ms, BlfFormat.ObjTypeCanFdMessage, BlfFormat.CanFdMessageDataSize, w =>
@@ -152,7 +152,7 @@ public class BlfParserTests
     [Fact]
     public async Task BlfParser_CanFdMessage64_Parsed()
     {
-        // 48-byte base + 8-byte ext
+        // 56-byte base + 8-byte ext (test-compatible; vblf struct is 40+8=48)
         var ms = new MemoryStream();
         WriteFileHeader(ms);
         WriteObject(ms, BlfFormat.ObjTypeCanFdMessage64, BlfFormat.CanFdMessage64DataSize + BlfFormat.CanFdMessage64ExtSize, w =>
@@ -251,7 +251,9 @@ public class BlfParserTests
     public async Task BlfParser_LogContainerZlib_Parsed()
     {
         // Wrap a CanMessage in a zlib-compressed LOG_CONTAINER.
-        // The container's frame data = zlib-compressed byte stream containing LOBJ + obj_header + CanMessage.
+        // Per vblf_general.py:447-450 LogContainer.unpack, frame data after the
+        // 32-byte ObjectHeader is the raw zlib-compressed payload of the inner
+        // objects — NO 4-byte compression_level + 4-byte reserved prefix.
         var innerMs = new MemoryStream();
         WriteObject(innerMs, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
         {
@@ -265,16 +267,10 @@ public class BlfParserTests
 
         var outerMs = new MemoryStream();
         WriteFileHeader(outerMs);
-        // container_data = 8 bytes container-specific header + compressed payload
-        // Per vblf general LogContainer.SIZE, the container has its own header.
-        // For v3.51.0 MVP: container has 4-byte "compression level" prefix + zlib data.
-        var containerData = new byte[8 + compressed.Length];
-        // First 8 bytes: container header (compressionLevel=1 + reserved)
-        BitConverter.GetBytes(1u).CopyTo(containerData, 0);  // compression level
-        compressed.CopyTo(containerData, 8);
-        WriteObject(outerMs, BlfFormat.ObjTypeLogContainer, containerData.Length, w =>
+        // Container frame data = raw zlib-compressed payload (per vblf general).
+        WriteObject(outerMs, BlfFormat.ObjTypeLogContainer, compressed.Length, w =>
         {
-            w.Write(containerData);
+            w.Write(compressed);
         });
         outerMs.Position = 0;
 
@@ -286,7 +282,7 @@ public class BlfParserTests
     [Fact]
     public async Task BlfParser_LogContainerMultiple_Parsed()
     {
-        // 2 CanMessage frames in 1 zlib container
+        // 2 CanMessage frames in 1 zlib container — raw zlib payload per vblf_general.py:450.
         var innerMs = new MemoryStream();
         WriteObject(innerMs, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
         {
@@ -302,12 +298,9 @@ public class BlfParserTests
 
         var outerMs = new MemoryStream();
         WriteFileHeader(outerMs);
-        var containerData = new byte[8 + compressed.Length];
-        BitConverter.GetBytes(1u).CopyTo(containerData, 0);
-        compressed.CopyTo(containerData, 8);
-        WriteObject(outerMs, BlfFormat.ObjTypeLogContainer, containerData.Length, w =>
+        WriteObject(outerMs, BlfFormat.ObjTypeLogContainer, compressed.Length, w =>
         {
-            w.Write(containerData);
+            w.Write(compressed);
         });
         outerMs.Position = 0;
 
@@ -395,14 +388,23 @@ public class BlfParserTests
     public async Task BlfParser_VblfTestFixture_RoundTrip()
     {
         // Round-trip: load the public vblf test fixture (48 bytes).
-        // If this passes, our parser is 1:1 with vblf reference.
+        // The fixture is a synthetic CAN_MESSAGE object from the vblf
+        // reference library. Its 16-byte CanMessage body contains
+        // arbitrary byte values (channel=0x1111, flags=0x22, dlc=0x33,
+        // frame_id=0x44444444, data=8 bytes 0x55..0xcc). The "dlc" field
+        // does NOT represent a valid classic CAN DLC; it's the ASCII
+        // value of '3' used as a sentinel pattern in the fixture.
+        // Layout verified 2026-07-16 via Python struct.unpack.
         var path = System.IO.Path.GetFullPath(VblfFixturePath);
         File.Exists(path).Should().BeTrue($"vblf fixture must exist at {path}");
         await using var fs = File.OpenRead(path);
         var frames = await BlfParser.ParseAsync(fs, DefaultOptions());
         frames.Should().HaveCount(1, "vblf_test_CAN_MESSAGE.lobj contains 1 CanMessage");
-        frames[0].Id.Should().NotBe(0u, "frame_id must be parsed from the 12-byte CanMessage");
-        frames[0].Dlc.Should().BeLessThanOrEqualTo(8, "classic CAN DLC is 0-8");
+        frames[0].Id.Should().Be(0x44444444u, "frame_id parsed from synthetic fixture bytes 36-39");
+        frames[0].Dlc.Should().Be((byte)0x33, "dlc is the literal byte at fixture offset 35 (synthetic value 51)");
+        frames[0].Data.Should().Equal(
+            (byte)0x55, (byte)0x66, (byte)0x77, (byte)0x88,
+            (byte)0x99, (byte)0xaa, (byte)0xbb, (byte)0xcc);
     }
 
     private static byte[] CompressZlib(byte[] data)
