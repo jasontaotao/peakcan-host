@@ -195,15 +195,44 @@ public static class SignalFormatter
             return Math.Max(0, (int)rounded);
 
         // Step 2: fraction simplification for sub-1 factors.
+        // For 1/denom, the minimum digits to express as a terminating
+        // decimal is min k such that 10^k is divisible by denom, which
+        // equals max(exponent of 2 in denom, exponent of 5 in denom).
+        //   denom = 2  → 1 digit (1/2 = 0.5)
+        //   denom = 4  → 2 digits (1/4 = 0.25)
+        //   denom = 8  → 3 digits (1/8 = 0.125)
+        //   denom = 5  → 1 digit (1/5 = 0.2)
+        //   denom = 10 → 1 digit (1/10 = 0.1)
+        // For denominators with non-2/5 prime factors (3, 7, etc.) the
+        // decimal expansion is non-terminating — fall back to log10 ceil.
         if (absF < 1.0)
         {
             var frac = SimplifyFraction(absF);
             if (frac is { Denom: > 1 })
-                return Math.Max(0, (int)Math.Ceiling(Math.Log10(frac.Denom.Value)));
+                return MinTerminatingDigits(frac.Denom.Value);
         }
 
         // Step 3: best-effort fallback.
         return Math.Max(0, (int)Math.Ceiling(approx));
+    }
+
+    /// <summary>
+    /// Returns min k >= 1 such that 10^k % denom == 0.
+    /// For denominators with only 2/5 prime factors, this is exact and
+    /// bounded by max(exponent of 2, exponent of 5) ≤ 16 in DBC factor
+    /// space. For non-terminating denominators, falls back to log10 ceil.
+    /// </summary>
+    private static int MinTerminatingDigits(long denom)
+    {
+        long pow = 10;
+        for (int k = 1; k <= 16; k++)
+        {
+            if (pow % denom == 0)
+                return k;
+            pow *= 10;
+        }
+        // Non-terminating: 1/3, 1/7, 1/6, etc. Fall back to log10 ceil.
+        return Math.Max(0, (int)Math.Ceiling(Math.Log10(denom)));
     }
 
     /// <summary>

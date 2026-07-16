@@ -57,6 +57,11 @@ public sealed partial class WatchedSignalRow : ObservableObject
     /// core types in the partial .g.cs.</summary>
     private PeakCan.Host.Core.Dbc.Signal? _signal;
 
+    // v3.50.6 PATCH: cached minimum decimal digits derived from
+    // _signal.Factor. Recomputed at Signal-set time (not per refresh
+    // tick). Plain int field, sister of v3.50.0 _signal and v3.50.5 _dbc.
+    private int _decimalDigits;
+
     public PeakCan.Host.Core.Dbc.Signal? Signal
     {
         get => _signal;
@@ -64,6 +69,11 @@ public sealed partial class WatchedSignalRow : ObservableObject
         {
             if (SetProperty(ref _signal, value))
             {
+                // v3.50.6 PATCH: cache digit count at signal-set time.
+                // value is null → 0 digits (consistent with no-signal fallback).
+                _decimalDigits = value is null
+                    ? 0
+                    : SignalFormatter.ResolveDecimalDigits(value.Factor);
                 OnPropertyChanged(nameof(LatestText));
                 OnPropertyChanged(nameof(BlueText));
                 OnPropertyChanged(nameof(DeltaText));
@@ -109,6 +119,17 @@ public sealed partial class WatchedSignalRow : ObservableObject
             {
                 OnPropertyChanged(nameof(DeltaValue));
                 OnPropertyChanged(nameof(LatestText));
+                // v3.50.7 PATCH: Δ column binds to DeltaText (string), not
+                // DeltaValue (double). Without this INPC, dragging the
+                // green anchor updates LatestText but leaves DeltaText
+                // showing the value computed against the previous
+                // _latestValue (user screenshot 2026-07-16: B2V_Ucel1_N
+                // Latest=3.395, Blue=3.346, Δ=-0.007 when true diff was
+                // 0.049 — stale DeltaText from a prior BlueLatestValue
+                // setter call). Sister pattern of v3.50.2 DeltaValue
+                // INPC; extends it to the v3.50.5-introduced string
+                // sibling.
+                OnPropertyChanged(nameof(DeltaText));
             }
         }
     }
@@ -168,7 +189,8 @@ public sealed partial class WatchedSignalRow : ObservableObject
                 var text = SignalDecoder.TryDecodeEnumText(_signal, _latestValue, _dbc);
                 if (text is not null) return text;
             }
-            return _latestValue.ToString("F2", CultureInfo.InvariantCulture);
+            // v3.50.6 PATCH: factor-derived precision replaces F2.
+            return SignalFormatter.FormatValue(_decimalDigits, _latestValue);
         }
     }
 
@@ -184,7 +206,7 @@ public sealed partial class WatchedSignalRow : ObservableObject
                 var text = SignalDecoder.TryDecodeEnumText(_signal, _blueLatestValue, _dbc);
                 if (text is not null) return text;
             }
-            return _blueLatestValue.ToString("F2", CultureInfo.InvariantCulture);
+            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue);
         }
     }
 
@@ -200,7 +222,7 @@ public sealed partial class WatchedSignalRow : ObservableObject
             // G4: enum signals have no subtractable semantics between text labels.
             if (_signal?.ValueTableName is not null)
                 return DoubleNanToStringConverter.Placeholder;
-            return (_blueLatestValue - _latestValue).ToString("F2", CultureInfo.InvariantCulture);
+            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue - _latestValue);
         }
     }
 

@@ -144,13 +144,31 @@ ResolveDecimalDigits(double factor):
     return Math.Max(0, (int)rounded)
 
   // Step 2: fraction simplification for non-10-power small factors.
+  // For 1/denom, the minimum digits to express as a terminating decimal
+  // is min k such that 10^k is divisible by denom, which equals
+  // max(exponent of 2 in denom, exponent of 5 in denom).
+  //   denom = 2  → 1 digit (1/2 = 0.5)
+  //   denom = 4  → 2 digits (1/4 = 0.25)
+  //   denom = 8  → 3 digits (1/8 = 0.125)
+  //   denom = 5  → 1 digit (1/5 = 0.2)
+  //   denom = 10 → 1 digit (1/10 = 0.1)
+  // For denominators with non-2/5 prime factors (e.g. 3, 7) the decimal
+  // expansion is non-terminating — fall back to log10 ceil.
   if absF < 1:
     var frac = SimplifyFraction(absF)
     if frac is { Denom: > 1 }:
-      return Math.Max(0, (int)Math.Ceiling(Math.Log10(frac.Denom)))
+      return MinTerminatingDigits(frac.Denom.Value)
 
   // Step 3: best-effort fallback.
   return Math.Max(0, (int)Math.Ceiling(approx))
+
+// Returns min k >= 1 such that 10^k % denom == 0.
+// For non-terminating denominators (containing 3, 7, etc.) returns ceil(log10(denom)).
+MinTerminatingDigits(long denom):
+  for k = 1 to 16:
+    if ModPow(10, k, denom) == 0:
+      return k
+  return Math.Max(0, (int)Math.Ceiling(Math.Log10(denom)))
 
 SimplifyFraction(double value):
   // value > 0, value < 1.
@@ -171,9 +189,9 @@ SimplifyFraction(double value):
 | `0.01` | 2 | Step 1: log10(0.01)=-2, → 2, round-trip exact → 2 |
 | `0.001` | 3 | Step 1: log10(0.001)=-3, → 3, round-trip exact → 3 (B2V_Ucel1_N case) |
 | `10.0` | 0 | Step 1: log10(10)=1, → -1, → 0 (max(0,-1)) |
-| `0.5` | 1 | Step 2: 1/2 → log10(2)=1, ceil → 1 |
-| `0.25` | 2 | Step 2: 1/4 → log10(4)=2, ceil → 2 |
-| `0.125` | 3 | Step 2: 1/8 → log10(8)=3, ceil → 3 |
+| `0.5` | 1 | Step 2: denom=2 → max(2¹,5⁰)=1 |
+| `0.25` | 2 | Step 2: denom=4 → max(2²,5⁰)=2 |
+| `0.125` | 3 | Step 2: denom=8 → max(2³,5⁰)=3 |
 | `0.0` | 0 | Step 0 guard |
 | `NaN` | 0 | Step 0 guard |
 | `1/3 ≈ 0.333...` | 1 | Step 3 fallback: ceil(log10(0.333))=1 |
@@ -209,9 +227,23 @@ public static class SignalFormatter
     /// Format <paramref name="value"/> using the digits resolved from
     /// <paramref name="factor"/>. Convenience wrapper around
     /// <see cref="ResolveDecimalDigits"/> + <c>ToString("F{digits}",
-    /// InvariantCulture)</c>.
+    /// InvariantCulture</c>.
     /// </summary>
     public static string FormatValue(double factor, double value);
+
+    /// <summary>
+    /// v3.50.6 PATCH: sister overload that accepts pre-resolved
+    /// <paramref name="digits"/> directly. Sister callers (e.g.
+    /// <c>WatchedSignalRow.LatestText</c>) cache the digit count at
+    /// <c>Signal</c> setter time and pass the cached value here to
+    /// avoid per-frame <see cref="ResolveDecimalDigits"/> recomputation
+    /// in the drag hot path. Behaviorally equivalent to
+    /// <c>FormatValue(factor, value)</c> when
+    /// <c>digits == ResolveDecimalDigits(factor)</c>; uses
+    /// <c>InvariantCulture</c> like the factor-based overload.
+    /// Negative <paramref name="digits"/> are treated as 0.
+    /// </summary>
+    public static string FormatValue(int digits, double value);
 }
 ```
 
@@ -251,6 +283,8 @@ public string LatestText
             if (text is not null) return text;
         }
         // v3.50.6 PATCH: factor-derived precision replaces hard-coded F2.
+        // Uses pre-resolved digits (cached at Signal setter) to avoid
+        // per-frame ResolveDecimalDigits calls in the drag hot path.
         return SignalFormatter.FormatValue(_decimalDigits, _latestValue);
     }
 }

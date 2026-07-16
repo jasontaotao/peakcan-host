@@ -49,10 +49,13 @@ public sealed class EnumTrackerLineSeries : LineSeries
         var dbc = _dbcProvider();
         var decoded = dbc is not null
             ? (SignalDecoder.TryDecodeEnumText(_signal, yVal, dbc)
-               ?? yVal.ToString("F2", CultureInfo.InvariantCulture))
-            : yVal.ToString("F2", CultureInfo.InvariantCulture);
+               ?? SignalFormatter.FormatValue(_signal.Factor, yVal))
+            : SignalFormatter.FormatValue(_signal.Factor, yVal);
 
-        hit.Text = $"{_signal.Name}\n{decoded}\n{yVal}\nt = {xVal:0.000}s";
+        // v3.50.6 PATCH: factor-derived precision for y-value line,
+        // sister of WatchedSignalRow.LatestText (uses SignalFormatter too).
+        var yDisplay = SignalFormatter.FormatValue(_signal.Factor, yVal);
+        hit.Text = $"{_signal.Name}\n{decoded}\n{yDisplay}\nt = {xVal:0.000}s";
         return hit;
     }
 }
