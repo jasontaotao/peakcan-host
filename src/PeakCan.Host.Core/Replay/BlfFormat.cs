@@ -2,64 +2,46 @@ namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v3.51.0 MINOR: BLF (Vector Binary Logging Format) format single source.
-/// Sister of v3.49.0 MINOR AscFormat. Pure static constants — no state,
-/// no DI. All values verified against Vector BLF specification (constants
-/// must be copied 1:1 from reverse-engineered reference per W22 + W23
-/// LESSON; do not invent).
+/// All values verified 1:1 against vblf reference (zariiii9003/vblf master
+/// branch, fetched 2026-07-16 to .superpowers/sdd/reference/). Per W22
+/// LESSON: do not invent; if a constant appears wrong, re-verify against
+/// reference before commit. Sister of v3.49.0 MINOR AscFormat.
 /// </summary>
 public static class BlfFormat
 {
-    /// <summary>BLF file header signature: 4 ASCII bytes "LOGG".</summary>
+    /// <summary>BLF file signature: 4 ASCII bytes "LOGG" at file offset 0.
+    /// Per vblf_constants.py line 4.</summary>
     public const string FileSignature = "LOGG";
 
-    /// <summary>BLF format signature (follows FileSignature): 4 ASCII bytes "LBLF".</summary>
-    public const string FormatSignature = "LBLF";
+    /// <summary>BLF object signature: 4 ASCII bytes "LOBJ" preceding each
+    /// object in the file. Per vblf_constants.py line 5.</summary>
+    public const string ObjSignature = "LOBJ";
 
-    /// <summary>Supported version 1.0 (major 0x01, minor 0x00 packed in UINT32 LE).</summary>
-    public const uint Version10 = 0x00010000;
+    /// <summary>Object header base size in bytes (assumed; T1 verifies
+    /// against vblf test fixture). 16 = 4 LOBJ signature + 12 obj header
+    /// fields (object_size:UINT32 + object_type:UINT32 + timestamp:UINT64).</summary>
+    public const int ObjectHeaderBaseSize = 16;
 
-    /// <summary>Supported version 2.0.</summary>
-    public const uint Version20 = 0x00020000;
+    /// <summary>File header size in bytes (assumed; T1 verifies). 24 =
+    /// 4 LOGG magic + 20 FileStatistics metadata (size + app info +
+    /// compression level + reserved).</summary>
+    public const int FileHeaderSize = 24;
 
-    /// <summary>Object header signature: 4 ASCII bytes "OBJH" (32-byte OBJH precedes each obj).</summary>
-    public const string ObjHeader = "OBJH";
+    // Object type IDs — per vblf_constants.py lines 11, 20, 96, 110-111.
+    public const uint ObjTypeCanMessage = 1;        // classic CAN 11-bit
+    public const uint ObjTypeLogContainer = 10;     // zlib-compressed container
+    public const uint ObjTypeCanMessage2 = 86;      // classic CAN 29-bit
+    public const uint ObjTypeCanFdMessage = 100;    // CAN FD
+    public const uint ObjTypeCanFdMessage64 = 101;  // CAN FD 64-byte
 
-    /// <summary>Frame data blob signature: 4 ASCII bytes "BLOB".</summary>
-    public const string Blob = "BLOB";
+    // Frame data format sizes — per vblf_can.py struct.Struct("...").size.
+    public const int CanMessageDataSize = 12;        // HBBI8s
+    public const int CanMessage2DataSize = 28;       // HBBI8sIBBH
+    public const int CanFdMessageDataSize = 76;      // HBBIIBBBBI64sI
+    public const int CanFdMessage64DataSize = 48;    // BBBBIIIIIIIHBBI
+    public const int CanFdMessage64ExtSize = 8;      // II (extension)
 
-    /// <summary>Container object signature: 4 ASCII bytes "LOBJ" (wraps child objects).</summary>
-    public const string Container = "LOBJ";
-
-    /// <summary>Frame container type ID for classic CAN 2.0 (11/29-bit ID, 8-byte payload).</summary>
-    public const uint ET_CAN_DATA = 5;
-
-    /// <summary>Frame container type ID for CAN FD (flexible data-rate, up to 64-byte payload).</summary>
-    public const uint ET_CAN_FD_DATA = 29;
-
-    /// <summary>Frame container type ID for CAN XL (extended length, up to 2048-byte payload).</summary>
-    public const uint ET_CAN_XL_DATA = 33;
-
-    /// <summary>Classic CAN BLOB layout size in bytes: 2 (channel) + 2 (flags) + 1 (dlc) + 3 (reserved) + 4 (id) + 8 (data).</summary>
-    public const int ClassicCanBlobSize = 20;
-
-    /// <summary>CAN FD BLOB header size in bytes (data[64] follows): 20 (classic layout) + 1 (frameLength) + 3 (reserved) + 8 (padding before data[64]).</summary>
-    public const int CanFdBlobSize = 32;
-
-    /// <summary>CAN XL BLOB header size in bytes (data[2048] follows): 20 (classic layout) + 2 (frameLength BIG-ENDIAN) + 2 (reserved) + 8 (padding before data[2048]).</summary>
-    public const int CanXlBlobMinSize = 32;
-
-    /// <summary>OBJH timestamp is UINT64 in 100-nanosecond ticks; divide by this to get seconds.</summary>
+    /// <summary>Timestamp scale: vblf stores as 10ns ticks since Vector
+    /// epoch; divide by this to get seconds.</summary>
     public const double TimestampScale = 10_000_000.0;
-
-    /// <summary>Frame flag bit: CAN FD frame.</summary>
-    public const ushort FlagFd = 0x0001;
-
-    /// <summary>Frame flag bit: bit rate switch (CAN FD BRS).</summary>
-    public const ushort FlagBrs = 0x0002;
-
-    /// <summary>Frame flag bit: error state indicator (CAN FD ESI).</summary>
-    public const ushort FlagEsi = 0x0004;
-
-    /// <summary>Frame flag bit: CAN XL frame.</summary>
-    public const ushort FlagXl = 0x0010;
 }
