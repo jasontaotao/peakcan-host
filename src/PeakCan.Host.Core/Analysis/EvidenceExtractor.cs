@@ -11,7 +11,7 @@ namespace PeakCan.Host.Core.Analysis;
 /// the signalKey already produced by the AnchorSnapshot flow. Per
 /// hard-boundary #14: produces evidence per source, normalized independently
 /// downstream by LocalAnalyzer.</summary>
-public sealed class EvidenceExtractor
+public class EvidenceExtractor
 {
     public IReadOnlyList<FaultAnalysisEvidence> Extract(
         FaultEvent faultEvent,

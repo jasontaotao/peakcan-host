@@ -44,18 +44,36 @@ public class AnalysisFlowTests
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"analysis-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
         var logger = NullLogger<TraceViewerViewModel>.Instance;
-        frameSource.GetFrames(Arg.Any<string>()).Returns(Array.Empty<ReplayFrame>());
 
-        // v3.52.0 MINOR T9: direct ctor call replaces the T8 reflection-based
-        // field injection. T8 used reflection as a temporary seam because the
-        // 5 analysis params were not yet on the ctor; T9 wires them through
-        // the real ctor.
+        // v3.52.1 PATCH T3: mock the 5 analysis deps via Substitute.For<>
+        // (sister pattern to DbcService above). The 3 Core-side classes
+        // were unsealed to make them proxyable (Castle.DynamicProxy cannot
+        // proxy sealed types). frameSource.GetFrames stub removed — the
+        // mocked IFrameSourceProvider returns default empty by default.
         return new TraceViewerViewModel(
             registry, dbc, logger, sessionLib,
-            new EvidenceExtractor(),
-            new LocalAnalyzer(),
-            new AnalysisSessionRegistry(),
-            new NotImplementedLlmProvider(),
+            Substitute.For<EvidenceExtractor>(),
+            Substitute.For<LocalAnalyzer>(),
+            Substitute.For<AnalysisSessionRegistry>(),
+            Substitute.For<ILlmProvider>(),
             frameSource);
+    }
+
+    [Fact]
+    public void RunAnalysisCommand_CanExecute_RefreshedAfterLockAnchor()
+    {
+        // v3.52.1 PATCH T2+T3: LockAnchor must explicitly notify RunAnalysisCommand
+        // (Minor 3 from v3.52.0 review). Without this trigger, the UI Run button
+        // stays disabled even after the user has created a valid snapshot.
+        var vm = MakeVm();
+        Assert.False(vm.RunAnalysisCommand.CanExecute(null),
+            "before LockAnchor, no snapshot -> CanExecute=false");
+
+        vm.RefreshAtAnchor(1.0);
+        vm.RefreshAtAnchorBlue(1.5);
+        vm.LockAnchorCommand.Execute(null);
+
+        Assert.True(vm.RunAnalysisCommand.CanExecute(null),
+            "after LockAnchor creates snapshot, CanExecute=true");
     }
 }
