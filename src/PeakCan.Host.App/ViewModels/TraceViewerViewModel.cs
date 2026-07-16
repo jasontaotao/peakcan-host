@@ -126,6 +126,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddTraceCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveTraceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
     private bool _isLoading;
 
     [ObservableProperty]
