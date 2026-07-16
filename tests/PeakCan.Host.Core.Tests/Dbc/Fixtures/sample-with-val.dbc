@@ -1,0 +1,10 @@
+VERSION "sanitized-fixture"
+
+NS_ :
+
+BS_:
+
+BO_ 256 MsgA: 8 Vector__XL
+ SG_ SigA : 0|2@1+ (1,0) [0|3] "bit" Vector__XL
+
+VAL_ 256 SigA 0 "Zero" 1 "One" 2 "Two" 3 "Three" ;

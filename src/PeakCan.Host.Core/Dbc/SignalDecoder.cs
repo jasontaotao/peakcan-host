@@ -115,6 +115,43 @@ public static class SignalDecoder
         return physical * signal.Factor + signal.Offset;
     }
 
+    /// <summary>
+    /// v3.50.5 PATCH: look up the DBC <c>VAL_</c> table text for a decoded
+    /// signal value. Returns <c>null</c> when:
+    /// <list type="bullet">
+    ///   <item><paramref name="signal"/>.ValueTableName is null (no table attached),</item>
+    ///   <item>the table name is not present in <paramref name="document"/>.ValueTables,</item>
+    ///   <item>or the (long)decodedValue is not a key in the table.</item>
+    /// </list>
+    /// Callers should fall back to numeric formatting (e.g. <c>F2</c>) on null.
+    /// <para>
+    /// The cast <c>(long)decodedValue</c> matches DBC semantics: for enum
+    /// signals the DBC factor/offset are typically 1.0/0.0 so the engineering
+    /// value equals the integer table key. Callers passing non-integer engineering
+    /// values will receive null when no entry exists for the truncated key —
+    /// intentional, since VAL_ tables are integer-keyed.
+    /// </para>
+    /// </summary>
+    /// <param name="signal">Signal definition; its <see cref="Signal.ValueTableName"/>
+    /// is the lookup key into <see cref="DbcDocument.ValueTables"/>.</param>
+    /// <param name="decodedValue">Engineering value already passed through
+    /// <see cref="Decode(ReadOnlySpan{byte}, Signal)"/>.</param>
+    /// <param name="document">Loaded DBC document containing the parsed
+    /// <c>VAL_TABLE_</c> / inline <c>VAL_</c> entries.</param>
+    /// <returns>The mapped text, or <c>null</c> if the lookup misses.</returns>
+    public static string? TryDecodeEnumText(
+        Signal signal,
+        double decodedValue,
+        DbcDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(signal);
+        ArgumentNullException.ThrowIfNull(document);
+        if (signal.ValueTableName is null) return null;
+        if (!document.ValueTables.TryGetValue(signal.ValueTableName, out var table))
+            return null;
+        return table.Entries.TryGetValue((long)decodedValue, out var text) ? text : null;
+    }
+
     // DBC little-endian (Intel): start bit is the LSB of the first byte;
     // the field grows toward higher byte indices.
     // `start` is ushort and the loop accumulator is int so CAN FD
