@@ -26,10 +26,16 @@ public class BlfRealVectorReproTests
     public async Task ParseAsync_RealVectorBlf_LoadsSuccessfully()
     {
         // Skip silently if the user-provided fixture is not present —
-        // not all dev machines / CI workers will have it.
+        // not all dev machines / CI workers will have it. We log a
+        // Console message so the skip reason is debuggable in CI run
+        // output (vs. silent no-op that masked regressions in a prior
+        // review finding).
         if (!System.IO.File.Exists(RealVectorBlfPath))
         {
-            return; // skip
+            System.Console.WriteLine(
+                $"[BLF Manual] skip: real-Vector fixture not present at {RealVectorBlfPath}. " +
+                "Place the .blf there locally or see MEMORY peakcan-host-test-fixtures.");
+            return;
         }
 
         await using var fs = System.IO.File.OpenRead(RealVectorBlfPath);

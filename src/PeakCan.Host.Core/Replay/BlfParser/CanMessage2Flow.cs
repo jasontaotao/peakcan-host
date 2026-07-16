@@ -21,6 +21,10 @@ public static partial class BlfParser
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(4));
         var data = frameData.Slice(8, 8).ToArray();
         // Trailer (IBBH = 4+2+1+1 = 8 bytes) at offset 16 — skipped (debug info)
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, FrameFlags.None);
+        // v3.51.0 T6.5 PATCH: same flag-mapping as CanMessageFlow —
+        // (flags & 0x01) → Rtr. Sister of CanMessageFlow review fix.
+        var ff = FrameFlags.None;
+        if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, ff);
     }
 }

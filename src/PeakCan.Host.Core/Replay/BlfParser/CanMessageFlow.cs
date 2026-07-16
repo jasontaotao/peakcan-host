@@ -20,6 +20,19 @@ public static partial class BlfParser
         byte dlc = frameData[3];
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(4));
         var data = frameData.Slice(8, 8).ToArray();
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, FrameFlags.None);
+        // v3.51.0 T6.5 PATCH (reviewer finding #3 — HIGH): map Vector's
+        // 1-byte can_flags to our FrameFlags enum. Per vblf_can.py the
+        // canonical layout is:
+        //   bit 0 = RTR (CAN 2.0 remote transmission request)
+        //   bit 1 = BRS (CAN FD bit-rate switch — only meaningful on FD;
+        //              ignored on classic CAN because the bus hadn't
+        //              switched dataphase baud)
+        // We deliberately do NOT set FrameFlags.Fd here even when
+        // (flags & 0x02) is set — the canfd-ness comes from ObjType
+        // (100/101), not from this byte. Sister of CanFdMessageFlow
+        // which hard-codes Fd regardless of can_flags.
+        var ff = FrameFlags.None;
+        if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, ff);
     }
 }
