@@ -88,7 +88,12 @@ public sealed partial class ReplayViewModel
         try
         {
             ErrorMessage = null;
-            var path = _fileDialog.ShowOpenDialog(filter: "ASC files (*.asc)|*.asc");
+            // v3.51.0 MINOR T4 (UI 接入): filter 现在同时列出 .asc + .blf。
+            // 后端 ReplayService.LoadAsync 在 T3 已分派 .blf → BlfParser / .asc → AscParser,
+            // 所以同一 dialog 同时覆盖两种格式。WPF OpenFileDialog 的 "|" 语法允许多扩展名,
+            // 用分号分隔以避免每个扩展独立条目降低 UX。
+            var path = _fileDialog.ShowOpenDialog(
+                filter: "Replay files (*.asc;*.blf)|*.asc;*.blf|ASC files (*.asc)|*.asc|BLF files (*.blf)|*.blf");
             if (path is null) return; // user cancelled
             await _service.LoadAsync(path).ConfigureAwait(true);
             LoadedFilePath = path;
@@ -297,7 +302,7 @@ public sealed partial class ReplayViewModel
         var missing = await OpenSessionAsync(path).ConfigureAwait(true);
         if (missing.Count > 0)
         {
-            ErrorMessage = $"{missing.Count} .asc file(s) could not be located. Use File → Open .asc to reload the source.";
+            ErrorMessage = $"{missing.Count} replay file(s) (.asc/.blf) could not be located. Use Replay → Open... to reload the source.";
         }
         _recentSessions.Add(path, viewType: "replay");
     }
