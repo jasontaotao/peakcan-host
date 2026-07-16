@@ -57,6 +57,67 @@ public class TraceViewerServiceTests
         finally { File.Delete(path); }
     }
 
+    // v3.51.0 MINOR T5: Verify TraceViewerService dispatches .blf to
+    // BlfParser (sister of ReplayService/FileIoLifecycle.partial.cs:44).
+    // Before this test, TraceViewer was .asc-only — the v3.51.0 spec
+    // assumed dispatcher would be added in T3 but the TraceViewer
+    // service was missed in the T3 audit. T5 PATCH closes the gap.
+    [Fact]
+    public async Task LoadAsync_ValidBlf_RoutesToBlfParserAndPopulatesFrames()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tv-blf-{Guid.NewGuid():N}.blf");
+        try
+        {
+            // Build a synthetic 1-frame CanMessage .blf
+            BuildSyntheticBlf(path);
+
+            var sut = new TraceViewerService(Substitute.For<ILogger<TraceViewerService>>());
+            await sut.LoadAsync(path);
+
+            sut.LoadedFrames.Should().HaveCount(1,
+                "synthetic .blf has exactly 1 CanMessage; if 0 the .blf branch did not run");
+            sut.TotalDuration.Should().BeGreaterThan(0,
+                "non-zero timestamp → non-zero TotalDuration");
+            sut.LoadedFrames[0].Id.Should().Be(0x123u);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    private static void BuildSyntheticBlf(string path)
+    {
+        using var ms = new System.IO.MemoryStream();
+        // 24-byte file header
+        ms.Write(System.Text.Encoding.ASCII.GetBytes(BlfFormat.FileSignature));
+        ms.Write(new byte[BlfFormat.FileHeaderSize - 4]);
+        // ObjectHeader (32): 4 LOBJ + 2 header_size + 2 header_version +
+        // 4 object_size + 4 object_type + 4 object_flags + 2 client +
+        // 2 reserved + 8 timestamp. Field order matches
+        // BlfParser.ParseObjectHeader exactly: the previous version of
+        // this helper inserted 16 zero bytes between ObjectHeaderBase
+        // (size 16) and the IHHQ extension (size 16), but that placed
+        // the timestamp at file offset +48 from LOBJ instead of +24,
+        // making TotalDuration look 0 even though the frame round-tripped.
+        // v3.51.0 T5 PATCH fix.
+        ms.Write(System.Text.Encoding.ASCII.GetBytes(BlfFormat.ObjSignature));
+        ms.Write(BitConverter.GetBytes((ushort)BlfFormat.ObjectHeaderSize));
+        ms.Write(BitConverter.GetBytes((ushort)1));
+        var totalObjBytes = (uint)BlfFormat.ObjectHeaderSize + (uint)BlfFormat.CanMessageDataSize;
+        ms.Write(BitConverter.GetBytes(totalObjBytes));
+        ms.Write(BitConverter.GetBytes(BlfFormat.ObjTypeCanMessage));
+        ms.Write(BitConverter.GetBytes(0u));            // object_flags (4)
+        ms.Write(BitConverter.GetBytes((ushort)0));     // client_index (2)
+        ms.Write(BitConverter.GetBytes((ushort)0));     // reserved (2)
+        ms.Write(BitConverter.GetBytes(5_000_000L));    // timestamp 0.5s (Q = 8)
+        // 12-byte CanMessage frame
+        ms.Write(BitConverter.GetBytes((ushort)1));
+        ms.WriteByte(0);
+        ms.WriteByte(8);
+        ms.Write(BitConverter.GetBytes(0x123u));
+        ms.Write(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04 });
+
+        File.WriteAllBytes(path, ms.ToArray());
+    }
+
     [Fact]
     public async Task LoadAsync_FileNotFound_ThrowsReplayLoadException()
     {

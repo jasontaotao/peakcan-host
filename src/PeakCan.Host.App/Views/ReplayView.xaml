@@ -69,10 +69,14 @@
             enabled once there's a file to snapshot. LoadedFilePath is
             shrunk from the explicit-margin block to fit the wider
             toolbar.
+            v3.51.0 MINOR T4: Open... 按钮文字保持 "Open..." 不变;ToolTip 增加
+            ".blf" 提示以反映 T3 已加的 BlfParser 后端支持。file dialog filter
+            本身在 ReplayViewModel.OpenAsync 里同时列出 *.asc + *.blf。
         -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
             <Button Content="Open..." Command="{Binding OpenCommand}" Margin="0,0,5,0"
-                    IsEnabled="{Binding IsNotLoaded}"/>
+                    IsEnabled="{Binding IsNotLoaded}"
+                    ToolTip="Load a CAN trace (.asc or .blf)"/>
             <Button Content="Save session..." Command="{Binding SaveCommand}" Padding="6,2" Margin="0,0,5,0"
                     IsEnabled="{Binding IsLoaded}"/>
             <Button Content="Open session..." Command="{Binding OpenSessionCommand}" Padding="6,2" Margin="0,0,5,0"

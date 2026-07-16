@@ -1845,6 +1845,35 @@ public class ReplayViewModelTests : IDisposable
             "OperationCanceledException must NOT populate ErrorMessage — cancel is not a user-hostile failure");
     }
 
+    // ---------- v3.51.0 MINOR T4 (UI 接入): OpenAsync filter must include .blf ----------
+
+    /// <summary>
+    /// v3.51.0 MINOR T4: <see cref="ReplayViewModel.OpenCommand"/> calls
+    /// <see cref="IFileDialogService.ShowOpenDialog"/> with a filter
+    /// containing both <c>*.asc</c> and <c>*.blf</c>, so users can pick
+    /// either format without re-opening the dialog and switching the
+    /// filter dropdown. The dispatcher (T3) on
+    /// <see cref="IReplayService.LoadAsync"/> already routes .blf to
+    /// <c>BlfParser</c> and .asc to <c>AscParser</c>; this test pins the
+    /// UI side of that handshake so a future "rename to .asc only"
+    /// regression is caught at the test boundary instead of at user
+    /// support.
+    /// </summary>
+    [Fact]
+    public async Task OpenAsync_DialogFilter_MentionsBothAscAndBlf()
+    {
+        // Arrange — cancel the dialog immediately to short-circuit the
+        // load path; we only care about what filter string is passed.
+        _fileDialog.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+
+        // Act
+        await _sut.OpenCommand.ExecuteAsync(null);
+
+        // Assert — capture the filter string passed to the dialog.
+        _fileDialog.Received(1).ShowOpenDialog(Arg.Is<string>(f =>
+            f != null && f.Contains("*.asc") && f.Contains("*.blf")));
+    }
+
     // ---------- v3.8.4 PATCH H2: OpenSessionAsync partial-failure → service-state reset ----------
 
     /// <summary>
