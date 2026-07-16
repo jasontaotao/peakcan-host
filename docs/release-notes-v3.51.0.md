@@ -56,6 +56,25 @@ New `.blf` path produces the same `IReadOnlyList<ReplayFrame>` shape
 consumed by TraceViewer / ReplayTimeline / `FrameEmitted` event
 downstream. ASC behavior is unchanged.
 
+### 4.1 UI entry (v3.51.0 T4 follow-up)
+
+The Replay tab's `Open...` button now exposes `.blf` alongside `.asc`
+in the file dialog filter:
+
+- **Filter string** — `Replay files (*.asc;*.blf)|*.asc;*.blf|ASC files (*.asc)|*.asc|BLF files (*.blf)|*.blf`.
+  The first entry (`Replay files`) is the default selected so users
+  see both formats in one click; the latter two are filter-shortcuts
+  for users who want to limit to one format.
+- **Open button ToolTip** — "Load a CAN trace (.asc or .blf)" so the
+  capability is discoverable without trying the dialog.
+- **OpenRecent error string** — "Use Replay → Open... to reload the source"
+  replaces the v3.7.0 era "Use File → Open .asc" wording, since users
+  may now have a missing `.blf` source instead of a missing `.asc`.
+
+Backed by `OpenAsync_DialogFilter_MentionsBothAscAndBlf` test
+(NSubstitute `Arg.Is<string>(f => f.Contains("*.asc") && f.Contains("*.blf"))`),
+catches future regressions where the filter is narrowed back to `.asc` only.
+
 ## Files changed
 
 | Layer | File | LoC | Note |
@@ -70,12 +89,15 @@ downstream. ASC behavior is unchanged.
 | Core | `BlfParser/CanFdMessageFlow.cs` | NEW ~33 | 76-byte unpack |
 | Core | `BlfParser/CanFdMessage64Flow.cs` | NEW ~28 | 48-byte unpack |
 | Core | `ReplayService/FileIoLifecycle.partial.cs` | MOD +5 | dispatch by extension |
+| App | `ReplayViewModel.Loader.partial.cs` | MOD +5 | filter 同时含 .asc + .blf |
+| App | `ReplayView.xaml` | MOD +3 | Open 按钮 ToolTip 提示 BLF |
 | Tests | `BlfFormatTests.cs` | NEW ~22 | 9 tests |
 | Tests | `BlfParserTests.cs` | NEW ~417 | 14 tests |
 | Tests | `BlfParserManualTests.cs` | NEW ~25 | 1 manual test (CI-skip) |
+| Tests | `ReplayViewModelTests.cs` | MOD +29 | 1 filter UI 接入测试 (T4) |
 | Build | `Directory.Build.props` | MOD | version 3.50.6 → 3.51.0 |
 
-**Total LoC delta**: ~700 LoC (new code + tests + docs).
+**Total LoC delta**: ~737 LoC (new code + tests + docs + UI).
 
 ## Test outcomes
 
@@ -84,7 +106,8 @@ downstream. ASC behavior is unchanged.
   `.superpowers/sdd/reference/vblf_test_CAN_MESSAGE.lobj` fixture
   is present; CI auto-skips via `[Trait("Manual", "true")]` filter
   `FullyQualifiedName!~Manual` (490 / 490 PASS under CI filter).
-- **App.Tests 826 / 826 PASS** (unchanged from v3.50.6).
+- **App.Tests 827 / 827 PASS** (826 pre-existing + 1 T4 filter UI test;
+  3 SKIPs are hardware-dependent, pre-existing).
 - **Infra.Tests 89 / 89 PASS** (unchanged; 2 hardware-dependent SKIPs are
   pre-existing and expected).
 
@@ -109,6 +132,14 @@ downstream. ASC behavior is unchanged.
    — User authorized `zariiii9003/vblf` as the named source for
    reverse-engineering; future reference fetches must follow the
    same explicit-named-source pattern.
+7. **`file-dialog-filter-must-mention-all-supported-extensions` (NEW 1/3 @ T4)**
+   — When the back-end dispatch gains a new file format, the WPF
+   `OpenFileDialog.Filter` string must be updated in the SAME commit (or
+   the immediate next PATCH); otherwise users see release notes for a
+   feature they cannot reach from the UI. The next observation must
+   confirm whether the same pattern applies to save-as filter strings
+   (e.g. `TraceSessionLibrary.SaveAsFilter` for new bundle schemas) and
+   menu-driven deep links (e.g. `File → Import → BLF` if added later).
 
 ## Out of scope (per spec §3)
 
