@@ -39,6 +39,15 @@ public static class SignalFormatter
         return value.ToString("F" + digits, CultureInfo.InvariantCulture);
     }
 
+    // v3.50.6 PATCH sister: caller pre-resolves digits once (e.g. cached
+    // at Signal-set time) and formats repeatedly. Avoids re-running
+    // ResolveDecimalDigits on every refresh tick.
+    public static string FormatValue(int digits, double value)
+    {
+        if (digits < 0) digits = 0;
+        return value.ToString("F" + digits, CultureInfo.InvariantCulture);
+    }
+
     private static (long Numer, long Denom)? SimplifyFraction(double value)
     {
         for (long denom = 1; denom <= 10000; denom++)

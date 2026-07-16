@@ -147,14 +147,57 @@ public class WatchedSignalRowTextTests
     public void LatestText_ReturnsNumeric_WhenNotMapped()
     {
         // Build a Signal without ValueTableName.
+        // v3.50.6: factor=0.01 → 2 decimal digits so the assertion matches
+        // the factor-derived precision (sister of WatchedSignalRowPrecisionTests).
+        // Factor=1.0 would now correctly render as "1" (0 digits), which is the
+        // new contract per SignalFormatter.ResolveDecimalDigits.
         var sigBare = new Signal(
             Name: "BareSig", StartBit: 0, Length: 8,
             Order: ByteOrder.LittleEndian, ValueType: DbcValueType.Unsigned,
-            Factor: 1.0, Offset: 0.0, Min: 0, Max: 255, Unit: "",
+            Factor: 0.01, Offset: 0.0, Min: 0, Max: 255, Unit: "",
             Receivers: Array.Empty<string>(), ValueTableName: null);
         var row = new WatchedSignalRow("0x100", "MsgA", "BareSig", "bit");
         row.Signal = sigBare;
         row.LatestValue = 1.23;
         row.LatestText.Should().Be("1.23");
+    }
+}
+
+// v3.50.6 PATCH: factor-derived precision replaces hard-coded F2.
+// Sister pattern of WatchedSignalRowTextTests (v3.50.5).
+public class WatchedSignalRowPrecisionTests
+{
+    [Fact]
+    public void LatestText_UsesFactorDigits_WhenSignalBound()
+    {
+        // factor=0.001 signal (sister of B2V_Ucel1_N screenshot case).
+        var sig = new Signal(
+            Name: "SigB", StartBit: 0, Length: 16,
+            Order: ByteOrder.LittleEndian, ValueType: DbcValueType.Unsigned,
+            Factor: 0.001, Offset: 0.0, Min: 0, Max: 65.535, Unit: "V",
+            Receivers: Array.Empty<string>(), ValueTableName: null);
+        var row = new WatchedSignalRow("0x200", "MsgB", "SigB", "V")
+        {
+            Signal = sig
+        };
+        row.LatestValue = 3.353;
+        row.LatestText.Should().Be("3.353", "factor=0.001 → 3 decimal digits, NOT F2-truncated 3.35");
+    }
+
+    [Fact]
+    public void DeltaText_UsesFactorDigits_ForDelta()
+    {
+        var sig = new Signal(
+            Name: "SigB", StartBit: 0, Length: 16,
+            Order: ByteOrder.LittleEndian, ValueType: DbcValueType.Unsigned,
+            Factor: 0.001, Offset: 0.0, Min: 0, Max: 65.535, Unit: "V",
+            Receivers: Array.Empty<string>(), ValueTableName: null);
+        var row = new WatchedSignalRow("0x200", "MsgB", "SigB", "V")
+        {
+            Signal = sig,
+            LatestValue = 3.350,
+            BlueLatestValue = 3.353
+        };
+        row.DeltaText.Should().Be("0.003", "Δ uses same factor-derived precision as signal: 0.003 not 0.00");
     }
 }
