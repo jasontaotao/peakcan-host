@@ -17,15 +17,21 @@ public static class BlfFormat
     /// object in the file. Per vblf_constants.py line 5.</summary>
     public const string ObjSignature = "LOBJ";
 
-    /// <summary>Object header base size in bytes (assumed; T1 verifies
-    /// against vblf test fixture). 16 = 4 LOBJ signature + 12 obj header
-    /// fields (object_size:UINT32 + object_type:UINT32 + timestamp:UINT64).</summary>
+    /// <summary>Object header base size in bytes. The vblf ObjectHeaderBase
+    /// layout is 4-byte LOBJ signature + 2-byte header size + 2-byte header
+    /// version + 4-byte object size + 4-byte object type = 16 bytes. The
+    /// versioned ObjectHeader adds 16 bytes (IHHQ), for 32 bytes on disk.</summary>
     public const int ObjectHeaderBaseSize = 16;
 
-    /// <summary>File header size in bytes (assumed; T1 verifies). 24 =
-    /// 4 LOGG magic + 20 FileStatistics metadata (size + app info +
-    /// compression level + reserved).</summary>
-    public const int FileHeaderSize = 24;
+    /// <summary>Complete versioned object header size in bytes: 16-byte
+    /// ObjectHeaderBase plus 16-byte ObjectHeader extension (IHHQ), matching
+    /// vblf_general.py ObjectHeader.SIZE.</summary>
+    public const int ObjectHeaderSize = 32;
+
+    /// <summary>File statistics header size in bytes, including the LOGG
+    /// signature as its first 4 bytes. The vblf FileStatistics layout is
+    /// 4sIIBBBBQQII32xQ64s = 144 bytes.</summary>
+    public const int FileHeaderSize = 144;
 
     // Object type IDs — per vblf_constants.py lines 11, 20, 96, 110-111.
     public const uint ObjTypeCanMessage = 1;        // classic CAN 11-bit

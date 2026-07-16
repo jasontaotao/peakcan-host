@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using FluentAssertions;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -69,11 +70,10 @@ public class BlfFormatTests
     }
 
     [Fact]
-    public void BlfFormat_FileHeaderSizeIs24()
+    public void BlfFormat_FileHeaderSizeIs144()
     {
-        // Vector common spec: FileStatistics metadata is 24 bytes (4 LOGG + 20 metadata).
-        // T1 verifies against vblf_test_CAN_MESSAGE.lobj; if mismatched, update.
-        BlfFormat.FileHeaderSize.Should().Be(24);
+        // vblf_general.py FileStatistics._FORMAT = 4sIIBBBBQQII32xQ64s → 144 bytes.
+        BlfFormat.FileHeaderSize.Should().Be(144);
     }
 
     [Fact]
@@ -83,17 +83,29 @@ public class BlfFormatTests
         BlfFormat.TimestampScale.Should().Be(10_000_000.0);
     }
 
-    // v3.51.0: sister-of-precedent verification — read vblf test fixture,
-    // confirm total file is 48 bytes (16 file header + 4 LOBJ + 16 obj header + 12 CanMessage = 48).
-    // If not 48, FileHeaderSize or ObjectHeaderBaseSize is wrong.
+    // v3.51.0: verify the fixture's internal object structure rather than only
+    // asserting its total length. The fixture is a single object payload and
+    // therefore has no FileStatistics prefix.
     [Fact]
-    public void BlfFormat_VblfTestFixture_Is48Bytes()
+    public void BlfFormat_VblfTestFixture_ParsesObjectStructure()
     {
         var path = System.IO.Path.GetFullPath(VblfFixturePath);
         File.Exists(path).Should().BeTrue($"vblf fixture must exist at {path}");
         var bytes = File.ReadAllBytes(path);
-        bytes.Length.Should().Be(48,
-            "vblf_test_CAN_MESSAGE.lobj is 16 file header + 4 LOBJ + 16 obj header + 12 CanMessage = 48 bytes; " +
-            "if mismatched, FileHeaderSize/ObjectHeaderBaseSize constants are wrong");
+
+        bytes.Length.Should().Be(48);
+        Encoding.ASCII.GetString(bytes, 0, 4).Should().Be("LOBJ");
+        BitConverter.ToUInt16(bytes, 4).Should().Be(32,
+            "the fixture's base-plus-versioned object header size is 32 bytes");
+        BitConverter.ToUInt16(bytes, 6).Should().Be(1,
+            "vblf ObjectHeaderBase.header_version is 1 in the fixture");
+        BitConverter.ToUInt32(bytes, 8).Should().Be(48u,
+            "object_size includes the 32-byte header and 16-byte CAN_MESSAGE payload");
+        BitConverter.ToUInt32(bytes, 12).Should().Be(1u,
+            "vblf ObjectHeaderBase.object_type is CAN_MESSAGE=1");
+        BitConverter.ToUInt32(bytes, 16).Should().Be(2u,
+            "the fixture's object flags are encoded at the upstream header offset");
+        bytes.Length.Should().Be(BlfFormat.ObjectHeaderSize + 16,
+            "32-byte ObjectHeader plus 16-byte CanMessage payload (HBBI8s) = 48 bytes");
     }
 }
