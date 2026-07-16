@@ -119,7 +119,22 @@ public static partial class BlfParser
             //   I = object_flags, H = client_index, H = reserved/object_version,
             //   Q = object_time_stamp (UINT64, 10ns ticks since Vector epoch)
             long objStart = stream.Position;
-            string objSig = new string(reader.ReadChars(4));
+            string objSig;
+            try
+            {
+                objSig = new string(reader.ReadChars(4));
+            }
+            catch (EndOfStreamException)
+            {
+                // v3.51.0 T6 PATCH: real Vector BLF often ends with a
+                // partial trailing object (recording cut off mid-write
+                // or partial zlib trailer). The previous behavior was
+                // to fall through to the next iteration with a partial
+                // header, then trip the 50% corruption threshold. Now
+                // we exit cleanly so the caller gets all fully-parsed
+                // frames.
+                break;
+            }
             if (objSig != BlfFormat.ObjSignature)
             {
                 // No LOBJ found (stream ended); exit
@@ -177,6 +192,28 @@ public static partial class BlfParser
                 // the next LOBJ search starts cleanly.
                 long objEnd = objStart + BlfFormat.ObjectHeaderSize + frameDataSize;
                 if (objEnd <= stream.Length) stream.Position = objEnd;
+            }
+
+            // v3.51.0 T6 PATCH: after SUCCESSFUL parse, position the
+            // stream at the end of this object (objStart + objSize) so
+            // the next iteration's LOBJ search does NOT re-enter the
+            // just-parsed object's payload. Without this, real Vector
+            // BLF files (where multiple LOG_CONTAINERs are chained with
+            // optional zlib trailer padding) hit a false-positive
+            // 50% corruption threshold: a successful LOG_CONTAINER
+            // leaves the stream at the byte-after-end of the parsed
+            // payload, but if that byte happens to be the first byte
+            // of the next container's LOBJ+header (with a few bytes of
+            // inter-container padding merged) the outer scanner
+            // either skips past real content (under-count) or matches
+            // a partial LOBJ signature that fails to parse (over-count).
+            // objSize is the trusted byte budget set by the writer; we
+            // use it as the absolute cap. Clamp to stream length so we
+            // don't seek past EOF.
+            long successEnd = objStart + objectSize;
+            if (stream.CanSeek && successEnd <= stream.Length)
+            {
+                stream.Position = successEnd;
             }
 
             // 50% corruption threshold (sister of v3.50.5 + AscParser.ParseLinesFlow)
