@@ -119,6 +119,17 @@ public sealed partial class WatchedSignalRow : ObservableObject
             {
                 OnPropertyChanged(nameof(DeltaValue));
                 OnPropertyChanged(nameof(LatestText));
+                // v3.50.7 PATCH: Δ column binds to DeltaText (string), not
+                // DeltaValue (double). Without this INPC, dragging the
+                // green anchor updates LatestText but leaves DeltaText
+                // showing the value computed against the previous
+                // _latestValue (user screenshot 2026-07-16: B2V_Ucel1_N
+                // Latest=3.395, Blue=3.346, Δ=-0.007 when true diff was
+                // 0.049 — stale DeltaText from a prior BlueLatestValue
+                // setter call). Sister pattern of v3.50.2 DeltaValue
+                // INPC; extends it to the v3.50.5-introduced string
+                // sibling.
+                OnPropertyChanged(nameof(DeltaText));
             }
         }
     }

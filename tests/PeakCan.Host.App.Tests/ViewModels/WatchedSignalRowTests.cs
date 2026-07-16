@@ -67,6 +67,55 @@ public class WatchedSignalRowTests
             "so green-anchor drag refreshes Δ too");
     }
 
+    // v3.50.7 PATCH (after user screenshot of B2V_Ucel1_N showing Δ=-0.007
+    // when Latest/Blue displayed 3.395/3.346): Δ display in the watch list
+    // binds to the string property DeltaText, not the double DeltaValue.
+    // v3.50.2 PATCH added INPC for DeltaValue but not DeltaText (which did
+    // not exist then). v3.50.5 PATCH added DeltaText but did not extend
+    // the INPC. v3.50.7 PATCH closes this gap so Δ re-evaluates when
+    // either anchor moves.
+    [Fact]
+    public void SettingLatestValue_RaisesPropertyChanged_ForDeltaText()
+    {
+        var row = new WatchedSignalRow(
+            canIdHex: "0x100", messageName: "Msg", signalName: "Sig",
+            unit: "bit", sourceId: null);
+
+        row.BlueLatestValue = 12.0;
+
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)row).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        row.LatestValue = 10.0;
+
+        raised.Should().Contain(nameof(WatchedSignalRow.DeltaText),
+            "setting LatestValue must also raise PropertyChanged(\"DeltaText\") " +
+            "so the XAML-bound Δ column re-reads. Without this, Δ renders " +
+            "the value computed BEFORE this setter call, which can desync " +
+            "from Latest/Blue by a full anchor-drag interval. (User screenshot " +
+            "2026-07-16: B2V_Ucel1_N displayed Latest=3.395, Blue=3.346, Δ=-0.007 " +
+            "where the true diff was 0.049 — stale DeltaText from a prior " +
+            "BlueLatestValue setter call.)");
+    }
+
+    [Fact]
+    public void SettingBlueLatestValue_RaisesPropertyChanged_ForDeltaText()
+    {
+        var row = new WatchedSignalRow(
+            canIdHex: "0x100", messageName: "Msg", signalName: "Sig",
+            unit: "bit", sourceId: null);
+
+        row.LatestValue = 10.0;
+
+        var raised = new List<string?>();
+        ((INotifyPropertyChanged)row).PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        row.BlueLatestValue = 12.0;
+
+        raised.Should().Contain(nameof(WatchedSignalRow.DeltaText),
+            "setting BlueLatestValue must also raise PropertyChanged(\"DeltaText\")");
+    }
+
     [Fact]
     public void DeltaValue_Is_NaN_When_Either_Side_Is_NaN()
     {
