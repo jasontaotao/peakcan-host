@@ -166,6 +166,34 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// legend strip against this property (one entry per loaded source).</summary>
     public IReadOnlyList<TraceSource> Sources => _registry.Sources;
 
+    /// <summary>v3.52.0 MINOR T10: lazy-loaded UserControl backing the
+    /// AI Analysis tab. The XAML content tree (empty-state hint +
+    /// active-session ScrollViewer + Evidence / Candidates DataGrids)
+    /// is built only on first access — if the user never opens the
+    /// AI Analysis tab the panel is never instantiated and the
+    /// <c>InitializeComponent</c> reflection cost is avoided.
+    /// <para>
+    /// DataContext is set to <c>this</c> so the panel's bindings
+    /// resolve against the owning <see cref="TraceViewerViewModel"/>
+    /// (same instance that owns <c>CurrentAnalysisSession</c>).
+    /// </para>
+    /// </summary>
+    private Views.TraceViewerViewAIPanel? _aiPanelContent;
+    public Views.TraceViewerViewAIPanel? AIPanelContent
+    {
+        get
+        {
+            if (_aiPanelContent is null)
+            {
+                _aiPanelContent = new Views.TraceViewerViewAIPanel
+                {
+                    DataContext = this,
+                };
+            }
+            return _aiPanelContent;
+        }
+    }
+
     // v3.15.0 MINOR: filename-only display of LoadedDbcPath for the
     // toolbar TextBlock. Full path is in the tooltip. Empty when no
     // DBC is loaded (B1 fix).

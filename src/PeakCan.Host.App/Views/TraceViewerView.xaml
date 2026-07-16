@@ -334,6 +334,15 @@
                             </DataGrid.Columns>
                         </DataGrid>
                     </TabItem>
+                    <!-- Tab 3: AI Analysis (v3.52.0 MINOR T10). Sister of
+                         Watch List + Sampling Table. ContentControl wraps
+                         the lazily-loaded UserControl exposed via
+                         TraceViewerViewModel.AIPanelContent. Local-only
+                         P0: no LLM attribution banner shown inside the
+                         panel itself. -->
+                    <TabItem Header="AI Analysis">
+                        <ContentControl Content="{Binding AIPanelContent}" />
+                    </TabItem>
                 </TabControl>
             </Border>
         </Grid>
