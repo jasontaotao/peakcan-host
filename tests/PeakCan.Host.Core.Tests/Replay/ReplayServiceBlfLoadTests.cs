@@ -54,33 +54,32 @@ public class ReplayServiceBlfLoadTests
     private static void BuildSyntheticBlf(string path)
     {
         using var ms = new MemoryStream();
-        // File header: 24 bytes
+        // 24-byte file header
         ms.Write(Encoding.ASCII.GetBytes(BlfFormat.FileSignature));
         ms.Write(new byte[BlfFormat.FileHeaderSize - 4]);
-        // ObjectHeader (32): 4 LOBJ + 2 header_size + 2 header_version
-        // + 4 object_size + 4 object_type + 4 reserved + 2 client +
-        // 2 reserved + 8 timestamp
+        // ObjectHeader (32) in EXACT field order matching
+        // BlfParser.ParseObjectHeader (LOBJ + IHHQ extension):
+        // 4 LOBJ + 2 header_size + 2 header_version + 4 objSize +
+        // 4 objType + 4 object_flags + 2 client + 2 reserved + 8 timestamp.
+        // The earlier draft inserted 16 zero bytes between the first 16
+        // and the IHHQ extension, placing the timestamp 24 bytes too
+        // far forward — TotalDuration came back 0 even though
+        // LoadedFrames.Count==1. v3.51.0 T5 PATCH lines up the order.
         ms.Write(Encoding.ASCII.GetBytes(BlfFormat.ObjSignature));
         ms.Write(BitConverter.GetBytes((ushort)BlfFormat.ObjectHeaderSize));
         ms.Write(BitConverter.GetBytes((ushort)1));
         var totalObjBytes = (uint)BlfFormat.ObjectHeaderSize + (uint)BlfFormat.CanMessageDataSize;
-        ms.Write(BitConverter.GetBytes(totalObjBytes));  // 32+12=44
+        ms.Write(BitConverter.GetBytes(totalObjBytes));
         ms.Write(BitConverter.GetBytes(BlfFormat.ObjTypeCanMessage));
-        ms.Write(new byte[BlfFormat.ObjectHeaderSize - 16]);  // pad rest to 32 bytes
-        ms.Position -= (BlfFormat.ObjectHeaderSize - 16);
-        // Now overwrite ObjectHeader extension fields (per Task T1 verify):
-        // I object_flags (4) + H client_index (2) + H reserved (2) + Q timestamp (8) = 16
-        ms.Write(BitConverter.GetBytes(0u));
-        ms.Write(BitConverter.GetBytes((ushort)0));
-        ms.Write(BitConverter.GetBytes((ushort)0));
-        // Q timestamp = 0.5 seconds = 5_000_000 in 10ns ticks
-        ms.Write(BitConverter.GetBytes(5_000_000L));
-
-        // Frame data (12 bytes HBBI8s)
-        ms.Write(BitConverter.GetBytes((ushort)1));    // channel
-        ms.WriteByte(0);                               // flags
-        ms.WriteByte(8);                               // dlc
-        ms.Write(BitConverter.GetBytes(0x123u));       // frame_id
+        ms.Write(BitConverter.GetBytes(0u));            // object_flags (4)
+        ms.Write(BitConverter.GetBytes((ushort)0));     // client_index (2)
+        ms.Write(BitConverter.GetBytes((ushort)0));     // reserved (2)
+        ms.Write(BitConverter.GetBytes(5_000_000L));    // timestamp 0.5s
+        // 12-byte CanMessage frame data
+        ms.Write(BitConverter.GetBytes((ushort)1));
+        ms.WriteByte(0);
+        ms.WriteByte(8);
+        ms.Write(BitConverter.GetBytes(0x123u));
         ms.Write(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04 });
 
         System.IO.File.WriteAllBytes(path, ms.ToArray());
