@@ -227,9 +227,23 @@ public static class SignalFormatter
     /// Format <paramref name="value"/> using the digits resolved from
     /// <paramref name="factor"/>. Convenience wrapper around
     /// <see cref="ResolveDecimalDigits"/> + <c>ToString("F{digits}",
-    /// InvariantCulture)</c>.
+    /// InvariantCulture</c>.
     /// </summary>
     public static string FormatValue(double factor, double value);
+
+    /// <summary>
+    /// v3.50.6 PATCH: sister overload that accepts pre-resolved
+    /// <paramref name="digits"/> directly. Sister callers (e.g.
+    /// <c>WatchedSignalRow.LatestText</c>) cache the digit count at
+    /// <c>Signal</c> setter time and pass the cached value here to
+    /// avoid per-frame <see cref="ResolveDecimalDigits"/> recomputation
+    /// in the drag hot path. Behaviorally equivalent to
+    /// <c>FormatValue(factor, value)</c> when
+    /// <c>digits == ResolveDecimalDigits(factor)</c>; uses
+    /// <c>InvariantCulture</c> like the factor-based overload.
+    /// Negative <paramref name="digits"/> are treated as 0.
+    /// </summary>
+    public static string FormatValue(int digits, double value);
 }
 ```
 
@@ -269,6 +283,8 @@ public string LatestText
             if (text is not null) return text;
         }
         // v3.50.6 PATCH: factor-derived precision replaces hard-coded F2.
+        // Uses pre-resolved digits (cached at Signal setter) to avoid
+        // per-frame ResolveDecimalDigits calls in the drag hot path.
         return SignalFormatter.FormatValue(_decimalDigits, _latestValue);
     }
 }
