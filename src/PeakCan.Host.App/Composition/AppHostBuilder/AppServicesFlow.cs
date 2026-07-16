@@ -162,13 +162,17 @@ public partial class AppHostBuilder
         // TraceSessionRegistry instance that implements ITraceSessionRegistry
         // — dual-interface in T9 — so the analyzer reads frames via the
         // Core-side abstraction without taking an App-layer dependency.
+        //
+        // v3.52.1 PATCH T1 D1: concrete-first dual forward. The cast was
+        // removed; IFrameSourceProvider now resolves TraceSessionRegistry
+        // directly via the concrete registration in ViewModelsBatch2Flow.cs.
+        // Single-instance guarantee preserved — no double-allocation.
         services.AddSingleton<PeakCan.Host.Core.Analysis.EvidenceExtractor>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.LocalAnalyzer>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.AnalysisSessionRegistry>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider,
                                PeakCan.Host.Core.Analysis.NotImplementedLlmProvider>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
-            (PeakCan.Host.App.Services.Trace.TraceSessionRegistry)sp.GetRequiredService<
-                PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>());
+            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
     }
 }

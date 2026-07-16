@@ -5,7 +5,7 @@ namespace PeakCan.Host.Core.Analysis;
 /// increments Version monotonically; consumers compare Version to detect
 /// staleness (e.g. when a new anchor snapshot is captured, the previous
 /// session is "stale" but still queryable until Clear).</summary>
-public sealed class AnalysisSessionRegistry
+public class AnalysisSessionRegistry
 {
     private AnalysisSession? _current;
     private int _versionCounter;

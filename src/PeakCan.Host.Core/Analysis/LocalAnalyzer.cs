@@ -6,7 +6,7 @@ namespace PeakCan.Host.Core.Analysis;
 /// normalized score. A source with 100 transitions does NOT dominate a
 /// source with 1 rare transition. Per spec D4: when no candidate scores
 /// above threshold, Summary = "未发现可靠关联" — a legal output, not error.</summary>
-public sealed class LocalAnalyzer
+public class LocalAnalyzer
 {
     private const double CandidateThreshold = 0.1;
     private const string NoAttributionSummary = "未发现可靠关联（仅本地特征；无 LLM 归因）";

@@ -48,21 +48,21 @@ public class AnchorSnapshotFlowTests
     private static TraceViewerViewModel MakeVm(bool greenSet, bool blueSet)
     {
         var registry = Substitute.For<ITraceSessionRegistry>();
-        var frameSource = Substitute.For<IFrameSourceProvider>();
-        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        var dbc = Substitute.For<DbcService>(Substitute.For<Microsoft.Extensions.Logging.ILogger<DbcService>>());
         var sessionLib = new TraceSessionLibrary(NullLogger<TraceSessionLibrary>.Instance);
         var logger = NullLogger<TraceViewerViewModel>.Instance;
-        frameSource.GetFrames(Arg.Any<string>()).Returns(Array.Empty<ReplayFrame>());
-        // v3.52.0 MINOR T9: ctor extended with 5 required analysis params.
-        // AnchorSnapshotFlow tests don't exercise the analysis pipeline,
-        // so passing fresh Core-side stubs is sufficient.
+
+        // v3.52.1 PATCH T3: explicit Substitute.For<> for all 5 analysis
+        // deps (sister pattern to AnalysisFlowTests). The 3 Core-side
+        // classes were unsealed to make them proxyable. AnchorSnapshotFlow
+        // tests do not exercise the analysis pipeline, so any proxy is fine.
         var vm = new TraceViewerViewModel(
             registry, dbc, logger, sessionLib,
-            new EvidenceExtractor(),
-            new LocalAnalyzer(),
-            new AnalysisSessionRegistry(),
-            new NotImplementedLlmProvider(),
-            frameSource);
+            Substitute.For<EvidenceExtractor>(),
+            Substitute.For<LocalAnalyzer>(),
+            Substitute.For<AnalysisSessionRegistry>(),
+            Substitute.For<ILlmProvider>(),
+            Substitute.For<IFrameSourceProvider>());
         if (greenSet) vm.RefreshAtAnchor(1.0);
         if (blueSet) vm.RefreshAtAnchorBlue(1.5);
         return vm;
