@@ -50,6 +50,14 @@ public sealed partial class TraceViewerViewModel
             Version: 1);
 
         OnPropertyChanged(nameof(CurrentAnchorSnapshot));
+
+        // v3.52.1 PATCH D3: explicit CanExecute refresh for RunAnalysisCommand.
+        // Minor 3 from v3.52.0 review — RunAnalysisCommand's CanExecute reads
+        // CurrentAnchorSnapshot, but AnchorSnapshot is set here in the LockAnchor
+        // partial (not in a property setter). Without this trigger, the UI button
+        // stays disabled until something else changes (e.g., IsLoading flip).
+        RunAnalysisCommand.NotifyCanExecuteChanged();
+
         ErrorMessage = null;
     }
 }
