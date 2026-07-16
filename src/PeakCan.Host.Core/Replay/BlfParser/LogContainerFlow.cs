@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using Microsoft.Extensions.Logging;
 
@@ -63,74 +64,122 @@ public static partial class BlfParser
             // from later chunks that do contain real LOBJs.
             return Array.Empty<ReplayFrame>();
         }
-        using var innerMs = new MemoryStream(
-            decompressed.AsSpan(firstLobj).ToArray(),
-            writable: false);
+        var innerBytes = decompressed.AsSpan(firstLobj).ToArray();
         try
         {
+            using var innerMs = new MemoryStream(innerBytes, writable: false);
             var innerTask = ParseAsync(innerMs, new ReplayOptions(), logger, CancellationToken.None);
-            var innerFrames = innerTask.GetAwaiter().GetResult();
-            return innerFrames;
+            return innerTask.GetAwaiter().GetResult();
         }
-        catch (ReplayFormatException)
+        catch (ReplayFormatException ex)
         {
-            // Recursive parse failed even after LOBJ-prefix-alignment.
-            // Most likely the trim landed on a partial LOBJ signature
-            // (e.g. 2 stray 'L'-class bytes followed by a real LOBJ).
-            // Try harder: scan forward to the NEXT LOBJ and retry once.
-            int nextLobj = IndexOfLobj(decompressed, firstLobj + 1);
-            if (nextLobj < 0) return Array.Empty<ReplayFrame>();
-            using var retryMs = new MemoryStream(
-                decompressed.AsSpan(nextLobj).ToArray(),
-                writable: false);
-            var retryTask = ParseAsync(retryMs, new ReplayOptions(), logger, CancellationToken.None);
-            return retryTask.GetAwaiter().GetResult();
+            // v3.51.0 T6.6 PATCH (user-reported data-loss bug): the
+            // previous T6 implementation's "retry from next LOBJ"
+            // branch silently discarded any frames successfully
+            // parsed BEFORE the throwing point — losing ~30K frames
+            // (~32.8% of a 100K-frame real-Vector BLF). The new
+            // strategy is to run a non-throwing lenient scan that
+            // recovers every parseable frame and silently skips any
+            // unparseable object instead of raising on the 50%
+            // threshold. v3.51.0 T6.6 documented via release notes.
+            _logger.LogWarning(
+                "BLF container inner ReplayFormatException: {Reason}. " +
+                "Switching to lenient scan to preserve partial frames.",
+                ex.Message);
+            return LenientScan(innerBytes);
         }
         catch (EndOfStreamException ex)
         {
-            // v3.51.0 T6 PATCH: a real-Vector LOG_CONTAINER may include
-            // up to ~16 bytes of trailing continuation data (the tail of
-            // the previous chunk's last frame) AFTER all properly-framed
-            // inner LOBJs. Our inner ParseAsync exits the loop cleanly
-            // when stream.Position >= stream.Length but if the LOBJ scan
-            // reads past EOF via BinaryReader (e.g. header_size_read),
-            // it throws EndOfStreamException. Treat it like a normal
-            // truncated-tail case: drop the partial object and return
-            // whatever frames were already collected from earlier full
-            // objects in this chunk.
-            //
-            // Note: we do NOT have access to the partial frames list
-            // here (ParseAsync only returns the full list on success).
-            // The cleaner fix lives at a higher level — see v3.51.0
-            // T6 PATCH in BlfParser.cs: the catch (ReplayFormatException)
-            // on ParseObjectBody now also catches EndOfStreamException
-            // and skips the partial tail without bumping errorCount
-            // past the 50% threshold. That fix is upstream; this catch
-            // here is a belt-and-braces fallback so an exceptional
-            // EndOfStreamException inside a chunked LOG_CONTAINER does
-            // not corrupt the outer 50% threshold.
-            System.Console.WriteLine(
-                $"[BLF DBG] LOG_CONTAINER inner EndOfStream at chunk: {ex.Message}");
-            return Array.Empty<ReplayFrame>();
+            // v3.51.0 T6.6 PATCH: same lenient-scan fallback as the
+            // ReplayFormatException branch — preserve partial frames
+            // rather than discarding the whole container's yield.
+            _logger.LogWarning(
+                "BLF container inner EndOfStream: {Reason}. " +
+                "Lenient scan to preserve partial frames.",
+                ex.Message);
+            return LenientScan(innerBytes);
         }
     }
 
     /// <summary>
-    /// v3.51.0 T6 PATCH: find the first byte offset of an LOBJ
-    /// signature in <paramref name="data"/>, scanning from
-    /// <paramref name="start"/>. Returns -1 if not found. Sister of the
-    /// outer LOBJ-search strategy in BlfParser.ParseAsync.
+    /// v3.51.0 T6.6 PATCH (user-reported data-loss): a non-throwing
+    /// variant of ParseAsync that returns every successfully-parsed
+    /// frame and silently skips any object that fails to parse (no
+    /// 50% threshold, no exception). Used ONLY by LogContainerFlow
+    /// as a fallback when the main recursive path throws, so we
+    /// preserve partial-frame yield across partially-corrupt inner
+    /// streams rather than throwing away 100% of a container's
+    /// frames. Mirrors the LOBJ-scan strategy of BlfParser.ParseAsync
+    /// but with lenient object-skip instead of threshold throw.
     /// </summary>
-    private static int IndexOfLobj(byte[] data, int start = 0)
+    private static IReadOnlyList<ReplayFrame> LenientScan(byte[] innerBytes)
+    {
+        var result = new List<ReplayFrame>();
+        int i = 0;
+        while (i < innerBytes.Length)
+        {
+            // Find LOBJ at or after offset i
+            int lobj = IndexOfLobjFrom(innerBytes, i);
+            if (lobj < 0) break;
+            // 32-byte header
+            if (lobj + BlfFormat.ObjectHeaderSize > innerBytes.Length) break;
+            uint objectSize = BinaryPrimitives.ReadUInt32LittleEndian(innerBytes.AsSpan(lobj + 8));
+            uint objectType = BinaryPrimitives.ReadUInt32LittleEndian(innerBytes.AsSpan(lobj + 12));
+            ulong timestamp = BinaryPrimitives.ReadUInt64LittleEndian(innerBytes.AsSpan(lobj + 24));
+            int frameDataSize = (int)objectSize - BlfFormat.ObjectHeaderSize;
+            if (frameDataSize < 0
+                || lobj + BlfFormat.ObjectHeaderSize + frameDataSize > innerBytes.Length)
+            {
+                i = lobj + 1;  // bogus header; slide forward 1
+                continue;
+            }
+            try
+            {
+                var subSpan = innerBytes.AsSpan(
+                    lobj + BlfFormat.ObjectHeaderSize, frameDataSize);
+                var frames = ParseObjectBody(objectType, timestamp, subSpan);
+                foreach (var f in frames) result.Add(f);
+                i = lobj + BlfFormat.ObjectHeaderSize + frameDataSize;
+            }
+            catch (ReplayFormatException)
+            {
+                // Unparseable object inside this chunk — slide
+                // forward 1 byte so we resume at the next byte in
+                // case the LOBJ match was an in-padded false match.
+                i = lobj + 1;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// v3.51.0 T6.6 PATCH: find the first LOBJ signature at offset
+    /// &gt;= <paramref name="start"/>. Returns -1 if not found.
+    /// </summary>
+    private static int IndexOfLobjFrom(byte[] data, int start)
     {
         for (int i = Math.Max(0, start); i <= data.Length - 4; i++)
         {
-            if (data[i] == (byte)'L' && data[i + 1] == (byte)'O'
-                && data[i + 2] == (byte)'B' && data[i + 3] == (byte)'J')
+            if (data[i] == (byte)'L' && data[i+1] == (byte)'O'
+                && data[i+2] == (byte)'B' && data[i+3] == (byte)'J')
             {
                 return i;
             }
         }
         return -1;
+    }
+
+    /// <summary>
+    /// v3.51.0 T6 PATCH: find the first byte offset of an LOBJ
+    /// signature in <paramref name="data"/> starting at offset 0.
+    /// Returns -1 if not found. (Sister of BlfParser.ParseAsync's
+    /// outer-LOBJ-search but exposed here so the LOBJ-prefix-align
+    /// step doesn't have to scan entire tree twice.) v3.51.0 T6.6
+    /// added IndexOfLobjFrom(byte[], int) for the lenient-scan
+    /// fallback; this overload remains as the simpler entry point.
+    /// </summary>
+    private static int IndexOfLobj(byte[] data)
+    {
+        return IndexOfLobjFrom(data, 0);
     }
 }
