@@ -238,3 +238,71 @@ public class SignalDecoderTests
         SignalDecoder.DecodeRaw(data, sig).Should().Be(0xFFFFFFFFUL);
     }
 }
+
+// v3.50.5 PATCH: SignalDecoder.TryDecodeEnumText — DBC VAL_ table lookup.
+// Sister of W38 v3.50.4 PlotController namespace lesson (OxyPlot core, not
+// OxyPlot.Wpf): the SignalDecoder extension uses types from Core.Dbc
+// namespace only. The lookup returns null on any miss path so the UI
+// layer can fall back to numeric formatting silently.
+public class TryDecodeEnumTextTests
+{
+    private static readonly string FixturePath = System.IO.Path.Combine(
+        AppContext.BaseDirectory,
+        "..", "..", "..", "..", "PeakCan.Host.Core.Tests", "Dbc", "Fixtures",
+        "sample-with-val.dbc");
+
+    private static DbcDocument LoadFixture()
+    {
+        var absPath = System.IO.Path.GetFullPath(FixturePath);
+        var text = System.IO.File.ReadAllText(absPath);
+        var r = DbcParser.Parse(text);
+        if (!r.IsSuccess)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"Parse failed: code={r.Error!.Code} message={r.Error.Message}");
+        }
+        return r.Value!;
+    }
+
+    [Fact]
+    public void TryDecodeEnumText_ReturnsMappedString_WhenValueInTable()
+    {
+        var doc = LoadFixture();
+        var sig = doc.MessagesById[256].Signals[0]; // SigA, ValueTableName="SigA" (inline VAL_ self-ref)
+        sig.ValueTableName.Should().NotBeNull();
+        var text = SignalDecoder.TryDecodeEnumText(sig, 1.0, doc);
+        text.Should().Be("One");
+    }
+
+    [Fact]
+    public void TryDecodeEnumText_ReturnsNull_WhenNoValueTable()
+    {
+        var doc = LoadFixture();
+        // Build a Signal without ValueTableName.
+        var sigBare = new Signal(
+            Name: "BareSig", StartBit: 0, Length: 8,
+            Order: ByteOrder.LittleEndian, ValueType: DbcValueType.Unsigned,
+            Factor: 1.0, Offset: 0.0, Min: 0, Max: 255, Unit: "",
+            Receivers: Array.Empty<string>(), ValueTableName: null);
+        SignalDecoder.TryDecodeEnumText(sigBare, 5.0, doc).Should().BeNull();
+    }
+
+    [Fact]
+    public void TryDecodeEnumText_ReturnsNull_WhenValueNotInTable()
+    {
+        var doc = LoadFixture();
+        var sig = doc.MessagesById[256].Signals[0];
+        // SigA range is [0..3]; 99 is out of table.
+        SignalDecoder.TryDecodeEnumText(sig, 99.0, doc).Should().BeNull();
+    }
+
+    [Fact]
+    public void TryDecodeEnumText_ReturnsNull_WhenTableMissingFromDocument()
+    {
+        var doc = LoadFixture();
+        var sig = doc.MessagesById[256].Signals[0];
+        // Build a document with empty ValueTables but keep the signal pointing at "SigA".
+        var emptyDoc = doc with { ValueTables = new Dictionary<string, ValueTable>() };
+        SignalDecoder.TryDecodeEnumText(sig, 1.0, emptyDoc).Should().BeNull();
+    }
+}

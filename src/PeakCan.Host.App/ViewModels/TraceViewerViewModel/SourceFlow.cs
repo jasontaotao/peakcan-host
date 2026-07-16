@@ -300,5 +300,16 @@ public sealed partial class TraceViewerViewModel
     {
         LoadedDbcPath = doc.SourcePath ?? "";
         RebuildSignalsCore();
+        // v3.50.5 PATCH: re-bind Dbc on every existing WatchedSignals row
+        // so the .Text computed properties resolve VAL_ table entries
+        // against the newly-loaded DBC. The Dbc setter triggers
+        // PropertyChanged for LatestText/BlueText/DeltaText (INPC fan-out).
+        // Signal references remain cached in _signalByKey (sister of v3.50.0
+        // MINOR); a stale Signal after DBC reload is a known pre-existing
+        // issue out of scope for v3.50.5.
+        foreach (var row in WatchedSignals)
+        {
+            row.Dbc = doc;
+        }
     }
 }

@@ -110,7 +110,12 @@ public sealed partial class TraceViewerViewModel
         // so the user can distinguish "trend line" (interpolation) from
         // "real CAN frame" (discrete event). MarkerSize=3 is small enough
         // not to occlude the line at 1920x1080. Spec §3.6.
-        var line = new LineSeries
+        // v3.50.5 PATCH: EnumTrackerLineSeries overrides GetNearestPoint to
+        // rewrite the OxyPlot internal .Text field with the four-line CANoe-style
+        // tooltip (SignalName / decoded text / yValue / t = X.XXX s). The
+        // Func<DbcDocument?> lambda re-reads _dbcService.Current at hover time
+        // so a DBC reload between chart-build and hover uses the new document.
+        var line = new EnumTrackerLineSeries(sig, () => _dbcService.Current)
         {
             Color = source.Color,
             LineStyle = source.StrokeStyle,
