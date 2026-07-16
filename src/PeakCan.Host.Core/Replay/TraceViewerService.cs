@@ -129,10 +129,14 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
             // hundreds of MB of heap for frames, and freeze the WPF
             // dispatcher for the entire AscParser.ParseAsync walk. Use
             // FileInfo.Length — cheap stat call, no actual file read.
+            // v3.51.0 MINOR T5: cap also covers BLF; BLF files are
+            // usually smaller on disk than the equivalent ASC (zlib-
+            // compressed LOG_CONTAINER), so the same byte cap is
+            // genuinely conservative for both formats.
             var info = new FileInfo(normalized);
             if (info.Length > MaxAscFileBytes)
                 throw new ReplayLoadException(
-                    $"ASC file exceeds size cap ({info.Length:N0} > {MaxAscFileBytes:N0} bytes); use a tool to truncate: {path}");
+                    $"Trace file exceeds size cap ({info.Length:N0} > {MaxAscFileBytes:N0} bytes); use a tool to truncate: {path}");
             // useAsync: true + 4096 buffer for true async I/O on .NET 10
             // (File.OpenRead uses synchronous FileStream by default).
             await using var fs = new FileStream(
@@ -142,31 +146,51 @@ public sealed class TraceViewerService : ITraceViewerService, IDisposable
                 FileShare.Read,
                 bufferSize: 4096,
                 useAsync: true);
-            // v3.10.0 MINOR T4 (H5): thread the ReplayOptions cap down to
-            // the parser layer for defense-in-depth. The service-layer
-            // precheck above (FileInfo.Length > MaxAscFileBytes) already
-            // gates the .asc file on disk; the parser-layer cap protects
-            // direct AscParser callers (e.g. tests, future replay
-            // pipelines) and gives AscParser itself an OOM guardrail.
-            // Pass `null` for logger explicitly to disambiguate from the
-            // 2-arg (Stream, CancellationToken) overload.
-            // v3.18.0 PATCH: use the header-aware parser overload so we
-            // can hand the wall-clock origin back to the caller. The
-            // header-less overload remains available for tests that
-            // don't care about the origin.
-            var parsed = await AscParser.ParseAsyncWithHeaderAsync(
-                fs, _options, null, ct).ConfigureAwait(false);
-            _frames = parsed.Frames;
-            LastParseResult = parsed;
+            // v3.51.0 MINOR T5: extension-dispatch. `.blf` → BlfParser,
+            // else → AscParser.ParseAsyncWithHeaderAsync (preserves
+            // v3.18.0 PATCH header-aware overload + WallClockOrigin
+            // round-trip). Sister of ReplayService/FileIoLifecycle.
+            // partial.cs:44-46 added in v3.51.0 T3.
+            if (normalized.EndsWith(".blf", StringComparison.OrdinalIgnoreCase))
+            {
+                // BLF has no "header" concept equivalent to ASC's
+                // "measurement started at …" preamble, so we route
+                // through the headerless ParseAsync. LastParseResult
+                // stays at its prior value (BLF consumers can detect
+                // this via the dispatcher branch's caller-visible
+                // signal: v3.51.0 logs `[TraceViewer] loaded BLF`).
+                _frames = await BlfParser.ParseAsync(
+                    fs, _options, null, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                // v3.10.0 MINOR T4 (H5): thread the ReplayOptions cap
+                // down to the parser layer for defense-in-depth. The
+                // service-layer precheck above (FileInfo.Length >
+                // MaxAscFileBytes) already gates the .asc file on disk;
+                // the parser-layer cap protects direct AscParser
+                // callers (e.g. tests, future replay pipelines) and
+                // gives AscParser itself an OOM guardrail. Pass `null`
+                // for logger explicitly to disambiguate from the 2-arg
+                // (Stream, CancellationToken) overload.
+                // v3.18.0 PATCH: use the header-aware parser overload
+                // so we can hand the wall-clock origin back to the
+                // caller. The header-less overload remains available
+                // for tests that don't care about the origin.
+                var parsed = await AscParser.ParseAsyncWithHeaderAsync(
+                    fs, _options, null, ct).ConfigureAwait(false);
+                _frames = parsed.Frames;
+                LastParseResult = parsed;
+            }
         }
         catch (ReplayException) { throw; }
         catch (FileNotFoundException ex)
         {
-            throw new ReplayLoadException($"ASC file not found: {path}", ex);
+            throw new ReplayLoadException($"Trace file not found: {path}", ex);
         }
         catch (Exception ex)
         {
-            throw new ReplayLoadException($"Failed to read ASC file: {path}", ex);
+            throw new ReplayLoadException($"Failed to read trace file: {path}", ex);
         }
         _timeline.SetFrames(_frames);
     }

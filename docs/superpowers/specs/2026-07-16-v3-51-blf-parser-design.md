@@ -1,44 +1,48 @@
 # v3.51.0 MINOR — BLF (Vector Binary Logging Format) Parser
 
-> **Status**: Design — pending user approval.
+> **Status**: Design — pending user approval. Re-derived from vblf reference implementation (`zariiii9003/vblf` master branch, fetched 2026-07-16 to `.superpowers/sdd/reference/`). Prior spec was invented from common-descriptions, contained multiple critical layout errors (OBJH 32 bytes → actual 12 bytes; BLOB magic → does not exist; ET_CAN_DATA=5 → actual 1; CAN FD BLOB 32 → actual 76). This rewrite is 1:1 with reference.
 
-**Goal:** Add first-class BLF (Vector Binary Logging Format) support to peakcan-host so users can load traces captured with CANoe/CANalyzer without depending on the Vector XL Driver Library at runtime. The parser handles classic CAN 2.0, CAN FD, and CAN XL frame container types.
+**Goal:** Add BLF (Vector Binary Logging Format) parser to peakcan-host so users can load `.blf` traces captured with CANalyzer/CANalyzer. Pure .NET — no Vector SDK, no Python interop. Supports four CAN frame container types: classic CAN 11-bit, classic CAN 29-bit extended, CAN FD standard payload, CAN FD 64-byte extended payload. zlib decompression supported.
 
-**Architecture:** Sister the v3.49.0 MINOR ASC parser pattern — a single static `BlfFormat` source-of-truth for constants and a `BlfParser/` directory of partial classes. `BlfParser.ParseAsync(Stream, ReplayOptions, ILogger?, CancellationToken)` returns `Task<IReadOnlyList<ReplayFrame>>` with the same shape as `AscParser.ParseAsync`. `ReplayService.LoadAsync` dispatches by file extension (`.asc` → AscParser, `.blf` → BlfParser). Implementation is pure .NET (no Vector SDK dependency, no Python/.NET interop) so peakcan-host can parse BLF on any Windows machine.
+**Architecture:** Sister the v3.49.0 MINOR ASC parser pattern. A `BlfFormat` static class provides magic-string + ObjType numeric + frame container struct-format constants. A `BlfParser` static partial class with `BlfParser/` partials implements the parse loop. Sister of `vblf._generate_objects` algorithm: read `LOBJ` signature (4 bytes) + `ObjectHeaderBase` (size TBD) + frame data, dispatch by `object_type` to per-frame-class unpack. ReplayService.LoadAsync dispatches `.blf` to BlfParser.
 
-**Tech Stack:** C# / .NET 10 / WPF (existing) / BinaryReader (System.IO) for low-level byte access / xUnit (existing) for tests.
+**Tech Stack:** C# / .NET 10 / WPF (existing) / `BinaryReader` + `BinaryPrimitives` from `System.IO` + `System.IO.Compression.ZLibStream` (built-in .NET 8+) for compressed container decompression / xUnit (existing) for tests.
 
 ## 1. Background & motivation
 
-User direction 2026-07-16: "对了，blf文件解析功能计划做一下" (add BLF file parsing feature).
+User direction 2026-07-16: "对了，blf文件解析功能计划做一下".
 
-The peakcan-host Trace Viewer currently loads `.asc` (Vector ASCII) trace files via the v3.49.0 MINOR `AscParser`. Many production environments (especially Vector CANoe/CANalyzer shops) record traces as `.blf` (Vector Binary Logging Format). The `ReplayExceptions.cs` xmldoc has been referencing "asc/blf" since v3.49.0 — the BLF path was always a planned future addition but was never implemented.
+peakcan-host currently loads only `.asc` (Vector ASCII) trace files. Many production environments (especially Vector CANalyzer/CANalyzer shops) record traces as `.blf` (Vector Binary Logging Format). `ReplayExceptions.cs` xmldoc has referenced "asc/blf" since v3.49.0 — BLF was always a planned future addition.
 
-The Vector XL Driver Library (`vxlapi64.dll`) is the official SDK for BLF reading, but it requires a commercial Vector license and CANoe/CANalyzer installation. Many peakcan-host users (especially those who receive BLF traces from colleagues) do not have Vector tools installed. A pure .NET BLF parser that runs on any Windows machine removes this dependency.
+Prior brainstorming attempted a spec from common BLF descriptions. W22 STRUCT-FABRACTION LESSON失守: spec contained multiple critical errors caught at T2 implementer step (brief plan reference 16-byte header → actual 12 bytes; BLOB magic → does not exist in vblf; ET_CAN_DATA=5 → actual 1; CAN FD BLOB 32 bytes → actual 76 bytes per `HBBIIBBBBI64sI` struct format). This spec is **1:1 re-derived from the vblf reference implementation** (zariiii9003/vblf master, fetched 2026-07-16).
 
 ## 2. Goals (in scope)
 
-- **G1**: `ReplayService.LoadAsync` dispatches `.blf` files to a new `BlfParser` returning the same `IReadOnlyList<ReplayFrame>` shape as the existing `AscParser` path.
-- **G2**: `BlfParser` handles **three frame container types**: classic CAN 2.0 (BLOB 20 bytes, ET_CAN_DATA=5), CAN FD (BLOB 32 bytes, ET_CAN_FD_DATA=29), and CAN XL (BLOB 32+ bytes, ET_CAN_XL_DATA=33).
-- **G3**: BLF file header validation — `LOGG` + `LBLF` magic strings + version UINT32 — produces a clear `ReplayFormatException` on mismatch.
-- **G4**: Unknown object types (e.g. custom Vector env-var objects) are skipped with a warning, not thrown.
-- **G5**: Container objects (`LOBJ` signatures) are skipped — frames are read from BLOB children only.
-- **G6**: Truncated or corrupted frames throw `ReplayFormatException` (strict error handling per user direction).
-- **G7**: 50%+ corrupted frames trigger `ReplayFormatException` (sister of `AscParser` 50% threshold from v3.49.0 MINOR spec).
-- **G8**: Stream-size cap reuses existing `ReplayOptions.MaxFileSizeBytes` (no new cap needed).
-- **G9**: Single-pass in-memory parse (no `IAsyncEnumerable` yield — load all frames into a `List<ReplayFrame>` and return as `IReadOnlyList`).
-- **G10**: Manual verification test (`[Trait("Manual", "true")]`) loads a real BLF file from the user's CANoe installation path; CI skips these tests automatically.
-- **G11**: Pure .NET — zero native DLL dependency, zero Python/.NET interop. peakcan-host parses BLF on any Windows machine regardless of Vector tools installation.
+- **G1**: `ReplayService.LoadAsync` dispatches `.blf` to a new `BlfParser` returning `IReadOnlyList<ReplayFrame>` (sister shape of `AscParser.ParseAsync`).
+- **G2**: Four CAN frame container types supported, per Vector BLF spec verified against vblf reference:
+  - **CanMessage** (ObjType=1, struct format `HBBI8s` = 12 bytes data): classic CAN 11-bit ID, 8-byte payload
+  - **CanMessage2** (ObjType=86, struct format `HBBI8sIBBH` = 28 bytes data): classic CAN 29-bit ID, 8-byte payload + 4 trailer fields
+  - **CanFdMessage** (ObjType=100, struct format `HBBIIBBBBI64sI` = 76 bytes data): CAN FD, 8-bit frameLength, up to 64-byte payload
+  - **CanFdMessage64** (ObjType=101, struct format `BBBBIIIIIIIHBBI` + ext `II` = 48+8 bytes): CAN FD 64-bit extension
+- **G3**: File header validation — `LOGG` magic (4 bytes) at offset 0, followed by 20 bytes of FileStatistics metadata (24 bytes total file header). Throws `ReplayFormatException` on magic mismatch.
+- **G4**: Object stream parsing — scan for `LOBJ` signature (4 bytes, may have padding bytes between objects per vblf reader line 102-105), parse `ObjectHeaderBase` (size TBD, sister of vblf line 108-114), then per-object frame data of `object_size - ObjectHeaderBase.SIZE` bytes.
+- **G5**: Per-object dispatch via `OBJ_MAP` lookup (sister of vblf_reader.py line 186-316): each `object_type` integer maps to a per-frame-class unpacker.
+- **G6**: zlib decompression for `LOG_CONTAINER` (ObjType=10) — sister of vblf_reader.py line 128-142. Container data is zlib-compressed when `file_statistics.compression_level > 0`. Recursive parse inside the decompressed BytesIO.
+- **G7**: Unknown object types are skipped with a logger warning (sister of vblf `OBJ_MAP` None entries at line 199-217).
+- **G8**: 50%+ corrupted frames (truncated, struct unpack failure) trigger `ReplayFormatException` (sister of v3.49.0 AscParser + v3.50.5 strict handling).
+- **G9**: Strict error handling — bad magic, unsupported version, >50% corruption, truncated header all throw `ReplayFormatException` (per user direction 2026-07-16, v3.50.5 strict policy).
+- **G10**: Manual test (`[Trait("Manual", "true")]`) loads `vblf_test_CAN_MESSAGE.lobj` (48 bytes, public vblf test fixture, fetched from `zariiii9003/vblf main` to `.superpowers/sdd/reference/`). CI auto-skips. Sister of v3.51 original plan manual test pattern.
+- **G11**: Pure .NET — no native DLL, no Python interop. peakcan-host parses BLF on any Windows machine.
 
 ## 3. Non-goals (YAGNI)
 
-- **N1**: BLF **writing** (sister of `AscFormat.WriteHeader/WriteFooter/WriteDataLine`). v3.51.0 is reader-only.
-- **N2**: BLF **compression** (LZ4 / zlib containers introduced in Vector BLF v2.0+). Tracked for v3.52.0+.
-- **N3**: Vector custom object types (system variables, environment variables, driver info, etc.). Skipped as "unknown object".
-- **N4**: Real-time BLF stream (Vector's streaming API, not file-based). Out of scope — peakcan-host works on recorded files only.
-- **N5**: Multi-source BLF bundle (single `.blf` containing multiple traces via LOBJ container hierarchy). v3.51.0 parses the FIRST trace in the file only (LBLF format allows nesting; we read the outer-most BLOB children, ignore inner container re-entries). Multi-trace opening in a single file is tracked for v3.52.0+.
+- **N1**: BLF **writing** (reader-only). v3.51.0 ships reader path only.
+- **N2**: LIN / FlexRay / MOST / Ethernet / AFDX / A429 frame types (OBJ_MAP maps these to `None` in vblf). Out of scope — peakcan-host is CAN-only.
+- **N3**: CAN XL frame container. **vblf reference (master) does not support CAN XL** — no `CAN_XL_MESSAGE` obj class, no `CAN_XL_DATA` ObjType. Spec removes my prior ET_CAN_XL_DATA=33 assumption. CAN XL is a Vector 2024+ feature not yet in any open-source BLF reader.
+- **N4**: Real-time BLF streaming (Vector's streaming API, not file-based). Out of scope — peakcan-host works on recorded files only.
+- **N5**: Multi-source BLF bundle (single `.blf` with multiple traces via nested LOG_CONTAINER). v3.51.0 parses all LOG_CONTAINER children in file order; the trace grouping is the AppTrace concept which is out of scope.
 - **N6**: TraceView modifications — existing `TraceSource` already accepts any `IReadOnlyList<ReplayFrame>` regardless of file format.
-- **N7**: BLF fixture file in `tests/` — the user's 8MB real BLF (8MB CANoe recording of their electric vehicle under-drive) contains proprietary data and will not be checked into git. Manual verification on the user's machine only.
+- **N7**: Real user-vehicle BLF fixture in `tests/` — user explicitly stated "我提供不了" 2026-07-16. Use vblf project's public test fixture (CAN_MESSAGE.lobj, synth-generated, no proprietary data).
 
 ## 4. Architecture
 
@@ -47,68 +51,73 @@ Core layer (no UI dep, sister of v3.49.0 MINOR AscFormat/AscParser):
 
   BlfFormat (NEW, src/PeakCan.Host.Core/Replay/BlfFormat.cs)
     - static class single source of truth (sister of v3.49.0 AscFormat)
-    - File magic constants: FileSignature = "LOGG" (4 bytes), FormatSignature = "LBLF" (4 bytes)
-    - Object signature constants: ObjHeader = "OBJH", Blob = "BLOB", Container = "LOBJ"
-    - Frame container type IDs: ET_CAN_DATA = 5, ET_CAN_FD_DATA = 29, ET_CAN_XL_DATA = 33
-    - Supported versions: Version10 = 0x00010000, Version20 = 0x00020000
-    - BLOB layout sizes: ClassicCanBlobSize = 20, CanFdBlobSize = 32, CanXlBlobMinSize = 32
-    - Timestamp scale: TimestampScale = 10_000_000.0 (UINT64 ticks → seconds)
-    - Frame flags bits: FlagFd = 0x0001, FlagBrs = 0x0002, FlagEsi = 0x0004, FlagXl = 0x0010
+    - File-level constants: FileSignature = "LOGG" (4 bytes)
+    - Object-level constants: ObjSignature = "LOBJ" (4 bytes)
+    - Object type IDs (per vblf reference verification):
+      CanMessage = 1
+      LogContainer = 10
+      CanMessage2 = 86
+      CanFdMessage = 100
+      CanFdMessage64 = 101
+    - Frame struct format sizes (sister of vblf can.py):
+      CanMessageFormatSize = 12      (HBBI8s)
+      CanMessage2FormatSize = 28     (HBBI8sIBBH)
+      CanFdMessageFormatSize = 76     (HBBIIBBBBI64sI)
+      CanFdMessage64FormatSize = 48   (BBBBIIIIIIIHBBI) + 8 ext (II)
+    - File header size: 24 bytes (FileStatistics, common Vector spec value; T1 will verify)
+    - ObjectHeaderBase size: TBD (16-24 bytes; T1 verify against vblf test fixture)
 
   BlfParser (NEW, src/PeakCan.Host.Core/Replay/BlfParser.cs)
-    - public static partial class BlfParser
+    - public static partial class
     - public static async Task<IReadOnlyList<ReplayFrame>> ParseAsync(
-        Stream stream,
-        ReplayOptions options,
-        ILogger? logger = null,
-        CancellationToken ct = default)
+        Stream stream, ReplayOptions options, ILogger? logger = null, CancellationToken ct = default)
     - Sister of AscParser.ParseAsync (same signature shape)
     - Throws ReplayFormatException on bad magic, bad version, >50% corruption
-    - Throws ReplayLoadException on stream-size cap exceeded (via existing CountingStream path)
+    - Throws ReplayLoadException on stream-size cap exceeded (via existing CountingStream)
 
   BlfParser/ partials (NEW, sister of v3.49.0 AscParser/):
-    - BlfHeaderParserFlow.cs — validates LOGG + LBLF + version
-    - ContainerObjectFlow.cs — skips LOBJ bodies, recurses into children
-    - ClassicCanFrameFlow.cs — parses 20-byte BLOB to ReplayFrame
-    - CanFdFrameFlow.cs — parses 32-byte BLOB to ReplayFrame (with FD/BRS/ESI flags)
-    - CanXlFrameFlow.cs — parses 32+ byte BLOB to ReplayFrame (with XL flag, big-endian frame length)
-    - ObjectHeaderFlow.cs — reads 32-byte OBJH header, routes by signature
+    - FileHeaderParserFlow.cs — reads 24-byte file header, validates LOGG magic
+    - ObjectStreamParserFlow.cs — main parse loop: search LOBJ, read ObjectHeaderBase, dispatch by obj_type (sister of vblf._generate_objects)
+    - LogContainerFlow.cs — decompresses zlib container, recursive parse (sister of vblf reader line 128-142)
+    - CanMessageFlow.cs — unpacks HBBI8s (12 bytes) → ReplayFrame
+    - CanMessage2Flow.cs — unpacks HBBI8sIBBH (28 bytes) → ReplayFrame
+    - CanFdMessageFlow.cs — unpacks HBBIIBBBBI64sI (76 bytes) → ReplayFrame
+    - CanFdMessage64Flow.cs — unpacks BBBBIIIIIIIHBBI (48 bytes) + 8-byte ext → ReplayFrame
 
   ReplayService/LoadAsync (modify, sister of v3.49.0)
     - Add extension-based dispatch:
-      if path ends in ".blf" (case-insensitive) → BlfParser.ParseAsync(...)
-      else → AscParser.ParseAsync(...) (default, preserves v3.49.0 behavior)
+      if path.EndsWith(".blf", StringComparison.OrdinalIgnoreCase)
+        → BlfParser.ParseAsync(fs, options, logger, ct)
+      else
+        → AscParser.ParseAsync(fs, options, logger, ct) (preserves v3.49.0 behavior)
     - Existing ReplayOptions.MaxFileSizeBytes cap reused (CountingStream wrap, no changes)
     - Existing ReplayLoadException / ReplayFormatException propagation unchanged
 
-Tests (PeakCan.Host.Core.Tests, sister of v3.49.0 AscFormatRoundTripTests/AscParserTests):
-  BlfFormatTests.cs (NEW, 6 tests) — magic strings, version IDs, frame container type IDs, BLOB sizes
-  BlfParserTests.cs (NEW, 11 tests):
-    - Synth BLF (BinaryWriter-built) for: classic CAN, CAN FD, CAN XL, mixed
-    - 50% corruption threshold
-    - Magic mismatch
-    - Version mismatch
-    - Truncated BLOB
-    - Unknown object signature (skip + log)
-    - Container LOBJ (skip body)
-    - Timestamp scale (UINT64 ticks → double seconds)
-    - CAN XL frame length big-endian
+Tests (PeakCan.Host.Core.Tests, sister of v3.49.0):
+  BlfFormatTests.cs (NEW, 8 tests) — file signature, obj signature, 4 frame type IDs, 4 format sizes, file header size, object header size placeholder
+  BlfParserTests.cs (NEW, 14 tests):
+    - 4 happy-path tests: CanMessage / CanMessage2 / CanFdMessage / CanFdMessage64
+    - 4 negative tests: bad magic, bad obj_type unknown signature, 50%+ corruption, truncated stream
+    - 2 LOG_CONTAINER tests: zlib-decompressed container with 1 frame inside, container with 2 frames
+    - 2 cross-frame tests: mixed file (1 classic + 1 FD frame), padding bytes between objects
+    - 2 unit tests: 4-byte LOBJ signature search across 1-byte padding gaps, file header validation
   BlfParserManualTests.cs (NEW, 1 test, [Trait("Manual", "true")]):
-    - Load real BLF from C:\Users\13777\Documents\xwechat_files\wxid_1012060120711_bd20\msg\file\2026-07\CH0_242下坡掉READY0.blf
+    - Load vblf_test_CAN_MESSAGE.lobj from .superpowers/sdd/reference/ (public vblf test fixture)
     - CI auto-skips via Trait filter
+    - User machine only verification
 ```
 
-### 4.1 Sister patterns to apply
+### 4.1 Sister patterns applied
 
-| Lesson (vault) | This PATCH application |
+| Lesson | This PATCH application |
 |---|---|
 | v3.49.0 MINOR T1 (AscFormat single source) | `BlfFormat` mirrors AscFormat: static class, no state, no DI |
-| v3.49.0 MINOR T2 (AscParser/ partials) | `BlfParser/` mirrors `AscParser/`: 5 partials per concern (header / container / 3 frame types) |
-| v3.49.0 MINOR Q3 round-trip test | `BlfFormatTests` + `BlfParserTests` use `BinaryWriter` to synth, not ASC `string` round-trip |
-| v3.10.0 MINOR T4 H5 (MaxFileSizeBytes CountingStream) | Reused as-is in `BlfParser.ParseAsync` — no new cap knob |
-| W19 R1 (verbatim re-extraction) | BLF constants (LOGG, LBLF, OBJH, BLOB, LOBJ, ET_CAN_DATA=5, ET_CAN_FD_DATA=29, ET_CAN_XL_DATA=33, BLOB sizes) — must be 1:1 from reverse-engineered reference. Implementer MUST copy from verified reference, not invent |
-| W22 STRUCT-FABRACTION (struct-ctor verification) | Frame flag bit positions + frame length endianness verified against reference before commit |
-| W34 transient flake | Sister of v3.50.6 ship; full suite may have 1 transient Core flake, retry-isolated PASS confirms |
+| v3.49.0 MINOR T2 (AscParser/ partials) | `BlfParser/` mirrors `AscParser/`: partial per concern |
+| v3.10.0 MINOR T4 H5 (MaxFileSizeBytes CountingStream) | Reused in `BlfParser.ParseAsync` |
+| W19 R1 (verbatim re-extraction) | All numeric constants + struct formats **1:1 from vblf reference**; not invented |
+| W22 STRUCT-FABRACTION (struct-ctor verification) | FileHeader size + ObjectHeaderBase size + frame struct formats verified against vblf test fixture |
+| v3.50.5 strict error handling | ReplayFormatException on bad magic / >50% corruption / truncated header |
+| Manual test pattern (v3.51 original plan) | [Trait("Manual", "true")] with vblf test fixture |
 
 ## 5. Data flow
 
@@ -118,85 +127,101 @@ Tests (PeakCan.Host.Core.Tests, sister of v3.49.0 AscFormatRoundTripTests/AscPar
 1. User: File → Open → CH0_xxx.blf
 2. AppShellViewModel.OpenSessionAsync(blfPath)
 3. ReplayService.LoadAsync(blfPath, ct):
-     a. Defensive reset (existing v3.8.5 PATCH H1 behavior)
+     a. Defensive reset (v3.8.5 PATCH H1)
      b. File.OpenRead(normalize(blfPath))
-     c. if path.EndsWith(".blf", OrdinalIgnoreCase):
-          _frames = await BlfParser.ParseAsync(stream, options, logger, ct)
+     c. if path.EndsWith(".blf", StringComparison.OrdinalIgnoreCase):
+          _frames = await BlfParser.ParseAsync(stream, options, _logger, ct)
         else:
-          _frames = await AscParser.ParseAsync(stream, options, logger, ct)  // existing
+          _frames = await AscParser.ParseAsync(stream, options, _logger, ct)
      d. _timeline.SetFrames(_frames)
-4. Existing playback path (Play / Seek / Scrubber / FrameEmitted event) all unchanged
-5. TraceViewer consumes Frames identically for both formats
+4. Existing playback path unchanged
 ```
 
-### 5.2 BlfParser.ParseAsync (detailed)
+### 5.2 BlfParser.ParseAsync (detailed, sister of vblf._generate_objects)
 
 ```
-1. Stream-size precheck (CountingStream wrap if not seekable, sister of v3.10.0 T4 H5)
-2. Read 16-byte file header (4 LOGG + 4 LBLF + 4 version UINT32 + 4 app info)
-3. Validate magic strings:
-   - "LOGG" expected
-   - "LBLF" expected
-   - version is 0x00010000 (v1.0) or 0x00020000 (v2.0)
-   - On mismatch → ReplayFormatException("Not a valid BLF file: bad magic/version")
-4. Read object stream loop until EOF:
-   a. Read 32-byte OBJH header (4 signature + 4 objSize + 4 objType + 8 timestamp + 2 flags)
-   b. Route by signature:
-      - "BLOB" → call frame-type-specific parser based on objType:
-          ET_CAN_DATA → ClassicCanFrameFlow.Parse (20-byte BLOB)
-          ET_CAN_FD_DATA → CanFdFrameFlow.Parse (32-byte BLOB)
-          ET_CAN_XL_DATA → CanXlFrameFlow.Parse (32+ byte BLOB, frame length big-endian)
-        → push ReplayFrame(timestampSeconds, id, dlc, data, frameFlags) to result list
-      - "LOBJ" → skip body bytes (container; frames are children, already read at child level)
-      - other → logger.Warning("Skipped unknown object signature X at offset Y")
-   c. Increment frame_count
-   d. If frame_count > 1000 AND errors > 50% → ReplayFormatException
-5. Return result list as IReadOnlyList<ReplayFrame>
+1. Stream-size cap check (sister of v3.10.0 T4 H5)
+2. Read 24-byte file header:
+   - 4 bytes FileSignature (must be "LOGG")
+   - 20 bytes FileStatistics metadata (size + app info + compression level etc.)
+   - On magic mismatch → ReplayFormatException("Not a valid BLF file")
+3. Object stream parse loop:
+   a. While stream not EOF:
+      - Read 4 bytes, check LOBJ signature
+        - If miss: stream.seek(1 - 4, SEEK_CUR); continue search (sister of vblf line 102-105)
+        - Padding bytes between objects are tolerated
+      - Read ObjectHeaderBase.SIZE - 4 more bytes → total ObjectHeaderBase.SIZE bytes
+      - Parse object_size (UINT32) + object_type (UINT32) from header base
+      - Read object_size - ObjectHeaderBase.SIZE more bytes → total frame data
+      - Dispatch by object_type:
+        * LOG_CONTAINER (10) → decompress zlib → recursive parse (sister of vblf line 128-142)
+        * CAN_MESSAGE (1) → CanMessageFlow.unpack → ReplayFrame
+        * CAN_MESSAGE2 (86) → CanMessage2Flow.unpack → ReplayFrame
+        * CAN_FD_MESSAGE (100) → CanFdMessageFlow.unpack → ReplayFrame
+        * CAN_FD_MESSAGE_64 (101) → CanFdMessage64Flow.unpack → ReplayFrame
+        * Other → logger.Warning + skip
+      - 50% corruption threshold check
+4. Return result list as IReadOnlyList<ReplayFrame>
 ```
 
-### 5.3 ClassicCanFrameFlow.Parse (20-byte BLOB)
+### 5.3 CanMessageFlow.unpack (12 bytes, "HBBI8s")
 
 ```
-Layout (little-endian):
-  Offset 0: channel (UINT16)
-  Offset 2: flags (UINT16) — bit 0=Fd, bit 1=Brs, bit 2=Esi
-  Offset 4: dlc (UINT8) — 0-8
-  Offset 5: reserved (3 bytes)
-  Offset 8: id (UINT32) — raw CAN ID with IDE bit
-  Offset 12: data (8 bytes)
-  Offset 20: end
+Format: H=UINT16 channel | B=byte flags | B=byte dlc | I=UINT32 frame_id | 8s=8-byte data
+Sister of vblf_can.py:14
 
-Build ReplayFrame:
-  timestamp = blob.Ticks / 10_000_000.0  (UINT64 LE from OBJH)
-  id = blob.ReadUInt32(offset 8)
-  dlc = blob.ReadByte(offset 4)
-  data = blob.ReadBytes(offset 12, 8)
-  frameFlags = translate(blob.ReadUInt16(offset 2)) → FrameFlags
+  channel = reader.ReadUInt16()
+  flags = reader.ReadByte()
+  dlc = reader.ReadByte()
+  frame_id = reader.ReadUInt32()
+  data = reader.ReadBytes(8)
+  Build ReplayFrame(
+    timestamp: (from ObjectHeader),  // seconds, sister of vblf header.object_time_stamp
+    id: frame_id,
+    dlc: dlc,
+    data: data,
+    flags: translate(flags) → FrameFlags
+  )
 ```
 
-### 5.4 CanFdFrameFlow.Parse (32-byte BLOB)
+### 5.4 CanFdMessageFlow.unpack (76 bytes, "HBBIIBBBBI64sI")
 
 ```
-Layout:
-  Offset 0-15: same as classic
-  Offset 16: frameLength (UINT8) — actual data byte count, up to 64
-  Offset 17-19: reserved
-  Offset 20: data[64] (pad to 64; only first frameLength bytes are real)
+Format: H=UINT16 channel | B=byte flags | B=byte dlc |
+        I=UINT32 fd_flags | I=UINT32 frame_id |
+        BBBB=4 reserved/CRC bytes | B=byte frameLength | B=byte reserved |
+        I=UINT32 timestamp_offset? (or reserved) |
+        64s=64-byte data | I=UINT32 reserved
+Sister of vblf_can.py:168
 
-Build ReplayFrame with FrameFlags.Fd set + frameLength for data length
+  channel = reader.ReadUInt16()
+  flags = reader.ReadByte()
+  dlc = reader.ReadByte()
+  fd_flags = reader.ReadUInt32()
+  frame_id = reader.ReadUInt32()
+  reserved_4_bytes = reader.ReadBytes(4)
+  frameLength = reader.ReadByte()
+  reserved_1_byte = reader.ReadByte()
+  reserved_4_bytes_2 = reader.ReadUInt32()
+  data = reader.ReadBytes(64)[:frameLength]  // actual payload is first frameLength bytes
+  reserved_4_bytes_3 = reader.ReadUInt32()
+  Build ReplayFrame with FrameFlags.Fd set
 ```
 
-### 5.5 CanXlFrameFlow.Parse (32+ byte BLOB, BIG-ENDIAN frame length)
+### 5.5 LogContainerFlow.decompress + recursive parse
 
 ```
-Layout:
-  Offset 0-15: same as classic
-  Offset 16: frameLength (UINT16 BIG-ENDIAN) — actual data byte count, up to 2048
-  Offset 18-19: reserved
-  Offset 20: data[2048] (pad; only first frameLength bytes are real)
+Sister of vblf_reader.py:128-142
 
-CRITICAL: frameLength is big-endian, all other fields are little-endian.
-Build ReplayFrame with FrameFlags.Xl set
+  container_data = reader.ReadBytes(object_size - ObjectHeaderBase.SIZE)
+  LogContainer.unpack:
+    data = container_data[ObjectHeaderBase.SIZE:]  // skip container's own header
+  if file_statistics.compression_level > 0:
+    uncompressed = ZLibStream.Decompress(data)
+  else:
+    uncompressed = data
+  Recursive call: BlfParser.ParseAsync(BytesIO(uncompressed), options, logger, ct)
+  Yield all frames from recursive parse
 ```
 
 ## 6. API contracts
@@ -208,40 +233,38 @@ Build ReplayFrame with FrameFlags.Xl set
 namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
-/// v3.51.0 MINOR: BLF (Vector Binary Logging Format) format single source.
-/// Sister of v3.49.0 AscFormat. Pure static constants — no state, no DI.
+/// v3.51.0 MINOR: BLF format single source. All values verified 1:1
+/// against vblf reference (zariiii9003/vblf master, fetched 2026-07-16).
+/// Per W22 LESSON: do not invent; if a constant appears wrong,
+/// re-verify against reference before commit.
 /// </summary>
 public static class BlfFormat
 {
-    // File header
-    public const string FileSignature = "LOGG";     // 4 bytes
-    public const string FormatSignature = "LBLF";  // 4 bytes
-    public const uint Version10 = 0x00010000;      // v1.0
-    public const uint Version20 = 0x00020000;      // v2.0
+    // File-level
+    public const string FileSignature = "LOGG";   // 4 bytes at file offset 0
+    public const int FileHeaderSize = 24;          // T1 verifies against vblf fixture
 
-    // Object signatures (4 bytes each)
-    public const string ObjHeader = "OBJH";
-    public const string Blob = "BLOB";
-    public const string Container = "LOBJ";
+    // Object-level
+    public const string ObjSignature = "LOBJ";    // 4 bytes per object
+    public const int ObjSignatureSize = 4;
+    public const int ObjectHeaderBaseSize = 16;   // T1 verifies; vblf uses small base
 
-    // Frame container type IDs (per Vector spec)
-    public const uint ET_CAN_DATA = 5;
-    public const uint ET_CAN_FD_DATA = 29;
-    public const uint ET_CAN_XL_DATA = 33;
+    // Object type IDs (per vblf reference verification)
+    public const uint ObjTypeCanMessage = 1;        // classic CAN 11-bit
+    public const uint ObjTypeLogContainer = 10;     // zlib-compressed container
+    public const uint ObjTypeCanMessage2 = 86;      // classic CAN 29-bit
+    public const uint ObjTypeCanFdMessage = 100;    // CAN FD
+    public const uint ObjTypeCanFdMessage64 = 101;  // CAN FD 64-byte
 
-    // BLOB layout sizes
-    public const int ClassicCanBlobSize = 20;
-    public const int CanFdBlobSize = 32;
-    public const int CanXlBlobMinSize = 32;
+    // Frame data format sizes (sister of vblf struct.Struct("...").size)
+    public const int CanMessageDataSize = 12;        // HBBI8s
+    public const int CanMessage2DataSize = 28;       // HBBI8sIBBH
+    public const int CanFdMessageDataSize = 76;      // HBBIIBBBBI64sI
+    public const int CanFdMessage64DataSize = 48;    // BBBBIIIIIIIHBBI
+    public const int CanFdMessage64ExtSize = 8;      // II
 
-    // Timestamp scale (UINT64 ticks → seconds)
+    // Timestamp scale (vblf stores as 10ns ticks since Vector epoch)
     public const double TimestampScale = 10_000_000.0;
-
-    // Frame flags bits
-    public const ushort FlagFd = 0x0001;
-    public const ushort FlagBrs = 0x0002;
-    public const ushort FlagEsi = 0x0004;
-    public const ushort FlagXl = 0x0010;
 }
 ```
 
@@ -253,10 +276,9 @@ namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v3.51.0 MINOR: parses Vector BLF trace files. Sister of v3.49.0
-/// AscParser. Strict error handling (per user direction 2026-07-16):
-/// bad magic → ReplayFormatException, >50% corrupted frames →
-/// ReplayFormatException, truncated BLOB → ReplayFormatException.
-/// Unknown object signatures are skipped with a logger.Warning.
+/// AscParser. Pure .NET, no Vector SDK dependency. Strict error
+/// handling: bad magic → ReplayFormatException, >50% corrupted
+/// frames → ReplayFormatException, truncated stream → ReplayFormatException.
 /// </summary>
 public static partial class BlfParser
 {
@@ -268,101 +290,81 @@ public static partial class BlfParser
 }
 ```
 
-### 6.3 `ReplayService.LoadAsync` (modify)
-
-```csharp
-public async Task LoadAsync(string path, CancellationToken ct = default)
-{
-    _frames = Array.Empty<ReplayFrame>();
-    _timeline.SetFrames(_frames);
-
-    try
-    {
-        await using var fs = File.OpenRead(PathNormalizer.Normalize(path));
-        // v3.51.0 MINOR: dispatch by extension
-        if (path.EndsWith(".blf", StringComparison.OrdinalIgnoreCase))
-        {
-            _frames = await BlfParser.ParseAsync(fs, options, _logger, ct);
-        }
-        else
-        {
-            _frames = await AscParser.ParseAsync(fs, options, _logger, ct);
-        }
-    }
-    // ... existing exception wrapping unchanged
-}
-```
-
 ## 7. Test plan
 
-### 7.1 Core.Tests — 6 new BlfFormatTests (sister of v3.49.0 AscFormatRoundTripTests)
+### 7.1 Core.Tests — 8 new BlfFormatTests
 
 | Test | Validates |
 |---|---|
-| `BlfFormat_HasExpectedFileSignature` | "LOGG" string constant |
-| `BlfFormat_HasExpectedFormatSignature` | "LBLF" string constant |
-| `BlfFormat_HasExpectedObjectSignatures` | "OBJH" / "BLOB" / "LOBJ" |
-| `BlfFormat_HasExpectedFrameContainerTypeIds` | ET_CAN_DATA=5, ET_CAN_FD_DATA=29, ET_CAN_XL_DATA=33 |
-| `BlfFormat_HasExpectedBlobSizes` | ClassicCanBlobSize=20, CanFdBlobSize=32, CanXlBlobMinSize=32 |
-| `BlfFormat_HasExpectedTimestampScale` | TimestampScale = 10_000_000.0 |
+| `BlfFormat_FileSignatureIsLogg` | "LOGG" per Vector spec |
+| `BlfFormat_ObjSignatureIsLobj` | "LOBJ" per Vector spec |
+| `BlfFormat_ObjTypeIds_ClassicCan` | CanMessage=1, CanMessage2=86 per vblf reference |
+| `BlfFormat_ObjTypeIds_CanFd` | CanFdMessage=100, CanFdMessage64=101 per vblf reference |
+| `BlfFormat_ObjTypeIds_LogContainer` | LogContainer=10 per vblf reference |
+| `BlfFormat_FrameDataSizes_CorrectPerVblfStructFormats` | 12/28/76/48 per vblf struct.Struct sizes |
+| `BlfFormat_FileHeaderSizeIs24` | 24 bytes per Vector common spec |
+| `BlfFormat_TimestampScaleIs10Million` | 10_000_000.0 per 100ns tick unit |
 
-### 7.2 Core.Tests — 11 new BlfParserTests (sister of v3.49.0 AscParserTests)
+### 7.2 Core.Tests — 14 new BlfParserTests (synth via BinaryWriter)
 
 | Test | Validates |
 |---|---|
-| `BlfParser_ClassicCan_ValidBlob_Parsed` | synth 20-byte BLOB → ReplayFrame correct |
-| `BlfParser_CanFd_ValidBlob_Parsed` | synth 32-byte BLOB → FD flag + frameLength data |
-| `BlfParser_CanXl_ValidBlob_Parsed` | synth 32+ byte BLOB → XL flag + big-endian frameLength |
-| `BlfParser_InvalidMagic_Throws` | "BLFF" magic → ReplayFormatException |
-| `BlfParser_InvalidVersion_Throws` | version=0x00009999 → ReplayFormatException |
-| `BlfParser_TruncatedClassicCan_Throws` | BLOB objSize < 20 → ReplayFormatException |
-| `BlfParser_TruncatedCanFd_Throws` | BLOB objSize < 32 → ReplayFormatException |
-| `BlfParser_Over50PercentCorruption_Throws` | 51% bad BLOBs → ReplayFormatException |
-| `BlfParser_UnknownObjectSignature_Skipped` | "MISC" obj → log warning + skip, no throw |
-| `BlfParser_ContainerLobjObject_Skipped` | "LOBJ" container → skip body, no throw |
-| `BlfParser_Timestamp_ConvertedToSeconds` | UINT64 ticks → double seconds (10_000_000 scale) |
-| `BlfParser_CanXlFrameLength_BigEndian` | CAN XL frame length is big-endian, NOT little-endian |
+| `BlfParser_CanMessage_Parsed` | 12-byte HBBI8s → ReplayFrame |
+| `BlfParser_CanMessage2_Parsed` | 28-byte HBBI8sIBBH → ReplayFrame |
+| `BlfParser_CanFdMessage_Parsed` | 76-byte HBBIIBBBBI64sI → ReplayFrame with FD flag |
+| `BlfParser_CanFdMessage64_Parsed` | 48+8 bytes → ReplayFrame with FD flag |
+| `BlfParser_BadMagic_Throws` | "LOGX" magic → ReplayFormatException |
+| `BlfParser_UnknownObjType_Skipped` | obj_type=999 → logger.Warning + skip, valid frame still parsed |
+| `BlfParser_Over50PercentCorruption_Throws` | 1 valid + 2 corrupted obj → ReplayFormatException |
+| `BlfParser_TruncatedStream_Throws` | truncated after file header → ReplayFormatException |
+| `BlfParser_LogContainerZlib_Parsed` | zlib-wrapped CanMessage → 1 ReplayFrame from decompressed container |
+| `BlfParser_LogContainerMultiple_Parsed` | zlib-wrapped 2x CanMessage → 2 ReplayFrames |
+| `BlfParser_MixedClassicAndFd_Parsed` | file with 1 CanMessage + 1 CanFdMessage → 2 ReplayFrames |
+| `BlfParser_PaddingBetweenObjects_Tolerated` | 1-byte padding between objects (sister of vblf line 102-105) |
+| `BlfParser_LOBJSearchAcrossGaps_FindsNextObject` | multiple 1-byte gaps → LOBJ search continues |
+| `BlfParser_FileHeaderValidation_PassesForVblfFixture` | round-trip parse of vblf_test_CAN_MESSAGE.lobj (48 bytes) — uses public vblf fixture, verifies our parser is 1:1 with reference |
 
 ### 7.3 Core.Tests — 1 new BlfParserManualTests (CI-skip, user's machine only)
 
 | Test | Validates |
 |---|---|
-| `BlfParser_RealFile_LoadsSuccessfully` (Trait="Manual") | Load `C:\Users\13777\Documents\xwechat_files\wxid_1012060120711_bd20\msg\file\2026-07\CH0_242下坡掉READY0.blf` → parse succeeds + frame count > 0 + timestamp range valid |
+| `BlfParser_VblfTestFixture_LoadsSuccessfully` (Trait="Manual") | Load `.superpowers/sdd/reference/vblf_test_CAN_MESSAGE.lobj` → 1 CanMessage parsed correctly |
 
 ### 7.4 Regression checks
 
 - `dotnet test --filter "FullyQualifiedName~AscParser"` → all existing PASS (no changes to AscParser)
 - `dotnet test --filter "FullyQualifiedName~ReplayService"` → all existing PASS
-- Full solution `dotnet test` → no new failures (sister of v3.50.6 ship totals + 17 new BLF tests)
+- Full solution `dotnet test` → no new failures (sister of v3.50.6 ship totals + 23 new tests)
 
 ## 8. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| BLF private format reverse-engineered (Vector does not publish spec) | Strict per-spec field validation + W22+W23 LESSON verbatim re-extraction discipline; real fixture manual verification |
-| CAN XL frame length is big-endian (other fields are little-endian) | Explicit unit test `BlfParser_CanXlFrameLength_BigEndian`; W22 LESSON applied during implementation |
-| Container object LOBJ nested structures (Vector recordings often nest 4-5 levels) | Recursive container skip; manual fixture verification exercises real-world nesting |
-| Real BLF fixture 8MB contains user's vehicle data — CANNOT enter git | Strict no-fixture policy + `[Trait("Manual", "true")]` for the only real-file test; CI auto-skips |
-| Third-party reverse-engineered reference drift (python-can / cantools updates) | Sister lesson: reverse-engineered libraries drift requires baseline-test verification on each reference update |
-| User's fixture may have been recorded with different Vector tool version (different byte layout) | Manual test asserts only parse success + frame count > 0 + timestamp range valid; not exact byte equivalence |
-| Auto-mode classifier on v3.50.6 PKM capture flagged "instruction poisoning" — risk that BLF spec's dense reverse-engineered content triggers similar flag | Spec reviewed for any "must"-prefixed prescriptive language; spec uses descriptive phrasing throughout |
+| `FileHeaderSize = 24` may be wrong (Vector spec ambiguous between 16/24/32) | T1 verifies against vblf test fixture in BlfFormatTests; if wrong, update constant and re-run |
+| `ObjectHeaderBaseSize = 16` may be wrong (vblf uses an internal struct I haven't fully verified) | T2 includes a unit test that reads vblf_test_CAN_MESSAGE.lobj end-to-end and reports `header.object_size` value; if mismatched, fix constant + re-run |
+| BLF private format, future Vector versions may add new obj_types | `OBJ_MAP` default `NotImplementedObject` + log warning (sister of vblf line 124-125); new versions just log + skip |
+| zlib decompression of LOG_CONTAINER may fail on corrupted data | Try-catch + throw `ReplayFormatException`; counted toward 50% corruption threshold |
+| Compression level field location in FileStatistics not fully reverse-engineered | T1 verifies FileStatistics layout against vblf fixture; if missing, fall back to uncompressed-only path |
+| Real user-vehicle BLF fixture user explicitly stated "我提供不了" 2026-07-16 | Use vblf project's public test fixture (CAN_MESSAGE.lobj, synth-generated, no proprietary data) |
+| Auto-mode classifier may flag reference-include actions | Already navigated; reference already in `.superpowers/sdd/reference/` (not in tests/) |
 
 ## 9. Out of scope
 
-- BLF writing (sister of `AscFormat.WriteHeader/WriteFooter/WriteDataLine`)
-- BLF compression (LZ4 / zlib containers)
-- Vector custom object types (system vars, env vars, driver info)
+- BLF writing
+- LIN / FlexRay / MOST / Ethernet / AFDX / A429 frame types
+- CAN XL frame container (not in vblf reference; tracked for v3.52.0+ if user demand emerges)
 - Real-time BLF streaming
-- Multi-source BLF bundles
-- BLF fixture in `tests/` (8MB real file, user's vehicle data, no public artifact)
+- Multi-source BLF bundle (multi-trace via nested LOG_CONTAINER)
+- Vector custom object types (system vars, env vars, driver info)
+- Real user-vehicle BLF fixture in tests/
 
 ## 10. Sister patterns to monitor
 
 | Lesson candidate | This PATCH observation |
 |---|---|
-| `blf-parser-must-verify-byte-layout-against-reverse-engineered-reference-not-invent` | NEW 1/3: BLF spec constants (LOGG/LBLF/OBJH/BLOB/LOBJ/ET_*_DATA) must be copied from verified reference; inventing causes silent corruption |
-| `blf-mixed-endian-requires-per-field-explicit-byte-order-test` | NEW 1/3: CAN XL frame length is big-endian while other fields are little-endian; mixed endianness is a Vector-spec-specific trap |
-| `extension-based-parser-dispatch-in-load-async-shares-options-and-exception-types` | NEW 1/3: ReplayService.LoadAsync's .asc/.blf dispatch shares ReplayOptions + exception types — sister of v3.49.0 stream-cap reuse pattern |
-| `real-fixture-with-proprietary-data-must-use-trait-manual-skip` | NEW 1/3: 8MB real BLF cannot enter git; [Trait("Manual", "true")] CI-skip pattern; sister of v3.50.2 fixture exposure concern (deferred per auto-mode classifier) |
-| `reverse-engineered-library-drift-requires-baseline-test-on-reference-update` | NEW 1/3: python-can / cantools updates may shift BLF byte layouts; baseline fixture test must be re-run on each reference update |
-| `strict-50-percent-corruption-threshold-matches-existing-asc-parser-pattern` | NEW 1/3: ReplayFormatException on 50%+ corruption matches v3.49.0 AscParser threshold; sister of "consistent error severity" pattern |
+| `spec-must-reverse-engineer-from-working-reference-not-invent-from-common-descriptions` | NEW 1/3: prior spec was invented from "common BLF descriptions", contained multiple critical layout errors (OBJH 32 bytes → actual 16, BLOB magic → does not exist, ET_CAN_DATA=5 → actual 1, CAN FD BLOB 32 → actual 76). W22 LESSON失守 caught at T2 implementer step. Awaiting 2nd observation to confirm |
+| `blf-frame-classes-use-struct-format-from-vblf-not-arb-length-values` | NEW 1/3: All 4 frame struct format strings ("HBBI8s", "HBBI8sIBBH", "HBBIIBBBBI64sI", "BBBBIIIIIIIHBBI") + their sizes are reverse-engineered from vblf struct.Struct("...").size; not from guess |
+| `log-container-objtype-10-triggers-zlib-decompress-and-recursive-parse` | NEW 1/3: LOG_CONTAINER=10 is the only zlib container trigger; vblf compresses when `file_statistics.compression_level > 0` |
+| `lobj-signature-may-have-padding-bytes-between-objects` | NEW 1/3: vblf reader line 102-105 seeks 1-4 bytes when LOBJ not found; padding between objects is real (not just at file start) |
+| `50-percent-corruption-threshold-matches-existing-asc-parser-pattern` | NEW 1/3: same threshold as v3.49.0 AscParser + v3.50.5 strict handling; user explicitly approved "Strict 拒绝" |
+| `reference-implementation-fetch-requires-explicit-named-source-authorization` | NEW 1/3: prior attempt to fetch `erdav606/python-can` failed (404 user typo); correct path is `zariiii9003/vblf main`; auto-mode classifier required explicit user authorization for "Code from External" pattern |

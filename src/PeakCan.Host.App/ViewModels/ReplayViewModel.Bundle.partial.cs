@@ -164,7 +164,11 @@ public sealed partial class ReplayViewModel
             // chunk-2 UI work is responsible for hooking the
             // MessageBox. The VM still surfaces the missing list so
             // the View can decide what to do.
-            ErrorMessage = $"{missing.Count} .asc file(s) could not be located. Use File → Open .asc to reload the source.";
+            // v3.51.0 MINOR T4 follow-up: bundle sources can now be .blf
+            // (not just .asc), so the wording is format-agnostic and
+            // the open-action pointer reflects the Replay tab's button
+            // label (not the legacy File menu which no longer exists).
+            ErrorMessage = $"{missing.Count} replay file(s) (.asc/.blf) could not be located. Use Replay → Open... to reload the source.";
         }
     }
 

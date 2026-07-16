@@ -66,7 +66,12 @@ public sealed partial class TraceViewerViewModel
         string? path;
         try
         {
-            path = dialog.ShowOpenDialog("ASC files|*.asc;*.ASC|All files|*.*");
+            // v3.51.0 MINOR T5: Trace Viewer → "Add trace..." 按钮 filter
+            // 现在同时列 .asc + .blf (3 段：组合默认 / ASC 单独 / BLF 单独
+            // / All files 回退)。Sister pattern of ReplayViewModel.
+            // Loader.partial.cs:96 (T4 commit 3de61db).
+            path = dialog.ShowOpenDialog(
+                "Trace files (*.asc;*.blf)|*.asc;*.blf|ASC files (*.asc)|*.asc|BLF files (*.blf)|*.blf|All files|*.*");
         }
         catch (Exception ex)
         {

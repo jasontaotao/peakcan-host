@@ -26,7 +26,8 @@
                  tripped PathNormalizer.Normalize's "path must be non-empty" guard.
                  The VM now opens the dialog itself via IFileDialogService. -->
             <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
-                    Padding="8,2" Margin="0,0,4,0" />
+                    Padding="8,2" Margin="0,0,4,0"
+                    ToolTip="Append a CAN trace to this session (.asc or .blf)" />
             <!-- v3.16.0 MINOR: opens DbcTreePickerWindow for the user
                  to pick DBC signals to add to the watch list. -->
             <Button Content="+ Add to watch…" Click="OnAddToWatchClick"
