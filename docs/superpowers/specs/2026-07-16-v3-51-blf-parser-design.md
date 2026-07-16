@@ -36,7 +36,7 @@ The Vector XL Driver Library (`vxlapi64.dll`) is the official SDK for BLF readin
 - **N2**: BLF **compression** (LZ4 / zlib containers introduced in Vector BLF v2.0+). Tracked for v3.52.0+.
 - **N3**: Vector custom object types (system variables, environment variables, driver info, etc.). Skipped as "unknown object".
 - **N4**: Real-time BLF stream (Vector's streaming API, not file-based). Out of scope — peakcan-host works on recorded files only.
-- **N5**: Multi-source BLF bundle (`.blf` with multiple traces). Tracked for v3.52.0+ if user demand emerges.
+- **N5**: Multi-source BLF bundle (single `.blf` containing multiple traces via LOBJ container hierarchy). v3.51.0 parses the FIRST trace in the file only (LBLF format allows nesting; we read the outer-most BLOB children, ignore inner container re-entries). Multi-trace opening in a single file is tracked for v3.52.0+.
 - **N6**: TraceView modifications — existing `TraceSource` already accepts any `IReadOnlyList<ReplayFrame>` regardless of file format.
 - **N7**: BLF fixture file in `tests/` — the user's 8MB real BLF (8MB CANoe recording of their electric vehicle under-drive) contains proprietary data and will not be checked into git. Manual verification on the user's machine only.
 
