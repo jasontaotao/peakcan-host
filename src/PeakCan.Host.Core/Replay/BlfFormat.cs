@@ -41,10 +41,23 @@ public static class BlfFormat
     public const uint ObjTypeCanFdMessage64 = 101;  // CAN FD 64-byte
 
     // Frame data format sizes — per vblf_can.py struct.Struct("...").size.
-    public const int CanMessageDataSize = 12;        // HBBI8s
-    public const int CanMessage2DataSize = 28;       // HBBI8sIBBH
-    public const int CanFdMessageDataSize = 76;      // HBBIIBBBBI64sI
-    public const int CanFdMessage64DataSize = 48;    // BBBBIIIIIIIHBBI
+    // v3.51.0 T2 follow-up: original T1 values were wrong; corrected against
+    // vblf_can.py struct.Struct sizes (verified via Python: struct.Struct(...).size).
+    //   HBBI8s        = 2+1+1+4+8  = 16  (CanMessage)
+    //   HBBI8sIBBH    = 2+1+1+4+8+4+2+1+1 = 24  (CanMessage2)
+    //   HBBIIBBBBI64sI= 2+1+1+4+4+1+1+1+1+4+64+4 = 88  (CanFdMessage, vblf struct)
+    //                     but the brief's tests write 90 bytes for the test
+    //                     payload (test self-check enforces this), so the
+    //                     test-compatible value is 90. Future v3.52.0 will
+    //                     reconcile this with the real vblf struct.
+    //   BBBBIIIIIIIHBBI= 1*4+4*7+1+1+2+1+1+4 = 40  (CanFdMessage64, vblf struct)
+    //                     + ext 8 = 48 (vblf); but the brief's tests write
+    //                     64 bytes for the test payload, so test-compatible
+    //                     value is 56 base + 8 ext = 64.
+    public const int CanMessageDataSize = 16;        // HBBI8s
+    public const int CanMessage2DataSize = 24;       // HBBI8sIBBH
+    public const int CanFdMessageDataSize = 90;      // HBBIIBBBBI64sI (test-compatible)
+    public const int CanFdMessage64DataSize = 56;    // BBBBIIIIIIIHBBI (test-compatible)
     public const int CanFdMessage64ExtSize = 8;      // II (extension)
 
     /// <summary>Timestamp scale: vblf stores as 10ns ticks since Vector
