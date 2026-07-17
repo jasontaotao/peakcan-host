@@ -111,6 +111,32 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
+                <!-- W41 MINOR: streaming partial-summary panel. Visible only when
+     RunAnalysisStreamingCommand is in-flight (IsLoading toggles the
+     visibility). Shows the running summary text + evidence IDs as they
+     accumulate — first-token latency drops from ~30s to ~1s. -->
+<StackPanel Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
+            Margin="8">
+    <TextBlock Text="流式输出（实时）" FontWeight="SemiBold" Margin="0,0,0,4"
+               Foreground="#1565C0" />
+    <Border BorderBrush="#90CAF9" BorderThickness="1" CornerRadius="3"
+            Padding="8" Margin="0,0,0,8" MaxHeight="200">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <TextBlock Text="{Binding StreamingSummary}" TextWrapping="Wrap"
+                       FontFamily="Consolas, Courier New, monospace" />
+        </ScrollViewer>
+    </Border>
+    <TextBlock Text="Evidence IDs (streaming)" FontWeight="SemiBold"
+               Margin="0,0,0,4" />
+    <ItemsControl ItemsSource="{Binding StreamingEvidenceIds}">
+        <ItemsControl.ItemTemplate>
+            <DataTemplate>
+                <TextBlock Text="{Binding}" Margin="0,0,8,0" />
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</StackPanel>
+
                 <!-- Summary -->
                 <TextBlock Text="{Binding CurrentAnalysisSession.Report.Summary}"
                            Margin="0,8,0,0"
