@@ -19,6 +19,7 @@ using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -130,7 +131,7 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     recentTemp),
@@ -455,7 +456,7 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -548,7 +549,7 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -682,7 +683,7 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -979,7 +980,7 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -1075,7 +1076,7 @@ public class AppShellViewModelTests
                 new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                 new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),

@@ -9,6 +9,7 @@ using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using Xunit;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -62,7 +63,8 @@ public class AnchorSnapshotFlowTests
             Substitute.For<LocalAnalyzer>(),
             Substitute.For<AnalysisSessionRegistry>(),
             Substitute.For<ILlmProvider>(),
-            Substitute.For<IFrameSourceProvider>());
+            Substitute.For<IFrameSourceProvider>(),
+            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
         if (greenSet) vm.RefreshAtAnchor(1.0);
         if (blueSet) vm.RefreshAtAnchorBlue(1.5);
         return vm;

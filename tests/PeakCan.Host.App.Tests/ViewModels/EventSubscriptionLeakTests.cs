@@ -11,6 +11,7 @@ using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using Xunit;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -196,7 +197,8 @@ public sealed class EventSubscriptionLeakTests : IDisposable
             registry,
             dbc,
             NullLogger<TraceViewerViewModel>.Instance,
-            NewLibrary(_libraryPath));
+            NewLibrary(_libraryPath),
+            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
 
         var signalsBefore = vm.Signals.Count;
         signalsBefore.Should().Be(0, "empty registry → no signals");

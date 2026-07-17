@@ -16,6 +16,7 @@ using PeakCan.Host.Core.Replay;
 using Xunit;
 using FrameFlags = PeakCan.Host.Core.FrameFlags;
 using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels.TraceViewerViewModelFlow;
 
@@ -36,7 +37,8 @@ public class GreenLineAnchorFlowTests
             registry,
             dbcService,
             NullLogger<TraceViewerViewModel>.Instance,
-            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance));
+            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
+            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
     }
 
     /// <summary>Inject one <see cref="TraceChartSeries"/> per (chart, model)

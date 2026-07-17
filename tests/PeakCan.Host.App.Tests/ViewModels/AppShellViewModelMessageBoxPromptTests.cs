@@ -18,6 +18,7 @@ using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -161,7 +162,8 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 registry,
                 new FakeDbcService(),
                 NullLogger<TraceViewerViewModel>.Instance,
-                NewRealSessionLibrary(sessionLibraryPath)),
+                NewRealSessionLibrary(sessionLibraryPath),
+                apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 recentTemp),

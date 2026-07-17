@@ -8,6 +8,7 @@ using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using Xunit;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -56,7 +57,8 @@ public class AnalysisFlowTests
             Substitute.For<LocalAnalyzer>(),
             Substitute.For<AnalysisSessionRegistry>(),
             Substitute.For<ILlmProvider>(),
-            frameSource);
+            frameSource,
+            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
     }
 
     [Fact]

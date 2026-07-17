@@ -9,6 +9,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.Services.Trace;
 
@@ -73,7 +74,8 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         var dbc = Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
         var logger = NullLogger<TraceViewerViewModel>.Instance;
         return new TraceViewerViewModel(
-            registry, dbc, logger, library, fileDialog: null);
+            registry, dbc, logger, library, fileDialog: null,
+            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
     }
 
     private static TraceSessionLibrary MakeLib(string path) =>
