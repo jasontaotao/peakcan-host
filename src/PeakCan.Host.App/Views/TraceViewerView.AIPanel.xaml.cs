@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 
 namespace PeakCan.Host.App.Views;
@@ -17,4 +18,19 @@ namespace PeakCan.Host.App.Views;
 public partial class TraceViewerViewAIPanel : UserControl
 {
     public TraceViewerViewAIPanel() => InitializeComponent();
+
+    /// <summary>
+    /// W40 P2 PATCH: refresh the SetApiKeyCommand CanExecute whenever
+    /// the PasswordBox content changes — CanExecute is computed from
+    /// <c>!string.IsNullOrWhiteSpace(value)</c> and WPF does not auto-
+    /// raise CommandManager.RequerySuggested on PasswordBox.Password
+    /// property changes (unlike TextBox.Text).
+    /// </summary>
+    private void ApiKeyInput_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.TraceViewerViewModel vm)
+        {
+            vm.SetApiKeyCommand.NotifyCanExecuteChanged();
+        }
+    }
 }

@@ -88,6 +88,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // the App-layer TraceSessionRegistry implements IFrameSourceProvider
     // (dual-interface in T9) so the same DI singleton satisfies both.
     private readonly IFrameSourceProvider _frameSource;
+    // W40 P2 PATCH: API Key UI manager — wraps ICredentialStore to
+    // expose configured/not-configured state to the AI Analysis panel
+    // without leaking the key value itself. Singleton so the
+    // LastUpdatedAt timestamp is stable across the WPF session.
+    private readonly PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager _apiKeyManager;
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -221,7 +226,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
         IAscLocator? locator = null,
-        TraceSessionSnapshotBuilder? builder = null)
+        TraceSessionSnapshotBuilder? builder = null,
+        PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager? apiKeyManager = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
@@ -251,6 +257,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // compiling. Production DI wires a singleton builder; the
         // default keeps unit-test hermeticity — no DI container required.
         _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
+        // W40 P2 PATCH: API Key manager. Nullable default keeps the
+        // legacy ctor signature (without ApiKeyManager arg) compiling
+        // for existing tests; production DI passes a real instance.
+        // T6 follows up with Substitute.For<ApiKeyManager>() at every
+        // existing test callsite.
+        _apiKeyManager = apiKeyManager ?? throw new ArgumentNullException(nameof(apiKeyManager));
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace

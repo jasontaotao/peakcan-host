@@ -19,6 +19,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.Windows;
 
@@ -91,7 +92,10 @@ public class UdsWindowTests
                 new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, recentTemp)),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
             new TraceViewerViewModel(NSubstitute.Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance,
-                new TraceSessionLibrary(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"uds-traceview-{System.Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance)),
+                new TraceSessionLibrary(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"uds-traceview-{System.Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
+                apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, recentTemp),
             NSubstitute.Substitute.For<IFileDialogService>(),
             NSubstitute.Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());

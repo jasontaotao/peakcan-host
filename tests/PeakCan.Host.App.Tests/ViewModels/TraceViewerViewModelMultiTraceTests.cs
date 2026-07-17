@@ -12,6 +12,7 @@ using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using Xunit;
 using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -35,7 +36,9 @@ public class TraceViewerViewModelMultiTraceTests
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Adding a source should raise PropertyChanged on Sources (or fire
         // the SourcesChanged event through the VM). Verify the VM exposed
@@ -59,7 +62,9 @@ public class TraceViewerViewModelMultiTraceTests
         // the test wants the registry to receive.
         var dialog = Substitute.For<PeakCan.Host.Core.IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/b.asc");
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await vm.AddTraceAsync();
 
@@ -71,7 +76,9 @@ public class TraceViewerViewModelMultiTraceTests
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await vm.RemoveTraceAsync("guid-target");
 
@@ -89,7 +96,9 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Pre-load the per-source services onto the fake registry (in production
         // the real registry hands them out via LoadAsync). The VM's
@@ -118,7 +127,9 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         vm.MasterSourceId.Should().Be("guid-1");
     }

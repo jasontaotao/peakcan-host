@@ -8,6 +8,37 @@
              xmlns:analysis="clr-namespace:PeakCan.Host.Core.Analysis;assembly=PeakCan.Host.Core"
              mc:Ignorable="d">
     <Grid>
+        <!-- W40 P2 PATCH: API Key setup region. Permanent at the top of
+             the AI Analysis panel so the operator always sees the current
+             configured/not-configured state without needing to dig through
+             Windows Credential Manager. PasswordBox prevents plaintext
+             leakage to UI automation + screenshots. -->
+        <Border Background="#FFF8E1" BorderBrush="#FFE082" BorderThickness="1"
+                Padding="8" Margin="0,0,0,8" CornerRadius="3"
+                Visibility="{Binding ShowApiKeySetup, Converter={StaticResource BoolToVis}}">
+            <StackPanel>
+                <TextBlock Text="DeepSeek API Key 设置" FontWeight="SemiBold" Margin="0,0,0,4" />
+                <TextBlock Text="{Binding ApiKeyStatusText}" Foreground="Gray" Margin="0,0,0,8" />
+
+                <StackPanel Orientation="Horizontal">
+                    <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0"
+                                 PasswordChanged="ApiKeyInput_PasswordChanged" />
+                    <Button Content="保存" Margin="0,0,4,0"
+                            Command="{Binding SetApiKeyCommand}"
+                            CommandParameter="{Binding ElementName=ApiKeyInput, Path=Password}" />
+                    <Button Content="清除" Margin="0,0,4,0"
+                            Command="{Binding RemoveApiKeyCommand}" />
+                    <Button Content="测试连接"
+                            Command="{Binding TestConnectionCommand}" />
+                </StackPanel>
+
+                <TextBlock Text="{Binding ApiKeyLastError}" Foreground="#D32F2F"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding HasApiKeyError, Converter={StaticResource BoolToVis}}"
+                           Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
         <!-- v3.52.0 MINOR T10: empty-state hint. Visible only when no
              AnalysisSession has been produced yet. Sister of Watch List
              + Sampling Table tabs; sits in the right-side panel column.
