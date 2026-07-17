@@ -1,0 +1,6 @@
+W38 ranges captured at T0 (commit 5b2a5d6):
+- LOG_START=196, LOG_END=225 (5 [LoggerMessage] + OnWebView2InitFailed, ~30 LoC)
+- OUTPUT_START=26, OUTPUT_END=186 (buffer fields + const + ClearOutput + OnOutputReceived + FlushOutputBuffer, ~60 LoC)
+- EXEC_START=80, EXEC_END=129 (RunAsync + Stop + CanRun + CanStop, ~40 LoC)
+
+NOTE: After T1 deletion, OUTPUT/EXEC line numbers SHIFT. T2/T3 implementers MUST re-grep post-T(N-1) before running deletion script.
