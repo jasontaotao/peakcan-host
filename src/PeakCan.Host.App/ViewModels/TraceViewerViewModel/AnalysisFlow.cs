@@ -162,4 +162,71 @@ public sealed partial class TraceViewerViewModel
             ? "API key 已配置；运行分析时将自动调用 DeepSeek 验证"
             : "API key 未配置；运行分析会失败";
     }
+
+    // === W41 MINOR: Streaming LLM Response (partial-summary UI) ===
+
+    /// <summary>
+    /// W41 MINOR: streaming summary bound to AI Analysis panel partial
+    /// TextBlock. Appended incrementally as DeepSeekProvider emits
+    /// LlmPartialUpdate.PartialSummary chunks.
+    /// </summary>
+    [ObservableProperty]
+    private string _streamingSummary = "";
+
+    /// <summary>
+    /// W41 MINOR: streaming Evidence IDs accumulated as
+    /// PartialEvidenceId chunks arrive; final filtered set lands in
+    /// CurrentAnalysisSession.Report.AttributedEvidenceIds on FinalResult.
+    /// </summary>
+    [ObservableProperty]
+    private System.Collections.Generic.IReadOnlyList<string> _streamingEvidenceIds =
+        System.Array.Empty<string>();
+
+    [RelayCommand(CanExecute = nameof(CanRunAnalysis))]
+    private async Task RunAnalysisStreamingAsync()
+    {
+        if (CurrentAnchorSnapshot is null)
+        {
+            ErrorMessage = "请先设绿/蓝锚并点『锁定 anchor 状态』";
+            return;
+        }
+
+        IsLoading = true;
+        StatusMessage = "分析中 (streaming)...";
+        StreamingSummary = "";
+        StreamingEvidenceIds = System.Array.Empty<string>();
+
+        try
+        {
+            await foreach (var update in _llmProvider.AnalyzeStreamingAsync(CurrentAnalysisSession!, ct: default).ConfigureAwait(true))
+            {
+                switch (update)
+                {
+                    case LlmPartialUpdate.PartialSummary ps:
+                        StreamingSummary += ps.Delta;
+                        break;
+                    case LlmPartialUpdate.PartialEvidenceId peid:
+                        var newIds = StreamingEvidenceIds.Append(peid.EvidenceId).ToArray();
+                        StreamingEvidenceIds = newIds;
+                        break;
+                    case LlmPartialUpdate.FinalResult fr:
+                        // FinalResult carries LlmAnalysisResult (summary + cited IDs),
+                        // not a full AnalysisSession — leave CurrentAnalysisSession
+                        // from the local pass intact. StreamingSummary already
+                        // contains the accumulated text from PartialSummary chunks.
+                        StatusMessage = fr.Result.Error ?? "分析完成（流式）";
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"分析异常: {ex.GetType().Name}";
+            _logger.LogWarning(ex, "RunAnalysisStreamingAsync failed");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
 }

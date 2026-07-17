@@ -18,7 +18,7 @@ public class DeepSeekProviderTests
 {
     private static readonly string[] E0001Single = { "E-0001" };
 
-    private static DeepSeekOptions DefaultOptions() => new();
+    private static DeepSeekOptions DefaultOptions() => new() { UseStreaming = false };
 
     private static AnalysisSession MakeSession(string evidenceId = "E-0001")
     {
