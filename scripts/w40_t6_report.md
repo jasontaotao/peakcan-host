@@ -4,7 +4,7 @@
 all 88 callsites across 15 test files.
 
 **Base:** `1aafd0d` (W40 T5 VM ctor break)
-**Head:** `<see COMMITS line>`
+**Head:** `73f3f06` (T6 commit)
 **Branch:** `feature/w40-p2-api-key-ui`
 
 ## Files modified (15 test files + 1 src file)
@@ -118,7 +118,7 @@ $ dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --no-
   that fill `EvidenceExtractor?` slot 5.
 
 STATUS: DONE
-COMMITS: <see base7>..<head7>
+COMMITS: 1aafd0d..73f3f06
 TEST_SUMMARY: 165/165 PASS in targeted filter; 849/849 PASS in full App.Tests (3 SKIP, 3 runs); 521/521 PASS in Core.Tests (3 runs)
 FILES_MODIFIED: AppLifecycleShutdownTests.cs, TraceSessionAutoSaverTests.cs, AnalysisFlowTests.cs, AnchorSnapshotFlowTests.cs, AppShellViewModelMessageBoxPromptTests.cs, AppShellViewModelTests.cs, EventSubscriptionLeakTests.cs, GreenLineAnchorFlowTests.cs, TraceViewerViewModelCanIdFilterTests.cs, TraceViewerViewModelChartWiringTests.cs, TraceViewerViewModelFixtureIntegrationTests.cs, TraceViewerViewModelMultiTraceTests.cs, TraceViewerViewModelRebuildSignalsTests.cs, TraceViewerViewModelTests.cs, UdsWindowTests.cs, ApiKeyManager.cs
 CONCERNS: 4 pre-existing CRLF→LF dirty doc files in v1-6-5/v1-6-6 plans stashed (not W40 T6 work); plan T6 scope originally listed 1 file (should reflect 15).
