@@ -1,0 +1,6 @@
+W39 ranges captured at T0 (commit 2f50aca):
+- LOAD_START=101, LOAD_END=154 (OpenAsync + OnLoaded + OnLoadFailed, ~54 LoC)
+- SEARCH_START=162, SEARCH_END=178 (OnSearchTextChanged + ApplyFilter, ~17 LoC)
+- EXPORT_START=180, EXPORT_END=208 (ExportCsv, ~29 LoC)
+
+NOTE: After T1 deletion, SEARCH/EXPORT line numbers SHIFT. T2/T3 implementers MUST re-grep post-T(N-1) before running deletion script.
