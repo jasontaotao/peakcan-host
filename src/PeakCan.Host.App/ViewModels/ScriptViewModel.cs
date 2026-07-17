@@ -23,15 +23,8 @@ public sealed partial class ScriptViewModel : ObservableObject
     private readonly ILogger<ScriptViewModel> _logger;
     private readonly ScriptEngine _engine;
 
-    // Buffer for output lines from the script engine.
-    private readonly Queue<ScriptOutputLine> _outputBuffer = new();
-    private readonly object _bufferLock = new();
-
     // Timer for flushing output buffer to UI at 30 Hz.
     private readonly System.Windows.Threading.DispatcherTimer _flushTimer;
-
-    /// <summary>Maximum output lines to keep in the UI.</summary>
-    public const int MaxOutputLines = 1000;
 
     [ObservableProperty]
     private string _scriptText = "";
@@ -127,62 +120,6 @@ public sealed partial class ScriptViewModel : ObservableObject
 
     private bool CanStop() => IsRunning;
 
-    /// <summary>Clear the output panel.</summary>
-    [RelayCommand]
-    private void ClearOutput()
-    {
-        OutputLines.Clear();
-        lock (_bufferLock)
-        {
-            _outputBuffer.Clear();
-        }
-    }
-
-    /// <summary>
-    /// Called by the script engine when output is produced.
-    /// Queues the line for UI flush.
-    /// </summary>
-    private void OnOutputReceived(ScriptOutputLine line)
-    {
-        lock (_bufferLock)
-        {
-            _outputBuffer.Enqueue(line);
-        }
-    }
-
-    /// <summary>
-    /// Flush buffered output lines to the UI collection.
-    /// Called at 30 Hz by the dispatcher timer.
-    /// </summary>
-    private void FlushOutputBuffer()
-    {
-        ScriptOutputLine[] lines;
-        lock (_bufferLock)
-        {
-            if (_outputBuffer.Count == 0) return;
-            lines = [.. _outputBuffer];
-            _outputBuffer.Clear();
-        }
-
-        foreach (var line in lines)
-        {
-            var prefix = line.Level switch
-            {
-                ScriptOutputLevel.Warning => "⚠ ",
-                ScriptOutputLevel.Error => "❌ ",
-                _ => ""
-            };
-
-            var formatted = $"[{line.Timestamp:HH:mm:ss}] {prefix}{line.Message}";
-            OutputLines.Add(formatted);
-
-            // Trim old lines if we exceed the limit.
-            while (OutputLines.Count > MaxOutputLines)
-            {
-                OutputLines.RemoveAt(0);
-            }
-        }
-    }
 
     /// <summary>
     /// Cleanup: stop timer and unsubscribe from engine events.
