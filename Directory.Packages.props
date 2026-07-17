@@ -6,6 +6,9 @@
     <PackageVersion Include="Peak.PCANBasic.NET" Version="5.0.1.1131" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <!-- v3.54.0 MINOR P1b: IHttpClientFactory for DeepSeekProvider.
+         Aligned with the Microsoft.Extensions.* family (10.0.9). -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
