@@ -23,15 +23,8 @@ public sealed partial class ScriptViewModel : ObservableObject
     private readonly ILogger<ScriptViewModel> _logger;
     private readonly ScriptEngine _engine;
 
-    // Buffer for output lines from the script engine.
-    private readonly Queue<ScriptOutputLine> _outputBuffer = new();
-    private readonly object _bufferLock = new();
-
     // Timer for flushing output buffer to UI at 30 Hz.
     private readonly System.Windows.Threading.DispatcherTimer _flushTimer;
-
-    /// <summary>Maximum output lines to keep in the UI.</summary>
-    public const int MaxOutputLines = 1000;
 
     [ObservableProperty]
     private string _scriptText = "";
@@ -77,112 +70,7 @@ public sealed partial class ScriptViewModel : ObservableObject
         _flushTimer.Start();
     }
 
-    /// <summary>Run the current script.</summary>
-    [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task RunAsync()
-    {
-        if (string.IsNullOrWhiteSpace(ScriptText)) return;
 
-        IsRunning = true;
-        StatusText = "Running...";
-        OutputLines.Clear();
-
-        try
-        {
-            var result = await _engine.RunAsync(ScriptText).ConfigureAwait(true);
-
-            if (result.Success)
-            {
-                StatusText = "Completed";
-                LogScriptCompleted(_logger);
-            }
-            else
-            {
-                StatusText = $"Error: {result.Error}";
-                LogScriptFailed(_logger, result.Error ?? "Unknown error");
-            }
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Error: {ex.Message}";
-            LogScriptException(_logger, ex);
-        }
-        finally
-        {
-            IsRunning = false;
-        }
-    }
-
-    private bool CanRun() => !IsRunning;
-
-    /// <summary>Stop the running script.</summary>
-    [RelayCommand(CanExecute = nameof(CanStop))]
-    private void Stop()
-    {
-        _engine.Stop();
-        StatusText = "Stopped";
-        IsRunning = false;
-        LogScriptStopped(_logger);
-    }
-
-    private bool CanStop() => IsRunning;
-
-    /// <summary>Clear the output panel.</summary>
-    [RelayCommand]
-    private void ClearOutput()
-    {
-        OutputLines.Clear();
-        lock (_bufferLock)
-        {
-            _outputBuffer.Clear();
-        }
-    }
-
-    /// <summary>
-    /// Called by the script engine when output is produced.
-    /// Queues the line for UI flush.
-    /// </summary>
-    private void OnOutputReceived(ScriptOutputLine line)
-    {
-        lock (_bufferLock)
-        {
-            _outputBuffer.Enqueue(line);
-        }
-    }
-
-    /// <summary>
-    /// Flush buffered output lines to the UI collection.
-    /// Called at 30 Hz by the dispatcher timer.
-    /// </summary>
-    private void FlushOutputBuffer()
-    {
-        ScriptOutputLine[] lines;
-        lock (_bufferLock)
-        {
-            if (_outputBuffer.Count == 0) return;
-            lines = [.. _outputBuffer];
-            _outputBuffer.Clear();
-        }
-
-        foreach (var line in lines)
-        {
-            var prefix = line.Level switch
-            {
-                ScriptOutputLevel.Warning => "⚠ ",
-                ScriptOutputLevel.Error => "❌ ",
-                _ => ""
-            };
-
-            var formatted = $"[{line.Timestamp:HH:mm:ss}] {prefix}{line.Message}";
-            OutputLines.Add(formatted);
-
-            // Trim old lines if we exceed the limit.
-            while (OutputLines.Count > MaxOutputLines)
-            {
-                OutputLines.RemoveAt(0);
-            }
-        }
-    }
 
     /// <summary>
     /// Cleanup: stop timer and unsubscribe from engine events.
@@ -191,35 +79,5 @@ public sealed partial class ScriptViewModel : ObservableObject
     {
         _flushTimer.Stop();
         _engine.OutputReceived -= OnOutputReceived;
-    }
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Script completed successfully")]
-    private static partial void LogScriptCompleted(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Script failed: {Error}")]
-    private static partial void LogScriptFailed(ILogger logger, string error);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Script execution exception")]
-    private static partial void LogScriptException(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Script stopped by user")]
-    private static partial void LogScriptStopped(ILogger logger);
-
-    [LoggerMessage(EventId = 4001, Level = LogLevel.Error, Message = "WebView2 init failed")]
-    private static partial void LogWebView2InitFailed(ILogger logger, Exception ex);
-
-    /// <summary>
-    /// v1.2.12 PATCH Item 7 review I-2/I-3: invoked by ScriptView.OnLoaded
-    /// when EnsureCoreWebView2Async or NavigateToString throws. Sets
-    /// IsEditorReady = false + EditorError message AND logs the underlying
-    /// exception via [LoggerMessage] LogWebView2InitFailed. Keeps the WPF
-    /// view free of logger plumbing (DI-incompatible) while satisfying
-    /// the spec's logging requirement.
-    /// </summary>
-    public void OnWebView2InitFailed(Exception ex, string message)
-    {
-        LogWebView2InitFailed(_logger, ex);
-        IsEditorReady = false;
-        EditorError = message;
     }
 }
