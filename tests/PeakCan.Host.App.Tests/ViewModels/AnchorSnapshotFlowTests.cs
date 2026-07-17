@@ -64,7 +64,9 @@ public class AnchorSnapshotFlowTests
             Substitute.For<AnalysisSessionRegistry>(),
             Substitute.For<ILlmProvider>(),
             Substitute.For<IFrameSourceProvider>(),
-            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
+            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         if (greenSet) vm.RefreshAtAnchor(1.0);
         if (blueSet) vm.RefreshAtAnchorBlue(1.5);
         return vm;

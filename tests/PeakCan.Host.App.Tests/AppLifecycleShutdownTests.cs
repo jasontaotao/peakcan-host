@@ -160,7 +160,9 @@ public class AppLifecycleShutdownTests : IDisposable
         var dbc = Substitute.For<DbcService>(Substitute.For<Microsoft.Extensions.Logging.ILogger<DbcService>>());
         var vm = new TraceViewerViewModel(
             registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null,
-            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
+            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         var provider = new RecordingTraceVmProvider(vm);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();

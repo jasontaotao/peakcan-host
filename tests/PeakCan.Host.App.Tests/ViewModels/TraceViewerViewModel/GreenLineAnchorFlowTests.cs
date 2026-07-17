@@ -38,7 +38,9 @@ public class GreenLineAnchorFlowTests
             dbcService,
             NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
-            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
+            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
     }
 
     /// <summary>Inject one <see cref="TraceChartSeries"/> per (chart, model)

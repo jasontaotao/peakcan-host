@@ -198,7 +198,9 @@ public sealed class EventSubscriptionLeakTests : IDisposable
             dbc,
             NullLogger<TraceViewerViewModel>.Instance,
             NewLibrary(_libraryPath),
-            apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>());
+            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var signalsBefore = vm.Signals.Count;
         signalsBefore.Should().Be(0, "empty registry → no signals");

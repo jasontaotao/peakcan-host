@@ -11,11 +11,7 @@ namespace PeakCan.Host.App.Services.AnalysisApiKey;
 /// callers that need to use the key (e.g. <see cref="LlmProvider.DeepSeekProvider"/>)
 /// read it directly via <see cref="ICredentialStore"/>, not through this helper.
 /// </summary>
-// W40 P2 PATCH: intentionally NOT sealed so NSubstitute can proxy it
-// in test callsites (sister of v3.52.1 PATCH T3 unsealing
-// EvidenceExtractor / LocalAnalyzer / AnalysisSessionRegistry for the
-// same reason — Castle.DynamicProxy cannot proxy sealed types).
-public class ApiKeyManager
+public sealed class ApiKeyManager
 {
     /// <summary>
     /// Credential key under which the DeepSeek API key is stored.
@@ -26,20 +22,6 @@ public class ApiKeyManager
     private readonly ICredentialStore _store;
     private readonly ILogger<ApiKeyManager> _logger;
     private DateTimeOffset? _lastUpdatedAtUtc;
-
-    // W40 P2 PATCH: parameterless ctor is required so NSubstitute can
-    // proxy this class in test callsites (sister of v3.52.1 PATCH T3
-    // unsealing rationale — Castle.DynamicProxy requires a parameterless
-    // ctor on the proxied class). Production code paths use the (store,
-    // logger) ctor below which throws on null. Tests that pass a
-    // Substitute.For<ApiKeyManager>() never invoke CheckAsync/SetAsync/
-    // RemoveAsync because the proxy intercepts every method call, so
-    // the uninitialized _store/_logger never triggers an NRE.
-    protected ApiKeyManager()
-    {
-        _store = null!;
-        _logger = null!;
-    }
 
     public ApiKeyManager(ICredentialStore store, ILogger<ApiKeyManager> logger)
     {

@@ -163,7 +163,9 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 new FakeDbcService(),
                 NullLogger<TraceViewerViewModel>.Instance,
                 NewRealSessionLibrary(sessionLibraryPath),
-                apiKeyManager: Substitute.For<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>()),
+                apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
+                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 recentTemp),
