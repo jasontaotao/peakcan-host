@@ -57,60 +57,6 @@ public sealed partial class WatchedSignalRow : ObservableObject
 
     // === v3.50.5 PATCH: string-formatted columns for XAML binding ===
     // Sister pattern of DeltaValue computed property: prefer DBC VAL_ table
-    // text when the signal + Dbc document are bound; fall back to F2 numeric
-    // formatting; NaN → "—" placeholder. These properties drive the watch
-    // list's Latest / Δ / Blue columns; the XAML binding drops the
-    // DoubleNanToStr converter since the .Text properties handle NaN
-    // formatting internally.
-
-    /// <summary>Decoded Latest value as a string for XAML binding.
-    /// Prefers DBC VAL_ table text when available; falls back to F2 numeric.</summary>
-    public string LatestText
-    {
-        get
-        {
-            if (IsPlaceholder || double.IsNaN(_latestValue)) return DoubleNanToStringConverter.Placeholder;
-            if (_signal is not null && _dbc is not null)
-            {
-                var text = SignalDecoder.TryDecodeEnumText(_signal, _latestValue, _dbc);
-                if (text is not null) return text;
-            }
-            // v3.50.6 PATCH: factor-derived precision replaces F2.
-            return SignalFormatter.FormatValue(_decimalDigits, _latestValue);
-        }
-    }
-
-    /// <summary>Decoded Blue (comparison anchor) value as a string for XAML binding.
-    /// Same fallback semantics as <see cref="LatestText"/>.</summary>
-    public string BlueText
-    {
-        get
-        {
-            if (double.IsNaN(_blueLatestValue)) return DoubleNanToStringConverter.Placeholder;
-            if (_signal is not null && _dbc is not null)
-            {
-                var text = SignalDecoder.TryDecodeEnumText(_signal, _blueLatestValue, _dbc);
-                if (text is not null) return text;
-            }
-            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue);
-        }
-    }
-
-    /// <summary>Δ as a string for XAML binding. Enum signals show "—" (no
-    /// subtractable semantics between text labels); numeric signals show
-    /// F2 diff. NaN → "—" placeholder.</summary>
-    public string DeltaText
-    {
-        get
-        {
-            if (double.IsNaN(_latestValue) || double.IsNaN(_blueLatestValue))
-                return DoubleNanToStringConverter.Placeholder;
-            // G4: enum signals have no subtractable semantics between text labels.
-            if (_signal?.ValueTableName is not null)
-                return DoubleNanToStringConverter.Placeholder;
-            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue - _latestValue);
-        }
-    }
 
     /// <summary>True for the single placeholder row shown when the
     /// watch list is empty. Placeholder rows are not interactive —
