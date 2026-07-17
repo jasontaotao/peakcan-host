@@ -170,6 +170,10 @@ public partial class AppHostBuilder
         services.AddSingleton<PeakCan.Host.Core.Analysis.EvidenceExtractor>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.LocalAnalyzer>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.AnalysisSessionRegistry>();
+        // v3.53.1 PATCH P1a: API Key secure storage via Windows Credential Manager
+        // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
+        services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
+                             PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider,
                                PeakCan.Host.Core.Analysis.NotImplementedLlmProvider>();
         services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
