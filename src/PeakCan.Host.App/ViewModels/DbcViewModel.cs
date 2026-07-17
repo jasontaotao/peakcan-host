@@ -103,27 +103,6 @@ public sealed partial class DbcViewModel : ObservableObject
     private static partial void LogOpenInvoked(ILogger logger, string path);
 
     /// <summary>
-    /// Called when <see cref="SearchText"/> changes. Filters the
-    /// <see cref="FilteredMessages"/> collection.
-    /// </summary>
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
-
-    private void ApplyFilter()
-    {
-        FilteredMessages.Clear();
-        var pattern = SearchText.AsSpan().Trim();
-        foreach (var m in _allMessages)
-        {
-            if (pattern.Length == 0
-                || m.Name.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase)
-                || m.Sender.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                FilteredMessages.Add(m);
-            }
-        }
-    }
-
-    /// <summary>
     /// Export DBC messages to a CSV file.
     /// </summary>
     [RelayCommand]
