@@ -175,6 +175,11 @@ public partial class AppHostBuilder
         // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
         services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
                              PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore>();
+        // W40 P2 PATCH: ApiKeyManager wraps ICredentialStore to expose
+        // configured/not-configured state to the AI Analysis panel without
+        // leaking the key value itself. Singleton so the LastUpdatedAt
+        // timestamp is stable across the WPF session.
+        services.AddSingleton<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>();
         // v3.54.0 MINOR P1b: DeepSeekProvider is now the default ILlmProvider
         // impl. NotImplementedLlmProvider kept for explicit fallback (D7).
         // DeepSeekProvider reads API key from ICredentialStore (v3.53.1 P1a
