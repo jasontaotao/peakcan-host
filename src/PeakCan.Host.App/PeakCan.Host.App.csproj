@@ -9,6 +9,14 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="OxyPlot.Wpf" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- v3.54.0 MINOR P1b: IHttpClientFactory for DeepSeekProvider.
+         Per hard-boundary #15, HttpClient is NOT held as a long-lived
+         field — created per call via IHttpClientFactory (named client
+         "DeepSeek" wired in AppServicesFlow.cs). Microsoft.Extensions.Hosting
+         pulls Microsoft.Extensions.Http transitively in .NET 10, but the
+         explicit reference documents intent and shields against future
+         transitive-package pruning. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />

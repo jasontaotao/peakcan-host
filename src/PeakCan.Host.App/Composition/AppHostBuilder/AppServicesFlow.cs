@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.LlmProvider;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core;
@@ -174,8 +175,18 @@ public partial class AppHostBuilder
         // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
         services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
                              PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore>();
-        services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider,
-                               PeakCan.Host.Core.Analysis.NotImplementedLlmProvider>();
+        // v3.54.0 MINOR P1b: DeepSeekProvider is now the default ILlmProvider
+        // impl. NotImplementedLlmProvider kept for explicit fallback (D7).
+        // DeepSeekProvider reads API key from ICredentialStore (v3.53.1 P1a
+        // security foundation) — never from appsettings.json.
+        services.AddHttpClient("DeepSeek", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.54.0");
+        });
+        services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
+        // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)
+        services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(options => { });
         services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
     }
