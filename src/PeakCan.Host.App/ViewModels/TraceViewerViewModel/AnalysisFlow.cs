@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core.Analysis;
@@ -83,4 +84,82 @@ public sealed partial class TraceViewerViewModel
 
     [LoggerMessage(Level = LogLevel.Error, Message = "AI analysis failed")]
     private static partial void LogAnalysisFailed(ILogger logger, Exception ex);
+
+    // W40 P2 PATCH: API Key setup UI state. Bound from the AI Analysis
+    // panel (TraceViewerView.AIPanel.xaml). The DeepSeekProvider reads
+    // the key via ICredentialStore directly — these properties expose
+    // only metadata (configured/error/timestamp), never the key value.
+    [ObservableProperty]
+    private PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyStatus _apiKeyStatus =
+        new(PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.NotSet);
+
+    [ObservableProperty]
+    private string _apiKeyStatusText = "未配置";
+
+    [ObservableProperty]
+    private string? _apiKeyLastError;
+
+    [ObservableProperty]
+    private bool _hasApiKeyError;
+
+    [ObservableProperty]
+    private bool _showApiKeySetup = true;
+
+    // W40 P2 PATCH: refresh the status display after any UI operation.
+    // Called by all 3 commands + the panel's Loaded event.
+    private void UpdateApiKeyStatusDisplay(PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyStatus status)
+    {
+        ApiKeyStatus = status;
+        ApiKeyStatusText = status.State switch
+        {
+            PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured =>
+                status.LastUpdatedAt is { } ts
+                    ? $"已配置 (更新于 {ts:yyyy-MM-dd HH:mm})"
+                    : "已配置",
+            _ => "未配置",
+        };
+        ApiKeyLastError = status.LastError;
+        HasApiKeyError = !string.IsNullOrEmpty(status.LastError);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSetApiKey))]
+    private async Task SetApiKeyAsync(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            UpdateApiKeyStatusDisplay(new(
+                PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.NotSet,
+                LastError: "API key is empty"));
+            return;
+        }
+        UpdateApiKeyStatusDisplay(await _apiKeyManager.SetAsync(value));
+    }
+
+    private bool CanSetApiKey(string? value) => !string.IsNullOrWhiteSpace(value);
+
+    [RelayCommand]
+    private async Task RemoveApiKeyAsync()
+    {
+        UpdateApiKeyStatusDisplay(await _apiKeyManager.RemoveAsync());
+    }
+
+    // W40 P2 PATCH: "测试连接" — verify the current key is accepted by
+    // DeepSeek (HTTP 200 vs 401). Stub provider call; does NOT trigger a
+    // real network round-trip — the DeepSeekProvider returns Error envelope
+    // without throwing on auth failure, so a missing/invalid key surfaces
+    // via Result.ErrorCode rather than an exception.
+    [RelayCommand]
+    private async Task TestConnectionAsync()
+    {
+        var status = await _apiKeyManager.CheckAsync();
+        UpdateApiKeyStatusDisplay(status);
+        // The actual HTTP probe is performed by RunAnalysisAsync when
+        // the user later runs an analysis. TestConnection here is a
+        // lightweight sanity check that the key is present + persisted;
+        // we don't want to charge DeepSeek API tokens for a UI smoke
+        // test. The StatusMessage updates to inform the operator.
+        StatusMessage = status.State == PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured
+            ? "API key 已配置；运行分析时将自动调用 DeepSeek 验证"
+            : "API key 未配置；运行分析会失败";
+    }
 }
