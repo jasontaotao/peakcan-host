@@ -2003,5 +2003,53 @@ public class TraceViewerViewModelTests
         vm.SamplingRows.Should().BeEmpty(
             "Reset must clear the v3.49 right-edge Sampling Table rows alongside WatchedSignals");
     }
+
+    // ===== W40 P2 PATCH Task 7: 2 integration tests for ApiKeyStatus + SetApiKeyCommand =====
+
+    /// <summary>
+    /// W40 P2 PATCH: <c>ApiKeyManager.CheckAsync()</c> after seeding the
+    /// credential store with a non-empty value must report
+    /// <see cref="ApiKeyConfiguredState.Configured"/>. This pins the
+    /// store-state probe contract — without it, a future change that
+    /// returns NotSet unconditionally (e.g. forgetting the
+    /// <c>string.IsNullOrEmpty</c> check) would silently break the
+    /// "已配置" status text on the AI Analysis panel.
+    /// </summary>
+    [Fact]
+    public async Task ApiKeyStatus_ReflectsStoreState()
+    {
+        var store = Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>();
+        store.GetAsync(ApiKeyManager.CredentialKey, Arg.Any<CancellationToken>())
+            .Returns("sk-existing");
+        var manager = new ApiKeyManager(store, Substitute.For<ILogger<ApiKeyManager>>());
+
+        var status = await manager.CheckAsync();
+
+        status.State.Should().Be(ApiKeyConfiguredState.Configured);
+        status.LastError.Should().BeNull();
+    }
+
+    /// <summary>
+    /// W40 P2 PATCH: invoking <c>manager.SetAsync("sk-new")</c> must
+    /// persist the value through the underlying
+    /// <see cref="ICredentialStore"/> under the canonical
+    /// <see cref="ApiKeyManager.CredentialKey"/>, and the returned status
+    /// must report <see cref="ApiKeyConfiguredState.Configured"/>. Without
+    /// this guard, a future regression that writes to a wrong key (e.g.
+    /// drifts from <c>deepseek-api-key</c>) would silently lose the
+    /// key without any error surfaced to the UI.
+    /// </summary>
+    [Fact]
+    public async Task SetApiKeyCommand_PersistsToStore()
+    {
+        var store = Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>();
+        var manager = new ApiKeyManager(store, Substitute.For<ILogger<ApiKeyManager>>());
+
+        var status = await manager.SetAsync("sk-new");
+
+        await store.Received(1).SetAsync(
+            ApiKeyManager.CredentialKey, "sk-new", Arg.Any<CancellationToken>());
+        status.State.Should().Be(ApiKeyConfiguredState.Configured);
+    }
 }
 
