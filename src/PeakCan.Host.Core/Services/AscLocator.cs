@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace PeakCan.Host.Core.Services;
@@ -173,39 +172,5 @@ public sealed partial class FileSystemAscLocator : IAscLocator
             if (found is not null) return found;
         }
         return null;
-    }
-
-    private List<string> GetSearchDirs()
-    {
-        if (_cachedDirs is not null) return _cachedDirs;
-        lock (_cacheGate)
-        {
-            if (_cachedDirs is not null) return _cachedDirs;
-            _cachedDirs = LoadSearchDirsFromDisk();
-            return _cachedDirs;
-        }
-    }
-
-    private List<string> LoadSearchDirsFromDisk()
-    {
-        try
-        {
-            if (!File.Exists(SearchDirsPath)) return new List<string>();
-            var json = File.ReadAllText(SearchDirsPath);
-            if (string.IsNullOrWhiteSpace(json)) return new List<string>();
-            var dirs = JsonSerializer.Deserialize<List<string>>(json);
-            return dirs ?? new List<string>();
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            LogConfigCorrupt(_logger, ex, SearchDirsPath);
-            return new List<string>();
-        }
-    }
-
-    private static string DefaultSearchDirsPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return System.IO.Path.Combine(appData, "PeakCan.Host", "asc-search-dirs.json");
     }
 }
