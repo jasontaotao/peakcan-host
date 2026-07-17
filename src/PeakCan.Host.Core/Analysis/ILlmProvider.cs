@@ -45,7 +45,7 @@ public sealed class NotImplementedLlmProvider : ILlmProvider
 /// get the single-shot path: call <see cref="ILlmProvider.AnalyzeAsync"/>,
 /// then emit exactly one <see cref="LlmPartialUpdate.FinalResult"/>.
 /// </summary>
-internal static class ILlmProviderExtensions
+public static class ILlmProviderExtensions
 {
     public static async IAsyncEnumerable<LlmPartialUpdate> AnalyzeStreamingFromSingleShot(
         this ILlmProvider provider,
