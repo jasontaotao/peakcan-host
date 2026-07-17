@@ -46,7 +46,7 @@ public sealed class WindowsCredentialManagerStore : ICredentialStore
         try
         {
             var cred = Marshal.PtrToStructure<CREDENTIAL>(credPtr);
-            return Task.FromResult<string?>(Marshal.PtrToStringUni(cred.CredentialBlob));
+            return Task.FromResult<string?>(Marshal.PtrToStringUni(cred.CredentialBlob, (int)cred.CredentialBlobSize / 2));
         }
         finally
         {
