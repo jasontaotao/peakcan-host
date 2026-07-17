@@ -70,55 +70,6 @@ public sealed partial class ScriptViewModel : ObservableObject
         _flushTimer.Start();
     }
 
-    /// <summary>Run the current script.</summary>
-    [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task RunAsync()
-    {
-        if (string.IsNullOrWhiteSpace(ScriptText)) return;
-
-        IsRunning = true;
-        StatusText = "Running...";
-        OutputLines.Clear();
-
-        try
-        {
-            var result = await _engine.RunAsync(ScriptText).ConfigureAwait(true);
-
-            if (result.Success)
-            {
-                StatusText = "Completed";
-                LogScriptCompleted(_logger);
-            }
-            else
-            {
-                StatusText = $"Error: {result.Error}";
-                LogScriptFailed(_logger, result.Error ?? "Unknown error");
-            }
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Error: {ex.Message}";
-            LogScriptException(_logger, ex);
-        }
-        finally
-        {
-            IsRunning = false;
-        }
-    }
-
-    private bool CanRun() => !IsRunning;
-
-    /// <summary>Stop the running script.</summary>
-    [RelayCommand(CanExecute = nameof(CanStop))]
-    private void Stop()
-    {
-        _engine.Stop();
-        StatusText = "Stopped";
-        IsRunning = false;
-        LogScriptStopped(_logger);
-    }
-
-    private bool CanStop() => IsRunning;
 
 
     /// <summary>
