@@ -105,6 +105,15 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty]
     private bool _showApiKeySetup = true;
 
+    // v3.61.0 MINOR: last operation result shown inside the AI panel
+    // (not StatusMessage at window bottom — easier to see in context).
+    // Operator-friendly text like "已保存" / "已清除" / "无效的 Key" etc.
+    [ObservableProperty]
+    private string? _panelOperationText;
+
+    [ObservableProperty]
+    private bool _hasPanelOperationError;
+
     // W40 P2 PATCH: refresh the status display after any UI operation.
     // Called by all 3 commands + the panel's Loaded event.
     private void UpdateApiKeyStatusDisplay(PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyStatus status)
@@ -122,45 +131,107 @@ public sealed partial class TraceViewerViewModel
         HasApiKeyError = !string.IsNullOrEmpty(status.LastError);
     }
 
-    [RelayCommand(CanExecute = nameof(CanSetApiKey))]
+    [RelayCommand]
     private async Task SetApiKeyAsync(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
+            HasPanelOperationError = true;
+            PanelOperationText = "API Key 不能为空";
             UpdateApiKeyStatusDisplay(new(
                 PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.NotSet,
                 LastError: "API key is empty"));
             return;
         }
-        UpdateApiKeyStatusDisplay(await _apiKeyManager.SetAsync(value));
+        var status = await _apiKeyManager.SetAsync(value);
+        UpdateApiKeyStatusDisplay(status);
+        HasPanelOperationError = status.State != PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured;
+        PanelOperationText = status.State == PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured
+            ? "已保存到 Windows Credential Manager"
+            : $"保存失败：{status.LastError}";
     }
-
-    private bool CanSetApiKey(string? value) => !string.IsNullOrWhiteSpace(value);
 
     [RelayCommand]
     private async Task RemoveApiKeyAsync()
     {
-        UpdateApiKeyStatusDisplay(await _apiKeyManager.RemoveAsync());
+        var status = await _apiKeyManager.RemoveAsync();
+        UpdateApiKeyStatusDisplay(status);
+        HasPanelOperationError = false;
+        PanelOperationText = "已清除";
     }
 
-    // W40 P2 PATCH: "测试连接" — verify the current key is accepted by
-    // DeepSeek (HTTP 200 vs 401). Stub provider call; does NOT trigger a
-    // real network round-trip — the DeepSeekProvider returns Error envelope
-    // without throwing on auth failure, so a missing/invalid key surfaces
-    // via Result.ErrorCode rather than an exception.
+    // W40 P2 PATCH: "测试连接" — verify the current key is stored and
+    // attempts a lightweight API probe to confirm it's accepted by
+    // DeepSeek (HTTP 200 vs 401). The probe calls DeepSeek's models
+    // list endpoint which does NOT consume tokens.
     [RelayCommand]
     private async Task TestConnectionAsync()
     {
+        HasPanelOperationError = false;
+        PanelOperationText = "检查中…";
+
+        // Step 1: check local credential store
         var status = await _apiKeyManager.CheckAsync();
         UpdateApiKeyStatusDisplay(status);
-        // The actual HTTP probe is performed by RunAnalysisAsync when
-        // the user later runs an analysis. TestConnection here is a
-        // lightweight sanity check that the key is present + persisted;
-        // we don't want to charge DeepSeek API tokens for a UI smoke
-        // test. The StatusMessage updates to inform the operator.
-        StatusMessage = status.State == PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured
-            ? "API key 已配置；运行分析时将自动调用 DeepSeek 验证"
-            : "API key 未配置；运行分析会失败";
+
+        if (status.State != PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured)
+        {
+            HasPanelOperationError = true;
+            PanelOperationText = "未检测到已保存的 API Key，请先录入并保存";
+            StatusMessage = "API key 未配置；运行分析会失败";
+            return;
+        }
+
+        // Step 2: probe DeepSeek API
+        try
+        {
+            using var http = new System.Net.Http.HttpClient();
+            // v3.61.0: lightweight models list probe — consumes zero tokens.
+            var probeKey = await _apiKeyManager.ReadKeyRawAsync();
+            if (probeKey is null)
+            {
+                HasPanelOperationError = true;
+                PanelOperationText = "无法读取已保存的 API Key";
+                StatusMessage = "API key 读取失败";
+                return;
+            }
+
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", probeKey);
+            var response = await http.GetAsync("https://api.deepseek.com/v1/models",
+                CancellationToken.None);
+
+            if (response.IsSuccessStatusCode)
+            {
+                HasPanelOperationError = false;
+                PanelOperationText = "连接成功 ✓ DeepSeek API Key 有效";
+                StatusMessage = "API key 有效";
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                HasPanelOperationError = true;
+                PanelOperationText = "DeepSeek 返回 401 — API Key 无效";
+                StatusMessage = "API key 无效（401）";
+            }
+            else
+            {
+                HasPanelOperationError = true;
+                PanelOperationText = $"DeepSeek 返回 {(int)response.StatusCode} — 非预期响应";
+                StatusMessage = $"API key 检测异常 (HTTP {(int)response.StatusCode})";
+            }
+        }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            HasPanelOperationError = true;
+            PanelOperationText = $"网络错误：{ex.Message}";
+            StatusMessage = "API key 检测失败（网络不可达）";
+        }
+        catch (TaskCanceledException)
+        {
+            HasPanelOperationError = true;
+            PanelOperationText = "连接超时 — 请检查网络";
+            StatusMessage = "API key 检测超时";
+        }
     }
 
     // === W41 MINOR: Streaming LLM Response (partial-summary UI) ===

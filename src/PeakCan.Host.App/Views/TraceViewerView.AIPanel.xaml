@@ -21,8 +21,7 @@
                 <TextBlock Text="{Binding ApiKeyStatusText}" Foreground="Gray" Margin="0,0,0,8" />
 
                 <StackPanel Orientation="Horizontal">
-                    <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0"
-                                 PasswordChanged="ApiKeyInput_PasswordChanged" />
+                    <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0" />
                     <Button Content="保存" Margin="0,0,4,0"
                             Command="{Binding SetApiKeyCommand}"
                             CommandParameter="{Binding ElementName=ApiKeyInput, Path=Password}" />
@@ -36,6 +35,24 @@
                            TextWrapping="Wrap"
                            Visibility="{Binding HasApiKeyError, Converter={StaticResource BoolToVis}}"
                            Margin="0,8,0,0" />
+                <!-- v3.61.0 MINOR: last operation result. Shows Save/Test/Remove
+                     feedback right in the panel so the user doesn't need to look
+                     at the bottom status bar. Green for success, red for error. -->
+                <TextBlock Text="{Binding PanelOperationText}"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding PanelOperationText, Converter={StaticResource NullToVisibilityConverter}}"
+                           Margin="0,8,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#2E7D32" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasPanelOperationError}" Value="True">
+                                    <Setter Property="Foreground" Value="#D32F2F" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
         </Border>
 

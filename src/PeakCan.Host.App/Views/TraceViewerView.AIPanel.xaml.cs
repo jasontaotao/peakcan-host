@@ -19,18 +19,9 @@ public partial class TraceViewerViewAIPanel : UserControl
 {
     public TraceViewerViewAIPanel() => InitializeComponent();
 
-    /// <summary>
-    /// W40 P2 PATCH: refresh the SetApiKeyCommand CanExecute whenever
-    /// the PasswordBox content changes — CanExecute is computed from
-    /// <c>!string.IsNullOrWhiteSpace(value)</c> and WPF does not auto-
-    /// raise CommandManager.RequerySuggested on PasswordBox.Password
-    /// property changes (unlike TextBox.Text).
-    /// </summary>
-    private void ApiKeyInput_PasswordChanged(object sender, RoutedEventArgs e)
-    {
-        if (DataContext is ViewModels.TraceViewerViewModel vm)
-        {
-            vm.SetApiKeyCommand.NotifyCanExecuteChanged();
-        }
-    }
+    // v3.58.0 PATCH: previously had ApiKeyInput_PasswordChanged to call
+    // NotifyCanExecuteChanged on SetApiKeyCommand. Since v3.61.0 the
+    // command has no CanExecute (validation moved into method body),
+    // so this handler was removed. The PasswordBox is still used as
+    // CommandParameter source via ElementName binding.
 }
