@@ -8,6 +8,8 @@ namespace PeakCan.Host.Core.Dbc;
 /// Use <c>(id &amp; 0x80000000u) == 0</c> to test Standard / Extended.
 /// </para>
 /// </summary>
+/// <param name="Comment">Optional description from <c>CM_ BO_</c> line.
+/// Null when the DBC has no comment for this message.</param>
 public sealed record Message(
     uint Id,
     string Name,
@@ -15,4 +17,5 @@ public sealed record Message(
     string Sender,
     IReadOnlyList<Signal> Signals,
     bool IsMultiplexed,
-    ushort? MultiplexorSignalIndex);
+    ushort? MultiplexorSignalIndex,
+    string? Comment = null);

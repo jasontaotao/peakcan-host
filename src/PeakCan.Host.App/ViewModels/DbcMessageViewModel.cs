@@ -33,9 +33,13 @@ public sealed class DbcMessageViewModel
     /// <summary>True iff the original frame uses a 29-bit extended identifier.</summary>
     public bool IsExtended { get; init; }
 
+    /// <summary>v3.61.0: optional DBC comment (<c>CM_ BO_</c> line) for this message.</summary>
+    public string? Comment { get; init; }
+
     /// <summary>
     /// Signal list for this message. Each entry is a formatted string
     /// like "Speed (rpm) : 0|16@1+ (0.1,0) [0|6553.5]".
+    /// v3.61.0: comment appended after the bit layout when present.
     /// </summary>
     public IReadOnlyList<string> Signals { get; init; } = Array.Empty<string>();
 
@@ -53,7 +57,8 @@ public sealed class DbcMessageViewModel
         {
             var unit = string.IsNullOrEmpty(s.Unit) ? "" : $" ({s.Unit})";
             var mux = s.IsMultiplexor ? " [MUX]" : s.IsMultiplexed ? $" [m{s.MultiplexValue}]" : "";
-            signals.Add($"{s.Name}{unit}{mux} : {s.StartBit}|{s.Length}@{(s.Order == ByteOrder.LittleEndian ? '1' : '0')}{(s.ValueType == PeakCan.Host.Core.Dbc.ValueType.Signed ? '-' : '+')}");
+            var comment = string.IsNullOrEmpty(s.Comment) ? "" : $"  // {s.Comment}";
+            signals.Add($"{s.Name}{unit}{mux} : {s.StartBit}|{s.Length}@{(s.Order == ByteOrder.LittleEndian ? '1' : '0')}{(s.ValueType == PeakCan.Host.Core.Dbc.ValueType.Signed ? '-' : '+')}{comment}");
         }
 
         return new DbcMessageViewModel
@@ -65,6 +70,7 @@ public sealed class DbcMessageViewModel
             SignalCount = m.Signals.Count,
             IsExtended = isExtended,
             Signals = signals,
+            Comment = m.Comment,
         };
     }
 }
