@@ -4,7 +4,15 @@ namespace PeakCan.Host.Core.Analysis;
 /// in the input session. Per v3.52.0 hard-boundary #13 (sister of DeepSeek
 /// systematic bias insight from aspice-toolkit): drop invalid ID references
 /// AND their associated claims. Only set Error when ALL claims are dropped
-/// (whitelist filter, not whole-response reject).</summary>
+/// (whitelist filter, not whole-response reject).
+/// <para>
+/// v3.61.0 PATCH OPT-020: known limitation — this only filters the
+/// <see cref="LlmAnalysisResult.AttributedEvidenceIds"/> list, not the
+/// <c>Summary</c> free-text. If the LLM mentions an invalid ID in the
+/// summary text itself (e.g. "as shown in E-9999"), that mention is NOT
+/// removed. UI layer should consider post-processing the summary with a
+/// regex to strip invalid ID references for safety-adjacent presentations.
+/// </para></summary>
 public static class EvidenceIdWhitelistFilter
 {
     public static LlmAnalysisResult Filter(AnalysisSession session, LlmAnalysisResult raw)

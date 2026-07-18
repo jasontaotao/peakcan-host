@@ -86,13 +86,34 @@ public sealed class DeepSeekProvider : ILlmProvider
         // wasting 2x DeepSeek tokens on every streaming invocation.
         if (_options.UseStreaming)
         {
-            LlmPartialUpdate? lastFinal = null;
-            await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
+            try
             {
-                if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
+                LlmPartialUpdate? lastFinal = null;
+                await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
+                {
+                    if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
+                }
+                if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
+                return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
             }
-            if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
-            return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return ErrorResult("DeepSeek request cancelled by user");
+            }
+            catch (OperationCanceledException)
+            {
+                return ErrorResult($"DeepSeek request timed out after {_options.TimeoutSeconds}s");
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse DeepSeek streaming response as JSON");
+                return ErrorResult("DeepSeek returned malformed JSON");
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "HTTP error calling DeepSeek streaming");
+                return ErrorResult($"DeepSeek HTTP error: {ex.Message}");
+            }
         }
 
         // 3. POST (non-streaming path only)
@@ -119,13 +140,6 @@ public sealed class DeepSeekProvider : ILlmProvider
                     _ => ErrorResult($"DeepSeek server error (HTTP {statusCode})"),
                 };
             }
-
-            // v3.59.0 MINOR: when UseStreaming is true (default), route through
-            // StreamAnalyzeAsync so the caller benefits from incremental delivery.
-            // The async-foreach collects the final result; partial updates are
-            // discarded because the caller asked for the single-shot signature.
-            // CHECK MOVED ABOVE THE HTTP SEND — see BUG-001 fix above.
-            // (The streaming check is now handled before the non-streaming POST.)
 
             var rawJson = await response.Content.ReadAsStringAsync(ct);
             var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson, _caseInsensitiveJson);
@@ -340,17 +354,15 @@ public sealed class DeepSeekProvider : ILlmProvider
     /// <summary>
     /// v3.61.0 PATCH BUG-002: read a line from the SSE stream with a
     /// silent-read timeout. Uses a linked CancellationTokenSource so that
-    /// ReadLineAsync is cancelled after _options.TimeoutSeconds of inactivity.
-    /// Prevents indefinite hang when DeepSeek stalls mid-stream.
+    /// ReadLineAsync is cancelled after <see cref="_options"/>.<see cref="DeepSeekOptions.TimeoutSeconds"/>
+    /// of inactivity. Prevents indefinite hang when DeepSeek stalls mid-stream.
     /// </summary>
-    private static async Task<string?> ReadLineWithTimeoutAsync(
+    private async Task<string?> ReadLineWithTimeoutAsync(
         StreamReader reader, CancellationToken ct)
     {
-        // Use a short-enough silence threshold: if the stream sends no data
-        // for the configured timeout, cancel the read. 30s default works for
-        // both fast token-by-token and slow batch-style responses.
+        // Use the configured timeout as the silence threshold.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
         try
         {
             return await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
@@ -359,7 +371,7 @@ public sealed class DeepSeekProvider : ILlmProvider
         {
             // Timeout (not user cancellation) — rethrow as a new one the
             // caller can distinguish via the message.
-            throw new OperationCanceledException("SSE stream read timed out (no data for 30s)");
+            throw new OperationCanceledException($"SSE stream read timed out (no data for {_options.TimeoutSeconds}s)");
         }
     }
 
