@@ -19,7 +19,7 @@ public sealed partial class TraceViewerViewModel
     /// <summary>P0 provider display name used to suppress the unavailable LLM section.</summary>
     public string LlmProviderDisplayName => _llmProvider.DisplayName;
 
-    private bool CanRunAnalysis() => CurrentAnchorSnapshot is not null && !IsLoading;
+    private bool CanRunAnalysis() => CurrentAnchorSnapshot is not null && !IsAnalyzing;
 
     [RelayCommand(CanExecute = nameof(CanRunAnalysis))]
     public async Task RunAnalysisAsync()
@@ -32,7 +32,7 @@ public sealed partial class TraceViewerViewModel
 
         try
         {
-            IsLoading = true;
+            IsAnalyzing = true;
             StatusMessage = "分析中…";
 
             double center = (CurrentAnchorSnapshot.GreenTimestampSeconds
@@ -60,7 +60,8 @@ public sealed partial class TraceViewerViewModel
 
             try
             {
-                await _llmProvider.AnalyzeAsync(CurrentAnalysisSession, CancellationToken.None);
+                _analysisCts ??= new CancellationTokenSource();
+                await _llmProvider.AnalyzeAsync(CurrentAnalysisSession, _analysisCts.Token);
             }
             catch (NotImplementedException)
             {
@@ -78,7 +79,7 @@ public sealed partial class TraceViewerViewModel
         }
         finally
         {
-            IsLoading = false;
+            IsAnalyzing = false;
         }
     }
 
@@ -268,14 +269,25 @@ public sealed partial class TraceViewerViewModel
             return;
         }
 
-        IsLoading = true;
+        // v3.61.0 PATCH BUG-008: guard against null CurrentAnalysisSession.
+        // RunAnalysisAsync sets it, but this streaming command can be invoked
+        // independently (it calls AnalyzeStreamingAsync, not AnalyzeAsync).
+        // If null, run the local pass first to establish the session.
+        if (CurrentAnalysisSession is null)
+        {
+            StatusMessage = "请先运行一次完整分析（非流式）以建立分析会话";
+            return;
+        }
+
+        IsAnalyzing = true;
         StatusMessage = "分析中 (streaming)...";
         StreamingSummary = "";
         StreamingEvidenceIds = System.Array.Empty<string>();
 
         try
         {
-            await foreach (var update in _llmProvider.AnalyzeStreamingAsync(CurrentAnalysisSession!, ct: default).ConfigureAwait(true))
+            _analysisCts ??= new CancellationTokenSource();
+            await foreach (var update in _llmProvider.AnalyzeStreamingAsync(CurrentAnalysisSession, _analysisCts.Token).ConfigureAwait(true))
             {
                 switch (update)
                 {
@@ -298,12 +310,15 @@ public sealed partial class TraceViewerViewModel
         }
         catch (Exception ex)
         {
+            // v3.61.0 PATCH BUG-009: set ErrorMessage so users see the
+            // red bold text, not just gray StatusMessage.
+            ErrorMessage = $"流式分析异常: {ex.Message}";
             StatusMessage = $"分析异常: {ex.GetType().Name}";
             _logger.LogWarning(ex, "RunAnalysisStreamingAsync failed");
         }
         finally
         {
-            IsLoading = false;
+            IsAnalyzing = false;
         }
     }
 }

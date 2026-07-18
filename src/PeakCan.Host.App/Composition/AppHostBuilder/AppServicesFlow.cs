@@ -184,10 +184,14 @@ public partial class AppHostBuilder
         // impl. NotImplementedLlmProvider kept for explicit fallback (D7).
         // DeepSeekProvider reads API key from ICredentialStore (v3.53.1 P1a
         // security foundation) — never from appsettings.json.
-        services.AddHttpClient("DeepSeek", client =>
+        services.AddHttpClient("DeepSeek", (sp, client) =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.54.0");
+            // v3.61.0 PATCH BUG-006: read timeout from DeepSeekOptions so
+            // the configured value matches what DeepSeekProvider reports in
+            // error messages. Falls back to 30s default.
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
         });
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
         // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)

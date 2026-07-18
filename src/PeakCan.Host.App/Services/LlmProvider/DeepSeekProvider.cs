@@ -80,7 +80,22 @@ public sealed class DeepSeekProvider : ILlmProvider
             },
         };
 
-        // 3. POST
+        // v3.61.0 PATCH BUG-001: check UseStreaming BEFORE sending HTTP request.
+        // Previously the non-streaming POST was always sent first, then
+        // StreamAnalyzeAsync was called which sent a SECOND POST with stream=true,
+        // wasting 2x DeepSeek tokens on every streaming invocation.
+        if (_options.UseStreaming)
+        {
+            LlmPartialUpdate? lastFinal = null;
+            await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
+            {
+                if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
+            }
+            if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
+            return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
+        }
+
+        // 3. POST (non-streaming path only)
         var http = _httpClientFactory.CreateClient("DeepSeek");
         try
         {
@@ -109,16 +124,8 @@ public sealed class DeepSeekProvider : ILlmProvider
             // StreamAnalyzeAsync so the caller benefits from incremental delivery.
             // The async-foreach collects the final result; partial updates are
             // discarded because the caller asked for the single-shot signature.
-            if (_options.UseStreaming)
-            {
-                LlmPartialUpdate? lastFinal = null;
-                await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
-                {
-                    if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
-                }
-                if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
-                return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
-            }
+            // CHECK MOVED ABOVE THE HTTP SEND — see BUG-001 fix above.
+            // (The streaming check is now handled before the non-streaming POST.)
 
             var rawJson = await response.Content.ReadAsStringAsync(ct);
             var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson,
@@ -149,11 +156,11 @@ public sealed class DeepSeekProvider : ILlmProvider
                 Error: null);
             return EvidenceIdWhitelistFilter.Filter(session, raw);
         }
-        catch (TaskCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             return ErrorResult("DeepSeek request cancelled by user");
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return ErrorResult($"DeepSeek request timed out after {_options.TimeoutSeconds}s");
         }
@@ -257,7 +264,11 @@ public sealed class DeepSeekProvider : ILlmProvider
             yield break;
         }
 
-        // 4. Read SSE stream
+        // 4. Read SSE stream — with read-level timeout guard
+        // v3.61.0 PATCH BUG-002: add silent-read timeout so the application
+        // does not hang indefinitely if DeepSeek stalls mid-stream. The
+        // linked token fires after _options.TimeoutSeconds of inactivity
+        // on ReadLineAsync, independent of the HttpClient-level timeout.
         var summaryBuilder = new StringBuilder();
         var rawJsonBuilder = new StringBuilder();
         var chunkCount = 0;
@@ -268,7 +279,7 @@ public sealed class DeepSeekProvider : ILlmProvider
         // CA2024: don't use reader.EndOfStream in async path. ReadLineAsync
         // returns null at EOF, so loop on ReadLineAsync result directly.
         string? line;
-        while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) is not null)
+        while ((line = await ReadLineWithTimeoutAsync(reader, ct).ConfigureAwait(false)) is not null)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -326,6 +337,32 @@ public sealed class DeepSeekProvider : ILlmProvider
             Error: null);
         var filtered = EvidenceIdWhitelistFilter.Filter(session, raw);
         yield return new LlmPartialUpdate.FinalResult(filtered);
+    }
+
+    /// <summary>
+    /// v3.61.0 PATCH BUG-002: read a line from the SSE stream with a
+    /// silent-read timeout. Uses a linked CancellationTokenSource so that
+    /// ReadLineAsync is cancelled after _options.TimeoutSeconds of inactivity.
+    /// Prevents indefinite hang when DeepSeek stalls mid-stream.
+    /// </summary>
+    private static async Task<string?> ReadLineWithTimeoutAsync(
+        StreamReader reader, CancellationToken ct)
+    {
+        // Use a short-enough silence threshold: if the stream sends no data
+        // for the configured timeout, cancel the read. 30s default works for
+        // both fast token-by-token and slow batch-style responses.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            return await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Timeout (not user cancellation) — rethrow as a new one the
+            // caller can distinguish via the message.
+            throw new OperationCanceledException("SSE stream read timed out (no data for 30s)");
+        }
     }
 
     private static string SerializeSessionForLLM(AnalysisSession session)

@@ -132,7 +132,7 @@
      RunAnalysisStreamingCommand is in-flight (IsLoading toggles the
      visibility). Shows the running summary text + evidence IDs as they
      accumulate — first-token latency drops from ~30s to ~1s. -->
-<StackPanel Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
+<StackPanel Visibility="{Binding IsAnalyzing, Converter={StaticResource BoolToVis}}"
             Margin="8">
     <TextBlock Text="流式输出（实时）" FontWeight="SemiBold" Margin="0,0,0,4"
                Foreground="#1565C0" />
