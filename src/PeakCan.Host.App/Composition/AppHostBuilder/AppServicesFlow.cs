@@ -190,8 +190,13 @@ public partial class AppHostBuilder
             // v3.61.0 PATCH BUG-006: read timeout from DeepSeekOptions so
             // the configured value matches what DeepSeekProvider reports in
             // error messages. Falls back to 30s default.
+            // v3.61.0 PATCH BUG-3: total timeout = 5x per-line timeout so
+            // long streaming responses (>30s) aren't killed by the http
+            // client. ReadLineWithTimeoutAsync enforces per-line silence.
+            // Without this multiplier, a 45s streaming response at 1 token/s
+            // would be cancelled at t=30s by HttpClient.TotalTimeout.
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
         })
         // v3.61.0 PATCH OPT-010: Polly retry for transient DeepSeek failures

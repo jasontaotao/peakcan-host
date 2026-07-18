@@ -61,7 +61,30 @@ public sealed partial class TraceViewerViewModel
             try
             {
                 _analysisCts ??= new CancellationTokenSource();
-                await _llmProvider.AnalyzeAsync(CurrentAnalysisSession, _analysisCts.Token);
+                // v3.61.0 PATCH BUG-2: capture and merge LLM result into
+                // CurrentAnalysisSession.Report.Summary so the UI actually
+                // shows the LLM output. Previously discarded the return value.
+                var llmResult = await _llmProvider.AnalyzeAsync(
+                    CurrentAnalysisSession, _analysisCts.Token);
+                if (llmResult.Error is not null)
+                {
+                    ErrorMessage = llmResult.Error;
+                    StatusMessage = "LLM 分析异常";
+                }
+                else if (CurrentAnalysisSession is not null)
+                {
+                    // Merge LLM summary into the session report.
+                    // The XAML binds to CurrentAnalysisSession.Report.Summary
+                    // so this makes the LLM result user-visible.
+                    CurrentAnalysisSession = CurrentAnalysisSession with
+                    {
+                        Report = CurrentAnalysisSession.Report with
+                        {
+                            Summary = llmResult.Summary,
+                        },
+                    };
+                    OnPropertyChanged(nameof(CurrentAnalysisSession));
+                }
             }
             catch (NotImplementedException)
             {
@@ -322,7 +345,17 @@ public sealed partial class TraceViewerViewModel
                         // not a full AnalysisSession — leave CurrentAnalysisSession
                         // from the local pass intact. StreamingSummary already
                         // contains the accumulated text from PartialSummary chunks.
-                        StatusMessage = fr.Result.Error ?? "分析完成（流式）";
+                        // v3.61.0 PATCH BUG-4: show errors in red ErrorMessage too,
+                        // not just gray StatusMessage.
+                        if (fr.Result.Error is not null)
+                        {
+                            ErrorMessage = fr.Result.Error;
+                            StatusMessage = fr.Result.Error;
+                        }
+                        else
+                        {
+                            StatusMessage = "分析完成（流式）";
+                        }
                         break;
                 }
             }

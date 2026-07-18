@@ -450,8 +450,17 @@ public sealed class DeepSeekProvider : ILlmProvider
         }
         catch
         {
-            // Fallback: treat content as raw summary, no cited IDs
-            return (content, new List<string>());
+            // Fallback: treat content as raw summary, extract evidence IDs
+            // via regex for E-NNNN pattern (plain-text streaming output).
+            var cited = new List<string>();
+            foreach (System.Text.RegularExpressions.Match m in
+                System.Text.RegularExpressions.Regex.Matches(
+                    content, @"E-(?:\d{4})"))
+            {
+                if (!cited.Contains(m.Value))
+                    cited.Add(m.Value);
+            }
+            return (content, cited);
         }
     }
 }
