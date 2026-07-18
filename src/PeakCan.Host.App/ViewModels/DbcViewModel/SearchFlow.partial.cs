@@ -19,12 +19,13 @@ public sealed partial class DbcViewModel
     private void ApplyFilter()
     {
         FilteredMessages.Clear();
-        var pattern = SearchText.AsSpan().Trim();
+        var pattern = SearchText.Trim();
         foreach (var m in _allMessages)
         {
             if (pattern.Length == 0
-                || m.Name.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase)
-                || m.Sender.AsSpan().Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                || m.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                || m.Sender.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                || m.Signals.Any(s => s.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
             {
                 FilteredMessages.Add(m);
             }
