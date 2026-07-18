@@ -120,6 +120,25 @@ public sealed partial class TraceViewerViewModel
     // reliably read via CommandParameter ElementName binding).
     internal string? PendingApiKeyValue { get; set; }
 
+    /// <summary>
+    /// v3.61.0 PATCH: probe credential store on startup so the API Key
+    /// status reflects previously saved keys. Called fire-and-forget from
+    /// the ctor. Safe because CheckAsync uses ConfigureAwait(true) which
+    /// captures the ctor's SynchronizationContext (UI thread).
+    /// </summary>
+    internal async Task ProbeStoredApiKeyAsync()
+    {
+        try
+        {
+            var status = await _apiKeyManager.CheckAsync();
+            UpdateApiKeyStatusDisplay(status);
+        }
+        catch
+        {
+            // Ignore — UI shows "未配置" as default fallback.
+        }
+    }
+
     // W40 P2 PATCH: refresh the status display after any UI operation.
     // Called by all 3 commands + the panel's Loaded event.
     private void UpdateApiKeyStatusDisplay(PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyStatus status)
@@ -129,7 +148,7 @@ public sealed partial class TraceViewerViewModel
         {
             PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyConfiguredState.Configured =>
                 status.LastUpdatedAt is { } ts
-                    ? $"已配置 (更新于 {ts:yyyy-MM-dd HH:mm})"
+                    ? $"已配置 (更新于 {ts.ToLocalTime():yyyy-MM-dd HH:mm})"
                     : "已配置",
             _ => "未配置",
         };

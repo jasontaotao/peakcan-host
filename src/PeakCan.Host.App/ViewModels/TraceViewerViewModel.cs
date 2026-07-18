@@ -283,6 +283,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // T6 follows up with Substitute.For<ApiKeyManager>() at every
         // existing test callsite.
         _apiKeyManager = apiKeyManager ?? throw new ArgumentNullException(nameof(apiKeyManager));
+        // v3.61.0 PATCH: probe credential store on startup so the API Key
+        // status shows "已配置" immediately if a key was previously saved.
+        // Fire-and-forget is safe here: CheckAsync uses ConfigureAwait(true)
+        // internally, so the continuation (UpdateApiKeyStatusDisplay) runs
+        // on the captured SynchronizationContext (UI thread).
+        _ = ProbeStoredApiKeyAsync();
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace
