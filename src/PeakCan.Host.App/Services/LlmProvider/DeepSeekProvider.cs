@@ -128,8 +128,7 @@ public sealed class DeepSeekProvider : ILlmProvider
             // (The streaming check is now handled before the non-streaming POST.)
 
             var rawJson = await response.Content.ReadAsStringAsync(ct);
-            var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson, _caseInsensitiveJson);
 
             if (deepSeekResponse?.Choices == null || deepSeekResponse.Choices.Count == 0)
             {
@@ -295,8 +294,7 @@ public sealed class DeepSeekProvider : ILlmProvider
             DeepSeekStreamingChunk? chunk;
             try
             {
-                chunk = JsonSerializer.Deserialize<DeepSeekStreamingChunk>(payload,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                chunk = JsonSerializer.Deserialize<DeepSeekStreamingChunk>(payload, _caseInsensitiveJson);
             }
             catch (JsonException ex)
             {
@@ -365,24 +363,32 @@ public sealed class DeepSeekProvider : ILlmProvider
         }
     }
 
+    /// <summary>
+    /// v3.61.0 PATCH OPT-008: serialized evidence payload for the LLM
+    /// prompt. Uses System.Text.Json instead of manual StringBuilder +
+    /// incomplete Escape() to guarantee valid JSON.
+    /// </summary>
+    private sealed record EvidenceEntry(string Id, string Type, string Description);
+
+    /// <summary>
+    /// v3.61.0 PATCH OPT-008: top-level payload structure for
+    /// SerializeSessionForLLM. Kept minimal — only evidence list +
+    /// candidate count — to stay within the DeepSeek token budget.
+    /// </summary>
+    private sealed record SessionPayload(EvidenceEntry[] Evidence, int CandidatesCount);
+
+    private static readonly JsonSerializerOptions _indentedJson = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _caseInsensitiveJson = new() { PropertyNameCaseInsensitive = true };
+
     private static string SerializeSessionForLLM(AnalysisSession session)
     {
-        // Compact JSON: include only evidence IDs + brief description.
-        // The LLM is told to cite E-NNNN IDs; full payload would exceed token budget.
-        var sb = new StringBuilder();
-        sb.AppendLine("{");
-        sb.AppendLine("  \"evidence\": [");
-        foreach (var e in session.Report.Evidence)
-        {
-            sb.AppendLine($"    {{\"id\": \"{e.EvidenceId}\", \"type\": \"{e.Type}\", \"description\": \"{Escape(e.Description)}\"}},");
-        }
-        sb.AppendLine("  ],");
-        sb.AppendLine($"  \"candidates_count\": {session.Report.Candidates.Count}");
-        sb.AppendLine("}");
-        return sb.ToString();
+        var payload = new SessionPayload(
+            Evidence: session.Report.Evidence
+                .Select(e => new EvidenceEntry(e.EvidenceId, e.Type, e.Description))
+                .ToArray(),
+            CandidatesCount: session.Report.Candidates.Count);
+        return JsonSerializer.Serialize(payload, _indentedJson);
     }
-
-    private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static (string Summary, List<string> CitedIds) ParseLLMJsonResponse(string content)
     {

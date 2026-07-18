@@ -9,6 +9,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Replay;
+using Polly;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -192,7 +193,13 @@ public partial class AppHostBuilder
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
-        });
+        })
+        // v3.61.0 PATCH OPT-010: Polly retry for transient DeepSeek failures
+        // (429 rate-limit, 5xx server errors, HttpRequestException). 3 retries
+        // with exponential backoff: 1s → 2s → 4s. Jitter not needed here —
+        // DeepSeek is a single endpoint, not a cluster of replicas.
+        .AddTransientHttpErrorPolicy(builder => builder
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
         // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)
         services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(options => { });
