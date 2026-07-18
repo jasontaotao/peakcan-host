@@ -24,8 +24,13 @@ public sealed class DeepSeekRequest
     [JsonPropertyName("stream")]
     public bool Stream { get; set; } = false;
 
+    /// <summary>v3.61.0 PATCH: nullable — null when streaming so SSE
+    /// deltas are plain text fragments (human-readable), not JSON
+    /// fragments like {"summary": "Anal...". Non-streaming requests
+    /// keep json_object for structured FinalResult parsing.</summary>
     [JsonPropertyName("response_format")]
-    public DeepSeekResponseFormat ResponseFormat { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DeepSeekResponseFormat? ResponseFormat { get; set; }
 }
 
 public sealed class DeepSeekMessage

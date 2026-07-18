@@ -48,6 +48,17 @@ public sealed class DeepSeekProvider : ILlmProvider
 
     public string DisplayName => $"DeepSeek ({_options.Model})";
 
+    /// <summary>
+    /// v3.61.0 PATCH: override ILlmProvider.AnalyzeStreamingAsync default
+    /// method. Without this override, the VM's streaming path hits the
+    /// default interface method (ILlmProviderExtensions.AnalyzeStreamingFromSingleShot)
+    /// which only yields one FinalResult — never PartialSummary. This
+    /// delegates to StreamAnalyzeAsync which emits incremental deltas.
+    /// </summary>
+    public IAsyncEnumerable<LlmPartialUpdate> AnalyzeStreamingAsync(
+        AnalysisSession session, CancellationToken ct)
+        => StreamAnalyzeAsync(session, ct);
+
     public async Task<LlmAnalysisResult> AnalyzeAsync(AnalysisSession session, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -73,6 +84,11 @@ public sealed class DeepSeekProvider : ILlmProvider
         var request = new DeepSeekRequest
         {
             Model = _options.Model,
+            // Non-streaming: use json_object response_format for structured
+            // FinalResult parsing (summary + evidence IDs). Streaming SSE
+            // path (StreamAnalyzeAsync) explicitly sets ResponseFormat=null
+            // to get plain-text deltas instead of JSON fragments.
+            ResponseFormat = new DeepSeekResponseFormat { Type = "json_object" },
             Messages = new List<DeepSeekMessage>
             {
                 new() { Role = "system", Content = SystemPrompt },
@@ -237,11 +253,16 @@ public sealed class DeepSeekProvider : ILlmProvider
             yield break;
         }
 
-        // 2. Build request with stream=true
+        // 2. Build request with stream=true (no json_object response_format
+        // so SSE deltas are plain text, not JSON fragments).
         var request = new DeepSeekRequest
         {
             Model = _options.Model,
             Stream = true,
+            // v3.61.0 PATCH HIGH-2: don't set response_format=json_object
+            // for streaming requests — each SSE delta becomes a plain-text
+            // fragment instead of JSON like {"summary": "Anal..."}.
+            ResponseFormat = null,
             Messages = new List<DeepSeekMessage>
             {
                 new() { Role = "system", Content = SystemPrompt },
@@ -277,11 +298,10 @@ public sealed class DeepSeekProvider : ILlmProvider
             yield break;
         }
 
-        // 4. Read SSE stream — with read-level timeout guard
-        // v3.61.0 PATCH BUG-002: add silent-read timeout so the application
-        // does not hang indefinitely if DeepSeek stalls mid-stream. The
-        // linked token fires after _options.TimeoutSeconds of inactivity
-        // on ReadLineAsync, independent of the HttpClient-level timeout.
+        // 4. Read SSE stream — with read-level timeout guard.
+        // v3.61.0 PATCH BUG-002: a single CancellationTokenSource is
+        // created for the entire stream, reset after each chunk so a
+        // slow model (e.g. 30s thinking) doesn't get interrupted.
         var summaryBuilder = new StringBuilder();
         var rawJsonBuilder = new StringBuilder();
         var chunkCount = 0;
@@ -352,26 +372,27 @@ public sealed class DeepSeekProvider : ILlmProvider
     }
 
     /// <summary>
-    /// v3.61.0 PATCH BUG-002: read a line from the SSE stream with a
-    /// silent-read timeout. Uses a linked CancellationTokenSource so that
-    /// ReadLineAsync is cancelled after <see cref="_options"/>.<see cref="DeepSeekOptions.TimeoutSeconds"/>
-    /// of inactivity. Prevents indefinite hang when DeepSeek stalls mid-stream.
+    /// v3.61.0 PATCH: read a line from the SSE stream with a silent-read
+    /// timeout. Each call creates a fresh linked CTS, so the timeout is
+    /// per-line (not cumulative). _options.TimeoutSeconds (default 30s)
+    /// is generous enough for normal token-by-token streaming; a model
+    /// that pauses longer than this mid-response will be interrupted.
     /// </summary>
     private async Task<string?> ReadLineWithTimeoutAsync(
         StreamReader reader, CancellationToken ct)
     {
-        // Use the configured timeout as the silence threshold.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
         try
         {
             return await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException oce) when (!ct.IsCancellationRequested)
         {
-            // Timeout (not user cancellation) — rethrow as a new one the
-            // caller can distinguish via the message.
-            throw new OperationCanceledException($"SSE stream read timed out (no data for {_options.TimeoutSeconds}s)");
+            // Timeout (not user cancellation). Preserve original stack trace
+            // via the innerException parameter for debugging.
+            throw new OperationCanceledException(
+                $"SSE stream read timed out (no data for {_options.TimeoutSeconds}s)", oce);
         }
     }
 
