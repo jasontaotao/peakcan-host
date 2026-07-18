@@ -19,9 +19,17 @@ public partial class TraceViewerViewAIPanel : UserControl
 {
     public TraceViewerViewAIPanel() => InitializeComponent();
 
-    // v3.58.0 PATCH: previously had ApiKeyInput_PasswordChanged to call
-    // NotifyCanExecuteChanged on SetApiKeyCommand. Since v3.61.0 the
-    // command has no CanExecute (validation moved into method body),
-    // so this handler was removed. The PasswordBox is still used as
-    // CommandParameter source via ElementName binding.
+    /// <summary>
+    /// v3.61.0 PATCH: sync PasswordBox content to VM.PendingApiKeyValue.
+    /// WPF PasswordBox.Password cannot be reliably read via CommandParameter
+    /// ElementName binding — this handler stores it in a VM string property
+    /// that the parameterless SetApiKeyCommand reads instead.
+    /// </summary>
+    private void ApiKeyInput_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.TraceViewerViewModel vm)
+        {
+            vm.PendingApiKeyValue = ((PasswordBox)sender).Password;
+        }
+    }
 }

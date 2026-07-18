@@ -21,10 +21,10 @@
                 <TextBlock Text="{Binding ApiKeyStatusText}" Foreground="Gray" Margin="0,0,0,8" />
 
                 <StackPanel Orientation="Horizontal">
-                    <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0" />
+                    <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0"
+                                 PasswordChanged="ApiKeyInput_PasswordChanged" />
                     <Button Content="保存" Margin="0,0,4,0"
-                            Command="{Binding SetApiKeyCommand}"
-                            CommandParameter="{Binding ElementName=ApiKeyInput, Path=Password}" />
+                            Command="{Binding SetApiKeyCommand}" />
                     <Button Content="清除" Margin="0,0,4,0"
                             Command="{Binding RemoveApiKeyCommand}" />
                     <Button Content="测试连接"

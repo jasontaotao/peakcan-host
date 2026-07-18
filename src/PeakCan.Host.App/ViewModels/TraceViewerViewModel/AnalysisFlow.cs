@@ -114,6 +114,11 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty]
     private bool _hasPanelOperationError;
 
+    // v3.61.0 PATCH: PasswordBox value buffer. Set by code-behind's
+    // PasswordChanged handler (WPF PasswordBox.Password cannot be
+    // reliably read via CommandParameter ElementName binding).
+    internal string? PendingApiKeyValue { get; set; }
+
     // W40 P2 PATCH: refresh the status display after any UI operation.
     // Called by all 3 commands + the panel's Loaded event.
     private void UpdateApiKeyStatusDisplay(PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyStatus status)
@@ -132,8 +137,9 @@ public sealed partial class TraceViewerViewModel
     }
 
     [RelayCommand]
-    private async Task SetApiKeyAsync(string? value)
+    private async Task SetApiKeyAsync()
     {
+        var value = PendingApiKeyValue;
         if (string.IsNullOrWhiteSpace(value))
         {
             HasPanelOperationError = true;
