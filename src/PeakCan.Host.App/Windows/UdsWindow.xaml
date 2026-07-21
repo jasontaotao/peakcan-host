@@ -66,8 +66,9 @@
                             <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
                             <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
                             <DataGridTextColumn Header="Length" Binding="{Binding LengthBytes}"/>
+                            <DataGridTextColumn Header="Type"   Binding="{Binding TypeDisplay}"/>
                             <DataGridTextColumn Header="R/W"    Binding="{Binding WritableDisplay}"/>
-                            <DataGridTextColumn Header="Value"  Binding="{Binding ReadValue}"/>
+                            <DataGridTextColumn Header="Value"  Binding="{Binding DecodedSummary}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                     <StackPanel Grid.Column="1" Margin="12">
@@ -75,6 +76,29 @@
                                    FontWeight="Bold"/>
                         <TextBlock Text="{Binding Did.SelectedDid.LengthBytes, StringFormat='Length: {0} bytes', TargetNullValue=''}"
                                    Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding Did.SelectedDid.TypeDisplay, StringFormat='Type: {0}', TargetNullValue=''}"
+                                   Margin="0,4,0,0"/>
+                        <!-- v3.49.0 MINOR T5.1: 解码字段表 (Read 命中后 DidValueDecoder 产出 DecodedField[]) -->
+                        <TextBlock Text="Decoded fields" Margin="0,8,0,2" FontWeight="Bold"/>
+                        <ItemsControl ItemsSource="{Binding Did.SelectedDid.DecodedFields}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding PhysicalValue}"
+                                                   FontFamily="Consolas" TextWrapping="Wrap" Margin="4,0,0,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Unit}"
+                                                   Foreground="Gray" Margin="4,0,0,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <TextBlock Text="Write value (hex)" Margin="0,8,0,0"/>
                         <TextBox  Text="{Binding Did.WriteValue, UpdateSourceTrigger=PropertyChanged}"
                                   IsEnabled="{Binding Did.SelectedDid.Writable}"/>
