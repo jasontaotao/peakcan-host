@@ -176,6 +176,196 @@ public static class RequestBasedMappers
     }
 
     /// <summary>
+    /// v3.49.0 MINOR: T2.1 — 从 0x22 / 0x2E REQUEST 链提取每个 DID 的
+    /// <see cref="DidField"/> 字段表（复合 DID 含多个字段）。
+    ///
+    /// 链路与 <see cref="ExtractDidLengths"/> 一致：
+    ///   DID ← REQUEST ← DIAG-SERVICE ← POS-RESPONSE-REF ← POS-RESPONSE
+    ///   POS-RESPONSE → PARAM SEMANTIC="DATA" → DOP-REF → DATA-OBJECT-PROP
+    /// 不同点是每个 SEMANTIC="DATA" PARAM 都产出一条 <see cref="DidField"/>，
+    /// 含：
+    ///   - ByteOffset : PARAM 的 BYTE-POSITION（缺失则按字段顺序累计当前已用
+    ///                  字节作回退）
+    ///   - BitLength  : DOP 的 DIAG-CODED-TYPE/BIT-LENGTH（缺失 0）
+    ///   - BaseType   : DOP 的 DIAG-CODED-TYPE/BASE-DATA-TYPE（缺失 Unknown）
+    ///   - Compu/Unit : DOP 的 COMPU-METHOD / UNIT-REF 或内嵌 UNIT
+    ///                  （通过 <see cref="CompuMethodParser"/> 复用）
+    /// DOP 无 DATA-OBJECT-PROP 本体时跳过该字段（无法定位类型元数据）。
+    /// 同一 DID 多个 POS-RESPONSE 时取字段最多的（与 ExtractDidLengths 取
+    /// 最长字节一致语义）。
+    /// </summary>
+    public static IReadOnlyDictionary<ushort, IReadOnlyList<DidField>> ExtractDidFields(
+        XDocument xdoc, XNamespace ns)
+    {
+        ArgumentNullException.ThrowIfNull(xdoc);
+
+        // 1. Index DATA-OBJECT-PROP / DOP by ID (real .odx-d uses
+        //    DATA-OBJECT-PROP; canonical ODX 2.x uses DOP).
+        var dopById = new Dictionary<string, XElement>();
+        foreach (var el in xdoc.Descendants())
+        {
+            var localName = el.Name.LocalName;
+            if (localName != "DATA-OBJECT-PROP" && localName != "DOP") continue;
+            var id = (string?)el.Attribute("ID");
+            if (id is not null) dopById[id] = el;
+        }
+
+        // 2. Index UNIT by ID（用于 UNIT-REF 解析）。
+        var unitById = new Dictionary<string, XElement>();
+        foreach (var u in xdoc.Descendants(ns + "UNIT"))
+        {
+            var id = (string?)u.Attribute("ID");
+            if (id is not null) unitById[id] = u;
+        }
+
+        // 3. Index REQUEST id → DID id（仅 0x22 / 0x2E）。
+        var didByReqId = new Dictionary<string, ushort>();
+        foreach (var req in xdoc.Descendants(ns + "REQUEST"))
+        {
+            var sid = ReadServiceId(req, ns);
+            if (sid != ServiceId_ReadDataByIdentifier &&
+                sid != ServiceId_WriteDataByIdentifier)
+                continue;
+            var id = ReadIdParam(req, ns);
+            var reqId = (string?)req.Attribute("ID");
+            if (id is not null && reqId is not null)
+                didByReqId[reqId] = id.Value;
+        }
+
+        // 4. Index POS-RESPONSE id → element。
+        var posById = new Dictionary<string, XElement>();
+        foreach (var pos in xdoc.Descendants(ns + "POS-RESPONSE"))
+        {
+            var id = (string?)pos.Attribute("ID");
+            if (id is not null) posById[id] = pos;
+        }
+
+        // 5. Walk DIAG-SERVICEs; for each 0x22/0x2E REQUEST-REF, enumerate
+        //    SEMANTIC=DATA PARAMs in the matching POS-RESPONSE → build
+        //    DidField[] keyed by DID id. Take the largest field set when
+        //    a DID has multiple POS-RESPONSEs (mirrors ExtractDidLengths).
+        var result = new Dictionary<ushort, IReadOnlyList<DidField>>();
+        foreach (var svc in xdoc.Descendants(ns + "DIAG-SERVICE"))
+        {
+            var reqRefEl = svc.Element(ns + "REQUEST-REF");
+            if (reqRefEl is null) continue;
+            var reqRefId = (string?)reqRefEl.Attribute("ID-REF");
+            if (reqRefId is null || !didByReqId.TryGetValue(reqRefId, out var did))
+                continue;
+
+            foreach (var posRef in svc.Elements(ns + "POS-RESPONSE-REFS")
+                                      .Elements(ns + "POS-RESPONSE-REF"))
+            {
+                var posId = (string?)posRef.Attribute("ID-REF");
+                if (posId is null || !posById.TryGetValue(posId, out var pos))
+                    continue;
+
+                var fields = BuildFieldsFromPosResponse(pos, ns, dopById, unitById);
+                if (fields.Count == 0) continue;
+                if (!result.TryGetValue(did, out var prev) || fields.Count > prev.Count)
+                    result[did] = fields;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 遍历 POS-RESPONSE 内的 SEMANTIC="DATA" PARAM，每个产出一条
+    /// <see cref="DidField"/>。ByteOffset 优先取 PARAM 的 BYTE-POSITION，
+    /// 缺失则按已遍历字段的累计字节作回退（保证按序递增）。
+    /// </summary>
+    private static IReadOnlyList<DidField> BuildFieldsFromPosResponse(
+        XElement pos,
+        XNamespace ns,
+        IReadOnlyDictionary<string, XElement> dopById,
+        IReadOnlyDictionary<string, XElement> unitById)
+    {
+        var fields = new List<DidField>();
+        int fallbackOffset = 0;
+        foreach (var param in pos.Descendants(ns + "PARAM"))
+        {
+            if ((string?)param.Attribute("SEMANTIC") != "DATA") continue;
+
+            var dopRef = param.Element(ns + "DOP-REF");
+            var dopRefId = (string?)dopRef?.Attribute("ID-REF");
+            XElement? dopEl = null;
+            if (dopRefId is not null)
+                dopById.TryGetValue(dopRefId, out dopEl);
+
+            // ByteOffset: PARAM BYTE-POSITION 优先；缺失用累计回退。
+            var byteOffset = ReadBytePosition(param, ns) ?? fallbackOffset;
+
+            DidField field;
+            if (dopEl is not null)
+            {
+                var baseType = ParseBaseTypeFromDop(dopEl, ns);
+                var bitLength = ReadBitLength(dopEl, ns) ?? 0;
+                var fieldBitLength = bitLength;
+                var compu = CompuMethodParser.TryParseCompu(dopEl, ns);
+                var unit = CompuMethodParser.TryParseUnit(dopEl, ns, unitById);
+
+                // PARAM SHORT-NAME 作字段名（比 DOP SHORT-NAME 更贴合字段语义）
+                var name = (string?)param.Element(ns + "SHORT-NAME")
+                           ?? (string?)dopEl.Element(ns + "SHORT-NAME")
+                           ?? string.Empty;
+                field = new DidField(name, fieldBitLength, byteOffset,
+                    baseType, compu, unit);
+            }
+            else
+            {
+                // 无 DOP 本体（仅内嵌 DIAG-CODED-TYPE 或无类型）：
+                // 仍记录字段占位，但 BaseType=Unknown，无 Compu/Unit。
+                var name = (string?)param.Element(ns + "SHORT-NAME") ?? string.Empty;
+                var inlineBits = ReadBitLength(param, ns) ?? 0;
+                field = new DidField(name, inlineBits, byteOffset,
+                    DidBaseType.Unknown, null, null);
+            }
+
+            fields.Add(field);
+            // 回退偏移推进：当前字段 byte 长度（>",=8）；若 BIT-LENGTH=0
+            // 则推进 1 字节作最保守递增，避免偏移塌缩。
+            var advance = field.BitLength > 0 ? (field.BitLength + 7) / 8 : 1;
+            fallbackOffset = byteOffset + advance;
+        }
+        return fields;
+    }
+
+    /// <summary>读 PARAM 的 <c>BYTE-POSITION</c> 子元素（十进制）。</summary>
+    private static int? ReadBytePosition(XElement param, XNamespace ns)
+    {
+        var bp = param.Element(ns + "BYTE-POSITION");
+        if (bp is null) return null;
+        if (int.TryParse(bp.Value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var n))
+            return n;
+        return null;
+    }
+
+    /// <summary>
+    /// 从 DOP/DATA-OBJECT-PROP 元素的 DIAG-CODED-TYPE 读 BASE-DATA-TYPE
+    /// → <see cref="DidBaseType"/>（和 DidDop.ParseBaseType 同语义，但
+    /// DOP 本体路径找 DIAG-CODED-TYPE 子元素）。
+    /// </summary>
+    private static DidBaseType ParseBaseTypeFromDop(XElement dopEl, XNamespace ns)
+    {
+        var dct = dopEl.Element(ns + "DIAG-CODED-TYPE");
+        if (dct is null) return DidBaseType.Unknown;
+        var raw = (string?)dct.Attribute("BASE-DATA-TYPE")
+                  ?? (string?)dct.Attribute("BASE-TYPE");
+        return raw switch
+        {
+            "A_UINT32"          => DidBaseType.UInt32,
+            "A_INT32"           => DidBaseType.Int32,
+            "A_FLOAT64"         => DidBaseType.Float64,
+            "A_ASCIISTRING"     => DidBaseType.AsciiString,
+            "A_UNICODE2STRING"  => DidBaseType.Unicode2String,
+            "A_BYTEFIELD"       => DidBaseType.ByteField,
+            _                   => DidBaseType.Unknown,
+        };
+    }
+
+    /// <summary>
     /// Extract routines from REQUEST elements with SERVICE-ID 0x31.
     /// </summary>
     public static IReadOnlyList<RoutineDefinition> ExtractRoutines(
