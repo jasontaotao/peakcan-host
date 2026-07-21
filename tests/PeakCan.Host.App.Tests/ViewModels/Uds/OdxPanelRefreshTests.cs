@@ -4,6 +4,7 @@ using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Odx;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds;
@@ -107,5 +108,60 @@ public sealed class OdxPanelRefreshTests
         vm.Routines.Should().HaveCount(2);
         vm.Routines.Should().Contain(r => r.Id == 514 && r.Name == "EraseMemory_Start");
         vm.Routines.Should().Contain(r => r.Id == 515);
+    }
+
+    // v3.49.0 MINOR T4.2 — DidPanelViewModel 应把 DidDefinition.Fields
+    // 透传到 DidRow,使 UI 的 TypeDisplay 列与解码详情可用。
+    public class DidPanelFieldPropagationTests
+    {
+        [Fact]
+        public void Ctor_MapsDidDefinitionFieldsToRow()
+        {
+            var db = new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance);
+            // 模拟一个带类型表的 DID 0xF401: 温度,16-bit UINT32 + LINEAR + °C
+            db.AddRange(new[]
+            {
+                new DidDefinition(Id: 0xF401, Name: "Temp",
+                    Description: "Temp", LengthBytes: 2, Writable: false)
+                with { Fields = new[]
+                {
+                    new DidField("Temp", 16, 0, DidBaseType.UInt32,
+                        CompuMethod.LinearOf(0.5, -40.0), new DidUnit("_C", "°C")),
+                } },
+            }, out _);
+
+            var vm = new DidPanelViewModel(new NoopUdsClient(), db);
+
+            var row = vm.Dids.Should().ContainSingle(d => d.Id == 0xF401).Which;
+            row.Fields.Should().HaveCount(1);
+            row.TypeDisplay.Should().Be("UInt32[16]");
+        }
+
+        [Fact]
+        public void RefreshFromDatabase_InjectsFieldsAfterOdxImport()
+        {
+            var db = new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance);
+            var vm = new DidPanelViewModel(new NoopUdsClient(), db);
+
+            // 构造期 VIN 无字段表 → TypeDisplay = "(no type)"
+            vm.Dids.Single(d => d.Id == 0xF190).TypeDisplay.Should().Be("(no type)");
+
+            // 模拟 ODX import 重写 VIN 为带 ASCII[17B] 字段表
+            db.AddRange(new[]
+            {
+                new DidDefinition(Id: 0xF190, Name: "VIN",
+                    Description: "VIN", LengthBytes: 17, Writable: false)
+                with { Fields = new[]
+                {
+                    new DidField("VIN", 17 * 8, 0, DidBaseType.AsciiString, null, null),
+                } },
+            }, out _);
+
+            vm.RefreshFromDatabase();
+
+            var vin = vm.Dids.Single(d => d.Id == 0xF190);
+            vin.Fields.Should().HaveCount(1);
+            vin.TypeDisplay.Should().Be("AsciiString[17B]");
+        }
     }
 }

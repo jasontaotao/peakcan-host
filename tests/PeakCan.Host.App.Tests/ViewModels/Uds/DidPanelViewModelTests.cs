@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.ViewModels.Uds;
@@ -6,6 +7,7 @@ using PeakCan.Host.App.ViewModels.Uds.Rows;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Odx;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds;
@@ -147,5 +149,58 @@ public sealed class DidPanelViewModelTests
 
         log.Should().Contain(l => l.Level == "Error" && l.Message.Contains("invalid hex", StringComparison.OrdinalIgnoreCase));
         fake.Writes.Should().BeEmpty();
+    }
+
+    // v3.49.0 MINOR T4.3 — ReadDid 命中后若该 DID 带 ODX 字段类型表,
+    // 应用 DidValueDecoder 解码为 DecodedField,填 row.DecodedFields,
+    // LastResult / DecodedSummary 展示物理值而非纯 hex。
+    [Fact]
+    public async Task ReadDidCommand_AsciiField_DecodesToStringValue()
+    {
+        var fake = new RecordingUdsClient
+        {
+            ReadsByDid = { [0xF190] = Encoding.ASCII.GetBytes("1HGCM82633A123456") }
+        };
+        var db = new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance);
+        // 覆盖 VIN 为带 ASCII[17B] 字段表
+        db.AddRange(new[]
+        {
+            new DidDefinition(Id: 0xF190, Name: "VIN", Description: "VIN",
+                LengthBytes: 17, Writable: false)
+            with { Fields = new[]
+            {
+                new DidField("VIN", 17 * 8, 0, DidBaseType.AsciiString, null, null),
+            } },
+        }, out _);
+        var vm = new DidPanelViewModel(fake, db);
+        var log = new ObservableCollection<UdsLogLine>();
+        vm.AttachLog(log);
+        vm.SelectedDid = vm.Dids.Single(d => d.Id == 0xF190);
+
+        await vm.ReadDidCommand.ExecuteAsync(null);
+
+        vm.SelectedDid!.DecodedFields.Should().ContainSingle();
+        vm.SelectedDid.DecodedFields[0].PhysicalValue.Should().Be("1HGCM82633A123456");
+        vm.LastResult.Should().Be("1HGCM82633A123456",
+            "LastResult 在有字段时显示解码物理值, 不再是 hex");
+    }
+
+    [Fact]
+    public async Task ReadDidCommand_NoFields_FallsBackToHex_NoDecode()
+    {
+        var fake = new RecordingUdsClient
+        {
+            ReadsByDid = { [0xF190] = new byte[] { 0x31, 0x32, 0x33 } }
+        };
+        // 内置 VIN 无 Fields → 不解码,维持既有 hex 行为。
+        var db = new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance);
+        var vm = new DidPanelViewModel(fake, db);
+        vm.AttachLog(new ObservableCollection<UdsLogLine>());
+
+        await vm.ReadDidCommand.ExecuteAsync(null);
+
+        vm.SelectedDid!.DecodedFields.Should().BeEmpty("no field table → no decode");
+        vm.SelectedDid.ReadValue.Should().Be("31 32 33");
+        vm.LastResult.Should().Be("31 32 33");
     }
 }

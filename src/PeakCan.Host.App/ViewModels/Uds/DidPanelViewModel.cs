@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.ViewModels.Uds.Rows;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 
@@ -37,14 +38,27 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         _didDb = didDb;
 
         foreach (var d in didDb.All)
-            Dids.Add(new DidRow
-            {
-                Id          = d.Id,
-                Name        = d.Name,
-                LengthBytes = d.LengthBytes,
-                Writable    = d.Writable,
-            });
+            Dids.Add(BuildRow(d));
         if (Dids.Count > 0) SelectedDid = Dids[0];
+    }
+
+    /// <summary>
+    /// v3.49.0 MINOR T4.2: 把 <see cref="DidDefinition"/> 构造成
+    /// <see cref="DidRow"/>,并把 ODX 解析得到的 Fields 注入
+    /// (UI 的 TypeDisplay 列与详情字段表依赖它)。单点映射避免 ctor
+    /// 与 RefreshFromDatabase 重复。
+    /// </summary>
+    private static DidRow BuildRow(DidDefinition d)
+    {
+        var row = new DidRow
+        {
+            Id          = d.Id,
+            Name        = d.Name,
+            LengthBytes = d.LengthBytes,
+            Writable    = d.Writable,
+        };
+        if (d.Fields.Count > 0) row.SetFields(d.Fields);
+        return row;
     }
 
     /// <summary>
@@ -58,15 +72,7 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
     {
         Dids.Clear();
         foreach (var d in _didDb.All)
-        {
-            Dids.Add(new DidRow
-            {
-                Id          = d.Id,
-                Name        = d.Name,
-                LengthBytes = d.LengthBytes,
-                Writable    = d.Writable,
-            });
-        }
+            Dids.Add(BuildRow(d));
         if (Dids.Count > 0) SelectedDid = Dids[0];
     }
 
@@ -100,8 +106,18 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
             // with no UI dependency); the re-capture happens at this await.
             var data = await _udsClient.ReadDataByIdentifierAsync(row.Id);
             row.ReadValue = BitConverter.ToString(data).Replace("-", " ");
-            LastResult    = row.ReadValue;
-            AppendLog("Info", $"DID 0x{row.Id:X4} = {row.ReadValue}");
+            // v3.49.0 MINOR T4.3: 若行带 ODX 字段类型表,用 DidValueDecoder
+            // 把 raw bytes 解码为物理值/枚举文本/字符串,填 DecodedFields;
+            // UI 的"Value"列(DecodedSummary)与详情面板字段表据此刷新。
+            // 无字段表时退化为既有 hex 透传(DecodedSummary == ReadValue)。
+            if (row.Fields.Count > 0)
+            {
+                var decoded = DidValueDecoder.Decode(data, row.Fields);
+                row.SetDecoded(decoded);
+            }
+            LastResult    = string.IsNullOrEmpty(row.DecodedSummary)
+                ? row.ReadValue : row.DecodedSummary;
+            AppendLog("Info", $"DID 0x{row.Id:X4} = {LastResult}");
         }
         catch (UdsNegativeResponseException ex)
         {
