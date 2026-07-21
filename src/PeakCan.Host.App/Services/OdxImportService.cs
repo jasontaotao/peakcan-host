@@ -173,17 +173,27 @@ public sealed class OdxImportService : IOdxImportService
         // <REQUEST> elements with SERVICE-ID + ID PARAMs.
         var didsFromRequests = RequestBasedMappers.ExtractDids(xdoc, ns);
         var didLengths = RequestBasedMappers.ExtractDidLengths(xdoc, ns);
+        // v3.49.0 MINOR T2.2: 提取每个 DID 的字段类型表（复合 DID 含多个
+        // DidField，含 Base-DATA-TYPE / COMPU-METHOD / UNIT / 字节偏移）。
+        var didFields = RequestBasedMappers.ExtractDidFields(xdoc, ns);
         foreach (var (did, writable) in didsFromRequests)
         {
-            var lengthBytes = didLengths.TryGetValue(did, out var l) ? l : 0;
+            // 优先用字段表累计字节作 LengthBytes（更精确覆盖复合 DID）；
+            // 缺字段表时回退旧 ExtractDidLengths。
+            IReadOnlyList<DidField> fields =
+                didFields.TryGetValue(did, out var fl) ? fl : Array.Empty<DidField>();
+            var lengthBytes = fields.Count > 0
+                ? fields.Sum(f => f.BitLength > 0 ? (f.BitLength + 7) / 8 : 0)
+                : (didLengths.TryGetValue(did, out var l) ? l : 0);
             didDefs.Add(new DidDefinition(
                 Id: did,
                 Name: $"DID_0x{did:X4}",
                 Description: lengthBytes > 0
-                    ? $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {lengthBytes}B)"
-                    : $"DID 0x{did:X4} ({(writable ? "R/W" : "R")})",
+                    ? $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {lengthBytes}B, {fields.Count} field(s))"
+                    : $"DID 0x{did:X4} ({(writable ? "R/W" : "R")}, {fields.Count} field(s))",
                 LengthBytes: lengthBytes,
-                Writable: writable));
+                Writable: writable)
+                with { Fields = fields });
         }
         var routinesFromRequests = RequestBasedMappers.ExtractRoutines(xdoc, ns);
         routineDefs.AddRange(routinesFromRequests);

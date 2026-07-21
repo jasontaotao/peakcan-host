@@ -98,4 +98,33 @@ public class OdxImportServiceRealFileTests
             "CellVolt_JG_Read POS-RESPONSE 8 DATA PARAMs sum to " +
             "2*1456 + 6*48 = 3200 bits = 400 bytes (full response body)");
     }
+
+    /// <summary>
+    /// v3.49.0 MINOR T2.2 — 端到端验证 OdxImportService 把
+    /// ExtractDidFields 的字段表接到 DidDatabase。CellVolt (0x0102)
+    /// 应含 8 个 DidField，首字段 DOP _210 (Hex_182_Byte) = A_BYTEFIELD
+    /// / IDENTICAL，ByteOffset=3。
+    /// </summary>
+    [Fact]
+    public async Task RealFile_ImportAsync_PopulatesDidFieldsWithTypeMetadata()
+    {
+        if (!File.Exists(FixturePath)) return;
+
+        var svc = NewService(out var dids, out _, out _);
+
+        await svc.ImportAsync(FixturePath);
+
+        var cellVolt = dids.Find(0x0102);
+        cellVolt.Should().NotBeNull();
+        cellVolt!.Fields.Should().HaveCount(8,
+            "CellVolt POS-RESPONSE _445 has 8 SEMANTIC=DATA PARAMs");
+
+        var first = cellVolt.Fields[0];
+        first.BaseType.Should().Be(DidBaseType.ByteField,
+            "first DATA PARAM DOP-REF _210 / Hex_182_Byte BASE-DATA-TYPE=A_BYTEFIELD");
+        first.BitLength.Should().Be(1456);
+        first.ByteOffset.Should().Be(3);
+        first.Compu.Should().NotBeNull();
+        first.Compu!.Category.Should().Be(CompuCategory.Identical);
+    }
 }
