@@ -29,6 +29,16 @@ public partial class AppHostBuilder
         // (TraceService + BusStatisticsCollector) into ChannelRouter at
         // host startup. Closes the Task 12 gap where the two were
         // registered as singletons but never connected.
+        //
+        // P0 (flashing feature 2026-07-21): the IsoTpSinkAdapter is the
+        // receive-wiring for the UDS stack. IsoTpLayer is already a singleton
+        // (registered earlier in Build), so the adapter wraps that same
+        // instance — the diagnostic UdsClient (and, later, the flashing
+        // pipeline's UdsClient) all share one IsoTpLayer per CAN-ID pair.
+        // DI resolves IsoTpLayer into the adapter's ctor automatically; the
+        // order here does not matter for resolution but mirrors the
+        // attach order in SinkWiringService.StartAsync for readability.
+        services.AddSingleton<IsoTpSinkAdapter>();
         services.AddHostedService<SinkWiringService>();
     }
 }
