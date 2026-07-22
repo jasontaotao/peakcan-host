@@ -262,6 +262,29 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DidPanelViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.RoutinePanelViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DtcPanelViewModel>();
+        // C4 flashing pipeline: the per-flash secondary stack factory (resolves the shared
+        // CoreSendService/ChannelRouter/UdsTimer/loggers once) + the Flashing-tab panel VM
+        // (owns the stack lifecycle + pipeline execution). Registered as singletons so the
+        // FlashPanelViewModel holds a stable factory but builds a FRESH stack per Start.
+        // Registered BEFORE UdsViewModel so the orchestrator's ctor can resolve it (6th panel).
+        //
+        // Both ctors are `internal` (the factory + the VM expose App-internal seam contracts —
+        // ISecondaryFlashStackFactory — and a public ctor taking internal params would trip
+        // CS0051). DI's CallSiteFactory only walks PUBLIC ctors, so the registrations use
+        // explicit factory lambdas (`sp => new ...`) that reach the internal ctor in-assembly —
+        // the same pattern used for IsoTpLayer (line 181) and UdsClient (line 244).
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.ISecondaryFlashStackFactory>(sp =>
+            new PeakCan.Host.App.Composition.SecondaryFlashStackFactory(
+                sp.GetRequiredService<PeakCan.Host.App.Composition.CoreSendService>(),
+                sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.ChannelRouter>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Uds.UdsTimer>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.UdsSession>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Composition.SecondaryFlashStack>>()));
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.ISecondaryFlashStackFactory>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +

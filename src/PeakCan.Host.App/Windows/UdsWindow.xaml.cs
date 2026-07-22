@@ -102,9 +102,15 @@ public partial class UdsWindow : Window
 
     private void DisposeSessionVm()
     {
-        if (DataContext is UdsViewModel udsVm && udsVm.Session is IDisposable disposable)
-        {
-            disposable.Dispose();
-        }
+        if (DataContext is not UdsViewModel udsVm) return;
+
+        // C4: the Flash panel holds the per-flash secondary stack lifecycle and, for Dll
+        // mode, a NATIVE OEM DLL handle (DllKeyDerivationAlgorithm owns NativeLibrary.Load
+        // output). If a flash were in flight when the window closes, the stack's Dispose
+        // (Detach→Client→IsoTp→DllKey) MUST run here or the native handle leaks across
+        // window open/close cycles. Session panel's Dispose (TesterPresent loop) is
+        // preserved verbatim; the Flash Dispose is additive on the same lifecycle boundary.
+        udsVm.Session.Dispose();
+        udsVm.Flash.Dispose();
     }
 }

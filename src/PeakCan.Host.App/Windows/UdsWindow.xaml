@@ -149,6 +149,55 @@
                     </DataGrid>
                 </DockPanel>
             </TabItem>
+
+            <!-- C4 Flashing tab (4th panel). Owns the secondary flash-stack lifecycle
+                 via FlashPanelViewModel. Steps bind to an ObservableCollection<FlashStep>;
+                 Start/Stop drive PipelineExecutor through the per-run secondary UdsClient.
+                 Programming CAN-ID hero readout (+ same-addressing warning) keeps the
+                 operator aware the programming pair must differ from diagnostic 0x7E0/0x7E8. -->
+            <TabItem Header="Flashing">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Programming CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
+                                <Run Text="Req 0x"/><Run Text="{Binding Flash.CurrentProfile.ProgrammingCanId.RequestId, StringFormat={}{0:X3}, Mode=OneWay}"/>
+                                <Run Text=" / Resp 0x"/><Run Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                        <TextBlock Text="⚠ 编程寻址若与诊断寻址 (0x7E0/0x7E8) 相同，Start 时会拒绝 Dll mode（仅 Manual）"
+                                   Foreground="#C08000" Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Start"  Command="{Binding Flash.StartCommand}" Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
+                            <Button Content="Stop"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,12,0"/>
+                            <!-- FlashProfile Save/Load is Phase 1.1 (file-dialog command);
+                                 the in-memory profile + default template are editable below
+                                 until persisted-state round-trip lands. -->
+                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
+                                <Run Text="Status: "/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                        <ProgressBar Value="{Binding Flash.ProgressPercent, Mode=OneWay}"
+                                     Height="14" Minimum="0" Maximum="100" Margin="0,0,0,8"/>
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Flash.CurrentProfile.Steps}" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="On"  Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}"/>
+                            <DataGridTextColumn   Header="Step"     Binding="{Binding Kind}" IsReadOnly="True"/>
+                            <DataGridTextColumn   Header="SecMode"  Binding="{Binding SecurityMode}"/>
+                            <DataGridTextColumn   Header="Level"    Binding="{Binding SecurityLevel, StringFormat=0x{0:X2}}"/>
+                            <DataGridTextColumn   Header="ManualKey" Binding="{Binding ManualKeyHex}"/>
+                            <DataGridTextColumn   Header="DllPath"  Binding="{Binding DllPath}"/>
+                            <DataGridTextColumn   Header="Routine"  Binding="{Binding RoutineId, StringFormat=0x{0:X4}}"/>
+                            <DataGridTextColumn   Header="Addr"     Binding="{Binding MemoryAddress, StringFormat=0x{0:X8}}"/>
+                            <DataGridTextColumn   Header="FW Path"  Binding="{Binding FirmwarePath}"/>
+                            <DataGridTextColumn   Header="Reset"    Binding="{Binding ResetType}"/>
+                            <DataGridCheckBoxColumn Header="AutoReset" Binding="{Binding AutoResetOnFailure}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>

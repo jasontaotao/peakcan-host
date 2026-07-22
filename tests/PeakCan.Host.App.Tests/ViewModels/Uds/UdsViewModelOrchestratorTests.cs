@@ -1,9 +1,14 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.App.Composition;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds;
@@ -99,5 +104,66 @@ public sealed class UdsViewModelOrchestratorTests
         var act = () => new UdsViewModel(null!, did, routine, dtc);
 
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ---- C4 Flashing panel (6-arg production ctor) ----
+
+    private static (SessionPanelViewModel, DidPanelViewModel, RoutinePanelViewModel, DtcPanelViewModel, FlashPanelViewModel)
+        BuildProductionPanels()
+    {
+        // 6-arg production ctor wires all six panels; the Flash panel here is a REAL
+        // FlashPanelViewModel backed by the production SecondaryFlashStackFactory (real
+        // ChannelRouter/UdsTimer/loggers, dummy CoreSendService) so the ctor surface is
+        // exercised exactly as DI constructs it. No Start is triggered — wiring only.
+        var uds = new FakeUdsClient();
+        var session = new SessionPanelViewModel(uds, NullLogger<SessionPanelViewModel>.Instance);
+        var did     = new DidPanelViewModel(uds, new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance));
+        var routine = new RoutinePanelViewModel(uds, new RoutineDatabase(userJsonPath: null, logger: NullLogger<RoutineDatabase>.Instance));
+        var dtc     = new DtcPanelViewModel(uds);
+        var factory = new SecondaryFlashStackFactory(
+            new CoreSendService(NullLogger<SendService>.Instance),
+            new ChannelRouter(),
+            new UdsTimer(),
+            NullLogger<IsoTpLayer>.Instance,
+            NullLogger<UdsSession>.Instance,
+            NullLogger<SecondaryFlashStack>.Instance);
+        var flash = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance);
+        return (session, did, routine, dtc, flash);
+    }
+
+    [Fact]
+    public void Production_6Arg_Ctor_Binds_Flash_Panel()
+    {
+        var (session, did, routine, dtc, flash) = BuildProductionPanels();
+        var odx = new OdxImportViewModel(new StubOdx());
+
+        var vm = new UdsViewModel(session, did, routine, dtc, odx, flash);
+
+        vm.Flash.Should().BeSameAs(flash, "the 6-arg ctor binds the Flash panel verbatim for the Flashing tab");
+        vm.Session.Should().BeSameAs(session);
+        vm.Did.Should().BeSameAs(did);
+        vm.Routine.Should().BeSameAs(routine);
+        vm.Dtc.Should().BeSameAs(dtc);
+        // Flash panel's default profile is live + non-null — the Flashing tab DataGrid binds it.
+        vm.Flash.CurrentProfile.Should().NotBeNull();
+        vm.Flash.CurrentProfile.Steps.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Production_6Arg_Ctor_Null_Flash_Throws()
+    {
+        var (session, did, routine, dtc, _) = BuildProductionPanels();
+        var odx = new OdxImportViewModel(new StubOdx());
+
+        var act = () => new UdsViewModel(session, did, routine, dtc, odx, null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    /// <summary>Minimal stub IOdxImportService so the 6-arg ctor test can build OdxImportViewModel.</summary>
+    internal sealed class StubOdx : IOdxImportService
+    {
+        public Task<PeakCan.Host.Core.Uds.Odx.OdxImportResult> ImportAsync(string odxPath, System.Threading.CancellationToken ct = default)
+            => Task.FromResult(PeakCan.Host.Core.Uds.Odx.OdxImportResult.Ok(0, 0, 0, System.Array.Empty<string>()));
     }
 }
