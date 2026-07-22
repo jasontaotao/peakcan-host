@@ -73,7 +73,14 @@ public partial class UdsClient
     /// <param name="length">Data length.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Block length for TransferData.</returns>
-    public async Task<int> RequestDownloadAsync(uint address, uint length, CancellationToken ct = default)
+    /// <remarks>
+    /// Phase 1 C4 (flashing feature 2026-07-22): marked <c>virtual</c> so the
+    /// PipelineExecutor's TransferData-chunk loop can be unit-tested against a
+    /// recording UdsClient without touching the wire — consistent with the v1.2.14
+    /// Item 4 / v1.3.0 Item 2 virtual-seam policy applied to the sibling Session/
+    /// Security/Reset methods. The runtime body is unchanged.
+    /// </remarks>
+    public virtual async Task<int> RequestDownloadAsync(uint address, uint length, CancellationToken ct = default)
     {
         // Format: [dataFormatId, addressAndLengthFormatId, address..., length...]
         // Simplified: 4-byte address, 4-byte length
@@ -111,7 +118,11 @@ public partial class UdsClient
     /// <param name="blockSequenceCounter">Block sequence counter (1-255).</param>
     /// <param name="data">Data to transfer.</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task TransferDataAsync(byte blockSequenceCounter, byte[] data, CancellationToken ct = default)
+    /// <remarks>
+    /// Phase 1 C4 (flashing feature 2026-07-22): marked <c>virtual</c> for the
+    /// PipelineExecutor chunk-counter test seam (see <see cref="RequestDownloadAsync"/>).
+    /// </remarks>
+    public virtual async Task TransferDataAsync(byte blockSequenceCounter, byte[] data, CancellationToken ct = default)
     {
         var requestData = new byte[1 + data.Length];
         requestData[0] = blockSequenceCounter;
@@ -124,7 +135,11 @@ public partial class UdsClient
     /// RequestTransferExit (0x37).
     /// </summary>
     /// <param name="ct">Cancellation token.</param>
-    public async Task RequestTransferExitAsync(CancellationToken ct = default)
+    /// <remarks>
+    /// Phase 1 C4 (flashing feature 2026-07-22): marked <c>virtual</c> for the
+    /// PipelineExecutor test seam (see <see cref="RequestDownloadAsync"/>).
+    /// </remarks>
+    public virtual async Task RequestTransferExitAsync(CancellationToken ct = default)
     {
         await SendRequestAsync(0x37, null, ct).ConfigureAwait(false);
     }
