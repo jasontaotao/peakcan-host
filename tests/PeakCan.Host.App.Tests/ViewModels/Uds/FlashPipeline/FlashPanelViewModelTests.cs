@@ -209,16 +209,24 @@ public sealed class FlashPanelViewModelTests
     }
 
     [Fact]
-    public async Task Start_With_Auto_Security_Mode_Throws_Before_Building_Stack()
+    public async Task Start_With_Auto_Security_Mode_Refuses_With_Operator_Message_Before_Building_Stack()
     {
+        // C4 review #2: Auto mode is a configuration choice, so refusing it at run time must
+        // report to the operator via Status/StatusMessage (mirroring the same-addressing Dll
+        // refusal at line 226), NOT throw NotImplementedException out of the [RelayCommand]
+        // into the WPF unobserved-exception path (which masks the status text behind a crash
+        // dialog). The factory-level throw (SecondaryFlashStackFactory.Build) stays as the
+        // contract backstop for any Auto snapshot that ever bypasses this VM gate.
         var ctx = Create();
         var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
         sec.SecurityMode = SecurityAccessMode.Auto;
 
-        var act = async () => await ctx.Vm.StartCommand.ExecuteAsync(null);
+        await ctx.Vm.StartCommand.ExecuteAsync(null);
 
-        await act.Should().ThrowAsync<NotImplementedException>(
-            "Auto mode is Phase 1 NOTIMPLEMENTED and must surface before any wire work");
+        ctx.Vm.Status.Should().Be(FlashStatus.Failed,
+            "Auto is a config choice — refuse the run with a visible Failed status, not an exception");
+        ctx.Vm.StatusMessage.Should().NotBeNullOrWhiteSpace(
+            "the operator must see why Auto was refused without reading a log");
         ctx.Factory.Calls.Should().BeEmpty("Auto mode must not build a secondary stack in Phase 1");
         ctx.Vm.IsFlashing.Should().BeFalse("failed start must reset IsFlashing");
     }
