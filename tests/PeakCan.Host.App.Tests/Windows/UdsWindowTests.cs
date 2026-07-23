@@ -207,4 +207,83 @@ public class UdsWindowTests
                 "CurrentView is the in-place tab surface; UDS is now a Window, not a tab");
         });
     }
+
+    // ---- window/singleton lifecycle (v3.49.x PATCH plan-uds-window-lifecycle T3) ----
+    //
+    // The panel VMs are DI singletons (AppHostBuilder.cs:261-288). UdsWindow.Unloaded must
+    // NOT Dispose them — a one-shot gate would permanently freeze Flash after the first
+    // close. Unloaded now calls StopForWindowClose (window-scoped halt, leaves the
+    // singleton reusable). The tests drive UdsWindow.OnWindowUnloaded (the internal
+    // extraction of the Unloaded handler body) directly, instead of fighting WPF's
+    // RoutedEventArgs plumbing to fire the real event in a non-interactive test.
+
+    [Fact]
+    public void Closing_UdsWindow_Leaves_Flash_Panel_Reusable_For_Next_Window_Instance()
+    {
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            // Baseline: fresh singletons are idle and startable.
+            vm.UdsViewModelField().Flash.StartCommand.CanExecute(null).Should().BeTrue(
+                "fresh singletons are reusable — establishes the baseline we must preserve");
+
+            vm.ShowUdsCommand.Execute(null);
+            var first = (UdsWindow?)typeof(AppShellViewModel)
+                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(vm);
+            first.Should().NotBeNull();
+
+            first!.OnWindowUnloaded();
+
+            // After the unload the singleton VM's Flash must STILL be startable — the old
+            // Dispose() wired into Unloaded set a one-shot _disposed flag that made this
+            // CanExecute permanently false. StopForWindowClose removes that gate.
+            vm.UdsViewModelField().Flash.StartCommand.CanExecute(null).Should().BeTrue(
+                "Unloaded must call StopForWindowClose (not Dispose) so Flash survives window close/reopen");
+            vm.UdsViewModelField().Session.TesterPresentActive.Should().BeFalse(
+                "Unloaded stops the TesterPresent loop and reflects it in the flag");
+        });
+    }
+
+    [Fact]
+    public void Reopen_UdsWindow_Reuse_Keeps_Flash_Startable()
+    {
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowUdsCommand.Execute(null);
+            var first = (UdsWindow?)typeof(AppShellViewModel)
+                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(vm);
+            first.Should().NotBeNull();
+            first!.OnWindowUnloaded();
+
+            // Mirrors a real close, where ViewSwitcher's Closed handler nulls the cache so
+            // the next Show rebuilds — exercises the rebuild path (new window, same VM).
+            typeof(AppShellViewModel)
+                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(vm, null);
+
+            vm.ShowUdsCommand.Execute(null);
+            var second = (UdsWindow?)typeof(AppShellViewModel)
+                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(vm);
+            second.Should().NotBeSameAs(first, "a close clears the cache so the next Show rebuilds");
+            vm.UdsViewModelField().Flash.StartCommand.CanExecute(null).Should().BeTrue(
+                "the reopened window binds the SAME reusable singleton — Flash must be startable");
+        });
+    }
+}
+
+// Test-only reflection helper for the v3.49.x PATCH window-lifecycle tests. Kept at
+// namespace scope (not inside the test class) so it reads as a small focused utility,
+// mirroring the RunSta helper above it. The UDS singleton field is private on
+// AppShellViewModel; reflection reads it once per assertion instead of widening the
+// production API surface just for the tests.
+internal static class UdsWindowTestExtensions
+{
+    public static UdsViewModel UdsViewModelField(this AppShellViewModel shell)
+        => (UdsViewModel)typeof(AppShellViewModel)
+            .GetField("_udsViewModel", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(shell)!;
 }

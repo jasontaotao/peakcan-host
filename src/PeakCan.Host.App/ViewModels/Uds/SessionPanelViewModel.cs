@@ -165,17 +165,29 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
         Message = "SecurityAccess key algorithm not configured for level 0x{Level:X2}")]
     private static partial void LogKeyAlgorithmNotConfigured(ILogger logger, Exception ex, byte level);
 
-    public void Dispose()
+    /// <summary>
+    /// Window-level halt (v3.49.x PATCH plan T2): called by
+    /// <c>UdsWindow.Unloaded</c> when the UDS diagnostic window closes. Stops the
+    /// TesterPresent background loop (cancel its CTS) and flips
+    /// <see cref="TesterPresentActive"/> to false so the bound checkbox reflects
+    /// the true state. <b>Non-terminating</b> — unlike a one-shot
+    /// <see cref="IDisposable"/>, this leaves the VM reusable: <see cref="SessionPanelViewModel"/>
+    /// is a DI singleton (<c>AppHostBuilder.cs:261</c>) shared across window open/close
+    /// cycles, so a close must leave it ready to re-arm the loop for the next window
+    /// instance that binds it.
+    /// </summary>
+    public void StopForWindowClose()
     {
         // Reset the public flag BEFORE cancelling the CTS so observers see
         // TesterPresentActive flip to false before the background loop
         // observes cancellation. Without this, callers that read the flag
-        // after Dispose would see a stale "running" state.
+        // after stop would see a stale "running" state.
         TesterPresentActive = false;
         _testerPresentCts?.Cancel();
         _testerPresentCts?.Dispose();
         _testerPresentCts = null;
-        GC.SuppressFinalize(this);
     }
+
+    public void Dispose() => StopForWindowClose();
 }
 

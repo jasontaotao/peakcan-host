@@ -281,5 +281,65 @@ public sealed class SessionPanelViewModelTests
         }
         throw new TimeoutException($"Predicate did not become true within {millisecondsTimeout} ms");
     }
+
+    // ---------- window/singleton lifecycle (v3.49.x PATCH plan-uds-window-lifecycle T2) ----------
+    //
+    // UdsWindow.Unloaded used to call Session.Dispose(). Session.Dispose() is already
+    // idempotent and sets no permanent gate (TesterPresent can be re-toggled after it),
+    // but "Dispose" is a one-shot name that misleads callers about the singleton's
+    // reusability. StopForWindowClose names the window-scoped halt precisely and Dispose
+    // delegates to it. The contract below pins the behaviour UdsWindow.Unloaded relies on:
+    // window close stops the in-flight TesterPresent loop, and the SAME singleton VM can
+    // re-arm the loop when the next window instance binds it.
+
+    [Fact]
+    public void StopForWindowClose_Stops_TesterPresent_And_Resets_Flag()
+    {
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue();
+
+        vm.StopForWindowClose();
+
+        vm.TesterPresentActive.Should().BeFalse("window close must stop the loop and reflect it in the flag");
+    }
+
+    [Fact]
+    public void StopForWindowClose_Keeps_Vm_Reusable_For_Next_Window_Instance()
+    {
+        // The singleton survives the window close: a subsequent TweakerPresent toggle
+        // restarts the background loop. This is the regression the old Unloaded→Dispose
+        // wiring relied on but didn't explicitly pin (Dispose happily re-arms; we now
+        // make the window-scope semantic explicit).
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        vm.StopForWindowClose();
+
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue("the reused singleton must re-arm the loop after window-level stop");
+
+        // And stop cleanly again.
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Dispose_Delegates_To_StopForWindowClose_Keeps_VM_Reusable()
+    {
+        // DI's App.OnExit cascade calls Dispose on the singleton; it must be a safe
+        // superset of the window-level stop. Reusing the VM after Dispose (in test or
+        // in a hypothetical non-shutdown path) must not throw.
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        vm.Dispose();
+        vm.Dispose(); // idempotent on the DI cascade
+
+        var act = () => vm.StopForWindowClose();
+        act.Should().NotThrow("the two stop entry points share a body, both idempotent");
+    }
 }
 

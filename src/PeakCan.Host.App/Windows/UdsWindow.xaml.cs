@@ -32,11 +32,56 @@ public partial class UdsWindow : Window
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
-        Unloaded += (_, _) =>
-        {
-            DetachLog();
-            DisposeSessionVm();
-        };
+        Unloaded += (_, _) => OnWindowUnloaded();
+    }
+
+    /// <summary>
+    /// Window-level halt extracted from the <see cref="Unloaded"/> handler body so tests
+    /// can drive it directly (WPF's RoutedEventArgs plumbing cannot be fired cleanly from
+    /// a non-interactive STA test). v3.49.x PATCH (plan-uds-window-lifecycle T3): the
+    /// panel VMs are DI singletons, so this must NOT Dispose them. It calls
+    /// <c>StopForWindowClose</c> on Session + Flash — a window-scoped halt that stops any
+    /// in-flight work (TesterPresent loop / flash run) and leaves the singleton reusable
+    /// for the next window instance that binds it.
+    /// <para>
+    /// Before this PATCH Unloaded called <c>Session.Dispose()</c> + <c>Flash.Dispose()</c>,
+    /// and Flash's one-shot <c>_disposed</c> gate froze the panel permanently after the
+    /// first close (the reopened window bound the same disposed singleton →
+    /// ObjectDisposedException on Start + a perpetually-greyed Start button).
+    /// </para>
+    /// <para><b>Known follow-up (reviewer MEDIUM-1, not fixed in this PATCH — out of scope):</b>
+    /// StopForWindowClose only SIGNALS cancellation of an in-flight flash run; the real
+    /// secondary-stack teardown (Detach→Client→IsoTp→DllKey, which calls
+    /// <c>NativeLibrary.Free</c> on the OEM DLL) runs asynchronously in the run's
+    /// <c>finally</c>. If the user closes the UDS window AND immediately exits the app
+    /// (so App.OnExit's <c>_host.StopAsync</c>/<c>_host.Dispose()</c> fires before the
+    /// finally completes), the native handle is NOT guaranteed released before process
+    /// exit (the OS reclaims it, but ungracefully). The clean fix is to thread an
+    /// <c>IHostApplicationLifetime.ApplicationStopping</c> token into
+    /// <c>PipelineExecutor.ExecuteAsync</c> so App.OnExit can cancel + await the flash
+    /// shutdown first. Tracked as a separate concurrency-governance PATCH.
+    /// </para>
+    /// <para><b>Event semantics note (reviewer LOW-2):</b> WPF <c>Unloaded</c> also fires
+    /// on theme changes / re-templating, not only Close. StopForWindowClose is reversible
+    /// and idempotent, so a spurious Unloaded may cancel an in-flight run (the user sees a
+    /// transient Cancelled status) but leaves the VM fully reusable — no data risk, only a
+    /// user-visible flash that needs a manual re-Start. Wiring <c>Closed</c> instead would couple to
+    /// real window close; left as LOW cosmetic for a future PATCH since the existing surface
+    /// already used Unloaded.
+    /// </para>
+    /// </summary>
+    internal void OnWindowUnloaded()
+    {
+        DetachLog();
+        if (DataContext is not UdsViewModel udsVm) return;
+
+        // Stop the singleton panels' in-flight work for THIS window's lifetime, but keep
+        // the VMs reusable. Session: stop TesterPresent. Flash: stop any in-flight run
+        // (its finally tears the secondary stack down in Detach→Client→IsoTp→DllKey order).
+        // Process-level teardown (App.OnExit DI cascade, App.xaml.cs:190) still calls the
+        // real Dispose on these singletons — native OEM-DLL handles release there, not here.
+        udsVm.Session.StopForWindowClose();
+        udsVm.Flash.StopForWindowClose();
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -98,19 +143,5 @@ public partial class UdsWindow : Window
         {
             oldVm.OutputLog.CollectionChanged -= OnLogCollectionChanged;
         }
-    }
-
-    private void DisposeSessionVm()
-    {
-        if (DataContext is not UdsViewModel udsVm) return;
-
-        // C4: the Flash panel holds the per-flash secondary stack lifecycle and, for Dll
-        // mode, a NATIVE OEM DLL handle (DllKeyDerivationAlgorithm owns NativeLibrary.Load
-        // output). If a flash were in flight when the window closes, the stack's Dispose
-        // (Detach→Client→IsoTp→DllKey) MUST run here or the native handle leaks across
-        // window open/close cycles. Session panel's Dispose (TesterPresent loop) is
-        // preserved verbatim; the Flash Dispose is additive on the same lifecycle boundary.
-        udsVm.Session.Dispose();
-        udsVm.Flash.Dispose();
     }
 }
