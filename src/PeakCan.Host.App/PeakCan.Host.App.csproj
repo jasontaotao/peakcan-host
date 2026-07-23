@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Http.Polly" />
     <PackageReference Include="OxyPlot.Wpf" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <!-- v3.54.0 MINOR P1b: IHttpClientFactory for DeepSeekProvider.
