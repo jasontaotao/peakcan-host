@@ -91,10 +91,15 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // so no wire/native work escapes and IsFlashing never lies.
         if (secStep?.SecurityMode == SecurityAccessMode.Auto)
         {
+            // C4 review #2: Auto is a configuration choice, so refusing it at run time reports
+            // to the operator via Status/StatusMessage (mirroring the same-addressing Dll
+            // refusal below), NOT a throw into the [RelayCommand] unobserved-exception path
+            // that masks the status text behind a WPF crash dialog. The second-line defence
+            // throw remains in SecondaryFlashStackFactory.Build for any Auto snapshot that
+            // ever bypasses this VM gate.
             Status = FlashStatus.Failed;
             StatusMessage = "Auto SecurityAccess mode is not supported in Phase 1.";
-            throw new NotImplementedException(
-                "SecurityAccess Auto mode is not implemented in Phase 1. Select Manual or Dll.");
+            return;
         }
 
         // Task 3.2 同寻址退化: if the programming CAN-ID pair degrades to the diagnostic
