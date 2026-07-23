@@ -9,6 +9,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Replay;
+using Polly;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -184,11 +185,26 @@ public partial class AppHostBuilder
         // impl. NotImplementedLlmProvider kept for explicit fallback (D7).
         // DeepSeekProvider reads API key from ICredentialStore (v3.53.1 P1a
         // security foundation) — never from appsettings.json.
-        services.AddHttpClient("DeepSeek", client =>
+        services.AddHttpClient("DeepSeek", (sp, client) =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.54.0");
-        });
+            // v3.61.0 PATCH BUG-006: read timeout from DeepSeekOptions so
+            // the configured value matches what DeepSeekProvider reports in
+            // error messages. Falls back to 30s default.
+            // v3.61.0 PATCH BUG-3: total timeout = 5x per-line timeout so
+            // long streaming responses (>30s) aren't killed by the http
+            // client. ReadLineWithTimeoutAsync enforces per-line silence.
+            // Without this multiplier, a 45s streaming response at 1 token/s
+            // would be cancelled at t=30s by HttpClient.TotalTimeout.
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
+        })
+        // v3.61.0 PATCH OPT-010: Polly retry for transient DeepSeek failures
+        // (429 rate-limit, 5xx server errors, HttpRequestException). 3 retries
+        // with exponential backoff: 1s → 2s → 4s. Jitter not needed here —
+        // DeepSeek is a single endpoint, not a cluster of replicas.
+        .AddTransientHttpErrorPolicy(builder => builder
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
         // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)
         services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(options => { });

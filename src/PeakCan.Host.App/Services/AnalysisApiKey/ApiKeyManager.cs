@@ -30,6 +30,25 @@ public sealed class ApiKeyManager
     }
 
     /// <summary>
+    /// Read the raw API key from the credential store. Used only by
+    /// TestConnectionAsync for a lightweight HTTP probe. Returns null
+    /// when no key is stored or the store throws.
+    /// v3.61.0 MINOR: added for real HTTP probe in TestConnection.
+    /// </summary>
+    public async Task<string?> ReadKeyRawAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            return await _store.GetAsync(CredentialKey, ct).ConfigureAwait(true);
+        }
+        catch (CredentialStoreException ex)
+        {
+            _logger.LogWarning(ex, "Failed to read raw DeepSeek API key for probe");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Probe whether the DeepSeek API key is configured in the
     /// credential store. Returns <see cref="ApiKeyConfiguredState.NotSet"/>
     /// when the store returns null or empty; <see cref="ApiKeyConfiguredState.Configured"/>

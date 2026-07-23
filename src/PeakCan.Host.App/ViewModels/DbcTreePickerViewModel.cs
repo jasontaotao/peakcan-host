@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.Core.Dbc;
 
@@ -12,7 +14,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// the message). Carries the original DBC values for the picker to
 /// round-trip back to <c>TraceViewerViewModel.AddToWatch</c>.
 /// </summary>
-public sealed class DbcTreeNode
+public sealed class DbcTreeNode : INotifyPropertyChanged
 {
     public uint? CanId { get; }
     public string? MessageName { get; }
@@ -28,7 +30,26 @@ public sealed class DbcTreeNode
         MessageName = messageName;
         SignalName = signalName;
         Unit = unit;
+        _isVisible = true;
     }
+
+    /// <summary>v3.61.0 PATCH: search filter visibility. Set by the
+    /// ViewModel when SearchText changes; TreeView ItemContainerStyle
+    /// binds to this via DataTrigger. When collapsed, TreeView hides
+    /// the node and its descendants automatically.</summary>
+    private bool _isVisible;
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set
+        {
+            if (_isVisible == value) return;
+            _isVisible = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVisible)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>v3.16.0: search filter — true if this node OR any
     /// descendant matches. Used by the picker to hide non-matching
@@ -88,6 +109,33 @@ public sealed partial class DbcTreePickerViewModel : ObservableObject
             }
             Roots.Add(msgNode);
         }
+    }
+
+    /// <summary>v3.61.0 PATCH: apply search filter to the tree. Sets
+    /// IsVisible on each node recursively so the TreeView hides
+    /// non-matching items via ItemContainerStyle DataTrigger. Empty
+    /// search restores full visibility.</summary>
+    partial void OnSearchTextChanged(string value)
+    {
+        foreach (var root in Roots)
+            ApplyFilter(root, value);
+    }
+
+    private static bool ApplyFilter(DbcTreeNode node, string search)
+    {
+        var selfMatch = string.IsNullOrEmpty(search)
+            || (node.MessageName is not null && node.MessageName.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase))
+            || (node.SignalName is not null && node.SignalName.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        var anyChildMatch = false;
+        foreach (var child in node.Children)
+        {
+            if (ApplyFilter(child, search))
+                anyChildMatch = true;
+        }
+
+        node.IsVisible = selfMatch || anyChildMatch;
+        return node.IsVisible;
     }
 
     /// <summary>v3.16.0 MINOR: toggle a signal's selection. Called by

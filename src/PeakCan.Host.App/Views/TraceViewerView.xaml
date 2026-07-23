@@ -115,6 +115,14 @@
             <Button Content="🤖 运行分析" Command="{Binding RunAnalysisCommand}"
                     Padding="8,2" Margin="4,0,0,0"
                     ToolTip="运行本地 AI 推理分析（P0 仅本地特征；P1 接 LLM）" />
+            <!-- v3.61.0 PATCH BUG-003: streaming analysis button. Wires
+                 RunAnalysisStreamingCommand which provides incremental
+                 partial-summary updates to the AI Analysis panel. Hidden
+                 until a real LLM provider is configured (always visible in
+                 P1+; in P0 the non-streaming path is the primary entry). -->
+            <Button Content="流式" Command="{Binding RunAnalysisStreamingCommand}"
+                    Padding="6,2" Margin="4,0,0,0"
+                    ToolTip="流式 AI 分析（增量显示结果）" />
         </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored

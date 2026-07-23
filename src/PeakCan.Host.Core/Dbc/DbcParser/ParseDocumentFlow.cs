@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Linq;
+
 namespace PeakCan.Host.Core.Dbc;
 
 public static partial class DbcParser
@@ -124,6 +127,74 @@ public static partial class DbcParser
                         break;
 
                     case TokenType.Keyword_CM_:
+                        Consume();  // consume CM_ keyword
+                        // CM_ variants: global, BU_, BO_, SG_
+                        // CM_ "global text";
+                        // CM_ BU_ <node> "comment";
+                        // CM_ BO_ <id> "comment";
+                        // CM_ SG_ <id> <signame> "comment";
+                        if (Current.Type == TokenType.String)
+                        {
+                            Consume();
+                        }
+                        else if (Current.Type == TokenType.Keyword_BU_)
+                        {
+                            Consume();  // BU_ keyword
+                            Consume();  // node name
+                            if (Current.Type == TokenType.String) Consume();
+                        }
+                        else if (Current.Type == TokenType.Keyword_BO_)
+                        {
+                            Consume();
+                            if (Current.Type == TokenType.Integer)
+                            {
+                                var msgId = uint.Parse(Current.Lexeme, CultureInfo.InvariantCulture);
+                                Consume();
+                                if (Current.Type == TokenType.String)
+                                {
+                                    var comment = Current.Lexeme;
+                                    Consume();
+                                    if (_pendingMessagesById.TryGetValue(msgId, out var msg) && msg is not null)
+                                    {
+                                        var updated = msg with { Comment = comment };
+                                        _pendingMessages[_pendingMessages.FindIndex(m => m.Id == msgId)] = updated;
+                                        _pendingMessagesById[msgId] = updated;
+                                    }
+                                }
+                            }
+                        }
+                        else if (Current.Type == TokenType.Keyword_SG_)
+                        {
+                            Consume();
+                            if (Current.Type == TokenType.Integer)
+                            {
+                                var msgId = uint.Parse(Current.Lexeme, CultureInfo.InvariantCulture);
+                                Consume();
+                                if (Current.Type == TokenType.Identifier)
+                                {
+                                    var sigName = Current.Lexeme;
+                                    Consume();
+                                    if (Current.Type == TokenType.String)
+                                    {
+                                        var comment = Current.Lexeme;
+                                        Consume();
+                                        if (_pendingMessagesById.TryGetValue(msgId, out var msg) && msg is not null)
+                                        {
+                                            var signals = msg.Signals.Select(s =>
+                                                s.Name == sigName
+                                                    ? s with { Comment = comment }
+                                                    : s).ToList();
+                                            var updated = msg with { Signals = signals };
+                                            _pendingMessages[_pendingMessages.FindIndex(m => m.Id == msgId)] = updated;
+                                            _pendingMessagesById[msgId] = updated;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (Current.Type == TokenType.Semicolon) Consume();
+                        break;
+
                     case TokenType.Keyword_EV_:
                     case TokenType.Keyword_BA_DEF_:
                     case TokenType.Keyword_BA_:

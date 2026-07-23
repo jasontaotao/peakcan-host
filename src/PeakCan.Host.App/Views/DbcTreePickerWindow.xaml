@@ -34,6 +34,19 @@
 
         <!-- Tree of DBC messages / signals -->
         <TreeView x:Name="Tree" ItemsSource="{Binding Roots}">
+            <!-- v3.61.0 PATCH: collapse non-matching nodes when search
+                 filter is active. The DataTrigger binds to DbcTreeNode.
+                 IsVisible which is updated by OnSearchTextChanged. -->
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsVisible}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TreeView.ItemContainerStyle>
             <TreeView.ItemTemplate>
                 <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                     <StackPanel Orientation="Horizontal" Margin="2">

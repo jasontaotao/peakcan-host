@@ -24,8 +24,7 @@
                     <PasswordBox x:Name="ApiKeyInput" Width="240" Margin="0,0,8,0"
                                  PasswordChanged="ApiKeyInput_PasswordChanged" />
                     <Button Content="保存" Margin="0,0,4,0"
-                            Command="{Binding SetApiKeyCommand}"
-                            CommandParameter="{Binding ElementName=ApiKeyInput, Path=Password}" />
+                            Command="{Binding SetApiKeyCommand}" />
                     <Button Content="清除" Margin="0,0,4,0"
                             Command="{Binding RemoveApiKeyCommand}" />
                     <Button Content="测试连接"
@@ -36,6 +35,24 @@
                            TextWrapping="Wrap"
                            Visibility="{Binding HasApiKeyError, Converter={StaticResource BoolToVis}}"
                            Margin="0,8,0,0" />
+                <!-- v3.61.0 MINOR: last operation result. Shows Save/Test/Remove
+                     feedback right in the panel so the user doesn't need to look
+                     at the bottom status bar. Green for success, red for error. -->
+                <TextBlock Text="{Binding PanelOperationText}"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding PanelOperationText, Converter={StaticResource NullToVisibilityConverter}}"
+                           Margin="0,8,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#2E7D32" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasPanelOperationError}" Value="True">
+                                    <Setter Property="Foreground" Value="#D32F2F" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
         </Border>
 
@@ -115,7 +132,7 @@
      RunAnalysisStreamingCommand is in-flight (IsLoading toggles the
      visibility). Shows the running summary text + evidence IDs as they
      accumulate — first-token latency drops from ~30s to ~1s. -->
-<StackPanel Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
+<StackPanel Visibility="{Binding IsAnalyzing, Converter={StaticResource BoolToVis}}"
             Margin="8">
     <TextBlock Text="流式输出（实时）" FontWeight="SemiBold" Margin="0,0,0,4"
                Foreground="#1565C0" />

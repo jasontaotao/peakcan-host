@@ -22,6 +22,8 @@ namespace PeakCan.Host.Core.Dbc;
 /// <param name="IsMultiplexed">True iff this signal's value is only valid for a specific mux value.</param>
 /// <param name="MultiplexValue">When <see cref="IsMultiplexed"/>, the mux value gating this signal.</param>
 /// <param name="ValueTableName">Optional <c>VAL_TABLE_</c> name attached via <c>VAL_</c> (Task 6).</param>
+/// <param name="Comment">Optional description from <c>CM_ SG_</c> line.
+/// Null when the DBC has no comment for this signal.</param>
 public sealed record Signal(
     string Name,
     ushort StartBit,
@@ -37,4 +39,5 @@ public sealed record Signal(
     bool IsMultiplexor = false,
     bool IsMultiplexed = false,
     ushort? MultiplexValue = null,
-    string? ValueTableName = null);
+    string? ValueTableName = null,
+    string? Comment = null);

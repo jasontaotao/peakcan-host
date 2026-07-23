@@ -20,17 +20,16 @@ public partial class TraceViewerViewAIPanel : UserControl
     public TraceViewerViewAIPanel() => InitializeComponent();
 
     /// <summary>
-    /// W40 P2 PATCH: refresh the SetApiKeyCommand CanExecute whenever
-    /// the PasswordBox content changes — CanExecute is computed from
-    /// <c>!string.IsNullOrWhiteSpace(value)</c> and WPF does not auto-
-    /// raise CommandManager.RequerySuggested on PasswordBox.Password
-    /// property changes (unlike TextBox.Text).
+    /// v3.61.0 PATCH: sync PasswordBox content to VM.PendingApiKeyValue.
+    /// WPF PasswordBox.Password cannot be reliably read via CommandParameter
+    /// ElementName binding — this handler stores it in a VM string property
+    /// that the parameterless SetApiKeyCommand reads instead.
     /// </summary>
     private void ApiKeyInput_PasswordChanged(object sender, RoutedEventArgs e)
     {
         if (DataContext is ViewModels.TraceViewerViewModel vm)
         {
-            vm.SetApiKeyCommand.NotifyCanExecuteChanged();
+            vm.PendingApiKeyValue = ((PasswordBox)sender).Password;
         }
     }
 }

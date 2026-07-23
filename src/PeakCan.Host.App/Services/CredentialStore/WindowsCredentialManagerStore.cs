@@ -31,6 +31,7 @@ public sealed class WindowsCredentialManagerStore : ICredentialStore
 
     public Task<string?> GetAsync(string key, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var fullKey = KeyPrefix + key;
         if (!CredRead(fullKey, CRED_TYPE_GENERIC, 0, out var credPtr))
         {
@@ -56,6 +57,7 @@ public sealed class WindowsCredentialManagerStore : ICredentialStore
 
     public Task SetAsync(string key, string value, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrEmpty(key);
         ArgumentException.ThrowIfNullOrEmpty(value);
         if (value.Contains('\0')) throw new ArgumentException("Credential value cannot contain null characters", nameof(value));
@@ -95,6 +97,7 @@ public sealed class WindowsCredentialManagerStore : ICredentialStore
 
     public Task DeleteAsync(string key, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrEmpty(key);
         var fullKey = KeyPrefix + key;
         if (!CredDelete(fullKey, CRED_TYPE_GENERIC, 0))

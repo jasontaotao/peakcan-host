@@ -48,6 +48,17 @@ public sealed class DeepSeekProvider : ILlmProvider
 
     public string DisplayName => $"DeepSeek ({_options.Model})";
 
+    /// <summary>
+    /// v3.61.0 PATCH: override ILlmProvider.AnalyzeStreamingAsync default
+    /// method. Without this override, the VM's streaming path hits the
+    /// default interface method (ILlmProviderExtensions.AnalyzeStreamingFromSingleShot)
+    /// which only yields one FinalResult — never PartialSummary. This
+    /// delegates to StreamAnalyzeAsync which emits incremental deltas.
+    /// </summary>
+    public IAsyncEnumerable<LlmPartialUpdate> AnalyzeStreamingAsync(
+        AnalysisSession session, CancellationToken ct)
+        => StreamAnalyzeAsync(session, ct);
+
     public async Task<LlmAnalysisResult> AnalyzeAsync(AnalysisSession session, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -73,6 +84,11 @@ public sealed class DeepSeekProvider : ILlmProvider
         var request = new DeepSeekRequest
         {
             Model = _options.Model,
+            // Non-streaming: use json_object response_format for structured
+            // FinalResult parsing (summary + evidence IDs). Streaming SSE
+            // path (StreamAnalyzeAsync) explicitly sets ResponseFormat=null
+            // to get plain-text deltas instead of JSON fragments.
+            ResponseFormat = new DeepSeekResponseFormat { Type = "json_object" },
             Messages = new List<DeepSeekMessage>
             {
                 new() { Role = "system", Content = SystemPrompt },
@@ -80,7 +96,43 @@ public sealed class DeepSeekProvider : ILlmProvider
             },
         };
 
-        // 3. POST
+        // v3.61.0 PATCH BUG-001: check UseStreaming BEFORE sending HTTP request.
+        // Previously the non-streaming POST was always sent first, then
+        // StreamAnalyzeAsync was called which sent a SECOND POST with stream=true,
+        // wasting 2x DeepSeek tokens on every streaming invocation.
+        if (_options.UseStreaming)
+        {
+            try
+            {
+                LlmPartialUpdate? lastFinal = null;
+                await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
+                {
+                    if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
+                }
+                if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
+                return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return ErrorResult("DeepSeek request cancelled by user");
+            }
+            catch (OperationCanceledException)
+            {
+                return ErrorResult($"DeepSeek request timed out after {_options.TimeoutSeconds}s");
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse DeepSeek streaming response as JSON");
+                return ErrorResult("DeepSeek returned malformed JSON");
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "HTTP error calling DeepSeek streaming");
+                return ErrorResult($"DeepSeek HTTP error: {ex.Message}");
+            }
+        }
+
+        // 3. POST (non-streaming path only)
         var http = _httpClientFactory.CreateClient("DeepSeek");
         try
         {
@@ -105,24 +157,8 @@ public sealed class DeepSeekProvider : ILlmProvider
                 };
             }
 
-            // v3.59.0 MINOR: when UseStreaming is true (default), route through
-            // StreamAnalyzeAsync so the caller benefits from incremental delivery.
-            // The async-foreach collects the final result; partial updates are
-            // discarded because the caller asked for the single-shot signature.
-            if (_options.UseStreaming)
-            {
-                LlmPartialUpdate? lastFinal = null;
-                await foreach (var update in StreamAnalyzeAsync(session, ct).ConfigureAwait(false))
-                {
-                    if (update is LlmPartialUpdate.FinalResult fr) lastFinal = fr;
-                }
-                if (lastFinal is null) return ErrorResult("DeepSeek streaming produced no FinalResult");
-                return ((LlmPartialUpdate.FinalResult)lastFinal).Result;
-            }
-
             var rawJson = await response.Content.ReadAsStringAsync(ct);
-            var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var deepSeekResponse = JsonSerializer.Deserialize<DeepSeekResponse>(rawJson, _caseInsensitiveJson);
 
             if (deepSeekResponse?.Choices == null || deepSeekResponse.Choices.Count == 0)
             {
@@ -149,11 +185,11 @@ public sealed class DeepSeekProvider : ILlmProvider
                 Error: null);
             return EvidenceIdWhitelistFilter.Filter(session, raw);
         }
-        catch (TaskCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             return ErrorResult("DeepSeek request cancelled by user");
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return ErrorResult($"DeepSeek request timed out after {_options.TimeoutSeconds}s");
         }
@@ -217,11 +253,16 @@ public sealed class DeepSeekProvider : ILlmProvider
             yield break;
         }
 
-        // 2. Build request with stream=true
+        // 2. Build request with stream=true (no json_object response_format
+        // so SSE deltas are plain text, not JSON fragments).
         var request = new DeepSeekRequest
         {
             Model = _options.Model,
             Stream = true,
+            // v3.61.0 PATCH HIGH-2: don't set response_format=json_object
+            // for streaming requests — each SSE delta becomes a plain-text
+            // fragment instead of JSON like {"summary": "Anal..."}.
+            ResponseFormat = null,
             Messages = new List<DeepSeekMessage>
             {
                 new() { Role = "system", Content = SystemPrompt },
@@ -257,7 +298,10 @@ public sealed class DeepSeekProvider : ILlmProvider
             yield break;
         }
 
-        // 4. Read SSE stream
+        // 4. Read SSE stream — with read-level timeout guard.
+        // v3.61.0 PATCH BUG-002: a single CancellationTokenSource is
+        // created for the entire stream, reset after each chunk so a
+        // slow model (e.g. 30s thinking) doesn't get interrupted.
         var summaryBuilder = new StringBuilder();
         var rawJsonBuilder = new StringBuilder();
         var chunkCount = 0;
@@ -268,7 +312,7 @@ public sealed class DeepSeekProvider : ILlmProvider
         // CA2024: don't use reader.EndOfStream in async path. ReadLineAsync
         // returns null at EOF, so loop on ReadLineAsync result directly.
         string? line;
-        while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) is not null)
+        while ((line = await ReadLineWithTimeoutAsync(reader, ct).ConfigureAwait(false)) is not null)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -284,8 +328,7 @@ public sealed class DeepSeekProvider : ILlmProvider
             DeepSeekStreamingChunk? chunk;
             try
             {
-                chunk = JsonSerializer.Deserialize<DeepSeekStreamingChunk>(payload,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                chunk = JsonSerializer.Deserialize<DeepSeekStreamingChunk>(payload, _caseInsensitiveJson);
             }
             catch (JsonException ex)
             {
@@ -328,24 +371,57 @@ public sealed class DeepSeekProvider : ILlmProvider
         yield return new LlmPartialUpdate.FinalResult(filtered);
     }
 
-    private static string SerializeSessionForLLM(AnalysisSession session)
+    /// <summary>
+    /// v3.61.0 PATCH: read a line from the SSE stream with a silent-read
+    /// timeout. Each call creates a fresh linked CTS, so the timeout is
+    /// per-line (not cumulative). _options.TimeoutSeconds (default 30s)
+    /// is generous enough for normal token-by-token streaming; a model
+    /// that pauses longer than this mid-response will be interrupted.
+    /// </summary>
+    private async Task<string?> ReadLineWithTimeoutAsync(
+        StreamReader reader, CancellationToken ct)
     {
-        // Compact JSON: include only evidence IDs + brief description.
-        // The LLM is told to cite E-NNNN IDs; full payload would exceed token budget.
-        var sb = new StringBuilder();
-        sb.AppendLine("{");
-        sb.AppendLine("  \"evidence\": [");
-        foreach (var e in session.Report.Evidence)
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+        try
         {
-            sb.AppendLine($"    {{\"id\": \"{e.EvidenceId}\", \"type\": \"{e.Type}\", \"description\": \"{Escape(e.Description)}\"}},");
+            return await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
         }
-        sb.AppendLine("  ],");
-        sb.AppendLine($"  \"candidates_count\": {session.Report.Candidates.Count}");
-        sb.AppendLine("}");
-        return sb.ToString();
+        catch (OperationCanceledException oce) when (!ct.IsCancellationRequested)
+        {
+            // Timeout (not user cancellation). Preserve original stack trace
+            // via the innerException parameter for debugging.
+            throw new OperationCanceledException(
+                $"SSE stream read timed out (no data for {_options.TimeoutSeconds}s)", oce);
+        }
     }
 
-    private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    /// <summary>
+    /// v3.61.0 PATCH OPT-008: serialized evidence payload for the LLM
+    /// prompt. Uses System.Text.Json instead of manual StringBuilder +
+    /// incomplete Escape() to guarantee valid JSON.
+    /// </summary>
+    private sealed record EvidenceEntry(string Id, string Type, string Description);
+
+    /// <summary>
+    /// v3.61.0 PATCH OPT-008: top-level payload structure for
+    /// SerializeSessionForLLM. Kept minimal — only evidence list +
+    /// candidate count — to stay within the DeepSeek token budget.
+    /// </summary>
+    private sealed record SessionPayload(EvidenceEntry[] Evidence, int CandidatesCount);
+
+    private static readonly JsonSerializerOptions _indentedJson = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _caseInsensitiveJson = new() { PropertyNameCaseInsensitive = true };
+
+    private static string SerializeSessionForLLM(AnalysisSession session)
+    {
+        var payload = new SessionPayload(
+            Evidence: session.Report.Evidence
+                .Select(e => new EvidenceEntry(e.EvidenceId, e.Type, e.Description))
+                .ToArray(),
+            CandidatesCount: session.Report.Candidates.Count);
+        return JsonSerializer.Serialize(payload, _indentedJson);
+    }
 
     private static (string Summary, List<string> CitedIds) ParseLLMJsonResponse(string content)
     {
@@ -374,8 +450,17 @@ public sealed class DeepSeekProvider : ILlmProvider
         }
         catch
         {
-            // Fallback: treat content as raw summary, no cited IDs
-            return (content, new List<string>());
+            // Fallback: treat content as raw summary, extract evidence IDs
+            // via regex for E-NNNN pattern (plain-text streaming output).
+            var cited = new List<string>();
+            foreach (System.Text.RegularExpressions.Match m in
+                System.Text.RegularExpressions.Regex.Matches(
+                    content, @"E-(?:\d{4})"))
+            {
+                if (!cited.Contains(m.Value))
+                    cited.Add(m.Value);
+            }
+            return (content, cited);
         }
     }
 }

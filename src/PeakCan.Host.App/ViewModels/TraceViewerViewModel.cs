@@ -93,6 +93,26 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // without leaking the key value itself. Singleton so the
     // LastUpdatedAt timestamp is stable across the WPF session.
     private readonly PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager _apiKeyManager;
+    // v3.61.0 PATCH BUG-004: VM-lifecycle CancellationTokenSource for AI analysis.
+    // Cancelled on Dispose/Reset so in-flight HTTP requests are aborted when the
+    // user closes the window or clears the session.
+    private CancellationTokenSource? _analysisCts;
+    // v3.61.0 PATCH BUG-007: distinct IsAnalyzing flag separate from IsLoading.
+    // IsLoading gates AddTraceCommand (trace loading); IsAnalyzing gates analysis
+    // commands. Streaming panel visibility binds to IsAnalyzing, not IsLoading.
+    private bool _isAnalyzing;
+    public bool IsAnalyzing
+    {
+        get => _isAnalyzing;
+        private set
+        {
+            if (SetProperty(ref _isAnalyzing, value))
+            {
+                RunAnalysisCommand.NotifyCanExecuteChanged();
+                RunAnalysisStreamingCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -263,6 +283,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // T6 follows up with Substitute.For<ApiKeyManager>() at every
         // existing test callsite.
         _apiKeyManager = apiKeyManager ?? throw new ArgumentNullException(nameof(apiKeyManager));
+        // v3.61.0 PATCH: probe credential store on startup so the API Key
+        // status shows "已配置" immediately if a key was previously saved.
+        // Fire-and-forget is safe here: CheckAsync uses ConfigureAwait(true)
+        // internally, so the continuation (UpdateApiKeyStatusDisplay) runs
+        // on the captured SynchronizationContext (UI thread).
+        _ = ProbeStoredApiKeyAsync();
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace
@@ -389,6 +415,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _blueAnchorTimestampSeconds = double.NaN;
         OnPropertyChanged(nameof(IsBlueLineAnchorActive));
         UpdateAllBlueLines();
+        // v3.61.0 PATCH BUG-004: cancel in-flight analysis on session reset.
+        // Creates fresh CTS for next analysis run.
+        _analysisCts?.Cancel();
+        _analysisCts?.Dispose();
+        _analysisCts = null;
+        CurrentAnalysisSession = null;
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
@@ -461,6 +493,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _dbcService.DbcLoaded -= OnDbcLoaded;
         DetachAllServiceHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
+        // v3.61.0 PATCH BUG-004: cancel in-flight analysis HTTP requests.
+        _analysisCts?.Cancel();
+        _analysisCts?.Dispose();
         GC.SuppressFinalize(this);
     }
 }
