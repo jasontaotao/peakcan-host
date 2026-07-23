@@ -37,7 +37,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private readonly ILogger<FlashPanelViewModel> _logger;
 
     private CancellationTokenSource? _runCts;
-    private bool _disposed;
+    // v3.49.x PATCH (plan-uds-window-lifecycle T1): the one-shot _disposed flag is
+    // GONE. FlashPanelViewModel is a DI singleton (AppHostBuilder.cs:284); coupling a
+    // permanent "disposed" gate to UdsWindow.Unloaded's Dispose() call made the panel
+    // permanently unreachable after the first window close (ObjectDisposedException at
+    // StartAsync line below + a perpetually-greyed Start button via CanStart). Dispose
+    // now only stops an in-flight run and is fully idempotent/reversible — a re-opened
+    // window binds the same singleton and Start works again.
 
     [ObservableProperty] private FlashProfile _currentProfile = FlashProfile.CreateDefault();
     [ObservableProperty] private bool _isFlashing;
@@ -75,7 +81,6 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private async Task StartAsync()
     {
         if (IsFlashing) return; // defensive: never build a second stack (H1).
-        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var enabled = CurrentProfile.Steps.Where(s => s.IsEnabled).ToList();
         if (enabled.Count == 0)
@@ -193,7 +198,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         return FirmwareFileParser.Parse(bytes);
     }
 
-    private bool CanStart() => !IsFlashing && !_disposed;
+    private bool CanStart() => !IsFlashing;
 
     /// <summary>Cancel the in-flight flash run. No-op if idle. Idempotent — safe to call after completion.</summary>
     [RelayCommand(CanExecute = nameof(CanStop))]
@@ -210,7 +215,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         return Task.CompletedTask;
     }
 
-    private bool CanStop() => IsFlashing && !_disposed;
+    private bool CanStop() => IsFlashing;
 
     private void NotifyCommandCanExecute()
     {
@@ -246,11 +251,32 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         AutoResetOnFailure = step.AutoResetOnFailure,
     };
 
-    public void Dispose()
+    /// <summary>
+    /// Window-level halt (v3.49.x PATCH plan T1): called by <c>UdsWindow.Unloaded</c>
+    /// when the UDS diagnostic window closes. Stops any in-flight run by cancelling its
+    /// <see cref="CancellationTokenSource"/>; the in-flight <see cref="StartAsync"/>
+    /// catch arm then routes to <see cref="FlashStatus.Cancelled"/> and its <c>finally</c>
+    /// tears the secondary stack down in the strict Detach→Client→IsoTp→DllKey order.
+    /// <para>
+    /// Idempotent and <b>non-terminating</b>: unlike a traditional <see cref="IDisposable"/>,
+    /// this does NOT put the VM in a one-shot "disposed" state. <see cref="FlashPanelViewModel"/>
+    /// is a DI singleton (<c>AppHostBuilder.cs:284</c>) shared across window open/close
+    /// cycles, so a close must leave it reusable for the next opened window. The removed
+    /// <c>_disposed</c> gate permanently froze the panel after the first close; this method
+    /// restores the per-window, per-run scoping the single instance actually needs.
+    /// </para><para>
+    /// Process shutdown still gets a real teardown via <see cref="Dispose"/> (DI cascade
+    /// from <c>App.OnExit</c>'s <c>_host.Dispose()</c> at <c>App.xaml.cs:190</c>), which
+    /// routes here — native OEM DLL handles (DllKeyDerivationAlgorithm's NativeLibrary.Load
+    /// output) are released by the stack's own <c>finally</c>, not by this method.
+    /// </para>
+    /// </summary>
+    public void StopForWindowClose()
     {
-        if (_disposed) return;
-        _disposed = true;
         try { _runCts?.Cancel(); } catch { }
         _runCts?.Dispose();
+        _runCts = null;
     }
+
+    public void Dispose() => StopForWindowClose();
 }

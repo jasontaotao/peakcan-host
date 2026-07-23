@@ -67,6 +67,70 @@ public sealed class FlashPanelViewModelTests
             => Task.FromResult((byte)0);
     }
 
+    /// <summary>
+    /// v3.49.x PATCH (plan-uds-window-lifecycle T3/MEDIUM-2): a UdsClient whose
+    /// <see cref="TransferDataAsync"/> BLOCKS until cancellation. Lets a test hold a
+    /// flash run genuinely in-flight inside <see cref="PipelineExecutor"/>, then drive
+    /// <see cref="FlashPanelViewModel.StopForWindowClose"/> and observe the real stack
+    /// teardown order (detach→dispose) that the run's finally performs. Mirrors
+    /// <see cref="FastPositiveUdsClient"/>; only the download-transfer path differs
+    /// (cannot subclass — FastPositiveUdsClient is sealed).
+    /// </summary>
+    private sealed class StallingTransferUdsClient : UdsClient
+    {
+        public StallingTransferUdsClient() : base(
+            new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { }),
+            new UdsTimer())
+        {
+        }
+
+        public override Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct = default)
+            => Task.FromResult(new DiagnosticSessionResponse { SessionType = sessionType, P2 = 50, P2Star = 5000 });
+        public override Task<byte[]> SecurityAccessAsync(byte level, byte[]? key = null, CancellationToken ct = default)
+            => Task.FromResult(Array.Empty<byte>());
+        public override Task<byte[]> SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)
+            => Task.FromResult(Array.Empty<byte>());
+        public override Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data = null, CancellationToken ct = default)
+            => Task.FromResult(Array.Empty<byte>());
+        public override Task<int> RequestDownloadAsync(uint address, uint length, CancellationToken ct = default)
+            => Task.FromResult(16);
+        public override async Task TransferDataAsync(byte blockSequenceCounter, byte[] data, CancellationToken ct = default)
+        {
+            // Hold the executor on the first TransferData block until the token cancels.
+            // StopForWindowClose cancels FlashPanelViewModel._runCts; that token is the
+            // one PipelineExecutor passes here, so this await resumes with cancellation
+            // and the run's finally tears the stack down — the causal chain we assert.
+            try { await Task.Delay(TimeSpan.FromMilliseconds(int.MaxValue), ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { throw; } // propagate so executor sees cancel
+        }
+        public override Task RequestTransferExitAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public override Task<byte> EcuResetAsync(byte resetType, CancellationToken ct = default) => Task.FromResult((byte)0);
+    }
+
+    /// <summary>
+    /// Recording stack variant whose <see cref="Client"/> is the stalling client above,
+    /// so an in-flight run parks in TransferData. The factory below chooses this stack
+    /// when a test journals an in-flight-cancel scenario (real teardown causal chain).
+    /// </summary>
+    private sealed class StallingFlashStack : ISecondaryFlashStack
+    {
+        public readonly List<string> CallOrder = new();
+        public UdsClient Client { get; } = new StallingTransferUdsClient();
+        public void AttachToRouter() => CallOrder.Add("attach");
+        public void DetachFromRouter() => CallOrder.Add("detach");
+        public void Dispose() => CallOrder.Add("dispose");
+    }
+
+    private sealed class StallingFactory : ISecondaryFlashStackFactory
+    {
+        public StallingFlashStack LastStack { get; private set; } = new();
+        public ISecondaryFlashStack Build(FlashStepSnapshot securityStep, FlashProfile profile)
+        {
+            LastStack = new StallingFlashStack();
+            return LastStack;
+        }
+    }
+
     private sealed class RecordingFlashStack : ISecondaryFlashStack
     {
         public readonly List<string> CallOrder = new();
@@ -314,5 +378,129 @@ public sealed class FlashPanelViewModelTests
         {
             if (File.Exists(tmp)) File.Delete(tmp);
         }
+    }
+
+    // ---- window/singleton lifecycle (v3.49.x PATCH: decouple VM lifetime from window instances) ----
+    //
+    // UdsWindow.Unloaded used to call Flash.Dispose(), and Dispose set a one-shot
+    // _disposed flag that permanently refused Start (ObjectDisposedException + a
+    // permanently-greyed Start button). But FlashPanelViewModel is a DI singleton
+    // (AppHostBuilder.cs:284 AddSingleton), so the window close + reopen cycle reused
+    // the SAME disposed VM — rendering Flash unreachable forever after the first close.
+    // Dispose must now be idempotent + reversible: it only stops an in-flight run; it
+    // never disables a subsequent Start. See docs/plan-uds-window-lifecycle.md T1.
+
+    [Fact]
+    public void Dispose_Does_Not_Permanently_Disable_Start_CanExecute()
+    {
+        // After Dispose the VM must remain reusable (the UDS window reopens bound to the
+        // same singleton VM). StartCommand.CanExecute must stay true when idle.
+        var ctx = Create();
+
+        ctx.Vm.Dispose();
+        ctx.Vm.Dispose(); // idempotent — process shutdown may call twice via DI cascade
+
+        ctx.Vm.IsFlashing.Should().BeFalse();
+        ctx.Vm.StopCommand.CanExecute(null).Should().BeFalse("idle has nothing to stop");
+    }
+
+    [Fact]
+    public async Task Dispose_Then_Start_Does_Not_Throw_ObjectDisposed()
+    {
+        // The old _disposed gate threw ObjectDisposedException before any pre-flight check,
+        // surfacing as a WPF crash dialog on the second open's first Start. With the gate
+        // removed, the recording-factory path runs normally (the default profile with an
+        // empty manual key fails pre-flight → Failed or Success per stack outcome, NOT an
+        // ObjectDisposedException).
+        var ctx = Create();
+        ctx.Vm.Dispose();
+
+        var act = async () => await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+        await act.Should().NotThrowAsync("Dispose must not trap the VM in a permanently-disposed state");
+        ctx.Vm.IsFlashing.Should().BeFalse();
+        ctx.Vm.Status.Should().NotBe(FlashStatus.Idle,
+            "Start must still attempt the run and report an outcome (Success/Failed), not silently idle");
+    }
+
+    [Fact]
+    public void StopForWindowClose_Keeps_Vm_Reusable()
+    {
+        // Window-level halt (UdsWindow.Unloaded) routes here instead of Dispose:
+        // stops the in-flight run + tears down its stack, but leaves the VM reusable
+        // for the next window instance. Mirrors SessionPanelViewModel.StopForWindowClose.
+        var ctx = Create();
+
+        ctx.Vm.StopForWindowClose();
+
+        ctx.Vm.IsFlashing.Should().BeFalse("window close must not leave IsFlashing lying");
+        ctx.Vm.StartCommand.CanExecute(null).Should().BeTrue("VM stays reusable after window-level stop");
+    }
+
+    /// <summary>
+    /// MEDIUM-2 coverage (reviewer finding): the idle StopForWindowClose tests above
+    /// prove CanExecute reuse but NOT the real in-flight teardown causal chain — that
+    /// UdsWindow.Unloaded → StopForWindowClose → cancel → StartAsync catch → finally
+    /// → stack.DetachFromRouter → stack.Dispose (the Detach→Client→IsoTp→DllKey order
+    /// that releases the native OEM-DLL handle). This test pins it against a real
+    /// <see cref="StallingFactory"/> whose run parks in TransferData, so Unloaded's
+    /// StopForWindowClose must drive the recording stack's detach+dispose observeably.
+    /// </summary>
+    [Fact]
+    public async Task StopForWindowClose_During_In_Flight_Flash_Tears_Down_Real_Stack()
+    {
+        var factory = new StallingFactory();
+        var vm = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance)
+        {
+            CurrentProfile = FlashProfile.CreateDefault(),
+        };
+        var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"flashstall_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
+        dl.MemoryAddress = 0x0800_0000u;
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        try
+        {
+            // Kick the run off; it parks inside PipelineExecutor on the first TransferData
+            // (StallingTransferUdsClient blocks until the run's ct cancels).
+            var run = vm.StartCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.IsFlashing, millisecondsTimeout: 2000);
+            vm.IsFlashing.Should().BeTrue("the run must be genuinely in-flight before the window closes");
+            factory.LastStack.CallOrder.Should().Contain("attach",
+                "the secondary stack was built + attached before the executor parked");
+
+            // Window-level halt (UdsWindow.Unloaded path): cancel in-flight.
+            vm.StopForWindowClose();
+
+            await run; // the finally runs to completion on cancel
+            // The real teardown causal chain: the run's finally must Detach then Dispose the
+            // secondary stack (the Detach→Client→IsoTp→DllKey order that releases the native
+            // OEM-DLL handle). StopForWindowClose only cancels; the stack actually came down.
+            var order = factory.LastStack.CallOrder;
+            order.Should().Contain("detach", "Unloaded's StopForWindowClose must detach the in-flight stack");
+            order.Should().Contain("dispose", "and dispose it — no native handle leaks across close/reopen");
+            order.IndexOf("detach").Should().BeLessThan(order.IndexOf("dispose"),
+                "detach must precede dispose so no late router frame hits a disposing IsoTp");
+
+            vm.IsFlashing.Should().BeFalse();
+            vm.Status.Should().Be(FlashStatus.Cancelled, "the run observed OperationCanceledException");
+            // Reuse invariant: the (singleton) VM stays startable for the next window.
+            vm.StartCommand.CanExecute(null).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(dl.FirmwarePath)) File.Delete(dl.FirmwarePath);
+        }
+    }
+
+    private static async Task WaitFor(Func<bool> predicate, int millisecondsTimeout)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(millisecondsTimeout);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate()) return;
+            await Task.Delay(25);
+        }
+        throw new TimeoutException($"Predicate did not become true within {millisecondsTimeout} ms");
     }
 }
