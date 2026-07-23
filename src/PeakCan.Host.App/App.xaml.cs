@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 using Serilog;
 using SerilogLogger = Serilog.ILogger;
 
@@ -184,6 +185,21 @@ public partial class App : Application
                     TimeSpan.FromSeconds(5),
                     TimeSpan.FromSeconds(10),
                     Log.Logger).ConfigureAwait(false);
+
+                // MEDIUM-1 (native-handle governance): RunShutdownAsync has now triggered
+                // IHost.StopAsync → IHostApplicationLifetime.ApplicationStopping. If a flash
+                // run is in flight, its linked token cancels it and the run's finally tears
+                // the secondary stack down in the strict Detach→Client→IsoTp→DllKey order
+                // (DllKey.Dispose frees the native OEM-DLL handle). AWAIT that teardown BEFORE
+                // disposing the host — otherwise _host.Dispose() can race the finally and the
+                // OS reclaims the handle ungracefully. null-safe: a no-flash shutdown skips.
+                // Cap at 5s so a genuinely hung UDS call (ECU not responding) can't freeze exit.
+                var flash = _host.Services.GetService<FlashPanelViewModel>();
+                if (flash?.CurrentRunTask is { } flashTask)
+                {
+                    await Task.WhenAny(flashTask, Task.Delay(TimeSpan.FromSeconds(5)))
+                        .ConfigureAwait(false);
+                }
             }
             finally
             {

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using FluentAssertions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
@@ -502,5 +503,127 @@ public sealed class FlashPanelViewModelTests
             await Task.Delay(25);
         }
         throw new TimeoutException($"Predicate did not become true within {millisecondsTimeout} ms");
+    }
+
+    // ---- IHostApplicationLifetime wiring (MEDIUM-1 native-handle governance) ----
+
+    /// <summary>
+    /// Stand-in <see cref="IHostApplicationLifetime"/> for tests: exposes the three standard
+    /// tokens (ApplicationStarted/Stopping/Stopped) as <see cref="CancellationTokenSource"/>
+    /// properties the test can trigger at will, plus <see cref="StopApplication"/> to simulate
+    /// App.OnExit's host.StopAsync cascade. Not a full implementation — just enough surface
+    /// for the VM's linked-token + CurrentRunTask assertions.
+    /// </summary>
+    private sealed class FakeHostApplicationLifetime : IHostApplicationLifetime
+    {
+        public CancellationTokenSource StartedCts { get; } = new();
+        public CancellationTokenSource StoppingCts { get; } = new();
+        public CancellationTokenSource StoppedCts { get; } = new();
+
+        public CancellationToken ApplicationStarted => StartedCts.Token;
+        public CancellationToken ApplicationStopping => StoppingCts.Token;
+        public CancellationToken ApplicationStopped => StoppedCts.Token;
+
+        public void StopApplication() => StoppingCts.Cancel();
+    }
+
+    private static FlashPanelViewModel CreateWithLifetime(
+        FakeHostApplicationLifetime lifetime,
+        ISecondaryFlashStackFactory? factory = null)
+    {
+        var vm = new FlashPanelViewModel(
+            factory ?? new RecordingFactory(),
+            NullLogger<FlashPanelViewModel>.Instance,
+            lifetime)
+        {
+            CurrentProfile = FlashProfile.CreateDefault(),
+        };
+        return vm;
+    }
+
+    [Fact]
+    public async Task StartCommand_Assigns_CurrentRunTask_During_Run()
+    {
+        var lifetime = new FakeHostApplicationLifetime();
+        var factory = new StallingFactory();
+        var vm = CreateWithLifetime(lifetime, factory);
+        var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"curr_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
+        dl.MemoryAddress = 0x0800_0000u;
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        try
+        {
+            var run = vm.StartCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.IsFlashing, millisecondsTimeout: 2000);
+
+            // CurrentRunTask is non-null while the run is genuinely in-flight.
+            vm.CurrentRunTask.Should().NotBeNull("the VM must expose the in-flight run for App.OnExit to await");
+            vm.CurrentRunTask!.IsCompleted.Should().BeFalse("the run is still parked in TransferData");
+
+            // Cancel to let the run finish.
+            vm.StopForWindowClose();
+            await run;
+        }
+        finally
+        {
+            if (File.Exists(dl.FirmwarePath)) File.Delete(dl.FirmwarePath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplicationStopping_Cancels_In_Flight_Run()
+    {
+        var lifetime = new FakeHostApplicationLifetime();
+        var factory = new StallingFactory();
+        var vm = CreateWithLifetime(lifetime, factory);
+        var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"stop_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
+        dl.MemoryAddress = 0x0800_0000u;
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        try
+        {
+            var run = vm.StartCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.IsFlashing, millisecondsTimeout: 2000);
+
+            // Simulate App.OnExit's host.StopAsync cascade: ApplicationStopping fires.
+            lifetime.StopApplication();
+
+            await run; // the linked token cancels the run → finally tears the stack down.
+            vm.Status.Should().Be(FlashStatus.Cancelled,
+                "ApplicationStopping must cancel the in-flight run via the linked token");
+            factory.LastStack.CallOrder.Should().Contain("detach");
+            factory.LastStack.CallOrder.Should().Contain("dispose");
+        }
+        finally
+        {
+            if (File.Exists(dl.FirmwarePath)) File.Delete(dl.FirmwarePath);
+        }
+    }
+
+    [Fact]
+    public async Task CurrentRunTask_Clears_After_Run_Completes()
+    {
+        var lifetime = new FakeHostApplicationLifetime();
+        var vm = CreateWithLifetime(lifetime); // fast-positive factory → run completes synchronously
+        var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"done_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
+        dl.MemoryAddress = 0x0800_0000u;
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        try
+        {
+            await (Task)vm.StartCommand.ExecuteAsync(null)!;
+
+            // After the run completes, CurrentRunTask is reset so App.OnExit's null check
+            // skips the await when there is no in-flight flash.
+            vm.CurrentRunTask.Should().BeNull("the VM must clear CurrentRunTask once the run finishes");
+            vm.Status.Should().Be(FlashStatus.Success);
+        }
+        finally
+        {
+            if (File.Exists(dl.FirmwarePath)) File.Delete(dl.FirmwarePath);
+        }
     }
 }

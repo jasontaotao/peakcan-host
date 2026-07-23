@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.FlashPipeline;
@@ -35,8 +36,19 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
     private readonly ISecondaryFlashStackFactory _stackFactory;
     private readonly ILogger<FlashPanelViewModel> _logger;
+    private readonly IHostApplicationLifetime _lifetime;
 
     private CancellationTokenSource? _runCts;
+    private CancellationTokenSource? _linkedLifetimeCts;
+
+    /// <summary>
+    /// The currently in-flight flash run, or null when idle. App.OnExit reads this to
+    /// await an in-flight flash's <c>finally</c> (which releases the native OEM-DLL handle
+    /// via <c>DllKey.Dispose</c>) BEFORE calling <c>_host.Dispose()</c> — without this, a
+    /// close + immediate-exit races the finally and the OS reclaims the handle ungracefully
+    /// (reviewer MEDIUM-1). null once the run completes so the await is a no-op when idle.
+    /// </summary>
+    public Task? CurrentRunTask { get; private set; }
     // v3.49.x PATCH (plan-uds-window-lifecycle T1): the one-shot _disposed flag is
     // GONE. FlashPanelViewModel is a DI singleton (AppHostBuilder.cs:284); coupling a
     // permanent "disposed" gate to UdsWindow.Unloaded's Dispose() call made the panel
@@ -60,12 +72,18 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// </summary>
     internal FlashPanelViewModel(
         ISecondaryFlashStackFactory stackFactory,
-        ILogger<FlashPanelViewModel> logger)
+        ILogger<FlashPanelViewModel> logger,
+        IHostApplicationLifetime? lifetime = null)
     {
         ArgumentNullException.ThrowIfNull(stackFactory);
         ArgumentNullException.ThrowIfNull(logger);
         _stackFactory = stackFactory;
         _logger = logger;
+        // MEDIUM-1: lifetime is defaulted for back-compat with pre-existing tests that
+        // don't exercise the ApplicationStopping path. Production DI always supplies a
+        // real IHostApplicationLifetime; the NullLifetime stand-in is inert (tokens never
+        // fire, StopApplication is a no-op) so the linked-token path is never triggered.
+        _lifetime = lifetime ?? NullLifetime.Instance;
     }
 
     public ObservableCollection<UdsLogLine>? Log { get; private set; }
@@ -78,9 +96,9 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
     /// <summary>Start a flash run: build + attach the secondary stack, drive the executor.</summary>
     [RelayCommand(CanExecute = nameof(CanStart))]
-    private async Task StartAsync()
+    private Task StartAsync()
     {
-        if (IsFlashing) return; // defensive: never build a second stack (H1).
+        if (IsFlashing) return Task.CompletedTask; // defensive: never build a second stack (H1).
 
         var enabled = CurrentProfile.Steps.Where(s => s.IsEnabled).ToList();
         if (enabled.Count == 0)
@@ -88,7 +106,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             _logger.LogWarning("Start requested with no enabled steps.");
             Status = FlashStatus.Failed;
             StatusMessage = "No enabled steps.";
-            return;
+            return Task.CompletedTask;
         }
 
         var secStep = enabled.FirstOrDefault(s => s.Kind == FlashStepKind.SecurityAccess);
@@ -104,7 +122,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // ever bypasses this VM gate.
             Status = FlashStatus.Failed;
             StatusMessage = "Auto SecurityAccess mode is not supported in Phase 1.";
-            return;
+            return Task.CompletedTask;
         }
 
         // Task 3.2 同寻址退化: if the programming CAN-ID pair degrades to the diagnostic
@@ -122,7 +140,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             StatusMessage =
                 "编程寻址与诊断寻址相同 (0x7E8) — 同寻址刷写仅支持 Manual mode。请将 ProgrammingCanId 改为不同于 0x7E0/0x7E8 的编程寻址。";
             _logger.LogWarning("Refused Dll-mode flash: programming ResponseId collides with diagnostic 0x7E8.");
-            return;
+            return Task.CompletedTask;
         }
 
         var snapshots = enabled.Select(ToSnapshot).ToList();
@@ -135,7 +153,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
         _runCts?.Dispose();
         _runCts = new CancellationTokenSource();
-        var ct = _runCts.Token;
+        // MEDIUM-1: link the run's CT to ApplicationStopping so App.OnExit's host.StopAsync
+        // cascade cancels an in-flight flash (not just StopForWindowClose). The linked CTS
+        // ties the two without the run seeing StopForWindowClose's CT as the trigger.
+        _linkedLifetimeCts?.Dispose();
+        _linkedLifetimeCts = CancellationTokenSource.CreateLinkedTokenSource(
+            _runCts.Token, _lifetime.ApplicationStopping);
+        var ct = _linkedLifetimeCts.Token;
 
         IsFlashing = true;
         Status = FlashStatus.Running;
@@ -144,6 +168,34 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         CurrentStepIndex = 0;
         NotifyCommandCanExecute();
 
+        // MEDIUM-1: capture the in-flight run so App.OnExit can await the finally (which
+        // releases the native OEM-DLL handle) BEFORE _host.Dispose(). We can't reference
+        // StartAsync's own Task from inside its own body, so we wrap the real work in a
+        // TaskCompletionSource, assign its task to CurrentRunTask SYNCHRONOUSLY (before
+        // StartAsync yields), and return the inner async method's Task directly so the
+        // caller's await observes the TRUE terminal state (including the finally). The TCS
+        // task and the inner task settle in lockstep — when the inner finally runs, it clears
+        // CurrentRunTask AND we settle the TCS, so both the captured reference and the caller
+        // see the same completion.
+        var tcs = new TaskCompletionSource<object?>();
+        CurrentRunTask = tcs.Task;
+        return RunFlashOnceAsync(tcs, enabled, snapshots, stack, ct);
+    }
+
+    /// <summary>
+    /// The actual flash run body, extracted so <see cref="StartAsync"/> can capture the
+    /// in-flight task for <see cref="CurrentRunTask"/> (MEDIUM-1). Runs the executor +
+    /// finally teardown and settles <paramref name="tcs"/> so the captured task reflects the
+    /// true terminal state (including the finally). Exceptions are caught here and translated
+    /// to the UI-facing Status/StatusMessage.
+    /// </summary>
+    private async Task RunFlashOnceAsync(
+        TaskCompletionSource<object?> tcs,
+        List<FlashStep> enabled,
+        List<FlashStepSnapshot> snapshots,
+        ISecondaryFlashStack? stack,
+        CancellationToken ct)
+    {
         try
         {
             // Resolve firmware BEFORE the executor runs — a missing/garbage file fails the run
@@ -164,17 +216,20 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // PipelineExecutor reports per-step; the terminal Success is signalled by absence of throw.
             Status = FlashStatus.Success;
             StatusMessage = "Flash complete.";
+            tcs.SetResult(null);
         }
         catch (OperationCanceledException)
         {
             Status = FlashStatus.Cancelled;
             StatusMessage = "Cancelled.";
+            tcs.SetResult(null); // cancellation is a terminal state, not a fault
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Flash run failed.");
             Status = FlashStatus.Failed;
             StatusMessage = ex.Message;
+            tcs.SetException(ex);
         }
         finally
         {
@@ -185,6 +240,9 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             stack?.Dispose();
             IsFlashing = false;
             NotifyCommandCanExecute();
+            // MEDIUM-1: clear the in-flight task now that the run (and its finally) has
+            // completed — App.OnExit's await has observed the terminal state.
+            CurrentRunTask = null;
         }
     }
 
@@ -276,7 +334,29 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         try { _runCts?.Cancel(); } catch { }
         _runCts?.Dispose();
         _runCts = null;
+        // The linked CTS is tied to _runCts.Token — once the run CT is gone the link is
+        // inert, but we still release it for determinism. Harmless if ApplicationStopping
+        // already fired (the linked CT self-disposes only via us, not via token cancellation).
+        _linkedLifetimeCts?.Dispose();
+        _linkedLifetimeCts = null;
     }
 
     public void Dispose() => StopForWindowClose();
+
+    /// <summary>
+    /// Inert <see cref="IHostApplicationLifetime"/> for callers that don't supply one (back-compat
+    /// tests, non-DI construction). All three tokens are pre-cancelled... no, pre-CANCELLED tokens
+    /// would fire the linked path. Instead we use NEVER-cancelled tokens so the linked CTS in
+    /// <see cref="StartAsync"/> never sees ApplicationStopping fire and the run behaves exactly
+    /// like the pre-MEDIUM-1 design (only StopForWindowClose can cancel it). Singleton — stateless.
+    /// </summary>
+    private sealed class NullLifetime : IHostApplicationLifetime
+    {
+        public static NullLifetime Instance { get; } = new();
+        private NullLifetime() { }
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() { }
+    }
 }
