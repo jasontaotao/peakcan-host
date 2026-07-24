@@ -189,6 +189,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         FlashStepKind.EcuReset,
         FlashStepKind.CommunicationControl,
         FlashStepKind.DtcControl,
+        FlashStepKind.DependencyCheck,
     ];
 
     public ObservableCollection<UdsLogLine>? Log { get; private set; }
@@ -670,6 +671,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         EcuReset = step.EcuReset is { } er ? new EcuResetSnapshot(er.ResetType) : null,
         CommunicationControl = step.CommunicationControl is { } cc ? new CommunicationControlSnapshot(cc.SubFunction) : null,
         DtcControl = step.DtcControl is { } dc ? new DtcControlSnapshot((byte)dc.SubFunction, dc.DtcGroup) : null,
+        DependencyCheck = step.DependencyCheck is { } dc2 ? new DependencyCheckSnapshot(dc2.RoutineId) : null,
 
         // Backward-compat flat fields (kept for existing tests + executor).
         SecurityLevel = step.SecurityLevel,

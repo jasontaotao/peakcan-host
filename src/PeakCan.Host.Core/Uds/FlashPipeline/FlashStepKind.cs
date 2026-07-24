@@ -11,11 +11,8 @@ namespace PeakCan.Host.Core.Uds.FlashPipeline;
 public enum FlashStepKind
 {
     /// <summary>
-    /// Phase 1 placeholder only. Precondition checks (vehicle speed, supply voltage,
-    /// DTC/档位, OEM-specific DIDs/Routines) differ wildly across OEMs; the enum value
-    /// exists so the UI can render a greyed-out "Coming in Phase N" row, but the App-layer
-    /// FlashStep.IsEnabled defaults to false and PipelineExecutor skips any enabled
-    /// PreCheck step until Phase 2 implements it. Phase 1 operators do pre-checks manually.
+    /// ISO 14229 预编程检查 (Pre-Programming Check). 刷写前执行：通过 0x31 RoutineControl
+    /// 检查编程预条件（车速=0、供电电压范围、档位等）。RID 典型值 0xFF02。
     /// </summary>
     PreCheck,
 
@@ -36,4 +33,23 @@ public enum FlashStepKind
 
     /// <summary>UDS ECUReset (0x11) — default Hard Reset to boot the new image.</summary>
     EcuReset,
+
+    /// <summary>
+    /// ISO 14229 编程依赖性检查 (Programming Dependency Check). 刷写完成后执行：通过 0x31
+    /// RoutineControl 检查编程完整性 (CRC32) 和软硬件兼容性。RID 典型值 0xFF01。
+    /// </summary>
+    DependencyCheck,
+
+    /// <summary>
+    /// Phase 2: UDS CommunicationControl (0x28). Broadcast to all ECUs to enable/disable
+    /// communication. Typical pre/post-flash step: DisableRxAndTx before flashing,
+    /// EnableRxAndTx after. Uses functional addressing.
+    /// </summary>
+    CommunicationControl,
+
+    /// <summary>
+    /// Phase 2: UDS DTCControl (0x14). Clear or read DTCs. Typical post-flash step
+    /// to clear DTCs triggered during flashing.
+    /// </summary>
+    DtcControl,
 }

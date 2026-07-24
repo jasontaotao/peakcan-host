@@ -246,6 +246,13 @@ public static class PipelineExecutor
                 await client.DtcControlAsync(dtcSubFunc, dtcGroup, ct).ConfigureAwait(false);
                 break;
 
+            case FlashStepKind.DependencyCheck:
+                // ISO 14229 编程依赖性检查：刷写完成后执行 0x31 RoutineControl，
+                // 检查编程完整性 (CRC32) 和软硬件兼容性。
+                var depCheck = step.DependencyCheck ?? throw new InvalidOperationException("DependencyCheck params missing");
+                await client.RoutineControlAsync(StartRoutine, depCheck.RoutineId, data: null, ct).ConfigureAwait(false);
+                break;
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(step), step.Kind, "Unknown FlashStepKind in pipeline");
         }

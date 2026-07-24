@@ -474,6 +474,22 @@
                                     </Grid>
                                 </StackPanel>
 
+                                <!-- DependencyCheck (编程依赖性检查) properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.DependencyCheck, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="DependencyCheck (编程依赖性检查)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.DependencyCheck.RoutineId, StringFormat=0x{0:X4}}"/>
+                                    </Grid>
+                                </StackPanel>
+
                                 <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->
                                 <TextBlock Text="(No configurable properties for this step kind)"
                                            Foreground="Gray" FontStyle="Italic" Margin="0,8,0,0">
@@ -490,6 +506,7 @@
                                                         <Condition Binding="{Binding Flash.SelectedStep.EcuReset}" Value="{x:Null}"/>
                                                         <Condition Binding="{Binding Flash.SelectedStep.CommunicationControl}" Value="{x:Null}"/>
                                                         <Condition Binding="{Binding Flash.SelectedStep.DtcControl}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.DependencyCheck}" Value="{x:Null}"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </MultiDataTrigger>

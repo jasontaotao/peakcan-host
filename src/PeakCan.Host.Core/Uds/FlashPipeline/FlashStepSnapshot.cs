@@ -43,6 +43,9 @@ public sealed record DtcControlSnapshot(
     byte SubFunction,
     uint DtcGroup);
 
+public sealed record DependencyCheckSnapshot(
+    ushort RoutineId);
+
 /// <summary>
 /// An immutable execution-router view of a single flashing-pipeline step. The App-layer
 /// <c>FlashStep</c> (observable, CommunityToolkit-backed, UI-bound) holds the editable
@@ -78,6 +81,7 @@ public sealed record FlashStepSnapshot
     public EcuResetSnapshot? EcuReset { get; init; }
     public CommunicationControlSnapshot? CommunicationControl { get; init; }
     public DtcControlSnapshot? DtcControl { get; init; }
+    public DependencyCheckSnapshot? DependencyCheck { get; init; }
 
     // ---- Backward-compat flat fields (Phase 1.1) — kept for existing tests + executor ----
     // Phase 2 executor reads from grouped params; these remain for backward compat.

@@ -57,6 +57,12 @@ public sealed record EcuResetParams
 /// <summary>Checksum algorithm for Verify step.</summary>
 public enum ChecksumAlgorithm { Crc32 = 1, Crc16 = 2, OemDefined = 3 }
 
+/// <summary>ISO 14229 编程依赖性检查 parameters. 刷写完成后执行 0x31 RoutineControl 检查完整性+兼容性。</summary>
+public sealed record DependencyCheckParams
+{
+    public ushort RoutineId { get; set; } = 0xFF01;  // 默认 0xFF01: 检查编程依赖性
+}
+
 /// <summary>Phase 2: CommunicationControl (0x28) parameters.</summary>
 public sealed record CommunicationControlParams
 {
@@ -140,6 +146,9 @@ public sealed partial class FlashStep : ObservableObject
     /// <summary>DTCControl (0x14) parameters. Non-null only when Kind == DtcControl.</summary>
     public DtcControlParams? DtcControl { get; private set; }
 
+    /// <summary>DependencyCheck parameters. Non-null only when Kind == DependencyCheck.</summary>
+    public DependencyCheckParams? DependencyCheck { get; private set; }
+
     // ---- Backward-compat flat fields (Phase 1.1) — kept for snapshot + existing tests ----
     // These mirror the grouped params above. Phase 2 UI binds to grouped params;
     // these remain for ToSnapshot() and backward compatibility.
@@ -220,6 +229,10 @@ public sealed partial class FlashStep : ObservableObject
 
             case FlashStepKind.DtcControl:
                 DtcControl = new DtcControlParams();
+                break;
+
+            case FlashStepKind.DependencyCheck:
+                DependencyCheck = new DependencyCheckParams();
                 break;
         }
 

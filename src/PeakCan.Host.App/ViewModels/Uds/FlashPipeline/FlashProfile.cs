@@ -121,6 +121,7 @@ public sealed class FlashProfile
             Name = "Default Flash",
             Steps =
             [
+                // 预编程检查：刷写前检查预条件（车速=0、电压、档位等）
                 new FlashStep(FlashStepKind.PreCheck),
                 new FlashStep(FlashStepKind.SessionControl),
                 new FlashStep(FlashStepKind.SecurityAccess),
@@ -128,6 +129,8 @@ public sealed class FlashProfile
                 new FlashStep(FlashStepKind.DownloadTransfer),
                 new FlashStep(FlashStepKind.Verify),
                 new FlashStep(FlashStepKind.EcuReset),
+                // 依赖性检查：刷写完成后检查编程完整性和软硬件兼容性
+                new FlashStep(FlashStepKind.DependencyCheck),
             ],
         };
         return profile;
