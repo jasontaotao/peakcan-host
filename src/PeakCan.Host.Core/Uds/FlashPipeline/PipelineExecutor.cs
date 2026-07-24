@@ -278,12 +278,12 @@ public static class PipelineExecutor
 
     private static async Task ExecuteSecurityAccessAsync(UdsClient client, FlashStepSnapshot step, CancellationToken ct)
     {
-        // Phase 2: Read from flat fields (source of truth for backward compat).
-        // Grouped params in the snapshot mirror these values when set via the UI.
-        var level = step.SecurityLevel;
-        var mode = step.SecurityMode;
-        var manualKey = step.ManualKeyHex;
-        var dllPath = step.DllPath;
+        // Phase 2: Read from grouped snapshot (source of truth — UI binds grouped params,
+        // ToSnapshot maps grouped → snapshot). Fall back to flat fields for backward compat.
+        var level = step.SecurityAccess?.Level ?? step.SecurityLevel;
+        var mode = step.SecurityAccess?.Mode ?? step.SecurityMode;
+        var manualKey = step.SecurityAccess?.ManualKeyHex ?? step.ManualKeyHex;
+        var dllPath = step.SecurityAccess?.DllPath ?? step.DllPath;
 
         switch (mode)
         {

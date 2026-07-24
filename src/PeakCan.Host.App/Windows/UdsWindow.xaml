@@ -396,8 +396,9 @@
                                                   ItemsSource="{Binding Flash.ChecksumAlgorithms}"
                                                   SelectedItem="{Binding Flash.SelectedStep.Verify.Algorithm}"/>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
-                                                  SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
+                                                  SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"
+                                                  ToolTip="选择要校验的 Segment (地址+大小+CRC 自动获取)"/>
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Address:" VerticalAlignment="Center"/>

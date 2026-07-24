@@ -681,13 +681,17 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         return seg?.EndAddress ?? 0;
     }
 
+    /// <summary>Phase 2: 扁平化所有 firmware files 的 segments, 用于 Verify/Download ComboBox 绑定。</summary>
+    public IReadOnlyList<Segment> AllSegments =>
+        CurrentProfile.FirmwareFiles.SelectMany(f => f.Segments).ToList();
+
     /// <summary>
     /// Phase 2: 把 profile 所有 firmware files 的 segments 摊平, 按 index 取。
     /// index 越界时返回 null, 由调用方回退 0。
     /// </summary>
     private Segment? SegmentAtIndex(int index)
     {
-        var all = CurrentProfile.FirmwareFiles.SelectMany(f => f.Segments).ToList();
+        var all = AllSegments;
         return (index >= 0 && index < all.Count) ? all[index] : null;
     }
 
