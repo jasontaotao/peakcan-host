@@ -240,12 +240,9 @@
                                     Command="{Binding Flash.AddStepCommand}"
                                     CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
                                     ToolTip="Append a new step of the selected kind"/>
-                            <Button Content="Remove Step" Padding="8,3" MinWidth="80" Margin="0,0,4,0"
+                            <Button Content="Remove Step" Padding="8,3" MinWidth="80"
                                     Command="{Binding Flash.RemoveStepCommand}"
                                     ToolTip="Remove the selected step"/>
-                            <Button Content="Apply Multi-Level Template" Padding="4,2"
-                                    Command="{Binding Flash.ApplyMultiLevelTemplateCommand}"
-                                    ToolTip="Replace steps with a typical dual-region flash flow template"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Button Content="▲ Up" Padding="8,3" MinWidth="48" Margin="0,0,4,0"
@@ -490,6 +487,12 @@
                                     </Grid>
                                 </StackPanel>
 
+                                <!-- FlashDriverDownload properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.FlashDriverDownload, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="FlashDriverDownload" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="Gray" TextWrapping="Wrap"/>
+                                </StackPanel>
+
                                 <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->
                                 <TextBlock Text="(No configurable properties for this step kind)"
                                            Foreground="Gray" FontStyle="Italic" Margin="0,8,0,0">
@@ -507,6 +510,7 @@
                                                         <Condition Binding="{Binding Flash.SelectedStep.CommunicationControl}" Value="{x:Null}"/>
                                                         <Condition Binding="{Binding Flash.SelectedStep.DtcControl}" Value="{x:Null}"/>
                                                         <Condition Binding="{Binding Flash.SelectedStep.DependencyCheck}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.FlashDriverDownload}" Value="{x:Null}"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </MultiDataTrigger>

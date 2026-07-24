@@ -456,7 +456,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private void AddFlashDriver()
     {
         var path = _fileDialog.ShowOpenDialog(
-            "Flash driver (*.dll;*.bin)|*.dll;*.bin|DLL files (*.dll)|*.dll|Binary (*.bin)|*.bin|All files|*.*");
+            "Flash driver (*.hex;*.s19)|*.hex;*.s19|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|All files|*.*");
         if (path is null) return;
         try
         {
