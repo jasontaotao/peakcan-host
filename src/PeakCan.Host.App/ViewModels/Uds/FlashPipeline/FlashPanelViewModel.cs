@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json;
+using IOPath = System.IO.Path;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.FlashPipeline;
 
@@ -36,6 +39,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
     private readonly ISecondaryFlashStackFactory _stackFactory;
     private readonly ILogger<FlashPanelViewModel> _logger;
+    private readonly IFileDialogService _fileDialog;
     private readonly IHostApplicationLifetime _lifetime;
 
     private CancellationTokenSource? _runCts;
@@ -58,12 +62,24 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     // window binds the same singleton and Start works again.
 
     [ObservableProperty] private FlashProfile _currentProfile = FlashProfile.CreateDefault();
-    [ObservableProperty] private bool _isFlashing;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectDllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectFirmwareCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveProfileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(LoadProfileCommand))]
+    private bool _isFlashing;
     [ObservableProperty] private FlashStatus _status = FlashStatus.Idle;
     [ObservableProperty] private string _statusMessage = string.Empty;
     [ObservableProperty] private int _progressPercent;
     [ObservableProperty] private int _currentStepIndex;
     [ObservableProperty] private int _totalSteps;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemoveStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectDllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectFirmwareCommand))]
+    private FlashStep? _selectedStep;
 
     /// <summary>
     /// internal ctor: <see cref="ISecondaryFlashStackFactory"/> / <see cref="ISecondaryFlashStack"/>
@@ -73,18 +89,102 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     internal FlashPanelViewModel(
         ISecondaryFlashStackFactory stackFactory,
         ILogger<FlashPanelViewModel> logger,
+        IFileDialogService? fileDialog = null,
         IHostApplicationLifetime? lifetime = null)
     {
         ArgumentNullException.ThrowIfNull(stackFactory);
         ArgumentNullException.ThrowIfNull(logger);
         _stackFactory = stackFactory;
         _logger = logger;
+        // Phase 1.1: fileDialog is defaulted for back-compat with pre-existing tests that
+        // don't exercise file browsing. Production DI always supplies a real IFileDialogService;
+        // NullFileDialogService returns null (user cancelled) so commands silently no-op.
+        _fileDialog = fileDialog ?? NullFileDialogService.Instance;
         // MEDIUM-1: lifetime is defaulted for back-compat with pre-existing tests that
         // don't exercise the ApplicationStopping path. Production DI always supplies a
         // real IHostApplicationLifetime; the NullLifetime stand-in is inert (tokens never
         // fire, StopApplication is a no-op) so the linked-token path is never triggered.
         _lifetime = lifetime ?? NullLifetime.Instance;
     }
+
+    /// <summary>
+    /// SecurityAccessMode values for the property panel ComboBox.
+    /// </summary>
+    public IReadOnlyList<SecurityAccessMode> SecurityAccessModes { get; } =
+        Enum.GetValues<SecurityAccessMode>();
+
+    /// <summary>
+    /// EcuResetType values for the property panel ComboBox.
+    /// </summary>
+    public IReadOnlyList<EcuResetType> EcuResetTypes { get; } =
+        Enum.GetValues<EcuResetType>();
+
+    /// <summary>
+    /// ChecksumAlgorithm values for the Verify step ComboBox.
+    /// </summary>
+    public IReadOnlyList<ChecksumAlgorithm> ChecksumAlgorithms { get; } =
+        Enum.GetValues<ChecksumAlgorithm>();
+
+    /// <summary>
+    /// AddressingMode values for the per-step ComboBox.
+    /// </summary>
+    public IReadOnlyList<Core.Uds.FlashPipeline.AddressingMode> AddressingModes { get; } =
+        Enum.GetValues<Core.Uds.FlashPipeline.AddressingMode>();
+
+    /// <summary>
+    /// CommunicationSubFunction values for the 0x28 step ComboBox.
+    /// </summary>
+    public IReadOnlyList<Core.Uds.CommunicationSubFunction> CommunicationSubFunctions { get; } =
+        Enum.GetValues<Core.Uds.CommunicationSubFunction>();
+
+    /// <summary>
+    /// DtcControlSubFunction values for the 0x14 step ComboBox.
+    /// </summary>
+    public IReadOnlyList<Core.Uds.DtcControlSubFunction> DtcControlSubFunctions { get; } =
+        Enum.GetValues<Core.Uds.DtcControlSubFunction>();
+
+    /// <summary>
+    /// Phase 2 §7.3: Apply a multi-level unlock template to the current profile.
+    /// Replaces all steps with a typical OEM dual-region flash flow:
+    /// SessionControl → SecurityAccess(1) → Erase → Download → Verify → SecurityAccess(3) → Erase → Download → Verify → EcuReset.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private void ApplyMultiLevelTemplate()
+    {
+        var steps = CurrentProfile.Steps;
+        steps.Clear();
+        steps.Add(new FlashStep(FlashStepKind.SessionControl));
+        var sec1 = new FlashStep(FlashStepKind.SecurityAccess);
+        sec1.SetSecurityAccessLevel(0x01);
+        steps.Add(sec1);
+        steps.Add(new FlashStep(FlashStepKind.Erase));
+        steps.Add(new FlashStep(FlashStepKind.DownloadTransfer));
+        steps.Add(new FlashStep(FlashStepKind.Verify));
+        var sec3 = new FlashStep(FlashStepKind.SecurityAccess);
+        sec3.SetSecurityAccessLevel(0x03);
+        steps.Add(sec3);
+        steps.Add(new FlashStep(FlashStepKind.Erase));
+        steps.Add(new FlashStep(FlashStepKind.DownloadTransfer));
+        steps.Add(new FlashStep(FlashStepKind.Verify));
+        steps.Add(new FlashStep(FlashStepKind.EcuReset));
+        StatusMessage = "Applied multi-level unlock template (10 steps).";
+    }
+
+    /// <summary>
+    /// Kinds the operator can add via the "Add Step" dropdown. Excludes
+    /// <see cref="FlashStepKind.PreCheck"/> (placeholder, no function yet) and
+    /// <see cref="FlashStepKind.SessionControl"/> (no configurable parameters, always runs).
+    /// </summary>
+    public static IReadOnlyList<FlashStepKind> AddableKinds { get; } =
+    [
+        FlashStepKind.SecurityAccess,
+        FlashStepKind.Erase,
+        FlashStepKind.DownloadTransfer,
+        FlashStepKind.Verify,
+        FlashStepKind.EcuReset,
+        FlashStepKind.CommunicationControl,
+        FlashStepKind.DtcControl,
+    ];
 
     public ObservableCollection<UdsLogLine>? Log { get; private set; }
 
@@ -198,21 +298,27 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     {
         try
         {
-            // Resolve firmware BEFORE the executor runs — a missing/garbage file fails the run
-            // fast with a clean Failed status (no half-flash). The stack is already attached
-            // and will be torn down by the finally below.
-            FirmwareImage? firmware = null;
-            var dlStep = enabled.FirstOrDefault(s => s.Kind == FlashStepKind.DownloadTransfer);
-            if (dlStep is not null)
-            {
-                firmware = await LoadFirmwareOrThrowAsync(dlStep).ConfigureAwait(false);
-            }
+            // Phase 1.1: resolve firmware per-step BEFORE the executor runs — a missing/garbage
+            // file fails the run fast with a clean Failed status (no half-flash). The stack is
+            // already attached and will be torn down by the finally below. Multiple
+            // DownloadTransfer steps (flash_driver→RAM then main app, dual-file) each get their
+            // own firmware image, indexed by position in the enabled-steps list.
+            var firmwareByIndex = await LoadAllFirmwareAsync(enabled).ConfigureAwait(false);
+
+            // Phase 2: Build a flattened segment list for address resolution.
+            var allSegments = CurrentProfile.FirmwareFiles
+                .SelectMany(f => f.Segments).ToList();
+            PipelineExecutor.SegmentAddressResolver? segResolver = idx =>
+                (idx >= 0 && idx < allSegments.Count) ? allSegments[idx].StartAddress : null;
 
             var driveClient = stack?.Client ??
                 throw new InvalidOperationException("Secondary stack was not built (no SecurityAccess step).");
             var progress = new Progress<FlashProgress>(OnProgress);
             await PipelineExecutor.ExecuteAsync(
-                driveClient, snapshots, firmware, progress, ct).ConfigureAwait(false);
+                driveClient, snapshots,
+                (step, index) => firmwareByIndex.TryGetValue(index, out var fw) ? fw : null,
+                segResolver,
+                progress, ct).ConfigureAwait(false);
             // PipelineExecutor reports per-step; the terminal Success is signalled by absence of throw.
             Status = FlashStatus.Success;
             StatusMessage = "Flash complete.";
@@ -256,6 +362,37 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         return FirmwareFileParser.Parse(bytes);
     }
 
+    /// <summary>
+    /// Pre-load firmware for every enabled DownloadTransfer step, keyed by its index in the
+    /// enabled-steps list. Same file path is read once (dedup via <paramref name="seenPaths"/>).
+    /// The executor's per-step resolver uses the index to return the correct image — this is
+    /// robust to two DownloadTransfer steps with identical parameters (which would collide as
+    /// snapshot-value dictionary keys, since <see cref="FlashStepSnapshot"/> carries no
+    /// FirmwarePath). Steps with empty FirmwarePath are skipped; the executor throws
+    /// InvalidOperationException when it hits them.
+    /// </summary>
+    private async Task<Dictionary<int, FirmwareImage>> LoadAllFirmwareAsync(List<FlashStep> enabledSteps)
+    {
+        var dict = new Dictionary<int, FirmwareImage>();
+        var seenPaths = new HashSet<string>();
+        FirmwareImage? parsed = null;
+        for (int i = 0; i < enabledSteps.Count; i++)
+        {
+            var step = enabledSteps[i];
+            if (step.Kind != FlashStepKind.DownloadTransfer) continue;
+            if (string.IsNullOrWhiteSpace(step.FirmwarePath)) continue;
+            // Read each distinct path once, but populate dict[i] for EVERY step that uses it
+            // (same binary flashed to two addresses is a legitimate scenario).
+            if (seenPaths.Add(step.FirmwarePath))
+            {
+                var bytes = await File.ReadAllBytesAsync(step.FirmwarePath).ConfigureAwait(false);
+                parsed = FirmwareFileParser.Parse(bytes);
+            }
+            dict[i] = parsed!;
+        }
+        return dict;
+    }
+
     private bool CanStart() => !IsFlashing;
 
     /// <summary>Cancel the in-flight flash run. No-op if idle. Idempotent — safe to call after completion.</summary>
@@ -274,6 +411,200 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     }
 
     private bool CanStop() => IsFlashing;
+
+    // ---- firmware file + flash driver loading (Phase 2) ----
+
+    /// <summary>
+    /// Phase 2: Browse for and load a firmware file (.hex / .s19 / .bin). The file is parsed
+    /// into segments and added to <see cref="FlashProfile.FirmwareFiles"/>. Download steps
+    /// reference segments from this list.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private void AddFirmwareFile()
+    {
+        var path = _fileDialog.ShowOpenDialog(
+            "Firmware files (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|Raw binary (*.bin)|*.bin|All files|*.*");
+        if (path is null) return;  // user cancelled
+        try
+        {
+            var file = FirmwareFileParser.ParseFile(path);
+            CurrentProfile.FirmwareFiles.Add(file);
+            StatusMessage = $"Loaded {file.Format}: {IOPath.GetFileName(path)} ({file.Segments.Count} segment(s))";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to parse firmware file {Path}", path);
+            Status = FlashStatus.Failed;
+            StatusMessage = $"Failed to load firmware: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Phase 2: Browse for and load a flash driver (DLL or binary). The driver is downloaded
+    /// to ECU RAM before the main firmware and executed to perform erase/write operations.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private void AddFlashDriver()
+    {
+        var path = _fileDialog.ShowOpenDialog(
+            "Flash driver (*.dll;*.bin)|*.dll;*.bin|DLL files (*.dll)|*.dll|Binary (*.bin)|*.bin|All files|*.*");
+        if (path is null) return;
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var driver = new FlashDriver(path, bytes);
+            CurrentProfile.FlashDriver = driver;
+            StatusMessage = $"Loaded flash driver: {IOPath.GetFileName(path)} ({bytes.Length} bytes)";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load flash driver {Path}", path);
+            Status = FlashStatus.Failed;
+            StatusMessage = $"Failed to load driver: {ex.Message}";
+        }
+    }
+
+    // ---- step add/remove (Phase 1.1) ----
+
+    /// <summary>
+    /// Append a new step of the given <paramref name="kind"/> to the pipeline. The new row
+    /// carries kind-appropriate defaults (see <see cref="FlashStep"/>(FlashStepKind)).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanAddStep))]
+    private void AddStep(FlashStepKind kind) => CurrentProfile.Steps.Add(new FlashStep(kind));
+
+    /// <summary>
+    /// Remove the currently selected step. No-op if nothing is selected.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveStep))]
+    private void RemoveStep()
+    {
+        if (SelectedStep is { } step)
+            CurrentProfile.Steps.Remove(step);
+    }
+
+    /// <summary>Move the selected step up in the pipeline order.</summary>
+    [RelayCommand(CanExecute = nameof(CanMoveUp))]
+    private void MoveUp()
+    {
+        if (SelectedStep is null) return;
+        var idx = CurrentProfile.Steps.IndexOf(SelectedStep);
+        if (idx <= 0) return;
+        CurrentProfile.Steps.Move(idx, idx - 1);
+    }
+
+    /// <summary>Move the selected step down in the pipeline order.</summary>
+    [RelayCommand(CanExecute = nameof(CanMoveDown))]
+    private void MoveDown()
+    {
+        if (SelectedStep is null) return;
+        var idx = CurrentProfile.Steps.IndexOf(SelectedStep);
+        if (idx < 0 || idx >= CurrentProfile.Steps.Count - 1) return;
+        CurrentProfile.Steps.Move(idx, idx + 1);
+    }
+
+    private bool CanAddStep() => !IsFlashing;
+    private bool CanRemoveStep() => !IsFlashing && SelectedStep is not null;
+    private bool CanMoveUp() => !IsFlashing && SelectedStep is not null && CurrentProfile.Steps.IndexOf(SelectedStep) > 0;
+    private bool CanMoveDown() => !IsFlashing && SelectedStep is not null && CurrentProfile.Steps.IndexOf(SelectedStep) < CurrentProfile.Steps.Count - 1;
+
+    // ---- file browse (Phase 1.1) ----
+
+    /// <summary>
+    /// Browse for the OEM SecurityAccess DLL. Writes to the selected SecurityAccess step's
+    /// <see cref="FlashStep.DllPath"/>. No-op if the selected step is not SecurityAccess
+    /// (CanExecute guards this) or the user cancels the dialog.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSelectDll))]
+    private void SelectDll()
+    {
+        var path = _fileDialog.ShowOpenDialog("DLL files (*.dll)|*.dll|All files|*.*");
+        if (path is null) return;
+        if (SelectedStep is { Kind: FlashStepKind.SecurityAccess } step)
+            step.DllPath = path;
+    }
+
+    /// <summary>
+    /// Browse for the firmware binary. Writes to the selected DownloadTransfer step's
+    /// <see cref="FlashStep.FirmwarePath"/>. No-op if the selected step is not
+    /// DownloadTransfer (CanExecute guards this) or the user cancels the dialog.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSelectFirmware))]
+    private void SelectFirmware()
+    {
+        var path = _fileDialog.ShowOpenDialog("Binary files (*.bin)|*.bin|All files|*.*");
+        if (path is null) return;
+        if (SelectedStep is { Kind: FlashStepKind.DownloadTransfer } step)
+            step.FirmwarePath = path;
+    }
+
+    private bool CanSelectDll() => !IsFlashing && SelectedStep is { Kind: FlashStepKind.SecurityAccess };
+    private bool CanSelectFirmware() => !IsFlashing && SelectedStep is { Kind: FlashStepKind.DownloadTransfer };
+
+    // ---- profile save/load (Phase 1.1) ----
+
+    /// <summary>
+    /// Persist the current <see cref="FlashProfile"/> (steps + ProgrammingCanId + timing) to a
+    /// JSON file. <see cref="FlashProfile"/> is a full-state snapshot — LoadProfile restores it
+    /// wholesale. Errors (path not found, permission denied) surface via StatusMessage.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private async Task SaveProfileAsync()
+    {
+        try
+        {
+            var path = _fileDialog.ShowSaveDialog(
+                "Flash profile (*.flash.json)|*.flash.json|All files|*.*", ".flash.json", null);
+            if (path is null) return;
+            var json = CurrentProfile.ToJson();
+            await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
+            StatusMessage = $"Profile saved to {path}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save profile");
+            Status = FlashStatus.Failed;
+            StatusMessage = $"Save failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Load a <see cref="FlashProfile"/> from a JSON file, replacing the current profile.
+    /// Invalid JSON or read errors surface via StatusMessage (no throw into the
+    /// [RelayCommand] unobserved-exception path).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private async Task LoadProfileAsync()
+    {
+        try
+        {
+            var path = _fileDialog.ShowOpenDialog(
+                "Flash profile (*.flash.json)|*.flash.json|All files|*.*");
+            if (path is null) return;
+            var json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            CurrentProfile = FlashProfile.FromJson(json);
+            StatusMessage = $"Profile loaded from {path}";
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to load profile — invalid JSON");
+            Status = FlashStatus.Failed;
+            StatusMessage = $"Load failed: invalid profile file ({ex.Message})";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load profile");
+            Status = FlashStatus.Failed;
+            StatusMessage = $"Load failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Guard for profile persistence operations (Save/Load). True when idle — loading a profile
+    /// mid-flash would race the in-flight run's step iteration. Logically equivalent to
+    /// CanAddStep but semantically named for the persistence use case.
+    /// </summary>
+    private bool CanEditSteps() => !IsFlashing;
 
     private void NotifyCommandCanExecute()
     {
@@ -299,6 +630,18 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     {
         Kind = step.Kind,
         IsEnabled = step.IsEnabled,
+        AddressingMode = step.AddressingMode,
+
+        // Phase 2: Grouped params — only the matching Kind's group is populated.
+        SecurityAccess = step.SecurityAccess is { } sa ? new SecurityAccessSnapshot(sa.Level, sa.Mode, sa.ManualKeyHex, sa.DllPath) : null,
+        RoutineControl = step.RoutineControl is { } rc ? new RoutineControlSnapshot(rc.RoutineId, rc.StartAddress, rc.Size) : null,
+        Download = step.Download is { } dl ? new DownloadSnapshot(dl.SegmentIndex) : null,
+        Verify = step.Verify is { } v ? new VerifySnapshot((byte)v.Algorithm, v.ExpectedChecksum, v.StartAddress, v.EndAddress) : null,
+        EcuReset = step.EcuReset is { } er ? new EcuResetSnapshot(er.ResetType) : null,
+        CommunicationControl = step.CommunicationControl is { } cc ? new CommunicationControlSnapshot(cc.SubFunction) : null,
+        DtcControl = step.DtcControl is { } dc ? new DtcControlSnapshot((byte)dc.SubFunction, dc.DtcGroup) : null,
+
+        // Backward-compat flat fields (kept for existing tests + executor).
         SecurityLevel = step.SecurityLevel,
         SecurityMode = step.SecurityMode,
         ManualKeyHex = step.ManualKeyHex,
@@ -358,5 +701,18 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         public CancellationToken ApplicationStopping => CancellationToken.None;
         public CancellationToken ApplicationStopped => CancellationToken.None;
         public void StopApplication() { }
+    }
+
+    /// <summary>
+    /// Inert <see cref="IFileDialogService"/> for callers that don't supply one (back-compat
+    /// tests, non-DI construction). Returns null (user cancelled) so browse commands silently
+    /// no-op instead of popping a real WPF dialog that would hang CI. Singleton — stateless.
+    /// </summary>
+    private sealed class NullFileDialogService : IFileDialogService
+    {
+        public static NullFileDialogService Instance { get; } = new();
+        private NullFileDialogService() { }
+        public string? ShowOpenDialog(string filter) => null;
+        public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => null;
     }
 }

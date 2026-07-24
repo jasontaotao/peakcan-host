@@ -32,6 +32,7 @@ public sealed class FlashProfile
     {
         RequestId = 0x714,
         ResponseId = 0x760,
+        FunctionalId = 0x7DF, // OBD-II broadcast for 0x28
     };
 
     /// <summary>Human-readable name shown in the profile selector.</summary>
@@ -39,10 +40,32 @@ public sealed class FlashProfile
 
     /// <summary>
     /// Ordered, toggleable pipeline steps. Backed by <see cref="ObservableCollection{T}"/>
-    /// so the flashing view DataGrid binds add/remove/reorder. Defaults to the
-    /// documented 7-step template via <see cref="CreateDefault"/>.
+    /// so the flashing view binds add/remove/reorder. Defaults to the documented
+    /// 7-step template via <see cref="CreateDefault"/>.
     /// </summary>
     public ObservableCollection<FlashStep> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Phase 2: Loaded firmware files. Each file yields one or more address-contiguous
+    /// segments. Download steps reference segments by index into this collection's
+    /// flattened segment list.
+    /// </summary>
+    public ObservableCollection<FirmwareFile> FirmwareFiles { get; set; } = new();
+
+    /// <summary>
+    /// Phase 2: The single loaded flash driver. A flash driver is a small routine
+    /// (DLL or binary) downloaded to ECU RAM before the main firmware, executed to
+    /// perform erase/write. Single (not a collection) — an ECU has exactly one
+    /// flashing routine active at a time; loading a new one replaces the previous.
+    /// </summary>
+    public FlashDriver? FlashDriver { get; set; }
+
+    /// <summary>
+    /// Phase 2 §3.3: Global auto-reset on failure flag. When true, the executor triggers
+    /// EcuReset(0x01) on any step failure to leave the ECU in a sane state. Replaces the
+    /// per-step AutoResetOnFailure column.
+    /// </summary>
+    public bool AutoResetOnFailure { get; set; } = true;
 
     // ---- Serialization ----
 
@@ -93,6 +116,7 @@ public sealed class FlashProfile
             {
                 RequestId = 0x714,
                 ResponseId = 0x760,
+                FunctionalId = 0x7DF, // OBD-II broadcast for 0x28
             },
             Name = "Default Flash",
             Steps =
