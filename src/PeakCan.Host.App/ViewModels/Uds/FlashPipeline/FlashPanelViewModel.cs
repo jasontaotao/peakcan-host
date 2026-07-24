@@ -79,7 +79,12 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     [NotifyCanExecuteChangedFor(nameof(RemoveStepCommand))]
     [NotifyCanExecuteChangedFor(nameof(SelectDllCommand))]
     [NotifyCanExecuteChangedFor(nameof(SelectFirmwareCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveUpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveDownCommand))]
     private FlashStep? _selectedStep;
+
+    [ObservableProperty]
+    private FirmwareFile? _selectedFirmwareFile;
 
     /// <summary>
     /// internal ctor: <see cref="ISecondaryFlashStackFactory"/> / <see cref="ISecondaryFlashStack"/>
@@ -442,6 +447,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// <summary>
     /// Phase 2: Browse for and load a flash driver (DLL or binary). The driver is downloaded
     /// to ECU RAM before the main firmware and executed to perform erase/write operations.
+    /// 替换语义: 重新加载会覆盖旧 driver (profile 只保留一个 driver 槽位)。
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanEditSteps))]
     private void AddFlashDriver()
@@ -452,8 +458,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         try
         {
             var bytes = File.ReadAllBytes(path);
-            var driver = new FlashDriver(path, bytes);
-            CurrentProfile.FlashDriver = driver;
+            CurrentProfile.FlashDriver = new FlashDriver(path, bytes);
             StatusMessage = $"Loaded flash driver: {IOPath.GetFileName(path)} ({bytes.Length} bytes)";
         }
         catch (Exception ex)
@@ -462,6 +467,15 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             Status = FlashStatus.Failed;
             StatusMessage = $"Failed to load driver: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Phase 2: Remove the loaded flash driver from the profile. No-op if none is loaded.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private void RemoveFlashDriver()
+    {
+        CurrentProfile.FlashDriver = null;
     }
 
     // ---- step add/remove (Phase 1.1) ----
@@ -481,6 +495,16 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     {
         if (SelectedStep is { } step)
             CurrentProfile.Steps.Remove(step);
+    }
+
+    /// <summary>
+    /// Phase 2: Remove the currently selected firmware file from the profile. No-op if nothing is selected.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanEditSteps))]
+    private void RemoveFirmwareFile()
+    {
+        if (SelectedFirmwareFile is { } file)
+            CurrentProfile.FirmwareFiles.Remove(file);
     }
 
     /// <summary>Move the selected step up in the pipeline order.</summary>
@@ -626,17 +650,23 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         }
     }
 
-    private static FlashStepSnapshot ToSnapshot(FlashStep step) => new()
+    private FlashStepSnapshot ToSnapshot(FlashStep step) => new()
     {
         Kind = step.Kind,
         IsEnabled = step.IsEnabled,
         AddressingMode = step.AddressingMode,
 
         // Phase 2: Grouped params — only the matching Kind's group is populated.
+        PreCheck = step.PreCheck is { } pc ? new PreCheckSnapshot(pc.RoutineId) : null,
         SecurityAccess = step.SecurityAccess is { } sa ? new SecurityAccessSnapshot(sa.Level, sa.Mode, sa.ManualKeyHex, sa.DllPath) : null,
         RoutineControl = step.RoutineControl is { } rc ? new RoutineControlSnapshot(rc.RoutineId, rc.StartAddress, rc.Size) : null,
         Download = step.Download is { } dl ? new DownloadSnapshot(dl.SegmentIndex) : null,
-        Verify = step.Verify is { } v ? new VerifySnapshot((byte)v.Algorithm, v.ExpectedChecksum, v.StartAddress, v.EndAddress) : null,
+        // Phase 2: Verify 的 ExpectedChecksum / StartAddress / EndAddress 从 Segment 自动算, 避免 operator 手工填错.
+        Verify = step.Verify is { } v ? new VerifySnapshot(
+            (byte)v.Algorithm,
+            ExpectedChecksumFromSegment(v.SegmentIndex),
+            StartAddressFromSegment(v.SegmentIndex),
+            EndAddressFromSegment(v.SegmentIndex)) : null,
         EcuReset = step.EcuReset is { } er ? new EcuResetSnapshot(er.ResetType) : null,
         CommunicationControl = step.CommunicationControl is { } cc ? new CommunicationControlSnapshot(cc.SubFunction) : null,
         DtcControl = step.DtcControl is { } dc ? new DtcControlSnapshot((byte)dc.SubFunction, dc.DtcGroup) : null,
@@ -651,6 +681,37 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         ResetType = step.ResetType,
         AutoResetOnFailure = step.AutoResetOnFailure,
     };
+
+    /// <summary>Phase 2: 从 Segment 自动算 ExpectedChecksum。无对应 segment 时回退 0。</summary>
+    private uint ExpectedChecksumFromSegment(int index)
+    {
+        var seg = SegmentAtIndex(index);
+        return seg?.Crc32 ?? 0;
+    }
+
+    /// <summary>Phase 2: 从 Segment 自动算 StartAddress。无对应 segment 时回退 0。</summary>
+    private uint StartAddressFromSegment(int index)
+    {
+        var seg = SegmentAtIndex(index);
+        return seg?.StartAddress ?? 0;
+    }
+
+    /// <summary>Phase 2: 从 Segment 自动算 EndAddress。无对应 segment 时回退 0。</summary>
+    private uint EndAddressFromSegment(int index)
+    {
+        var seg = SegmentAtIndex(index);
+        return seg?.EndAddress ?? 0;
+    }
+
+    /// <summary>
+    /// Phase 2: 把 profile 所有 firmware files 的 segments 摊平, 按 index 取。
+    /// index 越界时返回 null, 由调用方回退 0。
+    /// </summary>
+    private Segment? SegmentAtIndex(int index)
+    {
+        var all = CurrentProfile.FirmwareFiles.SelectMany(f => f.Segments).ToList();
+        return (index >= 0 && index < all.Count) ? all[index] : null;
+    }
 
     /// <summary>
     /// Window-level halt (v3.49.x PATCH plan T1): called by <c>UdsWindow.Unloaded</c>
