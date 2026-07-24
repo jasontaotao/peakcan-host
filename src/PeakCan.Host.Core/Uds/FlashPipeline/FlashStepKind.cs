@@ -41,6 +41,12 @@ public enum FlashStepKind
     DependencyCheck,
 
     /// <summary>
+    /// ISO 14229 Flash Driver Download. 下载 flash driver 到 ECU RAM, ECU 自动识别执行。
+    /// 文件格式 .hex/.s19 (带地址信息, 解析后自动获取起始地址)。
+    /// </summary>
+    FlashDriverDownload,
+
+    /// <summary>
     /// Phase 2: UDS CommunicationControl (0x28). Broadcast to all ECUs to enable/disable
     /// communication. Typical pre/post-flash step: DisableRxAndTx before flashing,
     /// EnableRxAndTx after. Uses functional addressing.

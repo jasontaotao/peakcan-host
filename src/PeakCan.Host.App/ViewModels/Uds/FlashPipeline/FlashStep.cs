@@ -76,6 +76,12 @@ public sealed record DtcControlParams
     public uint DtcGroup { get; set; } = 0x00FFFFFF;  // All DTCs
 }
 
+/// <summary>Flash Driver Download parameters. Driver 下载到 RAM, ECU 自动执行擦写。</summary>
+public sealed record FlashDriverDownloadParams
+{
+    // StartAddress 从 FlashDriver 解析出的 Segment.StartAddress 自动获取
+}
+
 
 /// <summary>
 /// One configurable row of the UDS flashing pipeline. The flashing view binds an
@@ -148,6 +154,9 @@ public sealed partial class FlashStep : ObservableObject
 
     /// <summary>DependencyCheck parameters. Non-null only when Kind == DependencyCheck.</summary>
     public DependencyCheckParams? DependencyCheck { get; private set; }
+
+    /// <summary>FlashDriverDownload parameters. Non-null only when Kind == FlashDriverDownload.</summary>
+    public FlashDriverDownloadParams? FlashDriverDownload { get; private set; }
 
     // ---- Backward-compat flat fields (Phase 1.1) — kept for snapshot + existing tests ----
     // These mirror the grouped params above. Phase 2 UI binds to grouped params;
@@ -233,6 +242,10 @@ public sealed partial class FlashStep : ObservableObject
 
             case FlashStepKind.DependencyCheck:
                 DependencyCheck = new DependencyCheckParams();
+                break;
+
+            case FlashStepKind.FlashDriverDownload:
+                FlashDriverDownload = new FlashDriverDownloadParams();
                 break;
         }
 
