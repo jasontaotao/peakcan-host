@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.FlashPipeline;
 using PeakCan.Host.Core.Uds.IsoTp;
@@ -158,10 +159,23 @@ public sealed class FlashPanelViewModelTests
         }
     }
 
-    private static FlashViewModelTestContext Create()
+    /// <summary>
+    /// Test double for <see cref="IFileDialogService"/> — returns a configurable path
+    /// (or null to simulate cancellation).
+    /// </summary>
+    private sealed class FakeFileDialogService : IFileDialogService
+    {
+        public string? NextOpenResult { get; set; }
+        public string? NextSaveResult { get; set; }
+        public string? ShowOpenDialog(string filter) => NextOpenResult;
+        public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => NextSaveResult;
+    }
+
+    private static FlashViewModelTestContext Create(IFileDialogService? fileDialog = null)
     {
         var factory = new RecordingFactory();
-        var vm = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance)
+        var vm = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance,
+            fileDialog, null)
         {
             CurrentProfile = FlashProfile.CreateDefault(),
         };
@@ -221,11 +235,13 @@ public sealed class FlashPanelViewModelTests
         try
         {
             var dl = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+            // Phase 2: Set flat fields (kept for backward compat) — these sync to grouped params.
             dl.FirmwarePath = tmp;
             dl.MemoryAddress = 0x0800_0000u;
             // Default profile's SecurityAccess is Manual mode with an EMPTY key — PipelineExecutor
             // hex-decodes it and rejects empty BEFORE the wire, so the success path needs a real
             // key hex or SecurityAccess throws and the run ends Failed (not Success).
+            // Phase 2: Executor reads flat fields (source of truth). Grouped params mirror via ToSnapshot.
             ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
@@ -338,6 +354,399 @@ public sealed class FlashPanelViewModelTests
         ctx.Vm.IsFlashing.Should().BeFalse();
         ctx.Factory.LastStack.CallOrder.Should().Contain("detach").And.Contain("dispose",
             "even on failure the stack must be torn down (no native/CAN leaks)");
+    }
+
+    // ---- step add/remove (Phase 1.1) ----
+
+    [Fact]
+    public void AddStep_Appends_New_Step_Of_Selected_Kind()
+    {
+        var ctx = Create();
+        var before = ctx.Vm.CurrentProfile.Steps.Count;
+
+        ctx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+
+        ctx.Vm.CurrentProfile.Steps.Should().HaveCount(before + 1);
+        ctx.Vm.CurrentProfile.Steps.Last().Kind.Should().Be(FlashStepKind.DownloadTransfer);
+    }
+
+    [Fact]
+    public void AddStep_Default_DownloadTransfer_Has_Zero_MemoryAddress()
+    {
+        var ctx = Create();
+        ctx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+
+        var added = ctx.Vm.CurrentProfile.Steps.Last();
+        added.MemoryAddress.Should().Be(0u, "new DownloadTransfer starts at address 0 — operator must fill");
+        added.FirmwarePath.Should().BeNullOrEmpty("new DownloadTransfer has no firmware until operator picks one");
+    }
+
+    [Fact]
+    public void RemoveStep_Removes_Selected_Step()
+    {
+        var ctx = Create();
+        var target = ctx.Vm.CurrentProfile.Steps.First(s => s.Kind == FlashStepKind.Verify);
+        ctx.Vm.SelectedStep = target;
+        var before = ctx.Vm.CurrentProfile.Steps.Count;
+
+        ctx.Vm.RemoveStepCommand.Execute(null);
+
+        ctx.Vm.CurrentProfile.Steps.Should().HaveCount(before - 1);
+        ctx.Vm.CurrentProfile.Steps.Should().NotContain(target);
+    }
+
+    [Fact]
+    public void RemoveStep_Without_Selection_Does_Nothing()
+    {
+        var ctx = Create();
+        ctx.Vm.SelectedStep = null;
+        var before = ctx.Vm.CurrentProfile.Steps.Count;
+
+        ctx.Vm.RemoveStepCommand.Execute(null);
+
+        ctx.Vm.CurrentProfile.Steps.Should().HaveCount(before, "RemoveStep must no-op when nothing is selected");
+    }
+
+    [Fact]
+    public void RemoveStepCommand_Cannot_Execute_When_Nothing_Selected()
+    {
+        var ctx = Create();
+        ctx.Vm.SelectedStep = null;
+
+        ctx.Vm.RemoveStepCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RemoveStepCommand_CanExecute_True_After_Selecting_Step()
+    {
+        var ctx = Create();
+        ctx.Vm.SelectedStep = null;
+        ctx.Vm.RemoveStepCommand.CanExecute(null).Should().BeFalse("disabled when nothing selected");
+
+        // Select a step → [NotifyCanExecuteChangedFor] must re-evaluate CanExecute
+        ctx.Vm.SelectedStep = ctx.Vm.CurrentProfile.Steps.First(s => s.Kind == FlashStepKind.Verify);
+
+        ctx.Vm.RemoveStepCommand.CanExecute(null).Should().BeTrue("enabled after selecting a step");
+    }
+
+    [Fact]
+    public void AddStep_Disabled_While_Flashing()
+    {
+        var ctx = Create();
+        // Simulate flashing state via the IsFlashing property
+        ctx.Vm.IsFlashing = true;
+
+        ctx.Vm.AddStepCommand.CanExecute(FlashStepKind.DownloadTransfer).Should().BeFalse();
+        ctx.Vm.RemoveStepCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // ---- remove firmware file / flash driver (Phase 2) ----
+
+    [Fact]
+    public void RemoveFirmwareFile_Selected_Removes_From_Collection()
+    {
+        // Arrange
+        var ctx = Create();
+        var file = new FirmwareFile("test.hex", FirmwareFormat.IntelHex, Array.Empty<Segment>());
+        ctx.Vm.CurrentProfile.FirmwareFiles.Add(file);
+        ctx.Vm.SelectedFirmwareFile = file;
+
+        // Act
+        ctx.Vm.RemoveFirmwareFileCommand.Execute(null);
+
+        // Assert
+        Assert.DoesNotContain(file, ctx.Vm.CurrentProfile.FirmwareFiles);
+    }
+
+    [Fact]
+    public void RemoveFlashDriver_Sets_Null()
+    {
+        // Arrange
+        var ctx = Create();
+        ctx.Vm.CurrentProfile.FlashDriver = new FlashDriver("driver.dll", new byte[] { 0x01 });
+
+        // Act
+        ctx.Vm.RemoveFlashDriverCommand.Execute(null);
+
+        // Assert
+        Assert.Null(ctx.Vm.CurrentProfile.FlashDriver);
+    }
+
+    [Fact]
+    public void SelectedStep_Notifies_MoveUp_CanExecute()
+    {
+        // Arrange
+        var ctx = Create();
+        ctx.Vm.CurrentProfile.Steps.Add(new FlashStep(FlashStepKind.Erase));
+        ctx.Vm.CurrentProfile.Steps.Add(new FlashStep(FlashStepKind.DownloadTransfer));
+        var firstStep = ctx.Vm.CurrentProfile.Steps[0];
+
+        // Act
+        ctx.Vm.SelectedStep = firstStep;
+
+        // Assert — MoveUp 在第一位应禁用
+        Assert.False(ctx.Vm.MoveUpCommand.CanExecute(null));
+        Assert.True(ctx.Vm.MoveDownCommand.CanExecute(null));
+    }
+
+    // ---- file browse (Phase 1.1) ----
+
+    [Fact]
+    public void SelectDllCommand_Sets_DllPath_On_SecurityAccess_Step()
+    {
+        var dialog = new FakeFileDialogService { NextOpenResult = @"C:\oem\seedkey.dll" };
+        var ctx = Create(dialog);
+        var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        ctx.Vm.SelectedStep = sec;
+
+        ctx.Vm.SelectDllCommand.Execute(null);
+
+        sec.DllPath.Should().Be(@"C:\oem\seedkey.dll");
+    }
+
+    [Fact]
+    public void SelectDllCommand_Ignores_Cancel()
+    {
+        var dialog = new FakeFileDialogService { NextOpenResult = null }; // user cancelled
+        var ctx = Create(dialog);
+        var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        sec.DllPath = @"C:\existing.dll";
+        ctx.Vm.SelectedStep = sec;
+
+        ctx.Vm.SelectDllCommand.Execute(null);
+
+        sec.DllPath.Should().Be(@"C:\existing.dll", "cancellation must not overwrite existing path");
+    }
+
+    [Fact]
+    public void SelectFirmwareCommand_Sets_FirmwarePath_On_DownloadTransfer_Step()
+    {
+        var dialog = new FakeFileDialogService { NextOpenResult = @"C:\fw\app.bin" };
+        var ctx = Create(dialog);
+        var dl = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        ctx.Vm.SelectedStep = dl;
+
+        ctx.Vm.SelectFirmwareCommand.Execute(null);
+
+        dl.FirmwarePath.Should().Be(@"C:\fw\app.bin");
+    }
+
+    [Fact]
+    public void SelectDllCommand_Disabled_When_Selected_Step_Is_Not_SecurityAccess()
+    {
+        var dialog = new FakeFileDialogService { NextOpenResult = @"C:\oem\seedkey.dll" };
+        var ctx = Create(dialog);
+        // Select a DownloadTransfer step, not SecurityAccess
+        ctx.Vm.SelectedStep = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+
+        ctx.Vm.SelectDllCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SelectFirmware_On_Wrong_Step_Kind_Does_Not_Set_Path()
+    {
+        var dialog = new FakeFileDialogService { NextOpenResult = @"C:\fw\app.bin" };
+        var ctx = Create(dialog);
+        var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        ctx.Vm.SelectedStep = sec; // SecurityAccess, not DownloadTransfer
+
+        ctx.Vm.SelectFirmwareCommand.Execute(null);
+
+        sec.DllPath.Should().BeNullOrEmpty("SelectFirmware must not write to a non-DownloadTransfer step");
+        // And the step has no FirmwarePath property set (it's a SecurityAccess step)
+    }
+
+    [Fact]
+    public void FlashPanelViewModel_Exists_Without_IFileDialogService()
+    {
+        // Back-compat: ctor with no fileDialog must not throw (NullFileDialogService fallback)
+        var factory = new RecordingFactory();
+        var vm = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance,
+            null, null)
+        {
+            CurrentProfile = FlashProfile.CreateDefault(),
+        };
+        vm.Should().NotBeNull();
+        // And calling browse with the null fallback must no-op (not throw)
+        var sec = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        vm.SelectedStep = sec;
+        var act = () => vm.SelectDllCommand.Execute(null);
+        act.Should().NotThrow();
+    }
+
+    // ---- profile save/load (Phase 1.1) ----
+
+    [Fact]
+    public async Task SaveProfile_Writes_File()
+    {
+        var dialog = new FakeFileDialogService { NextSaveResult = @"C:\profiles\my.flash.json" };
+        var ctx = Create(dialog);
+        var tmp = Path.Combine(Path.GetTempPath(), $"flashvmtest_save_{Guid.NewGuid():N}.json");
+        dialog.NextSaveResult = tmp;
+        try
+        {
+            await ctx.Vm.SaveProfileCommand.ExecuteAsync(null);
+
+            File.Exists(tmp).Should().BeTrue("SaveProfile must write the profile to disk");
+            var json = await File.ReadAllTextAsync(tmp);
+            json.Should().Contain("Default Flash", "serialized JSON should contain the profile name");
+            ctx.Vm.StatusMessage.Should().Contain("saved");
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public async Task SaveProfile_Cancel_Is_NoOp()
+    {
+        var dialog = new FakeFileDialogService { NextSaveResult = null }; // user cancelled
+        var ctx = Create(dialog);
+
+        await ctx.Vm.SaveProfileCommand.ExecuteAsync(null);
+
+        ctx.Vm.StatusMessage.Should().NotContain("saved", "cancellation must not report success");
+    }
+
+    [Fact]
+    public async Task LoadProfile_Restores_Steps()
+    {
+        // Arrange: build a profile with a custom step, save it, then modify, then load.
+        var ctx = Create();
+        ctx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+        var expectedCount = ctx.Vm.CurrentProfile.Steps.Count;
+        var tmp = Path.Combine(Path.GetTempPath(), $"flashvmtest_load_{Guid.NewGuid():N}.json");
+        try
+        {
+            // Save
+            var saveDialog = new FakeFileDialogService { NextSaveResult = tmp };
+            var saveCtx = Create(saveDialog);
+            saveCtx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+            await saveCtx.Vm.SaveProfileCommand.ExecuteAsync(null);
+
+            // Modify: remove a step so the profile differs from the saved one
+            ctx.Vm.SelectedStep = ctx.Vm.CurrentProfile.Steps.First(s => s.Kind == FlashStepKind.Verify);
+            ctx.Vm.RemoveStepCommand.Execute(null);
+            ctx.Vm.CurrentProfile.Steps.Count.Should().BeLessThan(expectedCount);
+
+            // Load
+            var loadDialog = new FakeFileDialogService { NextOpenResult = tmp };
+            var loadCtx = Create(loadDialog);
+            await loadCtx.Vm.LoadProfileCommand.ExecuteAsync(null);
+
+            loadCtx.Vm.CurrentProfile.Steps.Count.Should().Be(expectedCount,
+                "LoadProfile must restore the full step list from disk");
+            loadCtx.Vm.StatusMessage.Should().Contain("loaded");
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public async Task LoadProfile_Invalid_Json_Reports_Operator_Message()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"flashvmtest_bad_{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(tmp, "not valid json {{{");
+        try
+        {
+            var dialog = new FakeFileDialogService { NextOpenResult = tmp };
+            var ctx = Create(dialog);
+
+            await ctx.Vm.LoadProfileCommand.ExecuteAsync(null);
+
+            ctx.Vm.StatusMessage.Should().Contain("failed", "invalid JSON must report failure to operator");
+            ctx.Vm.Status.Should().Be(FlashStatus.Failed);
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_Disabled_While_Flashing()
+    {
+        var ctx = Create();
+        ctx.Vm.IsFlashing = true;
+
+        ctx.Vm.SaveProfileCommand.CanExecute(null).Should().BeFalse();
+        ctx.Vm.LoadProfileCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // ---- multi-file flash (Phase 1.1) ----
+
+    [Fact]
+    public async Task Start_With_Two_DownloadTransfer_Same_File_To_Two_Addresses_Succeeds()
+    {
+        // M1 fix: two DownloadTransfer steps sharing the same FirmwarePath must both flash
+        // (same binary to two memory addresses — e.g. dual-bank ECU). The dedup must read
+        // the file once but populate firmware for BOTH step indices.
+        var ctx = Create();
+        var tmp = Path.Combine(Path.GetTempPath(), $"flashvmtest_same_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(tmp, new byte[] { 0xAA, 0xBB });
+        try
+        {
+            var dl1 = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+            dl1.FirmwarePath = tmp;
+            dl1.MemoryAddress = 0x1000u;
+            ctx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+            var dl2 = ctx.Vm.CurrentProfile.Steps.Last(s => s.Kind == FlashStepKind.DownloadTransfer);
+            dl2.FirmwarePath = tmp; // SAME path as dl1
+            dl2.MemoryAddress = 0x2000u;
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+
+            await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+            ctx.Vm.Status.Should().Be(FlashStatus.Success,
+                "same-file two-address flash must succeed — both steps get the firmware");
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public async Task Start_With_Two_DownloadTransfer_Steps_Flashes_Both_Files()
+    {
+        // Phase 1.1: two DownloadTransfer steps with different firmware content. The resolver
+        // must return each step's own firmware (validated via distinct MemoryAddress per step).
+        var ctx = Create();
+        var tmpA = Path.Combine(Path.GetTempPath(), $"flashvmtest_A_{Guid.NewGuid():N}.bin");
+        var tmpB = Path.Combine(Path.GetTempPath(), $"flashvmtest_B_{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(tmpA, new byte[] { 0xAA, 0xBB });
+        await File.WriteAllBytesAsync(tmpB, new byte[] { 0xCC, 0xDD, 0xEE });
+        try
+        {
+            // Default profile has one DownloadTransfer at some index — add a second one.
+            var dl1 = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+            dl1.FirmwarePath = tmpA;
+            dl1.MemoryAddress = 0x1000u;
+            ctx.Vm.AddStepCommand.Execute(FlashStepKind.DownloadTransfer);
+            var dl2 = ctx.Vm.CurrentProfile.Steps.Last(s => s.Kind == FlashStepKind.DownloadTransfer);
+            dl2.FirmwarePath = tmpB;
+            dl2.MemoryAddress = 0x2000u;
+            // SecurityAccess needs a valid key for the success path
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+
+            await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+            ctx.Vm.Status.Should().Be(FlashStatus.Success);
+            // Verify both files were downloaded at their respective addresses via the client
+            var client = (FastPositiveUdsClient)ctx.Factory.LastStack.Client;
+            // The client doesn't expose call records, but Success status + correct teardown
+            // confirms both DownloadTransfer steps ran. Address-based verification is covered
+            // by PipelineExecutorTests.PerStepResolver_Two_DownloadTransfer_Steps_Each_Get_Own_Firmware.
+            ctx.Factory.LastStack.CallOrder.Should().ContainInOrder("attach", "detach", "dispose");
+        }
+        finally
+        {
+            if (File.Exists(tmpA)) File.Delete(tmpA);
+            if (File.Exists(tmpB)) File.Delete(tmpB);
+        }
     }
 
     // ---- stop (idle state) ----
@@ -534,7 +943,7 @@ public sealed class FlashPanelViewModelTests
         var vm = new FlashPanelViewModel(
             factory ?? new RecordingFactory(),
             NullLogger<FlashPanelViewModel>.Instance,
-            lifetime)
+            null, lifetime)
         {
             CurrentProfile = FlashProfile.CreateDefault(),
         };
