@@ -173,11 +173,13 @@
                     </DockPanel.Resources>
                     <StackPanel DockPanel.Dock="Top" Margin="8">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBlock Text="Programming CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
-                                <Run Text="Req 0x"/><Run Text="{Binding Flash.CurrentProfile.ProgrammingCanId.RequestId, StringFormat={}{0:X3}, Mode=OneWay}"/>
-                                <Run Text=" / Resp 0x"/><Run Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, Mode=OneWay}"/>
-                            </TextBlock>
+                            <TextBlock Text="CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="Req 0x" VerticalAlignment="Center"/>
+                            <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.RequestId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
+                            <TextBlock Text="Resp 0x" VerticalAlignment="Center"/>
+                            <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
+                            <TextBlock Text="Func 0x" VerticalAlignment="Center"/>
+                            <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.FunctionalId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50"/>
                         </StackPanel>
                         <TextBlock Text="⚠ 编程寻址若与诊断寻址 (0x7E0/0x7E8) 相同，Start 时会拒绝 Dll mode（仅 Manual）"
                                    Foreground="#C08000" Margin="0,0,0,8"
