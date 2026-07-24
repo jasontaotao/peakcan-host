@@ -4,6 +4,9 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
+        xmlns:flash="clr-namespace:PeakCan.Host.App.ViewModels.Uds.FlashPipeline"
+        xmlns:core="clr-namespace:PeakCan.Host.Core.Uds.FlashPipeline;assembly=PeakCan.Host.Core"
+        xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:UdsViewModel}"
         Title="UDS Diagnostics"
@@ -26,9 +29,13 @@
                           Command="{Binding Session.ToggleTesterPresentCommand}"
                           VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Separator/>
-                <Button Content="SecurityAccess (Level 1)"
-                        Command="{Binding Session.SecurityAccessCommand}"
-                        Padding="6,2" Margin="0,0,12,0"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Level:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBox Text="{Binding Session.SecurityLevel, StringFormat=0x{0:X2}, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
+                    <Button Content="SecurityAccess"
+                            Command="{Binding Session.SecurityAccessCommand}"
+                            Padding="6,2" Margin="0,0,12,0"/>
+                </StackPanel>
                 <TextBlock Text="{Binding Session.CurrentSession, StringFormat='Session: {0}'}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBlock Text="{Binding Session.SecurityLevel, StringFormat='Level: 0x{0:X2}', TargetNullValue='(not authenticated)'}"
@@ -154,9 +161,16 @@
                  via FlashPanelViewModel. Steps bind to an ObservableCollection<FlashStep>;
                  Start/Stop drive PipelineExecutor through the per-run secondary UdsClient.
                  Programming CAN-ID hero readout (+ same-addressing warning) keeps the
-                 operator aware the programming pair must differ from diagnostic 0x7E0/0x7E8. -->
+                 operator aware the programming pair must differ from diagnostic 0x7E0/0x7E8.
+                 Phase 2: Segment model, property panel, HEX/S19 support. -->
             <TabItem Header="Flashing">
                 <DockPanel>
+                    <DockPanel.Resources>
+                        <!-- Local copies so tests don't depend on App.xaml initialization -->
+                        <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+                        <conv:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter"/>
+                        <conv:NullToBooleanConverter x:Key="NullToBooleanConverter"/>
+                    </DockPanel.Resources>
                     <StackPanel DockPanel.Dock="Top" Margin="8">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <TextBlock Text="Programming CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -168,34 +182,325 @@
                         <TextBlock Text="⚠ 编程寻址若与诊断寻址 (0x7E0/0x7E8) 相同，Start 时会拒绝 Dll mode（仅 Manual）"
                                    Foreground="#C08000" Margin="0,0,0,8"
                                    TextWrapping="Wrap"/>
+                        <CheckBox Content="出错时自动重启 ECU (Fail-Safe Reset)" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
+                                  Margin="0,0,0,8" ToolTip="刷写失败时自动发 EcuReset(0x01) 防止 ECU 半刷状态"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Content="Start"  Command="{Binding Flash.StartCommand}" Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
-                            <Button Content="Stop"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,12,0"/>
-                            <!-- FlashProfile Save/Load is Phase 1.1 (file-dialog command);
-                                 the in-memory profile + default template are editable below
-                                 until persisted-state round-trip lands. -->
+                            <Button Content="Stop"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
+                            <Button Content="Save Profile" Command="{Binding Flash.SaveProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,4,0"/>
+                            <Button Content="Load Profile" Command="{Binding Flash.LoadProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,12,0"/>
                             <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
                                 <Run Text="Status: "/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
                             </TextBlock>
                         </StackPanel>
+                        <!-- Phase 2: Firmware Files + Flash Driver loading areas -->
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- Firmware Files -->
+                            <DockPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock DockPanel.Dock="Top" Text="Firmware Files:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="+ Add Firmware File" Padding="4,2" Margin="0,0,4,0"
+                                            Command="{Binding Flash.AddFirmwareFileCommand}"
+                                            ToolTip="Load a .hex / .s19 / .bin firmware file"/>
+                                    <Button Content="- Remove" Padding="4,2"
+                                            Command="{Binding Flash.RemoveFirmwareFileCommand}"
+                                            ToolTip="Remove selected firmware file"/>
+                                </StackPanel>
+                                <ListBox ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
+                                         SelectedItem="{Binding Flash.SelectedFirmwareFile, Mode=TwoWay}"
+                                         Height="80" DisplayMemberPath="Path"/>
+                            </DockPanel>
+                            <!-- Flash Driver -->
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Top" Text="Flash Driver:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="+ Add Flash Driver" Padding="4,2" Margin="0,0,4,0"
+                                            Command="{Binding Flash.AddFlashDriverCommand}"
+                                            ToolTip="Load a flash driver DLL or binary"/>
+                                    <Button Content="- Remove" Padding="4,2"
+                                            Command="{Binding Flash.RemoveFlashDriverCommand}"
+                                            ToolTip="Remove flash driver"/>
+                                </StackPanel>
+                                <Border Height="80" BorderBrush="#CCC" BorderThickness="1" Padding="4">
+                                    <TextBlock Text="{Binding Flash.CurrentProfile.FlashDriver.Path, TargetNullValue='(no driver loaded)'}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </Border>
+                            </DockPanel>
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <ComboBox x:Name="KindPicker" ItemsSource="{Binding Flash.AddableKinds}"
+                                      SelectedIndex="0" Width="140" Margin="0,0,4,0"
+                                      ToolTip="Step kind to add"/>
+                            <Button Content="Add Step" Padding="8,3" MinWidth="72" Margin="0,0,4,0"
+                                    Command="{Binding Flash.AddStepCommand}"
+                                    CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
+                                    ToolTip="Append a new step of the selected kind"/>
+                            <Button Content="Remove Step" Padding="8,3" MinWidth="80" Margin="0,0,4,0"
+                                    Command="{Binding Flash.RemoveStepCommand}"
+                                    ToolTip="Remove the selected step"/>
+                            <Button Content="Apply Multi-Level Template" Padding="4,2"
+                                    Command="{Binding Flash.ApplyMultiLevelTemplateCommand}"
+                                    ToolTip="Replace steps with a typical dual-region flash flow template"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button Content="▲ Up" Padding="8,3" MinWidth="48" Margin="0,0,4,0"
+                                    Command="{Binding Flash.MoveUpCommand}"
+                                    ToolTip="Move selected step up"/>
+                            <Button Content="▼ Down" Padding="8,3" MinWidth="48"
+                                    Command="{Binding Flash.MoveDownCommand}"
+                                    ToolTip="Move selected step down"/>
+                        </StackPanel>
                         <ProgressBar Value="{Binding Flash.ProgressPercent, Mode=OneWay}"
                                      Height="14" Minimum="0" Maximum="100" Margin="0,0,0,8"/>
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding Flash.CurrentProfile.Steps}" AutoGenerateColumns="False">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="On"  Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}"/>
-                            <DataGridTextColumn   Header="Step"     Binding="{Binding Kind}" IsReadOnly="True"/>
-                            <DataGridTextColumn   Header="SecMode"  Binding="{Binding SecurityMode}"/>
-                            <DataGridTextColumn   Header="Level"    Binding="{Binding SecurityLevel, StringFormat=0x{0:X2}}"/>
-                            <DataGridTextColumn   Header="ManualKey" Binding="{Binding ManualKeyHex}"/>
-                            <DataGridTextColumn   Header="DllPath"  Binding="{Binding DllPath}"/>
-                            <DataGridTextColumn   Header="Routine"  Binding="{Binding RoutineId, StringFormat=0x{0:X4}}"/>
-                            <DataGridTextColumn   Header="Addr"     Binding="{Binding MemoryAddress, StringFormat=0x{0:X8}}"/>
-                            <DataGridTextColumn   Header="FW Path"  Binding="{Binding FirmwarePath}"/>
-                            <DataGridTextColumn   Header="Reset"    Binding="{Binding ResetType}"/>
-                            <DataGridCheckBoxColumn Header="AutoReset" Binding="{Binding AutoResetOnFailure}"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <!-- Phase 2: Step list (left) + Property panel (right) -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="280" MinWidth="200"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Left: Step list -->
+                        <DockPanel Grid.Column="0" Margin="0,0,8,0">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Content="+ Add" Command="{Binding Flash.AddStepCommand}"
+                                        CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
+                                        Padding="8,3" Margin="0,0,4,0" ToolTip="Append a step"/>
+                                <Button Content="- Remove" Command="{Binding Flash.RemoveStepCommand}"
+                                        Padding="8,3" ToolTip="Remove selected step"/>
+                            </StackPanel>
+                            <ListBox ItemsSource="{Binding Flash.CurrentProfile.Steps}"
+                                     SelectedItem="{Binding Flash.SelectedStep, Mode=TwoWay}"
+                                     DisplayMemberPath="Kind"/>
+                        </DockPanel>
+
+                        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+
+                        <!-- Right: Property panel for selected step -->
+                        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="8,0,0,0">
+                                <!-- Empty-state hint when no step is selected -->
+                                <TextBlock Text="← 从左侧选择一个步骤以查看其配置"
+                                           Visibility="{Binding Flash.SelectedStep, Converter={StaticResource InverseNullToVisibilityConverter}}"
+                                           Foreground="Gray" FontStyle="Italic" Margin="0,20,0,0"
+                                           TextWrapping="Wrap"/>
+
+                                <!-- Property content: only visible when a step IS selected -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep, Converter={StaticResource NullToVisibilityConverter}}">
+                                <TextBlock Text="{Binding Flash.SelectedStep.Kind, StringFormat='Properties: {0}'}"
+                                           FontWeight="Bold" FontSize="14" Margin="0,0,0,8"/>
+
+                                <!-- AddressingMode: only enabled for CommunicationControl (0x28) steps -->
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Addressing:" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Flash.AddressingModes}"
+                                              SelectedItem="{Binding Flash.SelectedStep.AddressingMode}"
+                                              IsEnabled="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource NullToBooleanConverter}}"/>
+                                </Grid>
+
+                                <!-- PreCheck properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.PreCheck, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="PreCheck" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.PreCheck.RoutineId, StringFormat=0x{0:X4}}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- SecurityAccess properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.SecurityAccess, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="SecurityAccess" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Level:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, StringFormat=0x{0:X2}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.SecurityAccessModes}"
+                                                  SelectedItem="{Binding Flash.SelectedStep.SecurityAccess.Mode}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Manual Key:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.ManualKeyHex}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL Path:" VerticalAlignment="Center"/>
+                                        <DockPanel Grid.Row="3" Grid.Column="1">
+                                            <Button Content="…" DockPanel.Dock="Right" Padding="6,0" Margin="2,0,0,0"
+                                                    Command="{Binding Flash.SelectDllCommand}"/>
+                                            <TextBox Text="{Binding Flash.SelectedStep.SecurityAccess.DllPath}"/>
+                                        </DockPanel>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Erase/Verify (RoutineControl) properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.RoutineControl, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="RoutineControl" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/><RowDefinition/><RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, StringFormat=0x{0:X4}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Start Addr:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, StringFormat=0x{0:X8}}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.Size, StringFormat=0x{0:X8}}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Download properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.Download, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="Download" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
+                                                  SelectedIndex="{Binding Flash.SelectedStep.Download.SegmentIndex}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Verify properties (read-only display) -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="Verify" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Algorithm:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.ChecksumAlgorithms}"
+                                                  SelectedItem="{Binding Flash.SelectedStep.Verify.Algorithm}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
+                                                  SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Address:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="1">
+                                            <Run Text="0x"/><Run Text="{Binding Flash.SelectedStep.Verify.StartAddress, StringFormat={}{0:X8}}"/>
+                                            <Run Text=" - 0x"/><Run Text="{Binding Flash.SelectedStep.Verify.EndAddress, StringFormat={}{0:X8}}"/>
+                                        </TextBlock>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- EcuReset properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.EcuReset, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="EcuReset" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Reset Type:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.EcuResetTypes}"
+                                                  SelectedItem="{Binding Flash.SelectedStep.EcuReset.ResetType}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- CommunicationControl (0x28) properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="CommunicationControl (0x28)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sub-function:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.CommunicationSubFunctions}"
+                                                  SelectedItem="{Binding Flash.SelectedStep.CommunicationControl.SubFunction}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- DTCControl (0x14) properties -->
+                                <StackPanel Visibility="{Binding Flash.SelectedStep.DtcControl, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Text="DTCControl (0x14)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/><RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sub-function:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.DtcControlSubFunctions}"
+                                                  SelectedItem="{Binding Flash.SelectedStep.DtcControl.SubFunction}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC Group:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.DtcControl.DtcGroup, StringFormat=0x{0:X6}}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->
+                                <TextBlock Text="(No configurable properties for this step kind)"
+                                           Foreground="Gray" FontStyle="Italic" Margin="0,8,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.SecurityAccess}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.RoutineControl}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.Download}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.Verify}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.EcuReset}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.CommunicationControl}" Value="{x:Null}"/>
+                                                        <Condition Binding="{Binding Flash.SelectedStep.DtcControl}" Value="{x:Null}"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                </StackPanel><!-- end of inner StackPanel for selected-step properties -->
+                            </StackPanel><!-- end of outer StackPanel -->
+                        </ScrollViewer>
+                    </Grid>
                 </DockPanel>
             </TabItem>
         </TabControl>
