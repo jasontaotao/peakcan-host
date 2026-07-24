@@ -74,10 +74,14 @@ public sealed record PreCheckParams
 public sealed record VerifyParams
 {
     public ChecksumAlgorithm Algorithm { get; set; } = ChecksumAlgorithm.Crc32;
-    public int SegmentIndex { get; set; }  // 引用 Segment → 自动算地址+CRC
+    public int SegmentIndex { get; set; }  // 引用 FirmwareFiles 扁平化后的 Segment 列表
     // ExpectedChecksum/StartAddress/EndAddress 改为只读展示（从 Segment 计算）
 }
 ```
+
+**Segment 引用范围**：`SegmentIndex` 引用 `FlashProfile.FirmwareFiles[].Segments` 扁平化后的列表
+（与 Download 步骤的 `SegmentAddressResolver` 使用同一索引空间）。UI ComboBox 显示每个
+Segment 的 "0x{StartAddress:X8} - 0x{EndAddress:X8} ({Length} bytes)" 描述。
 
 ### 2. 协议层 + Executor
 
