@@ -177,11 +177,11 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
     /// <summary>
     /// Kinds the operator can add via the "Add Step" dropdown. Excludes
-    /// <see cref="FlashStepKind.PreCheck"/> (placeholder, no function yet) and
     /// <see cref="FlashStepKind.SessionControl"/> (no configurable parameters, always runs).
     /// </summary>
     public static IReadOnlyList<FlashStepKind> AddableKinds { get; } =
     [
+        FlashStepKind.PreCheck,
         FlashStepKind.SecurityAccess,
         FlashStepKind.Erase,
         FlashStepKind.DownloadTransfer,
