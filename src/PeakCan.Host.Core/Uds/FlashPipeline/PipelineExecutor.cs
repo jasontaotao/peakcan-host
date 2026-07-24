@@ -29,12 +29,152 @@ public static class PipelineExecutor
     public const byte StartRoutine = 0x01;
 
     /// <summary>
-    /// Execute the enabled step sequence against <paramref name="client"/>.
+    /// Per-step firmware resolver: given a step and its index in the enabled-steps list,
+    /// returns the firmware image for that step, or null if none. The index is the stable
+    /// identity (NOT the step snapshot — snapshots are record values, so two DownloadTransfer
+    /// steps with identical parameters would collide as dictionary keys and silently share
+    /// firmware). The executor calls this once per DownloadTransfer step.
+    /// </summary>
+    /// <param name="step">The current step snapshot.</param>
+    /// <param name="index">The step's 0-based index in the enabled-steps list.</param>
+    /// <returns>The firmware image for this step, or null if none.</returns>
+    public delegate FirmwareImage? FirmwareResolver(FlashStepSnapshot step, int index);
+
+    /// <summary>
+    /// Phase 2: Resolves the start address for a Download step's referenced segment.
+    /// Given the segment index (from DownloadParams.SegmentIndex), returns the segment's
+    /// start address. The executor uses this instead of the flat MemoryAddress field.
+    /// </summary>
+    /// <param name="segmentIndex">Index into the flattened segment list.</param>
+    /// <returns>The segment's start address, or null if not resolvable.</returns>
+    public delegate uint? SegmentAddressResolver(int segmentIndex);
+
+    /// <summary>
+    /// Execute the enabled step sequence against <paramref name="client"/>, resolving firmware
+    /// per-step via <paramref name="firmwareResolver"/>. This is the Phase 1.1 entry point
+    /// that supports multiple DownloadTransfer steps each flashing a different firmware image
+    /// (flash_driver→RAM then main app, dual-file, N-file).
+    /// </summary>
+    /// <param name="client">The UdsClient (typically a per-flash secondary client). Must not be null.</param>
+    /// <param name="enabledSteps">Ordered, enabled step snapshots (the caller filters disabled steps out first). Must not be null.</param>
+    /// <param name="firmwareResolver">
+    /// Per-step firmware resolver. Called once per DownloadTransfer step; must return the
+    /// firmware image for that step's index, or null if none.
+    /// </param>
+    /// <param name="progress">Optional progress reporter bridged to the UI by the caller.</param>
+    /// <param name="ct">Cancellation token — propagated to every UDS call.</param>
+    public static async Task ExecuteAsync(
+        UdsClient client,
+        IReadOnlyList<FlashStepSnapshot> enabledSteps,
+        FirmwareResolver firmwareResolver,
+        SegmentAddressResolver? segmentAddressResolver,
+        IProgress<FlashProgress>? progress,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(enabledSteps);
+        ArgumentNullException.ThrowIfNull(firmwareResolver);
+
+        var total = enabledSteps.Count;
+
+        // Phase 2 §6.2: Start a background keep-alive loop so long downloads don't
+        // hit the ECU's S3 timeout (typically 5s). Sends 0x3E 80 every 1.5s.
+        using var keepAliveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var keepAliveTask = KeepAliveLoopAsync(client, keepAliveCts.Token);
+
+        try
+        {
+            for (int i = 0; i < total; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var step = enabledSteps[i];
+
+                try
+                {
+                    Report(progress, i, total, step.Kind, FlashStatus.Running, message: null);
+                    await ExecuteStepAsync(client, step, firmwareResolver, segmentAddressResolver, progress, i, total, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation is operator-intent, NOT a failure — never triggers the auto-reset net.
+                    progress?.Report(MakeProgress(i, total, step.Kind, FlashStatus.Cancelled, message: "Cancelled"));
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Safety net: auto-reset to leave the ECU in a sane state on failure.
+                    if (step.AutoResetOnFailure)
+                    {
+                        try
+                        {
+                            await client.EcuResetAsync(0x01, ct).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // A reset that itself fails must NOT mask the original cause.
+                        }
+                    }
+                    progress?.Report(MakeProgress(i, total, step.Kind, FlashStatus.Failed, message: ex.Message));
+                    throw;
+                }
+            }
+
+            if (total > 0)
+            {
+                progress?.Report(MakeProgress(total - 1, total, enabledSteps[total - 1].Kind, FlashStatus.Success, message: "Done"));
+            }
+        }
+        finally
+        {
+            keepAliveCts.Cancel();
+            try { await keepAliveTask.ConfigureAwait(false); }  // ensure the loop exits cleanly
+            catch (OperationCanceledException) { /* expected — we just cancelled it */ }
+        }
+    }
+
+    /// <summary>
+    /// Phase 2 §6.2: Background keep-alive loop. Sends TesterPresent with suppress-pos-response
+    /// (0x3E 80) every 1.5s to prevent the ECU's S3 timer from timing out during long downloads.
+    /// Falls back to 0x3E 00 if the ECU doesn't support suppression.
+    /// </summary>
+    private static async Task KeepAliveLoopAsync(UdsClient client, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
+                // 0x3E 80 preferred (suppress response); fall back to 0x3E 00 on NRC.
+                try
+                {
+                    await client.TesterPresentAsync(suppressPosResponse: true, ct).ConfigureAwait(false);
+                }
+                catch (UdsException)
+                {
+                    // Suppress not supported — retry with non-suppress variant.
+                    await client.TesterPresentAsync(suppressPosResponse: false, ct).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;  // propagate cancellation
+            }
+            catch
+            {
+                // Keep-alive failure must NOT abort the flash — silently continue.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 1 backward-compat overload: single firmware image for the whole run. All
+    /// DownloadTransfer steps flash the same image. Delegates to the per-step resolver
+    /// overload with a resolver that returns the same image regardless of step/index.
     /// </summary>
     /// <param name="client">The UdsClient (typically a per-flash secondary client). Must not be null.</param>
     /// <param name="enabledSteps">Ordered, enabled step snapshots (the caller filters disabled steps out first). Must not be null.</param>
     /// <param name="firmware">
-    /// The firmware image. Required when an enabled DownloadTransfer step is present; null otherwise.
+    /// The single firmware image. Required when an enabled DownloadTransfer step is present; null otherwise.
     /// </param>
     /// <param name="progress">Optional progress reporter bridged to the UI by the caller.</param>
     /// <param name="ct">Cancellation token — propagated to every UDS call.</param>
@@ -45,55 +185,15 @@ public static class PipelineExecutor
         IProgress<FlashProgress>? progress,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(client);
-        ArgumentNullException.ThrowIfNull(enabledSteps);
-
-        var total = enabledSteps.Count;
-        for (int i = 0; i < total; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var step = enabledSteps[i];
-
-            try
-            {
-                Report(progress, i, total, step.Kind, FlashStatus.Running, message: null);
-                await ExecuteStepAsync(client, step, firmware, progress, i, total, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Cancellation is operator-intent, NOT a failure — never triggers the auto-reset net.
-                progress?.Report(MakeProgress(i, total, step.Kind, FlashStatus.Cancelled, message: "Cancelled"));
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Safety net: auto-reset to leave the ECU in a sane state on failure.
-                if (step.AutoResetOnFailure)
-                {
-                    try
-                    {
-                        await client.EcuResetAsync(0x01, ct).ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                        // A reset that itself fails must NOT mask the original cause.
-                    }
-                }
-                progress?.Report(MakeProgress(i, total, step.Kind, FlashStatus.Failed, message: ex.Message));
-                throw;
-            }
-        }
-
-        if (total > 0)
-        {
-            progress?.Report(MakeProgress(total - 1, total, enabledSteps[total - 1].Kind, FlashStatus.Success, message: "Done"));
-        }
+        // Delegate to the per-step resolver overload — constant resolver returns the same image.
+        await ExecuteAsync(client, enabledSteps, (_, __) => firmware, null, progress, ct).ConfigureAwait(false);
     }
 
     private static async Task ExecuteStepAsync(
         UdsClient client,
         FlashStepSnapshot step,
-        FirmwareImage? firmware,
+        FirmwareResolver firmwareResolver,
+        SegmentAddressResolver? segmentAddressResolver,
         IProgress<FlashProgress>? progress,
         int stepIndex,
         int total,
@@ -102,8 +202,9 @@ public static class PipelineExecutor
         switch (step.Kind)
         {
             case FlashStepKind.PreCheck:
-                // Phase 1 placeholder: executor defers pre-check enforcement to the operator.
-                // An enabled PreCheck step does nothing — Phase 2 will wire precondition DIDs/routines.
+                var preCheck = step.PreCheck ?? throw new InvalidOperationException("PreCheck params missing");
+                // 调 RoutineControl(StartRoutine, routineId, null) — 返回非空即成功
+                await client.RoutineControlAsync(StartRoutine, preCheck.RoutineId, data: null, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.SessionControl:
@@ -115,19 +216,34 @@ public static class PipelineExecutor
                 break;
 
             case FlashStepKind.Erase:
+                // Phase 2: Read flat RoutineId (source of truth; grouped params mirror via ToSnapshot).
                 await client.RoutineControlAsync(StartRoutine, step.RoutineId, data: null, ct: ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.DownloadTransfer:
-                await ExecuteDownloadTransferAsync(client, step, firmware, progress, stepIndex, total, ct).ConfigureAwait(false);
+                await ExecuteDownloadTransferAsync(client, step, firmwareResolver, segmentAddressResolver, progress, stepIndex, total, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.Verify:
-                await client.RoutineControlAsync(StartRoutine, step.RoutineId, data: null, ct: ct).ConfigureAwait(false);
+                await ExecuteVerifyAsync(client, step, firmwareResolver, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.EcuReset:
                 await client.EcuResetAsync((byte)step.ResetType, ct).ConfigureAwait(false);
+                break;
+
+            case FlashStepKind.CommunicationControl:
+                // Phase 2: 0x28 uses functional addressing (broadcast). The sub-function
+                // comes from the grouped CommunicationControl params.
+                var ccSubFunc = step.CommunicationControl?.SubFunction ?? CommunicationSubFunction.DisableRxAndTx;
+                await client.CommunicationControlAsync(ccSubFunc, ct).ConfigureAwait(false);
+                break;
+
+            case FlashStepKind.DtcControl:
+                // Phase 2: 0x14 DTC control. Sub-function and DTC group from grouped params.
+                var dtcSubFunc = step.DtcControl is { } dc ? (DtcControlSubFunction)dc.SubFunction : DtcControlSubFunction.ClearDTCInformation;
+                var dtcGroup = step.DtcControl?.DtcGroup ?? 0x00FFFFFF;
+                await client.DtcControlAsync(dtcSubFunc, dtcGroup, ct).ConfigureAwait(false);
                 break;
 
             default:
@@ -137,18 +253,25 @@ public static class PipelineExecutor
 
     private static async Task ExecuteSecurityAccessAsync(UdsClient client, FlashStepSnapshot step, CancellationToken ct)
     {
-        switch (step.SecurityMode)
+        // Phase 2: Read from flat fields (source of truth for backward compat).
+        // Grouped params in the snapshot mirror these values when set via the UI.
+        var level = step.SecurityLevel;
+        var mode = step.SecurityMode;
+        var manualKey = step.ManualKeyHex;
+        var dllPath = step.DllPath;
+
+        switch (mode)
         {
             case SecurityAccessMode.Manual:
-                var key = DecodeManualKeyHex(step.ManualKeyHex);
-                await client.SecurityAccessAsync(step.SecurityLevel, key, ct).ConfigureAwait(false);
+                var key = DecodeManualKeyHex(manualKey);
+                await client.SecurityAccessAsync(level, key, ct).ConfigureAwait(false);
                 break;
 
             case SecurityAccessMode.Dll:
                 // The secondary UdsClient (constructed at flash time) is injected with the
                 // OEM DllKeyDerivationAlgorithm, so the 2-arg overload runs the
                 // RequestSeed→ComputeKey(DLL)→SendKey handshake via the injected algorithm.
-                await client.SecurityAccessAsync(step.SecurityLevel, ct).ConfigureAwait(false);
+                await client.SecurityAccessAsync(level, ct).ConfigureAwait(false);
                 break;
 
             case SecurityAccessMode.Auto:
@@ -204,19 +327,28 @@ public static class PipelineExecutor
     private static async Task ExecuteDownloadTransferAsync(
         UdsClient client,
         FlashStepSnapshot step,
-        FirmwareImage? firmware,
+        FirmwareResolver firmwareResolver,
+        SegmentAddressResolver? segmentAddressResolver,
         IProgress<FlashProgress>? progress,
         int stepIndex,
         int total,
         CancellationToken ct)
     {
+        var firmware = firmwareResolver(step, stepIndex);
         if (firmware is null)
         {
             throw new InvalidOperationException(
                 "DownloadTransfer step is enabled but no firmware image was provided.");
         }
 
-        var blockLength = await client.RequestDownloadAsync(step.MemoryAddress, firmware.Length, ct).ConfigureAwait(false);
+        // Phase 2: Resolve start address from the referenced segment (falls back to flat MemoryAddress).
+        var download = step.Download;
+        var startAddress = download is { } && segmentAddressResolver is { }
+            ? segmentAddressResolver(download.SegmentIndex)
+            : null;
+        var memoryAddress = startAddress ?? step.MemoryAddress;
+
+        var blockLength = await client.RequestDownloadAsync(memoryAddress, firmware.Length, ct).ConfigureAwait(false);
         if (blockLength <= 0)
         {
             throw new UdsException($"ECU returned an invalid block length: {blockLength} (must be > 0).");
@@ -247,6 +379,63 @@ public static class PipelineExecutor
         }
 
         await client.RequestTransferExitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Phase 2: Verify step — compute expected CRC32 from the firmware data, then
+    /// invoke the ECU's checksum routine via RoutineControl (0x33) and compare the
+    /// ECU's result against the expected value. Throws on mismatch.
+    /// </summary>
+    private static async Task ExecuteVerifyAsync(
+        UdsClient client,
+        FlashStepSnapshot step,
+        FirmwareResolver firmwareResolver,
+        CancellationToken ct)
+    {
+        // Phase 2: Read expected checksum from the Verify snapshot group.
+        // Falls back to flat RoutineId for backward compatibility.
+        var verify = step.Verify;
+        var routineId = step.RoutineControl?.RoutineId ?? step.RoutineId;
+        var expectedCrc = verify?.ExpectedChecksum ?? 0;
+
+        if (expectedCrc == 0)
+        {
+            // No expected checksum configured — skip verification (OEM-gated).
+            return;
+        }
+
+        // Build routine data: [startAddr(4B), endAddr(4B), expectedCrc(4B)]
+        var data = new byte[12];
+        var startAddr = verify?.StartAddress ?? 0;
+        var endAddr = verify?.EndAddress ?? 0;
+        data[0] = (byte)(startAddr >> 24);
+        data[1] = (byte)(startAddr >> 16);
+        data[2] = (byte)(startAddr >> 8);
+        data[3] = (byte)(startAddr);
+        data[4] = (byte)(endAddr >> 24);
+        data[5] = (byte)(endAddr >> 16);
+        data[6] = (byte)(endAddr >> 8);
+        data[7] = (byte)(endAddr);
+        data[8] = (byte)(expectedCrc >> 24);
+        data[9] = (byte)(expectedCrc >> 16);
+        data[10] = (byte)(expectedCrc >> 8);
+        data[11] = (byte)(expectedCrc);
+
+        var response = await client.RoutineControlAsync(StartRoutine, routineId, data, ct).ConfigureAwait(false);
+
+        // Parse ECU-returned CRC from response (last 4 bytes)
+        if (response.Length < 4)
+        {
+            throw new UdsException("Verify routine returned invalid response (too short).");
+        }
+
+        var actualCrc = (uint)((response[^4] << 24) | (response[^3] << 16) | (response[^2] << 8) | response[^1]);
+        if (actualCrc != expectedCrc)
+        {
+            throw new UdsException(
+                $"Checksum mismatch @ 0x{startAddr:X8}-0x{endAddr:X8}: " +
+                $"expected 0x{expectedCrc:X8}, ECU returned 0x{actualCrc:X8}");
+        }
     }
 
     private static FlashProgress MakeProgress(int stepIndex, int total, FlashStepKind kind,
