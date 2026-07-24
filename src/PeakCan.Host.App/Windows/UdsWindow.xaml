@@ -265,13 +265,6 @@
 
                         <!-- Left: Step list -->
                         <DockPanel Grid.Column="0" Margin="0,0,8,0">
-                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                                <Button Content="+ Add" Command="{Binding Flash.AddStepCommand}"
-                                        CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
-                                        Padding="8,3" Margin="0,0,4,0" ToolTip="Append a step"/>
-                                <Button Content="- Remove" Command="{Binding Flash.RemoveStepCommand}"
-                                        Padding="8,3" ToolTip="Remove selected step"/>
-                            </StackPanel>
                             <ListBox ItemsSource="{Binding Flash.CurrentProfile.Steps}"
                                      SelectedItem="{Binding Flash.SelectedStep, Mode=TwoWay}"
                                      DisplayMemberPath="Kind"/>

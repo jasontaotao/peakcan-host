@@ -149,33 +149,6 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         Enum.GetValues<Core.Uds.DtcControlSubFunction>();
 
     /// <summary>
-    /// Phase 2 §7.3: Apply a multi-level unlock template to the current profile.
-    /// Replaces all steps with a typical OEM dual-region flash flow:
-    /// SessionControl → SecurityAccess(1) → Erase → Download → Verify → SecurityAccess(3) → Erase → Download → Verify → EcuReset.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanEditSteps))]
-    private void ApplyMultiLevelTemplate()
-    {
-        var steps = CurrentProfile.Steps;
-        steps.Clear();
-        steps.Add(new FlashStep(FlashStepKind.SessionControl));
-        var sec1 = new FlashStep(FlashStepKind.SecurityAccess);
-        sec1.SetSecurityAccessLevel(0x01);
-        steps.Add(sec1);
-        steps.Add(new FlashStep(FlashStepKind.Erase));
-        steps.Add(new FlashStep(FlashStepKind.DownloadTransfer));
-        steps.Add(new FlashStep(FlashStepKind.Verify));
-        var sec3 = new FlashStep(FlashStepKind.SecurityAccess);
-        sec3.SetSecurityAccessLevel(0x03);
-        steps.Add(sec3);
-        steps.Add(new FlashStep(FlashStepKind.Erase));
-        steps.Add(new FlashStep(FlashStepKind.DownloadTransfer));
-        steps.Add(new FlashStep(FlashStepKind.Verify));
-        steps.Add(new FlashStep(FlashStepKind.EcuReset));
-        StatusMessage = "Applied multi-level unlock template (10 steps).";
-    }
-
-    /// <summary>
     /// Kinds the operator can add via the "Add Step" dropdown. Excludes
     /// <see cref="FlashStepKind.SessionControl"/> (no configurable parameters, always runs).
     /// </summary>
