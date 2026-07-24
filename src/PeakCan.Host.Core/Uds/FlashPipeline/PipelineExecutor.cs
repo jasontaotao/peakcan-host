@@ -61,6 +61,11 @@ public static class PipelineExecutor
     /// Per-step firmware resolver. Called once per DownloadTransfer step; must return the
     /// firmware image for that step's index, or null if none.
     /// </param>
+    /// <param name="profileFlashDriver">
+    /// The profile-level flash driver (if any). The executor uses this for
+    /// FlashDriverDownload steps — the static executor has no access to the profile, so
+    /// the caller must pass the driver in. Null when no driver is loaded.
+    /// </param>
     /// <param name="progress">Optional progress reporter bridged to the UI by the caller.</param>
     /// <param name="ct">Cancellation token — propagated to every UDS call.</param>
     public static async Task ExecuteAsync(
@@ -68,8 +73,9 @@ public static class PipelineExecutor
         IReadOnlyList<FlashStepSnapshot> enabledSteps,
         FirmwareResolver firmwareResolver,
         SegmentAddressResolver? segmentAddressResolver,
-        IProgress<FlashProgress>? progress,
-        CancellationToken ct)
+        FlashDriver? profileFlashDriver = null,
+        IProgress<FlashProgress>? progress = null,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(enabledSteps);
@@ -92,7 +98,7 @@ public static class PipelineExecutor
                 try
                 {
                     Report(progress, i, total, step.Kind, FlashStatus.Running, message: null);
-                    await ExecuteStepAsync(client, step, firmwareResolver, segmentAddressResolver, progress, i, total, ct).ConfigureAwait(false);
+                    await ExecuteStepAsync(client, step, firmwareResolver, segmentAddressResolver, profileFlashDriver, progress, i, total, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -178,15 +184,19 @@ public static class PipelineExecutor
     /// </param>
     /// <param name="progress">Optional progress reporter bridged to the UI by the caller.</param>
     /// <param name="ct">Cancellation token — propagated to every UDS call.</param>
+    /// <param name="profileFlashDriver">
+    /// The profile-level flash driver (if any). See the per-step resolver overload for details.
+    /// </param>
     public static async Task ExecuteAsync(
         UdsClient client,
         IReadOnlyList<FlashStepSnapshot> enabledSteps,
         FirmwareImage? firmware,
         IProgress<FlashProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        FlashDriver? profileFlashDriver = null)
     {
         // Delegate to the per-step resolver overload — constant resolver returns the same image.
-        await ExecuteAsync(client, enabledSteps, (_, __) => firmware, null, progress, ct).ConfigureAwait(false);
+        await ExecuteAsync(client, enabledSteps, (_, __) => firmware, null, profileFlashDriver, progress, ct).ConfigureAwait(false);
     }
 
     private static async Task ExecuteStepAsync(
@@ -194,6 +204,7 @@ public static class PipelineExecutor
         FlashStepSnapshot step,
         FirmwareResolver firmwareResolver,
         SegmentAddressResolver? segmentAddressResolver,
+        FlashDriver? profileFlashDriver,
         IProgress<FlashProgress>? progress,
         int stepIndex,
         int total,
@@ -244,6 +255,13 @@ public static class PipelineExecutor
                 var dtcSubFunc = step.DtcControl is { } dc ? (DtcControlSubFunction)dc.SubFunction : DtcControlSubFunction.ClearDTCInformation;
                 var dtcGroup = step.DtcControl?.DtcGroup ?? 0x00FFFFFF;
                 await client.DtcControlAsync(dtcSubFunc, dtcGroup, ct).ConfigureAwait(false);
+                break;
+
+            case FlashStepKind.FlashDriverDownload:
+                // ISO 14229: 下载 flash driver 到 RAM, ECU 自动识别执行
+                if (profileFlashDriver is null)
+                    throw new InvalidOperationException("FlashDriverDownload step enabled but no flash driver loaded in profile.");
+                await ExecuteFlashDriverDownloadAsync(client, profileFlashDriver, progress, stepIndex, total, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.DependencyCheck:
@@ -385,6 +403,46 @@ public static class PipelineExecutor
                 doneBytes: done, totalBytes: (ulong)data.Length, message: null);
         }
 
+        await client.RequestTransferExitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Phase 2: FlashDriverDownload — 下载 driver raw bytes 到 ECU RAM。
+    /// 起始地址用 0x1000_0000 作为 RAM 典型地址 (Phase 2 简化, 未来从 driver 数据解析)。
+    /// 与 ExecuteDownloadTransferAsync 共享 RequestDownload→TransferData→RequestTransferExit 握手,
+    /// 但数据来源是 profile-level 的 flash driver 而非 per-step firmware image。
+    /// </summary>
+    private static async Task ExecuteFlashDriverDownloadAsync(
+        UdsClient client,
+        FlashDriver driver,
+        IProgress<FlashProgress>? progress,
+        int stepIndex,
+        int total,
+        CancellationToken ct)
+    {
+        var data = driver.Data;
+        uint ramAddress = 0x1000_0000;  // RAM 典型地址, Phase 2 简化
+
+        var blockLength = await client.RequestDownloadAsync(ramAddress, (uint)data.Length, ct).ConfigureAwait(false);
+        if (blockLength <= 0)
+            throw new UdsException($"ECU returned invalid block length for driver download: {blockLength}");
+
+        int offset = 0;
+        ulong done = 0;
+        while (offset < data.Length)
+        {
+            ct.ThrowIfCancellationRequested();
+            int chunkSize = Math.Min(blockLength, data.Length - offset);
+            var chunk = new byte[chunkSize];
+            Array.Copy(data, offset, chunk, 0, chunkSize);
+            int blockIndex = offset / blockLength;
+            byte blockCounter = (byte)((blockIndex % 255) + 1);
+            await client.TransferDataAsync(blockCounter, chunk, ct).ConfigureAwait(false);
+            offset += chunkSize;
+            done += (ulong)chunkSize;
+            Report(progress, stepIndex, total, FlashStepKind.FlashDriverDownload, FlashStatus.Running,
+                doneBytes: done, totalBytes: (ulong)data.Length, message: null);
+        }
         await client.RequestTransferExitAsync(ct).ConfigureAwait(false);
     }
 

@@ -190,6 +190,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         FlashStepKind.CommunicationControl,
         FlashStepKind.DtcControl,
         FlashStepKind.DependencyCheck,
+        FlashStepKind.FlashDriverDownload,
     ];
 
     public ObservableCollection<UdsLogLine>? Log { get; private set; }
@@ -324,6 +325,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
                 driveClient, snapshots,
                 (step, index) => firmwareByIndex.TryGetValue(index, out var fw) ? fw : null,
                 segResolver,
+                CurrentProfile.FlashDriver,
                 progress, ct).ConfigureAwait(false);
             // PipelineExecutor reports per-step; the terminal Success is signalled by absence of throw.
             Status = FlashStatus.Success;
@@ -672,6 +674,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         CommunicationControl = step.CommunicationControl is { } cc ? new CommunicationControlSnapshot(cc.SubFunction) : null,
         DtcControl = step.DtcControl is { } dc ? new DtcControlSnapshot((byte)dc.SubFunction, dc.DtcGroup) : null,
         DependencyCheck = step.DependencyCheck is { } dc2 ? new DependencyCheckSnapshot(dc2.RoutineId) : null,
+        FlashDriverDownload = step.FlashDriverDownload is { } ? new FlashDriverDownloadSnapshot() : null,
 
         // Backward-compat flat fields (kept for existing tests + executor).
         SecurityLevel = step.SecurityLevel,

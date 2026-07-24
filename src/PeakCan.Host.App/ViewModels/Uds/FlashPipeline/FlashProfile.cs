@@ -125,6 +125,7 @@ public sealed class FlashProfile
                 new FlashStep(FlashStepKind.PreCheck),
                 new FlashStep(FlashStepKind.SessionControl),
                 new FlashStep(FlashStepKind.SecurityAccess),
+                new FlashStep(FlashStepKind.FlashDriverDownload),
                 new FlashStep(FlashStepKind.Erase),
                 new FlashStep(FlashStepKind.DownloadTransfer),
                 new FlashStep(FlashStepKind.Verify),
