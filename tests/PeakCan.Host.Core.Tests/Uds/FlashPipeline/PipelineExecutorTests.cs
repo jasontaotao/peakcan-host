@@ -46,6 +46,9 @@ public sealed class PipelineExecutorTests
             TransferData,
             RequestTransferExit,
             EcuReset,
+            TesterPresent,
+            CommunicationControl,
+            DtcControl,
         }
 
         public int RoutineControlCallCount { get; private set; }
@@ -119,6 +122,30 @@ public sealed class PipelineExecutorTests
             Calls.Add(new Call(Op.EcuReset, resetType));
             MaybeThrow();
             return Task.FromResult((byte)0);
+        }
+
+        // Phase 2: TesterPresent with suppress support (keep-alive loop).
+        public override Task TesterPresentAsync(bool suppressPosResponse, CancellationToken ct = default)
+        {
+            Calls.Add(new Call(Op.TesterPresent, suppressPosResponse));
+            MaybeThrow();
+            return Task.CompletedTask;
+        }
+
+        // Phase 2: CommunicationControl (0x28).
+        public override Task CommunicationControlAsync(CommunicationSubFunction subFunc, CancellationToken ct = default)
+        {
+            Calls.Add(new Call(Op.CommunicationControl, (byte)subFunc));
+            MaybeThrow();
+            return Task.CompletedTask;
+        }
+
+        // Phase 2: DTCControl (0x14).
+        public override Task<byte[]> DtcControlAsync(DtcControlSubFunction subFunc, uint dtcGroup, CancellationToken ct = default)
+        {
+            Calls.Add(new Call(Op.DtcControl, (byte)subFunc, dtcGroup));
+            MaybeThrow();
+            return Task.FromResult(Array.Empty<byte>());
         }
 
         private void MaybeThrow()
@@ -287,6 +314,69 @@ public sealed class PipelineExecutorTests
         client.Calls.Should().NotContain(c => c.Op == RecordingUdsClient.Op.RequestDownload);
     }
 
+    // ---- per-step firmware resolver (Phase 1.1) ----
+
+    [Fact]
+    public async Task PerStepResolver_Two_DownloadTransfer_Steps_Each_Get_Own_Firmware()
+    {
+        // Two DownloadTransfer steps with different firmware content — the resolver must
+        // return the correct image per step index (not the same image for both).
+        var client = new RecordingUdsClient { DownloadBlockLength = 8 };
+        var fwA = FirmwareFileParser.Parse(new byte[] { 0xAA, 0xBB });
+        var fwB = FirmwareFileParser.Parse(new byte[] { 0xCC, 0xDD, 0xEE });
+        var stepA = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x1000 };
+        var stepB = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x2000 };
+
+        // Resolver keyed by step index
+        var firmwareByIndex = new Dictionary<int, FirmwareImage>
+        {
+            [0] = fwA,
+            [1] = fwB,
+        };
+
+        await PipelineExecutor.ExecuteAsync(client, new[] { stepA, stepB },
+            (step, index) => firmwareByIndex.TryGetValue(index, out var fw) ? fw : null,
+            null, progress: null, ct: default);
+
+        var downloadCalls = client.Calls.Where(c => c.Op == RecordingUdsClient.Op.RequestDownload).ToList();
+        downloadCalls.Should().HaveCount(2);
+        // First download: address 0x1000, length 2 (fwA)
+        ((uint)downloadCalls[0].Arg1!).Should().Be(0x1000u);
+        ((uint)downloadCalls[0].Arg2!).Should().Be(2u);
+        // Second download: address 0x2000, length 3 (fwB)
+        ((uint)downloadCalls[1].Arg1!).Should().Be(0x2000u);
+        ((uint)downloadCalls[1].Arg2!).Should().Be(3u);
+    }
+
+    [Fact]
+    public async Task PerStepResolver_Missing_Firmware_For_Step_Throws()
+    {
+        var client = new RecordingUdsClient();
+        var step = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x1000 };
+
+        // Resolver returns null for the step — must throw InvalidOperationException
+        var act = async () => await PipelineExecutor.ExecuteAsync(client, new[] { step },
+            (step, index) => null, null, progress: null, ct: default);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        client.Calls.Should().NotContain(c => c.Op == RecordingUdsClient.Op.RequestDownload);
+    }
+
+    [Fact]
+    public async Task Legacy_SingleFirmware_Overload_Still_Works_For_Backward_Compat()
+    {
+        // The original single-firmware overload must still function (delegates to resolver).
+        var client = new RecordingUdsClient { DownloadBlockLength = 8 };
+        var firmware = FirmwareFileParser.Parse(new byte[] { 0xAA, 0xBB, 0xCC });
+        var step = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x0800_0000 };
+
+        await PipelineExecutor.ExecuteAsync(client, new[] { step }, firmware, progress: null, ct: default);
+
+        var downloadCalls = client.Calls.Where(c => c.Op == RecordingUdsClient.Op.RequestDownload).ToList();
+        downloadCalls.Should().HaveCount(1);
+        ((uint)downloadCalls[0].Arg2!).Should().Be(3u, "legacy overload passes firmware through");
+    }
+
     [Fact]
     public async Task Failure_With_AutoReset_Triggers_EcuReset_Then_ReThrows_Main()
     {
@@ -378,5 +468,27 @@ public sealed class PipelineExecutorTests
         var act = async () => await PipelineExecutor.ExecuteAsync(new RecordingUdsClient(), null!,
             firmware: null, progress: null, ct: default);
         await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    // ---- PreCheck (Phase 2 gap-fix) ----
+
+    [Fact]
+    public async Task PreCheckStep_With_RoutineId_Sends_RoutineControl_0x31()
+    {
+        // PreCheck 调度 RoutineControl(StartRoutine=0x01, routineId, data:null) — ISO 14229-1 §10.5
+        var client = new RecordingUdsClient();
+        var snapshot = new FlashStepSnapshot
+        {
+            Kind = FlashStepKind.PreCheck,
+            IsEnabled = true,
+            PreCheck = new PreCheckSnapshot(0xFF01),
+        };
+
+        await PipelineExecutor.ExecuteAsync(client, new[] { snapshot },
+            firmware: null, progress: null, ct: default);
+
+        var routineCall = client.Calls.Should().ContainSingle(c => c.Op == RecordingUdsClient.Op.RoutineControl).Subject;
+        (routineCall.Arg1 as byte?).Should().Be(PipelineExecutor.StartRoutine, "PreCheck 必须以 StartRoutine(0x01) 子函数启动例程");
+        (routineCall.Arg2 as ushort?).Should().Be(0xFF01, "routineId 来自 PreCheckSnapshot");
     }
 }
