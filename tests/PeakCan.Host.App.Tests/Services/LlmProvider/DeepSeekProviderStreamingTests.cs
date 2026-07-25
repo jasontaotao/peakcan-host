@@ -66,7 +66,7 @@ public class DeepSeekProviderStreamingTests
         store.GetAsync(ApiKeyManager.CredentialKey, Arg.Any<CancellationToken>())
             .Returns("sk-test");
 
-        var options = Options.Create(new DeepSeekOptions { Model = "deepseek-chat", UseStreaming = true });
+        var options = Options.Create(new DeepSeekOptions { Model = "deepseek-v4-flash", UseStreaming = true });
 
         var provider = new DeepSeekProvider(
             new SingleClientHttpFactory(handler),

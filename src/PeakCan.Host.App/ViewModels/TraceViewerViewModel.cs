@@ -18,6 +18,8 @@ using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using System.Collections.Specialized;
 using PeakCan.Host.Core.Services;
+using PeakCan.Host.App.Services.ChatTools;
+using PeakCan.Host.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -43,7 +45,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// <see cref="SynchronizationContext"/> for UI marshaling.
 /// </para>
 /// </summary>
-public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
+public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable, IChatToolContext
 {
     // === Flow A methods moved to TraceViewerViewModel/SourceFlow.cs (W3 Task 3) ===
     // === Flow B methods moved to TraceViewerViewModel/TransportFlow.cs (W3 Task 4) ===
@@ -247,7 +249,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         IAscContentHasher? hasher = null,
         IAscLocator? locator = null,
         TraceSessionSnapshotBuilder? builder = null,
-        PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager? apiKeyManager = null)
+        PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager? apiKeyManager = null,
+        IChatProvider? chatProvider = null,
+        IEnumerable<IChatTool>? chatTools = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
@@ -283,6 +287,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // T6 follows up with Substitute.For<ApiKeyManager>() at every
         // existing test callsite.
         _apiKeyManager = apiKeyManager ?? throw new ArgumentNullException(nameof(apiKeyManager));
+        // AI Chat (Step 4-5): nullable so legacy test ctor calls keep compiling;
+        // production DI passes a real IChatProvider + the 6 IChatTool instances.
+        _chatProvider = chatProvider;
+        _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
         // v3.61.0 PATCH: probe credential store on startup so the API Key
         // status shows "已配置" immediately if a key was previously saved.
         // Fire-and-forget is safe here: CheckAsync uses ConfigureAwait(true)

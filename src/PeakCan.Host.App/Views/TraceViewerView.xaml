@@ -361,6 +361,9 @@
                     <TabItem Header="AI Analysis">
                         <ContentControl Content="{Binding AIPanelContent}" />
                     </TabItem>
+                    <TabItem Header="AI Chat">
+                        <ContentControl Content="{Binding ChatPanelContent}" />
+                    </TabItem>
                 </TabControl>
             </Border>
         </Grid>

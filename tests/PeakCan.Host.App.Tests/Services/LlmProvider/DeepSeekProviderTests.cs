@@ -68,7 +68,7 @@ public class DeepSeekProviderTests
             id = "test-id",
             @object = "chat.completion",
             created = 1234567890L,
-            model = "deepseek-chat",
+            model = "deepseek-v4-flash",
             choices = new[]
             {
                 new {

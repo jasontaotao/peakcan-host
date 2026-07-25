@@ -10,7 +10,7 @@ namespace PeakCan.Host.App.Services.LlmProvider;
 public sealed class DeepSeekRequest
 {
     [JsonPropertyName("model")]
-    public string Model { get; set; } = "deepseek-chat";
+    public string Model { get; set; } = "deepseek-v4-flash";
 
     [JsonPropertyName("messages")]
     public List<DeepSeekMessage> Messages { get; set; } = new();

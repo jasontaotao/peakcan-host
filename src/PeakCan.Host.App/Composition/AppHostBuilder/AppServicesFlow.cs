@@ -206,6 +206,11 @@ public partial class AppHostBuilder
         .AddTransientHttpErrorPolicy(builder => builder
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
+        // AI Chat (spec 2026-07-25): streaming multi-round tool-calling provider.
+        // Sister of ILlmProvider (single-shot) - distinct interface, same DeepSeek
+        // named HttpClient + credential store + options. Tools are NOT DI-registered
+        // (VM↔IChatTool cycle); VM builds them lazily in ChatPanelContent.
+        services.AddSingleton<PeakCan.Host.Core.Analysis.Chat.IChatProvider, PeakCan.Host.App.Services.ChatProvider.DeepSeekChatProvider>();
         // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)
         services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(options => { });
         services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>

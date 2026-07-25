@@ -1,0 +1,107 @@
+<UserControl x:Class="PeakCan.Host.App.Views.TraceViewerViewChatPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="380"
+             d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="8,8,8,4">
+            <TextBlock Text="AI Chat" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button Content="导出" DockPanel.Dock="Right" Margin="4,0,0,0"
+                    Command="{Binding ExportChatCommand}" Padding="8,2" />
+            <Button Content="清空" DockPanel.Dock="Right" Margin="4,0,0,0"
+                    Command="{Binding ClearChatCommand}" Padding="8,2" />
+        </DockPanel>
+
+        <!-- Message list -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,0">
+            <ItemsControl ItemsSource="{Binding ChatMessages}">
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="Focusable" Value="False" />
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,3">
+                            <!-- user bubble: right-aligned green -->
+                            <Border HorizontalAlignment="Right"
+                                    Background="#DCF8C6" CornerRadius="8" Padding="8,5"
+                                    MaxWidth="300"
+                                    Visibility="{Binding IsUser, Converter={StaticResource BoolToVis}}">
+                                <TextBox Text="{Binding Content}" TextWrapping="Wrap"
+                                         IsReadOnly="True" IsTabStop="False"
+                                         Background="Transparent" BorderThickness="0"
+                                         Padding="0" />
+                            </Border>
+
+                            <!-- assistant bubble: left-aligned -->
+                            <Border HorizontalAlignment="Left"
+                                    Background="#EEEEEE" CornerRadius="8" Padding="8,5"
+                                    MaxWidth="300"
+                                    Visibility="{Binding IsAssistant, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <TextBox Text="{Binding Content}" TextWrapping="Wrap"
+                                             IsReadOnly="True" IsTabStop="False"
+                                             Background="Transparent" BorderThickness="0"
+                                             Padding="0" />
+                                    <TextBlock Text="⚡" FontSize="11"
+                                               Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- tool log: collapsible -->
+                            <Expander Visibility="{Binding IsToolLog, Converter={StaticResource BoolToVis}}"
+                                      Header="{Binding Tools.Count, StringFormat='🔍 执行了 {0} 个工具 ▼'}"
+                                      Margin="0,2" BorderThickness="0" Background="#FAFAFA">
+                                <ItemsControl ItemsSource="{Binding Tools}">
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Focusable" Value="False" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="0,2">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                           Foreground="#1565C0" />
+                                                <TextBox Text="{Binding Result}" TextWrapping="Wrap"
+                                                         FontFamily="Consolas, Courier New, monospace"
+                                                         FontSize="11" Foreground="Gray"
+                                                         IsReadOnly="True" IsTabStop="False"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Padding="0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Input -->
+        <DockPanel Grid.Row="2" Margin="8,4,8,8">
+            <Button Content="发送" DockPanel.Dock="Right" Margin="8,0,0,0"
+                    Command="{Binding SendMessageCommand}" Padding="12,4" />
+            <TextBox Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                     KeyDown="ChatInput_KeyDown"
+                     ToolTip="Enter 发送，Shift+Enter 换行" />
+        </DockPanel>
+    </Grid>
+</UserControl>

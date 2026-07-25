@@ -1,14 +1,12 @@
 namespace PeakCan.Host.Core.Analysis;
 
-/// <summary>v3.54.0 MINOR: configuration for the DeepSeek LLM provider.
-/// Per v3.52.0 release notes: model id is NOT hardcoded as default
-/// (DeepSeek-V4-Flash is not verified in official docs); user configures
-/// the model id via DI Options. ApiBase default is the real DeepSeek
-/// endpoint (sister of aspice-toolkit LLM_PROVIDERS.deepseek.endpoint).</summary>
+/// <summary>v3.54.0 MINOR, updated 2026-07: configuration for the DeepSeek LLM provider.
+/// Default model changed from "deepseek-chat" (deprecated 2026-07-24) to
+/// "deepseek-v4-flash". See https://api-docs.deepseek.com for available models.</summary>
 public sealed record DeepSeekOptions
 {
     public string ApiBase { get; init; } = "https://api.deepseek.com";
-    public string Model { get; init; } = "deepseek-chat";
+    public string Model { get; init; } = "deepseek-v4-flash";
     public int TimeoutSeconds { get; init; } = 30;
 
     /// <summary>

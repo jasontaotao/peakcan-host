@@ -17,7 +17,7 @@
 
 ### 功能需求
 
-1. **聊天界面**：消息气泡 + 输入框 + 发送按钮 + 流式打字（复用 SSE）
+1. **聊天界面**：消息气泡 + 输入框 + 发送按钮 + 流式打字（新建 `DeepSeekChatProvider`，复用 SSE 读取思路 + `DeepSeekStreamingChunk` 解析模式；不复用单轮 `DeepSeekProvider`/`ILlmProvider`）
 2. **Tool-calling**：AI 能主动调以下 6 个工具：
    - `find_related_signals(target)` — 查 DBC 找同一报文的其它信号（仅 DBC 定义，不扫描 trace）
    - `propose_to_watch_list(signal_keys[])` — 将信号加入 watch list，触发锚点刷新
@@ -66,8 +66,8 @@ AI: "BatteryVoltage 跌了 1.5V，BmsStatus 也从 Normal→Error，
 ```
 
 **关键设计决策：**
-- `propose_to_watch_list` 触发刷新后立即返回，不阻塞等锚点完成（规避 >10s 刷新超时）
-- `get_anchor_info` 独立成一轮，锚点刷新已经异步完成再读
+- `propose_to_watch_list` 用 `Dispatcher` 同步等 `RefreshAtAnchor` + `RefreshAtAnchorBlue` 完成（`RefreshAtAnchor` 是 void 同步方法，binary search + decode 毫秒级，无 >10s 超时），返回实际 `added_count`。同轮 `get_anchor_info` 立即可读新值
+- `get_anchor_info` 直接遍历 `WatchedSignals` 读行属性（`LatestValue`/`BlueLatestValue`/`DeltaValue` 等），不依赖 `CurrentAnchorSnapshot`（后者只在 `LockAnchor` 时赋值，不随 `RefreshAtAnchor` 更新）
 - `find_related_signals` 只查 DBC 文档结构，不扫描 trace 数据
 
 ---
@@ -136,8 +136,8 @@ public interface IChatTool
 | Tool | 参数 | 返回值 | 实现 | 线程 |
 |------|------|--------|------|------|
 | `find_related_signals` | `{"target":"0x182"}` | `{"can_id":"0x182","name":"BMS_Status","signal_count":5,"signals":[...]}` | DBC 查指定 CAN ID 或信号所属报文的结构。**只查 DBC 定义，不做 trace 扫描。** | 任意线程（只读 DBC） |
-| `propose_to_watch_list` | `{"signal_keys":["0x182.BmsFaultState",...]}` | `{"added_count":2,"skipped":[],"status":"refreshing"}` | `Dispatcher.Invoke` → 写 `ObservableCollection<WatchedSignalRow>` → 触发 `RefreshAtAnchor` + `RefreshAtAnchorBlue` → **不阻塞等完成**，立即返回 `"refreshing"` | **必须 UI 线程**（ObservableCollection），Dispathcer.Invoke 调度 |
-| `get_anchor_info` | `{}` | `{"green_ts":12.0,"blue_ts":14.0,"signals":[...各信号绿/蓝/Δ...]}` | 读 `CurrentAnchorSnapshot`（已完成异步刷新） | 线程安全（读已完成的快照） |
+| `propose_to_watch_list` | `{"signal_keys":["0x182.BmsFaultState",...]}` | `{"added_count":2,"skipped":[]}` | `Dispatcher.InvokeAsync` → 写 `ObservableCollection<WatchedSignalRow>` → `RefreshAtAnchor(_anchorTimestampSeconds)` + `RefreshAtAnchorBlue(_blueAnchorTimestampSeconds)` 同步重算（传当前锚点 ts，idempotent；毫秒级）→ 返回实际 `added_count` | **必须 UI 线程**（ObservableCollection），`Dispatcher.InvokeAsync` 调度 |
+| `get_anchor_info` | `{}` | `{"green_ts":12.0,"blue_ts":14.0,"signals":[...各信号绿/蓝/Δ...]}` | 遍历 `WatchedSignals` 读每行 `LatestValue`/`BlueLatestValue`/`DeltaValue`/`LatestText`/`BlueText`/`DeltaText` + VM 的 `_anchorTimestampSeconds`/`_blueAnchorTimestampSeconds`。**不读 `CurrentAnchorSnapshot`**（它只在 `LockAnchor()` 时赋值，不随 `RefreshAtAnchor` 更新） | 线程安全（读已完成快照） |
 | `get_dbc_signal` | `{"signal":"BmsFaultState"}` | `{"can_id":"0x182",start_bit,length,scale,offset,min,max,unit,enums}` | DBC 查信号定义 | 任意线程 |
 | `get_dbc_message` | `{"can_id_nhex":"0x182"}` | `{"name":"BMS_Status","dlc":8,"signals":[...]}` | DBC 查报文定义 | 任意线程 |
 | `seek_to` | `{"ts":12.345}` | `"ok"` | `_masterService.Seek(ts)` | UI 线程 |
@@ -146,22 +146,25 @@ public interface IChatTool
 
 `IChatTool.ExecuteAsync` 默认在 Parallel.ForEachAsync 线程池执行。但 `ObservableCollection<WatchedSignalRow>` 只能在 UI 线程修改，且 `RefreshAtAnchor` 是 UI 线程依赖的 VM 方法。
 
-工具内部方案：
+工具内部方案（通过 `IChatToolContext` 封装，tool 本身不感知线程）：
 ```
-string ExecuteAsync(string args, CancellationToken ct)
+async Task<string> ExecuteAsync(string args, CancellationToken ct)
 {
-    // 1. 用 Dispatcher.Invoke 调度 UI 操作
-    await _dispatcher.InvokeAsync(() => {
-        // 写 ObservableCollection
-        // 触发 RefreshAtAnchor + RefreshAtAnchorBlue（fire-and-forget）
-    });
-    // 2. 不阻塞等锚点刷新完成，立即返回 "refreshing"
-    return """{"added": 2, "skipped": [], "status": "refreshing"}""";
+    // 1. context 内部用 Dispatcher.InvokeAsync 调度 UI 操作
+    await _context.AddWatchedSignals(rows);  // 内部: Dispatcher.InvokeAsync ->
+                                              //   写 ObservableCollection +
+                                              //   RefreshAtAnchor(_anchorTimestampSeconds) +
+                                              //   RefreshAtAnchorBlue(_blueAnchorTimestampSeconds)
+                                              // 传当前锚点 ts (idempotent 重算, 毫秒级)
+    // 2. 同步等完成, 返回实际 added_count
+    return """{"added": 2, "skipped": []}""";
 }
 ```
-使用方（DeepSeekChatProvider）在后续轮次中调 `get_anchor_info` 读结果。
+`RefreshAtAnchor` 是 `void` 同步方法（binary search + `SignalDecoder.Decode`），毫秒级完成，无 >10s 超时。同轮 `get_anchor_info` 立即可读新值，无需"下一轮再读"。
 
 ### 5. Tool-Calling 循环
+
+**职责划分（v2 修正）：** `IChatProvider` 只管 DeepSeek 协议（SSE 读取 + tool_calls 累积 + yield `ChatUpdate` 信号）；**tool 执行由 VM 侧 `ChatFlow` 负责**（provider 在 Core/App 边界拿不到 `IChatToolContext`）。下图描述整体流程，“执行 tool_calls”由 ChatFlow 在 provider yield 一轮 tool calls 后执行。
 
 ```
 用户发送消息
@@ -194,7 +197,7 @@ messages += ChatMessage(Role: "user", Content: 输入)
   └
 ```
 
-**同轮多 tool 的顺序约束：** 同一轮内不会出现 `propose_to_watch_list` 和 `get_anchor_info` 同时执行的情况——`propose_to_watch_list` 不阻塞返回 `"refreshing"`，`get_anchor_info` 在 `propose_to_watch_list` 完成前读不到新值。system prompt 会引导 AI 分两轮（先 propose，下一轮再 read）。
+**同轮多 tool 的顺序约束：** `propose_to_watch_list` 同步等 `RefreshAtAnchor` 完成后返回，因此同轮内 `get_anchor_info` 可立即读到新加入信号的锚点值。UI 折叠日志可同轮展示两个工具（如 UI 图所示）。MaxRounds=8 仍足够（见下）。
 
 **MaxRounds = 8 估算：** 一轮"查 DBC → 加 watch list"约 2 轮 + 一轮"读锚点分析"约 1 轮 + 回答用户追问约 2-3 轮。8 轮足够一次深度分析。
 
@@ -295,22 +298,22 @@ messages += ChatMessage(Role: "user", Content: 输入)
 ## 实施计划
 
 ### Step 1 — 数据模型（Core）
-- `ChatMessage.cs` / `ChatToolCall.cs` / `ChatToolDefinition.cs` / `ChatUpdate.cs` / `IChatProvider.cs` / `IChatTool.cs`
+- `ChatMessage.cs` / `ChatToolCall.cs` / `ChatToolDefinition.cs` / `ChatUpdate.cs` / `IChatProvider.cs` / `IChatTool.cs` / `IChatToolContext.cs`（tool 访问 VM 的解耦接口，VM 实现）
 - ~120 LoC
 
 ### Step 2 — Tool 实现（App）
 - `FindRelatedSignalsTool.cs` — 查 DBC 找关联信号（只读 DBC，不扫描 trace）
-- `ProposeToWatchListTool.cs` — UI 线程 Dispatcher 调度 + 触发锚点刷新（不阻塞）
-- `GetAnchorInfoTool.cs` — 读 CurrentAnchorSnapshot
+- `ProposeToWatchListTool.cs` - 通过 `IChatToolContext` 用 `Dispatcher.InvokeAsync` 写 ObservableCollection + `RefreshAtAnchor(_anchorTimestampSeconds)` 同步重算（毫秒级），返回实际 added_count
+- `GetAnchorInfoTool.cs` - 遍历 `WatchedSignals` 读行属性（LatestValue/BlueLatestValue/DeltaValue 等），不读 CurrentAnchorSnapshot
 - `GetDbcSignalTool.cs` / `GetDbcMessageTool.cs` — 读 DBC
 - `SeekToTimeTool.cs` — 跳时间轴
 
 ### Step 3 — DeepSeekChatProvider（App）
 - SSE 流式 + tool_calls 累积 + N 轮循环
-- `Parallel.ForEachAsync` 执行 tools，`Dispatcher.Invoke` 调度 UI 操作
+- provider 只管 SSE + tool_calls 累积 + yield `ChatUpdate`；**tools 由 VM 侧 ChatFlow 执行**（`Parallel.ForEachAsync`，10s 超时）；tool 通过 `IChatToolContext` 用 `Dispatcher.InvokeAsync` 调度 UI
 
 ### Step 4 — ChatFlow VM + UI（App）
-- 消息列表 + SendMessageCommand + chat loop
+- 消息列表 + SendMessageCommand + chat loop（**ChatFlow 消费 ChatUpdate、执行 tools、append tool results、再调 provider 下一轮**）
 - 工具日志默认折叠
 - "运行分析"按钮保留本地路径
 

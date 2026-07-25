@@ -1,0 +1,121 @@
+<h2>AI 聊天面板布局</h2>
+<p class="subtitle">Trace Viewer 右侧 Tab "AI Analysis" 替换为聊天界面</p>
+
+<div class="mockup" style="max-width:520px;margin:0 auto;border:1px solid #ddd;border-radius:8px;overflow:hidden;font-family:system-ui,'Segoe UI',sans-serif;font-size:13px;">
+  <!-- Header -->
+  <div style="background:#f5f5f5;padding:10px 14px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-weight:600;font-size:14px;">💬 AI Chat</span>
+    <span style="color:#888;cursor:pointer;font-size:12px;">清空</span>
+  </div>
+
+  <!-- Messages area -->
+  <div style="padding:12px;min-height:400px;background:#fafafa;">
+
+    <!-- System greeting -->
+    <div style="text-align:center;margin-bottom:12px;">
+      <span style="background:#eee;padding:6px 12px;border-radius:12px;font-size:12px;color:#666;">
+        🤖 已加载 watch list: BmsFaultState (1 个信号)
+      </span>
+    </div>
+
+    <!-- User message -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <div style="background:#DCF8C6;padding:8px 12px;border-radius:12px 12px 4px 12px;max-width:75%;">
+        BmsFaultState 在 12.345s 跳到了 Fault，什么原因？
+      </div>
+    </div>
+
+    <!-- Tool call (collapsed) -->
+    <div style="margin-bottom:10px;font-size:12px;">
+      <div style="background:#f0f0f0;padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;color:#555;">
+        <span>🔍 执行了 1 个工具 <span style="color:#999;">▼</span></span>
+      </div>
+      <!-- Expanded state (hidden by default) -->
+      <div style="display:none;">
+        <div style="background:#f8f8f8;padding:6px 10px;border-left:3px solid #aaa;margin-top:2px;font-family:Consolas;font-size:11px;color:#555;">
+          find_related_signals("BmsFaultState")<br/>
+          → 0x182 报文共 5 个信号
+        </div>
+      </div>
+    </div>
+
+    <!-- AI message -->
+    <div style="display:flex;justify-content:flex-start;margin-bottom:10px;">
+      <div style="background:white;padding:8px 12px;border-radius:12px 12px 12px 4px;max-width:75%;box-shadow:0 1px 2px rgba(0,0,0,0.06);color:#222;">
+        同报文 0x182 里还有 <b>BatteryVoltage</b> 和 <b>BmsStatus</b> 两个信号，要不要加进 watch list 看看它们的变化？
+      </div>
+    </div>
+
+    <!-- User reply -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <div style="background:#DCF8C6;padding:8px 12px;border-radius:12px 12px 4px 12px;max-width:75%;font-weight:500;">
+        加
+      </div>
+    </div>
+
+    <!-- Tool calls (2 tools, collapsed) -->
+    <div style="margin-bottom:10px;font-size:12px;">
+      <div style="background:#f0f0f0;padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;color:#555;">
+        <span>🔍 执行了 2 个工具 <span style="color:#999;">▼</span></span>
+      </div>
+    </div>
+
+    <!-- AI message with streaming indicator -->
+    <div style="display:flex;justify-content:flex-start;margin-bottom:10px;">
+      <div style="background:white;padding:8px 12px;border-radius:12px 12px 12px 4px;max-width:75%;box-shadow:0 1px 2px rgba(0,0,0,0.06);color:#222;">
+        BatteryVoltage 从 12.5V 跌到了 11.0V，同时 BmsStatus 也从 Normal→Error。三个信号同时变化，可能是欠压触发了 BMS 保护。<br/><br/>你们当时是什么工况？
+      </div>
+    </div>
+
+    <!-- Streaming placeholder (for next AI response) -->
+    <div style="display:flex;justify-content:flex-start;margin-bottom:10px;opacity:0.6;">
+      <div style="background:white;padding:8px 12px;border-radius:12px 12px 12px 4px;max-width:75%;color:#888;">
+        <span>⚡</span> AI 正在生成...
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Input area -->
+  <div style="border-top:1px solid #ddd;padding:10px;display:flex;gap:8px;">
+    <input type="text" placeholder="输入消息..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:20px;outline:none;font-size:13px;" />
+    <button style="background:#0078D4;color:white;border:none;border-radius:20px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500;">发送</button>
+  </div>
+</div>
+
+<div class="section" style="max-width:520px;margin:16px auto 0;font-size:13px;color:#666;">
+  <p><b>交互要点：</b></p>
+  <ul>
+    <li><b>用户消息</b> — 右对齐，绿色气泡</li>
+    <li><b>AI 消息</b> — 左对齐，白色气泡</li>
+    <li><b>Tool call 日志</b> — 默认折叠为"🔍 执行了 N 个工具"，点击展开</li>
+    <li><b>Streaming</b> — AI 回复时显示 ⚡ 状态</li>
+    <li><b>输入框</b> — 底部固定，Enter/点击发送</li>
+    <li><b>"运行分析"按钮保留</b> — 有 API Key 时走聊天，无 Key 时走本地</li>
+  </ul>
+</div>
+
+<div class="options" style="max-width:520px;margin:20px auto;">
+  <h3>这个布局你觉得怎么样？</h3>
+  <div class="option" data-choice="ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>可用，继续细节</h3>
+      <p>布局方向没问题，往下聊细节</p>
+    </div>
+  </div>
+  <div class="option" data-choice="change" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>要改一些东西</h3>
+      <p>方向对但有几个要调整</p>
+    </div>
+  </div>
+  <div class="option" data-choice="no" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>不太对</h3>
+      <p>换一种设计思路</p>
+    </div>
+  </div>
+</div>
