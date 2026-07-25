@@ -260,23 +260,26 @@ public sealed class PipelineExecutorTests
     [Fact]
     public async Task DownloadTransfer_Chunks_By_BlockLength_And_Increments_BlockCounter()
     {
+        // H-1 fix: maxNumberOfBlockLength includes the blockSequenceCounter byte.
+        // DownloadBlockLength=4 -> dataPerBlock=3 -> 10 bytes chunks into 3,3,3,1 = 4 calls.
         var client = new RecordingUdsClient { DownloadBlockLength = 4 };
-        // 10 bytes with a block length of 4 → chunks of 4, 4, 2 → 3 TransferData calls.
         var firmware = FirmwareFileParser.Parse(new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 });
         var step = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x0800_0000 };
 
         await PipelineExecutor.ExecuteAsync(client, new[] { step }, firmware, progress: null, ct: default);
 
         var transferCalls = client.Calls.Where(c => c.Op == RecordingUdsClient.Op.TransferData).ToList();
-        transferCalls.Should().HaveCount(3);
+        transferCalls.Should().HaveCount(4);
         // Block sequence counter starts at 1 and increments each block.
         (transferCalls[0].Arg1 as byte?).Should().Be(1);
         (transferCalls[1].Arg1 as byte?).Should().Be(2);
         (transferCalls[2].Arg1 as byte?).Should().Be(3);
-        // Chunk sizes: 4, 4, 2.
-        (transferCalls[0].Arg2 as int?).Should().Be(4);
-        (transferCalls[1].Arg2 as int?).Should().Be(4);
-        (transferCalls[2].Arg2 as int?).Should().Be(2);
+        (transferCalls[3].Arg1 as byte?).Should().Be(4);
+        // Chunk sizes: 3, 3, 3, 1 (dataPerBlock = blockLength - 1 = 3).
+        (transferCalls[0].Arg2 as int?).Should().Be(3);
+        (transferCalls[1].Arg2 as int?).Should().Be(3);
+        (transferCalls[2].Arg2 as int?).Should().Be(3);
+        (transferCalls[3].Arg2 as int?).Should().Be(1);
 
         client.Calls.Should().ContainSingle(c => c.Op == RecordingUdsClient.Op.RequestTransferExit,
             "the sequence MUST end with RequestTransferExit to close the transfer handshake");
@@ -286,8 +289,8 @@ public sealed class PipelineExecutorTests
     public async Task DownloadTransfer_BlockCounter_Wraps_After_255_To_One()
     {
         // ISO 14229-1 §10.6.3.4: the blockSequenceCounter rolls over to 1 after 255, not 0.
-        // Drive 256 blocks with block length 1 over a 256-byte image.
-        var client = new RecordingUdsClient { DownloadBlockLength = 1 };
+        // H-1 fix: DownloadBlockLength=2 -> dataPerBlock=1 -> 256 blocks over a 256-byte image.
+        var client = new RecordingUdsClient { DownloadBlockLength = 2 };
         var firmwareBytes = new byte[256];
         for (int i = 0; i < 256; i++) firmwareBytes[i] = (byte)i;
         var firmware = FirmwareFileParser.Parse(firmwareBytes);
@@ -302,6 +305,21 @@ public sealed class PipelineExecutorTests
     }
 
     [Fact]
+    public async Task DownloadTransfer_Rejects_BlockLength_Of_One()
+    {
+        // H-1 fix: blockLength=1 means only the blockSequenceCounter fits, no data payload.
+        // Must throw rather than infinite-loop on chunkSize=0.
+        var client = new RecordingUdsClient { DownloadBlockLength = 1 };
+        var firmware = FirmwareFileParser.Parse(new byte[] { 0xAA, 0xBB });
+        var step = Step(FlashStepKind.DownloadTransfer) with { MemoryAddress = 0x0800_0000 };
+
+        var act = async () => await PipelineExecutor.ExecuteAsync(client, new[] { step },
+            firmware, progress: null, ct: default);
+
+        await act.Should().ThrowAsync<UdsException>();
+    }
+
+    [Fact]
     public async Task DownloadTransfer_Step_Without_Firmware_Throws()
     {
         var client = new RecordingUdsClient();
@@ -311,6 +329,73 @@ public sealed class PipelineExecutorTests
             firmware: null, progress: null, ct: default);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
+        client.Calls.Should().NotContain(c => c.Op == RecordingUdsClient.Op.RequestDownload);
+    }
+
+    // ---- FlashDriverDownload (C-2 fix: uses Segments not Data) ----
+
+    [Fact]
+    public async Task FlashDriverDownload_Uses_Segments_Not_RawData_C2()
+    {
+        // C-2 fix: ExecuteFlashDriverDownloadAsync must use driver.Segments (parsed payload)
+        // not driver.Data (raw file bytes). For a HEX/S19 file, Data is text lines while
+        // Segments is the binary payload. Downloading raw text to ECU RAM would be garbage.
+        var client = new RecordingUdsClient { DownloadBlockLength = 16 };
+
+        // Simulate a parsed flash driver with 2 segments at different addresses.
+        var seg1Data = new byte[] { 0x01, 0x02, 0x03 };
+        var seg2Data = new byte[] { 0x04, 0x05 };
+        var driver = new FlashDriver("driver.hex", new byte[] { 0x3A, 0x30, 0x33, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x31, 0x30, 0x32, 0x30, 0x33, 0x46, 0x41 })
+        {
+            Segments = new[]
+            {
+                new Segment(0x1000_0000u, seg1Data),
+                new Segment(0x2000_0000u, seg2Data),
+            }
+        };
+
+        var step = new FlashStepSnapshot
+        {
+            Kind = FlashStepKind.FlashDriverDownload,
+            IsEnabled = true,
+            FlashDriverDownload = new FlashDriverDownloadSnapshot(),
+        };
+
+        await PipelineExecutor.ExecuteAsync(client, new[] { step },
+            firmware: null, progress: null, ct: default,
+            profileFlashDriver: driver);
+
+        // C-2: Should download each segment to its own address (not a single raw dump).
+        var downloadCalls = client.Calls.Where(c => c.Op == RecordingUdsClient.Op.RequestDownload).ToList();
+        downloadCalls.Should().HaveCount(2, "one RequestDownload per segment");
+        ((uint)downloadCalls[0].Arg1!).Should().Be(0x1000_0000u, "first segment address from Segments, not hardcoded");
+        ((uint)downloadCalls[1].Arg1!).Should().Be(0x2000_0000u, "second segment address");
+
+        // Total TransferData bytes should be 5 (3 + 2 from segments), NOT the raw file length.
+        var transferCalls = client.Calls.Where(c => c.Op == RecordingUdsClient.Op.TransferData).ToList();
+        var totalTransferred = transferCalls.Sum(c => (int)c.Arg2!);
+        totalTransferred.Should().Be(5, "payload from Segments, not raw file bytes");
+
+        // Two segments -> two RequestTransferExit calls (one per segment handshake).
+        client.Calls.Count(c => c.Op == RecordingUdsClient.Op.RequestTransferExit).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task FlashDriverDownload_No_Driver_Skips_Silently()
+    {
+        // FlashDriverDownload step with no driver loaded -> silent skip (no-op, no throw).
+        var client = new RecordingUdsClient();
+        var step = new FlashStepSnapshot
+        {
+            Kind = FlashStepKind.FlashDriverDownload,
+            IsEnabled = true,
+            FlashDriverDownload = new FlashDriverDownloadSnapshot(),
+        };
+
+        await PipelineExecutor.ExecuteAsync(client, new[] { step },
+            firmware: null, progress: null, ct: default,
+            profileFlashDriver: null);
+
         client.Calls.Should().NotContain(c => c.Op == RecordingUdsClient.Op.RequestDownload);
     }
 

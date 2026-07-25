@@ -151,6 +151,91 @@ public sealed class FlashProfileTests
     }
 
     [Fact]
+    public void RoundTrip_Preserves_Grouped_Params_H3()
+    {
+        // H-3 fix: grouped params (PreCheck/SecurityAccess/RoutineControl/Download/etc.)
+        // have private setters. Without [JsonInclude], System.Text.Json skips them on
+        // deserialization, silently reverting to ctor defaults. This test catches that
+        // by checking the grouped params directly (not the flat mirror fields).
+        var original = FlashProfile.CreateDefault();
+
+        // Edit grouped params on each step type.
+        var sec = original.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        sec.SecurityAccess!.Level = 0x0B;
+        sec.SecurityAccess!.Mode = SecurityAccessMode.Dll;
+        sec.SecurityAccess!.DllPath = @"D:\OEM\keygen.dll";
+        sec.SecurityAccess!.ManualKeyHex = "AABBCCDD";
+
+        var erase = original.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        erase.RoutineControl!.RoutineId = 0xFF02;
+        erase.RoutineControl!.StartAddress = 0x0800_0000u;
+        erase.RoutineControl!.Size = 0x10000u;
+
+        var dl = original.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.Download!.SegmentIndex = 2;
+
+        var preCheck = original.Steps.Single(s => s.Kind == FlashStepKind.PreCheck);
+        preCheck.PreCheck!.RoutineId = 0xFF05;
+
+        var depCheck = original.Steps.Single(s => s.Kind == FlashStepKind.DependencyCheck);
+        depCheck.DependencyCheck!.RoutineId = 0xFF10;
+
+        var restored = FlashProfile.FromJson(original.ToJson());
+
+        // Grouped params must survive the round-trip.
+        var rSec = restored.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        rSec.SecurityAccess!.Level.Should().Be(0x0B);
+        rSec.SecurityAccess!.Mode.Should().Be(SecurityAccessMode.Dll);
+        rSec.SecurityAccess!.DllPath.Should().Be(@"D:\OEM\keygen.dll");
+        rSec.SecurityAccess!.ManualKeyHex.Should().Be("AABBCCDD");
+
+        var rErase = restored.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        rErase.RoutineControl!.RoutineId.Should().Be(0xFF02);
+        rErase.RoutineControl!.StartAddress.Should().Be(0x0800_0000u);
+        rErase.RoutineControl!.Size.Should().Be(0x10000u);
+
+        var rDl = restored.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        rDl.Download!.SegmentIndex.Should().Be(2);
+
+        var rPreCheck = restored.Steps.Single(s => s.Kind == FlashStepKind.PreCheck);
+        rPreCheck.PreCheck!.RoutineId.Should().Be(0xFF05);
+
+        var rDepCheck = restored.Steps.Single(s => s.Kind == FlashStepKind.DependencyCheck);
+        rDepCheck.DependencyCheck!.RoutineId.Should().Be(0xFF10);
+    }
+
+    [Fact]
+    public void RoundTrip_Preserves_FirmwareFiles_And_Segments()
+    {
+        // Bug repro: after Load Profile, Erase step's Segment ComboBox was empty.
+        // This checks FirmwareFile + Segment survive the JSON round-trip (the data
+        // model underneath AllSegments).
+        var original = FlashProfile.CreateDefault();
+        var segData = new byte[] { 0xAA, 0xBB, 0xCC };
+        var segment = new Segment(0x0800_0000u, segData) { Crc32 = Crc32.Compute(segData) };
+        var fwFile = new FirmwareFile("test.bin", FirmwareFormat.RawBinary, new[] { segment });
+        original.FirmwareFiles.Add(fwFile);
+
+        var json = original.ToJson();
+
+        // JSON must contain a FirmwareFiles array with the segment data.
+        json.Should().Contain("FirmwareFiles");
+        json.Should().Contain("test.bin");
+        // StartAddress serializes as decimal (134217728 = 0x08000000)
+        json.Should().Contain("134217728");
+
+        var restored = FlashProfile.FromJson(json);
+        restored.FirmwareFiles.Should().HaveCount(1);
+        var rfw = restored.FirmwareFiles[0];
+        rfw.Path.Should().Be("test.bin");
+        rfw.Format.Should().Be(FirmwareFormat.RawBinary);
+        rfw.Segments.Should().HaveCount(1);
+        rfw.Segments[0].StartAddress.Should().Be(0x0800_0000u);
+        rfw.Segments[0].Data.Should().Equal(new byte[] { 0xAA, 0xBB, 0xCC });
+        rfw.Segments[0].Crc32.Should().Be(Crc32.Compute(segData));
+    }
+
+    [Fact]
     public void FromJson_Null_Throws()
     {
         var act = () => FlashProfile.FromJson(null!);

@@ -13,6 +13,11 @@
         Width="1100" Height="700"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="True">
+    <Window.Resources>
+        <!-- HexConverter 注册在 Window 级别, 所有 tab (Session/DIDs/Flashing) 都能引用.
+             App.xaml 也有全局注册, 但测试不加载 App.xaml, 所以这里也要注册. -->
+        <conv:HexConverter x:Key="HexConverter"/>
+    </Window.Resources>
 
     <DockPanel>
         <!-- Top: Session header strip -->
@@ -31,7 +36,7 @@
                 <Separator/>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Level:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox Text="{Binding Session.SecurityLevel, StringFormat=0x{0:X2}, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
+                    <TextBox Text="{Binding Session.SecurityLevel, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
                     <Button Content="SecurityAccess"
                             Command="{Binding Session.SecurityAccessCommand}"
                             Padding="6,2" Margin="0,0,12,0"/>
@@ -319,7 +324,7 @@
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.PreCheck.RoutineId, StringFormat=0x{0:X4}}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.PreCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 
@@ -335,18 +340,18 @@
                                             <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Level:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, StringFormat=0x{0:X2}}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.SecurityAccessModes}"
                                                   SelectedItem="{Binding Flash.SelectedStep.SecurityAccess.Mode}"/>
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Manual Key:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.ManualKeyHex}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.ManualKeyHex, UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL Path:" VerticalAlignment="Center"/>
                                         <DockPanel Grid.Row="3" Grid.Column="1">
                                             <Button Content="…" DockPanel.Dock="Right" Padding="6,0" Margin="2,0,0,0"
                                                     Command="{Binding Flash.SelectDllCommand}"/>
-                                            <TextBox Text="{Binding Flash.SelectedStep.SecurityAccess.DllPath}"/>
+                                            <TextBox Text="{Binding Flash.SelectedStep.SecurityAccess.DllPath, UpdateSourceTrigger=PropertyChanged}"/>
                                         </DockPanel>
                                     </Grid>
                                 </StackPanel>
@@ -386,19 +391,19 @@
                                             <RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, StringFormat=0x{0:X4}}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                         <!-- Start Addr / Size: Verify 步骤隐藏 (从 Segment 自动算); Erase 步骤显示.
                                              选中 Segment 后自动填充 (只读), 未选时可手工编辑. -->
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Start Addr:" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="1" Grid.Column="1"
-                                                 Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, StringFormat=0x{0:X8}}"
+                                                 Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
                                                  IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="2" Grid.Column="1"
-                                                 Text="{Binding Flash.SelectedStep.RoutineControl.Size, StringFormat=0x{0:X8}}"
+                                                 Text="{Binding Flash.SelectedStep.RoutineControl.Size, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
                                                  IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
                                     </Grid>
@@ -465,7 +470,7 @@
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SelectedCrcPresetIndex}"
                                                   ToolTip="选择 CRC 算法预设以匹配目标 ECU"/>
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Polynomial:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Polynomial, StringFormat=0x{0:X8}}"
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Polynomial, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  IsEnabled="{Binding Flash.SelectedStep.Verify.IsCrcCustom}"/>
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
@@ -486,9 +491,9 @@
                                             </Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Init:" VerticalAlignment="Center"/>
-                                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Init, StringFormat=0x{0:X8}}"/>
+                                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Init, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
                                             <TextBlock Grid.Row="0" Grid.Column="2" Text="Final XOR:" VerticalAlignment="Center"/>
-                                            <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.FinalXor, StringFormat=0x{0:X8}}"/>
+                                            <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.FinalXor, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
                                             <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="Reflect Input"
                                                       IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectInput}"
                                                       VerticalAlignment="Center"/>
@@ -551,7 +556,7 @@
                                                   ItemsSource="{Binding Flash.DtcControlSubFunctions}"
                                                   SelectedItem="{Binding Flash.SelectedStep.DtcControl.SubFunction}"/>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC Group:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.DtcControl.DtcGroup, StringFormat=0x{0:X6}}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.DtcControl.DtcGroup, Converter={StaticResource HexConverter}, ConverterParameter=6, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 
@@ -567,7 +572,7 @@
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.DependencyCheck.RoutineId, StringFormat=0x{0:X4}}"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.DependencyCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 

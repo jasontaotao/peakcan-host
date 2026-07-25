@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -173,6 +174,8 @@ public static partial class PipelineExecutor
         {
             try
             {
+                // L-4: 1.5s interval. ISO 14229 S3 timeout is typically 5s; 1.5s gives
+                // ample margin. Could be made configurable via FlashProfile if OEMs need different values.
                 await Task.Delay(TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
                 // 0x3E 80 preferred (suppress response); fall back to 0x3E 00 on NRC.
                 try
@@ -254,6 +257,10 @@ public static partial class PipelineExecutor
             case FlashStepKind.PreCheck:
                 var preCheck = step.PreCheck ?? throw new InvalidOperationException("PreCheck params missing");
                 // 调 RoutineControl(StartRoutine, routineId, null) — 返回非空即成功
+                // M-3: routine result bytes are not inspected here. The ECU's positive
+                // response (no NRC) is treated as "preconditions met". Some OEMs encode a
+                // status byte in the result (0=pass, non-0=fail) - if so, this path would
+                // miss a logical failure. OEM-specific result parsing is deferred.
                 await client.RoutineControlAsync(StartRoutine, preCheck.RoutineId, data: null, ct).ConfigureAwait(false);
                 break;
 
@@ -316,6 +323,8 @@ public static partial class PipelineExecutor
                 // ISO 14229 编程依赖性检查：刷写完成后执行 0x31 RoutineControl，
                 // 检查编程完整性 (CRC32) 和软硬件兼容性。
                 var depCheck = step.DependencyCheck ?? throw new InvalidOperationException("DependencyCheck params missing");
+                // M-3: routine result bytes are not inspected. Same caveat as PreCheck -
+                // OEMs may encode pass/fail status in the result. Deferred.
                 await client.RoutineControlAsync(StartRoutine, depCheck.RoutineId, data: null, ct).ConfigureAwait(false);
                 break;
 
@@ -422,25 +431,30 @@ public static partial class PipelineExecutor
         var memoryAddress = startAddress ?? step.MemoryAddress;
 
         var blockLength = await client.RequestDownloadAsync(memoryAddress, firmware.Length, ct).ConfigureAwait(false);
-        if (blockLength <= 0)
+        // H-1 fix: maxNumberOfBlockLength includes the blockSequenceCounter byte (ISO 14229-1
+        // §10.6.2.4). The TransferData data payload is blockLength - 1 bytes. A blockLength <= 1
+        // means the ECU cannot accept any data in a single TransferData - refuse early.
+        if (blockLength <= 1)
         {
-            throw new UdsException($"ECU returned an invalid block length: {blockLength} (must be > 0).");
+            throw new UdsException($"ECU returned an invalid block length: {blockLength} (must be > 1 to fit blockSequenceCounter + data).");
         }
 
         int offset = 0;
         ulong done = 0;
         var data = firmware.Data;
+        // maxNumberOfBlockLength includes the 1-byte blockSequenceCounter; data payload per block is blockLength - 1.
+        int dataPerBlock = blockLength - 1;
         while (offset < data.Length)
         {
             ct.ThrowIfCancellationRequested();
-            int chunkSize = Math.Min(blockLength, data.Length - offset);
+            int chunkSize = Math.Min(dataPerBlock, data.Length - offset);
             var chunk = new byte[chunkSize];
             Array.Copy(data, offset, chunk, 0, chunkSize);
 
             // ISO 14229-1 §10.6.3.4: blockSequenceCounter starts at 1 and wraps to 1
             // (not 0) after 255. blockIndex + 1 maps the 0-based loop counter to the
             // 1-based wire counter.
-            int blockIndex = offset / blockLength;
+            int blockIndex = offset / dataPerBlock;
             byte blockCounter = (byte)((blockIndex % 255) + 1);
 
             await client.TransferDataAsync(blockCounter, chunk, ct).ConfigureAwait(false);
@@ -455,10 +469,12 @@ public static partial class PipelineExecutor
     }
 
     /// <summary>
-    /// Phase 2: FlashDriverDownload — 下载 driver raw bytes 到 ECU RAM。
-    /// 起始地址用 0x1000_0000 作为 RAM 典型地址 (Phase 2 简化, 未来从 driver 数据解析)。
-    /// 与 ExecuteDownloadTransferAsync 共享 RequestDownload→TransferData→RequestTransferExit 握手,
-    /// 但数据来源是 profile-level 的 flash driver 而非 per-step firmware image。
+    /// Phase 2: FlashDriverDownload — 下载 driver 到 ECU RAM。
+    /// C-2 fix: 使用 driver.Segments（解析后的 payload）而非 driver.Data（文件原始字节）。
+    /// 对 HEX/S19 文件, Segments 包含地址信息, 每段分别下载到对应地址。
+    /// 对 raw binary, Segments 只有一个地址 0 的段, 调用方需确保地址正确。
+    /// M-7 fix: 起始地址从 Segment.StartAddress 获取, 不再硬编码 0x1000_0000。
+    /// H-1 fix: chunk size = blockLength - 1（maxNumberOfBlockLength 包括 blockSequenceCounter）。
     /// </summary>
     private static async Task ExecuteFlashDriverDownloadAsync(
         UdsClient client,
@@ -468,30 +484,46 @@ public static partial class PipelineExecutor
         int total,
         CancellationToken ct)
     {
-        var data = driver.Data;
-        uint ramAddress = 0x1000_0000;  // RAM 典型地址, Phase 2 简化
-
-        var blockLength = await client.RequestDownloadAsync(ramAddress, (uint)data.Length, ct).ConfigureAwait(false);
-        if (blockLength <= 0)
-            throw new UdsException($"ECU returned invalid block length for driver download: {blockLength}");
-
-        int offset = 0;
-        ulong done = 0;
-        while (offset < data.Length)
+        var segments = driver.Segments;
+        // C-2 fix: 如果 Segments 为空, 回退到 driver.Data（兼容旧路径, 理论上不应发生）。
+        if (segments.Count == 0)
         {
-            ct.ThrowIfCancellationRequested();
-            int chunkSize = Math.Min(blockLength, data.Length - offset);
-            var chunk = new byte[chunkSize];
-            Array.Copy(data, offset, chunk, 0, chunkSize);
-            int blockIndex = offset / blockLength;
-            byte blockCounter = (byte)((blockIndex % 255) + 1);
-            await client.TransferDataAsync(blockCounter, chunk, ct).ConfigureAwait(false);
-            offset += chunkSize;
-            done += (ulong)chunkSize;
-            Report(progress, stepIndex, total, FlashStepKind.FlashDriverDownload, FlashStatus.Running,
-                doneBytes: done, totalBytes: (ulong)data.Length, message: null);
+            segments = new[] { new Segment(0, driver.Data) };
         }
-        await client.RequestTransferExitAsync(ct).ConfigureAwait(false);
+
+        ulong totalDone = 0;
+        ulong totalBytes = (ulong)segments.Sum(s => (long)s.Data.Length);
+
+        // 每段分别下载到对应地址（ISO 14229 多段下载: 每段独立 RequestDownload->TransferData->Exit 握手）。
+        foreach (var seg in segments)
+        {
+            var data = seg.Data;
+            uint ramAddress = seg.StartAddress;
+
+            var blockLength = await client.RequestDownloadAsync(ramAddress, (uint)data.Length, ct).ConfigureAwait(false);
+            if (blockLength <= 1)
+                throw new UdsException($"ECU returned invalid block length for driver download: {blockLength} (must be > 1)");
+
+            int offset = 0;
+            ulong done = 0;
+            int dataPerBlock = blockLength - 1;
+            while (offset < data.Length)
+            {
+                ct.ThrowIfCancellationRequested();
+                int chunkSize = Math.Min(dataPerBlock, data.Length - offset);
+                var chunk = new byte[chunkSize];
+                Array.Copy(data, offset, chunk, 0, chunkSize);
+                int blockIndex = offset / dataPerBlock;
+                byte blockCounter = (byte)((blockIndex % 255) + 1);
+                await client.TransferDataAsync(blockCounter, chunk, ct).ConfigureAwait(false);
+                offset += chunkSize;
+                done += (ulong)chunkSize;
+                totalDone += (ulong)chunkSize;
+                Report(progress, stepIndex, total, FlashStepKind.FlashDriverDownload, FlashStatus.Running,
+                    doneBytes: totalDone, totalBytes: totalBytes, message: null);
+            }
+            await client.RequestTransferExitAsync(ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -547,7 +579,11 @@ public static partial class PipelineExecutor
 
         var response = await client.RoutineControlAsync(StartRoutine, routineId, data, ct).ConfigureAwait(false);
 
-        // Parse ECU-returned CRC from response (last 4 bytes)
+        // M-2: Parse ECU-returned CRC from response. ISO 14229 does not mandate the
+        // routine result layout - this assumes the CRC occupies the LAST 4 bytes of the
+        // routine result (a common OEM convention where a status byte precedes the CRC).
+        // If the ECU returns CRC at a different offset, this comparison will mismatch and
+        // throw - the operator should verify the OEM's verify-routine response format.
         if (response.Length < 4)
         {
             throw new UdsException("Verify routine returned invalid response (too short).");

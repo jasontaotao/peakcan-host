@@ -137,17 +137,31 @@ public partial class UdsClient
 
         var response = await SendRequestAsync(0x34, requestData, ct).ConfigureAwait(false);
 
-        // C-7 fix: response layout per ISO 14229-1 §10.6.2.4 is
+        // C-1 fix: response layout per ISO 14229-1 §10.6.2.4 is
         //   [dataFormatId, lengthFormatId, maxNumberOfBlockLength (lengthFormatId.lowNibble bytes)]
         // SendRequestAsync strips the SID, so response[0] is dataFormatId,
-        // response[1] is lengthFormatId, and response[2..5] are the 4-byte
-        // maxNumberOfBlockLength (the common case, low nibble = 4).
-        if (response.Length < 5)
+        // response[1] is lengthFormatId. The low nibble of lengthFormatId gives
+        // the byte count of maxNumberOfBlockLength; the high nibble is reserved.
+        // The previous code read response[1..4] as a fixed 4-byte blockLength,
+        // which incorrectly included the lengthFormatId byte (e.g. 0x44) as the
+        // high byte - producing a giant blockLength and breaking TransferData chunking.
+        if (response.Length < 2)
             throw new UdsException(
-                $"Invalid RequestDownload response: length {response.Length} < 5");
+                $"Invalid RequestDownload response: length {response.Length} < 2 (need at least dataFormatId + lengthFormatId)");
 
-        // Parse max block length (simplified: assume 4-byte)
-        int blockLength = (response[1] << 24) | (response[2] << 16) | (response[3] << 8) | response[4];
+        int blockLengthBytes = response[1] & 0x0F;
+        if (blockLengthBytes == 0)
+            throw new UdsException(
+                $"Invalid RequestDownload response: lengthFormatId 0x{response[1]:X2} has low nibble 0 (no maxNumberOfBlockLength field)");
+
+        if (response.Length < 2 + blockLengthBytes)
+            throw new UdsException(
+                $"Invalid RequestDownload response: length {response.Length} < {2 + blockLengthBytes} (lengthFormatId low nibble = {blockLengthBytes} requires {blockLengthBytes} bytes for maxNumberOfBlockLength)");
+
+        // Parse maxNumberOfBlockLength as big-endian, variable-length per lengthFormatId.lowNibble.
+        int blockLength = 0;
+        for (int i = 0; i < blockLengthBytes; i++)
+            blockLength = (blockLength << 8) | response[2 + i];
         return blockLength;
     }
 

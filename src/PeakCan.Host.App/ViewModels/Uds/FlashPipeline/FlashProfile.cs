@@ -104,7 +104,7 @@ public sealed class FlashProfile
     }
 
     /// <summary>
-    /// Build the documented default 7-step template:
+    /// Build the documented default 9-step template:
     /// PreCheck(off/grey) → SessionControl(on) → SecurityAccess(on, level 1, Manual)
     /// → Erase(on, 0xFF00) → DownloadTransfer(on) → Verify(off) → EcuReset(on, Hard).
     /// </summary>

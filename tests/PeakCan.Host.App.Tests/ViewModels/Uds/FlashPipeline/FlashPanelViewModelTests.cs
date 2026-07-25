@@ -761,6 +761,203 @@ public sealed class FlashPanelViewModelTests
         }
     }
 
+    // ---- Load Profile preserves Erase Segment selection (bug) ----
+
+    [Fact]
+    public void LoadProfile_Preserves_FirmwareFiles_And_Erase_SegmentIndex()
+    {
+        // Bug: after Load Profile, the Erase step's Segment ComboBox was empty.
+        // Root cause: FirmwareFile/Segment are records with byte[] Data, and the
+        // EraseSegmentIndex (VM-level) was not synced from the loaded step. This test
+        // pins that AllSegments is populated and the Erase step's SegmentIndex survives.
+        var ctx = Create();
+
+        // Add a firmware file with a segment (simulates AddFirmwareFile).
+        var segData = new byte[] { 0xAA, 0xBB, 0xCC };
+        var segment = new Segment(0x0800_0000u, segData) { Crc32 = Crc32.Compute(segData) };
+        var fwFile = new FirmwareFile("test.bin", FirmwareFormat.RawBinary, new[] { segment });
+        ctx.Vm.CurrentProfile.FirmwareFiles.Add(fwFile);
+
+        // Configure Erase step to reference segment 0.
+        var erase = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        erase.RoutineControl!.SegmentIndex = 0;
+
+        // Save and reload.
+        var json = ctx.Vm.CurrentProfile.ToJson();
+        ctx.Vm.CurrentProfile = FlashProfile.FromJson(json);
+
+        // AllSegments must be populated from the loaded FirmwareFiles.
+        ctx.Vm.AllSegments.Should().HaveCount(1, "FirmwareFiles must survive round-trip so AllSegments is populated");
+        ctx.Vm.AllSegments[0].StartAddress.Should().Be(0x0800_0000u);
+
+        // The Erase step's SegmentIndex must survive.
+        var loadedErase = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        loadedErase.RoutineControl!.SegmentIndex.Should().Be(0,
+            "Erase step's SegmentIndex must survive Load Profile");
+
+        // Selecting the Erase step must sync EraseSegmentIndex so the ComboBox shows the choice.
+        ctx.Vm.SelectedStep = loadedErase;
+        ctx.Vm.EraseSegmentIndex.Should().Be(0,
+            "EraseSegmentIndex must sync from the selected Erase step's RoutineControl.SegmentIndex");
+    }
+
+    // ---- Load Profile after restart (new VM instance) ----
+
+    [Fact]
+    public async Task LoadProfile_After_Restart_Populates_AllSegments_And_Erase_Selection()
+    {
+        // Bug: restart the app, Load Profile -> Erase step's Segment ComboBox is empty.
+        // This simulates a fresh VM (no in-memory FirmwareFiles) loading a profile from disk.
+        var saveCtx = Create();
+        var segData = new byte[] { 0xAA, 0xBB, 0xCC };
+        var segment = new Segment(0x0800_0000u, segData) { Crc32 = Crc32.Compute(segData) };
+        var fwFile = new FirmwareFile("test.bin", FirmwareFormat.RawBinary, new[] { segment });
+        saveCtx.Vm.CurrentProfile.FirmwareFiles.Add(fwFile);
+        var erase = saveCtx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        erase.RoutineControl!.SegmentIndex = 0;
+
+        // Save to disk.
+        var tmp = Path.Combine(Path.GetTempPath(), $"flashloadtest_{Guid.NewGuid():N}.json");
+        var saveDialog = new FakeFileDialogService { NextSaveResult = tmp };
+        var diskCtx = Create(saveDialog);
+        diskCtx.Vm.CurrentProfile = saveCtx.Vm.CurrentProfile;
+        await diskCtx.Vm.SaveProfileCommand.ExecuteAsync(null);
+
+        try
+        {
+            // Simulate restart: brand-new VM + Load Profile from disk.
+            var loadDialog = new FakeFileDialogService { NextOpenResult = tmp };
+            var loadCtx = Create(loadDialog);
+            loadCtx.Vm.AllSegments.Should().BeEmpty("fresh VM has no FirmwareFiles yet");
+
+            await loadCtx.Vm.LoadProfileCommand.ExecuteAsync(null);
+
+            // After load, AllSegments must be populated from the deserialized FirmwareFiles.
+            loadCtx.Vm.AllSegments.Should().HaveCount(1,
+                "FirmwareFiles must deserialize from disk and populate AllSegments");
+            loadCtx.Vm.AllSegments[0].StartAddress.Should().Be(0x0800_0000u);
+
+            // The Erase step's SegmentIndex must survive.
+            var loadedErase = loadCtx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+            loadedErase.RoutineControl!.SegmentIndex.Should().Be(0);
+
+            // Selecting the Erase step must sync EraseSegmentIndex so the ComboBox shows it.
+            loadCtx.Vm.SelectedStep = loadedErase;
+            loadCtx.Vm.EraseSegmentIndex.Should().Be(0);
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
+    // ---- EraseSegmentIndex PropertyChanged on step switch (bug) ----
+
+    [Fact]
+    public void Selecting_Erase_Step_Raises_EraseSegmentIndex_PropertyChanged()
+    {
+        // Bug: OnSelectedStepChanged wrote the backing field directly, so the
+        // [ObservableProperty] setter never ran and UI never got the PropertyChanged
+        // for EraseSegmentIndex. The ComboBox stayed empty even though the value
+        // was internally correct. This test pins that the notification fires.
+        var ctx = Create();
+        var erase = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        erase.RoutineControl!.SegmentIndex = 0;
+
+        // Add a firmware file so segment 0 exists.
+        var segData = new byte[] { 0xAA, 0xBB, 0xCC };
+        var segment = new Segment(0x0800_0000u, segData) { Crc32 = Crc32.Compute(segData) };
+        ctx.Vm.CurrentProfile.FirmwareFiles.Add(
+            new FirmwareFile("test.bin", FirmwareFormat.RawBinary, new[] { segment }));
+
+        var firedProperties = new System.Collections.Generic.List<string>();
+        ((System.ComponentModel.INotifyPropertyChanged)ctx.Vm).PropertyChanged += (_, e) =>
+            firedProperties.Add(e.PropertyName ?? "");
+
+        // Select the Erase step - must raise EraseSegmentIndex PropertyChanged.
+        ctx.Vm.SelectedStep = erase;
+
+        firedProperties.Should().Contain(nameof(FlashPanelViewModel.EraseSegmentIndex),
+            "selecting an Erase step with a saved SegmentIndex must notify the ComboBox " +
+            "so it shows the selection instead of appearing empty");
+        ctx.Vm.EraseSegmentIndex.Should().Be(0);
+    }
+
+    // ---- RoutineId edit persistence (bug: 切换 step 后值被重置) ----
+
+    [Fact]
+    public void RoutineId_Edit_Persists_Across_Step_Switch()
+    {
+        // Bug: operator edits Verify's RoutineId, switches to another step, switches back -
+        // the RoutineId was reset to 0. Root cause was StringFormat=0x{0:X4} in XAML
+        // (WPF couldn't parse "0x0204" back to ushort), NOT a VM/data-model issue.
+        // This test pins the data-model invariant: the value set on RoutineControl.RoutineId
+        // stays on the FlashStep instance regardless of SelectedStep changes.
+        var ctx = Create();
+        var verify = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Verify);
+        verify.RoutineControl!.RoutineId = 0x0204;
+
+        // Switch to a different step.
+        var erase = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.Erase);
+        ctx.Vm.SelectedStep = erase;
+        ctx.Vm.SelectedStep.Should().BeSameAs(erase);
+
+        // Switch back to Verify.
+        ctx.Vm.SelectedStep = verify;
+
+        // The Verify step's RoutineId must be the value the operator set, not reset to 0.
+        verify.RoutineControl.RoutineId.Should().Be(0x0204,
+            "RoutineId must persist across step switches - the data model holds the value; " +
+            "any reset is a XAML binding issue, not a VM issue");
+
+        // Same invariant for PreCheck and DependencyCheck.
+        var preCheck = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.PreCheck);
+        preCheck.PreCheck!.RoutineId = 0xFF05;
+        ctx.Vm.SelectedStep = erase;
+        ctx.Vm.SelectedStep = preCheck;
+        preCheck.PreCheck.RoutineId.Should().Be(0xFF05);
+
+        var depCheck = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DependencyCheck);
+        depCheck.DependencyCheck!.RoutineId = 0xFF10;
+        ctx.Vm.SelectedStep = erase;
+        ctx.Vm.SelectedStep = depCheck;
+        depCheck.DependencyCheck.RoutineId.Should().Be(0xFF10);
+    }
+
+    // ---- Phase 2 FirmwareFiles + SegmentIndex path (C-4 fix) ----
+
+    [Fact]
+    public async Task Start_With_FirmwareFiles_And_SegmentIndex_Succeeds_Phase2_Path()
+    {
+        // C-4 fix: Phase 2 path uses FirmwareFiles + SegmentIndex instead of FirmwarePath.
+        // The default template's DownloadTransfer step should work when the operator loads
+        // a firmware file via AddFirmwareFile and selects a segment, WITHOUT setting FirmwarePath.
+        var ctx = Create();
+        // Disable FlashDriverDownload + DependencyCheck to isolate the download path.
+        foreach (var step in ctx.Vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+            step.IsEnabled = false;
+
+        // Simulate AddFirmwareFile: parse a raw binary into FirmwareFiles.
+        var firmwareBytes = new byte[] { 0xAA, 0xBB, 0xCC, 0xDD };
+        var segment = new Segment(0x0800_0000u, firmwareBytes) { Crc32 = Crc32.Compute(firmwareBytes) };
+        var fwFile = new FirmwareFile("test.bin", FirmwareFormat.RawBinary, new[] { segment });
+        ctx.Vm.CurrentProfile.FirmwareFiles.Add(fwFile);
+
+        // Configure DownloadTransfer to reference segment 0 (Phase 2 path).
+        var dl = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
+        dl.Download!.SegmentIndex = 0;
+        // Do NOT set FirmwarePath - Phase 2 path must work without it.
+
+        // SecurityAccess needs a valid key for the success path.
+        ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
+
+        await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+        ctx.Vm.Status.Should().Be(FlashStatus.Success,
+            "Phase 2 FirmwareFiles+SegmentIndex path must work without FirmwarePath");
+        ctx.Vm.IsFlashing.Should().BeFalse();
+    }
+
     // ---- stop (idle state) ----
 
     [Fact]

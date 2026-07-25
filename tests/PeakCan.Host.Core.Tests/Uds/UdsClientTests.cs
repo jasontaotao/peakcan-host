@@ -134,7 +134,10 @@ public sealed class UdsClientTests
     }
 
     // ========================================================================
-    // C-7: RequestDownload must validate response length before reading bytes.
+    // C-1/C-7: RequestDownload must parse maxNumberOfBlockLength per ISO 14229-1 §10.6.2.4.
+    // Response layout: [dataFormatId, lengthFormatId, maxNumberOfBlockLength (lengthFormatId.lowNibble bytes)]
+    // The old code read response[1..4] as a fixed 4-byte value, incorrectly including
+    // lengthFormatId as the high byte. These tests use realistic ECU responses.
     // ========================================================================
 
     [Fact]
@@ -148,10 +151,9 @@ public sealed class UdsClientTests
         // RequestDownload sends an 11-byte payload → multi-frame; pump FF → FC.
         await PumpFirstFrameAndFc(iso, sent);
 
-        // Truncated response: 4 bytes total → UdsClient sees 3 bytes after stripping SID.
-        // The current < 3 length check passes (3 >= 3) but response[5] is OOB,
-        // producing IndexOutOfRangeException instead of UdsException.
-        EcuRespond(iso, new byte[] { 0x74, 0x20, 0x00, 0x01 });
+        // Truncated: lengthFormatId=0x44 (needs 4 bytes for blockLength) but only 1 byte follows.
+        // Response after SID strip: [0x00, 0x44, 0x01] → 3 bytes, need 6.
+        EcuRespond(iso, new byte[] { 0x74, 0x00, 0x44, 0x01 });
 
         Func<Task> act = async () => await task;
         var thrown = await act.Should().ThrowAsync<UdsException>();
@@ -159,7 +161,7 @@ public sealed class UdsClientTests
     }
 
     [Fact]
-    public async Task RequestDownloadAsync_Accepts_Full_Six_Byte_Response()
+    public async Task RequestDownloadAsync_Accepts_Full_Seven_Byte_Response()
     {
         var (iso, sent) = NewIso();
         using var client = new UdsClient(iso);
@@ -169,12 +171,67 @@ public sealed class UdsClientTests
         // Pump FF → FC for the multi-frame request.
         await PumpFirstFrameAndFc(iso, sent);
 
-        // Full response: [dataFormatId, lengthFormatId, maxLength x 4]
-        // maxLength = 0x00001000
-        EcuRespond(iso, new byte[] { 0x74, 0x20, 0x00, 0x00, 0x10, 0x00 });
+        // Full response: [SID 0x74, dataFormatId 0x00, lengthFormatId 0x44, maxLength x 4]
+        // lengthFormatId=0x44 → low nibble=4 → 4-byte maxNumberOfBlockLength.
+        // maxNumberOfBlockLength = 0x00001000 = 4096
+        EcuRespond(iso, new byte[] { 0x74, 0x00, 0x44, 0x00, 0x00, 0x10, 0x00 });
 
         var blockLen = await task.WaitAsync(TimeSpan.FromSeconds(2));
         blockLen.Should().Be(0x00001000);
+    }
+
+    [Fact]
+    public async Task RequestDownloadAsync_Parses_Two_Byte_BlockLength()
+    {
+        // lengthFormatId=0x42 → low nibble=2 → 2-byte maxNumberOfBlockLength.
+        // Some ECUs use a 2-byte block length (e.g. maxNumberOfBlockLength=0x0100=256).
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RequestDownloadAsync(0x1000, 0x100);
+        await PumpFirstFrameAndFc(iso, sent);
+
+        // [SID 0x74, dataFormatId 0x00, lengthFormatId 0x42, maxLength x 2] = 0x0100
+        EcuRespond(iso, new byte[] { 0x74, 0x00, 0x42, 0x01, 0x00 });
+
+        var blockLen = await task.WaitAsync(TimeSpan.FromSeconds(2));
+        blockLen.Should().Be(0x0100);
+    }
+
+    [Fact]
+    public async Task RequestDownloadAsync_Parses_One_Byte_BlockLength()
+    {
+        // lengthFormatId=0x41 → low nibble=1 → 1-byte maxNumberOfBlockLength.
+        // Small ECUs may report a single-byte block length (e.g. 0x80=128).
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RequestDownloadAsync(0x1000, 0x100);
+        await PumpFirstFrameAndFc(iso, sent);
+
+        // [SID 0x74, dataFormatId 0x00, lengthFormatId 0x41, maxLength x 1] = 0x80
+        EcuRespond(iso, new byte[] { 0x74, 0x00, 0x41, 0x80 });
+
+        var blockLen = await task.WaitAsync(TimeSpan.FromSeconds(2));
+        blockLen.Should().Be(0x80);
+    }
+
+    [Fact]
+    public async Task RequestDownloadAsync_Throws_On_Zero_Low_Nibble()
+    {
+        // lengthFormatId=0x40 → low nibble=0 → no maxNumberOfBlockLength field.
+        // This is invalid per ISO 14229; must throw rather than return 0.
+        var (iso, sent) = NewIso();
+        using var client = new UdsClient(iso);
+
+        var task = client.RequestDownloadAsync(0x1000, 0x100);
+        await PumpFirstFrameAndFc(iso, sent);
+
+        EcuRespond(iso, new byte[] { 0x74, 0x00, 0x40 });
+
+        Func<Task> act = async () => await task;
+        (await act.Should().ThrowAsync<UdsException>())
+            .WithMessage("*low nibble 0*");
     }
 
     // ========================================================================

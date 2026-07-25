@@ -84,7 +84,8 @@ public sealed class RoutineControlParams : INotifyPropertyChanged
 /// <summary>DownloadTransfer (0x34/0x36/0x37) parameters.</summary>
 public sealed record DownloadParams
 {
-    public int SegmentIndex { get; set; }     // 引用 FirmwareFile.Segments[index]
+    // C-4 fix: -1 = 未选择 (Phase 1.1 回退到 FirmwarePath). 0+ = 引用 FirmwareFiles 扁平化 Segment.
+    public int SegmentIndex { get; set; } = -1;
     // MemoryAddress 不再需要 — 从 Segment.StartAddress 自动获取
 }
 
@@ -291,36 +292,38 @@ public sealed partial class FlashStep : ObservableObject
 
     // ---- Phase 2: Grouped parameters per Kind ----
     // Only the group matching Kind is non-null; others stay null (property panel hides them).
+    // H-3 fix: [JsonInclude] lets System.Text.Json deserialize into the private setter,
+    // so FlashProfile round-trip preserves grouped params (not just flat fields).
 
     /// <summary>PreCheck parameters. Non-null only when Kind == PreCheck.</summary>
-    public PreCheckParams? PreCheck { get; private set; }
+    [JsonInclude] public PreCheckParams? PreCheck { get; private set; }
 
     /// <summary>SecurityAccess parameters. Non-null only when Kind == SecurityAccess.</summary>
-    public SecurityAccessParams? SecurityAccess { get; private set; }
+    [JsonInclude] public SecurityAccessParams? SecurityAccess { get; private set; }
 
     /// <summary>Erase/Verify (RoutineControl) parameters. Non-null only when Kind == Erase or Verify.</summary>
-    public RoutineControlParams? RoutineControl { get; private set; }
+    [JsonInclude] public RoutineControlParams? RoutineControl { get; private set; }
 
     /// <summary>DownloadTransfer parameters. Non-null only when Kind == DownloadTransfer.</summary>
-    public DownloadParams? Download { get; private set; }
+    [JsonInclude] public DownloadParams? Download { get; private set; }
 
     /// <summary>Verify (checksum) parameters. Non-null only when Kind == Verify.</summary>
-    public VerifyParams? Verify { get; private set; }
+    [JsonInclude] public VerifyParams? Verify { get; private set; }
 
     /// <summary>EcuReset parameters. Non-null only when Kind == EcuReset.</summary>
-    public EcuResetParams? EcuReset { get; private set; }
+    [JsonInclude] public EcuResetParams? EcuReset { get; private set; }
 
     /// <summary>CommunicationControl (0x28) parameters. Non-null only when Kind == CommunicationControl.</summary>
-    public CommunicationControlParams? CommunicationControl { get; private set; }
+    [JsonInclude] public CommunicationControlParams? CommunicationControl { get; private set; }
 
     /// <summary>DTCControl (0x14) parameters. Non-null only when Kind == DtcControl.</summary>
-    public DtcControlParams? DtcControl { get; private set; }
+    [JsonInclude] public DtcControlParams? DtcControl { get; private set; }
 
     /// <summary>DependencyCheck parameters. Non-null only when Kind == DependencyCheck.</summary>
-    public DependencyCheckParams? DependencyCheck { get; private set; }
+    [JsonInclude] public DependencyCheckParams? DependencyCheck { get; private set; }
 
     /// <summary>FlashDriverDownload parameters. Non-null only when Kind == FlashDriverDownload.</summary>
-    public FlashDriverDownloadParams? FlashDriverDownload { get; private set; }
+    [JsonInclude] public FlashDriverDownloadParams? FlashDriverDownload { get; private set; }
 
     // ---- Backward-compat flat fields (Phase 1.1) — kept for snapshot + existing tests ----
     // These mirror the grouped params above. Phase 2 UI binds to grouped params;

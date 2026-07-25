@@ -399,7 +399,8 @@ public static class FirmwareFileParser
     private static void ValidateIntelHexChecksum(string line)
     {
         // Format: :LLAAAATT[DD...]CC — colon + 2 hex chars per byte
-        if (line.Length < 5 || (line.Length - 1) % 2 != 0)
+        // L-3: minimum valid Intel HEX record is ":00000001FF" (11 chars: colon + byteCount + addr + type + checksum).
+        if (line.Length < 11 || (line.Length - 1) % 2 != 0)
             throw new FormatException($"Invalid Intel HEX line length: {line}");
 
         byte sum = 0;

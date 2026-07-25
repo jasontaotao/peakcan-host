@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using IOPath = System.IO.Path;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -195,10 +196,15 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// </summary>
     partial void OnSelectedStepChanged(FlashStep? value)
     {
+        // Bug fix: 直接写 _eraseSegmentIndex 不触发 [ObservableProperty] 生成的 setter,
+        // UI 收不到 EraseSegmentIndex 的 PropertyChanged 通知, ComboBox 显示空选择.
+        // 用属性赋值触发 setter -> OnEraseSegmentIndexChanged -> 同步地址. 循环安全:
+        // OnEraseSegmentIndexChanged 写回 step.RoutineControl.SegmentIndex, 但 RoutineControlParams
+        // 的 SegmentIndex setter 有相等检查 (if (_segmentIndex == value) return), 值相同时 no-op.
         if (value is { Kind: FlashStepKind.Erase, RoutineControl: { } rc })
-            _eraseSegmentIndex = rc.SegmentIndex;
+            EraseSegmentIndex = rc.SegmentIndex;
         else
-            _eraseSegmentIndex = -1;
+            EraseSegmentIndex = -1;
     }
 
     /// <summary>
@@ -364,6 +370,15 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// finally teardown and settles <paramref name="tcs"/> so the captured task reflects the
     /// true terminal state (including the finally). Exceptions are caught here and translated
     /// to the UI-facing Status/StatusMessage.
+    /// <para>
+    /// <b>Thread safety:</b> The PipelineExecutor uses <c>ConfigureAwait(false)</c> internally,
+    /// so the outer catch/finally blocks run on a thread-pool thread as well.
+    /// <c>[ObservableProperty]</c> setters fire PropertyChanged, which WPF binding handles
+    /// on the same thread — that would crash with InvalidOperationException (cross-thread UI
+    /// access). We marshal all property writes back to the captured UI SynchronizationContext
+    /// via <c>_uiContext.Post</c>. The teardown calls (DetachFromRouter/Dispose) are not
+    /// UI-bound and run inline on the thread-pool thread.
+    /// </para>
     /// </summary>
     private async Task RunFlashOnceAsync(
         TaskCompletionSource<object?> tcs,
@@ -372,6 +387,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         ISecondaryFlashStack? stack,
         CancellationToken ct)
     {
+        // Capture the UI SynchronizationContext BEFORE the first ConfigureAwait(false) —
+        // the method's catch/finally blocks need to marshal [ObservableProperty] writes
+        // back to the UI thread to avoid WPF cross-thread InvalidOperationException.
+        // When null (e.g. test environment with no WPF Dispatcher), PostOrInline falls
+        // back to direct synchronous execution — safe for tests because there's no UI
+        // binding thread to protect.
+        var uiContext = SynchronizationContext.Current;
         try
         {
             // Phase 1.1: resolve firmware per-step BEFORE the executor runs — a missing/garbage
@@ -398,35 +420,50 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
                 CurrentProfile.AutoResetOnFailure,
                 progress, ct).ConfigureAwait(false);
             // PipelineExecutor reports per-step; the terminal Success is signalled by absence of throw.
-            Status = FlashStatus.Success;
-            StatusMessage = "Flash complete.";
+            PostOrExecute(uiContext, () =>
+            {
+                Status = FlashStatus.Success;
+                StatusMessage = "Flash complete.";
+            });
             tcs.SetResult(null);
         }
         catch (OperationCanceledException)
         {
-            Status = FlashStatus.Cancelled;
-            StatusMessage = "Cancelled.";
+            PostOrExecute(uiContext, () =>
+            {
+                Status = FlashStatus.Cancelled;
+                StatusMessage = "Cancelled.";
+            });
             tcs.SetResult(null); // cancellation is a terminal state, not a fault
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Flash run failed.");
-            Status = FlashStatus.Failed;
-            StatusMessage = ex.Message;
+            var msg = ex.Message;
+            PostOrExecute(uiContext, () =>
+            {
+                Status = FlashStatus.Failed;
+                StatusMessage = msg;
+            });
             tcs.SetException(ex);
         }
         finally
         {
             // Strict teardown order: detach the receive adapter BEFORE releasing the
             // client/isoTp/DllKey, so no late router frame is delivered to a disposing
-            // IsoTpLayer (which would fault the SDK read thread).
+            // IsoTpLayer (which would fault the SDK read thread). These are infrastructure
+            // calls — thread-safe and not UI-bound.
             stack?.DetachFromRouter();
             stack?.Dispose();
-            IsFlashing = false;
-            NotifyCommandCanExecute();
-            // MEDIUM-1: clear the in-flight task now that the run (and its finally) has
-            // completed — App.OnExit's await has observed the terminal state.
-            CurrentRunTask = null;
+            // UI-bound state writes must go through the captured SynchronizationContext.
+            PostOrExecute(uiContext, () =>
+            {
+                IsFlashing = false;
+                NotifyCommandCanExecute();
+                // MEDIUM-1: clear the in-flight task now that the run (and its finally) has
+                // completed — App.OnExit's await has observed the terminal state.
+                CurrentRunTask = null;
+            });
         }
     }
 
@@ -452,21 +489,40 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private async Task<Dictionary<int, FirmwareImage>> LoadAllFirmwareAsync(List<FlashStep> enabledSteps)
     {
         var dict = new Dictionary<int, FirmwareImage>();
-        var seenPaths = new HashSet<string>();
-        FirmwareImage? parsed = null;
+        // C-3/C-4 fix: Phase 2 path uses FirmwareFiles + SegmentIndex (primary).
+        // Phase 1.1 path uses FirmwarePath (backward compat, now uses ParseFile for HEX/S19).
+        var firmwareByPath = new Dictionary<string, FirmwareImage>();
+
         for (int i = 0; i < enabledSteps.Count; i++)
         {
             var step = enabledSteps[i];
             if (step.Kind != FlashStepKind.DownloadTransfer) continue;
-            if (string.IsNullOrWhiteSpace(step.FirmwarePath)) continue;
-            // Read each distinct path once, but populate dict[i] for EVERY step that uses it
-            // (same binary flashed to two addresses is a legitimate scenario).
-            if (seenPaths.Add(step.FirmwarePath))
+
+            // Phase 2: resolve from FirmwareFiles + SegmentIndex (the primary UI path).
+            if (step.Download is { } dl && dl.SegmentIndex >= 0)
             {
-                var bytes = await File.ReadAllBytesAsync(step.FirmwarePath).ConfigureAwait(false);
-                parsed = FirmwareFileParser.Parse(bytes);
+                var seg = SegmentAtIndex(dl.SegmentIndex);
+                if (seg is null)
+                    throw new InvalidOperationException(
+                        $"DownloadTransfer step {i} references SegmentIndex {dl.SegmentIndex} which is out of range.");
+                // Segment.Data is the parsed payload (from ParseFile at AddFirmwareFile time).
+                dict[i] = FirmwareFileParser.Parse(seg.Data);
+                continue;
             }
-            dict[i] = parsed!;
+
+            // Phase 1.1 backward compat: read from FirmwarePath.
+            if (string.IsNullOrWhiteSpace(step.FirmwarePath)) continue;
+            if (!firmwareByPath.TryGetValue(step.FirmwarePath, out var parsed))
+            {
+                // C-3 fix: use ParseFile (format-detecting) instead of Parse (raw binary only).
+                // This correctly handles .hex/.s19 files referenced via FirmwarePath.
+                var file = FirmwareFileParser.ParseFile(step.FirmwarePath);
+                // Flatten all segments into a single image for the legacy single-address path.
+                var allBytes = file.Segments.SelectMany(s => s.Data).ToArray();
+                parsed = FirmwareFileParser.Parse(allBytes);
+                firmwareByPath[step.FirmwarePath] = parsed;
+            }
+            dict[i] = parsed;
         }
         return dict;
     }
@@ -526,7 +582,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private void AddFlashDriver()
     {
         var path = _fileDialog.ShowOpenDialog(
-            "Flash driver (*.hex;*.s19)|*.hex;*.s19|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|All files|*.*");
+            "Flash driver (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|Raw binary (*.bin)|*.bin|All files|*.*");
         if (path is null) return;
         try
         {
@@ -687,7 +743,15 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
                 "Flash profile (*.flash.json)|*.flash.json|All files|*.*");
             if (path is null) return;
             var json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            // Clear SelectedStep BEFORE swapping the profile so OnSelectedStepChanged
+            // runs against the OLD step (harmless) rather than letting the ListBox
+            // auto-null it AFTER the swap (which would leave EraseSegmentIndex stale
+            // and the Erase Segment ComboBox showing the wrong selection).
+            SelectedStep = null;
             CurrentProfile = FlashProfile.FromJson(json);
+            // RefreshAllSegments runs via OnCurrentProfileChanged; EraseSegmentIndex is
+            // now -1 (cleared by OnSelectedStepChanged above) and will re-sync when the
+            // operator selects the Erase step again.
             StatusMessage = $"Profile loaded from {path}";
         }
         catch (JsonException ex)
@@ -748,9 +812,11 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             : null,
         Download = step.Download is { } dl ? new DownloadSnapshot(dl.SegmentIndex) : null,
         // Phase 2: Verify 的 ExpectedChecksum / StartAddress / EndAddress 从 Segment 自动算, 避免 operator 手工填错.
+        // H-2 fix: pass the step's OWN VerifyParams so each Verify step uses its own
+        // CrcParameters, not the currently-selected step's (which could be a different step).
         Verify = step.Verify is { } v ? new VerifySnapshot(
             (byte)v.Algorithm,
-            ExpectedChecksumFromSegment(v.SegmentIndex),
+            ExpectedChecksumFromSegment(v.SegmentIndex, v),
             StartAddressFromSegment(v.SegmentIndex),
             EndAddressFromSegment(v.SegmentIndex),
             v.SegmentIndex) : null,
@@ -788,13 +854,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// Issue 3 fix: 不能直接读 seg.Crc32 (那是 parse 时用标准 CRC-32 算的), 必须用
     /// operator 在 Verify 步骤选择的 CrcParameters 重新算.
     /// </summary>
-    private uint ExpectedChecksumFromSegment(int index)
+    // H-2 fix: takes the step's own VerifyParams instead of reading SelectedStep?.Verify.
+    // Each Verify step must compute its ExpectedChecksum with its own CrcParameters.
+    private uint ExpectedChecksumFromSegment(int index, VerifyParams verify)
     {
         var seg = SegmentAtIndex(index);
         if (seg is null) return 0;
-        var verify = SelectedStep?.Verify;
-        var parms = verify is not null ? ResolveCrcParameters(verify)
-            : Core.Uds.FlashPipeline.CrcParameters.Crc32;
+        var parms = ResolveCrcParameters(verify);
         return Crc32.Compute(seg.Data, parms);
     }
 
@@ -854,15 +920,11 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// </summary>
     private static IReadOnlyList<Segment> ParseFlashDriverSegments(string path)
     {
-        try
-        {
-            var file = FirmwareFileParser.ParseFile(path);
-            return file.Segments;
-        }
-        catch
-        {
-            return new[] { new Segment(0, Array.Empty<byte>()) };
-        }
+        // M-4 fix: do not swallow parse errors. The caller (AddFlashDriver) has its own
+        // try/catch that surfaces the error via StatusMessage - swallowing here would
+        // silently produce an empty segment, hiding a malformed driver file from the operator.
+        var file = FirmwareFileParser.ParseFile(path);
+        return file.Segments;
     }
 
     /// <summary>
@@ -906,6 +968,36 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// <see cref="StartAsync"/> never sees ApplicationStopping fire and the run behaves exactly
     /// like the pre-MEDIUM-1 design (only StopForWindowClose can cancel it). Singleton — stateless.
     /// </summary>
+    /// <summary>
+    /// Handle the nullable SynchronizationContext in catch/finally blocks.
+    /// When a UI SynchronizationContext is present (production WPF app), post the action
+    /// via <c>Post</c> so <c>[ObservableProperty]</c> writes are marshalled to the UI
+    /// thread and don't crash WPF binding with an <c>InvalidOperationException</c>.
+    /// When null (test environment, no WPF Dispatcher), execute inline — there is no UI
+    /// binding thread to protect.
+    /// </summary>
+    private static void PostOrExecute(SynchronizationContext? ctx, Action action)
+    {
+        if (ctx is not null)
+            ctx.Post(_ => action(), null);
+        else
+            action();
+    }
+
+    /// <summary>
+    /// Handle the nullable SynchronizationContext in catch/finally blocks.
+    /// Overload taking a state parameter to avoid closure allocation on the hot path.
+    /// When null ctx, <paramref name="action"/> is called with <paramref name="state"/>
+    /// directly.
+    /// </summary>
+    private static void PostOrExecute<TState>(SynchronizationContext? ctx, Action<TState> action, TState state)
+    {
+        if (ctx is not null)
+            ctx.Post(s => action((TState)s!), state);
+        else
+            action(state);
+    }
+
     private sealed class NullLifetime : IHostApplicationLifetime
     {
         public static NullLifetime Instance { get; } = new();
