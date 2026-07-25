@@ -148,6 +148,38 @@ public class DidDatabaseTests
         Assert.Null(sut.Find(0xABCD));
     }
 
+    // ---- Phase 2: Clear() for ODX re-import ----
+
+    [Fact]
+    public void Clear_Resets_To_BuiltIn_Defaults_Only()
+    {
+        var sut = new DidDatabase(logger: NullLogger<DidDatabase>.Instance);
+        // 模拟 ODX 导入：追加条目
+        sut.AddRange(new[] { new DidDefinition(0x9999, "ODX_DID", "from ODX", 4, false) }, out _);
+        sut.All.Should().Contain(d => d.Id == 0x9999, "ODX import should add entry");
+
+        sut.Clear();
+
+        sut.All.Should().HaveCount(5, "Clear removes ODX imports, keeps built-ins");
+        sut.All.Should().NotContain(d => d.Id == 0x9999, "ODX-imported entry must be gone");
+        sut.All.Should().Contain(d => d.Id == 0xF190, "built-in VIN must survive Clear");
+        sut.All.Should().Contain(d => d.Id == 0xF184, "built-in SoftwareVersion must survive Clear");
+    }
+
+    [Fact]
+    public void Clear_After_Multiple_AddRanges_Resets_To_BuiltIn()
+    {
+        var sut = new DidDatabase(logger: NullLogger<DidDatabase>.Instance);
+        sut.AddRange(new[] { new DidDefinition(0x1111, "ODX1", "", 1, false) }, out _);
+        sut.AddRange(new[] { new DidDefinition(0x2222, "ODX2", "", 2, false) }, out _);
+        sut.All.Should().HaveCount(7); // 5 built-in + 2 ODX
+
+        sut.Clear();
+
+        sut.All.Should().HaveCount(5);
+        sut.All.Should().NotContain(d => d.Id == 0x1111 || d.Id == 0x2222);
+    }
+
     [Fact]
     public void DidDatabase_With_Custom_AllowedRoots_Rejects_Path_Outside_List()
     {

@@ -17,26 +17,27 @@ namespace PeakCan.Host.App.Tests.ViewModels.Uds.FlashPipeline;
 public sealed class FlashProfileTests
 {
     [Fact]
-    public void CreateDefault_Yields_Seven_Template_Steps()
+    public void CreateDefault_Yields_Nine_Template_Steps()
     {
-        // The design total案 default template: PreCheck(off-grey) →
-        // SessionControl(on) → SecurityAccess(on) → Erase(on) → DownloadTransfer(on)
-        // → Verify(off) → EcuReset(on). Seven rows exactly, in this order.
+        // Phase 2 默认模板 (9 步): PreCheck(预编程检查) → SessionControl → SecurityAccess →
+        // FlashDriverDownload(下载 driver 到 RAM) → Erase → DownloadTransfer → Verify →
+        // EcuReset → DependencyCheck(编程依赖性检查).
         var sut = FlashProfile.CreateDefault();
 
         var kinds = sut.Steps.Select(s => s.Kind).ToArray();
 
-        // Equal(IEnumerable<T> expected) — the de-facto 7-step order.
         kinds.Should().Equal(
             new[]
             {
                 FlashStepKind.PreCheck,
                 FlashStepKind.SessionControl,
                 FlashStepKind.SecurityAccess,
+                FlashStepKind.FlashDriverDownload,
                 FlashStepKind.Erase,
                 FlashStepKind.DownloadTransfer,
                 FlashStepKind.Verify,
                 FlashStepKind.EcuReset,
+                FlashStepKind.DependencyCheck,
             });
     }
 

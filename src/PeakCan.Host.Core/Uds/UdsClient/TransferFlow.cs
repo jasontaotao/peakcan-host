@@ -13,6 +13,12 @@ public partial class UdsClient
     /// <summary>
     /// TesterPresent (0x3E).
     /// </summary>
+    /// <param name="suppressPosResponse">
+    /// Phase 2: when true, send sub-function 0x80 (suppress positive response).
+    /// Use during flashing to avoid the response frame interfering with the
+    /// ISO-TP multi-frame download stream. Falls back to 0x00 if the ECU
+    /// does not support suppression.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <remarks>
     /// v1.2.14 PATCH Item 4: virtual seam so end-to-end test doubles can
@@ -21,10 +27,43 @@ public partial class UdsClient
     /// <c>UdsSessionTests</c> previously relied on the same seam - this
     /// method was the undeclared one they couldn't override.
     /// </remarks>
-    public virtual async Task TesterPresentAsync(CancellationToken ct = default)
+    public virtual async Task TesterPresentAsync(bool suppressPosResponse = false, CancellationToken ct = default)
     {
-        await SendRequestAsync(0x3E, [0x00], ct).ConfigureAwait(false);
+        byte subFunc = suppressPosResponse ? (byte)0x80 : (byte)0x00;
+        await SendRequestAsync(0x3E, [subFunc], ct).ConfigureAwait(false);
         Session.ResetS3Timer();
+    }
+
+    /// <summary>
+    /// Phase 2: CommunicationControl (0x28) — broadcast to all ECUs to enable/disable
+    /// communication. Uses functional addressing (no response expected). Typical use:
+    /// disable all ECU communication before flashing, re-enable after.
+    /// </summary>
+    /// <param name="subFunc">Sub-function: EnableRxAndTx (0x00), EnableRxDisableTx (0x01),
+    /// DisableRxAndTx (0x02), etc.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public virtual Task CommunicationControlAsync(CommunicationSubFunction subFunc, CancellationToken ct = default)
+    {
+        // 0x28 is a functional-address service — send via IsoTpLayer.SendFunctionalAsync
+        // which uses FunctionalId and does not wait for a response.
+        return _isoTp.SendFunctionalAsync([(byte)0x28, (byte)subFunc], ct);
+    }
+
+    /// <summary>
+    /// Phase 2: DTCControl (0x14) — clear or read DTCs. Uses physical addressing
+    /// (expects response). The response carries DTC status/data for read operations.
+    /// </summary>
+    /// <param name="subFunc">Sub-function (0x01=ReportDTCByStatusMask, etc.).</param>
+    /// <param name="dtcDroup">3-byte DTC group (0x00FFFFFF = all DTCs for clear).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public virtual async Task<byte[]> DtcControlAsync(DtcControlSubFunction subFunc, uint dtcGroup, CancellationToken ct = default)
+    {
+        var requestData = new byte[4];
+        requestData[0] = (byte)subFunc;
+        requestData[1] = (byte)(dtcGroup >> 16);
+        requestData[2] = (byte)(dtcGroup >> 8);
+        requestData[3] = (byte)(dtcGroup);
+        return await SendRequestAsync(0x14, requestData, ct).ConfigureAwait(false);
     }
 
     /// <summary>

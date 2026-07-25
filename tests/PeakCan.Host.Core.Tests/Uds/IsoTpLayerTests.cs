@@ -42,6 +42,38 @@ public sealed class IsoTpLayerTests
             new CanId(RespId, FrameFormat.Standard),
             canData, FrameFlags.None, default, default));
 
+    // ---- Phase 2: Functional addressing ----
+
+    [Fact]
+    public async Task SendFunctionalAsync_Uses_FunctionalId_Not_RequestId()
+    {
+        var sent = new ObservableCollection<CanFrame>();
+        var iso = new IsoTpLayer(
+            new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8, FunctionalId = 0x7DF },
+            frame => sent.Add(frame));
+
+        // Act — send functional (broadcast) frame
+        await iso.SendFunctionalAsync([0x28, 0x02], default);
+
+        // Assert — CAN ID should be the FunctionalId (0x7DF), not RequestId (0x7E0)
+        sent.Should().HaveCount(1);
+        sent[0].Id.Raw.Should().Be(0x7DF, "functional send uses FunctionalId");
+    }
+
+    [Fact]
+    public async Task SendFunctionalAsync_NoResponseExpected_DoesNotWait()
+    {
+        var sent = new ObservableCollection<CanFrame>();
+        var iso = new IsoTpLayer(
+            new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8, FunctionalId = 0x7DF },
+            frame => sent.Add(frame));
+
+        // Act — should complete immediately without waiting for a response
+        await iso.SendFunctionalAsync([0x28, 0x02], default);
+
+        sent.Should().HaveCount(1, "functional broadcast sends one frame and returns");
+    }
+
     private static void InjectFlowControl(IsoTpLayer iso, byte flowStatus = 0, byte blockSize = 0, byte stMin = 0)
         => InjectRawFrame(iso, new IsoTpFrame(
             IsoTpFrameType.FlowControl,

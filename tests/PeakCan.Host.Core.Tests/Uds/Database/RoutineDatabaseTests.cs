@@ -91,6 +91,33 @@ public class RoutineDatabaseTests
         }
     }
 
+    // ---- Phase 2: Clear() for ODX re-import ----
+
+    [Fact]
+    public void Clear_Empties_Database()
+    {
+        var sut = new RoutineDatabase();
+        sut.AddRange(new[] { new RoutineDefinition(0x1234, "ODX_Routine", "d", true, false) }, out _);
+        sut.All.Should().HaveCount(1);
+
+        sut.Clear();
+
+        sut.All.Should().BeEmpty("RoutineDatabase has no built-ins → Clear empties it");
+    }
+
+    [Fact]
+    public void Clear_After_Multiple_AddRanges_Empties()
+    {
+        var sut = new RoutineDatabase();
+        sut.AddRange(new[] { new RoutineDefinition(0x1111, "R1", "d", true, false) }, out _);
+        sut.AddRange(new[] { new RoutineDefinition(0x2222, "R2", "d", true, false) }, out _);
+        sut.All.Should().HaveCount(2);
+
+        sut.Clear();
+
+        sut.All.Should().BeEmpty();
+    }
+
     [Fact]
     public void Find_MissingId_Returns_Null()
     {

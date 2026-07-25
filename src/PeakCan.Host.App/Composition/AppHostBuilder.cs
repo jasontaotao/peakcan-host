@@ -284,7 +284,9 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.ISecondaryFlashStackFactory>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>>()));
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>>(),
+                sp.GetRequiredService<Core.IFileDialogService>(),
+                sp.GetRequiredService<IHostApplicationLifetime>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +

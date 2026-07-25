@@ -50,7 +50,7 @@ public sealed class SessionPanelViewModelTests
             });
         }
 
-        public override Task TesterPresentAsync(CancellationToken ct = default)
+        public override Task TesterPresentAsync(bool suppressPosResponse = false, CancellationToken ct = default)
         {
             if (TesterPresentThrows)
                 throw new InvalidOperationException("TesterPresent underlying transport closed.");

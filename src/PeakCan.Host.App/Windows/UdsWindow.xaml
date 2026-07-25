@@ -170,6 +170,10 @@
                         <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
                         <conv:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter"/>
                         <conv:NullToBooleanConverter x:Key="NullToBooleanConverter"/>
+                        <conv:InverseNullToBooleanConverter x:Key="InverseNullToBooleanConverter"/>
+                        <conv:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+                        <conv:NegativeToBooleanConverter x:Key="NegativeToBooleanConverter"/>
+                        <conv:NonZeroToVisibilityConverter x:Key="NonZeroToVisibilityConverter"/>
                     </DockPanel.Resources>
                     <StackPanel DockPanel.Dock="Top" Margin="8">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
@@ -180,10 +184,11 @@
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
                             <TextBlock Text="Func 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.FunctionalId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50"/>
+                            <CheckBox Content="Extended Frame (29-bit)"
+                                      IsChecked="{Binding Flash.CurrentProfile.ProgrammingCanId.IsExtendedFrame}"
+                                      VerticalAlignment="Center" Margin="12,0,0,0"
+                                      ToolTip="Standard frame: 11-bit CAN ID (0x000-0x7FF). Extended frame: 29-bit CAN ID."/>
                         </StackPanel>
-                        <TextBlock Text="⚠ 编程寻址若与诊断寻址 (0x7E0/0x7E8) 相同，Start 时会拒绝 Dll mode（仅 Manual）"
-                                   Foreground="#C08000" Margin="0,0,0,8"
-                                   TextWrapping="Wrap"/>
                         <CheckBox Content="出错时自动重启 ECU (Fail-Safe Reset)" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
                                   Margin="0,0,0,8" ToolTip="刷写失败时自动发 EcuReset(0x01) 防止 ECU 半刷状态"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
@@ -288,7 +293,7 @@
                                 <TextBlock Text="{Binding Flash.SelectedStep.Kind, StringFormat='Properties: {0}'}"
                                            FontWeight="Bold" FontSize="14" Margin="0,0,0,8"/>
 
-                                <!-- AddressingMode: only enabled for CommunicationControl (0x28) steps -->
+                                <!-- AddressingMode: 0x28 (CommunicationControl) 强制 Functional (broadcast), 其余步骤可切换 -->
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="100"/>
@@ -298,7 +303,8 @@
                                     <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding Flash.AddressingModes}"
                                               SelectedItem="{Binding Flash.SelectedStep.AddressingMode}"
-                                              IsEnabled="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource NullToBooleanConverter}}"/>
+                                              IsEnabled="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource InverseNullToBooleanConverter}}"
+                                              />
                                 </Grid>
 
                                 <!-- PreCheck properties -->
@@ -348,6 +354,29 @@
                                 <!-- Erase/Verify (RoutineControl) properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.RoutineControl, Converter={StaticResource NullToVisibilityConverter}}">
                                     <TextBlock Text="RoutineControl" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <!-- Issue 1: Erase 步骤的 Segment 选择器 — 选中后自动填充 StartAddr/Size -->
+                                    <Grid Margin="0,0,0,8"
+                                          Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
+                                                  SelectedIndex="{Binding Flash.EraseSegmentIndex, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="选择要擦除的 Segment (地址+大小自动获取)">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock>
+                                                        <Run Text="{Binding FileName, Mode=OneWay}"/>
+                                                        <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </Grid>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -358,10 +387,20 @@
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, StringFormat=0x{0:X4}}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Start Addr:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, StringFormat=0x{0:X8}}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.Size, StringFormat=0x{0:X8}}"/>
+                                        <!-- Start Addr / Size: Verify 步骤隐藏 (从 Segment 自动算); Erase 步骤显示.
+                                             选中 Segment 后自动填充 (只读), 未选时可手工编辑. -->
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Start Addr:" VerticalAlignment="Center"
+                                                   Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1"
+                                                 Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, StringFormat=0x{0:X8}}"
+                                                 Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
+                                                 IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" VerticalAlignment="Center"
+                                                   Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1"
+                                                 Text="{Binding Flash.SelectedStep.RoutineControl.Size, StringFormat=0x{0:X8}}"
+                                                 Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
+                                                 IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
                                     </Grid>
                                 </StackPanel>
 
@@ -377,12 +416,24 @@
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
-                                                  SelectedIndex="{Binding Flash.SelectedStep.Download.SegmentIndex}"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
+                                                  SelectedIndex="{Binding Flash.SelectedStep.Download.SegmentIndex}"
+                                                  ToolTip="选择要下载的 Segment (地址+大小+CRC 自动获取)">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock>
+                                                        <Run Text="{Binding FileName, Mode=OneWay}"/>
+                                                        <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </Grid>
                                 </StackPanel>
 
-                                <!-- Verify properties (read-only display) -->
+                                <!-- Verify properties (CRC 预设 + Segment 绑定) -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource NullToVisibilityConverter}}">
                                     <TextBlock Text="Verify" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
@@ -391,24 +442,61 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
-                                            <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                            <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Algorithm:" VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Row="0" Grid.Column="1"
-                                                  ItemsSource="{Binding Flash.ChecksumAlgorithms}"
-                                                  SelectedItem="{Binding Flash.SelectedStep.Verify.Algorithm}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
-                                        <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"
-                                                  ToolTip="选择要校验的 Segment (地址+大小+CRC 自动获取)"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Address:" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="1">
-                                            <Run Text="0x"/><Run Text="{Binding Flash.SelectedStep.Verify.StartAddress, StringFormat={}{0:X8}}"/>
-                                            <Run Text=" - 0x"/><Run Text="{Binding Flash.SelectedStep.Verify.EndAddress, StringFormat={}{0:X8}}"/>
+                                                  ToolTip="选择要校验的 Segment (地址+大小+CRC 自动获取)">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock>
+                                                        <Run Text="{Binding FileName, Mode=OneWay}"/>
+                                                        <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CRC Preset:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                                  ItemsSource="{Binding Flash.CrcPresetNames}"
+                                                  SelectedIndex="{Binding Flash.SelectedStep.Verify.SelectedCrcPresetIndex}"
+                                                  ToolTip="选择 CRC 算法预设以匹配目标 ECU"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Polynomial:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Polynomial, StringFormat=0x{0:X8}}"
+                                                 IsEnabled="{Binding Flash.SelectedStep.Verify.IsCrcCustom}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Address:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="1">
+                                            <Run Text="0x"/><Run Text="{Binding Flash.SelectedStep.Verify.StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                            <Run Text=" - 0x"/><Run Text="{Binding Flash.SelectedStep.Verify.EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                         </TextBlock>
                                     </Grid>
+                                    <!-- Custom CRC 参数面板 (仅在 Custom 预设时显示) -->
+                                    <StackPanel Margin="0,8,0,0"
+                                                Visibility="{Binding Flash.SelectedStep.Verify.IsCrcCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <TextBlock Text="Custom CRC Parameters" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Init:" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Init, StringFormat=0x{0:X8}}"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Final XOR:" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.FinalXor, StringFormat=0x{0:X8}}"/>
+                                            <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="Reflect Input"
+                                                      IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectInput}"
+                                                      VerticalAlignment="Center"/>
+                                            <CheckBox Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Reflect Output"
+                                                      IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectOutput}"
+                                                      VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- EcuReset properties -->
@@ -487,6 +575,22 @@
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.FlashDriverDownload, Converter={StaticResource NullToVisibilityConverter}}">
                                     <TextBlock Text="FlashDriverDownload" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="Gray" TextWrapping="Wrap"/>
+                                    <StackPanel Margin="0,8,0,0"
+                                                Visibility="{Binding Flash.FlashDriverSegmentCount, Converter={StaticResource NonZeroToVisibilityConverter}}">
+                                        <TextBlock Text="Driver Segments:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                        <ItemsControl ItemsSource="{Binding Flash.FlashDriverSegments}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Margin="0,0,0,2">
+                                                        <Run Text="{Binding FileName, Mode=OneWay}"/>
+                                                        <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
+                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->

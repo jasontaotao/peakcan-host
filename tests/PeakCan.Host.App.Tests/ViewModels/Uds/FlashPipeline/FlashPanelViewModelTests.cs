@@ -242,7 +242,7 @@ public sealed class FlashPanelViewModelTests
             // hex-decodes it and rejects empty BEFORE the wire, so the success path needs a real
             // key hex or SecurityAccess throws and the run ends Failed (not Success).
             // Phase 2: Executor reads flat fields (source of truth). Grouped params mirror via ToSnapshot.
-            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
@@ -273,10 +273,14 @@ public sealed class FlashPanelViewModelTests
         await File.WriteAllBytesAsync(tmp, new byte[] { 1, 2, 3, 4 });
         try
         {
+            // Phase 2: 默认模板新增 FlashDriverDownload + DependencyCheck, 测试中禁用避免干扰
+            foreach (var step in ctx.Vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+                step.IsEnabled = false;
+
             var dl = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
             dl.FirmwarePath = tmp;
             dl.MemoryAddress = 0x0800_0000u;
-            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
@@ -689,6 +693,10 @@ public sealed class FlashPanelViewModelTests
         await File.WriteAllBytesAsync(tmp, new byte[] { 0xAA, 0xBB });
         try
         {
+            // Phase 2: 禁用默认模板中新增的 FlashDriverDownload + DependencyCheck
+            foreach (var step in ctx.Vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+                step.IsEnabled = false;
+
             var dl1 = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
             dl1.FirmwarePath = tmp;
             dl1.MemoryAddress = 0x1000u;
@@ -696,7 +704,7 @@ public sealed class FlashPanelViewModelTests
             var dl2 = ctx.Vm.CurrentProfile.Steps.Last(s => s.Kind == FlashStepKind.DownloadTransfer);
             dl2.FirmwarePath = tmp; // SAME path as dl1
             dl2.MemoryAddress = 0x2000u;
-            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
@@ -721,6 +729,10 @@ public sealed class FlashPanelViewModelTests
         await File.WriteAllBytesAsync(tmpB, new byte[] { 0xCC, 0xDD, 0xEE });
         try
         {
+            // Phase 2: 禁用默认模板中新增的 FlashDriverDownload + DependencyCheck
+            foreach (var step in ctx.Vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+                step.IsEnabled = false;
+
             // Default profile has one DownloadTransfer at some index — add a second one.
             var dl1 = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
             dl1.FirmwarePath = tmpA;
@@ -730,7 +742,7 @@ public sealed class FlashPanelViewModelTests
             dl2.FirmwarePath = tmpB;
             dl2.MemoryAddress = 0x2000u;
             // SecurityAccess needs a valid key for the success path
-            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
@@ -775,7 +787,7 @@ public sealed class FlashPanelViewModelTests
             var dl = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
             dl.FirmwarePath = tmp;
             dl.MemoryAddress = 0x0800_0000u;
-            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+            ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
 
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
@@ -864,11 +876,14 @@ public sealed class FlashPanelViewModelTests
         {
             CurrentProfile = FlashProfile.CreateDefault(),
         };
+        // Phase 2: 禁用默认模板中新增的 FlashDriverDownload + DependencyCheck
+        foreach (var step in vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+            step.IsEnabled = false;
         var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
         dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"flashstall_{Guid.NewGuid():N}.bin");
         await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
         dl.MemoryAddress = 0x0800_0000u;
-        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
         try
         {
             // Kick the run off; it parks inside PipelineExecutor on the first TransferData
@@ -960,7 +975,7 @@ public sealed class FlashPanelViewModelTests
         dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"curr_{Guid.NewGuid():N}.bin");
         await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
         dl.MemoryAddress = 0x0800_0000u;
-        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
         try
         {
             var run = vm.StartCommand.ExecuteAsync(null);
@@ -986,11 +1001,14 @@ public sealed class FlashPanelViewModelTests
         var lifetime = new FakeHostApplicationLifetime();
         var factory = new StallingFactory();
         var vm = CreateWithLifetime(lifetime, factory);
+        // Phase 2: 禁用默认模板中新增的 FlashDriverDownload + DependencyCheck
+        foreach (var step in vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+            step.IsEnabled = false;
         var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
         dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"stop_{Guid.NewGuid():N}.bin");
         await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
         dl.MemoryAddress = 0x0800_0000u;
-        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
         try
         {
             var run = vm.StartCommand.ExecuteAsync(null);
@@ -1016,11 +1034,14 @@ public sealed class FlashPanelViewModelTests
     {
         var lifetime = new FakeHostApplicationLifetime();
         var vm = CreateWithLifetime(lifetime); // fast-positive factory → run completes synchronously
+        // Phase 2: 禁用默认模板中新增的 FlashDriverDownload + DependencyCheck
+        foreach (var step in vm.CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.FlashDriverDownload || s.Kind == FlashStepKind.DependencyCheck))
+            step.IsEnabled = false;
         var dl = vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.DownloadTransfer);
         dl.FirmwarePath = Path.Combine(Path.GetTempPath(), $"done_{Guid.NewGuid():N}.bin");
         await File.WriteAllBytesAsync(dl.FirmwarePath, new byte[] { 1, 2, 3, 4 });
         dl.MemoryAddress = 0x0800_0000u;
-        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).ManualKeyHex = "AABBCCDD";
+        vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess).SecurityAccess!.ManualKeyHex = "AABBCCDD";
         try
         {
             await (Task)vm.StartCommand.ExecuteAsync(null)!;

@@ -1,4 +1,6 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PeakCan.Host.Core.Uds.FlashPipeline;
 
@@ -20,8 +22,22 @@ namespace PeakCan.Host.Core.Uds.FlashPipeline;
 /// not an error handler, so the UI can still surface the root cause.
 /// </para>
 /// </summary>
-public static class PipelineExecutor
+public static partial class PipelineExecutor
 {
+    /// <summary>
+    /// Static logger for the executor. Defaults to <see cref="NullLogger.Instance"/> (silent);
+    /// tests/integration can swap in a real logger via <see cref="SetLogger"/> if executor-side
+    /// diagnostics are needed. Follows the <c>AscParser</c> static-logger pattern.
+    /// </summary>
+    private static ILogger _logger = NullLogger.Instance;
+
+    /// <summary>Replace the executor logger (e.g. wire a diagnostic logger in composition).</summary>
+    public static void SetLogger(ILogger logger) => _logger = logger ?? NullLogger.Instance;
+
+    [LoggerMessage(Level = LogLevel.Debug,
+                   Message = "FlashDriverDownload step skipped — no flash driver loaded in profile.")]
+    private static partial void LogFlashDriverDownloadSkipped(ILogger logger);
+
     /// <summary>ISO 14229 Programming sessionType byte.</summary>
     public const byte ProgrammingSessionType = 0x03;
 
@@ -66,6 +82,12 @@ public static class PipelineExecutor
     /// FlashDriverDownload steps — the static executor has no access to the profile, so
     /// the caller must pass the driver in. Null when no driver is loaded.
     /// </param>
+    /// <param name="profileAutoResetOnFailure">
+    /// Profile-level master switch for the auto-reset safety net (Phase 2 §3.3). The
+    /// executor ANDs this with the per-step <see cref="FlashStepSnapshot.AutoResetOnFailure"/>
+    /// flag — both must be true for the net to fire. Lets the operator disable the net
+    /// globally without editing each step. Default true preserves Phase 1 behavior.
+    /// </param>
     /// <param name="progress">Optional progress reporter bridged to the UI by the caller.</param>
     /// <param name="ct">Cancellation token — propagated to every UDS call.</param>
     public static async Task ExecuteAsync(
@@ -74,6 +96,7 @@ public static class PipelineExecutor
         FirmwareResolver firmwareResolver,
         SegmentAddressResolver? segmentAddressResolver,
         FlashDriver? profileFlashDriver = null,
+        bool profileAutoResetOnFailure = true,
         IProgress<FlashProgress>? progress = null,
         CancellationToken ct = default)
     {
@@ -109,7 +132,8 @@ public static class PipelineExecutor
                 catch (Exception ex)
                 {
                     // Safety net: auto-reset to leave the ECU in a sane state on failure.
-                    if (step.AutoResetOnFailure)
+                    // Phase 2 §3.3: gated by BOTH the per-step flag AND the profile master switch.
+                    if (step.AutoResetOnFailure && profileAutoResetOnFailure)
                     {
                         try
                         {
@@ -157,8 +181,18 @@ public static class PipelineExecutor
                 }
                 catch (UdsException)
                 {
-                    // Suppress not supported — retry with non-suppress variant.
-                    await client.TesterPresentAsync(suppressPosResponse: false, ct).ConfigureAwait(false);
+                    // Suppress not supported (NRC) — retry with non-suppress variant. The
+                    // fallback can itself fail (e.g. bus-off); that failure must NOT abort
+                    // the flash, so we catch UdsException here rather than letting it fall
+                    // through to the outer blanket catch (M6: narrow the fallback handler).
+                    try
+                    {
+                        await client.TesterPresentAsync(suppressPosResponse: false, ct).ConfigureAwait(false);
+                    }
+                    catch (UdsException)
+                    {
+                        // Neither variant worked this tick — silently continue to the next.
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -187,16 +221,21 @@ public static class PipelineExecutor
     /// <param name="profileFlashDriver">
     /// The profile-level flash driver (if any). See the per-step resolver overload for details.
     /// </param>
+    /// <param name="profileAutoResetOnFailure">
+    /// Profile-level master switch for the auto-reset safety net. See the per-step resolver
+    /// overload for details.
+    /// </param>
     public static async Task ExecuteAsync(
         UdsClient client,
         IReadOnlyList<FlashStepSnapshot> enabledSteps,
         FirmwareImage? firmware,
         IProgress<FlashProgress>? progress,
         CancellationToken ct,
-        FlashDriver? profileFlashDriver = null)
+        FlashDriver? profileFlashDriver = null,
+        bool profileAutoResetOnFailure = true)
     {
         // Delegate to the per-step resolver overload — constant resolver returns the same image.
-        await ExecuteAsync(client, enabledSteps, (_, __) => firmware, null, profileFlashDriver, progress, ct).ConfigureAwait(false);
+        await ExecuteAsync(client, enabledSteps, (_, __) => firmware, null, profileFlashDriver, profileAutoResetOnFailure, progress, ct).ConfigureAwait(false);
     }
 
     private static async Task ExecuteStepAsync(
@@ -228,7 +267,11 @@ public static class PipelineExecutor
 
             case FlashStepKind.Erase:
                 // Phase 2: Read flat RoutineId (source of truth; grouped params mirror via ToSnapshot).
-                await client.RoutineControlAsync(StartRoutine, step.RoutineId, data: null, ct: ct).ConfigureAwait(false);
+                // Issue 1: 如果 operator 指定了 StartAddress/Size, 将它们作为 routine data 传入
+                // (格式: [startAddress(4B big-endian), size(4B big-endian)]), 让 ECU 擦除指定地址范围.
+                // 未指定时 (都为 0) 传 null, 回退到 ECU 预配置的擦除范围.
+                var eraseData = BuildEraseRoutineData(step.RoutineControl?.StartAddress, step.RoutineControl?.Size);
+                await client.RoutineControlAsync(StartRoutine, step.RoutineId, eraseData, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.DownloadTransfer:
@@ -236,7 +279,7 @@ public static class PipelineExecutor
                 break;
 
             case FlashStepKind.Verify:
-                await ExecuteVerifyAsync(client, step, firmwareResolver, ct).ConfigureAwait(false);
+                await ExecuteVerifyAsync(client, step, firmwareResolver, segmentAddressResolver, ct).ConfigureAwait(false);
                 break;
 
             case FlashStepKind.EcuReset:
@@ -259,8 +302,13 @@ public static class PipelineExecutor
 
             case FlashStepKind.FlashDriverDownload:
                 // ISO 14229: 下载 flash driver 到 RAM, ECU 自动识别执行
+                // 没有 driver 时跳过 (no-op), 避免默认模板在无 driver 时失败
                 if (profileFlashDriver is null)
-                    throw new InvalidOperationException("FlashDriverDownload step enabled but no flash driver loaded in profile.");
+                {
+                    // M5: emit a debug log so a silent skip is diagnosable in the log stream.
+                    LogFlashDriverDownloadSkipped(_logger);
+                    break;
+                }
                 await ExecuteFlashDriverDownloadAsync(client, profileFlashDriver, progress, stepIndex, total, ct).ConfigureAwait(false);
                 break;
 
@@ -455,19 +503,30 @@ public static class PipelineExecutor
         UdsClient client,
         FlashStepSnapshot step,
         FirmwareResolver firmwareResolver,
+        SegmentAddressResolver? segmentAddressResolver,
         CancellationToken ct)
     {
         // Phase 2: Read expected checksum from the Verify snapshot group.
         // Falls back to flat RoutineId for backward compatibility.
         var verify = step.Verify;
         var routineId = step.RoutineControl?.RoutineId ?? step.RoutineId;
-        var expectedCrc = verify?.ExpectedChecksum ?? 0;
 
-        if (expectedCrc == 0)
+        // M1: distinguish "not configured" from "configured with checksum 0".
+        // A Verify step is "configured" when its SegmentIndex resolves to a valid segment
+        // (the resolver returns non-null). This runs verification even if the segment's CRC
+        // happens to be 0 — a legitimate value, not a sentinel. When no segment resolver is
+        // available (legacy backward-compat path), fall back to the CRC != 0 heuristic.
+        bool isConfigured = segmentAddressResolver is not null
+            ? (verify is not null && segmentAddressResolver(verify.SegmentIndex) is not null)
+            : (verify is not null && verify.ExpectedChecksum != 0);
+
+        if (!isConfigured)
         {
             // No expected checksum configured — skip verification (OEM-gated).
             return;
         }
+
+        var expectedCrc = verify!.ExpectedChecksum;
 
         // Build routine data: [startAddr(4B), endAddr(4B), expectedCrc(4B)]
         var data = new byte[12];
@@ -501,6 +560,24 @@ public static class PipelineExecutor
                 $"Checksum mismatch @ 0x{startAddr:X8}-0x{endAddr:X8}: " +
                 $"expected 0x{expectedCrc:X8}, ECU returned 0x{actualCrc:X8}");
         }
+    }
+
+    /// <summary>
+    /// Issue 1: 构建 Erase routine data. 格式 [startAddress(4B big-endian), size(4B big-endian)].
+    /// 两者都为 0 时返回 null (ECU 使用预配置范围); 否则返回 8-byte 数组.
+    /// </summary>
+    private static byte[]? BuildEraseRoutineData(uint? startAddress, uint? size)
+    {
+        if (startAddress is null or 0u && size is null or 0u)
+            return null;  // 未指定地址 → ECU 预配置范围
+
+        var start = startAddress ?? 0u;
+        var sz = size ?? 0u;
+        return new byte[]
+        {
+            (byte)(start >> 24), (byte)(start >> 16), (byte)(start >> 8), (byte)start,
+            (byte)(sz >> 24), (byte)(sz >> 16), (byte)(sz >> 8), (byte)sz,
+        };
     }
 
     private static FlashProgress MakeProgress(int stepIndex, int total, FlashStepKind kind,

@@ -87,4 +87,37 @@ public sealed class FirmwareFileParserTests
         image.Length.Should().Be((uint)large.Length);
         image.Data[0].Should().Be(0x42);
     }
+
+    // ---- Issue 3: configurable CRC parameters (polynomial / init / finalXor / reflection) ----
+
+    private static readonly byte[] CheckBytes = "123456789"u8.ToArray();
+
+    [Fact]
+    public void Compute_Known_Check_Values_Match_Standard()
+    {
+        // The standard check value for "123456789" under each preset MUST match —
+        // this is the contract that lets the operator trust the Verify step against any ECU.
+        Crc32.Compute(CheckBytes, CrcParameters.Crc32).Should().Be(0xCBF43926u, "CRC-32");
+        Crc32.Compute(CheckBytes, CrcParameters.Crc32C).Should().Be(0xE3069283u, "CRC-32C");
+        Crc32.Compute(CheckBytes, CrcParameters.Crc32Mpeg2).Should().Be(0x0376E6E7u, "CRC-32/MPEG-2");
+        Crc32.Compute(CheckBytes, CrcParameters.Crc32Bzip2).Should().Be(0xFC891918u, "CRC-32/BZIP2");
+        // Custom parametrization via raw fields (CRC-32C equivalent).
+        var custom = new CrcParameters(0x1EDC6F41u, 0xFFFFFFFFu, 0xFFFFFFFFu, true, true);
+        Crc32.Compute(CheckBytes, custom).Should().Be(0xE3069283u, "custom CRC-32C");
+    }
+
+    [Fact]
+    public void Compute_Default_Overload_Equals_Crc32_Preset()
+    {
+        // Backward compat: the parameter-less Compute(byte[]) MUST equal standard CRC-32.
+        Crc32.Compute(CheckBytes).Should().Be(Crc32.Compute(CheckBytes, CrcParameters.Crc32));
+    }
+
+    [Fact]
+    public void Compute_Empty_Input_Returns_Init_Xored_With_Final()
+    {
+        // Edge case: no data → crc = init, then XORed with finalXor.
+        var parms = new CrcParameters(0x04C11DB7u, 0xDEADBEEFu, 0xCAFEBABEu, true, true);
+        Crc32.Compute(Array.Empty<byte>(), parms).Should().Be(0xDEADBEEFu ^ 0xCAFEBABEu);
+    }
 }

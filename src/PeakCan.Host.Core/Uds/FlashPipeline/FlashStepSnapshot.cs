@@ -31,7 +31,8 @@ public sealed record VerifySnapshot(
     byte Algorithm,
     uint ExpectedChecksum,
     uint StartAddress,
-    uint EndAddress);
+    uint EndAddress,
+    int SegmentIndex);  // M1: carried so the executor can distinguish "not configured" (index out of range) from "configured with checksum 0".
 
 public sealed record EcuResetSnapshot(
     EcuResetType ResetType);

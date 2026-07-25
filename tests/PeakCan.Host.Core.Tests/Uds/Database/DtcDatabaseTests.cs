@@ -67,4 +67,30 @@ public class DtcDatabaseTests
         // Assert
         result.Should().BeNull();
     }
+
+    // ---- Phase 2: Clear() for ODX re-import ----
+
+    [Fact]
+    public void Clear_Empties_Database()
+    {
+        var db = new DtcDatabase(new[] { new DtcDefinition(0x1, "P0001", "X", 0x2F) });
+        db.All.Should().HaveCount(1);
+
+        db.Clear();
+
+        db.All.Should().BeEmpty("DtcDatabase has no built-ins → Clear empties it");
+    }
+
+    [Fact]
+    public void Clear_After_Multiple_AddRanges_Empties()
+    {
+        var db = new DtcDatabase();
+        db.AddRange(new[] { new DtcDefinition(0x1, "P0001", "X", 0x2F) }, out _);
+        db.AddRange(new[] { new DtcDefinition(0x2, "P0002", "Y", 0x2F) }, out _);
+        db.All.Should().HaveCount(2);
+
+        db.Clear();
+
+        db.All.Should().BeEmpty();
+    }
 }

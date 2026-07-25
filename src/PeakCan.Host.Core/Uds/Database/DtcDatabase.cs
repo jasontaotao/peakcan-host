@@ -55,4 +55,11 @@ public sealed class DtcDatabase
         }
         return null;
     }
+
+    /// <summary>
+    /// Phase 2: Empty the database — DTCs have no built-in defaults, so
+    /// Clear() removes everything. Called by <c>OdxImportService</c> before a
+    /// fresh ODX import.
+    /// </summary>
+    public void Clear() => _dtcs.Clear();
 }

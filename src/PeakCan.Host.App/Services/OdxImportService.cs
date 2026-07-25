@@ -92,6 +92,12 @@ public sealed class OdxImportService : IOdxImportService
                 $"(DID={didDefs.Count}, DTC={dtcDefs.Count}, Routine={routineDefs.Count}); refused.");
         }
 
+        // Phase 2: Clear existing data before import — re-importing a second
+        // ODX must not accumulate stale entries from the first.
+        _dids.Clear();
+        _routines.Clear();
+        _dtcs.Clear();
+
         _dids.AddRange(didDefs, out var didWarn);
         warnings.AddRange(didWarn);
         _routines.AddRange(routineDefs, out var routineWarn);

@@ -147,6 +147,15 @@ public sealed record CanIdConfig
     /// Used for functional addressing (e.g., 0x7DF for OBD-II).
     /// </summary>
     public uint? FunctionalId { get; init; }
+
+    /// <summary>
+    /// Whether to use CAN extended frame format (29-bit arbitration ID).
+    /// <c>false</c> (default) = standard frame (11-bit ID, 0x000–0x7FF).
+    /// <c>true</c> = extended frame (29-bit ID, 0x00000000–0x1FFFFFFF).
+    /// Most OEM UDS programming addresses (e.g. 0x714/0x760) use standard frames;
+    /// some ECUs (e.g. J1939, certain OEM extended-addressing schemes) require extended.
+    /// </summary>
+    public bool IsExtendedFrame { get; init; }
     // === Flow F methods moved to IsoTpLayer/FlowControlFlow.cs (W9 Task 1) ===
     // === Flow G methods moved to IsoTpLayer/LoggingFlow.cs (W9 Task 2) ===
     // === Flow E methods + WatchdogHandle class + _rxWatchdog field moved to IsoTpLayer/WatchdogFlow.cs (W9 Task 3) ===

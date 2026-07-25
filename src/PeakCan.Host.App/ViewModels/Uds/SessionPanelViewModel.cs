@@ -109,13 +109,15 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     {
         try
         {
-            AppendLog("Info", "Requesting security access (level 0x01)...");
+            AppendLog("Info", $"Requesting security access (level 0x{SecurityLevel:X2})...");
             // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — catch handlers set
             // SecurityLevel and call AppendLog, both of which need the UI
             // dispatcher.
-            var response = await _udsClient.SecurityAccessAsync((byte)0x01, CancellationToken.None);
-            SecurityLevel = 0x01;
-            AppendLog("Info", $"SecurityAccess 0x01 succeeded ({response.Length} bytes).");
+            // Phase 2: level is now operator-configurable via SecurityLevel property.
+            var level = SecurityLevel ?? 0x01;
+            var response = await _udsClient.SecurityAccessAsync(level, CancellationToken.None);
+            SecurityLevel = level;  // reflect the level that was actually used
+            AppendLog("Info", $"SecurityAccess 0x{level:X2} succeeded ({response.Length} bytes).");
         }
         catch (KeyAlgorithmNotConfiguredException ex)
         {

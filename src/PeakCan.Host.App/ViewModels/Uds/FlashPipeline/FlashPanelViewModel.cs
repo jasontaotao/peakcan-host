@@ -13,6 +13,18 @@ using PeakCan.Host.Core.Uds.FlashPipeline;
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 
 /// <summary>
+/// Phase 2 扁平化 Segment 的绑定友好包装: 带所属固件文件名, 供 ComboBox 下拉显示.
+/// </summary>
+public sealed record SegmentDisplayItem(string FileName, Segment Segment)
+{
+    public uint StartAddress => Segment.StartAddress;
+    public uint EndAddress => Segment.EndAddress;
+    public uint Length => Segment.Length;
+    public byte[] Data => Segment.Data;
+    public uint Crc32 => Segment.Crc32;
+}
+
+/// <summary>
 /// Panel VM for the Flashing tab: owns the secondary flash-stack lifecycle and the
 /// UI-facing IsFlashing / Status / Progress state. Builds the stack via
 /// <see cref="ISecondaryFlashStackFactory"/> (a test seam — VM never constructs a UdsClient
@@ -87,6 +99,18 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private FirmwareFile? _selectedFirmwareFile;
 
     /// <summary>
+    /// Issue 1: 当前选中 Erase 步骤的 Segment 索引 (VM 级, 用于 ComboBox 绑定).
+    /// </summary>
+    [ObservableProperty]
+    private int _eraseSegmentIndex = -1;
+
+    /// <summary>
+    /// Issue 2: 订阅当前 profile 的 FirmwareFiles.CollectionChanged, 以便在 firmware 文件
+    /// 增删时刷新 AllSegments 绑定.
+    /// </summary>
+    private ObservableCollection<FirmwareFile>? _subscribedFirmwareFiles;
+
+    /// <summary>
     /// internal ctor: <see cref="ISecondaryFlashStackFactory"/> / <see cref="ISecondaryFlashStack"/>
     /// are App-internal seam contracts (visible to tests via InternalsVisibleTo), and a public
     /// ctor taking internal params would violate CS0051 (accessibility-consistency).
@@ -110,6 +134,71 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // real IHostApplicationLifetime; the NullLifetime stand-in is inert (tokens never
         // fire, StopApplication is a no-op) so the linked-token path is never triggered.
         _lifetime = lifetime ?? NullLifetime.Instance;
+        // Issue 2: 订阅初始 profile 的 FirmwareFiles 集合变更.
+        SubscribeFirmwareFiles();
+        // Issue: Verify 步骤的 Segment 索引变更时自动填充地址+CRC.
+        VerifyParams.SegmentResolver = SegmentAtIndex;
+    }
+
+    /// <summary>
+    /// Issue 2: 订阅当前 profile 的 FirmwareFiles.CollectionChanged, 以便在 firmware 文件
+    /// 增删时刷新 AllSegments 绑定 (Download/Verify/Erase 的 Segment ComboBox).
+    /// profile 切换时取消旧订阅并重新订阅新集合.
+    /// </summary>
+    private void SubscribeFirmwareFiles()
+    {
+        if (_subscribedFirmwareFiles is not null)
+            _subscribedFirmwareFiles.CollectionChanged -= OnFirmwareFilesChanged;
+        _subscribedFirmwareFiles = null;
+
+        if (CurrentProfile.FirmwareFiles is ObservableCollection<FirmwareFile> fwf)
+        {
+            fwf.CollectionChanged += OnFirmwareFilesChanged;
+            _subscribedFirmwareFiles = fwf;
+        }
+        RefreshAllSegments();
+    }
+
+    private void OnFirmwareFilesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        => RefreshAllSegments();
+
+    /// <summary>Issue 2: 刷新缓存的 AllSegments 列表并通知绑定.</summary>
+    private void RefreshAllSegments()
+    {
+        _allSegments = CurrentProfile.FirmwareFiles
+            .SelectMany(f => f.Segments.Select(s => new SegmentDisplayItem(f.Path, s)))
+            .ToList();
+        OnPropertyChanged(nameof(AllSegments));
+    }
+
+    /// <summary>
+    /// Issue 2: profile 切换时重新订阅 FirmwareFiles 集合并刷新 AllSegments.
+    /// </summary>
+    partial void OnCurrentProfileChanged(FlashProfile value) => SubscribeFirmwareFiles();
+
+    /// <summary>
+    /// Issue 1: 当 operator 选择/更改 Erase 步骤的 Segment 索引时, 自动解析 Segment 地址
+    /// 并填充到 RoutineControl 的 StartAddress/Size.
+    /// </summary>
+    partial void OnEraseSegmentIndexChanged(int value)
+    {
+        if (SelectedStep is not { Kind: FlashStepKind.Erase } step || step.RoutineControl is null) return;
+        step.RoutineControl.SegmentIndex = value;
+        if (SegmentAtIndex(value) is { } seg)
+            step.RoutineControl.ApplySegmentAddress(seg.StartAddress, seg.Length);
+        else
+            step.RoutineControl.ApplySegmentAddress(0, 0);
+    }
+
+    /// <summary>
+    /// Issue 1: 当选中的步骤切换时, 同步 EraseSegmentIndex 到当前 Erase 步骤的 SegmentIndex.
+    /// </summary>
+    partial void OnSelectedStepChanged(FlashStep? value)
+    {
+        if (value is { Kind: FlashStepKind.Erase, RoutineControl: { } rc })
+            _eraseSegmentIndex = rc.SegmentIndex;
+        else
+            _eraseSegmentIndex = -1;
     }
 
     /// <summary>
@@ -129,6 +218,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// </summary>
     public IReadOnlyList<ChecksumAlgorithm> ChecksumAlgorithms { get; } =
         Enum.GetValues<ChecksumAlgorithm>();
+
+    /// <summary>
+    /// Issue 3: CRC 算法预设名称列表 (用于 Verify 步骤 ComboBox).
+    /// 前 4 项对应 CrcParameters.Presets, 最后一项 "Custom".
+    /// </summary>
+    public IReadOnlyList<string> CrcPresetNames { get; } =
+        [.. Core.Uds.FlashPipeline.CrcParameters.PresetNames, "Custom"];
 
     /// <summary>
     /// AddressingMode values for the per-step ComboBox.
@@ -299,6 +395,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
                 (step, index) => firmwareByIndex.TryGetValue(index, out var fw) ? fw : null,
                 segResolver,
                 CurrentProfile.FlashDriver,
+                CurrentProfile.AutoResetOnFailure,
                 progress, ct).ConfigureAwait(false);
             // PipelineExecutor reports per-step; the terminal Success is signalled by absence of throw.
             Status = FlashStatus.Success;
@@ -434,8 +531,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         try
         {
             var bytes = File.ReadAllBytes(path);
-            CurrentProfile.FlashDriver = new FlashDriver(path, bytes);
-            StatusMessage = $"Loaded flash driver: {IOPath.GetFileName(path)} ({bytes.Length} bytes)";
+            // Issue 3: 解析 flash driver 文件为 Segments (HEX/S19 多地址段, raw binary 单段).
+            var segments = ParseFlashDriverSegments(path);
+            CurrentProfile.FlashDriver = new FlashDriver(path, bytes) { Segments = segments };
+            OnPropertyChanged(nameof(CurrentProfile));
+            OnPropertyChanged(nameof(FlashDriverSegments));
+            OnPropertyChanged(nameof(FlashDriverSegmentCount));
+            StatusMessage = $"Loaded flash driver: {IOPath.GetFileName(path)} ({bytes.Length} bytes, {segments.Count} segment(s))";
         }
         catch (Exception ex)
         {
@@ -452,6 +554,9 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private void RemoveFlashDriver()
     {
         CurrentProfile.FlashDriver = null;
+        OnPropertyChanged(nameof(CurrentProfile));
+        OnPropertyChanged(nameof(FlashDriverSegments));
+        OnPropertyChanged(nameof(FlashDriverSegmentCount));
     }
 
     // ---- step add/remove (Phase 1.1) ----
@@ -635,14 +740,20 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // Phase 2: Grouped params — only the matching Kind's group is populated.
         PreCheck = step.PreCheck is { } pc ? new PreCheckSnapshot(pc.RoutineId) : null,
         SecurityAccess = step.SecurityAccess is { } sa ? new SecurityAccessSnapshot(sa.Level, sa.Mode, sa.ManualKeyHex, sa.DllPath) : null,
-        RoutineControl = step.RoutineControl is { } rc ? new RoutineControlSnapshot(rc.RoutineId, rc.StartAddress, rc.Size) : null,
+        // Issue 1: Erase 步骤如果引用了 Segment, 自动用 Segment 的地址+大小覆盖手工填写的 StartAddress/Size.
+        RoutineControl = step.RoutineControl is { } rc
+            ? new RoutineControlSnapshot(rc.RoutineId,
+                step.Kind == FlashStepKind.Erase && SegmentAtIndex(rc.SegmentIndex) is { } seg ? seg.StartAddress : rc.StartAddress,
+                step.Kind == FlashStepKind.Erase && SegmentAtIndex(rc.SegmentIndex) is { } seg2 ? seg2.Length : rc.Size)
+            : null,
         Download = step.Download is { } dl ? new DownloadSnapshot(dl.SegmentIndex) : null,
         // Phase 2: Verify 的 ExpectedChecksum / StartAddress / EndAddress 从 Segment 自动算, 避免 operator 手工填错.
         Verify = step.Verify is { } v ? new VerifySnapshot(
             (byte)v.Algorithm,
             ExpectedChecksumFromSegment(v.SegmentIndex),
             StartAddressFromSegment(v.SegmentIndex),
-            EndAddressFromSegment(v.SegmentIndex)) : null,
+            EndAddressFromSegment(v.SegmentIndex),
+            v.SegmentIndex) : null,
         EcuReset = step.EcuReset is { } er ? new EcuResetSnapshot(er.ResetType) : null,
         CommunicationControl = step.CommunicationControl is { } cc ? new CommunicationControlSnapshot(cc.SubFunction) : null,
         DtcControl = step.DtcControl is { } dc ? new DtcControlSnapshot((byte)dc.SubFunction, dc.DtcGroup) : null,
@@ -660,11 +771,31 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         AutoResetOnFailure = step.AutoResetOnFailure,
     };
 
-    /// <summary>Phase 2: 从 Segment 自动算 ExpectedChecksum。无对应 segment 时回退 0。</summary>
+    /// <summary>
+    /// Issue 3: 根据 SelectedCrcPresetIndex 解析出实际使用的 CrcParameters.
+    /// index 0..3 对应 4 个预设; index -1 (Custom) 时使用 Verify.CrcParameters 中的自定义值.
+    /// </summary>
+    private Core.Uds.FlashPipeline.CrcParameters ResolveCrcParameters(VerifyParams verify)
+    {
+        var presets = Core.Uds.FlashPipeline.CrcParameters.Presets;
+        return verify.SelectedCrcPresetIndex >= 0 && verify.SelectedCrcPresetIndex < presets.Count
+            ? presets[verify.SelectedCrcPresetIndex]
+            : verify.CrcParameters;  // Custom: use the manually-edited parameters.
+    }
+
+    /// <summary>
+    /// Phase 2: 从 Segment 数据用选定的 CRC 算法重新算 ExpectedChecksum.
+    /// Issue 3 fix: 不能直接读 seg.Crc32 (那是 parse 时用标准 CRC-32 算的), 必须用
+    /// operator 在 Verify 步骤选择的 CrcParameters 重新算.
+    /// </summary>
     private uint ExpectedChecksumFromSegment(int index)
     {
         var seg = SegmentAtIndex(index);
-        return seg?.Crc32 ?? 0;
+        if (seg is null) return 0;
+        var verify = SelectedStep?.Verify;
+        var parms = verify is not null ? ResolveCrcParameters(verify)
+            : Core.Uds.FlashPipeline.CrcParameters.Crc32;
+        return Crc32.Compute(seg.Data, parms);
     }
 
     /// <summary>Phase 2: 从 Segment 自动算 StartAddress。无对应 segment 时回退 0。</summary>
@@ -681,18 +812,57 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         return seg?.EndAddress ?? 0;
     }
 
-    /// <summary>Phase 2: 扁平化所有 firmware files 的 segments, 用于 Verify/Download ComboBox 绑定。</summary>
-    public IReadOnlyList<Segment> AllSegments =>
-        CurrentProfile.FirmwareFiles.SelectMany(f => f.Segments).ToList();
+    /// <summary>
+    /// Issue 2: 缓存的扁平化 Segment 列表 (所有 firmware files 的 segments).
+    /// ComboBox 绑定需要稳定的列表引用以正确追踪 SelectionIndex.
+    /// FirmwareFiles 变更时由 SubscribeFirmwareFiles 触发刷新.
+    /// </summary>
+    private List<SegmentDisplayItem> _allSegments = [];
+
+    public IReadOnlyList<SegmentDisplayItem> AllSegments => _allSegments;
+
+    /// <summary>
+    /// Issue 3: Flash Driver 解析出的 Segment 列表 (null-safe).
+    /// </summary>
+    public IReadOnlyList<Segment> FlashDriverSegments =>
+        CurrentProfile.FlashDriver?.Segments ?? [];
+
+    /// <summary>Issue 3: Flash Driver Segment 数量 (null-safe, 用于 Visibility 绑定).</summary>
+    public int FlashDriverSegmentCount => FlashDriverSegments.Count;
 
     /// <summary>
     /// Phase 2: 把 profile 所有 firmware files 的 segments 摊平, 按 index 取。
     /// index 越界时返回 null, 由调用方回退 0。
+    /// Issue 2: 零分配遍历 — 只在需要完整列表 (ComboBox 绑定) 时才分配。
     /// </summary>
     private Segment? SegmentAtIndex(int index)
     {
-        var all = AllSegments;
-        return (index >= 0 && index < all.Count) ? all[index] : null;
+        if (index < 0) return null;
+        int offset = index;
+        foreach (var file in CurrentProfile.FirmwareFiles)
+        {
+            var segs = file.Segments;
+            if (offset < segs.Count) return segs[offset];
+            offset -= segs.Count;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Issue 3: 解析 flash driver 文件为 Segment 列表.
+    /// HEX/S19 用 FirmwareFileParser 解析 (多地址段); raw binary 回退为单 Segment (地址 0).
+    /// </summary>
+    private static IReadOnlyList<Segment> ParseFlashDriverSegments(string path)
+    {
+        try
+        {
+            var file = FirmwareFileParser.ParseFile(path);
+            return file.Segments;
+        }
+        catch
+        {
+            return new[] { new Segment(0, Array.Empty<byte>()) };
+        }
     }
 
     /// <summary>

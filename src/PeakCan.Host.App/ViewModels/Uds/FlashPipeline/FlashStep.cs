@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.Core.Uds.FlashPipeline;
@@ -23,12 +24,61 @@ public sealed record SecurityAccessParams
     public string DllPath { get; set; } = "";
 }
 
-/// <summary>Erase/Verify (0x31 RoutineControl) parameters.</summary>
-public sealed record RoutineControlParams
+/// <summary>
+/// Erase/Verify (0x31 RoutineControl) parameters.
+/// Implements <see cref="INotifyPropertyChanged"/> so the Erase step can auto-fill
+/// StartAddress/Size when the operator picks a segment.
+/// </summary>
+public sealed class RoutineControlParams : INotifyPropertyChanged
 {
-    public ushort RoutineId { get; set; } = 0xFF00;
-    public uint StartAddress { get; set; }   // Phase 2 新增: 擦除起始地址
-    public uint Size { get; set; }            // Phase 2 新增: 擦除大小
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void Raise([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private ushort _routineId = 0xFF00;
+    public ushort RoutineId
+    {
+        get => _routineId;
+        set { _routineId = value; Raise(); }
+    }
+
+    private uint _startAddress;
+    public uint StartAddress
+    {
+        get => _startAddress;
+        set { _startAddress = value; Raise(); }
+    }
+
+    private uint _size;
+    public uint Size
+    {
+        get => _size;
+        set { _size = value; Raise(); }
+    }
+
+    /// <summary>
+    /// Issue 1: Erase 步骤引用的 Segment 索引 (引用 FirmwareFiles 扁平化 Segment 列表).
+    /// 选中后自动填充 StartAddress / Size, 避免 operator 手工填错.
+    /// </summary>
+    private int _segmentIndex = -1;  // -1 = 未选择 (手工填写模式)
+    public int SegmentIndex
+    {
+        get => _segmentIndex;
+        set
+        {
+            if (_segmentIndex == value) return;
+            _segmentIndex = value;
+            Raise();
+        }
+    }
+
+    /// <summary>Issue 1: 当 operator 选择 Segment 后, 调用此方法自动填充 StartAddress/Size.</summary>
+    public void ApplySegmentAddress(uint startAddress, uint size)
+    {
+        StartAddress = startAddress;
+        Size = size;
+    }
 }
 
 /// <summary>DownloadTransfer (0x34/0x36/0x37) parameters.</summary>
@@ -38,14 +88,128 @@ public sealed record DownloadParams
     // MemoryAddress 不再需要 — 从 Segment.StartAddress 自动获取
 }
 
-/// <summary>Verify (0x31 RoutineControl for checksum) parameters.</summary>
-public sealed record VerifyParams
+/// <summary>
+/// Verify (0x31 RoutineControl for checksum) parameters.
+/// Implements <see cref="INotifyPropertyChanged"/> so the property panel can two-way bind
+/// the CRC preset selector and have the dependent parameter fields refresh live.
+/// </summary>
+public sealed class VerifyParams : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void Raise([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
     public ChecksumAlgorithm Algorithm { get; set; } = ChecksumAlgorithm.Crc32;
-    public int SegmentIndex { get; set; }            // 引用 FirmwareFiles 扁平化 Segment 列表
-    public uint ExpectedChecksum { get; set; }      // 从 Segment 自动计算（ToSnapshot 赋值）
-    public uint StartAddress { get; set; }           // 从 Segment 自动计算
-    public uint EndAddress { get; set; }             // 从 Segment 自动计算
+
+    private int _segmentIndex;
+    public int SegmentIndex
+    {
+        get => _segmentIndex;
+        set
+        {
+            if (_segmentIndex == value) return;
+            _segmentIndex = value;
+            Raise();
+            // Issue: segment 索引变更时自动填充地址+CRC, 否则 UI 显示 0.
+            if (SegmentResolver is not null && SegmentResolver(value) is { } seg)
+            {
+                StartAddress = seg.StartAddress;
+                EndAddress = seg.EndAddress;
+                // 用当前 CRC 参数重新算 ExpectedChecksum (预设或自定义均可).
+                ExpectedChecksum = Crc32.Compute(seg.Data, _crcParameters);
+            }
+            else if (value < 0)
+            {
+                // 清空 — 通常是绑定初始化或步骤切换.
+                StartAddress = 0;
+                EndAddress = 0;
+                ExpectedChecksum = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Issue: 静态 Segment 解析器委托, 由 VM 在启动时设 (SegmentAtIndex).
+    /// 当 SegmentIndex 变更时自动填充 StartAddress / EndAddress / ExpectedChecksum.
+    /// </summary>
+    public static Func<int, Core.Uds.FlashPipeline.Segment?>? SegmentResolver { get; set; }
+
+    private uint _expectedChecksum;
+    public uint ExpectedChecksum
+    {
+        get => _expectedChecksum;
+        set { _expectedChecksum = value; Raise(); }
+    }
+
+    private uint _startAddress;
+    public uint StartAddress
+    {
+        get => _startAddress;
+        set { _startAddress = value; Raise(); }
+    }
+
+    private uint _endAddress;
+    public uint EndAddress
+    {
+        get => _endAddress;
+        set { _endAddress = value; Raise(); }
+    }
+
+    // The UI ComboBox has Presets.Count + 1 entries: indices 0..Presets.Count-1 are the
+    // named presets, index Presets.Count is "Custom". Internally we store 0..Presets.Count-1
+    // for presets and CustomSentinel (-1) for Custom.
+    private const int CustomSentinel = -1;
+
+    /// <summary>Issue 3: CRC 算法参数 (多项式 / 初值 / 终值异或 / 反转).</summary>
+    private Core.Uds.FlashPipeline.CrcParameters _crcParameters = Core.Uds.FlashPipeline.CrcParameters.Crc32;
+    public Core.Uds.FlashPipeline.CrcParameters CrcParameters
+    {
+        get => _crcParameters;
+        set
+        {
+            _crcParameters = value;
+            Raise();
+            // If the edited parameters diverge from the currently-selected preset, switch to Custom.
+            if (_selectedCrcPresetIndex >= 0
+                && value != Core.Uds.FlashPipeline.CrcParameters.Presets[_selectedCrcPresetIndex])
+            {
+                _selectedCrcPresetIndex = CustomSentinel;
+                Raise(nameof(SelectedCrcPresetIndex));
+            }
+            Raise(nameof(IsCrcCustom));
+            // CRC 参数变更 → 重算 ExpectedChecksum (如果有有效 Segment).
+            if (SegmentResolver is not null && SegmentResolver(_segmentIndex) is { } seg)
+                ExpectedChecksum = Crc32.Compute(seg.Data, value);
+        }
+    }
+
+    /// <summary>
+    /// Issue 3: 选中的 CRC preset 索引 (0..3 对应 4 个预设, 4 = Custom).
+    /// UI ComboBox 直接绑定此属性 (SelectedIndex); 选中 Custom 时内部映射到 -1.
+    /// </summary>
+    private int _selectedCrcPresetIndex;  // 默认 0 = CRC-32
+    public int SelectedCrcPresetIndex
+    {
+        get => _selectedCrcPresetIndex == CustomSentinel
+            ? Core.Uds.FlashPipeline.CrcParameters.Presets.Count  // Custom → last dropdown item
+            : _selectedCrcPresetIndex;
+        set
+        {
+            int mapped = value >= Core.Uds.FlashPipeline.CrcParameters.Presets.Count
+                ? CustomSentinel
+                : value;
+            if (_selectedCrcPresetIndex == mapped) return;
+            _selectedCrcPresetIndex = mapped;
+            Raise();
+            Raise(nameof(IsCrcCustom));
+            if (mapped >= 0)
+                CrcParameters = Core.Uds.FlashPipeline.CrcParameters.Presets[mapped];
+        }
+    }
+
+    /// <summary>Issue 3: 是否为自定义 CRC 参数 (SelectedCrcPresetIndex == CustomSentinel).</summary>
+    public bool IsCrcCustom => _selectedCrcPresetIndex == CustomSentinel;
 }
 
 /// <summary>EcuReset (0x11) parameters.</summary>
@@ -260,5 +424,15 @@ public sealed partial class FlashStep : ObservableObject
         if (SecurityAccess is null) return;
         SecurityAccess = SecurityAccess with { Level = level };
         SecurityLevel = level;  // sync flat field (uses generated property)
+    }
+
+    /// <summary>
+    /// Issue 1: Erase 步骤选择 Segment 后, 自动用 Segment 的地址+大小更新 RoutineControl.
+    /// 让 UI 文本框立即显示自动填充的值.
+    /// </summary>
+    internal void UpdateEraseAddressFromSegment(uint startAddress, uint size)
+    {
+        if (Kind != FlashStepKind.Erase || RoutineControl is null) return;
+        RoutineControl.ApplySegmentAddress(startAddress, size);
     }
 }

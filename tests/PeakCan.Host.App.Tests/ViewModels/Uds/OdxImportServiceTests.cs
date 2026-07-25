@@ -67,6 +67,67 @@ public class OdxImportServiceTests : IDisposable
         dtcs.All.Should().NotBeEmpty();
     }
 
+    // ---- Phase 2: ODX re-import clears stale data ----
+
+    [Fact]
+    public async Task ImportAsync_SecondImport_Clears_FirstImport_Data()
+    {
+        // Arrange — two ODX files with non-overlapping DIDs
+        var odx1 = Path.Combine(_tempDir, "first.odx");
+        await File.WriteAllTextAsync(odx1, """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ODX xmlns="http://www.asam.net/xml/odx" VERSION="2.0.0">
+              <DIAG-LAYER-CONTAINER ID="DLC.x">
+                <DIAG-LAYER ID="DL.base" SHORT-NAME="Base">
+                  <DOP-BASE ID="DOP.0x1111" SHORT-NAME="FirstDID">
+                    <DIAG-COMMS>
+                      <DIAG-SERVICE ID="svc.r" SHORT-NAME="R">
+                        <REQUEST-REF ID-REF="DOP.0x1111"/>
+                      </DIAG-SERVICE>
+                    </DIAG-COMMS>
+                  </DOP-BASE>
+                </DIAG-LAYER>
+              </DIAG-LAYER-CONTAINER>
+            </ODX>
+            """);
+        var odx2 = Path.Combine(_tempDir, "second.odx");
+        await File.WriteAllTextAsync(odx2, """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ODX xmlns="http://www.asam.net/xml/odx" VERSION="2.0.0">
+              <DIAG-LAYER-CONTAINER ID="DLC.x">
+                <DIAG-LAYER ID="DL.base" SHORT-NAME="Base">
+                  <DOP-BASE ID="DOP.0x2222" SHORT-NAME="SecondDID">
+                    <DIAG-COMMS>
+                      <DIAG-SERVICE ID="svc.r" SHORT-NAME="R">
+                        <REQUEST-REF ID-REF="DOP.0x2222"/>
+                      </DIAG-SERVICE>
+                    </DIAG-COMMS>
+                  </DOP-BASE>
+                </DIAG-LAYER>
+              </DIAG-LAYER-CONTAINER>
+            </ODX>
+            """);
+
+        var dids = new DidDatabase(userJsonPath: null, logger: null);
+        var routines = new RoutineDatabase(userJsonPath: null, logger: null);
+        var dtcs = new DtcDatabase();
+        var svc = new OdxImportService(
+            dids, routines, dtcs,
+            new PdxReader(), new OdxParser(),
+            NullLogger<OdxImportService>.Instance);
+
+        // Act — import first, then second
+        await svc.ImportAsync(odx1);
+        dids.All.Should().Contain(d => d.Id == 0x1111, "first import should add 0x1111");
+
+        var result2 = await svc.ImportAsync(odx2);
+
+        // Assert — first import's data is gone, only second remains
+        result2.HasError.Should().BeFalse();
+        dids.All.Should().NotContain(d => d.Id == 0x1111, "first import data must be cleared");
+        dids.All.Should().Contain(d => d.Id == 0x2222, "second import data must be present");
+    }
+
     [Fact]
     public async Task ImportAsync_MissingFile_ReturnsFailureResult()
     {

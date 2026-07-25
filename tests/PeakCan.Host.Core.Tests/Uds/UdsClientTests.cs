@@ -53,6 +53,8 @@ public sealed class UdsClientTests
             canData, FrameFlags.None, default, default));
     }
 
+    // ---- Phase 2: 0x3E 80 TesterPresent suppress + CommunicationControl ----
+
     /// <summary>Inject a Flow Control frame (BS=0 unlimited, STmin=0).</summary>
     private static void InjectFlowControl(IsoTpLayer iso)
     {
@@ -650,7 +652,7 @@ public sealed class UdsClientVolatileTests
         var (iso, _) = NewIso();
         using var spy = new SpyUdsClient(iso);
 
-        await spy.TesterPresentAsync(CancellationToken.None);
+        await spy.TesterPresentAsync(suppressPosResponse: false, CancellationToken.None);
 
         spy.LastSendRequestCall.Should().NotBeNull(
             "TesterPresentAsync must call SendRequestAsync to emit the 0x3E frame");
@@ -708,6 +710,58 @@ public sealed class UdsClientVolatileTests
             public static readonly NullScope Instance = new();
             public void Dispose() { }
         }
+    }
+
+    // ========================================================================
+    // Phase 2: TesterPresent suppress + CommunicationControl (0x28)
+    // ========================================================================
+
+    [Fact]
+    public async Task TesterPresent_SuppressTrue_Sends_SubFunction_0x80()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClient(iso);
+
+        await spy.TesterPresentAsync(suppressPosResponse: true);
+
+        spy.LastSendRequestCall.Should().NotBeNull();
+        spy.LastSendRequestCall!.Value.ServiceId.Should().Be(0x3E);
+        spy.LastSendRequestCall.Value.Data.Should().Equal(new byte[] { 0x80 },
+            "suppressPosResponse=true → sub-function 0x80");
+    }
+
+    [Fact]
+    public async Task TesterPresent_SuppressFalse_Sends_SubFunction_0x00()
+    {
+        var (iso, _) = NewIso();
+        using var spy = new SpyUdsClient(iso);
+
+        await spy.TesterPresentAsync(suppressPosResponse: false);
+
+        spy.LastSendRequestCall.Should().NotBeNull();
+        spy.LastSendRequestCall!.Value.ServiceId.Should().Be(0x3E);
+        spy.LastSendRequestCall.Value.Data.Should().Equal(new byte[] { 0x00 },
+            "suppressPosResponse=false → sub-function 0x00");
+    }
+
+    [Fact]
+    public async Task CommunicationControl_DisableRxAndTx_Sends_0x28_CorrectData()
+    {
+        var sent = new ObservableCollection<CanFrame>();
+        var iso = new IsoTpLayer(
+            new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8, FunctionalId = 0x7DF },
+            frame => sent.Add(frame));
+
+        using var client = new UdsClient(iso, new UdsTimer());
+
+        await client.CommunicationControlAsync(CommunicationSubFunction.DisableRxAndTx, default);
+
+        sent.Should().NotBeEmpty();
+        var payload = sent[0].Data.ToArray();
+        // ISO-TP Single Frame: byte 0 = length (0x02), byte 1 = SID, byte 2 = sub-function
+        payload[0].Should().Be(0x02, "ISO-TP SF length = 2 payload bytes");
+        payload[1].Should().Be(0x28, "SID = 0x28 (CommunicationControl)");
+        payload[2].Should().Be(0x02, "sub-function = 0x02 (DisableRxAndTx)");
     }
 
     // ========================================================================

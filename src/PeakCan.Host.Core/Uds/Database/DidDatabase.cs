@@ -48,6 +48,13 @@ public sealed partial class DidDatabase
         => All.FirstOrDefault(d => d.Id == id);
 
     /// <summary>
+    /// Phase 2: Reset to built-in defaults only — removes all ODX-imported and
+    /// user-JSON entries. Called by <c>OdxImportService</c> before a fresh ODX
+    /// import so re-importing a second ODX does not accumulate stale data.
+    /// </summary>
+    public void Clear() => All = BuiltInDefaults().ToList().AsReadOnly();
+
+    /// <summary>
     /// Append ODX-imported DID definitions to the existing built-in +
     /// user-JSON collection. Used by <c>OdxImportService</c> for
     /// incremental ODX layering. NOT concurrency-safe — callers must

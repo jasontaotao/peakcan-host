@@ -42,6 +42,31 @@ public sealed partial class IsoTpLayer
         }
     }
 
+    /// <summary>
+    /// Phase 2: Send a functional (broadcast) frame using <see cref="CanIdConfig.FunctionalId"/>.
+    /// Fire-and-forget — does not wait for a response. Used for CommunicationControl (0x28)
+    /// broadcast to quiesce all ECUs before flashing.
+    /// </summary>
+    /// <param name="data">Message payload.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="InvalidOperationException">
+    /// <see cref="CanIdConfig.FunctionalId"/> is not configured.
+    /// </exception>
+    public Task SendFunctionalAsync(byte[] data, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (_config.FunctionalId is null)
+            throw new InvalidOperationException(
+                "FunctionalId is not configured in CanIdConfig — cannot send functional (broadcast) frame.");
+        if (data.Length > MaxSingleFramePayload)
+            throw new ArgumentException(
+                $"Functional broadcast payload too large: {data.Length} > {MaxSingleFramePayload} (Single Frame max).", nameof(data));
+
+        var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
+        var canData = frame.Encode();
+        return SendFunctionalCanFrameAsync(canData);
+    }
+
     private Task SendSingleFrameAsync(byte[] data)
     {
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
@@ -70,7 +95,7 @@ public sealed partial class IsoTpLayer
     private async Task SendCanFrameAsync(byte[] data, int frameIndex)
     {
         var frame = new CanFrame(
-            new CanId(_config.RequestId, FrameFormat.Standard),
+            new CanId(_config.RequestId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
@@ -104,7 +129,7 @@ public sealed partial class IsoTpLayer
     private void SendCanFrame(byte[] data)
     {
         var frame = new CanFrame(
-            new CanId(_config.RequestId, FrameFormat.Standard),
+            new CanId(_config.RequestId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
@@ -112,6 +137,40 @@ public sealed partial class IsoTpLayer
 
         // Legacy sync path. In practice the async ctor is the new default,
         // so the old Action<CanFrame> callback is set when this method runs.
+        _sendFrame?.Invoke(frame);
+    }
+
+    /// <summary>
+    /// Phase 2: Emit a functional (broadcast) CAN frame using <see cref="CanIdConfig.FunctionalId"/>.
+    /// Fire-and-forget semantics — no response expected for functional addressing.
+    /// </summary>
+    private async Task SendFunctionalCanFrameAsync(byte[] data)
+    {
+        var frame = new CanFrame(
+            new CanId(_config.FunctionalId!.Value, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            data,
+            FrameFlags.None,
+            default,
+            default);
+
+        if (_sendFrameAsync is not null)
+        {
+            try
+            {
+                await _sendFrameAsync(frame).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Functional broadcast failures are non-fatal — log and continue.
+                // Reuses LogIsoTpSendFailed (event 3001); functional frames share the
+                // same failure taxonomy as physical send failures.
+                if (_logger is not null)
+                    LogIsoTpSendFailed(_logger, ex, frame.Id.Raw);
+                Interlocked.Increment(ref SendFailureCount);
+            }
+            return;
+        }
+
         _sendFrame?.Invoke(frame);
     }
 }

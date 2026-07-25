@@ -44,6 +44,13 @@ public sealed partial class RoutineDatabase
         => All.FirstOrDefault(r => r.Id == id);
 
     /// <summary>
+    /// Phase 2: Empty the database — routines have no built-in defaults, so
+    /// Clear() removes everything. Called by <c>OdxImportService</c> before a
+    /// fresh ODX import.
+    /// </summary>
+    public void Clear() => All = Array.Empty<RoutineDefinition>();
+
+    /// <summary>
     /// Append ODX-imported routine definitions. Mirrors
     /// <c>DidDatabase.AddRange</c>: NOT concurrency-safe; callers must
     /// serialize. Preserves JSON-merge constructor behavior.
