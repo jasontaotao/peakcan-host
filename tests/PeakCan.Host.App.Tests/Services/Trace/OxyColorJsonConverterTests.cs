@@ -1,15 +1,15 @@
 using System.Text.Json;
 using FluentAssertions;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services.Trace;
 
 /// <summary>
-/// v3.5.0 MINOR: pins the <see cref="OxyColorJsonConverter"/> round-trip
-/// contract. <see cref="OxyColor"/> packs four bytes (A,R,G,B) into a
-/// single <c>uint</c> (<see cref="OxyColor.Value"/>). The converter writes
+/// v3.5.0 MINOR: pins the <see cref="ColorJsonConverter"/> round-trip
+/// contract. v3.62.0: migrated from OxyColor → ScottPlot.Color.
+/// ScottPlot.Color exposes A/R/G/B byte properties. The converter writes
 /// those four bytes as a JSON object so a human inspecting a
 /// <c>.tmtrace</c> file can read each channel directly.
 /// </summary>
@@ -17,25 +17,25 @@ public sealed class OxyColorJsonConverterTests
 {
     private static readonly JsonSerializerOptions Opts = new()
     {
-        Converters = { new OxyColorJsonConverter() },
+        Converters = { new ColorJsonConverter() },
     };
 
     [Fact]
     public void RoundTrip_ArbitraryArgbColor_PreservesAllFourChannels()
     {
-        var original = OxyColor.FromArgb(0xFF, 0x4E, 0x79, 0xA7);   // Tableau blue
+        var original = new Color(0x4E, 0x79, 0xA7, 0xFF);   // Tableau blue (RGBA)
 
         var json = JsonSerializer.Serialize(original, Opts);
-        var roundTripped = JsonSerializer.Deserialize<OxyColor>(json, Opts);
+        var roundTripped = JsonSerializer.Deserialize<Color>(json, Opts);
 
         roundTripped.Should().Be(original,
-            "OxyColor.Value is a packed ARGB uint; serialize→deserialize must be lossless");
+            "Color round-trip via ColorJsonConverter must be lossless");
     }
 
     [Fact]
     public void Serialize_Emits_FourIntProperties_ARGB()
     {
-        var color = OxyColor.FromArgb(0x12, 0x34, 0x56, 0x78);
+        var color = new Color(0x34, 0x56, 0x78, 0x12);
 
         var json = JsonSerializer.Serialize(color, Opts);
 
@@ -51,7 +51,7 @@ public sealed class OxyColorJsonConverterTests
     {
         const string json = "{\"a\":255,\"r\":78,\"g\":121,\"b\":167}";
 
-        var color = JsonSerializer.Deserialize<OxyColor>(json, Opts);
+        var color = JsonSerializer.Deserialize<Color>(json, Opts);
 
         color.A.Should().Be((byte)255);
         color.R.Should().Be((byte)78);
@@ -62,10 +62,10 @@ public sealed class OxyColorJsonConverterTests
     [Fact]
     public void RoundTrip_FullyTransparentColor_PreservesAlpha()
     {
-        var original = OxyColor.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+        var original = new Color(0xFF, 0xFF, 0xFF, 0x00);
 
         var json = JsonSerializer.Serialize(original, Opts);
-        var roundTripped = JsonSerializer.Deserialize<OxyColor>(json, Opts);
+        var roundTripped = JsonSerializer.Deserialize<Color>(json, Opts);
 
         roundTripped.A.Should().Be((byte)0x00,
             "alpha must survive round-trip — fully-transparent color is a valid bundle state");
@@ -78,9 +78,9 @@ public sealed class OxyColorJsonConverterTests
     {
         const string json = "null";
 
-        var color = JsonSerializer.Deserialize<OxyColor>(json, Opts);
+        var color = JsonSerializer.Deserialize<Color>(json, Opts);
 
-        var zero = OxyColor.FromArgb(0, 0, 0, 0);
+        var zero = new Color(0, 0, 0, 0);
         color.A.Should().Be((byte)0,
             "the v3.5.1 null-handling branch must return a zero-channel color for JSON null without throwing");
         color.Should().Be(zero);
@@ -91,7 +91,7 @@ public sealed class OxyColorJsonConverterTests
     {
         // v3.5.1 PATCH (review L1): write path always emits the four-property
         // object shape so deserialization round-trips regardless of value.
-        var color = OxyColor.FromArgb(0, 0, 0, 0);
+        var color = new Color(0, 0, 0, 0);
 
         var json = JsonSerializer.Serialize(color, Opts);
 

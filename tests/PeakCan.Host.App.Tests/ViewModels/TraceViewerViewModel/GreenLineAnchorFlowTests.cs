@@ -1,13 +1,16 @@
 // v3.50.0 MINOR T2: tests for GreenLineAnchorFlow partial — RefreshAtAnchor
-// public API drives both PlotModel LineAnnotation insert/remove and
-// WatchedSignals.LatestValue recompute via ITraceSessionRegistry.GetFrames
+// public API drives both View-owned Plot VerticalLine insert/remove and
+// WatchedSignals.GreenAnchorValue recompute via ITraceSessionRegistry.GetFrames
 // + SignalDecoder.DecodeRaw. 3 tests cover the NaN-clear / value-set /
 // Latest-update paths.
+// v3.62.0 MINOR: migrated from OxyPlot (PlotModel + LineAnnotation) to
+// ScottPlot (Plot + VerticalLine). SeedChart creates a real ScottPlot
+// Plot, registers it via RegisterPlot, and assertions read back
+// VerticalLine plottables from the registered Plot.
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
-using OxyPlot.Annotations;
+using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -58,7 +61,7 @@ public class GreenLineAnchorFlowTests
         TraceViewerViewModel vm,
         Signal signal,
         IReadOnlyList<ReplayFrame> frames,
-        params (string key, OxyColor color)[] charts)
+        params (string key, Color color)[] charts)
     {
         var xs = new List<double>(frames.Count);
         var ys = new List<double>(frames.Count);
@@ -69,15 +72,13 @@ public class GreenLineAnchorFlowTests
         }
         foreach (var (key, color) in charts)
         {
-            var plot = new PlotModel();
-            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Bottom });
-            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Left });
+            var plot = new Plot();
             var series = new TraceChartSeries(
                 SignalKey: key,
                 DisplayName: key,
                 Unit: "",
                 Color: color,
-                PlotModel: plot,
+                Plot: plot,
                 XValues: xs,
                 YValues: ys,
                 MinValue: ys.Min(),
@@ -85,6 +86,9 @@ public class GreenLineAnchorFlowTests
                 IsFocused: false,
                 IsCollapsed: false);
             vm.ChartViewModel.AddSeries(series);
+            // v3.62.0: register the View-owned Plot so the VM's
+            // UpdateAllGreenLines can add VerticalLines to it.
+            vm.RegisterPlot(key, plot);
         }
     }
 
@@ -93,20 +97,19 @@ public class GreenLineAnchorFlowTests
     /// v3.50.2 ChartSourceCoupling path needs the row's chart series
     /// to have a real (or default-NaN) YValues, but for tests that
     /// assert on line annotations instead of Latest, a placeholder
-    /// is fine.</summary>
-    private static void SeedChart(TraceViewerViewModel vm, params (string key, OxyColor color)[] charts)
+    /// is fine. v3.62.0 MINOR: creates a real ScottPlot Plot and
+    /// registers it via RegisterPlot.</summary>
+    private static void SeedChart(TraceViewerViewModel vm, params (string key, Color color)[] charts)
     {
         foreach (var (key, color) in charts)
         {
-            var plot = new PlotModel();
-            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Bottom });
-            plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Left });
+            var plot = new Plot();
             var series = new TraceChartSeries(
                 SignalKey: key,
                 DisplayName: key,
                 Unit: "",
                 Color: color,
-                PlotModel: plot,
+                Plot: plot,
                 XValues: new List<double> { 0.0 },
                 YValues: new List<double> { double.NaN },
                 MinValue: 0,
@@ -114,6 +117,7 @@ public class GreenLineAnchorFlowTests
                 IsFocused: false,
                 IsCollapsed: false);
             vm.ChartViewModel.AddSeries(series);
+            vm.RegisterPlot(key, plot);
         }
     }
 
@@ -128,7 +132,7 @@ public class GreenLineAnchorFlowTests
     {
         registry.Sources.Returns(new List<TraceSource>
         {
-            new TraceSource(sourceId, "src-A", "/tmp/a.asc", OxyColors.Blue)
+            new TraceSource(sourceId, "src-A", "/tmp/a.asc", Colors.Blue, new LineStyle())
         });
         vm.MasterSourceId = sourceId;
         registry.GetFrames(sourceId).Returns(frames);
@@ -138,7 +142,7 @@ public class GreenLineAnchorFlowTests
         // SignalKey match and the new YValues-based Latest path works.
         var idHex = "0x100";
         SeedChart(vm, signal, frames,
-            ($"{idHex}.{signal.Name}", OxyColors.Red));
+            ($"{idHex}.{signal.Name}", Colors.Red));
 
         var row = new WatchedSignalRow(
             canIdHex: idHex,
@@ -153,22 +157,27 @@ public class GreenLineAnchorFlowTests
     }
 
     [Fact]
-    public void RefreshAtAnchor_NaN_ClearsAllLineAnnotations()
+    public void RefreshAtAnchor_NaN_ClearsAllVerticalLines()
     {
         var vm = NewVm(out _, out _);
-        SeedChart(vm, ("0x100.SigA", OxyColors.Red), ("0x200.SigB", OxyColors.Blue));
+        SeedChart(vm, ("0x100.SigA", Colors.Red), ("0x200.SigB", Colors.Blue));
 
         // First call adds a green line at X = 5.2; second call with NaN must clear it.
         vm.RefreshAtAnchor(5.2);
         vm.RefreshAtAnchor(double.NaN);
 
+        // v3.62.0: anchor lines are ScottPlot VerticalLine plottables on
+        // the View-owned Plot (registered via RegisterPlot). Look them up
+        // by color (green) — the production code removes by color.
         foreach (var chart in vm.ChartViewModel.Series)
         {
-            var greenAnnos = chart.PlotModel.Annotations
-                .OfType<LineAnnotation>()
-                .Where(a => a.Tag as string == "green-anchor")
+            var plot = chart.Plot;
+            plot.Should().NotBeNull("SeedChart must register a non-null Plot");
+            var greenLines = plot!.GetPlottables()
+                .OfType<ScottPlot.Plottables.VerticalLine>()
+                .Where(vl => vl.LineColor == Colors.Green)
                 .ToList();
-            greenAnnos.Should().BeEmpty("RefreshAtAnchor(NaN) must remove every green-anchor LineAnnotation");
+            greenLines.Should().BeEmpty("RefreshAtAnchor(NaN) must remove every green-anchor VerticalLine");
         }
         vm.IsGreenLineAnchorActive.Should().BeFalse("IsGreenLineAnchorActive is false when anchor is NaN");
     }
@@ -177,22 +186,23 @@ public class GreenLineAnchorFlowTests
     public void RefreshAtAnchor_DoubleValue_AddsVerticalGreenLineAtX()
     {
         var vm = NewVm(out _, out _);
-        SeedChart(vm, ("0x100.SigA", OxyColors.Red), ("0x200.SigB", OxyColors.Blue));
+        SeedChart(vm, ("0x100.SigA", Colors.Red), ("0x200.SigB", Colors.Blue));
 
         vm.RefreshAtAnchor(5.2);
 
         foreach (var chart in vm.ChartViewModel.Series)
         {
-            var greenAnnos = chart.PlotModel.Annotations
-                .OfType<LineAnnotation>()
-                .Where(a => a.Tag as string == "green-anchor")
+            var plot = chart.Plot;
+            plot.Should().NotBeNull("SeedChart must register a non-null Plot");
+            var greenLines = plot!.GetPlottables()
+                .OfType<ScottPlot.Plottables.VerticalLine>()
+                .Where(vl => vl.LineColor == Colors.Green)
                 .ToList();
-            greenAnnos.Should().HaveCount(1, "exactly one green-anchor LineAnnotation per chart");
-            var anno = greenAnnos[0];
-            anno.X.Should().Be(5.2, "anchor X must equal the timestamp passed to RefreshAtAnchor");
-            anno.Color.Should().Be(OxyColors.Green, "green-anchor color must be OxyColors.Green");
-            anno.StrokeThickness.Should().Be(2.0, "green-anchor stroke thickness must be 2.0");
-            anno.Type.Should().Be(LineAnnotationType.Vertical, "green-anchor must be a Vertical LineAnnotation");
+            greenLines.Should().HaveCount(1, "exactly one green-anchor VerticalLine per chart");
+            var vline = greenLines[0];
+            vline.X.Should().Be(5.2, "anchor X must equal the timestamp passed to RefreshAtAnchor");
+            vline.LineColor.Should().Be(Colors.Green, "green-anchor color must be Colors.Green");
+            vline.LineWidth.Should().Be(2.0f, "green-anchor stroke thickness must be 2.0");
         }
         vm.IsGreenLineAnchorActive.Should().BeTrue("IsGreenLineAnchorActive is true when anchor is a real number");
     }
@@ -232,8 +242,11 @@ public class GreenLineAnchorFlowTests
         vm.RefreshAtAnchor(5.2);
 
         // Assert
+        // v3.62.0: RefreshAtAnchor stores the anchor snapshot in GreenAnchorValue
+        // (not LatestValue, which tracks live frame ingest). FrameCount is
+        // still updated by the green-anchor path.
         var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
-        row.LatestValue.Should().Be(30.0,
+        row.GreenAnchorValue.Should().Be(30.0,
             "anchor at 5.2 must binary-search the latest frame at-or-before 5.2 " +
             "(frame index 2, Data[0]=30) and decode via Factor=1 / Offset=0 → 30.0");
         row.FrameCount.Should().Be(3,
@@ -246,11 +259,13 @@ public class GreenLineAnchorFlowTests
     public void RefreshAtAnchorBlue_Updates_BlueLatestValue()
     {
         // Arrange: 1 frame at t=2.5 with Data[0]=30.
+        // NOTE: SeedWatchedRow hardcodes idHex="0x100", so frame ID must match
+        // or FilterFramesByCanId finds no frames and the anchor value stays NaN.
         var vm = NewVm(out var registry, out _);
         // SeedWatchedRow below builds the real chart series from frames.
         var frames = new List<ReplayFrame>
         {
-            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+            new ReplayFrame(2.5, 0x100, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
         };
         var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
         SeedWatchedRow(vm, registry, sig, frames);
@@ -270,22 +285,26 @@ public class GreenLineAnchorFlowTests
     public void SetGreenLinesVisible_False_ZerosStrokeThickness()
     {
         var vm = NewVm(out _, out _);
-        SeedChart(vm, ("0x100.SigA", OxyColors.Red));
+        SeedChart(vm, ("0x100.SigA", Colors.Red));
         vm.RefreshAtAnchor(2.5);
         var chart = vm.ChartViewModel.Series.First();
-        var greenBefore = chart.PlotModel.Annotations
-            .OfType<LineAnnotation>()
-            .First(a => a.Tag as string == "green-anchor");
-        greenBefore.StrokeThickness.Should().Be(2.0);
+        var plot = chart.Plot!;
+        var greenBefore = plot.GetPlottables()
+            .OfType<ScottPlot.Plottables.VerticalLine>()
+            .First(vl => vl.LineColor == Colors.Green);
+        greenBefore.LineWidth.Should().Be(2.0f);
 
         // Act
         vm.SetGreenLinesVisible(false);
 
         // Assert
-        var greenAfter = chart.PlotModel.Annotations
-            .OfType<LineAnnotation>()
-            .First(a => a.Tag as string == "green-anchor");
-        greenAfter.StrokeThickness.Should().Be(0.0,
+        // v3.62.0: soft-hide re-adds the VerticalLine with a 0.01f width
+        // (near-zero, not exactly 0) so the plottable is preserved but
+        // invisible. The production code uses 0.01f, not 0.0.
+        var greenAfter = plot.GetPlottables()
+            .OfType<ScottPlot.Plottables.VerticalLine>()
+            .First(vl => vl.LineColor == Colors.Green);
+        greenAfter.LineWidth.Should().BeLessThan(0.1f,
             "soft-hide zeros stroke thickness; anchor X + state preserved");
         greenAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
     }
@@ -299,7 +318,7 @@ public class GreenLineAnchorFlowTests
         // explicitly drags the blue anchor; mirroring hides whether
         // a comparison target has actually been chosen.
         var vm = NewVm(out var registry, out _);
-        SeedChart(vm, ("0x100.Speed", OxyColors.Red));
+        SeedChart(vm, ("0x100.Speed", Colors.Red));
         var frames = new List<ReplayFrame>
         {
             new ReplayFrame(2.5, 0x100, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
@@ -318,9 +337,10 @@ public class GreenLineAnchorFlowTests
 
         // User drags green anchor at t=2.5 first, then blue anchor at the
         // same X. Both anchors sit on the same frame, so Δ = 0.
+        // v3.62.0: green anchor stores in GreenAnchorValue (not LatestValue).
         vm.RefreshAtAnchor(2.5);
         vm.RefreshAtAnchorBlue(2.5);
-        row.LatestValue.Should().Be(30.0,
+        row.GreenAnchorValue.Should().Be(30.0,
             "green anchor at 2.5 reads chart YValues[0] = 30");
         row.BlueLatestValue.Should().Be(30.0,
             "blue anchor at 2.5 reads chart YValues[0] = 30");
@@ -332,26 +352,32 @@ public class GreenLineAnchorFlowTests
     public void SetBlueLinesVisible_False_ZerosStrokeThickness()
     {
         var vm = NewVm(out var registry, out _);
-        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        // v3.62.0: SeedWatchedRow internally calls SeedChart (data overload)
+        // which registers the Plot via RegisterPlot. Do NOT call the
+        // placeholder SeedChart first — that would create a second series
+        // whose Plot is not the one UpdateAllBlueLines adds the VerticalLine to.
         var frames = new List<ReplayFrame>
         {
-            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+            new ReplayFrame(2.5, 0x100, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
         };
         var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
         SeedWatchedRow(vm, registry, sig, frames);
         vm.RefreshAtAnchorBlue(2.5);
         var chart = vm.ChartViewModel.Series.First();
-        var blueBefore = chart.PlotModel.Annotations
-            .OfType<LineAnnotation>()
-            .First(a => a.Tag as string == "blue-anchor");
-        blueBefore.StrokeThickness.Should().Be(2.0);
+        var plot = chart.Plot!;
+        var blueBefore = plot.GetPlottables()
+            .OfType<ScottPlot.Plottables.VerticalLine>()
+            .First(vl => vl.LineColor == Colors.Blue);
+        blueBefore.LineWidth.Should().Be(2.0f);
 
         vm.SetBlueLinesVisible(false);
 
-        var blueAfter = chart.PlotModel.Annotations
-            .OfType<LineAnnotation>()
-            .First(a => a.Tag as string == "blue-anchor");
-        blueAfter.StrokeThickness.Should().Be(0.0,
+        var blueAfter = plot.GetPlottables()
+            .OfType<ScottPlot.Plottables.VerticalLine>()
+            .First(vl => vl.LineColor == Colors.Blue);
+        // v3.62.0: soft-hide sets LineWidth = 0.01f (near-zero) and
+        // IsVisible = false, not exactly 0.0.
+        blueAfter.LineWidth.Should().BeLessThan(0.1f,
             "soft-hide zeros stroke thickness; anchor X preserved");
         blueAfter.X.Should().Be(2.5, "anchor X survives hide round-trip");
     }
@@ -360,10 +386,11 @@ public class GreenLineAnchorFlowTests
     public void DeltaValue_Is_BlueMinusGreen()
     {
         var vm = NewVm(out var registry, out _);
-        SeedChart(vm, ("0x64.Speed", OxyColors.Red));
+        // v3.62.0: let SeedWatchedRow create + register the Plot via its
+        // internal SeedChart call. Avoid the placeholder SeedChart here.
         var frames = new List<ReplayFrame>
         {
-            new ReplayFrame(2.5, 0x64, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+            new ReplayFrame(2.5, 0x100, 8, new byte[] { 30, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
         };
         var sig = new Signal(Name: "Speed", StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian, ValueType: ValueType.Unsigned, Factor: 1.0, Offset: 0.0, Min: 0, Max: 0, Unit: "kmh", Receivers: Array.Empty<string>());
         SeedWatchedRow(vm, registry, sig, frames);
@@ -373,8 +400,8 @@ public class GreenLineAnchorFlowTests
         vm.RefreshAtAnchorBlue(2.5);
 
         var row = vm.WatchedSignals.First(w => !w.IsPlaceholder);
-        row.LatestValue.Should().Be(30.0);
+        row.GreenAnchorValue.Should().Be(30.0);
         row.BlueLatestValue.Should().Be(30.0);
-        row.DeltaValue.Should().Be(0.0, "Delta = BlueLatest - Green Latest");
+        row.DeltaValue.Should().Be(0.0, "Delta = BlueLatest - GreenAnchor");
     }
 }

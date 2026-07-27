@@ -4,7 +4,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -108,7 +108,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
     {
         // Arrange
         var path = NewAutoSavePath();
-        var src = new TraceSource("src1", "highway", @"C:/r.asc", OxyColors.Red);
+        var src = new TraceSource("src1", "highway", @"C:/r.asc", Colors.Red, new LineStyle());
         var registry = MakeRegistryWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
@@ -170,7 +170,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         var path = NewAutoSavePath();
         var src = new TraceSource(
             "srcA", "drive_downtown", @"C:/rec.asc",
-            OxyColor.FromArgb(255, 0x12, 0x34, 0x56));
+            new Color(0x12, 0x34, 0x56, 255), new LineStyle());
         var registry = MakeRegistryWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
@@ -199,7 +199,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
     {
         // Arrange — bundle exists; user answers No.
         var path = NewAutoSavePath();
-        var src = new TraceSource("src1", "trip", @"C:/t.asc", OxyColors.Green);
+        var src = new TraceSource("src1", "trip", @"C:/t.asc", Colors.Green, new LineStyle());
         var registry = MakeRegistryWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
@@ -229,7 +229,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         // Arrange — prefs already say NeverRestore=true. Bundle on disk
         // exists, but the prompt must be suppressed.
         var path = NewAutoSavePath();
-        var src = new TraceSource("src1", "trip", @"C:/t.asc", OxyColors.Green);
+        var src = new TraceSource("src1", "trip", @"C:/t.asc", Colors.Green, new LineStyle());
         var registry = MakeRegistryWith(src);
         var prefs = new InMemoryPrefsStore { Current = new AutoSavePrefs(NeverRestore: true) };
         var prompt = Substitute.For<IMessageBoxPrompt>();

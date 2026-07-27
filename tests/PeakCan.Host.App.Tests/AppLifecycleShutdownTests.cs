@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
@@ -155,7 +155,7 @@ public class AppLifecycleShutdownTests : IDisposable
         var registry = Substitute.For<ITraceSessionRegistry>();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("src1", "shutdown-test", @"C:/rec.asc", OxyColors.Red),
+            new("src1", "shutdown-test", @"C:/rec.asc", Colors.Red, new LineStyle()),
         });
         var dbc = Substitute.For<DbcService>(Substitute.For<Microsoft.Extensions.Logging.ILogger<DbcService>>());
         var vm = new TraceViewerViewModel(

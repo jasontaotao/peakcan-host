@@ -1,5 +1,5 @@
 using FluentAssertions;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
@@ -10,21 +10,18 @@ public class TraceChartViewModelTests
 {
     private static TraceChartSeries MakeSeries(string key, params (double x, double y)[] pts)
     {
-        var plot = new PlotModel();
-        plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Bottom });
-        plot.Axes.Add(new OxyPlot.Axes.LinearAxis { Position = OxyPlot.Axes.AxisPosition.Left });
-        var line = new OxyPlot.Series.LineSeries { Title = key };
-        foreach (var (x, y) in pts) line.Points.Add(new DataPoint(x, y));
-        plot.Series.Add(line);
+        var plot = new Plot();
         var xs = pts.Select(p => p.x).ToArray();
         var ys = pts.Select(p => p.y).ToArray();
+        if (pts.Length > 0)
+            plot.Add.Scatter(xs, ys);
         // Handle the no-points case (used by AddSeries/RemoveSeries/
         // ToggleCollapse/SetFocus tests) so the Min/Max record fields are
         // always well-defined. The contract tests assert on observable
         // behavior, not on these scalar values.
         var min = ys.Length == 0 ? 0.0 : ys.Min();
         var max = ys.Length == 0 ? 0.0 : ys.Max();
-        return new TraceChartSeries(key, key, "", OxyColors.Blue, plot, xs, ys,
+        return new TraceChartSeries(key, key, "", Colors.Blue, plot, xs, ys,
             min, max, false, false);
     }
 
@@ -87,12 +84,10 @@ public class TraceChartViewModelTests
         // foreach-over-Series path actually finds the annotation and
         // calls InvalidatePlot on the first allowed call.
         var series = MakeSeries("A", (0, 0), (1, 1));
-        series.PlotModel.Annotations.Add(new OxyPlot.Annotations.LineAnnotation
-        {
-            Type = OxyPlot.Annotations.LineAnnotationType.Vertical,
-            X = 0.0,
-            Tag = "playback-cursor",
-        });
+        // v3.62.0: playback cursor is a VerticalLine tagged by LabelText
+        // (production UpdatePlaybackCursor looks for it via GetPlottables).
+        var vline = series.Plot!.Add.VerticalLine(0.0);
+        vline.LabelText = "playback-cursor";
         sut.AddSeries(series);
         var beforeCount = sut.InvalidatePlotCallCount;
         // Burst 100 calls in <1 ms (sub-16ms window). With the 16 ms
@@ -258,17 +253,18 @@ public class TraceChartViewModelTests
     public void SyncYAxes_SingleSource_SetsSubplotYAxisToDataRange_WithPadding()
     {
         // v3.3.2 PATCH: Y axis range = data min/max + 5% padding.
+        // v3.62.0: SyncYAxes uses PlotResolver (View-owned Plot), not series.Plot.
         var sut = new TraceChartViewModel();
+        var plot = new Plot();
+        sut.PlotResolver = key => plot;
         var s = MakeSeries("A", (0, 10), (1, 20), (2, 30));
         sut.AddSeries(s);
 
         sut.SyncYAxes();
 
-        var yAxis = s.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
-            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
         // Data range is 10..30, range=20, padding=1, so y axis = 9..31
-        yAxis.Minimum.Should().BeApproximately(9.0, 0.001);
-        yAxis.Maximum.Should().BeApproximately(31.0, 0.001);
+        plot.Axes.Left.Min.Should().BeApproximately(9.0, 0.001);
+        plot.Axes.Left.Max.Should().BeApproximately(31.0, 0.001);
     }
 
     [Fact]
@@ -278,7 +274,11 @@ public class TraceChartViewModelTests
         // Source A: Y = 10..20 (range 10)
         // Source B: Y = 5..50 (range 45)
         // Global: 5..50 (range 45), padding 2.25, axis = 2.75..52.25
+        // v3.62.0: both series resolve to the SAME Plot via PlotResolver
+        // (grouped by SignalKey), so the shared plot gets the union range.
         var sut = new TraceChartViewModel();
+        var plot = new Plot();
+        sut.PlotResolver = key => plot;
         var sA = MakeSeries("A", (0, 10), (1, 20));
         var sB = MakeSeries("A", (0, 5), (1, 50));
         sut.AddSeries(sA);
@@ -286,21 +286,20 @@ public class TraceChartViewModelTests
 
         sut.SyncYAxes();
 
-        var yA = sA.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
-            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
-        var yB = sB.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
-            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
-        yA.Minimum.Should().BeApproximately(2.75, 0.001);
-        yA.Maximum.Should().BeApproximately(52.25, 0.001);
-        yB.Minimum.Should().BeApproximately(2.75, 0.001);
-        yB.Maximum.Should().BeApproximately(52.25, 0.001);
+        plot.Axes.Left.Min.Should().BeApproximately(2.75, 0.001);
+        plot.Axes.Left.Max.Should().BeApproximately(52.25, 0.001);
     }
 
     [Fact]
     public void SyncYAxes_TwoSourcesDifferentSignals_IndependentYAxes()
     {
         // v3.3.2 PATCH: different SignalKey → independent Y axes.
+        // v3.62.0: each SignalKey resolves to its own Plot via PlotResolver.
         var sut = new TraceChartViewModel();
+        var plotA = new Plot();
+        var plotB = new Plot();
+        var plots = new Dictionary<string, Plot> { ["SignalA"] = plotA, ["SignalB"] = plotB };
+        sut.PlotResolver = key => plots.GetValueOrDefault(key);
         var sA = MakeSeries("SignalA", (0, 100), (1, 200));
         var sB = MakeSeries("SignalB", (0, 1), (1, 2));
         sut.AddSeries(sA);
@@ -308,16 +307,12 @@ public class TraceChartViewModelTests
 
         sut.SyncYAxes();
 
-        var yA = sA.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
-            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
-        var yB = sB.PlotModel.Axes.OfType<OxyPlot.Axes.LinearAxis>()
-            .First(a => a.Position == OxyPlot.Axes.AxisPosition.Left);
         // SignalA: data 100..200, range 100, padding 5, axis 95..205
-        yA.Minimum.Should().BeApproximately(95.0, 0.001);
-        yA.Maximum.Should().BeApproximately(205.0, 0.001);
+        plotA.Axes.Left.Min.Should().BeApproximately(95.0, 0.001);
+        plotA.Axes.Left.Max.Should().BeApproximately(205.0, 0.001);
         // SignalB: data 1..2, range 1, padding 0.05, axis 0.95..2.05
-        yB.Minimum.Should().BeApproximately(0.95, 0.001);
-        yB.Maximum.Should().BeApproximately(2.05, 0.001);
+        plotB.Axes.Left.Min.Should().BeApproximately(0.95, 0.001);
+        plotB.Axes.Left.Max.Should().BeApproximately(2.05, 0.001);
     }
 
     // ---------- v3.8.6 PATCH L1: ApplyViewports tolerates duplicate EffectiveKey ----------

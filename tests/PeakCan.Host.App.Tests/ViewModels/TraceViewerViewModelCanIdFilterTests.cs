@@ -3,7 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -88,7 +88,7 @@ public class TraceViewerViewModelCanIdFilterTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
@@ -127,7 +127,7 @@ public class TraceViewerViewModelCanIdFilterTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
@@ -160,8 +160,8 @@ public class TraceViewerViewModelCanIdFilterTests
         var registry = MakeFakeRegistry();
         var svcA = MakeFakeService();
         var svcB = MakeFakeService();
-        var srcA = new TraceSource("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid);
-        var srcB = new TraceSource("b", "traceB", "C:/b.asc", OxyColors.Orange, LineStyle.Dash);
+        var srcA = new TraceSource("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle());
+        var srcB = new TraceSource("b", "traceB", "C:/b.asc", Colors.Orange, new LineStyle { Pattern = LinePattern.Dashed });
         registry.Sources.Returns(new List<TraceSource> { srcA, srcB });
         registry.GetService("a").Returns(svcA);
         registry.GetService("b").Returns(svcB);
@@ -201,7 +201,7 @@ public class TraceViewerViewModelCanIdFilterTests
     {
         var registry = MakeFakeRegistry();
         var svc = MakeFakeService();
-        var src = new TraceSource("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid);
+        var src = new TraceSource("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle());
         registry.Sources.Returns(new List<TraceSource> { src });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]

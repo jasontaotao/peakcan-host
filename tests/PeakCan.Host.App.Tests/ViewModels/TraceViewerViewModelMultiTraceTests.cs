@@ -3,7 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -53,7 +53,7 @@ public class TraceViewerViewModelMultiTraceTests
         var registry = MakeRegistry();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("guid-1", "traceA", "C:/a.asc", OxyColors.Blue),
+            new("guid-1", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
 
         var dbcService = MakeFakeDbcService();
@@ -92,8 +92,8 @@ public class TraceViewerViewModelMultiTraceTests
         var registry = MakeRegistry();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("guid-1", "traceA", "C:/a.asc", OxyColors.Blue),
-            new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
+            new("guid-1", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
+            new("guid-2", "traceB", "C:/b.asc", Colors.Orange, new LineStyle()),
         });
         var dbcService = MakeFakeDbcService();
         var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
@@ -123,8 +123,8 @@ public class TraceViewerViewModelMultiTraceTests
         var registry = MakeRegistry();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("guid-1", "traceA", "C:/a.asc", OxyColors.Blue),
-            new("guid-2", "traceB", "C:/b.asc", OxyColors.Orange),
+            new("guid-1", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
+            new("guid-2", "traceB", "C:/b.asc", Colors.Orange, new LineStyle()),
         });
         var dbcService = MakeFakeDbcService();
         var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(

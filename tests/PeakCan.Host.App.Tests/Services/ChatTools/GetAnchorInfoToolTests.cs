@@ -20,9 +20,12 @@ public class GetAnchorInfoToolTests
             AnchorTimestampSeconds = 12.0,
             BlueAnchorTimestampSeconds = 14.0,
         };
+        // v3.62.0: Delta = BlueLatestValue - GreenAnchorValue (not LatestValue).
         var faultRow = new WatchedSignalRow("0x182", "BMS_Status", "BmsFaultState", "", null, true, 1, 0.0, false);
+        faultRow.GreenAnchorValue = 0.0;
         faultRow.BlueLatestValue = 3.0;
         var voltageRow = new WatchedSignalRow("0x182", "BMS_Status", "BatteryVoltage", "V", null, true, 1, 12.5, false);
+        voltageRow.GreenAnchorValue = 12.5;
         voltageRow.BlueLatestValue = 11.0;
         ctx.WatchedSignals.AddRange(faultRow, voltageRow);
 

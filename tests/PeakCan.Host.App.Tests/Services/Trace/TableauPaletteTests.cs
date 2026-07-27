@@ -1,5 +1,5 @@
 using FluentAssertions;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using Xunit;
 
@@ -54,7 +54,7 @@ public class TableauPaletteTests
 
         act.Should().NotThrow();
         // The 11th source (0-indexed = "guid-10") should get SOME color (not default/uninitialized).
-        palette.PickColorFor("guid-10").Should().NotBe(default(OxyColor));
+        palette.PickColorFor("guid-10").Should().NotBe(default(Color));
     }
 
     [Fact]
@@ -79,17 +79,24 @@ public class TableauPaletteTests
     public void PickStrokeFor_FirstSource_IsSolid()
     {
         // v3.4.0 MINOR: slot 0 → Solid (5-style cycle: Solid, Dash, Dot, DashDot, DashDotDot).
+        // v3.62.0: LineStyle is a class without value equality — assert on
+        // the Pattern struct property (Solid = default) instead of Be().
         var palette = new TableauPalette();
-        palette.PickStrokeFor("guid-1").Should().Be(OxyPlot.LineStyle.Solid);
+        var stroke = palette.PickStrokeFor("guid-1");
+        stroke.Pattern.Should().Be(LinePattern.Solid);
+        stroke.HandDrawn.Should().BeFalse();
     }
 
     [Fact]
     public void PickStrokeFor_FifthSource_IsDashDotDot()
     {
         // v3.4.0 MINOR: slot 4 → DashDotDot (5-style cycle, 0-indexed).
+        // v3.62.0: LineStyle is a class without value equality — assert on
+        // the HandDrawn flag that distinguishes the 5th slot.
         var palette = new TableauPalette();
         for (var i = 0; i < 4; i++) palette.PickStrokeFor($"filler-{i}");
-        palette.PickStrokeFor("slot-4").Should().Be(OxyPlot.LineStyle.DashDotDot);
+        var stroke = palette.PickStrokeFor("slot-4");
+        stroke.HandDrawn.Should().BeTrue("slot 4 uses HandDrawn=true to distinguish from slot 0");
     }
 
     [Fact]

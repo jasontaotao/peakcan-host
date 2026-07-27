@@ -53,3 +53,5 @@ _[!_]*.md
 tests/**/Fixtures/Odx/*.odx-d
 tests/**/Fixtures/Odx/*.cdd
 
+build.rsp
+errors.sarif

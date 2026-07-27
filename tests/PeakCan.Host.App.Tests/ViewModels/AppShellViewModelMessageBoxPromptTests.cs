@@ -4,7 +4,6 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;

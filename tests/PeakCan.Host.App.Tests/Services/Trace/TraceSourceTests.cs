@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using FluentAssertions;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using Xunit;
 
@@ -19,7 +19,7 @@ namespace PeakCan.Host.App.Tests.Services.Trace;
 public class TraceSourceTests
 {
     private static TraceSource MakeSource() =>
-        new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid);
+        new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle());
 
     [Fact]
     public void CanIdFilter_Default_IsEmptyString()

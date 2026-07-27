@@ -2,7 +2,7 @@ using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -108,8 +108,8 @@ public class TraceSessionRegistryTests
         registry.Sources.Count.Should().Be(12);
         // Each source has a non-default color; the first 10 use the
         // Tableau-10 palette and the 11th/12th use the hash-based fallback.
-        registry.Sources[10].Color.Should().NotBe(default(OxyColor));
-        registry.Sources[11].Color.Should().NotBe(default(OxyColor));
+        registry.Sources[10].Color.Should().NotBe(default(Color));
+        registry.Sources[11].Color.Should().NotBe(default(Color));
     }
 
     [Fact]

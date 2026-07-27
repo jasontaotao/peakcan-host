@@ -129,7 +129,9 @@ public class WatchedSignalRowTests
         // Both NaN initially
         row.DeltaValue.Should().Be(double.NaN);
 
-        row.LatestValue = 5.0;
+        // v3.62.0: Delta = BlueLatestValue - GreenAnchorValue (not LatestValue).
+        // Setting LatestValue no longer affects DeltaValue.
+        row.GreenAnchorValue = 5.0;
         row.DeltaValue.Should().Be(double.NaN, "BlueLatestValue still NaN");
 
         row.BlueLatestValue = 8.0;
@@ -145,15 +147,15 @@ public class WatchedSignalRowTests
             signalName: "Sig",
             unit: "bit",
             sourceId: null)
-        { LatestValue = 10.0, BlueLatestValue = 20.0 };
+        { GreenAnchorValue = 10.0, BlueLatestValue = 20.0 };
 
         row.DeltaValue.Should().Be(10.0);
 
         row.BlueLatestValue = 30.0;
         row.DeltaValue.Should().Be(20.0, "after BlueLatestValue change, Δ re-reads = 30 - 10");
 
-        row.LatestValue = 25.0;
-        row.DeltaValue.Should().Be(5.0, "after LatestValue change, Δ re-reads = 30 - 25");
+        row.GreenAnchorValue = 25.0;
+        row.DeltaValue.Should().Be(5.0, "after GreenAnchorValue change, Δ re-reads = 30 - 25");
     }
 }
 
@@ -241,10 +243,11 @@ public class WatchedSignalRowPrecisionTests
             Order: ByteOrder.LittleEndian, ValueType: DbcValueType.Unsigned,
             Factor: 0.001, Offset: 0.0, Min: 0, Max: 65.535, Unit: "V",
             Receivers: Array.Empty<string>(), ValueTableName: null);
+        // v3.62.0: Delta = BlueLatestValue - GreenAnchorValue (not LatestValue).
         var row = new WatchedSignalRow("0x200", "MsgB", "SigB", "V")
         {
             Signal = sig,
-            LatestValue = 3.350,
+            GreenAnchorValue = 3.350,
             BlueLatestValue = 3.353
         };
         row.DeltaText.Should().Be("0.003", "Δ uses same factor-derived precision as signal: 0.003 not 0.00");

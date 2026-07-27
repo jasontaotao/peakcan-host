@@ -3,8 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using OxyPlot;
-using OxyPlot.Series;
+using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
@@ -91,7 +90,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
@@ -122,7 +121,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
@@ -148,7 +147,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
@@ -177,7 +176,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
@@ -204,7 +203,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
@@ -251,7 +250,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
@@ -272,7 +271,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
@@ -306,7 +305,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         var svc = MakeFakeService();
         registry.Sources.Returns(new List<TraceSource>
         {
-            new("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid),
+            new("a", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]

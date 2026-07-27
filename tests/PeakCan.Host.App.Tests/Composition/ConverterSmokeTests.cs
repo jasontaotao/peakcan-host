@@ -61,7 +61,7 @@ public sealed class ConverterSmokeTests
         yield return new object[] { new ConverterCase(new InverseBooleanConverter(), ToggleButton.IsCheckedProperty, true) };
         yield return new object[] { new ConverterCase(new NullToVisibilityConverter(), UIElement.VisibilityProperty, false) };
         yield return new object[] { new ConverterCase(new KindEqualsConverter(), UIElement.VisibilityProperty, false) };
-        yield return new object[] { new ConverterCase(new OxyColorToBrushConverter(), Panel.BackgroundProperty, false) };
+        yield return new object[] { new ConverterCase(new ColorToBrushConverter(), Panel.BackgroundProperty, false) };
     }
 
     [Theory]
