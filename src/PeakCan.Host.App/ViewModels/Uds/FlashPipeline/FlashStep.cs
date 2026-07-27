@@ -22,6 +22,11 @@ public sealed record SecurityAccessParams
     public SecurityAccessMode Mode { get; set; } = SecurityAccessMode.Manual;
     public string ManualKeyHex { get; set; } = "";
     public string DllPath { get; set; } = "";
+    /// <summary>
+    /// Seed byte length. null = auto (use ECU response seed as-is).
+    /// Non-null = ODX-derived or operator-specified; DLL wrapper pads/truncates to 16 bytes.
+    /// </summary>
+    public int? SeedLength { get; set; } = null;
 }
 
 /// <summary>
@@ -333,6 +338,11 @@ public sealed partial class FlashStep : ObservableObject
     [ObservableProperty] private SecurityAccessMode _securityMode = SecurityAccessMode.Manual;
     [ObservableProperty] private string _manualKeyHex = string.Empty;
     [ObservableProperty] private string _dllPath = string.Empty;
+    [ObservableProperty] private int? _seedLength = null;
+
+    // ODX-derived baseline values for computed "🔗 ODX" markers (R1).
+    private byte _odxDerivedLevel = 0x01;
+    private int? _odxDerivedSeedLength = null;
     [ObservableProperty] private ushort _routineId;
     [ObservableProperty] private string _firmwarePath = string.Empty;
     [ObservableProperty] private uint _memoryAddress;
@@ -427,7 +437,41 @@ public sealed partial class FlashStep : ObservableObject
         if (SecurityAccess is null) return;
         SecurityAccess = SecurityAccess with { Level = level };
         SecurityLevel = level;  // sync flat field (uses generated property)
+        OnPropertyChanged(nameof(SecurityAccess));
+        OnPropertyChanged(nameof(IsSecurityLevelFromOdx));
     }
+
+    /// <summary>Set seed byte length (helper for templates / ODX auto-fill).</summary>
+    public void SetSeedLength(int? seedLength)
+    {
+        if (SecurityAccess is null) return;
+        SecurityAccess = SecurityAccess with { SeedLength = seedLength };
+        SeedLength = seedLength;  // sync generated property (MVVMTK0034)
+        OnPropertyChanged(nameof(SecurityAccess));
+        OnPropertyChanged(nameof(IsSeedLengthFromOdx));
+    }
+
+    /// <summary>
+    /// Record the ODX-derived baseline values so computed "🔗 ODX" markers
+    /// can compare current value == ODX value (R1).
+    /// </summary>
+    internal void SetOdxDerivedBaseline(byte level, int? seedLength)
+    {
+        _odxDerivedLevel = level;
+        _odxDerivedSeedLength = seedLength;
+        OnPropertyChanged(nameof(IsSecurityLevelFromOdx));
+        OnPropertyChanged(nameof(IsSeedLengthFromOdx));
+    }
+
+    /// <summary>ODX marker: current Level still equals ODX-derived value.</summary>
+    public bool IsSecurityLevelFromOdx =>
+        SecurityAccess?.Level == _odxDerivedLevel;
+
+    /// <summary>ODX marker: current SeedLength still equals ODX-derived value.
+    /// Requires _odxDerivedSeedLength.HasValue so null==null doesn't falsely match (M3).</summary>
+    public bool IsSeedLengthFromOdx =>
+        _odxDerivedSeedLength.HasValue &&
+        SecurityAccess?.SeedLength == _odxDerivedSeedLength;
 
     /// <summary>
     /// Issue 1: Erase 步骤选择 Segment 后, 自动用 Segment 的地址+大小更新 RoutineControl.

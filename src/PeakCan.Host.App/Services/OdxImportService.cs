@@ -22,6 +22,7 @@ public sealed class OdxImportService : IOdxImportService
     private readonly DtcDatabase _dtcs;
     private readonly PdxReader _reader;
     private readonly OdxParser _parser;
+    private readonly FlashConfigurationService? _flashConfig;
     private readonly ILogger<OdxImportService>? _logger;
 
     public OdxImportService(
@@ -30,6 +31,7 @@ public sealed class OdxImportService : IOdxImportService
         DtcDatabase dtcs,
         PdxReader reader,
         OdxParser parser,
+        FlashConfigurationService? flashConfig = null,
         ILogger<OdxImportService>? logger = null)
     {
         _dids = dids;
@@ -37,6 +39,7 @@ public sealed class OdxImportService : IOdxImportService
         _dtcs = dtcs;
         _reader = reader;
         _parser = parser;
+        _flashConfig = flashConfig;
         _logger = logger;
     }
 
@@ -104,6 +107,21 @@ public sealed class OdxImportService : IOdxImportService
         warnings.AddRange(routineWarn);
         _dtcs.AddRange(dtcDefs, out var dtcWarn);
         warnings.AddRange(dtcWarn);
+
+        // Phase 2 (spec §8): derive SecurityAccess config from ODX and
+        // notify subscribers (e.g. FlashPanelViewModel) so the flash panel
+        // can auto-populate Level / SeedLength.
+        if (_flashConfig is not null)
+        {
+            SecurityAccessConfig? secConfig = null;
+            foreach (var xdoc in xdocs)
+            {
+                var ns = xdoc.Root?.Name.Namespace ?? (XNamespace)OdxParser.OdxNamespace;
+                var cfg = SecurityAccessExtractor.Extract(xdoc, ns);
+                if (cfg is not null) { secConfig = cfg; break; }
+            }
+            _flashConfig.UpdateFromOdx(secConfig);
+        }
 
         return OdxImportResult.Ok(didDefs.Count, routineDefs.Count, dtcDefs.Count, warnings);
     }

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.FlashPipeline;
+using PeakCan.Host.App.Services;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 
@@ -54,6 +55,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private readonly ILogger<FlashPanelViewModel> _logger;
     private readonly IFileDialogService _fileDialog;
     private readonly IHostApplicationLifetime _lifetime;
+    private readonly FlashConfigurationService? _flashConfig;
 
     private CancellationTokenSource? _runCts;
     private CancellationTokenSource? _linkedLifetimeCts;
@@ -120,7 +122,8 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         ISecondaryFlashStackFactory stackFactory,
         ILogger<FlashPanelViewModel> logger,
         IFileDialogService? fileDialog = null,
-        IHostApplicationLifetime? lifetime = null)
+        IHostApplicationLifetime? lifetime = null,
+        FlashConfigurationService? flashConfig = null)
     {
         ArgumentNullException.ThrowIfNull(stackFactory);
         ArgumentNullException.ThrowIfNull(logger);
@@ -135,6 +138,11 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // real IHostApplicationLifetime; the NullLifetime stand-in is inert (tokens never
         // fire, StopApplication is a no-op) so the linked-token path is never triggered.
         _lifetime = lifetime ?? NullLifetime.Instance;
+        // Phase 2 (spec §8): ODX-derived flash configuration. Subscribe to
+        // ConfigUpdated so ODX import auto-fills SecurityAccess defaults.
+        _flashConfig = flashConfig;
+        if (_flashConfig is not null)
+            _flashConfig.ConfigUpdated += ApplyOdxDefaultsIfUnset;
         // Issue 2: 订阅初始 profile 的 FirmwareFiles 集合变更.
         SubscribeFirmwareFiles();
         // Issue: Verify 步骤的 Segment 索引变更时自动填充地址+CRC.
@@ -162,6 +170,34 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
     private void OnFirmwareFilesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
         => RefreshAllSegments();
+
+    /// <summary>
+    /// Phase 2 (spec §8): apply ODX-derived SecurityAccess defaults to steps that
+    /// are still at their factory defaults. Called on ODX import (via ConfigUpdated
+    /// event) and after profile load. Only fills unset values — never overrides
+    /// operator-edited or profile-saved config (C2).
+    /// </summary>
+    internal void ApplyOdxDefaultsIfUnset()
+    {
+        var config = _flashConfig?.GetSecurityAccessConfig();
+        if (config is null) return;
+
+        foreach (var step in CurrentProfile.Steps.Where(s => s.Kind == FlashStepKind.SecurityAccess))
+        {
+            // Only fill Level if still at factory default (0x01).
+            if (step.SecurityAccess?.Level == 0x01)
+            {
+                step.SetSecurityAccessLevel(config.Level);
+                step.SetOdxDerivedBaseline(config.Level, config.SeedLength);
+            }
+            // Only fill SeedLength if still at factory default (null = auto).
+            if (step.SecurityAccess?.SeedLength == null)
+            {
+                step.SetSeedLength(config.SeedLength);
+                step.SetOdxDerivedBaseline(config.Level, config.SeedLength);
+            }
+        }
+    }
 
     /// <summary>Issue 2: 刷新缓存的 AllSegments 列表并通知绑定.</summary>
     private void RefreshAllSegments()
@@ -752,6 +788,8 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // RefreshAllSegments runs via OnCurrentProfileChanged; EraseSegmentIndex is
             // now -1 (cleared by OnSelectedStepChanged above) and will re-sync when the
             // operator selects the Erase step again.
+            // Phase 2 (spec §8): after profile load, apply ODX defaults to steps still at factory values.
+            ApplyOdxDefaultsIfUnset();
             StatusMessage = $"Profile loaded from {path}";
         }
         catch (JsonException ex)
@@ -803,7 +841,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
         // Phase 2: Grouped params — only the matching Kind's group is populated.
         PreCheck = step.PreCheck is { } pc ? new PreCheckSnapshot(pc.RoutineId) : null,
-        SecurityAccess = step.SecurityAccess is { } sa ? new SecurityAccessSnapshot(sa.Level, sa.Mode, sa.ManualKeyHex, sa.DllPath) : null,
+        SecurityAccess = step.SecurityAccess is { } sa ? new SecurityAccessSnapshot(sa.Level, sa.Mode, sa.ManualKeyHex, sa.DllPath, sa.SeedLength) : null,
         // Issue 1: Erase 步骤如果引用了 Segment, 自动用 Segment 的地址+大小覆盖手工填写的 StartAddress/Size.
         RoutineControl = step.RoutineControl is { } rc
             ? new RoutineControlSnapshot(rc.RoutineId,
@@ -831,6 +869,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         SecurityMode = step.SecurityMode,
         ManualKeyHex = step.ManualKeyHex,
         DllPath = step.DllPath,
+        SeedLength = step.SeedLength,
         RoutineId = step.RoutineId,
         MemoryAddress = step.MemoryAddress,
         ResetType = step.ResetType,
@@ -949,6 +988,10 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// </summary>
     public void StopForWindowClose()
     {
+        // M2: unsubscribe from ConfigUpdated to prevent event-handler leaks
+        // (especially in tests that construct multiple VM instances).
+        if (_flashConfig is not null)
+            _flashConfig.ConfigUpdated -= ApplyOdxDefaultsIfUnset;
         try { _runCts?.Cancel(); } catch { }
         _runCts?.Dispose();
         _runCts = null;

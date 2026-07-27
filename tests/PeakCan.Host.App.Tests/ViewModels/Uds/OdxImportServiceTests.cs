@@ -54,7 +54,8 @@ public class OdxImportServiceTests : IDisposable
         var svc = new OdxImportService(
             dids, routines, dtcs,
             new PdxReader(), new OdxParser(),
-            NullLogger<OdxImportService>.Instance);
+            flashConfig: null,
+            logger: NullLogger<OdxImportService>.Instance);
 
         // Act
         var result = await svc.ImportAsync(odxPath);
@@ -114,7 +115,8 @@ public class OdxImportServiceTests : IDisposable
         var svc = new OdxImportService(
             dids, routines, dtcs,
             new PdxReader(), new OdxParser(),
-            NullLogger<OdxImportService>.Instance);
+            flashConfig: null,
+            logger: NullLogger<OdxImportService>.Instance);
 
         // Act — import first, then second
         await svc.ImportAsync(odx1);
@@ -137,7 +139,8 @@ public class OdxImportServiceTests : IDisposable
             new RoutineDatabase(userJsonPath: null, logger: null),
             new DtcDatabase(),
             new PdxReader(), new OdxParser(),
-            NullLogger<OdxImportService>.Instance);
+            flashConfig: null,
+            logger: NullLogger<OdxImportService>.Instance);
 
         // Act
         var result = await svc.ImportAsync(System.IO.Path.Combine(_tempDir, "missing.odx"));
@@ -185,7 +188,8 @@ public class OdxImportServiceTests : IDisposable
         var svc = new OdxImportService(
             dids, routines, dtcs,
             new PdxReader(), new OdxParser(),
-            NullLogger<OdxImportService>.Instance);
+            flashConfig: null,
+            logger: NullLogger<OdxImportService>.Instance);
 
         // Act
         var result = await svc.ImportAsync(odxPath);

@@ -17,7 +17,8 @@ public sealed record SecurityAccessSnapshot(
     byte Level,
     SecurityAccessMode Mode,
     string ManualKeyHex,
-    string DllPath);
+    string DllPath,
+    int? SeedLength);
 
 public sealed record RoutineControlSnapshot(
     ushort RoutineId,
@@ -101,6 +102,9 @@ public sealed record FlashStepSnapshot
 
     /// <summary>Native DLL file path for Dll mode.</summary>
     public string DllPath { get; init; } = string.Empty;
+
+    /// <summary>Seed byte length (null = auto). Drives DLL seed padding/truncation.</summary>
+    public int? SeedLength { get; init; } = null;
 
     /// <summary>2-byte routine ID. 0xFF00 for Erase default, operator-filled for Verify.</summary>
     public ushort RoutineId { get; init; }

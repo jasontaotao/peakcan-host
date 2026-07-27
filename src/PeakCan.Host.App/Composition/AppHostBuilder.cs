@@ -286,7 +286,8 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.ISecondaryFlashStackFactory>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>>(),
                 sp.GetRequiredService<Core.IFileDialogService>(),
-                sp.GetRequiredService<IHostApplicationLifetime>()));
+                sp.GetRequiredService<IHostApplicationLifetime>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
@@ -296,6 +297,12 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Odx.PdxReader>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.IOdxImportService,
             PeakCan.Host.App.Services.OdxImportService>();
+        // Phase 2 (spec §8): ODX-derived flash configuration provider.
+        // FlashConfigurationService is a mutable singleton — OdxImportService
+        // calls UpdateFromOdx() after each import; FlashPanelViewModel reads it.
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.FlashConfigurationService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.IFlashConfigurationProvider>(sp =>
+            sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>());
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.OdxImportViewModel>();
 
         // ViewModels

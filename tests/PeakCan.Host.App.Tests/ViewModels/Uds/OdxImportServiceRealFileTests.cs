@@ -35,7 +35,8 @@ public class OdxImportServiceRealFileTests
         return new OdxImportService(
             dids, routines, dtcs,
             new PdxReader(), new OdxParser(),
-            NullLogger<OdxImportService>.Instance);
+            flashConfig: null,
+            logger: NullLogger<OdxImportService>.Instance);
     }
 
     [Fact]
