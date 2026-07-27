@@ -1,4 +1,4 @@
-using OxyPlot;
+using ScottPlot;
 
 namespace PeakCan.Host.App.Services.Trace;
 
@@ -9,6 +9,7 @@ namespace PeakCan.Host.App.Services.Trace;
 /// series derived from that source so all subplots of "trace A" share
 /// a color identity.
 ///
+/// v3.62.0 MINOR: migrated from OxyColor → ScottPlot.Color.
 /// Implementations must be deterministic (same sourceId → same color
 /// across calls within the same instance) and must throw when
 /// capacity is exceeded (v3.2.0 hard-caps at 10; v3.3.0 will add a
@@ -16,7 +17,7 @@ namespace PeakCan.Host.App.Services.Trace;
 /// </summary>
 public interface ITracePalette
 {
-    OxyColor PickColorFor(string sourceId);
+    Color PickColorFor(string sourceId);
 
     /// <summary>
     /// v3.4.0 MINOR: deterministic per-source LineStyle assignment for

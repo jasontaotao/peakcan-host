@@ -1,46 +1,32 @@
-using OxyPlot.Axes;
-
 namespace PeakCan.Host.App.ViewModels;
+using ScottPlot;
 
 public sealed partial class TraceChartViewModel
 {
     // Flow E: AxisSync (v3.3.2 PATCH + earlier).
-    // Methods moved verbatim from TraceChartViewModel.cs.
-    //
-    // Cross-flow callers (stay as plain calls via partial-class visibility):
-    //   - SyncXAxis -> Series (state, main)
-    //   - SyncYAxes -> Series (state, main)
+    // v3.62.0 MINOR: migrated from OxyPlot LinearAxis → ScottPlot IAxes.SetLimitsX/Y.
+
+    /// <summary>v3.62.0: optional resolver to get the active WpfPlot.Plot by signal key.
+    /// Set by parent TraceViewModel. When null, axis sync is a no-op.</summary>
+    public Func<string, Plot?>? PlotResolver { get; set; }
 
     /// <summary>Called by subplot's X-axis when user zooms/pans. Syncs all others.</summary>
     public void SyncXAxis(double minimum, double maximum)
     {
         foreach (var s in Series)
         {
-            var xAxis = s.PlotModel.Axes.OfType<LinearAxis>()
-                .FirstOrDefault(a => a.Position == AxisPosition.Bottom);
-            if (xAxis != null && (xAxis.ActualMinimum != minimum || xAxis.ActualMaximum != maximum))
-            {
-                xAxis.Minimum = minimum;
-                xAxis.Maximum = maximum;
-                s.PlotModel.InvalidatePlot(false);
-            }
+            var plot = PlotResolver?.Invoke(s.SignalKey);
+            if (plot is null) continue;
+            var xAxis = plot.Axes.Bottom;
+            if (xAxis.Min == minimum && xAxis.Max == maximum) continue;
+            plot.Axes.SetLimitsX(minimum, maximum);
+            s.RefreshCallback?.Invoke();
         }
     }
 
     /// <summary>
-    /// v3.3.2 PATCH: cross-source Y-axis auto-scale coordination. Groups
-    /// subplots by logical <see cref="TraceChartSeries.SignalKey"/> (NOT
-    /// <see cref="TraceChartSeries.EffectiveKey"/> — SourceId-qualified —
-    /// because we want all sources of the same signal to share one Y axis)
-    /// and sets each group's Y axis (Left <see cref="LinearAxis"/>) to the
-    /// union min/max of all sources' Y data, with 5% padding for visual
-    /// breathing room.
-    /// <para>
-    /// <b>Forward-looking:</b> v3.3.2 ships this method as a stand-alone,
-    /// testable unit. Production wiring (calling this from
-    /// <c>TraceViewerViewModel.RebuildSignalsAsync</c> after the chart
-    /// series construction is itself unblocked) is deferred to v3.4.0.
-    /// </para>
+    /// v3.3.2 PATCH: cross-source Y-axis auto-scale coordination.
+    /// v3.62.0 MINOR: uses frames directly (YValues populated progressively).
     /// </summary>
     public void SyncYAxes()
     {
@@ -53,6 +39,7 @@ public sealed partial class TraceChartViewModel
             {
                 foreach (var y in s.YValues)
                 {
+                    if (double.IsNaN(y)) continue;
                     if (y < min) min = y;
                     if (y > max) max = y;
                     hasData = true;
@@ -66,12 +53,10 @@ public sealed partial class TraceChartViewModel
             var yMax = max + pad;
             foreach (var s in group)
             {
-                var yAxis = s.PlotModel.Axes.OfType<LinearAxis>()
-                    .FirstOrDefault(a => a.Position == AxisPosition.Left);
-                if (yAxis is null) continue;
-                yAxis.Minimum = yMin;
-                yAxis.Maximum = yMax;
-                s.PlotModel.InvalidatePlot(false);
+                var plot = PlotResolver?.Invoke(s.SignalKey);
+                if (plot is null) continue;
+                plot.Axes.SetLimitsY(yMin, yMax);
+                s.RefreshCallback?.Invoke();
             }
         }
     }

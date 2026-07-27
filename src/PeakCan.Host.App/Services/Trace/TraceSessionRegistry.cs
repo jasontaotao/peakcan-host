@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Replay;
 
@@ -85,7 +85,7 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry, IFrameSourcePr
         //    defensive cleanup of the per-load disposable should any future
         //    palette impl choose to throw (e.g. a custom ITracePalette that
         //    hard-caps).
-        OxyColor color;
+        Color color;
         try
         {
             color = _palette.PickColorFor(sourceId);

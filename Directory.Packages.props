@@ -23,6 +23,9 @@
          abstractions. -->
     <PackageVersion Include="Serilog.Settings.Configuration" Version="8.0.4" />
     <PackageVersion Include="OxyPlot.Wpf" Version="2.2.0" />
+    <!-- v3.62.0 MINOR P1: ScottPlot.Wpf 替换 OxyPlot 作为 Trace Viewer 图表渲染引擎。
+         5.x 使用 SkiaSharp GPU 加速 + IScatterSource.MaxRenderIndex 渐进渲染。 -->
+    <PackageVersion Include="ScottPlot.Wpf" Version="5.0.55" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageVersion Include="FluentAssertions" Version="8.10.0" />

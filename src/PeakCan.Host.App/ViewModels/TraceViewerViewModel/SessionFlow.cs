@@ -1,7 +1,7 @@
 using System.IO;
+using ScottPlot;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using OxyPlot;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core.Replay;
 
@@ -221,8 +221,8 @@ public sealed partial class TraceViewerViewModel
                 if (!(bs.ColorA == 0 && bs.ColorR == 0 &&
                       bs.ColorG == 0 && bs.ColorB == 0))
                 {
-                    loaded.Color = OxyColor.FromArgb(
-                        bs.ColorA, bs.ColorR, bs.ColorG, bs.ColorB);
+                    loaded.Color = new Color(
+                        bs.ColorR, bs.ColorG, bs.ColorB, bs.ColorA);
                 }
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)

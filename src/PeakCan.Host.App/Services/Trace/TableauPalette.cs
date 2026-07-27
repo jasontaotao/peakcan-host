@@ -1,4 +1,4 @@
-using OxyPlot;
+using ScottPlot;
 
 namespace PeakCan.Host.App.Services.Trace;
 
@@ -25,34 +25,35 @@ namespace PeakCan.Host.App.Services.Trace;
 /// </summary>
 public sealed class TableauPalette : ITracePalette
 {
-    // Tableau-10 palette — matches the array previously inlined in
-    // TraceChartViewModel.cs:18-25.
-    private static readonly OxyColor[] Colors =
+    // Tableau-10 palette — v3.62.0: ScottPlot.Color (byte RGB constructor)
+    private static readonly Color[] Colors =
     {
-        OxyColor.FromRgb(0x4E, 0x79, 0xA7), // blue
-        OxyColor.FromRgb(0xF2, 0x8E, 0x2B), // orange
-        OxyColor.FromRgb(0xE1, 0x57, 0x59), // red
-        OxyColor.FromRgb(0x76, 0xB7, 0xB2), // teal
-        OxyColor.FromRgb(0x59, 0xA1, 0x4F), // green
-        OxyColor.FromRgb(0xED, 0xC9, 0x48), // yellow
-        OxyColor.FromRgb(0xB0, 0x77, 0xAA), // purple
-        OxyColor.FromRgb(0xFF, 0x9D, 0xA7), // pink
-        OxyColor.FromRgb(0x9C, 0x75, 0x5B), // brown
-        OxyColor.FromRgb(0xBA, 0xBE, 0xCF), // gray
+        new Color(0x4E, 0x79, 0xA7), // blue
+        new Color(0xF2, 0x8E, 0x2B), // orange
+        new Color(0xE1, 0x57, 0x59), // red
+        new Color(0x76, 0xB7, 0xB2), // teal
+        new Color(0x59, 0xA1, 0x4F), // green
+        new Color(0xED, 0xC9, 0x48), // yellow
+        new Color(0xB0, 0x77, 0xAA), // purple
+        new Color(0xFF, 0x9D, 0xA7), // pink
+        new Color(0x9C, 0x75, 0x5B), // brown
+        new Color(0xBA, 0xBE, 0xCF), // gray
     };
 
-    // v3.4.0 MINOR: 5-style cycle (Solid, Dash, Dot, DashDot, DashDotDot).
-    // Past 10, cycle continues with hash-based offset so distinct sources
-    // get distinct strokes (no two sources share within a session).
+    // v3.62.0: ScottPlot LineStyle is a struct with LinePattern enum.
+    // Original 5-style cycle mapped to: Solid, Dashed, Dotted, DenselyDashed, Solid+HandDrawn
     private static readonly LineStyle[] Strokes =
     {
-        LineStyle.Solid, LineStyle.Dash, LineStyle.Dot,
-        LineStyle.DashDot, LineStyle.DashDotDot,
+        new LineStyle(),                                        // Solid
+        new LineStyle { Pattern = LinePattern.Dashed },
+        new LineStyle { Pattern = LinePattern.Dotted },
+        new LineStyle { Pattern = LinePattern.DenselyDashed },
+        new LineStyle { HandDrawn = true },                     // distinguish 5th
     };
 
     private readonly Dictionary<string, int> _assigned = new();
 
-    public OxyColor PickColorFor(string sourceId)
+    public Color PickColorFor(string sourceId)
     {
         if (string.IsNullOrEmpty(sourceId))
             throw new ArgumentException("sourceId must be non-empty", nameof(sourceId));
@@ -62,7 +63,7 @@ public sealed class TableauPalette : ITracePalette
 
         // v3.3.1 PATCH: hash-based fallback also caches its resolved color
         // so repeated lookups of the same overflow sourceId return the
-        // exact same OxyColor (determinism invariant).
+        // exact same Color (determinism invariant).
         if (_hashCache.TryGetValue(sourceId, out var hashColor))
             return hashColor;
 
@@ -70,7 +71,7 @@ public sealed class TableauPalette : ITracePalette
         // deterministic hash-based color. Same sourceId always yields the same
         // color across calls within an instance (preserves the v3.2.0
         // determinism invariant). Color is derived from the sourceId hash
-        // mapped to HSL — same hash → same h/s/l → same OxyColor.
+        // mapped to HSL — same hash → same h/s/l → same Color.
         if (_assigned.Count < Colors.Length)
         {
             var nextSlot = _assigned.Count;
@@ -83,8 +84,8 @@ public sealed class TableauPalette : ITracePalette
         var l = 0.55 + ((hash / 360) % 20) / 100.0;  // 0.55..0.74 lightness
         // OxyPlot 2.2.0 does not expose FromHsl; compute RGB from HSL inline
         // (standard formula) so the plan's HSL semantics are preserved
-        // exactly — same sourceId → same h/s/l → same RGB → same OxyColor.
-        var fallback = HslToOxyColor(h, 0.6, l);
+        // exactly — same sourceId → same h/s/l → same RGB → same Color.
+        var fallback = HslToColor(h, 0.6, l);
         // Cache the resolved color (not the slot index) so the cache-hit
         // path above can return it directly. Storing -1 as a sentinel
         // would crash `Colors[slot]` on the second lookup of the same
@@ -125,18 +126,18 @@ public sealed class TableauPalette : ITracePalette
 
     // v3.3.1 PATCH: hash-based colors are stored in a separate dict so
     // the fixed-slot path (Colors[slot]) and the hash-fallback path
-    // (resolved OxyColor) don't share a single int-typed slot field.
+    // (resolved Color) don't share a single int-typed slot field.
     // Kept distinct from `_assigned` so the fixed-slot cache stays
     // semantically pure (slot index in [0, Colors.Length)).
-    private readonly Dictionary<string, OxyColor> _hashCache = new();
+    private readonly Dictionary<string, Color> _hashCache = new();
 
     /// <summary>
-    /// Convert HSL (h in 0..359, s/l in 0..1) to <see cref="OxyColor"/>.
+    /// Convert HSL (h in 0..359, s/l in 0..1) to <see cref="Color"/>.
     /// Standard HSL→RGB formula; equivalent to
-    /// <c>OxyColor.FromHsv</c> would give a different visual distribution,
+    /// <c>Color.FromHsv</c> would give a different visual distribution,
     /// so we implement HSL directly to preserve the v3.3.1 spec.
     /// </summary>
-    private static OxyColor HslToOxyColor(double h, double s, double l)
+    private static Color HslToColor(double h, double s, double l)
     {
         // h normalized to [0,1); s,l already in [0,1]
         var hNorm = h / 360.0;
@@ -154,6 +155,6 @@ public sealed class TableauPalette : ITracePalette
         var r = (byte)Math.Clamp((r1 + m) * 255, 0, 255);
         var g = (byte)Math.Clamp((g1 + m) * 255, 0, 255);
         var b = (byte)Math.Clamp((b1 + m) * 255, 0, 255);
-        return OxyColor.FromRgb(r, g, b);
+        return new Color(r, g, b);
     }
 }

@@ -64,17 +64,18 @@ public sealed partial class WatchedSignalRow
 
     /// <summary>Δ as a string for XAML binding. Enum signals show "—" (no
     /// subtractable semantics between text labels); numeric signals show
-    /// F2 diff. NaN → "—" placeholder.</summary>
+    /// F2 diff. NaN → "—" placeholder.
+    /// v3.62.0: uses _greenAnchorValue (not _latestValue) to match DeltaValue.</summary>
     public string DeltaText
     {
         get
         {
-            if (double.IsNaN(_latestValue) || double.IsNaN(_blueLatestValue))
+            if (double.IsNaN(_greenAnchorValue) || double.IsNaN(_blueLatestValue))
                 return DoubleNanToStringConverter.Placeholder;
             // G4: enum signals have no subtractable semantics between text labels.
             if (_signal?.ValueTableName is not null)
                 return DoubleNanToStringConverter.Placeholder;
-            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue - _latestValue);
+            return SignalFormatter.FormatValue(_decimalDigits, _blueLatestValue - _greenAnchorValue);
         }
     }
 }

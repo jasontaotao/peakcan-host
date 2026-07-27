@@ -1,66 +1,43 @@
-using OxyPlot;
-// v3.50.5 PATCH: OxyPlot.Wpf exposes the WPF-specific PlotView + Tracker
-// behavior; OxyPlot (core) hosts the cross-platform PlotController type
-// that PlotView.Controller accepts.
-using OxyPlot.Wpf;
+using ScottPlot;
+using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
 /// <summary>
-/// One charted signal in the Trace Viewer. Carries its own
-/// <see cref="PlotModel"/> (per-signal subplot) with the
-/// <see cref="OxyPlot.Series.LineSeries"/> already populated and the
-/// X/Y axes configured. Color is assigned at creation — v3.2.0 MINOR
+/// One charted signal in the Trace Viewer.
+/// v3.62.0 MINOR: migrated from OxyPlot. The View creates and owns the Plot;
+/// this record carries the data needed to populate it (source, signal, color, etc.).
+/// Color is assigned at creation — v3.2.0 MINOR
 /// moves palette assignment from per-series (TraceChartViewModel) to
 /// per-source (ITracePalette), so all series of a given source share
 /// the source's color identity.
-/// <para>
-/// <b>Multi-trace overlay (v3.2.0 MINOR):</b> <see cref="SourceId"/>
-/// disambiguates the same logical signal from multiple traces. When two
-/// traces both have a "0x100.RPM" signal, each becomes a separate
-/// <see cref="TraceChartSeries"/> with a different <see cref="SourceId"/>.
-/// <see cref="EffectiveKey"/> is the lookup key used by
-/// <see cref="TraceChartViewModel"/> for remove/toggle/focus (always
-/// unique per (source, signal)); <see cref="SignalKey"/> is the logical
-/// key for collapse/focus grouping across sources (collides by design).
-/// </para>
 /// </summary>
 public sealed record TraceChartSeries(
     string SignalKey,           // "0x100.EngineRPM" — logical key
     string DisplayName,         // "EngineRPM"
     string Unit,                // "RPM" or "" if DBC not loaded
-    OxyColor Color,
-    PlotModel PlotModel,
-    IReadOnlyList<double> XValues,   // monotonically increasing
-    IReadOnlyList<double> YValues,   // decoded physical values
+    Color Color,                // v3.62.0: ScottPlot.Color (was OxyColor)
+    Plot? Plot,                 // v3.62.0: usually null; View creates its own Plot
+    IReadOnlyList<double> XValues,   // monotonically increasing timestamps
+    IReadOnlyList<double> YValues,   // decoded physical values (empty until progressive fill)
     double MinValue,
     double MaxValue,
     bool IsFocused,
     bool IsCollapsed,
-    // v3.14.2 PATCH: when true, the PlotModel + XValues + YValues
-    // are not yet populated. The Trace Viewer registers a placeholder
-    // per (source, signal) row in the chart strip at load time and
-    // lazily builds the per-frame data when the user opts the signal
-    // in via PlotSignal(). The prior eager build blocked the UI thread
-    // for 30+ seconds on a 99k-frame .asc with 316 signals (500K
-    // SignalDecoder.Decode calls).
     bool IsPlotPending = false,
-    // v3.2.0 MINOR: empty string for v3.0 single-trace callers; non-empty
-    // GUID assigned by TraceSessionRegistry when the series originates
-    // from a loaded TraceSource.
     string SourceId = "",
-    // v3.50.5 PATCH: optional OxyPlot WPF PlotController for the
-    // <c>oxy:PlotView</c> bound to <see cref="PlotModel"/>. When set,
-    // the PlotView uses this controller (default has a Tracker that
-    // shows the (X, Y) data point on hover). When null, the PlotView
-    // uses its default no-controller behavior (no hover tooltip).
-    // Set by <c>ChartSeriesFlow.BuildOneChartSeriesForSource</c> to
-    // <c>new PlotController()</c> on real chart series. Test seeds
-    // leave it null (placeholders don't need a controller because
-    // tests don't render the PlotView). PlotController lives in
-    // OxyPlot core (not OxyPlot.Wpf).
-    PlotController? Controller = null)
+    // v3.62.0: data needed by View to populate the WpfPlot's Plot
+    TraceSource? Source = null,
+    Signal? Signal = null,
+    ProgressiveScatterSource? ProgressiveSource = null)
 {
+    // v3.62.0 MINOR: callback set by the View code-behind when the WpfPlot
+    // control is materialized. The VM calls RefreshCallback?.Invoke() to
+    // trigger a re-render after mutating the Plot (moving anchor lines,
+    // toggling playback cursor). Replaces OxyPlot's InvalidatePlot(false).
+    public Action? RefreshCallback { get; set; }
+
     /// <summary>
     /// v3.2.0 MINOR: unique lookup key for chart-internal operations
     /// (remove, toggle, focus, height recompute). When <see cref="SourceId"/>

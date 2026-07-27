@@ -1,11 +1,10 @@
+using ScottPlot;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
-using OxyPlot;
-using OxyPlot.Axes;
 using PeakCan.Host.App.Services.Trace;
 
 namespace PeakCan.Host.App.ViewModels;

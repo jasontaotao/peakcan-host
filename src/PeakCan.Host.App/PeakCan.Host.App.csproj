@@ -9,6 +9,10 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.Http.Polly" />
     <PackageReference Include="OxyPlot.Wpf" />
+    <!-- v3.62.0 MINOR P1: ScottPlot.Wpf 替换 OxyPlot 作为 Trace Viewer 图表渲染引擎。
+         SkiaSharp GPU 加速，50 万点流畅渲染。渐进填充通过 IScatterSource.MaxRenderIndex 实现。
+         OxyPlot.Wpf 保留给 SignalChart/StatsChart（独立场景，仍满足需求）。 -->
+    <PackageReference Include="ScottPlot.Wpf" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <!-- v3.54.0 MINOR P1b: IHttpClientFactory for DeepSeekProvider.
          Per hard-boundary #15, HttpClient is NOT held as a long-lived

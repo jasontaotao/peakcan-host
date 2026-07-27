@@ -70,6 +70,22 @@ public sealed partial class WatchedSignalRow
         }
     }
 
+    /// <summary>v3.62.0: green anchor snapshot value. Separate from LatestValue
+    /// (which tracks live frame ingest). Delta = BlueLatestValue - GreenAnchorValue.</summary>
+    private double _greenAnchorValue = double.NaN;
+    public double GreenAnchorValue
+    {
+        get => _greenAnchorValue;
+        set
+        {
+            if (SetProperty(ref _greenAnchorValue, value))
+            {
+                OnPropertyChanged(nameof(DeltaValue));
+                OnPropertyChanged(nameof(DeltaText));
+            }
+        }
+    }
+
     private int _blueFrameCount;
     public int BlueFrameCount
     {
@@ -77,10 +93,10 @@ public sealed partial class WatchedSignalRow
         set => SetProperty(ref _blueFrameCount, value);
     }
 
-    /// <summary>Computed Delta = BlueLatest - Green Latest. NaN when
-    /// either side is NaN. Watch list DataGrid binds this column.</summary>
+    /// <summary>Computed Delta = BlueLatestValue - GreenAnchorValue.
+    /// NaN when either side is NaN. Uses anchor snapshots, not live LatestValue.</summary>
     public double DeltaValue =>
-        double.IsNaN(_blueLatestValue) || double.IsNaN(LatestValue)
+        double.IsNaN(_blueLatestValue) || double.IsNaN(_greenAnchorValue)
             ? double.NaN
-            : _blueLatestValue - LatestValue;
+            : _blueLatestValue - _greenAnchorValue;
 }

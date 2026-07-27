@@ -18,7 +18,7 @@
         <conv:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter" />
         <!-- v3.2.0 MINOR: Trace Viewer legend strip + chart subplots. -->
         <conv:BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <conv:OxyColorToBrushConverter x:Key="OxyColorToBrush" />
+        <conv:ColorToBrushConverter x:Key="ColorToBrush" />
         <!-- v3.50.2 PATCH: format doubles as F2, "—" when NaN/Infinity. -->
         <conv:DoubleNanToStringConverter x:Key="DoubleNanToStr" />
         <!-- HexConverter: 双向 hex 绑定 (数值 <-> "0x{hex}" 字符串). 解决 StringFormat=0x{0:X4}

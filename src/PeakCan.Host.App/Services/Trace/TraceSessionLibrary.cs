@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
-using OxyPlot;
+using ScottPlot;
 using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.App.Services.Trace;
@@ -49,7 +49,7 @@ public sealed partial class TraceSessionLibrary
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         Converters =
         {
-            new OxyColorJsonConverter(),
+            new ColorJsonConverter(),
             new JsonStringEnumConverter(),
         },
     };

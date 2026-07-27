@@ -14,13 +14,13 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Analysis;
+using ScottPlot;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 using System.Collections.Specialized;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.Core.Analysis.Chat;
-
 namespace PeakCan.Host.App.ViewModels;
 
 
@@ -99,6 +99,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // Cancelled on Dispose/Reset so in-flight HTTP requests are aborted when the
     // user closes the window or clears the session.
     private CancellationTokenSource? _analysisCts;
+    // v3.62.0 MINOR: progressive chart fill engine (background decode + incremental render)
+    private readonly ChartFillEngine _fillEngine = new();
+    private readonly Dictionary<string, FillRequest> _activeFillRequests = new();
+    // v3.62.0: View-owned WpfPlot.Plot references, keyed by signalKey. VM adds anchor lines here.
+    private readonly Dictionary<string, Plot> _activePlots = new();
+
+    /// <summary>v3.62.0 MINOR: lookup active fill request for View to wire RefreshCallback</summary>
+    public bool TryGetActiveFillRequest(string signalKey, out FillRequest request) =>
+        _activeFillRequests.TryGetValue(signalKey, out request);
+
+    /// <summary>v3.62.0 MINOR: View registers its WpfPlot.Plot so VM can add anchor lines.</summary>
+    public void RegisterPlot(string signalKey, Plot plot)
+    {
+        _activePlots[signalKey] = plot;
+    }
+
+    /// <summary>v3.62.0 MINOR: unregister when series is removed.</summary>
+    public void UnregisterPlot(string signalKey)
+    {
+        _activePlots.Remove(signalKey);
+        _activeFillRequests.Remove(signalKey);
+    }
+
+    // 锚点线时间差属性已移至 GreenLineAnchorFlow（可访问绿蓝锚点状态）
     // v3.61.0 PATCH BUG-007: distinct IsAnalyzing flag separate from IsLoading.
     // IsLoading gates AddTraceCommand (trace loading); IsAnalyzing gates analysis
     // commands. Streaming panel visibility binds to IsAnalyzing, not IsLoading.
@@ -291,6 +315,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // production DI passes a real IChatProvider + the 6 IChatTool instances.
         _chatProvider = chatProvider;
         _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
+        // v3.62.0 MINOR: wire plot resolver for axis sync (View owns the actual Plot objects)
+        ChartViewModel.PlotResolver = key => _activePlots.TryGetValue(key, out var p) ? p : null;
         // v3.61.0 PATCH: probe credential store on startup so the API Key
         // status shows "已配置" immediately if a key was previously saved.
         // Fire-and-forget is safe here: CheckAsync uses ConfigureAwait(true)

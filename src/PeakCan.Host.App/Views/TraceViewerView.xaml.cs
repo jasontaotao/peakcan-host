@@ -2,14 +2,34 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using PeakCan.Host.App.ViewModels;
+using ScottPlot;
+using ScottPlot.WPF;
 
 namespace PeakCan.Host.App.Views;
 
 public partial class TraceViewerView : Window
 {
+    /// <summary>v3.62.0: 保存 OnCompleted 处理器引用以便取消订阅。</summary>
+    private readonly Dictionary<string, Action<ProgressiveScatterSource>> _completedHandlers = new();
+
     public TraceViewerView()
     {
         InitializeComponent();
+        // v3.62.0: 窗口关闭时取消所有 OnCompleted 订阅
+        Closed += (_, _) => UnsubscribeAllCompletedHandlers();
+    }
+
+    /// <summary>v3.62.0: 取消所有 OnCompleted 订阅（防止内存泄漏）。</summary>
+    private void UnsubscribeAllCompletedHandlers()
+    {
+        if (DataContext is not TraceViewerViewModel vm) return;
+        foreach (var (signalKey, handler) in _completedHandlers)
+        {
+            var series = vm.ChartViewModel.Series.FirstOrDefault(s => s.SignalKey == signalKey);
+            if (series?.ProgressiveSource is not null)
+                series.ProgressiveSource.OnCompleted -= handler;
+        }
+        _completedHandlers.Clear();
     }
 
     public TraceViewerView(TraceViewerViewModel vm) : this()
@@ -190,8 +210,22 @@ public partial class TraceViewerView : Window
         e.Handled = true;
     }
 
+    /// <summary>v3.62.0: WpfPlot 滚轮冒泡事件。
+    /// ScottPlot 先在隧道阶段处理缩放，冒泡阶段我们标记已处理阻止 ScrollViewer 滚动。</summary>
+    private void OnChartPlotMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        e.Handled = true;
+    }
+
     private void OnPlotViewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        // v3.62.0: Show tracker tooltip on hover (non-drag)
+        if (!_isDraggingGreenLine && sender is WpfPlot pv && pv.DataContext is TraceChartSeries s)
+        {
+            ShowTrackerTooltip(pv, s);
+            return;
+        }
+
         if (!_isDraggingGreenLine) return;
         // Only the Left button held counts as a drag — releasing the
         // button while moving won't trigger MouseUp reliably across DPI
@@ -204,25 +238,138 @@ public partial class TraceViewerView : Window
         }
     }
 
-    /// <summary>Inverse-transform the cursor X through the PlotView's
-    /// bottom XAxis to a timestamp in seconds. Returns false when the
-    /// PlotView's model has no axes yet (uninitialized chart) or the
-    /// cursor is outside the plot area.</summary>
+    /// <summary>v3.62.0 MINOR: WpfPlot Loaded handler. Delegates to VM.PopulatePlot
+    /// so the VM-configured elements (LabelFormatter, color, scatter) are applied
+    /// to the WpfPlot's internal Plot. Also wires the progressive fill RefreshCallback.</summary>
+    private void OnChartPlotLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfPlot plot) return;
+        if (plot.DataContext is not TraceChartSeries series) return;
+        if (DataContext is not TraceViewerViewModel vm) return;
+
+        // Register the WpfPlot's Plot with the VM (for anchor lines, axis sync)
+        vm.RegisterPlot(series.SignalKey, plot.Plot);
+
+        // Let the VM populate the WpfPlot's Plot (scatter + axes + LabelFormatter)
+        vm.PopulatePlot(plot.Plot, series);
+
+        // Set up the RefreshCallback (VM → View bridge)
+        series.RefreshCallback = () => plot.Refresh();
+
+        // Wire the progressive fill callback so background decode triggers UI updates
+        if (vm.TryGetActiveFillRequest(series.SignalKey, out var fillRequest))
+        {
+            fillRequest.RefreshCallback = () => plot.Refresh();
+        }
+
+        // 方案 C-2: 填充完成后基于实际数据重新适配 Y 轴（只扩大不缩小）
+        if (series.ProgressiveSource is not null)
+        {
+            Action<ProgressiveScatterSource> handler = source =>
+            {
+                var (actualMin, actualMax) = source.GetActualYRange();
+                double yMin, yMax;
+
+                if (actualMax - actualMin > 1e-9)
+                {
+                    // 实际数据有效 → 用实际数据范围 + padding
+                    var range = actualMax - actualMin;
+                    var pad = range * 0.1;  // 10% padding
+                    yMin = actualMin - pad;
+                    yMax = actualMax + pad;
+                }
+                else
+                {
+                    // 实际数据无效（全 NaN 或单点） → fallback 到 DBC 范围
+                    var sig = series.Signal;
+                    if (sig is not null && sig.Min < sig.Max)
+                    {
+                        var range = sig.Max - sig.Min;
+                        var pad = range * 0.05;
+                        yMin = sig.Min - pad;
+                        yMax = sig.Max + pad;
+                    }
+                    else
+                    {
+                        return;  // 无有效范围
+                    }
+                }
+
+                // v3.62.0: 切回 UI 线程操作 UI 元素
+                Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    if (plot.Plot is not null)
+                    {
+                        plot.Plot.Axes.SetLimitsY(yMin, yMax);
+                        plot.Refresh();
+                    }
+                });
+            };
+
+            // 保存引用以便后续取消订阅
+            _completedHandlers[series.SignalKey] = handler;
+            series.ProgressiveSource.OnCompleted += handler;
+
+            // 修复竞态条件：若填充已在订阅前完成，立即触发 Y 轴适配
+            if (series.ProgressiveSource.IsCompleted)
+                handler(series.ProgressiveSource);
+        }
+
+        plot.Refresh();
+    }
+
+    /// <summary>Inverse-transform the cursor X to a timestamp, then SNAP to the
+    /// nearest actual sample point.
+    /// v3.62.0: ScottPlot GetCoordinates (with DPI correction) + binary search.</summary>
     private bool TryGetAnchorSeconds(object sender, System.Windows.Input.MouseEventArgs e,
                                      out double timestampSeconds)
     {
         timestampSeconds = double.NaN;
-        if (sender is not OxyPlot.Wpf.PlotView pv) return false;
-        var model = pv.Model;
-        if (model is null) return false;
-        // Bottom X-axis by convention (matches the playback-cursor
-        // LineAnnotation added by ChartSeriesFlow).
-        var xAxis = model.Axes.OfType<OxyPlot.Axes.Axis>().FirstOrDefault(a => a.Position == OxyPlot.Axes.AxisPosition.Bottom);
-        if (xAxis is null) return false;
-        var pos = e.GetPosition(pv);
-        // InverseTransform returns the data value at the given pixel.
-        timestampSeconds = xAxis.InverseTransform(pos.X);
-        return !double.IsNaN(timestampSeconds) && !double.IsInfinity(timestampSeconds);
+        if (sender is not WpfPlot pv) return false;
+        if (pv.DataContext is not TraceChartSeries series) return false;
+        if (DataContext is not TraceViewerViewModel vm) return false;
+
+        var plot = pv.Plot;
+        if (plot is null) return false;
+
+        // Fix #1: Convert WPF DIP to device pixels for ScottPlot
+        var posDip = e.GetPosition(pv);
+        double dpiScale = GetDpiScale(pv);
+        var posPixel = new ScottPlot.Pixel((float)(posDip.X * dpiScale), (float)(posDip.Y * dpiScale));
+
+        var coordinates = plot.GetCoordinates(posPixel);
+        if (double.IsNaN(coordinates.X) || double.IsInfinity(coordinates.X)) return false;
+
+        // Fix #2: Snap to nearest actual sample point via binary search
+        var idx = BinarySearchNearest(series.XValues, coordinates.X);
+        if (idx < 0) return false;
+        timestampSeconds = series.XValues[idx];
+        return true;
+    }
+
+    /// <summary>Get the DPI scale factor for a WPF element (1.0 = 96 DPI).</summary>
+    private static double GetDpiScale(System.Windows.FrameworkElement element)
+    {
+        var source = System.Windows.PresentationSource.FromVisual(element);
+        if (source?.CompositionTarget != null)
+            return source.CompositionTarget.TransformToDevice.M11;
+        return 1.0;
+    }
+
+    /// <summary>Binary search for the index of the nearest timestamp in a sorted array.</summary>
+    private static int BinarySearchNearest(IReadOnlyList<double> sorted, double target)
+    {
+        if (sorted.Count == 0) return -1;
+        if (sorted.Count == 1) return 0;
+        int lo = 0, hi = sorted.Count - 1;
+        while (lo < hi - 1)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (sorted[mid] <= target) lo = mid;
+            else hi = mid;
+        }
+        // Return whichever of lo/hi is closer to target
+        return Math.Abs(sorted[lo] - target) <= Math.Abs(sorted[hi] - target) ? lo : hi;
     }
 
     private void CommitAnchor(double timestampSeconds)
@@ -231,5 +378,28 @@ public partial class TraceViewerView : Window
         {
             vm.RefreshAtAnchor(timestampSeconds);
         }
+    }
+
+    /// <summary>v3.62.0 MINOR: Tracker tooltip on mouse hover (non-drag).
+    /// Finds the nearest data point on the Scatter and displays signal name + time + value.
+    /// Called from the existing OnPlotViewMouseMove handler.</summary>
+    private void ShowTrackerTooltip(WpfPlot pv, TraceChartSeries series)
+    {
+        var plot = pv.Plot;
+        if (plot is null) return;
+
+        var pos = System.Windows.Input.Mouse.GetPosition(pv);
+        // Convert pixel to coordinates for GetNearest
+        var coordinates = plot.GetCoordinates(new ScottPlot.Pixel(pos.X, pos.Y));
+
+        var scatter = plot.GetPlottables().OfType<ScottPlot.Plottables.Scatter>().FirstOrDefault();
+        if (scatter is null) return;
+
+        var hit = scatter.GetNearest(coordinates, plot.LastRender, 15);
+        if (!hit.IsReal) return;
+
+        // TODO: Display tooltip UI (Popup/Adorner) with:
+        //   series.DisplayName, time=hit.Coordinates.X, value=hit.Coordinates.Y
+        // For now, this is the data-layer hook.
     }
 }

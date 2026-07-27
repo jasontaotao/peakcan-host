@@ -1,23 +1,24 @@
 using System.Globalization;
 using System.Windows.Data;
 using System.Windows.Media;
-using OxyPlot;
+using ScottPlot;
 
 namespace PeakCan.Host.App.Composition.Converters;
 
 /// <summary>
-/// v3.2.0 MINOR: maps <see cref="OxyColor"/> to a WPF <see cref="SolidColorBrush"/>
-/// so XAML Rectangle.Fill can bind to a <see cref="TraceSource.Color"/>.
+/// v3.2.0 MINOR: maps ScottPlot.Color to a WPF SolidColorBrush
+/// so XAML Rectangle.Fill can bind to a TraceSource.Color.
+/// v3.62.0 MINOR: migrated from OxyColor → ScottPlot.Color.
 /// Uses the brush's pre-built cache when the same color is requested
 /// repeatedly (cheap; the palette only has 10 entries).
 /// </summary>
-public sealed class OxyColorToBrushConverter : IValueConverter
+public sealed class ColorToBrushConverter : IValueConverter
 {
-    private static readonly Dictionary<OxyColor, SolidColorBrush> Cache = new();
+    private static readonly Dictionary<ScottPlot.Color, SolidColorBrush> Cache = new();
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is not OxyColor color) return Brushes.Gray;
+        if (value is not ScottPlot.Color color) return Brushes.Gray;
         if (!Cache.TryGetValue(color, out var brush))
         {
             brush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(

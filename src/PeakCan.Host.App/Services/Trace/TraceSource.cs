@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using OxyPlot;
+using ScottPlot;
 
 namespace PeakCan.Host.App.Services.Trace;
 
@@ -38,7 +38,7 @@ public sealed class TraceSource : INotifyPropertyChanged
     /// VM can overwrite the registry's palette color; public read
     /// surface unchanged.
     /// </summary>
-    public OxyColor Color { get; internal set; }
+    public Color Color { get; internal set; }
 
     private string _canIdFilter = "";
 
@@ -90,13 +90,13 @@ public sealed class TraceSource : INotifyPropertyChanged
     }
 
     // Explicit ctor preserves the v3.2.0 positional call-site shape:
-    //   new TraceSource("a", "traceA", "C:/a.asc", OxyColors.Blue, LineStyle.Solid)
+    //   new TraceSource("a", "traceA", "C:/a.asc", Colors.Blue, LineStyle.Solid)
     public TraceSource(
         string sourceId,
         string displayName,
         string path,
-        OxyColor color,
-        LineStyle strokeStyle = LineStyle.Solid)
+        Color color,
+        LineStyle strokeStyle)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
         DisplayName = displayName ?? throw new ArgumentNullException(nameof(displayName));
