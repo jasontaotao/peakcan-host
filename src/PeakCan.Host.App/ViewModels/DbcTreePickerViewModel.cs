@@ -24,6 +24,23 @@ public sealed class DbcTreeNode : INotifyPropertyChanged
     public bool IsSignal => SignalName is not null;
     public ObservableCollection<DbcTreeNode> Children { get; } = new();
 
+    /// <summary>v3.62.0 MINOR: selection state bound to the TreeView
+    /// item's CheckBox (OneWay). The code-behind keeps this in sync
+    /// with <see cref="DbcTreePickerViewModel.SelectedSignals"/> so
+    /// that batch operations (全选/反选/Shift+Click range) refresh
+    /// the checkbox visuals.</summary>
+    private bool _isSelected;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+        }
+    }
+
     public DbcTreeNode(uint? canId, string? messageName, string? signalName = null, string? unit = null)
     {
         CanId = canId;

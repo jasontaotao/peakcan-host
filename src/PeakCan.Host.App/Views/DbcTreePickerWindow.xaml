@@ -19,12 +19,21 @@
         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
             <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,8,0" />
             <TextBox x:Name="SearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                     Margin="50,0,0,0" />
+                     Margin="50,0,0,0" TextChanged="OnSearchBoxTextChanged" />
         </Grid>
+
+        <!-- Batch action buttons (v3.62.0 MINOR: 全选可见 / 反选) -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Left" Margin="0,0,0,4">
+            <Button Content="全选可见" Width="90" Margin="0,0,8,0"
+                    Click="OnSelectAllVisibleClick" />
+            <Button Content="反选" Width="60"
+                    Click="OnInvertSelectionClick" />
+        </StackPanel>
 
         <!-- OK / Cancel buttons -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
-                    HorizontalAlignment="Right" Margin="0,8,0,0">
+                    HorizontalAlignment="Right" Margin="0,4,0,0">
             <TextBlock x:Name="SelectedCountText" VerticalAlignment="Center"
                        Margin="0,0,16,0" Foreground="Gray" />
             <Button Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"
@@ -56,6 +65,7 @@
                              DataTemplate with this TreeView style). -->
                         <CheckBox x:Name="SignalCheck"
                                   Visibility="{Binding IsSignal, Converter={StaticResource BoolToVis}}"
+                                  IsChecked="{Binding IsSelected, Mode=OneWay}"
                                   Click="OnSignalCheckClick" />
                         <TextBlock Text="{Binding MessageName}" FontWeight="SemiBold"
                                    Visibility="{Binding IsMessage, Converter={StaticResource BoolToVis}}" />
