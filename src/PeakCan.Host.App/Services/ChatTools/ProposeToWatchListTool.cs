@@ -10,10 +10,10 @@ namespace PeakCan.Host.App.Services.ChatTools;
 /// synchronously recompute anchor values for the new rows.
 /// </summary>
 /// <remarks>
-/// <b>MEDIUM-1/2 fix (spec v2 patch):</b> after adding rows, calls
-/// <see cref="IChatToolContext.RefreshAtAnchor"/> +
-/// <see cref="IChatToolContext.RefreshAtAnchorBlue"/> with the CURRENT
-/// anchor timestamps (idempotent re-decode of the new rows).
+/// <b>v12 fix:</b> <see cref="IChatToolContext.AddWatchedSignals"/> now
+/// performs Add + RefreshAtAnchor + RefreshAtAnchorBlue inside a single
+/// <c>Dispatcher.Invoke</c> to avoid DataGrid ItemContainerGenerator count
+/// mismatch. This tool no longer calls RefreshAtAnchor separately.
 /// <see cref="GreenLineAnchorFlow.RefreshAtAnchor"/> is a synchronous
 /// millisecond-scale method (binary search + decode), so this blocks
 /// until the new rows have anchor values - the same round's
@@ -88,12 +88,10 @@ public sealed class ProposeToWatchListTool : ChatToolBase
         if (toAdd.Count > 0)
         {
             _context.AddWatchedSignals(toAdd);
-            // Synchronously recompute anchor values for the new rows using
-            // the CURRENT anchor timestamps. NaN = no anchor set -> skip.
-            if (!double.IsNaN(_context.AnchorTimestampSeconds))
-                _context.RefreshAtAnchor(_context.AnchorTimestampSeconds);
-            if (!double.IsNaN(_context.BlueAnchorTimestampSeconds))
-                _context.RefreshAtAnchorBlue(_context.BlueAnchorTimestampSeconds);
+            // v12: AddWatchedSignals now refreshes anchors inside the same
+            // Dispatcher.Invoke to avoid DataGrid ItemContainerGenerator
+            // count mismatch (separate Invoke calls let container generation
+            // interleave with RefreshAtAnchor INPC notifications).
         }
 
         var root = new JsonObject

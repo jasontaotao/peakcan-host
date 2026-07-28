@@ -13,6 +13,9 @@ public sealed partial class TraceChartViewModel
         var result = new List<BundleViewportDto>(Series.Count);
         foreach (var s in Series)
         {
+            // v12 fix: Plot is null until the View creates its own Plot
+            // (common during AI chat before the chart tab is visited).
+            if (s.Plot is null) continue;
             // v3.62.0 MINOR: IAxis.Min/Max replaces
             // xAxis.ActualMinimum/ActualMaximum
             var xMin = s.Plot.Axes.Bottom.Min;

@@ -88,7 +88,9 @@ public sealed partial class TraceViewerViewModel
             if (row.SourceId is null)
             {
                 count = matching?.Count ?? 0;
-                lastFrame = matching is { Count: > 0 } ? matching[^1] : null;
+                lastFrame = matching is { Count: > 0 }
+                    ? matching.MaxBy(f => f.Timestamp)
+                    : null;
             }
             else
             {
@@ -103,7 +105,9 @@ public sealed partial class TraceViewerViewModel
                     return src?.SourceId == row.SourceId;
                 }).ToList();
                 count = perSourceFrames?.Count ?? 0;
-                lastFrame = perSourceFrames is { Count: > 0 } ? perSourceFrames[^1] : null;
+                lastFrame = perSourceFrames is { Count: > 0 }
+                    ? perSourceFrames.MaxBy(f => f.Timestamp)
+                    : null;
             }
 
             row.FrameCount = count;
@@ -168,10 +172,16 @@ public sealed partial class TraceViewerViewModel
             foreach (var f in _registry.GetFrames(source.SourceId))
             {
                 if (effective is not null && !effective.Contains(f.Id)) continue;
-                if (!byId.TryGetValue(f.Id, out var list))
+                // v12 fix: mask IDE bit (bit 31) so the key matches
+                // RefreshFrameCounts' lookupId = canId & 0x7FFFFFFF.
+                // Without this, extended-frame IDs (with IDE bit set)
+                // create a key that lookupId can never match, causing
+                // matching=null -> lastFrame=null -> LatestValue stays NaN.
+                var maskedId = f.Id & 0x7FFFFFFFu;
+                if (!byId.TryGetValue(maskedId, out var list))
                 {
                     list = new List<ReplayFrame>();
-                    byId[f.Id] = list;
+                    byId[maskedId] = list;
                 }
                 list.Add(f);
             }

@@ -24,7 +24,17 @@ internal sealed class FakeChatToolContext : IChatToolContext
     public List<double> SeekCalls { get; } = new();
     public bool SeekResult { get; set; } = true;
 
-    public void AddWatchedSignals(IEnumerable<WatchedSignalRow> rows) => AddedRows.AddRange(rows);
+    public void AddWatchedSignals(IEnumerable<WatchedSignalRow> rows)
+    {
+        AddedRows.AddRange(rows);
+        // v12: mirror the real VM which now refreshes anchors inside
+        // AddWatchedSignals (same Dispatcher.Invoke) to avoid DataGrid
+        // ItemContainerGenerator count mismatch.
+        if (!double.IsNaN(AnchorTimestampSeconds))
+            RefreshAtAnchor(AnchorTimestampSeconds);
+        if (!double.IsNaN(BlueAnchorTimestampSeconds))
+            RefreshAtAnchorBlue(BlueAnchorTimestampSeconds);
+    }
     public void RefreshAtAnchor(double timestampSeconds) => RefreshAtAnchorCalls.Add(timestampSeconds);
     public void RefreshAtAnchorBlue(double timestampSeconds) => RefreshAtAnchorBlueCalls.Add(timestampSeconds);
     public bool Seek(double timestampSeconds)

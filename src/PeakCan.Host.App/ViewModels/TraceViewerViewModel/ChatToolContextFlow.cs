@@ -33,13 +33,34 @@ public sealed partial class TraceViewerViewModel
 
     void IChatToolContext.AddWatchedSignals(IEnumerable<WatchedSignalRow> rows)
     {
+        // v12 fix: Add + Plot + RefreshAnchors + CollectionView.Refresh must
+        // be in the SAME Dispatcher.Invoke. When the Watch List tab is not
+        // visible, the DataGrid's ItemContainerGenerator may miss Add events
+        // during bulk Add + RefreshAtAnchor INPC bursts. Calling Refresh()
+        // forces a Reset so the generator resyncs from the actual collection
+        // state when the tab becomes visible again.
         Application.Current.Dispatcher.Invoke(() =>
         {
-            foreach (var row in rows)
+            var rowList = rows.ToList();
+            foreach (var row in rowList)
                 WatchedSignals.Add(row);
+            // v12 fix: plot each new row on the chart (same as the manual
+            // AddToWatch -> PlotSignalFromTableRow path). Without this,
+            // AI-added signals appear in the watch list table but not on
+            // the chart.
+            foreach (var row in rowList)
+                PlotSignalFromTableRow(row);
+            // v12 fix: refresh FrameCount + LatestValue for new rows (same
+            // as FinalizePickerAdds -> RefreshFrameCounts path). Without
+            // this, AI-added signals show "--" in the Latest column.
+            RefreshFrameCounts();
+            if (!double.IsNaN(_anchorTimestampSeconds))
+                RefreshAtAnchor(_anchorTimestampSeconds);
+            if (!double.IsNaN(_blueAnchorTimestampSeconds))
+                RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
+            System.Windows.Data.CollectionViewSource
+                .GetDefaultView(WatchedSignals).Refresh();
         });
-        // Anchor refresh is driven by ProposeToWatchListTool calling
-        // RefreshAtAnchor/RefreshAtAnchorBlue after Add returns.
     }
 
     bool IChatToolContext.RemoveWatchedSignal(string signalKey)
@@ -63,6 +84,9 @@ public sealed partial class TraceViewerViewModel
                     RefreshAtAnchor(_anchorTimestampSeconds);
                 if (!double.IsNaN(_blueAnchorTimestampSeconds))
                     RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
+                // Force CollectionView resync (same reason as AddWatchedSignals).
+                System.Windows.Data.CollectionViewSource
+                    .GetDefaultView(WatchedSignals).Refresh();
             }
         });
         return removed;
