@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Chat;
 using PeakCan.Host.Core.Replay;
 
@@ -84,6 +85,7 @@ public sealed class AnalyzeTimingSequenceTool : ChatToolBase
             eventsJson.Add(new JsonObject
             {
                 ["t"] = Math.Round(e.T, 4),
+                ["t_label"] = TraceTimeFormatter.Format(e.T, traceInfo.WallClockOrigin),
                 ["signal_key"] = e.Key,
                 ["type"] = e.Type,
                 ["from"] = Math.Round(e.From, 4),
@@ -94,12 +96,12 @@ public sealed class AnalyzeTimingSequenceTool : ChatToolBase
 
         // Build sequence summary.
         var summary = allEvents.Count > 0
-            ? string.Join(" -> ", allEvents.Select(e => $"{e.T:F2}s {e.Key} {e.Type}"))
+            ? string.Join(" -> ", allEvents.Select(e => $"{e.T:F4} {e.Key} {e.Type}"))
             : "No events detected in window.";
 
         var root = new JsonObject
         {
-            ["window"] = new JsonObject { ["t_start"] = tStart, ["t_end"] = tEnd },
+            ["window"] = new JsonObject { ["t_start"] = tStart, ["t_start_label"] = TraceTimeFormatter.Format(tStart, traceInfo.WallClockOrigin), ["t_end"] = tEnd, ["t_end_label"] = TraceTimeFormatter.Format(tEnd, traceInfo.WallClockOrigin) },
             ["signal_count"] = keys.Count,
             ["total_events"] = allEvents.Count,
             ["events"] = eventsJson,

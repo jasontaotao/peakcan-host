@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.Services.ChatTools;
@@ -48,6 +49,7 @@ public sealed class GetTraceInfoTool : ChatToolBase
             ["dbc_loaded"] = info.DbcLoaded,
             ["dbc_path"] = info.DbcPath,
             ["current_timestamp"] = info.CurrentTimestamp,
+            ["current_timestamp_label"] = TraceTimeFormatter.Format(info.CurrentTimestamp, info.WallClockOrigin),
             ["wall_clock_origin"] = info.WallClockOrigin?.ToString("o"),
             ["sources"] = sources,
         };

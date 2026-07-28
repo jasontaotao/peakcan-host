@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services.ChatTools;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -228,8 +230,10 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine("你是一个汽车 CAN 总线故障诊断专家。");
         sb.AppendLine();
         sb.AppendLine("当前 trace 状态:");
-        sb.AppendLine($"- 绿锚: {FormatTs(_anchorTimestampSeconds)}");
-        sb.AppendLine($"- 蓝锚: {FormatTs(_blueAnchorTimestampSeconds)}");
+        // 统一时间格式：WallClockOrigin 从首个 source 取，与图表 X 轴一致。
+        var wallClockOrigin = Sources.FirstOrDefault()?.WallClockOrigin;
+        sb.AppendLine($"- 绿锚: {FormatTs(_anchorTimestampSeconds, wallClockOrigin)}");
+        sb.AppendLine($"- 蓝锚: {FormatTs(_blueAnchorTimestampSeconds, wallClockOrigin)}");
         var watchCount = WatchedSignals.Count(r => !r.IsPlaceholder);
         sb.AppendLine($"- watch list: {watchCount} 条信号");
         var dbc = _dbcService.Current;
@@ -242,15 +246,19 @@ public sealed partial class TraceViewerViewModel
         // v12: inject current playback timestamp + chart viewport so the AI
         // knows what time range the user is currently looking at.
         var currentTs = _masterService?.CurrentTimestamp ?? 0.0;
-        sb.AppendLine($"- 当前播放时间戳: {currentTs:F3}s");
+        sb.AppendLine($"- 当前播放时间戳: {FormatTraceTime(currentTs, wallClockOrigin)}");
         var viewports = ChartViewModel.CaptureViewports();
         if (viewports.Count > 0)
         {
             var vp = viewports[0];
-            sb.AppendLine($"- chart 视口范围: {vp.XMin:F3}s ~ {vp.XMax:F3}s");
+            sb.AppendLine($"- chart 视口范围: {FormatTraceTime(vp.XMin, wallClockOrigin)} ~ {FormatTraceTime(vp.XMax, wallClockOrigin)}");
         }
         if (AutoConfirm)
             sb.AppendLine("- 静默模式: 开启（直接执行合理操作，不需要逐步反问确认）");
+        sb.AppendLine();
+        sb.AppendLine("时间格式约定:");
+        sb.AppendLine("- 图表 X 轴与工具返回的 *_label 字段统一使用秒数（保留4位小数，如 158340.5101）");
+        sb.AppendLine("- 向用户提及任何时间戳时，必须引用 *_label 字段或本消息已格式化的时间字符串，禁止自行换算成 Xd hh:mm:ss 等其他形式");
         sb.AppendLine();
         sb.AppendLine("可用工具（19 个）：");
         sb.AppendLine("发现类: search_signals, get_signal_overview, anomaly_scan");
@@ -263,16 +271,32 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine("分析原则:");
         sb.AppendLine("1. 信息不足时问用户，不编造");
         sb.AppendLine("2. 引用数据时给出具体数值（如 BatteryVoltage 从 12.5V 降到 11.0V）");
-        sb.AppendLine("3. 发现关联信号时反问用户要不要加 watch list，给明确选择（是/否）");
-        sb.AppendLine("4. propose_to_watch_list 后可同轮调 get_anchor_info 读新值");
-        sb.AppendLine("5. 第一轮可直接调 get_anchor_info 读已有 watch list 数据");
-        sb.AppendLine("6. 不确定时说不确定");
         if (AutoConfirm)
-            sb.AppendLine("7. 静默模式已开启：找到关联信号直接加入 watch list，不需要反问确认");
+        {
+            sb.AppendLine("3. 静默模式已开启：发现关联信号直接加入 watch list，不反问确认");
+            sb.AppendLine("4. propose_to_watch_list 后可同轮调 get_anchor_info 读新值");
+            sb.AppendLine("5. 第一轮可直接调 get_anchor_info 读已有 watch list 数据");
+            sb.AppendLine("6. 不确定时说不确定");
+        }
+        else
+        {
+            sb.AppendLine("3. 发现关联信号时反问用户要不要加 watch list，给明确选择（是/否）");
+            sb.AppendLine("4. propose_to_watch_list 后可同轮调 get_anchor_info 读新值");
+            sb.AppendLine("5. 第一轮可直接调 get_anchor_info 读已有 watch list 数据");
+            sb.AppendLine("6. 不确定时说不确定");
+        }
         return new ChatMessage("system", sb.ToString(), null, null);
     }
 
-    private static string FormatTs(double ts) => double.IsNaN(ts) ? "未设" : $"{ts:F3}s";
+    private static string FormatTs(double ts, DateTime? wallClockOrigin)
+        => double.IsNaN(ts) ? "未设" : FormatTraceTime(ts, wallClockOrigin);
+
+    /// <summary>Format trace time via the shared <see cref="TraceTimeFormatter"/>
+    /// so AI Chat timestamps always match the chart X-axis (including the
+    /// WallClockOrigin -> MM/dd HH:mm:ss branch that the old static 3-branch
+    /// version was missing).</summary>
+    private static string FormatTraceTime(double seconds, DateTime? wallClockOrigin)
+        => TraceTimeFormatter.Format(seconds, wallClockOrigin);
 
     /// <summary>Construct the 19 chat tools bound to this VM as
     /// <see cref="IChatToolContext"/>. Production path (no DI - avoids the

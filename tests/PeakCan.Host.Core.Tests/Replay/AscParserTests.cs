@@ -177,13 +177,14 @@ base 0x7e0 500k
     }
 
     /// <summary>
-    /// v1.4.0 MINOR: truncated data line (DLC=8, only 2 data bytes) is
-    /// treated as malformed and skipped per spec Decision 3. The mixed-line
-    /// fixture keeps the >50% malformed threshold satisfied so the file
-    /// parses successfully (2 valid frames, 1 skipped) rather than throwing.
+    /// v1.4.0 MINOR: truncated data line (DLC=8, only 2 data bytes) was
+    /// originally treated as malformed and skipped. Now (BLF->ASC fix):
+    /// the parser uses the actual data byte count as DLC instead of
+    /// rejecting the line, so no frames are lost. The mixed-line fixture
+    /// still parses successfully (3 valid frames, 0 skipped).
     /// </summary>
     [Fact]
-    public async Task Parse_TruncatedData_NotEqualToDlc_IsSkipped()
+    public async Task Parse_TruncatedData_NotEqualToDlc_UsesActualDataLength()
     {
         const string asc = @"
  0.000000 51  100  8  AA BB CC DD EE FF 00 11
@@ -193,12 +194,16 @@ base 0x7e0 500k
         using var stream = MakeAscStream(asc);
         var frames = await AscParser.ParseAsync(stream);
 
-        // Truncated line is skipped; the 2 well-formed lines are returned.
-        frames.Should().HaveCount(2);
+        // All 3 lines parse; the truncated line uses actual data length (2) as DLC.
+        frames.Should().HaveCount(3);
         frames[0].Id.Should().Be(0x100u);
         frames[0].Dlc.Should().Be(8);
         frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
-        frames[1].Id.Should().Be(0x300u);
+        // Truncated line: DLC=8 declared but only 2 bytes present -> DLC adjusted to 2
+        frames[1].Id.Should().Be(0x200u);
+        frames[1].Dlc.Should().Be(2);
+        frames[1].Data.Should().Equal(0x11, 0x22);
+        frames[2].Id.Should().Be(0x300u);
         frames[1].Dlc.Should().Be(2);
     }
 

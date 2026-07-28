@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Chat;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
@@ -193,7 +194,7 @@ public sealed class AnomalyScanTool : ChatToolBase
 
         var root = new JsonObject
         {
-            ["window"] = new JsonObject { ["t_start"] = tStart, ["t_end"] = tEnd, ["frame_count"] = windowFrames.Count },
+            ["window"] = new JsonObject { ["t_start"] = tStart, ["t_start_label"] = TraceTimeFormatter.Format(tStart, traceInfo.WallClockOrigin), ["t_end"] = tEnd, ["t_end_label"] = TraceTimeFormatter.Format(tEnd, traceInfo.WallClockOrigin), ["frame_count"] = windowFrames.Count },
             ["total_signals_scanned"] = changes.Count,
             ["changed_signal_count"] = changes.Count,
             ["top_changes"] = changesJson,

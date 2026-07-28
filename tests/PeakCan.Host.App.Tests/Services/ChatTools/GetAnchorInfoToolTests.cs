@@ -98,4 +98,36 @@ public class GetAnchorInfoToolTests
         json["signal_count"]!.GetValue<int>().Should().Be(0);
         json["signals"]!.AsArray().Should().BeEmpty();
     }
+
+    // 修复"拖绿线 Latest 列/AI latest 字段不更新"：latest 字段必须读
+    // GreenAnchorValue（绿锚快照），而非 LatestValue（trace 尾部实时值）。
+    // 当两者不同时，latest 应等于 GreenAnchorValue。
+    [Fact]
+    public async Task Latest_Field_Reads_GreenAnchorValue_Not_LatestValue()
+    {
+        var ctx = new FakeChatToolContext
+        {
+            AnchorTimestampSeconds = 10.0,
+            BlueAnchorTimestampSeconds = 12.0,
+        };
+        // 构造时 LatestValue = 99.9（trace 尾部值），绿锚快照 = 12.5。
+        var row = new WatchedSignalRow("0x182", "BMS_Status", "BatteryVoltage", "V",
+            null, true, 1, 99.9, false);
+        row.GreenAnchorValue = 12.5;
+        row.BlueLatestValue = 11.0;
+        ctx.WatchedSignals.Add(row);
+
+        var tool = new GetAnchorInfoTool(ctx, NullLogger<GetAnchorInfoTool>.Instance);
+        var result = await tool.ExecuteAsync("{}", CancellationToken.None);
+
+        var json = JsonNode.Parse(result)!.AsObject();
+        var signal = json["signals"]!.AsArray()[0]!;
+        signal["latest"]!.GetValue<double>().Should().Be(12.5,
+            "latest 字段应读 GreenAnchorValue（绿锚快照），而非 LatestValue（trace 尾部值 99.9）");
+        signal["blue"]!.GetValue<double>().Should().Be(11.0);
+        signal["delta"]!.GetValue<double>().Should().Be(-1.5);
+        // 时间格式化 label：统一秒数 F4 格式。
+        json["green_ts_label"]!.GetValue<string>().Should().Be("10.0000");
+        json["blue_ts_label"]!.GetValue<string>().Should().Be("12.0000");
+    }
 }

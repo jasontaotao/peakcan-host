@@ -101,10 +101,10 @@ public sealed class SearchSignalTraceTool : ChatToolBase
 
             var samples = new JsonArray();
             foreach (var (t, v) in downsampled)
-                samples.Add(new JsonObject { ["t"] = Math.Round(t, 4), ["v"] = Math.Round(v, 4) });
+                samples.Add(new JsonObject { ["t"] = Math.Round(t, 4), ["t_label"] = TraceTimeFormatter.Format(t, traceInfo.WallClockOrigin), ["v"] = Math.Round(v, 4) });
 
             stats["samples"] = samples;
-            stats["t_range"] = new JsonObject { ["start"] = windowed[0].T, ["end"] = windowed[^1].T };
+            stats["t_range"] = new JsonObject { ["start"] = windowed[0].T, ["start_label"] = TraceTimeFormatter.Format(windowed[0].T, traceInfo.WallClockOrigin), ["end"] = windowed[^1].T, ["end_label"] = TraceTimeFormatter.Format(windowed[^1].T, traceInfo.WallClockOrigin) };
             signals.Add(stats);
         }
 
@@ -117,7 +117,9 @@ public sealed class SearchSignalTraceTool : ChatToolBase
                 ["downsample_method"] = "LTTB",
                 ["window_ref"] = windowRef,
                 ["t_start"] = tStart,
+                ["t_start_label"] = TraceTimeFormatter.Format(tStart, traceInfo.WallClockOrigin),
                 ["t_end"] = tEnd,
+                ["t_end_label"] = TraceTimeFormatter.Format(tEnd, traceInfo.WallClockOrigin),
             },
         };
         return Task.FromResult(root.ToJsonString());

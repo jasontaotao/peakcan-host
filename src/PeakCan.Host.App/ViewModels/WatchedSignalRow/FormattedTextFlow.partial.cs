@@ -62,6 +62,25 @@ public sealed partial class WatchedSignalRow
         }
     }
 
+    /// <summary>绿锚快照值的字符串形式，供 XAML 绑定。语义对齐
+    /// <see cref="BlueText"/>（蓝锚快照）。读 <c>_greenAnchorValue</c>
+    ///（绿线移动时由 GreenLineAnchorFlow 设置），而非
+    /// <c>_latestValue</c>（trace 尾部实时值）。修复"拖绿线 Latest 列
+    /// 不更新"问题：原绑定 LatestText 读 _latestValue，与绿线位置无关。</summary>
+    public string GreenAnchorText
+    {
+        get
+        {
+            if (double.IsNaN(_greenAnchorValue)) return DoubleNanToStringConverter.Placeholder;
+            if (_signal is not null && _dbc is not null)
+            {
+                var text = SignalDecoder.TryDecodeEnumText(_signal, _greenAnchorValue, _dbc);
+                if (text is not null) return text;
+            }
+            return SignalFormatter.FormatValue(_decimalDigits, _greenAnchorValue);
+        }
+    }
+
     /// <summary>Δ as a string for XAML binding. Enum signals show "—" (no
     /// subtractable semantics between text labels); numeric signals show
     /// F2 diff. NaN → "—" placeholder.

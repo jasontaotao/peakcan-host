@@ -82,6 +82,9 @@ public sealed partial class WatchedSignalRow
             {
                 OnPropertyChanged(nameof(DeltaValue));
                 OnPropertyChanged(nameof(DeltaText));
+                // GreenAnchorText (FormattedTextFlow.partial.cs) 读本字段，
+                // 必须级联 INPC 否则 UI "Latest" 列不刷新。
+                OnPropertyChanged(nameof(GreenAnchorText));
             }
         }
     }
