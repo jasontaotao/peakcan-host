@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.Services.ChatTools;
@@ -35,10 +36,15 @@ public sealed class GetAnchorInfoTool : ChatToolBase
 
     protected override Task<string> ExecuteCoreAsync(string argsJson, CancellationToken ct)
     {
+        var wallClockOrigin = _context.GetTraceInfo().WallClockOrigin;
         var root = new JsonObject
         {
             ["green_ts"] = NanOrNull(_context.AnchorTimestampSeconds),
+            ["green_ts_label"] = double.IsNaN(_context.AnchorTimestampSeconds)
+                ? null : TraceTimeFormatter.Format(_context.AnchorTimestampSeconds, wallClockOrigin),
             ["blue_ts"] = NanOrNull(_context.BlueAnchorTimestampSeconds),
+            ["blue_ts_label"] = double.IsNaN(_context.BlueAnchorTimestampSeconds)
+                ? null : TraceTimeFormatter.Format(_context.BlueAnchorTimestampSeconds, wallClockOrigin),
         };
 
         var signals = new JsonArray();
@@ -48,10 +54,10 @@ public sealed class GetAnchorInfoTool : ChatToolBase
             signals.Add(new JsonObject
             {
                 ["key"] = row.SignalKey,
-                ["latest"] = NanOrNull(row.LatestValue),
+                ["latest"] = NanOrNull(row.GreenAnchorValue),
                 ["blue"] = NanOrNull(row.BlueLatestValue),
                 ["delta"] = NanOrNull(row.DeltaValue),
-                ["latest_text"] = row.LatestText,
+                ["latest_text"] = row.GreenAnchorText,
                 ["blue_text"] = row.BlueText,
                 ["delta_text"] = row.DeltaText,
             });

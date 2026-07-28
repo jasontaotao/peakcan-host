@@ -24,11 +24,46 @@
                     Command="{Binding ExportChatCommand}" Padding="8,2" />
             <Button Content="清空" DockPanel.Dock="Right" Margin="4,0,0,0"
                     Command="{Binding ClearChatCommand}" Padding="8,2" />
+            <CheckBox Content="静默" DockPanel.Dock="Right" Margin="4,0,0,0"
+                      IsChecked="{Binding AutoConfirm}"
+                      ToolTip="开启后 AI 跳过逐步确认，直接执行合理操作"
+                      VerticalAlignment="Center" />
         </DockPanel>
 
         <!-- Message list -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,0">
-            <ItemsControl ItemsSource="{Binding ChatMessages}">
+            <Grid>
+                <!-- Empty state welcome -->
+                <StackPanel Visibility="{Binding HasNoMessages, Converter={StaticResource BoolToVis}}"
+                            VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="🤖 欢迎使用 AI 诊断助手"
+                               FontSize="16" FontWeight="SemiBold"
+                               TextAlignment="Center" Margin="0,0,0,16" />
+                    <TextBlock Text="试试这些问题："
+                               FontSize="13" Foreground="Gray"
+                               TextAlignment="Center" Margin="0,0,0,12" />
+                    <Button Content="🔍 帮我分析这个 trace"
+                            Command="{Binding SendSuggestionCommand}"
+                            CommandParameter="帮我分析这个 trace"
+                            Padding="16,8" Margin="0,0,0,6"
+                            HorizontalAlignment="Stretch"
+                            ToolTip="分析当前 trace 中的所有信号，查找异常" />
+                    <Button Content="🔍 搜索欠压相关信号"
+                            Command="{Binding SendSuggestionCommand}"
+                            CommandParameter="搜索欠压相关信号，看看有没有电压异常"
+                            Padding="16,8" Margin="0,0,0,6"
+                            HorizontalAlignment="Stretch"
+                            ToolTip="搜索 DBC 中与欠压/电压/故障相关的信号" />
+                    <Button Content="🔍 看看有没有异常信号"
+                            Command="{Binding SendSuggestionCommand}"
+                            CommandParameter="扫描当前 trace 中的异常信号"
+                            Padding="16,8" Margin="0,0,0,6"
+                            HorizontalAlignment="Stretch"
+                            ToolTip="自动扫描整个 trace 找出行为异常的信号" />
+                </StackPanel>
+
+                <ItemsControl ItemsSource="{Binding ChatMessages}"
+                              Visibility="{Binding HasMessages, Converter={StaticResource BoolToVis}}">
                 <ItemsControl.ItemContainerStyle>
                     <Style TargetType="ContentPresenter">
                         <Setter Property="Focusable" Value="False" />
@@ -93,6 +128,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </Grid>
         </ScrollViewer>
 
         <!-- Input -->

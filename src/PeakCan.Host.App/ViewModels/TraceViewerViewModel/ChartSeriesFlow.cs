@@ -1,6 +1,7 @@
 using System.Globalization;
 using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Replay;
 
@@ -104,19 +105,10 @@ public sealed partial class TraceViewerViewModel
         var labelFormatterProp = tickGen.GetType().GetProperty("LabelFormatter");
         if (labelFormatterProp != null && labelFormatterProp.PropertyType == typeof(Func<double, string>))
         {
+            // 统一时间格式化：与 AI chat system prompt / 工具 *_label 走同一个
+            // TraceTimeFormatter，三路完全一致。
             Func<double, string> formatter = x =>
-            {
-                var o = series.Source?.WallClockOrigin;
-                if (o is not null)
-                    return (o.Value + TimeSpan.FromSeconds(x))
-                        .ToString("MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
-                if (x >= 86400.0)
-                    return string.Format(CultureInfo.InvariantCulture,
-                        @"{0:F1}d {1:hh\:mm\:ss}", x / 86400.0, TimeSpan.FromSeconds(x));
-                if (x >= 3600.0)
-                    return TimeSpan.FromSeconds(x).ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
-                return TimeSpan.FromSeconds(x).ToString(@"mm\:ss\.f", CultureInfo.InvariantCulture);
-            };
+                TraceTimeFormatter.Format(x, series.Source?.WallClockOrigin);
             labelFormatterProp.SetValue(tickGen, formatter);
         }
 

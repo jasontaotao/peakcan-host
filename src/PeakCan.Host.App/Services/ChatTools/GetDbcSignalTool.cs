@@ -57,11 +57,12 @@ public sealed class GetDbcSignalTool : ChatToolBase
                 ["name"] = sig.Name,
                 ["start_bit"] = sig.StartBit,
                 ["length"] = sig.Length,
-                ["scale"] = sig.Factor,
+                ["factor"] = sig.Factor,
                 ["offset"] = sig.Offset,
                 ["min"] = sig.Min,
                 ["max"] = sig.Max,
                 ["unit"] = sig.Unit,
+                ["comment"] = sig.Comment,
                 ["enums"] = enums,
             };
             return Task.FromResult(root.ToJsonString());

@@ -150,6 +150,26 @@ public sealed partial class TraceViewerViewModel
             EndTimestamp = null,
         };
         dto.Viewports = new List<BundleViewportDto>(ChartViewModel.CaptureViewports());
+        // v12 Step 7: persist watch list + groups.
+        dto.WatchedSignals = WatchedSignals
+            .Where(r => !r.IsPlaceholder)
+            .Select(r => new BundleWatchedSignalDto
+            {
+                CanIdHex = r.CanIdHex,
+                MessageName = r.MessageName,
+                SignalName = r.SignalName,
+                Unit = r.Unit,
+                SourceId = r.SourceId,
+                Alias = r.Alias,
+            }).ToList();
+        dto.Groups = SignalGroups
+            .Select(g => new BundleGroupDto
+            {
+                Id = g.Id,
+                Name = g.Name,
+                Notes = g.Notes,
+                SignalKeys = g.SignalKeys.ToList(),
+            }).ToList();
         return dto;
     }
 
@@ -299,6 +319,34 @@ public sealed partial class TraceViewerViewModel
         // asynchronously, the property would still be correct here.
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
         ChartViewModel.ApplyViewports(dto.Viewports);
+        // v12 Step 7: restore watch list + groups. Forward-compat: old
+        // bundles without these fields deserialize as empty lists.
+        WatchedSignals.Clear();
+        if (dto.WatchedSignals is not null)
+        {
+            foreach (var w in dto.WatchedSignals)
+            {
+                var row = new WatchedSignalRow(
+                    w.CanIdHex, w.MessageName, w.SignalName, w.Unit, w.SourceId);
+                if (!string.IsNullOrEmpty(w.Alias))
+                    row.Alias = w.Alias;
+                WatchedSignals.Add(row);
+            }
+        }
+        SignalGroups.Clear();
+        if (dto.Groups is not null)
+        {
+            foreach (var g in dto.Groups)
+            {
+                SignalGroups.Add(new WatchedSignalGroup(
+                    g.Id, g.Name, g.Notes, g.SignalKeys));
+            }
+        }
+        // Re-compute anchor values for restored watch list rows.
+        if (WatchedSignals.Count > 0 && !double.IsNaN(_anchorTimestampSeconds))
+            RefreshAtAnchor(_anchorTimestampSeconds);
+        if (WatchedSignals.Count > 0 && !double.IsNaN(_blueAnchorTimestampSeconds))
+            RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
         return missing;
     }
 }

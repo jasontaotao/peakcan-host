@@ -51,7 +51,6 @@ public sealed class ChartFillEngine : IDisposable
     {
         int totalFrames = request.Frames.Count;
         int filled = 0;
-        Coordinates? lastPoint = null;
 
         while (filled < totalFrames && !ct.IsCancellationRequested)
         {
@@ -63,19 +62,12 @@ public sealed class ChartFillEngine : IDisposable
                 double value = SignalDecoder.Decode(frame.Data, request.Signal);
                 var current = new Coordinates(frame.Timestamp, value);
 
-                // Gap detection: insert NaN break points
-                if (lastPoint.HasValue)
-                {
-                    double dt = current.X - lastPoint.Value.X;
-                    if (dt > request.GapThreshold)
-                    {
-                        coords.Add(new Coordinates(lastPoint.Value.X, double.NaN));
-                        coords.Add(new Coordinates(current.X, double.NaN));
-                    }
-                }
-
+                // Gap detection 已移除：CAN 信号帧间隔因总线负载波动而临时
+                // 变大是正常现象，median×3 的阈值过于激进，会在数据实际存在
+                // 的区段密集插入 NaN 断点。ScottPlot 遇到 NaN 不仅断线，孤立
+                // 真实点（6px marker）在密集数据中不可见，表现为"整片空白"。
+                // 如需恢复断线检测，改用更宽松的策略（如 P99 间隔）。
                 coords.Add(current);
-                lastPoint = current;
             }
 
             request.Source.AddPoints(coords);

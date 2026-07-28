@@ -134,20 +134,24 @@ public static class AscFormat
         int scan = 3;
         while (scan < tokens.Length &&
                (tokens[scan].Equals("rx", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase)))
+                tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase) ||
+                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase)))
         {
             scan++;
         }
         if (scan + 1 < tokens.Length &&
             (tokens[scan].Equals("d", StringComparison.OrdinalIgnoreCase) ||
-             tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase)))
+             tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase) ||
+             tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase)))
         {
             if (!byte.TryParse(tokens[scan + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
             {
-                reason = $"invalid DLC after Vector 'd/l' marker '{tokens[scan + 1]}'";
+                reason = $"invalid DLC after Vector 'd/l/fd' marker '{tokens[scan + 1]}'";
                 return false;
             }
-            if (tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase))
+            // 'l' 和 'fd' 标记都表示 CAN FD 帧
+            if (tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase) ||
+                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase))
             {
                 flags |= FrameFlags.Fd;
             }
@@ -219,13 +223,16 @@ public static class AscFormat
         }
         EndDataBytes:;
 
-        if (data.Count != dlc)
+        // 放宽 DLC 匹配：BLF 转 ASC 时 CAN FD 帧的 DLC 可能是 CAN 协议值
+        // (9-15) 而非实际字节数 (12-64)，导致 data.Count != dlc。
+        // 用实际数据长度作为 DLC，不丢弃帧。DLC=0（无数据）也是合法 CAN 帧。
+        if (data.Count > 64)
         {
-            reason = $"byte count {data.Count} != declared DLC {dlc}";
+            reason = $"data too long ({data.Count} bytes, max 64 for CAN FD)";
             return false;
         }
 
-        frame = new ReplayFrame(ts, id, dlc, data.ToArray(), flags);
+        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags);
         return true;
     }
 
