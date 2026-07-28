@@ -20,7 +20,7 @@ public class GetDbcSignalToolTests
         json["name"]!.GetValue<string>().Should().Be("BatteryVoltage");
         json["start_bit"]!.GetValue<int>().Should().Be(4);
         json["length"]!.GetValue<int>().Should().Be(16);
-        json["scale"]!.GetValue<double>().Should().Be(0.1);
+        json["factor"]!.GetValue<double>().Should().Be(0.1);
         json["unit"]!.GetValue<string>().Should().Be("V");
         json["enums"].Should().BeNull();
     }

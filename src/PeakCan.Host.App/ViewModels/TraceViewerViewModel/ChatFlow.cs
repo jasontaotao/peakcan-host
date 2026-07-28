@@ -15,8 +15,9 @@ namespace PeakCan.Host.App.ViewModels;
 /// </summary>
 public sealed partial class TraceViewerViewModel
 {
-    /// <summary>Max provider rounds per user message (spec §5).</summary>
-    private const int ChatMaxRounds = 8;
+    /// <summary>Max provider rounds per user message. v12: 8 -> 12 to
+    /// accommodate 19-tool workflows (spec §6).</summary>
+    private const int ChatMaxRounds = 12;
 
     // Injected via ctor (Step 5 DI). Nullable defaults keep the legacy
     // test ctor signature compiling; production DI passes real instances.
@@ -36,7 +37,20 @@ public sealed partial class TraceViewerViewModel
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private bool _isChatBusy;
 
+    /// <summary>v12: when true, system prompt tells the AI to skip
+    /// step-by-step confirmation and execute reasonable operations
+    /// directly. For engineers running the same diagnostic flow
+    /// repeatedly.</summary>
+    [ObservableProperty]
+    private bool _autoConfirm;
+
     public ObservableCollection<ChatMessageViewModel> ChatMessages { get; } = new();
+
+    /// <summary>v12: true when no messages yet (show welcome suggestions).</summary>
+    public bool HasMessages => ChatMessages.Count > 0;
+
+    /// <summary>v12: inverse of HasMessages, for XAML empty-state visibility.</summary>
+    public bool HasNoMessages => ChatMessages.Count == 0;
 
     private Views.TraceViewerViewChatPanel? _chatPanelContent;
     /// <summary>Lazy-loaded UserControl backing the AI Chat tab (sister
@@ -53,9 +67,23 @@ public sealed partial class TraceViewerViewModel
                 // to `this`. Tests inject fakes via ctor so _chatTools is non-empty.
                 if (_chatTools.Count == 0) _chatTools = BuildChatTools();
                 _chatToolDefs = _chatTools.Select(t => t.Definition).ToList();
+                ChatMessages.CollectionChanged += (_, _) =>
+                {
+                    OnPropertyChanged(nameof(HasMessages));
+                    OnPropertyChanged(nameof(HasNoMessages));
+                };
             }
             return _chatPanelContent;
         }
+    }
+
+    /// <summary>v12: Fill ChatInput with a suggestion text and send.</summary>
+    [RelayCommand]
+    private void SendSuggestion(string suggestion)
+    {
+        ChatInput = suggestion;
+        if (SendMessageCommand.CanExecute(null))
+            SendMessageCommand.Execute(null);
     }
 
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
@@ -168,16 +196,18 @@ public sealed partial class TraceViewerViewModel
 
             var toolLog = new ChatMessageViewModel("tool_log");
             var results = new string?[toolCalls.Count];
-            await Parallel.ForEachAsync(
-                toolCalls.Select((tc, i) => (tc, i)),
-                ct,
-                async (item, ct2) =>
-                {
-                    var tool = _chatTools.FirstOrDefault(t => t.Name == item.tc.FunctionName);
-                    results[item.i] = tool is null
-                        ? $"{{\"error\":\"unknown tool: {item.tc.FunctionName}\"}}"
-                        : await tool.ExecuteAsync(item.tc.FunctionArgs, ct2).ConfigureAwait(false);
-                }).ConfigureAwait(true);
+            // Sequential execution (v12 C2 fix): same-round tools may have
+            // data dependencies (e.g. propose_to_watch_list -> get_anchor_info
+            // in the same round). Parallel execution would let get_anchor_info
+            // read the watch list before propose_to_watch_list finishes.
+            for (int i = 0; i < toolCalls.Count; i++)
+            {
+                var tc = toolCalls[i];
+                var tool = _chatTools.FirstOrDefault(t => t.Name == tc.FunctionName);
+                results[i] = tool is null
+                    ? $"{{\"error\":\"unknown tool: {tc.FunctionName}\"}}"
+                    : await tool.ExecuteAsync(tc.FunctionArgs, ct).ConfigureAwait(true);
+            }
 
             for (int i = 0; i < toolCalls.Count; i++)
             {
@@ -206,8 +236,29 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine($"- DBC: {(dbc is null
             ? "未加载"
             : (string.IsNullOrEmpty(dbc.SourcePath) ? "已加载" : System.IO.Path.GetFileName(dbc.SourcePath)))}");
+        // v12 Step 4: inject DBC node list so the AI knows which ECUs are present.
+        if (dbc is not null && dbc.Nodes.Count > 0)
+            sb.AppendLine($"- DBC 节点: {string.Join(", ", dbc.Nodes.Select(n => n.Name))}");
+        // v12: inject current playback timestamp + chart viewport so the AI
+        // knows what time range the user is currently looking at.
+        var currentTs = _masterService?.CurrentTimestamp ?? 0.0;
+        sb.AppendLine($"- 当前播放时间戳: {currentTs:F3}s");
+        var viewports = ChartViewModel.CaptureViewports();
+        if (viewports.Count > 0)
+        {
+            var vp = viewports[0];
+            sb.AppendLine($"- chart 视口范围: {vp.XMin:F3}s ~ {vp.XMax:F3}s");
+        }
+        if (AutoConfirm)
+            sb.AppendLine("- 静默模式: 开启（直接执行合理操作，不需要逐步反问确认）");
         sb.AppendLine();
-        sb.AppendLine("可用工具: find_related_signals, propose_to_watch_list, get_anchor_info, get_dbc_signal, get_dbc_message, seek_to");
+        sb.AppendLine("可用工具（19 个）：");
+        sb.AppendLine("发现类: search_signals, get_signal_overview, anomaly_scan");
+        sb.AppendLine("查询类: get_dbc_signal, get_dbc_message, find_related_signals");
+        sb.AppendLine("操作类: propose_to_watch_list, remove_from_watch_list, seek_to");
+        sb.AppendLine("分析类: search_signal_trace, get_anchor_info, analyze_timing_sequence");
+        sb.AppendLine("上下文类: get_trace_info, get_dbc_info");
+        sb.AppendLine("组织类: create_group, add_to_group, remove_from_group, set_group_notes, set_signal_alias");
         sb.AppendLine();
         sb.AppendLine("分析原则:");
         sb.AppendLine("1. 信息不足时问用户，不编造");
@@ -216,25 +267,47 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine("4. propose_to_watch_list 后可同轮调 get_anchor_info 读新值");
         sb.AppendLine("5. 第一轮可直接调 get_anchor_info 读已有 watch list 数据");
         sb.AppendLine("6. 不确定时说不确定");
+        if (AutoConfirm)
+            sb.AppendLine("7. 静默模式已开启：找到关联信号直接加入 watch list，不需要反问确认");
         return new ChatMessage("system", sb.ToString(), null, null);
     }
 
     private static string FormatTs(double ts) => double.IsNaN(ts) ? "未设" : $"{ts:F3}s";
 
-    /// <summary>Construct the 6 chat tools bound to this VM as
+    /// <summary>Construct the 19 chat tools bound to this VM as
     /// <see cref="IChatToolContext"/>. Production path (no DI - avoids the
     /// VM↔IChatTool cycle). Tests inject fakes via ctor instead.</summary>
     private IReadOnlyList<IChatTool> BuildChatTools()
     {
         var ctx = (IChatToolContext)this;
+        var lf = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
         return new IChatTool[]
         {
-            new FindRelatedSignalsTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<FindRelatedSignalsTool>.Instance),
-            new ProposeToWatchListTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<ProposeToWatchListTool>.Instance),
-            new GetAnchorInfoTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<GetAnchorInfoTool>.Instance),
-            new GetDbcSignalTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<GetDbcSignalTool>.Instance),
-            new GetDbcMessageTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<GetDbcMessageTool>.Instance),
-            new SeekToTimeTool(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<SeekToTimeTool>.Instance),
+            // Discovery
+            new SearchSignalsTool(ctx, lf.CreateLogger<SearchSignalsTool>()),
+            new GetSignalOverviewTool(ctx, lf.CreateLogger<GetSignalOverviewTool>()),
+            new AnomalyScanTool(ctx, lf.CreateLogger<AnomalyScanTool>()),
+            // Query (existing + improved)
+            new GetDbcSignalTool(ctx, lf.CreateLogger<GetDbcSignalTool>()),
+            new GetDbcMessageTool(ctx, lf.CreateLogger<GetDbcMessageTool>()),
+            new FindRelatedSignalsTool(ctx, lf.CreateLogger<FindRelatedSignalsTool>()),
+            // Operation (existing + new)
+            new ProposeToWatchListTool(ctx, lf.CreateLogger<ProposeToWatchListTool>()),
+            new RemoveFromWatchListTool(ctx, lf.CreateLogger<RemoveFromWatchListTool>()),
+            new SeekToTimeTool(ctx, lf.CreateLogger<SeekToTimeTool>()),
+            // Analysis
+            new SearchSignalTraceTool(ctx, lf.CreateLogger<SearchSignalTraceTool>()),
+            new GetAnchorInfoTool(ctx, lf.CreateLogger<GetAnchorInfoTool>()),
+            new AnalyzeTimingSequenceTool(ctx, lf.CreateLogger<AnalyzeTimingSequenceTool>()),
+            // Context
+            new GetTraceInfoTool(ctx, lf.CreateLogger<GetTraceInfoTool>()),
+            new GetDbcInfoTool(ctx, lf.CreateLogger<GetDbcInfoTool>()),
+            // Organization
+            new CreateGroupTool(ctx, lf.CreateLogger<CreateGroupTool>()),
+            new AddToGroupTool(ctx, lf.CreateLogger<AddToGroupTool>()),
+            new RemoveFromGroupTool(ctx, lf.CreateLogger<RemoveFromGroupTool>()),
+            new SetGroupNotesTool(ctx, lf.CreateLogger<SetGroupNotesTool>()),
+            new SetSignalAliasTool(ctx, lf.CreateLogger<SetSignalAliasTool>()),
         };
     }
 }

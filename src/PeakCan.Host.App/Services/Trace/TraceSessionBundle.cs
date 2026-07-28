@@ -42,6 +42,16 @@ public sealed class TraceSessionBundleDto
 
     [JsonPropertyName("viewports")]
     public List<BundleViewportDto> Viewports { get; set; } = new();
+
+    /// <summary>v12 Step 7: persisted watch list rows. Forward-compat:
+    /// old bundles without this field deserialize as empty list.</summary>
+    [JsonPropertyName("watchedSignals")]
+    public List<BundleWatchedSignalDto> WatchedSignals { get; set; } = new();
+
+    /// <summary>v12 Step 7: persisted signal groups. Forward-compat:
+    /// old bundles without this field deserialize as empty list.</summary>
+    [JsonPropertyName("groups")]
+    public List<BundleGroupDto> Groups { get; set; } = new();
 }
 
 /// <summary>One loaded trace in a saved session. Path-reference only —
@@ -245,4 +255,42 @@ public sealed class BundleViewportDto
 
     [JsonPropertyName("isCollapsed")]
     public bool IsCollapsed { get; set; }
+}
+
+/// <summary>v12 Step 7: one persisted watch list row.</summary>
+public sealed class BundleWatchedSignalDto
+{
+    [JsonPropertyName("canIdHex")]
+    public string CanIdHex { get; set; } = "";
+
+    [JsonPropertyName("messageName")]
+    public string MessageName { get; set; } = "";
+
+    [JsonPropertyName("signalName")]
+    public string SignalName { get; set; } = "";
+
+    [JsonPropertyName("unit")]
+    public string Unit { get; set; } = "";
+
+    [JsonPropertyName("sourceId")]
+    public string? SourceId { get; set; }
+
+    [JsonPropertyName("alias")]
+    public string? Alias { get; set; }
+}
+
+/// <summary>v12 Step 7: one persisted signal group.</summary>
+public sealed class BundleGroupDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
+
+    [JsonPropertyName("signalKeys")]
+    public List<string> SignalKeys { get; set; } = new();
 }

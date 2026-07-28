@@ -1,5 +1,6 @@
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.Services.ChatTools;
 
@@ -37,6 +38,11 @@ public interface IChatToolContext
     /// implementation marshals to the UI thread.</summary>
     void AddWatchedSignals(IEnumerable<WatchedSignalRow> rows);
 
+    /// <summary>v12: Remove a single signal from the watch list by its
+    /// SignalKey. Returns true if a row was removed. VM marshals to UI
+    /// thread and re-runs RefreshAtAnchor for remaining rows.</summary>
+    bool RemoveWatchedSignal(string signalKey);
+
     /// <summary>Recompute every watch row's green-anchor value at
     /// <paramref name="timestampSeconds"/>. Idempotent (passing the current
     /// anchor ts just re-decodes new rows). VM marshals to UI thread.</summary>
@@ -48,4 +54,44 @@ public interface IChatToolContext
     /// <summary>Seek the master trace source to <paramref name="timestampSeconds"/>.
     /// Returns false if no master source is loaded.</summary>
     bool Seek(double timestampSeconds);
+
+    // === v12 Step 0: Context queries ===
+
+    /// <summary>Snapshot of trace session metadata (duration, sources,
+    /// DBC status, current timestamp). Null-safe when no trace loaded.</summary>
+    TraceInfo GetTraceInfo();
+
+    /// <summary>Snapshot of the loaded DBC (message/signal counts, node
+    /// list). Returns zero counts when no DBC is loaded.</summary>
+    DbcInfo GetDbcInfo();
+
+    // === v12 Step 0: Group management ===
+
+    /// <summary>Creates a signal group, optionally pre-populated with
+    /// signal keys. Returns the new group's ID.</summary>
+    string CreateGroup(string name, IReadOnlyList<string>? signalKeys);
+
+    /// <summary>Adds signal keys to an existing group. Returns the count
+    /// actually added (skips keys already present).</summary>
+    int AddToGroup(string groupId, IReadOnlyList<string> signalKeys);
+
+    /// <summary>Removes signal keys from a group. Returns the count
+    /// actually removed.</summary>
+    int RemoveFromGroup(string groupId, IReadOnlyList<string> signalKeys);
+
+    /// <summary>Attaches analysis notes to a group.</summary>
+    void SetGroupNotes(string groupId, string notes);
+
+    /// <summary>Sets a display alias for a watched signal. Pass null to
+    /// clear.</summary>
+    void SetSignalAlias(string signalKey, string? alias);
+
+    /// <summary>Read-only view of all signal groups.</summary>
+    IReadOnlyList<WatchedSignalGroup> SignalGroups { get; }
+
+    /// <summary>v12 Step 3: defensive copy of frames for a source.
+    /// Returns empty if sourceId is unknown. Used by analysis tools
+    /// (get_signal_overview, anomaly_scan, search_signal_trace,
+    /// analyze_timing_sequence) to decode signal values.</summary>
+    IReadOnlyList<ReplayFrame> GetFrames(string sourceId);
 }

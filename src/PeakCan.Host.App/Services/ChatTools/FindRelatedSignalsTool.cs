@@ -80,7 +80,9 @@ public sealed class FindRelatedSignalsTool : ChatToolBase
     /// <summary>Format a CAN ID (with IDE bit stripped) as <c>0x</c>-hex.</summary>
     internal static string FormatCanId(uint id) => "0x" + (id & 0x7FFFFFFFu).ToString("X");
 
-    /// <summary>Shared signal-list serializer (name + start_bit + length + unit).</summary>
+    /// <summary>Shared signal-list serializer (name + start_bit + length +
+    /// factor + offset + min + max + unit + comment). v12: added
+    /// factor/offset/min/max/comment per spec Step 3b.</summary>
     internal static JsonArray SignalsToJsonArray(IReadOnlyList<Signal> signals)
     {
         var arr = new JsonArray();
@@ -91,7 +93,12 @@ public sealed class FindRelatedSignalsTool : ChatToolBase
                 ["name"] = s.Name,
                 ["start_bit"] = s.StartBit,
                 ["length"] = s.Length,
+                ["factor"] = s.Factor,
+                ["offset"] = s.Offset,
+                ["min"] = s.Min,
+                ["max"] = s.Max,
                 ["unit"] = s.Unit,
+                ["comment"] = s.Comment,
             });
         }
         return arr;

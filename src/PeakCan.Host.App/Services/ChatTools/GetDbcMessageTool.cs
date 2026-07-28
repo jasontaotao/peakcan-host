@@ -47,6 +47,8 @@ public sealed class GetDbcMessageTool : ChatToolBase
             ["can_id"] = FindRelatedSignalsTool.FormatCanId(msg.Id),
             ["name"] = msg.Name,
             ["dlc"] = msg.Dlc,
+            ["sender"] = msg.Sender,
+            ["comment"] = msg.Comment,
             ["signals"] = FindRelatedSignalsTool.SignalsToJsonArray(msg.Signals),
         };
         return Task.FromResult(root.ToJsonString());
