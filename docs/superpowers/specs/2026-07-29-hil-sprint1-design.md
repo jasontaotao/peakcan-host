@@ -51,7 +51,7 @@ PeakCan.Host.Core/HIL/
 │   ├── AssertNrcStep.cs
 │   ├── DelayStep.cs
 │   ├── CommentStep.cs
-│   └── StepParametersFactory.cs   // Dictionary -> strongly-typed (moved from StepExecutor/)
+│   └── StepParametersFactory.cs   // Dictionary -> strongly-typed
 ├── StepExecutor/
 │   └── IStepExecutor.cs           // Strategy interface
 ├── Setup/
@@ -636,7 +636,9 @@ public static class TestCaseGenerator
                 kv => kv.Key,
                 kv => (object)Resolve(kv.Value, parameters));
             var kind = Enum.Parse<TestCaseStepKind>(step.Kind);
-            return TestCaseStep.Create(StepParametersFactory.Create(kind, resolvedParams));
+            return TestCaseStep.Create(
+                StepParametersFactory.Create(kind, resolvedParams),
+                step.Label);  // Preserve label from template
         }).ToList();
 
         return new TestCase(
@@ -722,25 +724,30 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
     {
         using var doc = JsonDocument.ParseValue(ref reader);
         var root = doc.RootElement;
-        var kind = Enum.Parse<TestCaseStepKind>(root.GetProperty("$kind").GetString()!);
+
+        // Polymorphic deserialization: $kind is inside parameters, auto-resolved by System.Text.Json
         var parameters = JsonSerializer.Deserialize<StepParameters>(
             root.GetProperty("parameters").GetRawText(), HILJsonOptions.Default)!;
         var label = root.TryGetProperty("label", out var l) ? l.GetString() : null;
+
+        // Kind derived from parameters.Kind (factory guarantees consistency)
         return TestCaseStep.Create(parameters, label);
     }
 
     public override void Write(Utf8JsonWriter writer, TestCaseStep value, JsonSerializerOptions options)
     {
         writer.WriteStartObject();
-        writer.WriteString("$kind", value.Kind.ToString().ToLowerInvariant());
         if (value.Label is not null)
             writer.WriteString("label", value.Label);
         writer.WritePropertyName("parameters");
-        JsonSerializer.Serialize(writer, value.Parameters, value.Parameters.GetType(), HILJsonOptions.Default);
+        // Serialize as base type to trigger polymorphic $kind discriminator
+        JsonSerializer.Serialize(writer, value.Parameters, typeof(StepParameters), HILJsonOptions.Default);
         writer.WriteEndObject();
     }
 }
 ```
+
+**Key design**: `$kind` discriminator lives **inside** `parameters` (written by `[JsonPolymorphic]` on `StepParameters`). `TestCaseStep` level has no redundant `$kind`. `Kind` is derived from `parameters.Kind` via `TestCaseStep.Create`.
 
 ### 9.4 JSON Schema Example
 
@@ -752,21 +759,35 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
     "name": "BMS Sleep Current < 10mA",
     "steps": [
       {
-        "$kind": "sendFrame",
-        "parameters": { "id": "0x7DF", "data": "0210030000000000", "fd": false, "extended": false }
+        "parameters": {
+          "$kind": "sendFrame",
+          "id": "0x7DF",
+          "data": "0210030000000000",
+          "fd": false,
+          "extended": false
+        }
       },
       {
-        "$kind": "waitForSignal",
-        "parameters": { "signalName": "BMS_Status.SleepCurrent", "expected": 0.01, "tolerance": 0.005, "timeoutMs": 5000 }
+        "label": "Wait for sleep current",
+        "parameters": {
+          "$kind": "waitForSignal",
+          "signalName": "BMS_Status.SleepCurrent",
+          "expected": 0.01,
+          "tolerance": 0.005,
+          "timeoutMs": 5000
+        }
       }
     ],
     "caseFixtureKeys": ["CanChannelFixture"],
-    "suiteFixtureKeys": ["DbcLoadFixture"],
-    "config": { "failurePolicy": "continueAll", "continueAfterSetupFailure": true },
-    "timeoutMs": 60000
+    "timeoutMs": 30000
   }],
   "globalCaseFixtureKeys": ["CanChannelFixture"],
-  "suiteFixtureKeys": ["DbcLoadFixture"]
+  "suiteFixtureKeys": ["DbcLoadFixture"],
+  "config": {
+    "failurePolicy": "continueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 60000
 }
 ```
 
@@ -811,7 +832,7 @@ public sealed class TestSuiteEngine
    c. For each Step (StopCaseOnFailure respected):
       - Find IStepExecutor
       - Execute via defensive try-catch
-      - Record StepResult
+      - Record StepResult with StepIndex and ElapsedMs
    d. Case Teardown (finally: reverse order, independent 10s CTS)
    e. Aggregate -> TestCaseResult
    f. Report progress
@@ -873,20 +894,66 @@ finally
 }
 ```
 
-### 10.4 Executor Defensive Catch
+### 10.4 Executor Execution with StepIndex/ElapsedMs
 
 ```csharp
-StepResult result;
-try
+for (int i = 0; i < testCase.Steps.Count; i++)
 {
-    result = await executor.ExecuteAsync(step, ctx, ct);
-}
-catch (OperationCanceledException) { throw; }
-catch (Exception ex)
-{
-    result = new StepResult(i, step.Kind, step.Label, StepStatus.Failed,
-        $"Executor threw unhandled: {ex.GetType().Name}: {ex.Message}",
-        null, null, 0);
+    ct.ThrowIfCancellationRequested();
+    var step = testCase.Steps[i];
+
+    // Comment step: skip execution
+    if (step.Kind == TestCaseStepKind.Comment)
+    {
+        stepResults.Add(new StepResult(i, step.Kind, step.Label, StepStatus.Comment,
+            $"Comment: {((CommentStep)step.Parameters).Text}", null, null, 0));
+        continue;
+    }
+
+    if (!_executors.TryGetValue(step.Kind, out var executor))
+    {
+        stepResults.Add(new StepResult(i, step.Kind, step.Label, StepStatus.Failed,
+            $"No executor registered for kind {step.Kind}", null, null, 0));
+    }
+    else
+    {
+        // Execute with timing and defensive catch
+        var stepSw = Stopwatch.StartNew();
+        StepResult result;
+        try
+        {
+            result = await executor.ExecuteAsync(step, ctx, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            result = new StepResult(i, step.Kind, step.Label, StepStatus.Failed,
+                $"Executor threw unhandled: {ex.GetType().Name}: {ex.Message}",
+                null, null, 0);
+        }
+        stepSw.Stop();
+        // Override StepIndex and ElapsedMs (executor returns defaults)
+        stepResults.Add(result with
+        {
+            StepIndex = i,
+            ElapsedMs = (int)stepSw.ElapsedMilliseconds
+        });
+    }
+
+    // FailurePolicy: StopCaseOnFailure
+    if (!stepResults[^1].Passed &&
+        config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
+    {
+        failureReason = $"Step {i} failed: {stepResults[^1].Message}";
+        // Skip remaining steps
+        for (int j = i + 1; j < testCase.Steps.Count; j++)
+        {
+            stepResults.Add(new StepResult(j, testCase.Steps[j].Kind,
+                testCase.Steps[j].Label, StepStatus.Skipped,
+                "Skipped due to previous failure", null, null, 0));
+        }
+        break;
+    }
 }
 ```
 
@@ -948,7 +1015,7 @@ public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext 
 }
 ```
 
-**Key rule**: Executor creates per-step linked CTS for timeout. External `ct` is respected via `CreateLinkedTokenSource`. Executor does NOT throw on timeout - returns `StepResult.Fail`.
+**Key rule**: Executor creates per-step linked CTS for timeout. External `ct` is respected via `CreateLinkedTokenSource`. Executor does NOT throw on timeout - returns `StepResult.Fail`. Engine overrides `StepIndex` and `ElapsedMs` after executor returns.
 
 **Registration**: Each `TestCaseStepKind` maps to one executor. New step kind = new executor class + DI registration. Engine zero modification (Open/Closed principle).
 
@@ -962,7 +1029,7 @@ public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext 
 - `AssertDtcStepExecutor`
 - `AssertNrcStepExecutor`
 - `DelayStepExecutor`
-- `SendSequenceStepExecutor` → throws `NotSupportedException("SendSequence not supported in Sprint 1")`
+- `SendSequenceStepExecutor` → throws `NotSupportedException("SendSequence not supported in Sprint 1")`. No cast needed (no StepParameters subclass).
 
 ---
 
@@ -1027,10 +1094,12 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 | Teardown in try-finally with independent 10s CTS | Resource cleanup guaranteed even on cancellation |
 | Dispose: Complete -> Wait(5s) -> Cancel (timeout only) | Honors drain contract; cancel is fallback |
 | Polymorphic JSON + custom TestCaseStep converter | Full serialization round-trip for all step types |
+| $kind inside parameters (not at TestCaseStep level) | Single source of truth; no redundancy |
 | HILJsonOptions with camelCase | Consistent serialization convention across all HIL types |
 | IFixtureResolver decouples from IServiceProvider | Simple test fakes; no NSubstitute keyed DI limitations |
 | All Convert calls use CultureInfo.InvariantCulture | Culture-independent parsing |
 | Executor creates per-step timeout CTS | Timeout management local to executor; Engine stays generic |
+| Engine overrides StepIndex/ElapsedMs post-execution | Executor returns defaults; Engine has loop context |
 | SendSequence throws NotSupported in Sprint 1 | Honest about Sprint 1 limitations |
 
 ---
@@ -1074,6 +1143,7 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
    - Template expansion -> correct StepParameters types
    - Type conversion failure -> ArgumentException
    - Parameter set with special characters -> correct Id
+   - Label preserved from template
 
 4. **Unit tests**: `Diff` engine
    - Frame-level exact match -> IsMatch
@@ -1089,6 +1159,7 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
    - Polymorphic StepParameters preserves all fields
    - TestCaseStep with private constructor round-trips correctly
    - 0x prefix in hex strings handled correctly
+   - $kind discriminator inside parameters (not at TestCaseStep level)
 
 6. **Unit tests**: StepParametersFactory
    - "0x7DF" -> CanId(0x7DF)
