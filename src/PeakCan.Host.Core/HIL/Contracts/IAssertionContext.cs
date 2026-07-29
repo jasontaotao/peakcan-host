@@ -23,9 +23,10 @@ public interface IAssertionContext
     /// <summary>
     /// Get last-decoded value of a signal (global cache across all frames).
     /// Format: "MessageName.SignalName" (e.g. "BMS_Status.EngineRPM").
-    /// Returns null if signal not found or never decoded.
+    /// Returns null if signal not found, never decoded, or age exceeds maxAgeMs.
+    /// maxAgeMs=0 disables staleness check (always returns last value).
     /// </summary>
-    double? GetSignalValue(string signalName);
+    double? GetSignalValue(string signalName, int maxAgeMs = 5000);
 
     /// <summary>
     /// Current timestamp in microseconds (matches CanFrame.Timestamp.TotalMicroseconds baseline).

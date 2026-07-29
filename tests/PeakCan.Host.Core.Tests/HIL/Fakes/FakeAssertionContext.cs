@@ -21,7 +21,7 @@ internal sealed class FakeAssertionContext : IAssertionContext
         return new FakeSubscription(() => _subscribers.Remove(onFrame));
     }
 
-    public double? GetSignalValue(string signalName) =>
+    public double? GetSignalValue(string signalName, int maxAgeMs = 5000) =>
         _signalValues.TryGetValue(signalName, out var v) ? v : null;
 
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct)

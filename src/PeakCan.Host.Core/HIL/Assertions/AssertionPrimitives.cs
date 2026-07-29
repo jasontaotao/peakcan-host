@@ -18,7 +18,7 @@ public sealed class AssertionPrimitives
 
         using var sub = _ctx.SubscribeDecodedFrames(frame =>
         {
-            var val = _ctx.GetSignalValue(name);
+            var val = _ctx.GetSignalValue(name, maxAgeMs: 5000);
             if (val is { } v && Math.Abs(v - expected) <= tolerance)
                 matchTcs.TrySetResult(true);
         });
@@ -48,7 +48,7 @@ public sealed class AssertionPrimitives
 
     public AssertionResult AssertSignal(string name, double expected, double tolerance)
     {
-        var val = _ctx.GetSignalValue(name);
+        var val = _ctx.GetSignalValue(name, maxAgeMs: 5000);
         if (val is null)
             return AssertionResult.Fail($"signal {name} not found");
 
@@ -60,7 +60,7 @@ public sealed class AssertionPrimitives
 
     public AssertionResult AssertRange(string name, double min, double max)
     {
-        var val = _ctx.GetSignalValue(name);
+        var val = _ctx.GetSignalValue(name, maxAgeMs: 5000);
         if (val is null)
             return AssertionResult.Fail($"signal {name} not found");
 
