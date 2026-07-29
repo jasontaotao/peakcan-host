@@ -230,17 +230,28 @@ public sealed record StepResult(
 {
     public bool Passed => Status == StepStatus.Passed;
 }
+```
 
+**StepStatus semantics**:
+- `Passed`: Step executed successfully
+- `Failed`: Step executed and failed assertion or threw exception
+- `Skipped`: Step not executed due to previous failure (StopCaseOnFailure)
+- `Comment`: Documentation step, not executed, does NOT affect case pass/fail
+
+**Case pass/fail rule**: A case passes if no step has `Status == Failed`. `Passed`, `Skipped`, and `Comment` statuses do not cause failure.
+
+```csharp
 public sealed record TestCaseResult(
     string TestCaseId,
     string TestCaseName,
     bool Passed,
     string? FailureReason,
     int ElapsedMs,
-    int TotalSteps,
+    int TotalSteps,         // Excludes Comment steps
     int PassedSteps,
     int FailedSteps,
     int SkippedSteps,
+    int CommentSteps,       // Count of Comment steps (informational)
     IReadOnlyList<StepResult> StepResults);
 
 public sealed record TestSuiteResult(
@@ -266,6 +277,8 @@ public sealed record TestProgress(
     public double PercentComplete => TotalCases > 0 ? (double)CompletedCases / TotalCases * 100 : 0;
 }
 ```
+
+**Invariant**: `PassedSteps + FailedSteps + SkippedSteps == TotalSteps` (Comment steps excluded from both numerator and denominator).
 
 ---
 
@@ -757,12 +770,23 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
   "cases": [{
     "id": "bms_sleep_001",
     "name": "BMS Sleep Current < 10mA",
+    "description": "Verify BMS enters sleep mode with current < 10mA",
     "steps": [
       {
         "parameters": {
           "$kind": "sendFrame",
           "id": "0x7DF",
           "data": "0210030000000000",
+          "fd": false,
+          "extended": false
+        }
+      },
+      {
+        "label": "Enter sleep mode",
+        "parameters": {
+          "$kind": "sendFrame",
+          "id": "0x7DF",
+          "data": "022CF00100000000",
           "fd": false,
           "extended": false
         }
@@ -834,9 +858,10 @@ public sealed class TestSuiteEngine
       - Execute via defensive try-catch
       - Record StepResult with StepIndex and ElapsedMs
    d. Case Teardown (finally: reverse order, independent 10s CTS)
-   e. Aggregate -> TestCaseResult
-   f. Report progress
-   g. FailurePolicy.StopSuiteOnFailure check
+   e. Compute passed/fail from StepStatus (NOT from Passed bool)
+   f. Aggregate -> TestCaseResult
+   g. Report progress
+   h. FailurePolicy.StopSuiteOnFailure check
 5. Suite Teardown (finally: reverse order, independent 10s CTS)
 6. Aggregate -> TestSuiteResult
 ```
@@ -877,7 +902,7 @@ finally
 // Case-level (inside ExecuteCaseAsync)
 try
 {
-    // steps execution
+    // setup + steps...
 }
 finally
 {
@@ -902,7 +927,7 @@ for (int i = 0; i < testCase.Steps.Count; i++)
     ct.ThrowIfCancellationRequested();
     var step = testCase.Steps[i];
 
-    // Comment step: skip execution
+    // Comment step: skip execution (Status = Comment, does not affect pass/fail)
     if (step.Kind == TestCaseStepKind.Comment)
     {
         stepResults.Add(new StepResult(i, step.Kind, step.Label, StepStatus.Comment,
@@ -957,7 +982,43 @@ for (int i = 0; i < testCase.Steps.Count; i++)
 }
 ```
 
-### 10.5 Fixture Resolution
+### 10.5 Case Result Aggregation
+
+```csharp
+// After step loop + case teardown
+
+// Count by Status
+int passedSteps = stepResults.Count(r => r.Status == StepStatus.Passed);
+int failedSteps = stepResults.Count(r => r.Status == StepStatus.Failed);
+int skippedSteps = stepResults.Count(r => r.Status == StepStatus.Skipped);
+int commentSteps = stepResults.Count(r => r.Status == StepStatus.Comment);
+
+// Pass/fail rule: case passes if no step Failed
+// Comment and Skipped do NOT cause failure
+bool passed = failureReason is null
+    && stepResults.All(r => r.Status != StepStatus.Failed);
+
+int totalExecutableSteps = passedSteps + failedSteps + skippedSteps;
+// Invariant: totalExecutableSteps + commentSteps == testCase.Steps.Count
+
+caseStopwatch.Stop();
+
+return new TestCaseResult(
+    TestCaseId: testCase.Id,
+    TestCaseName: testCase.Name,
+    Passed: passed,
+    FailureReason: passed ? null
+        : failureReason ?? $"Steps failed: {failedSteps}",
+    ElapsedMs: (int)caseStopwatch.ElapsedMilliseconds,
+    TotalSteps: totalExecutableSteps,  // Excludes Comment
+    PassedSteps: passedSteps,
+    FailedSteps: failedSteps,
+    SkippedSteps: skippedSteps,
+    CommentSteps: commentSteps,
+    StepResults: stepResults.AsReadOnly());
+```
+
+### 10.6 Fixture Resolution
 
 ```csharp
 private IReadOnlyList<ITestFixture> ResolveFixtures(IEnumerable<string> keys)
@@ -971,7 +1032,7 @@ var caseFixtures = ResolveFixtures(testCase.CaseFixtureKeys ?? Array.Empty<strin
 var allCaseFixtures = globalFixtures.Concat(caseFixtures).ToList();
 ```
 
-### 10.6 Empty Suite Handling
+### 10.7 Empty Suite Handling
 
 ```csharp
 if (suite.Cases.Count == 0)
@@ -1101,6 +1162,9 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 | Executor creates per-step timeout CTS | Timeout management local to executor; Engine stays generic |
 | Engine overrides StepIndex/ElapsedMs post-execution | Executor returns defaults; Engine has loop context |
 | SendSequence throws NotSupported in Sprint 1 | Honest about Sprint 1 limitations |
+| Comment step Status = Comment (not Passed), excluded from TotalSteps | Prevents Comment steps from causing case failure |
+| Case passes if no step Failed (not all Passed) | Comment/Skipped don't cause failure |
+| TotalSteps excludes Comment (executable steps only) | Passed + Failed + Skipped == TotalSteps invariant |
 
 ---
 
@@ -1124,6 +1188,9 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 1. **Unit tests**: `TestSuiteEngine` with mock `IAssertionContext` and mock `IStepExecutor`
    - Empty suite -> TotalCases = 0, AllPassed = false
    - Single case, single step -> Passed
+   - Case with Comment step only -> Passed (Comment doesn't cause failure)
+   - Case with Comment + Passing steps -> Passed
+   - Case with Comment + Failed step -> Failed (Comment doesn't mask failure)
    - Step failure + StopCaseOnFailure -> remaining steps skipped
    - Step failure + ContinueAll -> all steps executed
    - Case setup failure -> case skipped, teardown still called
