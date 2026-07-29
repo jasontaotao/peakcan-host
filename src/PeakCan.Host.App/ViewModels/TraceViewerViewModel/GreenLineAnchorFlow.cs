@@ -32,14 +32,16 @@ public sealed partial class TraceViewerViewModel
 
     public bool IsGreenLineAnchorActive => !double.IsNaN(_anchorTimestampSeconds);
 
+    public double AnchorTimestampSeconds => _anchorTimestampSeconds;
+
     public void RefreshAtAnchor(double timestampSeconds)
     {
         _anchorTimestampSeconds = timestampSeconds;
         OnPropertyChanged(nameof(IsGreenLineAnchorActive));
         OnPropertyChanged(nameof(AnchorDeltaMilliseconds));
         OnPropertyChanged(nameof(AnchorDeltaText));
-        UpdateAllGreenLines();
         RecomputeAllLatestAtAnchor();
+        UpdateAllGreenLines();
     }
 
     /// <summary>
@@ -68,12 +70,44 @@ public sealed partial class TraceViewerViewModel
                 _isGreenLineVisible ? GreenLineWidth : 0.01f,
                 Colors.Green,
                 LinePattern.Solid);
-            // 不设置 LabelText，避免在图表显示标签
+
+            // 标签：值 单位 @ 时刻（顶部，白色背景，偏移 20px 避免被裁切）
+            var row = FindRowBySignalKey(signalKey);
+            if (row != null && !double.IsNaN(row.GreenAnchorValue))
+            {
+                var unit = string.IsNullOrEmpty(row.Unit) ? "" : $" {row.Unit}";
+                vline.LabelText = $"{row.GreenAnchorText}{unit} @ {_anchorTimestampSeconds:F3}s";
+            }
+            else
+            {
+                vline.LabelText = $"@ {_anchorTimestampSeconds:F3}s";
+            }
+            vline.LabelOppositeAxis = true;
+            vline.ManualLabelAlignment = Alignment.UpperLeft;
+            vline.LabelOffsetY = 20f;
+            vline.LabelFontSize = 12f;
+            vline.LabelFontColor = Colors.Black;
+            vline.LabelBold = true;
+            vline.LabelBackgroundColor = Colors.White;
+            vline.LabelPadding = 4f;
         }
 
         // Trigger refresh on all active series
         foreach (var chart in ChartViewModel.Series)
             chart.RefreshCallback?.Invoke();
+    }
+
+    /// <summary>根据 chart 的 signalKey 找到匹配的 WatchedSignalRow（忽略 sourceId 后缀）。</summary>
+    private WatchedSignalRow? FindRowBySignalKey(string signalKey)
+    {
+        var (idHex, sigName, _) = ParseSignalKey(signalKey);
+        if (idHex is null || sigName is null) return null;
+        return WatchedSignals.FirstOrDefault(row =>
+        {
+            var (rIdHex, rSigName, _) = ParseSignalKey(row.SignalKey);
+            return string.Equals(rIdHex, idHex, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(rSigName, sigName, StringComparison.Ordinal);
+        });
     }
 
     private void RecomputeAllLatestAtAnchor()

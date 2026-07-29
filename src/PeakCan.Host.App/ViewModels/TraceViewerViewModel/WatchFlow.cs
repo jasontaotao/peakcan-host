@@ -315,6 +315,8 @@ public sealed partial class TraceViewerViewModel
 
         var created = 0;
         TraceChartSeries? firstBuilt = null;
+        int baseInsertIndex = FindSeriesInsertIndex(row);
+        int sourceIndex = 0;
         foreach (var source in _registry.Sources)
         {
             // v3.15.0 MINOR: source-pinned watches only plot against
@@ -323,7 +325,21 @@ public sealed partial class TraceViewerViewModel
             if (row.SourceId is not null && source.SourceId != row.SourceId) continue;
             var built = BuildOneChartSeriesForSource(source, sig, lookupId, row.CanIdHex, row.SignalName);
             if (built is null) continue;  // no frames in this source
-            ChartViewModel.AddSeries(built);
+            // v3.62.0: insert at watch-list order position so re-plotting
+            // a signal restores its original chart position (not bottom).
+            if (baseInsertIndex >= 0)
+            {
+                int idx = baseInsertIndex + sourceIndex;
+                if (idx <= ChartViewModel.Series.Count)
+                    ChartViewModel.InsertSeries(idx, built);
+                else
+                    ChartViewModel.AddSeries(built);
+                sourceIndex++;
+            }
+            else
+            {
+                ChartViewModel.AddSeries(built);
+            }
             created++;
             firstBuilt ??= built;
         }
@@ -371,5 +387,40 @@ public sealed partial class TraceViewerViewModel
             .ToList();
         foreach (var s in matches)
             ChartViewModel.RemoveSeries(s);
+    }
+
+    /// <summary>v3.62.0: find the correct insertion index for a new series
+    /// based on the row's position in WatchedSignals. Walks backwards from
+    /// the row to find the nearest preceding plotted row, then locates its
+    /// last matching series — returns the index right after it. Returns -1
+    /// if no preceding plotted row exists or the row is not found.</summary>
+    private int FindSeriesInsertIndex(WatchedSignalRow row)
+    {
+        int rowIndex = WatchedSignals.IndexOf(row);
+        if (rowIndex < 0) return -1;
+
+        int insertAfter = -1;
+        for (int i = 0; i < rowIndex; i++)
+        {
+            var precedingRow = WatchedSignals[i];
+            if (!precedingRow.IsPlotted) continue;
+            for (int j = ChartViewModel.Series.Count - 1; j >= 0; j--)
+            {
+                if (SeriesKeyMatches(ChartViewModel.Series[j], precedingRow.SignalKey))
+                {
+                    insertAfter = Math.Max(insertAfter, j);
+                    break;
+                }
+            }
+        }
+        return insertAfter + 1;
+    }
+
+    /// <summary>v3.62.0: match a chart series against a row's SignalKey
+    /// (same logic as UnplotSignalFromTableRow).</summary>
+    private static bool SeriesKeyMatches(TraceChartSeries series, string rowSignalKey)
+    {
+        return series.SignalKey == rowSignalKey
+            || series.SignalKey.EndsWith("." + rowSignalKey, StringComparison.Ordinal);
     }
 }

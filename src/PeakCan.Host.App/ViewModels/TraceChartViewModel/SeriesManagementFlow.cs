@@ -23,6 +23,15 @@ public sealed partial class TraceChartViewModel
         RecomputeHeights();
     }
 
+    /// <summary>v3.62.0: insert a series at a specific index so chart order
+    /// matches watch list order when re-plotting a previously unplotted
+    /// signal. See <see cref="TraceViewerViewModel.PlotSignalFromTableRow"/>.</summary>
+    public void InsertSeries(int index, TraceChartSeries s)
+    {
+        Series.Insert(index, s);
+        RecomputeHeights();
+    }
+
     public void RemoveSeries(TraceChartSeries s)
     {
         // v3.2.0 MINOR: match by EffectiveKey (SourceId.SignalKey) so the

@@ -28,14 +28,16 @@ public sealed partial class TraceViewerViewModel
 
     public bool IsBlueLineAnchorActive => !double.IsNaN(_blueAnchorTimestampSeconds);
 
+    public double BlueAnchorTimestampSeconds => _blueAnchorTimestampSeconds;
+
     public void RefreshAtAnchorBlue(double timestampSeconds)
     {
         _blueAnchorTimestampSeconds = timestampSeconds;
         OnPropertyChanged(nameof(IsBlueLineAnchorActive));
         OnPropertyChanged(nameof(AnchorDeltaMilliseconds));
         OnPropertyChanged(nameof(AnchorDeltaText));
-        UpdateAllBlueLines();
         RecomputeAllLatestAtBlueAnchor();
+        UpdateAllBlueLines();
     }
 
     /// <summary>v3.62.0 MINOR: soft-toggle blue VerticalLine visibility.
@@ -98,8 +100,27 @@ public sealed partial class TraceViewerViewModel
                 _isBlueLineVisible ? BlueLineWidth : 0.01f,
                 Colors.Blue,
                 LinePattern.Solid);
-            // 不设置 LabelText，避免在图表显示标签
             vline.IsVisible = _isBlueLineVisible;
+
+            // 标签：值 单位 @ 时刻（顶部，白色背景，偏移 20px 避免被裁切）
+            var row = FindRowBySignalKey(signalKey);
+            if (row != null && !double.IsNaN(row.BlueLatestValue))
+            {
+                var unit = string.IsNullOrEmpty(row.Unit) ? "" : $" {row.Unit}";
+                vline.LabelText = $"{row.BlueText}{unit} @ {_blueAnchorTimestampSeconds:F3}s";
+            }
+            else
+            {
+                vline.LabelText = $"@ {_blueAnchorTimestampSeconds:F3}s";
+            }
+            vline.LabelOppositeAxis = true;
+            vline.ManualLabelAlignment = Alignment.UpperLeft;
+            vline.LabelOffsetY = 20f;
+            vline.LabelFontSize = 12f;
+            vline.LabelFontColor = Colors.Black;
+            vline.LabelBold = true;
+            vline.LabelBackgroundColor = Colors.White;
+            vline.LabelPadding = 4f;
         }
 
         foreach (var chart in ChartViewModel.Series)

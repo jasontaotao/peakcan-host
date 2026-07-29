@@ -162,26 +162,74 @@ public partial class TraceViewerView : Window
     }
 
     // === v3.50.0 MINOR T3: green-line anchor drag handlers ===
+    // v3.62.0: 蓝线左键拖拽 + 空白区域平移
 
     /// <summary>True while the user is dragging inside any PlotView. Gates
     /// <see cref="OnPlotViewMouseMove"/> so we only forward anchor updates
     /// during an active drag (otherwise every mouse hover would commit an
     /// anchor at the cursor X).</summary>
     private bool _isDraggingGreenLine;
+    private bool _isDraggingBlueLine;
 
     private void OnPlotViewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        // Left button only; right/middle click is unrelated to anchor drag.
         if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
-        if (TryGetAnchorSeconds(sender, e, out var ts))
+        if (sender is not WpfPlot pv) return;
+        if (pv.Plot is null) return;
+        if (DataContext is not TraceViewerViewModel vm) return;
+
+        // 像素坐标检测是否靠近锚线（避免时间域转换的精度损失）
+        var pos = e.GetPosition(pv);
+        double dpiScale = GetDpiScale(pv);
+        var pixel = new Pixel((float)(pos.X * dpiScale), (float)(pos.Y * dpiScale));
+
+        // 1) 靠近绿线 → 拖绿线
+        if (vm.IsGreenLineAnchorActive && vm.IsGreenLineVisible)
+        {
+            try
+            {
+                var gp = pv.Plot.GetPixel(new Coordinates(vm.AnchorTimestampSeconds, 0));
+                if (Math.Abs(pixel.X - gp.X) < 5)
+                {
+                    _isDraggingGreenLine = true;
+                    if (sender is System.Windows.IInputElement ie) ie.CaptureMouse();
+                    if (TryGetAnchorSeconds(sender, e, out var ts)) CommitAnchor(ts);
+                    e.Handled = true;
+                    return;
+                }
+            }
+            catch { /* 图表未就绪，忽略 */ }
+        }
+
+        // 2) 靠近蓝线 → 拖蓝线
+        if (vm.IsBlueLineAnchorActive && vm.IsBlueLineVisible)
+        {
+            try
+            {
+                var bp = pv.Plot.GetPixel(new Coordinates(vm.BlueAnchorTimestampSeconds, 0));
+                if (Math.Abs(pixel.X - bp.X) < 5)
+                {
+                    _isDraggingBlueLine = true;
+                    if (sender is System.Windows.IInputElement ie) ie.CaptureMouse();
+                    if (TryGetAnchorSeconds(sender, e, out var ts)) CommitAnchorBlue(ts);
+                    e.Handled = true;
+                    return;
+                }
+            }
+            catch { /* 图表未就绪，忽略 */ }
+        }
+
+        // 3) 绿线不存在 → 首次创建并拖拽
+        if (!vm.IsGreenLineAnchorActive)
         {
             _isDraggingGreenLine = true;
-            // Capture the mouse so MouseMove keeps firing even when the
-            // cursor leaves the PlotView bounds mid-drag.
             if (sender is System.Windows.IInputElement ie) ie.CaptureMouse();
-            CommitAnchor(ts);
+            if (TryGetAnchorSeconds(sender, e, out var ts)) CommitAnchor(ts);
             e.Handled = true;
+            return;
         }
+
+        // 4) 空白区域 → 不拦截，ScottPlot 处理平移
     }
 
     /// <summary>v3.50.2 PATCH T3: right-button click commits the BLUE
@@ -204,10 +252,11 @@ public partial class TraceViewerView : Window
 
     private void OnPlotViewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (!_isDraggingGreenLine) return;
+        bool wasDragging = _isDraggingGreenLine || _isDraggingBlueLine;
         _isDraggingGreenLine = false;
-        if (sender is System.Windows.IInputElement ie) ie.ReleaseMouseCapture();
-        e.Handled = true;
+        _isDraggingBlueLine = false;
+        if (wasDragging && sender is System.Windows.IInputElement ie)
+            ie.ReleaseMouseCapture();
     }
 
     /// <summary>v3.62.0: WpfPlot 滚轮冒泡事件。
@@ -219,22 +268,59 @@ public partial class TraceViewerView : Window
 
     private void OnPlotViewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        // v3.62.0: Show tracker tooltip on hover (non-drag)
-        if (!_isDraggingGreenLine && sender is WpfPlot pv && pv.DataContext is TraceChartSeries s)
+        // 绿线拖拽
+        if (_isDraggingGreenLine)
         {
-            ShowTrackerTooltip(pv, s);
+            if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+            if (TryGetAnchorSeconds(sender, e, out var ts))
+            {
+                CommitAnchor(ts);
+                e.Handled = true;
+            }
             return;
         }
 
-        if (!_isDraggingGreenLine) return;
-        // Only the Left button held counts as a drag — releasing the
-        // button while moving won't trigger MouseUp reliably across DPI
-        // switches, so guard here too.
-        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
-        if (TryGetAnchorSeconds(sender, e, out var ts))
+        // 蓝线拖拽
+        if (_isDraggingBlueLine)
         {
-            CommitAnchor(ts);
-            e.Handled = true;
+            if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+            if (TryGetAnchorSeconds(sender, e, out var ts))
+            {
+                CommitAnchorBlue(ts);
+                e.Handled = true;
+            }
+            return;
+        }
+
+        // 非拖拽 → cursor 反馈 + hover tooltip
+        if (sender is WpfPlot pv && pv.DataContext is TraceChartSeries s && DataContext is TraceViewerViewModel vm)
+        {
+            var pos = e.GetPosition(pv);
+            double dpiScale = GetDpiScale(pv);
+            var pixel = new Pixel((float)(pos.X * dpiScale), (float)(pos.Y * dpiScale));
+
+            bool nearLine = false;
+            if (vm.IsGreenLineAnchorActive && vm.IsGreenLineVisible && pv.Plot is not null)
+            {
+                try
+                {
+                    var gp = pv.Plot.GetPixel(new Coordinates(vm.AnchorTimestampSeconds, 0));
+                    if (Math.Abs(pixel.X - gp.X) < 5) nearLine = true;
+                }
+                catch { }
+            }
+            if (!nearLine && vm.IsBlueLineAnchorActive && vm.IsBlueLineVisible && pv.Plot is not null)
+            {
+                try
+                {
+                    var bp = pv.Plot.GetPixel(new Coordinates(vm.BlueAnchorTimestampSeconds, 0));
+                    if (Math.Abs(pixel.X - bp.X) < 5) nearLine = true;
+                }
+                catch { }
+            }
+            pv.Cursor = nearLine ? System.Windows.Input.Cursors.SizeWE : System.Windows.Input.Cursors.Arrow;
+
+            ShowTrackerTooltip(pv, s);
         }
     }
 
@@ -377,6 +463,14 @@ public partial class TraceViewerView : Window
         if (DataContext is TraceViewerViewModel vm)
         {
             vm.RefreshAtAnchor(timestampSeconds);
+        }
+    }
+
+    private void CommitAnchorBlue(double timestampSeconds)
+    {
+        if (DataContext is TraceViewerViewModel vm)
+        {
+            vm.RefreshAtAnchorBlue(timestampSeconds);
         }
     }
 
