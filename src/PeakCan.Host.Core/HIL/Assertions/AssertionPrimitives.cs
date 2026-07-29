@@ -3,7 +3,7 @@ namespace PeakCan.Host.Core.HIL.Assertions;
 /// <summary>
 /// Assertion primitives for HIL testing. Instance class with injected IAssertionContext.
 /// All methods return AssertionResult (never throw on assertion failure).
-/// Cancellation (OperationCanceledException) propagates normally.
+/// Cancellation (OperationCanceledException) propagates only when CT is externally cancelled before any match.
 /// </summary>
 public sealed class AssertionPrimitives
 {
@@ -14,10 +14,8 @@ public sealed class AssertionPrimitives
     public async Task<AssertionResult> WaitForSignalAsync(
         string name, double expected, double tolerance, CancellationToken ct)
     {
-        // TCS for signal match (completed by callback)
         var matchTcs = new TaskCompletionSource<bool>();
 
-        // Subscribe to frames: signal match completes matchTcs
         using var sub = _ctx.SubscribeDecodedFrames(frame =>
         {
             var val = _ctx.GetSignalValue(name);
@@ -25,20 +23,26 @@ public sealed class AssertionPrimitives
                 matchTcs.TrySetResult(true);
         });
 
-        // Create a task that completes when CT is cancelled
+        // Task.Delay with CT: throws OperationCanceledException when CT fires
         var cancelTask = Task.Delay(Timeout.Infinite, ct);
 
-        // Await whichever completes first: match or cancel
         var winner = await Task.WhenAny(matchTcs.Task, cancelTask).ConfigureAwait(false);
 
         if (winner == matchTcs.Task)
-        {
-            // Signal matched
             return AssertionResult.Pass($"signal {name} = {expected} ±{tolerance}");
+
+        // cancelTask won (CT cancelled). Await to trigger exception propagation.
+        try
+        {
+            await cancelTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout/cancellation during wait → return failure result
+            return AssertionResult.Fail($"timeout waiting for {name} = {expected} ±{tolerance}",
+                actual: _ctx.GetSignalValue(name)?.ToString());
         }
 
-        // cancelTask completed - CT was cancelled. Await to propagate the OperationCanceledException.
-        await cancelTask.ConfigureAwait(false);
         throw new OperationCanceledException(ct); // Fallback
     }
 
