@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v3 (incorporates 2nd round review)
+**Status**: Draft v4 (incorporates 3rd round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -22,11 +22,11 @@ Enable **offline HIL testing** without real PCAN hardware:
 
 `TraceDrivenChannel` raises `FrameReceived` directly. Does NOT route through ChannelRouter.
 
-Rationale: `ChannelRouter.OnChannelFrame` is private (no public injection API). Routing sent frames back would pollute assertions.
+Rationale: `ChannelRouter.OnChannelFrame` is private. Routing sent frames back would pollute assertions.
 
 ### 2.2 HILAssertionContext Subscribes to FrameReceived
 
-`HILAssertionContext` subscribes to `TraceDrivenChannel.FrameReceived` event directly.
+`HILAssertionContext` subscribes to `TraceDrivenChannel.FrameReceived` event. Subscribe in constructor, unsubscribe in Dispose.
 
 ### 2.3 WriteAsync Is No-Op (Sprint 2)
 
@@ -40,6 +40,12 @@ Without a physical bus, sent frames have no destination. Stimulus-response defer
 
 Reuse Sprint 1's `Channel<T>` + consumer thread model (DropOldest, bounded capacity).
 
+### 2.6 Keep Sprint 1 TestSuiteEngine Constructor (fixes L2)
+
+**Decision**: `TestSuiteEngine` keeps its Sprint 1 constructor: `TestSuiteEngine(IFixtureResolver, IEnumerable<IStepExecutor>)`.
+
+Rationale: Sprint 1 design is correct — interface-based DI, open for extension. v3's concrete-type parameters broke IFixtureResolver and all existing tests.
+
 ---
 
 ## 3. TraceDrivenChannel
@@ -52,12 +58,14 @@ public sealed class TraceDrivenChannel : ICanChannel
     private readonly ChannelId _id;
     private readonly ILogger<TraceDrivenChannel>? _logger;
     private readonly List<ReplayFrame> _frames = new();
-    private readonly object _framesLock = new();  // guards _frames + _nextFrameIndex
+    private readonly object _framesLock = new();
     private int _nextFrameIndex;
     private System.Threading.Timer? _timer;
+    private volatile bool _callbackInProgress;  // guards against Dispose during callback
     private DateTime _playStartWallClock;
-    private double _playStartTimestamp = -1;  // -1 = not loaded
+    private double _playStartTimestamp = -1;
     private double _speed = 1.0;
+    private int _endOfTraceReached;
 
     public ChannelId Id => _id;
     public bool IsConnected { get; private set; }
@@ -91,6 +99,7 @@ TraceDrivenChannel
   │    └─ _timer = new Timer(OnTick, null, 0, 1)
   │
   ├─ OnTick(state)  [ThreadPool timer callback, ~1ms period]
+  │    ├─ _callbackInProgress = true
   │    ├─ elapsed_wall = (DateTime.UtcNow - _playStartWallClock).TotalSeconds * _speed
   │    ├─ target_ts = _playStartTimestamp + elapsed_wall
   │    ├─ emitted = 0
@@ -101,28 +110,33 @@ TraceDrivenChannel
   │    │     var frame = ToCanFrame(_frames[_nextFrameIndex])
   │    │     _nextFrameIndex++
   │    │     emitted++
-  │    │   toEmit = collected frames
-  │    ├─ foreach (frame in toEmit):  [outside lock, to avoid blocking]
+  │    │   toEmit = collected frames (copy under lock, emit outside)
+  │    ├─ foreach (frame in toEmit):  [outside lock]
   │    │     FrameReceived?.Invoke(frame)
   │    ├─ if (_nextFrameIndex >= _frames.Count):
-  │    │     _timer.Change(Timeout.Infinite, Timeout.Infinite)  ← stop timer
+  │    │     _timer.Change(Timeout.Infinite, Timeout.Infinite)  ← pause timer
+  │    │     Interlocked.Exchange(ref _endOfTraceReached, 1)
+  │    ├─ _callbackInProgress = false
   │
   └─ DisposeAsync()
        ├─ _timer?.Dispose()
-       ├─ SpinWait.SpinUntil(() => !timerCallbackInProgress, 200ms)
+       ├─ SpinWait.SpinUntil(() => !_callbackInProgress, 200ms)
+       │   [timeout → continue anyway, log warning]
        └─ State → Disposed
 ```
 
-**BATCH LIMIT**: `MaxFramesPerTick = 100`. If backlog > 100 frames, remaining frames deferred to next tick. If backlog grows unbounded, frames are **dropped** — matching Sprint 1 DropOldest semantics.
+**BATCH LIMIT**: `MaxFramesPerTick = 100`. If backlog > 100 frames, remaining deferred to next tick. If backlog grows unbounded (consumer slower than producer), frames are **delayed** (not dropped). Maximum delay is bounded by `_frames.Count / MaxFramesPerTick` ticks at 1ms each.
 
-### 3.3 Frame Conversion
+### 3.3 Frame Conversion (fixes L1, B1)
 
 ```csharp
 private static CanFrame ToCanFrame(ReplayFrame frame, ChannelId channelId)
 {
+    // Infer format from ID: bit 31 set or value > 0x7FF → Extended
+    var format = (frame.Id > 0x7FFu) ? FrameFormat.Extended : FrameFormat.Standard;
     var totalUs = (ulong)(frame.Timestamp * 1_000_000.0);
     return new CanFrame(
-        new CanId(frame.Id, (frame.Flags & FrameFlags.Extended) != 0 ? FrameFormat.Extended : FrameFormat.Standard),
+        new CanId(frame.Id, format),
         frame.Data,
         frame.Flags,
         channelId,
@@ -139,16 +153,16 @@ States: Unloaded → Loaded → Playing → Ended
         Any → Disposed
 
 Transitions:
-  LoadAscii:   Unloaded → Loaded,  Loaded → Loaded (reload, resets frame pointer),
-               Stopped → Loaded (reload, resets frame pointer)
+  LoadAscii:   Unloaded → Loaded,  Loaded → Loaded (reload),
+               Stopped → Loaded (reload)
   ConnectAsync: Loaded → Playing (requires _playStartTimestamp >= 0)
-  Timer end:   Playing → Ended (auto when last frame emitted)
+  Timer end:   Playing → Ended (auto)
   DisconnectAsync: Playing → Stopped,  Stopped → Stopped (idempotent)
   DisposeAsync: Any → Disposed (final)
 
 Illegal:
   ConnectAsync on Unloaded → InvalidOperationException
-  ConnectAsync on Loaded with _playStartTimestamp < 0 → InvalidOperationException (empty trace)
+  ConnectAsync on Loaded with _playStartTimestamp < 0 → InvalidOperationException
   ConnectAsync on Disposed → ObjectDisposedException
   LoadAscii on Playing → InvalidOperationException
 ```
@@ -158,7 +172,7 @@ Illegal:
 | Parameter | Source | Default |
 |---|---|---|
 | `MaxFramesPerTick` | Constructor arg | 100 |
-| `Speed` | Property (set after LoadAscii) | 1.0 |
+| `Speed` | Property | 1.0 |
 | `MaxTraceFrames` | Constructor arg | 2_000_000 |
 
 ---
@@ -177,6 +191,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IDisposable
     private readonly Task _consumerTask;
     private readonly ConcurrentDictionary<string, (double Value, double TimestampUs)> _signalCache = new();
     private volatile double _currentTimestamp;
+    private IDisposable? _frameSubscription;
 
     public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup);
 
@@ -188,32 +203,36 @@ internal sealed class HILAssertionContext : IAssertionContext, IDisposable
 }
 ```
 
-### 4.2 Thread Model
+### 4.2 Thread Model (fixes B2)
 
 ```
-TraceDrivenChannel.FrameReceived
-  ↓ (ThreadPool timer thread)
-HILAssertionContext.OnFrame(frame)  [MUST NOT block]
+Constructor:
+  ├─ _frameSubscription = _channel.SubscribeDecodedFrames(OnFrame)
+  └─ _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token))
+
+OnFrame(frame)  [channel's frame thread]
   ├─ _currentTimestamp = frame.Timestamp.TotalMicroseconds
-  ├─ DBC decode: lookup message → decode signals
-  ├─ _signalCache[name] = (value, timestamp)
   ├─ Write DecodedFrame to _decodeChannel (DropOldest, capacity=10000)
-  └─ Return immediately
+  └─ Return immediately  [NO decode here — decode on consumer thread]
 
-Consumer Thread:
-  await foreach (decoded in _decodeChannel.Reader.ReadAllAsync(ct))
-    → Invoke all subscriber callbacks synchronously
+ConsumerLoop:
+  await foreach (decoded in _decode_channel.Reader.ReadAllAsync(ct))
+    ├─ DBC decode: lookup message → decode signals
+    ├─ _signalCache[name] = (value, timestamp)
+    └─ Invoke all subscriber callbacks synchronously
+
+Dispose:
+  ├─ _frameSubscription?.Dispose()  ← unsubscribe from channel
+  ├─ _consumerCts.Cancel()
+  ├─ await _consumerTask (timeout 2s)
+  └─ _decodeChannel.Writer.Complete()
 ```
 
-### 4.3 Signal Name Format
+### 4.3 Signal Name Format (fixes T1 — known limitation)
 
-Format: `"MessageName.SignalName"`. No restriction on dots — the **last** dot is the separator.
+Format: `"MessageName.SignalName"`. The **last** dot is the separator.
 
-```csharp
-// "BMS_Status.EngineRPM" → Message="BMS_Status", Signal="EngineRPM"
-// "ECU.Temp.Sensor1"  → Message="ECU.Temp", Signal="Sensor1"
-private static int FindSeparator(string signalName) => signalName.LastIndexOf('.');
-```
+**Known limitation**: If a signal name itself contains a dot (e.g., `"ECU.Temp.Sensor1"`), the last-dot rule produces `Message="ECU.Temp"` instead of `Message="ECU"`. This is a known ambiguity in DBC naming. Documented as a limitation; users should avoid dots in signal names or use the full qualified name.
 
 ### 4.4 Timestamp + Staleness
 
@@ -248,10 +267,11 @@ double? GetSignalValue(string signalName, int maxAgeMs = 5000);
 
 | File | Change |
 |---|---|
-| `Contracts/IAssertionContext.cs` | Add `maxAgeMs` parameter |
+| `Contracts/IAssertionContext.cs` | Add `maxAgeMs` parameter + update xmldoc (T2) |
 | `Tests/.../Fakes/FakeAssertionContext.cs` | Implement new signature |
 | `Tests/.../Assertions/AssertionPrimitivesTests.cs` | Unchanged (default param) |
 | `Assertions/AssertionPrimitives.cs` | Update call to pass `maxAgeMs: 5000` |
+| `Tests/.../TestSuiteEngineTests.cs` | Unchanged (constructor unchanged) |
 
 ---
 
@@ -271,7 +291,7 @@ Args:
   --format <type>  Output format: console|trx (default: console)
 ```
 
-### 6.2 HeadlessHostBuilder
+### 6.2 HeadlessHostBuilder (fixes D2, D3)
 
 ```csharp
 public static class HeadlessHostBuilder
@@ -284,7 +304,7 @@ public static class HeadlessHostBuilder
                 // Channel
                 services.AddSingleton<ICanChannel, TraceDrivenChannel>();
 
-                // DBC lookup (uses DbcParser directly)
+                // DBC lookup
                 services.AddSingleton<IDbcLookup>(sp =>
                 {
                     var logger = sp.GetRequiredService<ILogger<HeadlessDbcLookup>>();
@@ -294,14 +314,23 @@ public static class HeadlessHostBuilder
                 // HIL context
                 services.AddSingleton<IAssertionContext, HILAssertionContext>();
 
-                // Step executors (registered individually by concrete type)
-                services.AddSingleton<WaitForSignalStepExecutor>();
-                services.AddSingleton<AssertSignalStepExecutor>();
-                services.AddSingleton<AssertRangeStepExecutor>();
-                services.AddSingleton<SendFrameStepExecutor>();
-                services.AddSingleton<DelayStepExecutor>();
+                // Fixture resolver (headless: no-op)
+                services.AddSingleton<IFixtureResolver, HeadlessFixtureResolver>();
 
-                // Engine
+                // Step executors (Sprint 1 pattern: register as IStepExecutor)
+                services.AddSingleton<IStepExecutor>(sp =>
+                    new WaitForSignalStepExecutor(
+                        new AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
+                services.AddSingleton<IStepExecutor>(sp =>
+                    new AssertSignalStepExecutor(
+                        new AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
+                services.AddSingleton<IStepExecutor>(sp =>
+                    new AssertRangeStepExecutor(
+                        new AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
+                services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
+                services.AddSingleton<IStepExecutor, DelayStepExecutor>();
+
+                // Engine (Sprint 1 constructor, unchanged)
                 services.AddSingleton<TestSuiteEngine>();
             })
             .UseSerilog((ctx, cfg) => cfg.WriteTo.Console().WriteTo.File("hil.log"))
@@ -310,28 +339,23 @@ public static class HeadlessHostBuilder
 }
 ```
 
-### 6.3 TestSuiteEngine Constructor Update
+### 6.3 HeadlessFixtureResolver
 
 ```csharp
-public TestSuiteEngine(
-    IEnumerable<WaitForSignalStepExecutor> waitForSignal,
-    IEnumerable<AssertSignalStepExecutor> assertSignal,
-    IEnumerable<AssertRangeStepExecutor> assertRange,
-    IEnumerable<SendFrameStepExecutor> sendFrame,
-    IEnumerable<DelayStepExecutor> delay)
+internal sealed class HeadlessFixtureResolver : IFixtureResolver
 {
-    _executors = new Dictionary<TestCaseStepKind, IStepExecutor>
+    private static readonly ITestFixture NoOp = new NoOpTestFixture();
+    public ITestFixture Resolve(string key) => NoOp;
+
+    private sealed class NoOpTestFixture : ITestFixture
     {
-        [TestCaseStepKind.WaitForSignal] = waitForSignal.Single(),
-        [TestCaseStepKind.AssertSignal] = assertSignal.Single(),
-        [TestCaseStepKind.AssertRange] = assertRange.Single(),
-        [TestCaseStepKind.SendFrame] = sendFrame.Single(),
-        [TestCaseStepKind.Delay] = delay.Single(),
-    };
+        public Task SetupAsync(IAssertionContext ctx, CancellationToken ct) => Task.CompletedTask;
+        public Task TeardownAsync(IAssertionContext ctx, CancellationToken ct) => Task.CompletedTask;
+    }
 }
 ```
 
-### 6.4 HeadlessDbcLookup
+### 6.4 HeadlessDbcLookup (fixes D4)
 
 ```csharp
 internal sealed class HeadlessDbcLookup : IDbcLookup
@@ -340,7 +364,11 @@ internal sealed class HeadlessDbcLookup : IDbcLookup
 
     public static HeadlessDbcLookup Load(string path, ILogger? logger = default)
     {
-        var text = File.ReadAllText(path);
+        // Stream-based reading for large files
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var text = reader.ReadToEnd();
+
         var result = DbcParser.Parse(text, maxMessageCount: 0, ct: default);
         if (!result.IsSuccess)
             throw new InvalidOperationException($"DBC parse failed: {result.Error?.Message}");
@@ -382,12 +410,12 @@ PeakCan.Host.Infrastructure/
   HIL/
     HILAssertionContext.cs                ← NEW
     HeadlessDbcLookup.cs                  ← NEW
+    HeadlessFixtureResolver.cs            ← NEW
 
-Sprint 1 modifications (interface change):
-  Core/HIL/Contracts/IAssertionContext.cs  ← Update signature
-  Tests/.../Fakes/FakeAssertionContext.cs  ← Update signature
-  Core/HIL/Assertions/AssertionPrimitives.cs ← Update call
-  Core/HIL/TestSuiteEngine.cs             ← Update constructor
+Sprint 1 modifications (interface change only):
+  Core/HIL/Contracts/IAssertionContext.cs  ← Add maxAgeMs + update xmldoc
+  Tests/.../Fakes/FakeAssertionContext.cs  ← Implement new signature
+  Core/HIL/Assertions/AssertionPrimitives.cs ← Update call (maxAgeMs: 5000)
 
 tests/PeakCan.Host.Infrastructure.Tests/
   TraceDrivenChannelTests.cs              ← NEW
@@ -400,7 +428,7 @@ tests/PeakCan.Host.Infrastructure.Tests/
 
 | Increment | Component | Tests |
 |---|---|---|
-| Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace guard, Frame conversion |
+| Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace guard, Frame conversion (std + ext ID) |
 | Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, GetSignalValue staleness (5s), Sprint 1 backward compat |
 | Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute produces result, Console output, TRX output, --trace arg |
 | Inc 4 | Integration | Load DBC + trace + suite → full execution → pass/fail |
@@ -428,9 +456,11 @@ tests/PeakCan.Host.Infrastructure.Tests/
 | D3 | WriteAsync is no-op | No physical bus; stimulus-response is Phase 3 |
 | D4 | Own timer logic | ReplayTimeline is internal to Core |
 | D5 | Signal cache + DropOldest | Prevents stale reads + ThreadPool blocking |
-| D6 | Last-dot separator for signal names | Accommodates dots in message names |
+| D6 | Last-dot separator (known limitation) | DBC names may contain dots; documented limitation |
 | D7 | Default maxAgeMs = 5000ms | Accommodates low-frequency (0.5Hz) signals |
-| D8 | Engine takes concrete executor types | DI resolves single instances by type |
+| D8 | Keep Sprint 1 TestSuiteEngine constructor | Interface-based DI, open for extension |
 | D9 | IAssertionContext backward-compatible | Default parameter preserves existing calls |
 | D10 | Bounded frame cache | Prevents OOM on large trace files |
 | D11 | Explicit --trace CLI arg | Required for trace-driven testing |
+| D12 | Infer extended frame from ID > 0x7FF | FrameFlags.Extended doesn't exist; ID carries format |
+| D13 | DBC decode on consumer thread | Keeps timer callback fast, matches Sprint 1 model |
