@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v13 (incorporates 12th round review)
+**Status**: Draft v14 (incorporates 13th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -440,16 +440,24 @@ public static class HeadlessHostBuilder
 
 ### 6.2 CLI NuGet Dependencies
 
+**L2 fix — Central Package Management**: 本项目使用 `Directory.Packages.props` 集中管理版本。CLI csproj 只引用包名，版本在 Directory.Packages.props 中定义。
+
 `PeakCan.Host.Cli.csproj` must reference:
 
 ```xml
-<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
-<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
-<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+<PackageReference Include="Microsoft.Extensions.Hosting" />
+<PackageReference Include="Serilog.Extensions.Hosting" />
+<PackageReference Include="Serilog.Sinks.Console" />
+<PackageReference Include="Serilog.Sinks.File" />
 ```
 
-`AddSerilog()` is provided by `Serilog.Extensions.Logging`. All other DI extensions (`AddSingleton`, `AddLogging`) come from `Microsoft.Extensions.Hosting`.
+**L1 fix**: `AddSerilog()` is provided by `Serilog.Extensions.Hosting` (not `Serilog.Extensions.Logging`). All other DI extensions (`AddSingleton`, `AddLogging`) come from `Microsoft.Extensions.Hosting`.
+
+**L3 fix — Directory.Packages.props 新增**: 需添加 `Serilog.Sinks.Console`（App 项目未使用 console sink，故未在现有配置中）：
+
+```xml
+<PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
+```
 
 **D1 fix — Project References**: `PeakCan.Host.Cli.csproj` must also reference:
 
@@ -458,7 +466,43 @@ public static class HeadlessHostBuilder
 <ProjectReference Include="..\PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
 ```
 
-### 6.3 HeadlessFixtureResolver
+### 6.3 CliArgs (B1 fix — CLI argument parsing)
+
+```csharp
+public sealed record CliArgs(
+    string DbcPath,
+    string TracePath,
+    string SuitePath,
+    string? OutputPath = null,
+    string Format = "console");
+
+public static class CliArgsParser
+{
+    public static CliArgs Parse(string[] args)
+    {
+        string? dbc = null, trace = null, suite = null, output = null, format = "console";
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--dbc": dbc = args[++i]; break;
+                case "--trace": trace = args[++i]; break;
+                case "--suite": suite = args[++i]; break;
+                case "--output": output = args[++i]; break;
+                case "--format": format = args[++i]; break;
+            }
+        }
+
+        if (dbc is null) throw new ArgumentException("Missing required --dbc argument");
+        if (trace is null) throw new ArgumentException("Missing required --trace argument");
+        if (suite is null) throw new ArgumentException("Missing required --suite argument");
+
+        return new CliArgs(dbc, trace, suite, output, format);
+    }
+}
+```
+
+### 6.4 HeadlessFixtureResolver
 
 ```csharp
 internal sealed class HeadlessFixtureResolver : IFixtureResolver
@@ -474,7 +518,7 @@ internal sealed class NoOpTestFixture : ITestFixture
 }
 ```
 
-### 6.4 HeadlessDbcLookup
+### 6.5 HeadlessDbcLookup
 
 ```csharp
 internal sealed class HeadlessDbcLookup : IDbcLookup
@@ -499,7 +543,7 @@ internal sealed class HeadlessDbcLookup : IDbcLookup
 }
 ```
 
-### 6.5 ConsoleProgress
+### 6.6 ConsoleProgress
 
 TestProgress properties: `CompletedCases`, `TotalCases`, `CurrentCaseName`, `Message` (constructor args), `PercentComplete` (computed: `CompletedCases / TotalCases * 100`).
 
@@ -522,7 +566,7 @@ internal sealed class ConsoleProgress : IProgress<TestProgress>
 }
 ```
 
-### 6.6 Output Formats
+### 6.7 Output Formats
 
 | Format | Flag | Implementation |
 |---|---|---|
@@ -542,18 +586,50 @@ TRX schema (minimal):
 </TestRun>
 ```
 
-### 6.7 Program.cs (D2 fix — entry point sketch)
+### 6.8 ResultWriter (B2 fix — TRX output)
+
+```csharp
+using System.Xml.Linq;
+
+public static class ResultWriter
+{
+    public static async Task WriteTrx(TestSuiteResult result, string path)
+    {
+        var ns = XNamespace.Get("http://microsoft.com/schemas/VisualStudio/2010/testtools");
+        var doc = new XDocument(
+            new XElement(ns + "TestRun",
+                new XElement(ns + "Results",
+                    result.CaseResults.Select(cr =>
+                        new XElement(ns + "UnitTestResult",
+                            new XAttribute("testName", cr.TestCaseName),
+                            new XAttribute("outcome", cr.Passed ? "Passed" : "Failed"),
+                            new XAttribute("duration", $"00:00:{cr.ElapsedMs / 1000:D2}")))),
+                new XElement(ns + "TestDefinitions",
+                    result.CaseResults.Select(cr =>
+                        new XElement(ns + "UnitTest",
+                            new XAttribute("name", cr.TestCaseName))))));
+
+        await using var stream = File.Create(path);
+        await doc.SaveAsync(stream, SaveOptions.None, CancellationToken.None);
+    }
+}
+```
+
+### 6.9 Program.cs (D2 fix — entry point sketch)
 
 ```csharp
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Serialization;
 
 public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        var cli = CliArgs.Parse(args);
+        var cli = CliArgsParser.Parse(args);
         using var host = HeadlessHostBuilder.Build(cli);
         var engine = host.Services.GetRequiredService<TestSuiteEngine>();
         var channel = host.Services.GetRequiredService<ICanChannel>();
@@ -565,7 +641,7 @@ public static class Program
         // (case-sensitive PascalCase) would fail to match camelCase property names.
         var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, HILJsonOptions.Default);
 
-        await channel.ConnectAsync(BaudRate.Can500kbps, fd: true);
+        await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
         var result = await engine.ExecuteAsync(suite!, ctx, new TestSuiteConfig(),
             new ConsoleProgress(), default);
         await channel.DisconnectAsync();
@@ -582,7 +658,7 @@ public static class Program
 
 ## 7. File Structure
 
-PeakCan.Host.Cli/ (NEW project, Exe, net10.0): Program.cs, CliArgs.cs, ConsoleProgress.cs, ResultWriter.cs, HeadlessHostBuilder.cs
+PeakCan.Host.Cli/ (NEW project, Exe, net10.0): Program.cs, CliArgs.cs (CliArgs + CliArgsParser), ConsoleProgress.cs, ResultWriter.cs, HeadlessHostBuilder.cs
 PeakCan.Host.Infrastructure/Channel/: TraceDrivenChannel.cs (NEW)
 PeakCan.Host.Infrastructure/HIL/: HILAssertionContext.cs (NEW), FrameReceivedSubscription.cs (NEW),
   HeadlessDbcLookup.cs (NEW), HeadlessFixtureResolver.cs (NEW)
@@ -638,3 +714,8 @@ D21: InternalsVisibleTo("PeakCan.Host.Infrastructure" | "PeakCan.Host.Cli") for 
 D22: Host.CreateApplicationBuilder() for CLI (returns IHost, not ServiceProvider)
 D23: Direct msg.Id key in HeadlessDbcLookup (bit 31 already set)
 D24: Sprint 2 supports 7 step kinds (6 executors + Comment inline; WaitForFrame/AssertDtc/AssertNrc/AssertResponseTime deferred)
+D25: Serilog.Extensions.Hosting (not Logging) for AddSerilog on ILoggingBuilder
+D26: Serilog.Sinks.Console added to Directory.Packages.props (CPM)
+D27: CliArgs record + CliArgsParser for CLI argument parsing
+D28: ResultWriter.WriteTrx with minimal TRX XML schema
+D29: CanFd1Mbps for CLI default (matches fd: true)
