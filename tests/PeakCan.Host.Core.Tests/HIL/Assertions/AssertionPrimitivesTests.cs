@@ -13,7 +13,7 @@ public class AssertionPrimitivesTests
     {
         var ctx = new FakeAssertionContext();
         var primitives = new AssertionPrimitives(ctx);
-        using var readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var pushTask = Task.Run(async () =>
         {
@@ -24,7 +24,7 @@ public class AssertionPrimitivesTests
 
         // Start wait, signal ready, then await
         var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
-        readyTcs.SetResult();
+        readyTcs.SetResult(true);
 
         var result = await waitTask;
         await pushTask;
@@ -38,7 +38,7 @@ public class AssertionPrimitivesTests
     {
         var ctx = new FakeAssertionContext();
         var primitives = new AssertionPrimitives(ctx);
-        using var readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var pushTask = Task.Run(async () =>
         {
@@ -48,7 +48,7 @@ public class AssertionPrimitivesTests
         });
 
         var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
-        readyTcs.SetResult();
+        readyTcs.SetResult(true);
 
         var result = await waitTask;
         await pushTask;
@@ -87,7 +87,7 @@ public class AssertionPrimitivesTests
     {
         var ctx = new FakeAssertionContext();
         var primitives = new AssertionPrimitives(ctx);
-        using var readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
 
@@ -98,7 +98,7 @@ public class AssertionPrimitivesTests
             ctx.SetSignal("RPM", 5000.0);
             ctx.PushFrame(MakeFrame(0x123));
         });
-        readyTcs.SetResult();
+        readyTcs.SetResult(true);
         await push1;
         await Task.Delay(20);
 
