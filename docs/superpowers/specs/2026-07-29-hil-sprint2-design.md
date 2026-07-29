@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v12 (incorporates 11th round review)
+**Status**: Draft v13 (incorporates 12th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -560,7 +560,10 @@ public static class Program
         var ctx = host.Services.GetRequiredService<Contracts.IAssertionContext>();
 
         var suiteJson = await File.ReadAllTextAsync(cli.SuitePath);
-        var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, JsonSerializerOptions.Default);
+        // L1 fix: Sprint 1 serializes with HILJsonOptions.Default (camelCase).
+        // Must use the same options for deserialization — JsonSerializerOptions.Default
+        // (case-sensitive PascalCase) would fail to match camelCase property names.
+        var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, HILJsonOptions.Default);
 
         await channel.ConnectAsync(BaudRate.Can500kbps, fd: true);
         var result = await engine.ExecuteAsync(suite!, ctx, new TestSuiteConfig(),
