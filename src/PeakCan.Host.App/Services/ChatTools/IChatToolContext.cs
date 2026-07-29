@@ -13,10 +13,13 @@ namespace PeakCan.Host.App.Services.ChatTools;
 /// is an App-layer type. The VM implements this interface; tools inject it
 /// and are unit-testable with a fake context (no WPF required).
 /// <para>
-/// <b>Threading:</b> <see cref="AddWatchedSignals"/>, <see cref="RefreshAtAnchor"/>,
-/// <see cref="RefreshAtAnchorBlue"/>, and <see cref="Seek"/> mutate UI-affined
-/// state. The VM implementation marshals to the UI thread internally
-/// (<c>Dispatcher.InvokeAsync</c>), so callers on the thread-pool are safe.
+/// <b>Threading:</b> In production, tools are invoked on the WPF UI thread
+/// (see <c>ChatFlow.RunChatLoopAsync</c> — <c>ConfigureAwait(true)</c>).
+/// <see cref="AddWatchedSignals"/>, <see cref="RefreshAtAnchor"/>,
+/// <see cref="RefreshAtAnchorBlue"/>, and <see cref="Seek"/> mutate
+/// UI-affined state directly. The VM implementation also supports
+/// thread-pool callers via <c>Dispatcher.InvokeAsync</c> for future
+/// off-UI-thread invocation.
 /// </para>
 /// </remarks>
 public interface IChatToolContext

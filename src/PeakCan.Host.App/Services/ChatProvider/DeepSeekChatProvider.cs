@@ -221,7 +221,7 @@ public sealed class DeepSeekChatProvider : IChatProvider
 
                     if (!string.IsNullOrEmpty(choice.FinishReason))
                     {
-                        if (choice.FinishReason == "tool_calls")
+                        if (choice.FinishReason == "tool_calls" && toolNames.Count > 0)
                         {
                             var calls = toolNames.Keys
                                 .OrderBy(i => i)
@@ -229,8 +229,18 @@ public sealed class DeepSeekChatProvider : IChatProvider
                                     toolIds.GetValueOrDefault(i) ?? string.Empty,
                                     toolNames[i],
                                     toolArgs.GetValueOrDefault(i)?.ToString() ?? string.Empty))
+                                .Where(c => !string.IsNullOrEmpty(c.Id))
                                 .ToList();
-                            yield return new ChatUpdate.ToolCallRoundDone(calls);
+                            if (calls.Count > 0)
+                            {
+                                yield return new ChatUpdate.ToolCallRoundDone(calls);
+                            }
+                            else
+                            {
+                                // All tool calls had malformed empty IDs —
+                                // nothing to execute; treat as turn complete.
+                                yield return new ChatUpdate.Done();
+                            }
                         }
                         else
                         {

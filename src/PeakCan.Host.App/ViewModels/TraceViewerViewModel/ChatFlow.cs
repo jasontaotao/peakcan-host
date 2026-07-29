@@ -165,6 +165,16 @@ public sealed partial class TraceViewerViewModel
                         content.Append(d.Text);
                         aiBubble.Content += d.Text;
                         break;
+                    case ChatUpdate.ToolCallStart s:
+                        // Live tool-call display: the provider emits this when a
+                        // tool call begins. Currently no UI surface consumes it;
+                        // logged at debug so silent drops are visible in dev.
+                        _logger.LogDebug("Chat tool call started: {ToolName}", s.Name);
+                        break;
+                    case ChatUpdate.ToolCallArgDelta:
+                        // Incremental argument fragments for an in-progress tool
+                        // call. Not consumed by the UI; intentionally ignored.
+                        break;
                     case ChatUpdate.ToolCallRoundDone r:
                         toolCalls = r.ToolCalls.ToList();
                         break;
@@ -175,6 +185,9 @@ public sealed partial class TraceViewerViewModel
                         errored = true;
                         break;
                     case ChatUpdate.Done:
+                        break;
+                    default:
+                        _logger.LogWarning("Unexpected chat update type: {Type}", update.GetType().Name);
                         break;
                 }
                 if (update is ChatUpdate.Error or ChatUpdate.Done) break;
@@ -220,8 +233,12 @@ public sealed partial class TraceViewerViewModel
             // loop continues - next round the assistant replies to the tool results
         }
 
-        // MaxRounds exhausted
-        ChatMessages.Add(new ChatMessageViewModel("assistant", "[达到最大轮数上限，请发新消息继续]"));
+        // MaxRounds exhausted. Write to both UI and history so the LLM sees
+        // the hint on the next user turn and exports include it.
+        const string maxRoundsMsg = "[达到最大轮数上限，请发新消息继续]";
+        var maxRoundsBubble = new ChatMessageViewModel("assistant", maxRoundsMsg);
+        ChatMessages.Add(maxRoundsBubble);
+        _chatHistory.Add(new ChatMessage("assistant", maxRoundsMsg, null, null));
     }
 
     private ChatMessage BuildSystemMessage()
