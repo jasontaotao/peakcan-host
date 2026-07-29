@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v8 (incorporates 7th round review)
+**Status**: Draft v9 (incorporates 8th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -117,15 +117,16 @@ DisposeAsync()
   _timer?.Dispose()
   SpinWait.SpinUntil(() => Interlocked.Read(ref _state) != 1, 200ms)
   [final wait for any in-flight OnTick]
+  Interlocked.Exchange(ref _state, 2)  [force Disposing even if OnTick set Idle(0) during wait — L1 fix]
   State -> Disposed
 ```
 
-State machine (ALL Interlocked CAS, NO Exchange):
+State machine (CAS preferred; Exchange only as timeout fallback):
 - 0 = Idle: No callback running
 - 1 = CallbackInProgress: OnTick executing (including FrameReceived invokes)
 - 2 = Disposing: DisposeAsync running
 
-TOCTOU fix: OnTick atomically CAS Idle->CallbackInProgress. If state is Disposing, CAS fails and OnTick returns. FrameReceived invokes happen while state=CallbackInProgress. DisposeAsync waits for state != CallbackInProgress.
+TOCTOU fix: OnTick atomically CAS Idle->CallbackInProgress. If state is Disposing, CAS fails and OnTick returns. FrameReceived invokes happen while state=CallbackInProgress. DisposeAsync waits for state != CallbackInProgress, then force-sets Disposing via Exchange as timeout fallback (handles the race where OnTick completes and resets to Idle between the CAS and the final wait).
 
 ### 3.3 Frame Conversion
 
@@ -332,16 +333,157 @@ Sprint 2 updated: double? GetSignalValue(string signalName, int maxAgeMs = 5000)
 
 ## 6. CLI Runner
 
-CLI syntax: peakcan-hil --dbc path.dbc --trace path.asc --suite tests.json [--output results.trx]
+CLI syntax: `peakcan-hil --dbc path.dbc --trace path.asc --suite tests.json [--output results.trx] [--format trx]`
 
-HeadlessHostBuilder registers: ICanChannel, IDbcLookup, IAssertionContext, IFixtureResolver,
-AssertionPrimitives (shared singleton), 5 IStepExecutor instances, TestSuiteEngine.
+### 6.1 HeadlessHostBuilder (DI registration)
 
-HeadlessFixtureResolver: returns NoOpTestFixture for any key.
-HeadlessDbcLookup: File.ReadAllText -> DbcParser.Parse -> Dictionary<uint, Message>.
-ConsoleProgress: IProgress<TestProgress> with colored console output.
+```csharp
+public static class HeadlessHostBuilder
+{
+    public static IHost Build(CliArgs args)
+    {
+        var services = new ServiceCollection();
 
-Output formats: Console ANSI (default), TRX (--format trx), JUnit XML (Sprint 3).
+        // Channel (TraceDrivenChannel loads ASC in constructor or via LoadAscii)
+        services.AddSingleton<ICanChannel>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<TraceDrivenChannel>>();
+            var ch = new TraceDrivenChannel(new ChannelId(1), logger);
+            ch.LoadAscii(args.TracePath);
+            return ch;
+        });
+
+        // DBC lookup
+        services.AddSingleton<IDbcLookup>(sp =>
+        {
+            var text = File.ReadAllText(args.DbcPath);
+            var doc = DbcParser.Parse(text);
+            if (!doc.IsSuccess) throw new InvalidOperationException($"DBC parse failed: {doc.Error?.Message}");
+            return new HeadlessDbcLookup(doc.Value!);
+        });
+
+        // Assertion context
+        services.AddSingleton<IAssertionContext>(sp =>
+        {
+            var channel = sp.GetRequiredService<ICanChannel>();
+            var dbc = sp.GetRequiredService<IDbcLookup>();
+            return new HILAssertionContext(channel, dbc);
+        });
+
+        // Fixture resolver (no-op for headless)
+        services.AddSingleton<IFixtureResolver, HeadlessFixtureResolver>();
+
+        // Assertion primitives (shared singleton)
+        services.AddSingleton<AssertionPrimitives>();
+
+        // Step executors (5 built-in kinds)
+        services.AddSingleton<IStepExecutor, CommentStepExecutor>();
+        services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
+        services.AddSingleton<IStepExecutor, AssertSignalStepExecutor>();
+        services.AddSingleton<IStepExecutor, WaitForSignalStepExecutor>();
+        services.AddSingleton<IStepExecutor, DelayStepExecutor>();
+
+        // Engine
+        services.AddSingleton<TestSuiteEngine>();
+
+        // Logging
+        services.AddLogging(b => b.AddSerilog(new LoggerConfiguration()
+            .WriteTo.Console()
+            .WriteTo.File("hil.log")
+            .CreateLogger()));
+
+        return services.BuildServiceProvider();
+    }
+}
+```
+
+### 6.2 HeadlessFixtureResolver
+
+```csharp
+internal sealed class HeadlessFixtureResolver : IFixtureResolver
+{
+    private static readonly ITestFixture NoOp = new NoOpTestFixture();
+    public ITestFixture Resolve(string key) => NoOp;
+}
+
+internal sealed class NoOpTestFixture : ITestFixture
+{
+    public Task SetupAsync(IAssertionContext ctx, CancellationToken ct) => Task.CompletedTask;
+    public Task TeardownAsync(IAssertionContext ctx, CancellationToken ct) => Task.CompletedTask;
+}
+```
+
+### 6.3 HeadlessDbcLookup
+
+```csharp
+internal sealed class HeadlessDbcLookup : IDbcLookup
+{
+    private readonly Dictionary<uint, Message> _messages;
+
+    public HeadlessDbcLookup(DbcDocument doc)
+    {
+        _messages = new Dictionary<uint, Message>();
+        foreach (var msg in doc.Messages)
+        {
+            // DBC Message.Id stores extended IDs with bit 31 set (e.g., 0x98FEF100)
+            // CanId.Raw stores the raw ID without bit 31 (e.g., 0x18FEF100)
+            // ToDbcLookupKey reconciles the mismatch (D17)
+            var isExtended = (msg.Id & 0x80000000u) != 0;
+            var key = ToDbcLookupKey(msg.Id & 0x1FFFFFFFu, isExtended);
+            _messages[key] = msg;
+        }
+    }
+
+    public Message? FindMessage(uint canId)
+        => _messages.GetValueOrDefault(canId);
+
+    private static uint ToDbcLookupKey(uint rawId, bool isExtended)
+        => isExtended ? rawId | 0x80000000u : rawId;
+}
+```
+
+### 6.4 ConsoleProgress
+
+TestProgress fields: `CompletedCases`, `TotalCases`, `CurrentCaseName`, `Message`, `PercentComplete`.
+
+```csharp
+internal sealed class ConsoleProgress : IProgress<TestProgress>
+{
+    public void Report(TestProgress value)
+    {
+        var color = value.PercentComplete switch
+        {
+            >= 100 => ConsoleColor.Green,
+            > 0 => ConsoleColor.Yellow,
+            _ => ConsoleColor.Gray,
+        };
+        Console.ForegroundColor = color;
+        Console.Write($"[{value.CompletedCases}/{value.TotalCases}] ");
+        Console.ResetColor();
+        Console.WriteLine(value.CurrentCaseName ?? value.Message ?? "running");
+    }
+}
+```
+
+### 6.5 Output Formats
+
+| Format | Flag | Implementation |
+|---|---|---|
+| Console ANSI | default | ConsoleProgress |
+| TRX | `--format trx` | ResultWriter.WriteTrx() |
+| JUnit XML | Sprint 3 | — |
+
+TRX schema (minimal):
+```xml
+<TestRun>
+  <Results>
+    <UnitTestResult testName="case_1" outcome="Passed|Failed" duration="00:00:01" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="case_1" />
+  </TestDefinitions>
+</TestRun>
+```
 
 ---
 
@@ -361,7 +503,7 @@ tests/PeakCan.Host.Infrastructure.Tests/: TraceDrivenChannelTests.cs (NEW), HILA
 | Increment | Component | Tests |
 |---|---|---|
 | Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace, Frame conversion |
-| Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, Staleness (5s), Backward compat |
+| Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, Staleness (5s), Extended frame DBC lookup, Backward compat |
 | Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute, Console output, TRX output |
 | Inc 4 | Integration | Load DBC + trace + suite -> full execution |
 
@@ -392,7 +534,7 @@ D10: Bounded frame cache (MaxTraceFrames guard)
 D11: Explicit --trace arg (required for testing)
 D12: Infer extended from ID > 0x7FF (no FrameFlags.Extended)
 D13: DBC decode on consumer thread (fast timer callback)
-D14: Interlocked CAS only (no state clobbering)
+D14: Interlocked CAS preferred; Exchange only as Dispose timeout fallback (L1 fix)
 D15: Reusable emit buffer (no per-tick allocation)
 D16: Shared AssertionPrimitives (one instance)
 D17: ToDbcLookupKey conversion (bit 31 mismatch)
