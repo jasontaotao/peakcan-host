@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v11 (incorporates 10th round review)
+**Status**: Draft v12 (incorporates 11th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -72,6 +72,13 @@ public sealed class TraceDrivenChannel : ICanChannel
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default);
     public ValueTask DisposeAsync();
     public void LoadAscii(string path, CancellationToken ct = default);
+
+    // L1 fix: explicit constructor signature with default values
+    public TraceDrivenChannel(
+        ChannelId id,
+        ILogger<TraceDrivenChannel>? logger = null,
+        int maxFramesPerTick = 100,
+        int maxTraceFrames = 2_000_000);
 }
 ```
 
@@ -444,6 +451,13 @@ public static class HeadlessHostBuilder
 
 `AddSerilog()` is provided by `Serilog.Extensions.Logging`. All other DI extensions (`AddSingleton`, `AddLogging`) come from `Microsoft.Extensions.Hosting`.
 
+**D1 fix — Project References**: `PeakCan.Host.Cli.csproj` must also reference:
+
+```xml
+<ProjectReference Include="..\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
+<ProjectReference Include="..\PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
+```
+
 ### 6.3 HeadlessFixtureResolver
 
 ```csharp
@@ -526,6 +540,39 @@ TRX schema (minimal):
     <UnitTest name="case_1" />
   </TestDefinitions>
 </TestRun>
+```
+
+### 6.7 Program.cs (D2 fix — entry point sketch)
+
+```csharp
+using System.Text.Json;
+using Microsoft.Extensions.Hosting;
+using PeakCan.Host.Core.HIL;
+
+public static class Program
+{
+    public static async Task<int> Main(string[] args)
+    {
+        var cli = CliArgs.Parse(args);
+        using var host = HeadlessHostBuilder.Build(cli);
+        var engine = host.Services.GetRequiredService<TestSuiteEngine>();
+        var channel = host.Services.GetRequiredService<ICanChannel>();
+        var ctx = host.Services.GetRequiredService<Contracts.IAssertionContext>();
+
+        var suiteJson = await File.ReadAllTextAsync(cli.SuitePath);
+        var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, JsonSerializerOptions.Default);
+
+        await channel.ConnectAsync(BaudRate.Can500kbps, fd: true);
+        var result = await engine.ExecuteAsync(suite!, ctx, new TestSuiteConfig(),
+            new ConsoleProgress(), default);
+        await channel.DisconnectAsync();
+
+        if (cli.OutputPath is not null)
+            await ResultWriter.WriteTrx(result, cli.OutputPath);
+
+        return result.AllPassed ? 0 : 1;
+    }
+}
 ```
 
 ---
