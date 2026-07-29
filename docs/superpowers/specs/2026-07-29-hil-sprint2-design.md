@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v2 (incorporates 14 review findings)
+**Status**: Draft v3 (incorporates 2nd round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -11,8 +11,8 @@
 
 Enable **offline HIL testing** without real PCAN hardware:
 
-1. **TraceDrivenChannel** — Replays ASC/BLF trace files as a virtual CAN channel, implementing `ICanChannel`
-2. **CLI Runner** — Headless console mode that loads DBC + test suite JSON, executes via `TestSuiteEngine`, outputs results
+1. **TraceDrivenChannel** — Replays ASC/BLF trace files as a virtual CAN channel
+2. **CLI Runner** — Headless console mode: load DBC + test suite JSON, execute, output results
 
 ---
 
@@ -20,36 +20,25 @@ Enable **offline HIL testing** without real PCAN hardware:
 
 ### 2.1 No ChannelRouter for Virtual Channel
 
-**Decision**: `TraceDrivenChannel` raises `FrameReceived` directly. Does NOT route through `ChannelRouter`.
+`TraceDrivenChannel` raises `FrameReceived` directly. Does NOT route through ChannelRouter.
 
-**Rationale (fixes L1, L2, L5)**:
-- `ChannelRouter.OnChannelFrame` is `private` — no public frame injection API exists (L2)
-- Routing sent frames back through the router would pollute assertion reads with test's own stimulus (L1)
-- Sprint 1's `IAssertionContext` already uses a `Channel<T>` + consumer thread model — we reuse that pattern directly (L5)
+Rationale: `ChannelRouter.OnChannelFrame` is private (no public injection API). Routing sent frames back would pollute assertions.
 
 ### 2.2 HILAssertionContext Subscribes to FrameReceived
 
-**Decision**: `HILAssertionContext` subscribes to `TraceDrivenChannel.FrameReceived` (like any other consumer), NOT via `ChannelRouter`.
+`HILAssertionContext` subscribes to `TraceDrivenChannel.FrameReceived` event directly.
 
-**Rationale**: Avoids the private `OnChannelFrame` issue entirely. The channel → consumer event pattern is the existing single-source model documented in `IFrameSource.cs` comments.
+### 2.3 WriteAsync Is No-Op (Sprint 2)
 
-### 2.3 WriteAsync Is a No-Op (Sprint 2)
+Without a physical bus, sent frames have no destination. Stimulus-response deferred to Phase 3.
 
-**Decision**: `TraceDrivenChannel.WriteAsync` returns success immediately. Stimulus-response testing deferred to Phase 3.
+### 2.4 Own Timer Logic
 
-**Rationale (fixes L1, T1)**: Without a separate physical bus, sent frames have no destination. Echo suppression / direction markers would add complexity without a real use case in Sprint 2 (trace replay is read-only).
+`TraceDrivenChannel` contains its own timer (ReplayTimeline is internal to Core).
 
-### 2.4 ReplayTimeline Reimplementation
+### 2.5 Signal Cache with Timestamps + DropOldest Channel
 
-**Decision**: `TraceDrivenChannel` contains its own timer-based replay logic. Does NOT reference `ReplayTimeline` (which is `internal` to Core).
-
-**Rationale (fixes L3)**: Avoids cross-layer internal access. The timer algorithm is simple (~30 lines) and specific to the channel's event-emission model.
-
-### 2.5 Signal Cache with Timestamps
-
-**Decision**: `SignalCache` entries include both value and timestamp. `GetSignalValue` accepts an optional `maxAgeMs` parameter.
-
-**Rationale (fixes B1)**: Prevents assertions from using stale signal data.
+Reuse Sprint 1's `Channel<T>` + consumer thread model (DropOldest, bounded capacity).
 
 ---
 
@@ -63,9 +52,11 @@ public sealed class TraceDrivenChannel : ICanChannel
     private readonly ChannelId _id;
     private readonly ILogger<TraceDrivenChannel>? _logger;
     private readonly List<ReplayFrame> _frames = new();
+    private readonly object _framesLock = new();  // guards _frames + _nextFrameIndex
+    private int _nextFrameIndex;
     private System.Threading.Timer? _timer;
     private DateTime _playStartWallClock;
-    private double _playStartTimestamp;
+    private double _playStartTimestamp = -1;  // -1 = not loaded
     private double _speed = 1.0;
 
     public ChannelId Id => _id;
@@ -74,99 +65,101 @@ public sealed class TraceDrivenChannel : ICanChannel
     public event Action<CanFrame>? FrameReceived;
     public event Action<ReadLoopError>? ReadLoopError;
 
-    // Load trace file (call before ConnectAsync)
-    public async Task LoadAsync(string path, CancellationToken ct = default);
-
-    // ICanChannel implementation
     public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default);
     public Task DisconnectAsync(CancellationToken ct = default);
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default);
     public ValueTask DisposeAsync();
+
+    public void LoadAscii(string path, CancellationToken ct = default);
 }
 ```
 
-### 3.2 Frame Emission Model (fixes L4, B2)
+### 3.2 Frame Emission Model
 
 ```
 TraceDrivenChannel
   │
-  ├─ LoadAsync(path)
-  │    └─ AscParser.ParseAsync(file) → frames stored in _frames
+  ├─ LoadAscii(path)
+  │    ├─ Read file → AscParser.ParseAsync → frames
+  │    ├─ lock(_framesLock) { _frames.Clear(); _frames.AddRange(parsed); _nextFrameIndex = 0; }
+  │    ├─ _playStartTimestamp = _frames.Count > 0 ? _frames[0].Timestamp : -1
+  │    └─ State: → Loaded
   │
-  ├─ ConnectAsync() → start replay
-  │    ├─ BaudRate / fd parameters are IGNORED (virtual channel)
+  ├─ ConnectAsync(baud, fd)  [baud/fd IGNORED for virtual channel]
+  │    ├─ Guard: State == Loaded, _playStartTimestamp >= 0
   │    ├─ _playStartWallClock = DateTime.UtcNow
-  │    ├─ _playStartTimestamp = _frames[0].Timestamp
   │    └─ _timer = new Timer(OnTick, null, 0, 1)
   │
   ├─ OnTick(state)  [ThreadPool timer callback, ~1ms period]
   │    ├─ elapsed_wall = (DateTime.UtcNow - _playStartWallClock).TotalSeconds * _speed
   │    ├─ target_ts = _playStartTimestamp + elapsed_wall
   │    ├─ emitted = 0
-  │    ├─ while (_nextFrameIndex < _frames.Count
-  │    │     && _frames[_nextFrameIndex].Timestamp <= target_ts
-  │    │     && emitted < MaxFramesPerTick):    ← BATCH LIMIT (fixes B2)
-  │    │     FrameReceived?.Invoke(ToCanFrame(_frames[_nextFrameIndex]))
+  │    ├─ lock(_framesLock):
+  │    │   while (_nextFrameIndex < _frames.Count
+  │    │         && _frames[_nextFrameIndex].Timestamp <= target_ts
+  │    │         && emitted < MaxFramesPerTick):
+  │    │     var frame = ToCanFrame(_frames[_nextFrameIndex])
   │    │     _nextFrameIndex++
   │    │     emitted++
-  │    └─ if (_nextFrameIndex >= _frames.Count):
-  │         _timer.Dispose()  ← end of trace
+  │    │   toEmit = collected frames
+  │    ├─ foreach (frame in toEmit):  [outside lock, to avoid blocking]
+  │    │     FrameReceived?.Invoke(frame)
+  │    ├─ if (_nextFrameIndex >= _frames.Count):
+  │    │     _timer.Change(Timeout.Infinite, Timeout.Infinite)  ← stop timer
   │
-  └─ WriteAsync(frame) → return Result<Unit>.Ok(default)
-       (no-op, Sprint 2: no stimulus-response)
+  └─ DisposeAsync()
+       ├─ _timer?.Dispose()
+       ├─ SpinWait.SpinUntil(() => !timerCallbackInProgress, 200ms)
+       └─ State → Disposed
 ```
 
-**BATCH LIMIT** (`MaxFramesPerTick = 100`): Prevents timer callback from monopolizing the ThreadPool when many frames are due.
+**BATCH LIMIT**: `MaxFramesPerTick = 100`. If backlog > 100 frames, remaining frames deferred to next tick. If backlog grows unbounded, frames are **dropped** — matching Sprint 1 DropOldest semantics.
 
-### 3.3 Frame Conversion (fixes D5)
+### 3.3 Frame Conversion
 
 ```csharp
-private static CanFrame ToCanFrame(ReplayFrame frame, ChannelId channelId) => new(
-    new CanId(frame.Id, (frame.Flags & FrameFlags.Extended) != 0 ? FrameFormat.Extended : FrameFormat.Standard),
-    frame.Data,
-    frame.Flags & ~FrameFlags.Extended,  // Extended flag is encoded in CanId.Format, not Flags
-    channelId,
-    frame.Timestamp * 1_000_000);  // seconds → microseconds
+private static CanFrame ToCanFrame(ReplayFrame frame, ChannelId channelId)
+{
+    var totalUs = (ulong)(frame.Timestamp * 1_000_000.0);
+    return new CanFrame(
+        new CanId(frame.Id, (frame.Flags & FrameFlags.Extended) != 0 ? FrameFormat.Extended : FrameFormat.Standard),
+        frame.Data,
+        frame.Flags,
+        channelId,
+        new Timestamp(totalUs));
+}
 ```
 
-### 3.4 State Machine (fixes B3)
+### 3.4 State Machine
 
 ```
-States: Unloaded → Loaded → Playing → [Ended|Stopped]
-        Loaded → Disposed
-        Playing → Stopped → Loaded (restart)
-        Any → Disposed (final)
+States: Unloaded → Loaded → Playing → Ended
+                  ↑                  ↓
+                  └─── Restart ─── Stopped
+        Any → Disposed
 
 Transitions:
-  LoadAsync:   Unloaded → Loaded,  Loaded → Loaded (reload, resets)
-  ConnectAsync: Loaded → Playing
-  DisconnectAsync: Playing → Stopped, Stopped → Stopped (idempotent)
+  LoadAscii:   Unloaded → Loaded,  Loaded → Loaded (reload, resets frame pointer),
+               Stopped → Loaded (reload, resets frame pointer)
+  ConnectAsync: Loaded → Playing (requires _playStartTimestamp >= 0)
+  Timer end:   Playing → Ended (auto when last frame emitted)
+  DisconnectAsync: Playing → Stopped,  Stopped → Stopped (idempotent)
   DisposeAsync: Any → Disposed (final)
 
 Illegal:
   ConnectAsync on Unloaded → InvalidOperationException
+  ConnectAsync on Loaded with _playStartTimestamp < 0 → InvalidOperationException (empty trace)
   ConnectAsync on Disposed → ObjectDisposedException
-  LoadAsync on Playing → InvalidOperationException
+  LoadAscii on Playing → InvalidOperationException
 ```
 
-### 3.5 Dispose Order (fixes B4)
-
-```
-DisposeAsync():
-  1. Stop timer (prevents new FrameReceived events)
-  2. Wait 100ms for in-flight callbacks to complete
-  3. Clear _frames list
-  4. Set IsConnected = false
-```
-
-### 3.6 Configuration (fixes T2)
+### 3.5 Configuration
 
 | Parameter | Source | Default |
 |---|---|---|
 | `MaxFramesPerTick` | Constructor arg | 100 |
-| `Speed` | Property (set after LoadAsync) | 1.0 |
-
-CanIdFilter is NOT applied at the channel level. Filtering happens at the sink layer (HILAssertionContext subscribes to specific IDs via `SubscribeDecodedFrames`).
+| `Speed` | Property (set after LoadAscii) | 1.0 |
+| `MaxTraceFrames` | Constructor arg | 2_000_000 |
 
 ---
 
@@ -179,70 +172,59 @@ internal sealed class HILAssertionContext : IAssertionContext, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly IDbcLookup _dbcLookup;
-    private readonly Channel<DecodedFrame> _channel;
+    private readonly Channel<DecodedFrame> _decodeChannel;
     private readonly CancellationTokenSource _consumerCts = new();
     private readonly Task _consumerTask;
     private readonly ConcurrentDictionary<string, (double Value, double TimestampUs)> _signalCache = new();
-    private double _currentTimestamp;
+    private volatile double _currentTimestamp;
 
     public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup);
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame);
-    public double? GetSignalValue(string signalName, int maxAgeMs = 1000);
+    public double? GetSignalValue(string signalName, int maxAgeMs = 5000);
     public double CurrentTimestamp => _currentTimestamp;
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct);
     public void Dispose();
 }
 ```
 
-### 4.2 Thread Model (fixes L5)
+### 4.2 Thread Model
 
 ```
 TraceDrivenChannel.FrameReceived
   ↓ (ThreadPool timer thread)
-HILAssertionContext.OnFrame(frame)  [IFrameSink-style callback, MUST NOT block]
-  ├─ DBC decode: lookup message → decode signals (fast, <1μs per signal)
-  ├─ Update _signalCache[name] = (value, timestamp)
-  ├─ Write DecodedFrame to Channel<DecodedFrame> (Wait mode, capacity=10000)
+HILAssertionContext.OnFrame(frame)  [MUST NOT block]
+  ├─ _currentTimestamp = frame.Timestamp.TotalMicroseconds
+  ├─ DBC decode: lookup message → decode signals
+  ├─ _signalCache[name] = (value, timestamp)
+  ├─ Write DecodedFrame to _decodeChannel (DropOldest, capacity=10000)
   └─ Return immediately
 
-Consumer Thread (_consumerTask):
-  ↓ (dedicated ThreadPool thread)
-  await foreach (decoded in _channel.Reader.ReadAllAsync(ct))
+Consumer Thread:
+  await foreach (decoded in _decodeChannel.Reader.ReadAllAsync(ct))
     → Invoke all subscriber callbacks synchronously
 ```
 
-**Key**: Signal decode happens on the fast path (timer thread) because `SignalDecoder.Decode` is O(signals-per-message) and typically <1μs. The `Channel<T>` only carries the final `DecodedFrame` to subscribers, preserving the Sprint 1 non-blocking contract.
+### 4.3 Signal Name Format
 
-### 4.3 Signal Name Format (fixes B5)
-
-Format: `"MessageName.SignalName"` where:
-- `MessageName` does NOT contain `.` (DBC message names use `_` or CamelCase)
-- `SignalName` may contain `.` — the **first** `.` is the separator
+Format: `"MessageName.SignalName"`. No restriction on dots — the **last** dot is the separator.
 
 ```csharp
-// Parsing: "BMS_Status.EngineRPM" → Message="BMS_Status", Signal="EngineRPM"
-//          "ECU.Temp.Sensor1"  → Message="ECU", Signal="Temp.Sensor1"
-public static string GetSignalValue(string signalName, int maxAgeMs = 1000)
-{
-    var firstDot = signalName.IndexOf('.');
-    if (firstDot < 0) return null; // No separator → not found
-    // ... lookup using full signalName as cache key
-}
+// "BMS_Status.EngineRPM" → Message="BMS_Status", Signal="EngineRPM"
+// "ECU.Temp.Sensor1"  → Message="ECU.Temp", Signal="Sensor1"
+private static int FindSeparator(string signalName) => signalName.LastIndexOf('.');
 ```
 
-Cache key is the full `signalName` string (not split). The split is only needed for DBC lookup. This avoids ambiguity.
-
-### 4.4 Timestamp Validation (fixes B1)
+### 4.4 Timestamp + Staleness
 
 ```csharp
-public double? GetSignalValue(string signalName, int maxAgeMs = 1000)
+public double? GetSignalValue(string signalName, int maxAgeMs = 5000)
 {
     if (!_signalCache.TryGetValue(signalName, out var entry)) return null;
     if (maxAgeMs > 0)
     {
         var ageUs = _currentTimestamp - entry.TimestampUs;
-        if (ageUs > maxAgeMs * 1000) return null; // Stale
+        if (ageUs > maxAgeMs * 1000.0) return null;  // Stale
     }
     return entry.Value;
 }
@@ -250,31 +232,46 @@ public double? GetSignalValue(string signalName, int maxAgeMs = 1000)
 
 ---
 
-## 5. CLI Runner
+## 5. Sprint 1 Interface Update
 
-### 5.1 Entry Point: `PeakCan.Host.Cli/Program.cs` (fixes D6)
+### 5.1 IAssertionContext Change
 
 ```csharp
-// CLI syntax:
-//   peakcan-hil --dbc path.dbc --suite tests.json [--output results.trx]
+// Sprint 1 (original):
+double? GetSignalValue(string signalName);
 
-var args = ParseArgs(args);
-await using var host = HeadlessHostBuilder.Build(args);
-var engine = host.Services.GetRequiredService<TestSuiteEngine>();
-var suite = await LoadTestSuiteAsync(args.Suite);
-var context = host.Services.GetRequiredService<IAssertionContext>();
-var channel = host.Services.GetRequiredService<ICanChannel>();
-
-await ((TraceDrivenChannel)channel).LoadAsync(args.Trace);
-await channel.ConnectAsync(BaudRate.Baud500K, fd: true);
-
-var result = await engine.ExecuteAsync(suite, context,
-    new TestSuiteConfig(), new ConsoleProgress(), default);
-
-await WriteResultsAsync(result, args.Output);
+// Sprint 2 (updated):
+double? GetSignalValue(string signalName, int maxAgeMs = 5000);
 ```
 
-### 5.2 HeadlessHostBuilder (fixes D1, D2, D3, D4)
+### 5.2 Sprint 1 Files Affected
+
+| File | Change |
+|---|---|
+| `Contracts/IAssertionContext.cs` | Add `maxAgeMs` parameter |
+| `Tests/.../Fakes/FakeAssertionContext.cs` | Implement new signature |
+| `Tests/.../Assertions/AssertionPrimitivesTests.cs` | Unchanged (default param) |
+| `Assertions/AssertionPrimitives.cs` | Update call to pass `maxAgeMs: 5000` |
+
+---
+
+## 6. CLI Runner
+
+### 6.1 Entry Point: `PeakCan.Host.Cli/Program.cs`
+
+```
+CLI syntax:
+  peakcan-hil --dbc path.dbc --trace path.asc --suite tests.json [--output results.trx]
+
+Args:
+  --dbc <path>     DBC file (required)
+  --trace <path>   ASC/BLF trace file (required)
+  --suite <path>   Test suite JSON (required)
+  --output <path>  Output file (default: stdout)
+  --format <type>  Output format: console|trx (default: console)
+```
+
+### 6.2 HeadlessHostBuilder
 
 ```csharp
 public static class HeadlessHostBuilder
@@ -284,12 +281,10 @@ public static class HeadlessHostBuilder
         return Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
             {
-                // Channel + DBC (fixes D1: register concrete type)
-                services.AddSingleton<ChannelRouter>();
-                services.AddSingleton<IFrameSource>(sp => sp.GetRequiredService<ChannelRouter>());
+                // Channel
                 services.AddSingleton<ICanChannel, TraceDrivenChannel>();
 
-                // DBC lookup (fixes D3: use DbcParser directly)
+                // DBC lookup (uses DbcParser directly)
                 services.AddSingleton<IDbcLookup>(sp =>
                 {
                     var logger = sp.GetRequiredService<ILogger<HeadlessDbcLookup>>();
@@ -299,62 +294,80 @@ public static class HeadlessHostBuilder
                 // HIL context
                 services.AddSingleton<IAssertionContext, HILAssertionContext>();
 
-                // Step executors (fixes D4: register all Sprint 1 executors)
-                var primitives = new Assertions.AssertionPrimitives(null!); // ctx injected at runtime
-                services.AddSingleton<IStepExecutor>(sp =>
-                    new WaitForSignalStepExecutor(
-                        new Assertions.AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
-                services.AddSingleton<IStepExecutor>(sp =>
-                    new AssertSignalStepExecutor(
-                        new Assertions.AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
-                services.AddSingleton<IStepExecutor>(sp =>
-                    new AssertRangeStepExecutor(
-                        new Assertions.AssertionPrimitives(sp.GetRequiredService<IAssertionContext>())));
-                services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
-                services.AddSingleton<IStepExecutor, DelayStepExecutor>();
+                // Step executors (registered individually by concrete type)
+                services.AddSingleton<WaitForSignalStepExecutor>();
+                services.AddSingleton<AssertSignalStepExecutor>();
+                services.AddSingleton<AssertRangeStepExecutor>();
+                services.AddSingleton<SendFrameStepExecutor>();
+                services.AddSingleton<DelayStepExecutor>();
 
                 // Engine
                 services.AddSingleton<TestSuiteEngine>();
             })
-            .UseSerilog((ctx, cfg) => cfg.WriteTo.Console())
+            .UseSerilog((ctx, cfg) => cfg.WriteTo.Console().WriteTo.File("hil.log"))
             .Build();
     }
 }
 ```
 
-### 5.3 HeadlessDbcLookup (fixes D3)
+### 6.3 TestSuiteEngine Constructor Update
+
+```csharp
+public TestSuiteEngine(
+    IEnumerable<WaitForSignalStepExecutor> waitForSignal,
+    IEnumerable<AssertSignalStepExecutor> assertSignal,
+    IEnumerable<AssertRangeStepExecutor> assertRange,
+    IEnumerable<SendFrameStepExecutor> sendFrame,
+    IEnumerable<DelayStepExecutor> delay)
+{
+    _executors = new Dictionary<TestCaseStepKind, IStepExecutor>
+    {
+        [TestCaseStepKind.WaitForSignal] = waitForSignal.Single(),
+        [TestCaseStepKind.AssertSignal] = assertSignal.Single(),
+        [TestCaseStepKind.AssertRange] = assertRange.Single(),
+        [TestCaseStepKind.SendFrame] = sendFrame.Single(),
+        [TestCaseStepKind.Delay] = delay.Single(),
+    };
+}
+```
+
+### 6.4 HeadlessDbcLookup
 
 ```csharp
 internal sealed class HeadlessDbcLookup : IDbcLookup
 {
-    private readonly Dictionary<uint, DbcMessage> _messages = new();
+    private readonly Dictionary<uint, Message> _messages = new();
 
     public static HeadlessDbcLookup Load(string path, ILogger? logger = default)
     {
         var text = File.ReadAllText(path);
-        var doc = DbcParser.Parse(text, maxCount: 0, ct: default);
+        var result = DbcParser.Parse(text, maxMessageCount: 0, ct: default);
+        if (!result.IsSuccess)
+            throw new InvalidOperationException($"DBC parse failed: {result.Error?.Message}");
+
         var lookup = new HeadlessDbcLookup();
-        foreach (var msg in doc.Messages)
+        foreach (var msg in result.Value.Messages)
             lookup._messages[msg.Id] = msg;
+        logger?.LogInformation("DBC loaded: {Count} messages from {Path}", lookup._messages.Count, path);
         return lookup;
     }
 
-    public DbcMessage? FindMessage(uint canId) =>
+    public Message? FindMessage(uint canId) =>
         _messages.TryGetValue(canId, out var msg) ? msg : null;
 }
 ```
 
-### 5.4 Output Formats (fixes D7)
+### 6.5 Output Formats
 
-| Format | Implementation | Increment |
+| Format | Implementation | When |
 |---|---|---|
-| Console ANSI | Direct `Console.WriteLine` with color | Inc 3 |
-| TRX | Hand-write XML (MSTest `.trx` schema) | Inc 3 |
-| JUnit XML | Use `JUnitXml.TestLogger` NuGet package | Sprint 3 |
+| Console ANSI | `Console.WriteLine` with color codes | Default |
+| TRX | Hand-write XML (MSTest .trx schema v2) | `--format trx` |
+| JUnit XML | JUnitXml.TestLogger NuGet | Sprint 3 |
 
 ---
 
-## 6. File Structure
+## 7. File Structure
 
 ```
 PeakCan.Host.Cli/                         ← NEW project (Exe, net10.0)
@@ -370,6 +383,12 @@ PeakCan.Host.Infrastructure/
     HILAssertionContext.cs                ← NEW
     HeadlessDbcLookup.cs                  ← NEW
 
+Sprint 1 modifications (interface change):
+  Core/HIL/Contracts/IAssertionContext.cs  ← Update signature
+  Tests/.../Fakes/FakeAssertionContext.cs  ← Update signature
+  Core/HIL/Assertions/AssertionPrimitives.cs ← Update call
+  Core/HIL/TestSuiteEngine.cs             ← Update constructor
+
 tests/PeakCan.Host.Infrastructure.Tests/
   TraceDrivenChannelTests.cs              ← NEW
   HILAssertionContextTests.cs             ← NEW
@@ -377,46 +396,41 @@ tests/PeakCan.Host.Infrastructure.Tests/
 
 ---
 
-## 7. TDD Increments
+## 8. TDD Increments
 
 | Increment | Component | Tests |
 |---|---|---|
-| Inc 1 | TraceDrivenChannel | Load ASC, Connect fires frames, FrameReceived timing, State machine, Dispose |
-| Inc 2 | HILAssertionContext | Subscribe receives decoded frames, GetSignalValue with timestamp, MaxAge staleness |
-| Inc 3 | CLI Runner | Load suite JSON, Execute produces TestSuiteResult, Console output, TRX output |
-| Inc 4 | Integration | Load DBC + trace + suite → full execution → pass/fail result |
+| Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace guard, Frame conversion |
+| Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, GetSignalValue staleness (5s), Sprint 1 backward compat |
+| Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute produces result, Console output, TRX output, --trace arg |
+| Inc 4 | Integration | Load DBC + trace + suite → full execution → pass/fail |
 
 ---
 
-## 8. Risks
+## 9. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Timer drift on slow machines | Use `Stopwall.GetTimestamp()` based on first frame |
-| ASC files with >1M frames | Stream-based parsing, bounded frame cache |
+| Timer drift on slow machines | Use `Stopwatch` for monotonic wall-clock |
+| ASC files with >2M frames | Bounded frame cache (`MaxTraceFrames`) |
 | DBC not loaded at startup | Fail fast with clear error |
-| ThreadPool starvation | MaxFramesPerTick = 100 |
-
----
-
-## 9. Relationship to Phased Gap Analysis
-
-| Gap ID | Covered In |
-|---|---|
-| 1.1 CLI Runner | Section 5 |
-| 1.7b TraceDrivenChannel | Section 3 |
-| 2.x AssertionPrimitives async tests | Fixed by HILAssertionContext (Section 4) — new tests in Inc 2 |
+| ThreadPool starvation | MaxFramesPerTick = 100, DropOldest channel |
+| FrameReceived during Dispose | SpinWait until callback exits (200ms timeout) |
 
 ---
 
 ## 10. Design Decision Record
 
-| ID | Decision | Rationale | Rejects |
-|---|---|---|---|
-| D1 | No ChannelRouter for virtual channel | OnChannelFrame is private; avoids loopback pollution | Routing through ChannelRouter |
-| D2 | Direct FrameReceived subscription | Existing single-source model; no API break | IFrameSink on ChannelRouter |
-| D3 | WriteAsync is no-op | No physical bus in Sprint 2; stimulus-response is Phase 3 | Echo suppression, direction markers |
-| D4 | Own timer logic (not ReplayTimeline) | ReplayTimeline is internal to Core | Making ReplayTimeline public |
-| D5 | Signal cache with timestamp | Prevents stale reads | Plain string→double cache |
-| D6 | First-dot separator for signal names | DBC message names don't contain dots | Escoping, fixed-position |
-| D7 | MaxFramesPerTick = 100 | Prevents ThreadPool starvation | Unlimited emission |
+| ID | Decision | Rationale |
+|---|---|---|
+| D1 | No ChannelRouter for virtual channel | OnChannelFrame is private; avoids loopback |
+| D2 | Direct FrameReceived subscription | Existing single-source model |
+| D3 | WriteAsync is no-op | No physical bus; stimulus-response is Phase 3 |
+| D4 | Own timer logic | ReplayTimeline is internal to Core |
+| D5 | Signal cache + DropOldest | Prevents stale reads + ThreadPool blocking |
+| D6 | Last-dot separator for signal names | Accommodates dots in message names |
+| D7 | Default maxAgeMs = 5000ms | Accommodates low-frequency (0.5Hz) signals |
+| D8 | Engine takes concrete executor types | DI resolves single instances by type |
+| D9 | IAssertionContext backward-compatible | Default parameter preserves existing calls |
+| D10 | Bounded frame cache | Prevents OOM on large trace files |
+| D11 | Explicit --trace CLI arg | Required for trace-driven testing |
