@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v9 (incorporates 8th round review)
+**Status**: Draft v10 (incorporates 9th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -337,15 +337,40 @@ CLI syntax: `peakcan-hil --dbc path.dbc --trace path.asc --suite tests.json [--o
 
 ### 6.1 HeadlessHostBuilder (DI registration)
 
+**File**: `PeakCan.Host.Cli/HeadlessHostBuilder.cs` (T1 fix — explicit project location)
+
+**L2 fix — InternalsVisibleTo**: Core's `AssemblyInfo.cs` currently exposes internals only to `PeakCan.Host`, `PeakCan.Host.Core.Tests`, `PeakCan.Host.App.Tests`. Must add:
+
 ```csharp
+[assembly: InternalsVisibleTo("PeakCan.Host.Infrastructure")]
+[assembly: InternalsVisibleTo("PeakCan.Host.Cli")]
+```
+
+This enables Cli to reference the 6 `internal` executor classes in `PeakCan.Host.Core.HIL.StepExecutor.*`.
+
+**D1 fix — return type**: Use `Host.CreateApplicationBuilder()` (returns `IHost`), not bare `ServiceCollection.BuildServiceProvider()` (returns `ServiceProvider`).
+
+**L1 fix — no CommentStepExecutor**: `TestSuiteEngine` handles `Comment` kind inline (never looks up an executor). Do NOT register a `CommentStepExecutor` — the class doesn't exist.
+
+**B2 fix — register all 6 existing executors**: Sprint 2 supports the step kinds that have executors. `WaitForFrame`, `AssertDtc`, `AssertNrc`, `AssertResponseTime` have no executor yet — TestSuiteEngine marks them Failed with "No executor for kind".
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.Dbc;
+using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.HIL;
+
 public static class HeadlessHostBuilder
 {
     public static IHost Build(CliArgs args)
     {
-        var services = new ServiceCollection();
+        var builder = Host.CreateApplicationBuilder(args: [args.DbcPath, args.TracePath, args.SuitePath]);
 
-        // Channel (TraceDrivenChannel loads ASC in constructor or via LoadAscii)
-        services.AddSingleton<ICanChannel>(sp =>
+        // Channel (TraceDrivenChannel loads ASC via LoadAscii)
+        builder.Services.AddSingleton<ICanChannel>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<TraceDrivenChannel>>();
             var ch = new TraceDrivenChannel(new ChannelId(1), logger);
@@ -354,7 +379,7 @@ public static class HeadlessHostBuilder
         });
 
         // DBC lookup
-        services.AddSingleton<IDbcLookup>(sp =>
+        builder.Services.AddSingleton<IDbcLookup>(sp =>
         {
             var text = File.ReadAllText(args.DbcPath);
             var doc = DbcParser.Parse(text);
@@ -363,7 +388,7 @@ public static class HeadlessHostBuilder
         });
 
         // Assertion context
-        services.AddSingleton<IAssertionContext>(sp =>
+        builder.Services.AddSingleton<IAssertionContext>(sp =>
         {
             var channel = sp.GetRequiredService<ICanChannel>();
             var dbc = sp.GetRequiredService<IDbcLookup>();
@@ -371,28 +396,29 @@ public static class HeadlessHostBuilder
         });
 
         // Fixture resolver (no-op for headless)
-        services.AddSingleton<IFixtureResolver, HeadlessFixtureResolver>();
+        builder.Services.AddSingleton<IFixtureResolver, HeadlessFixtureResolver>();
 
         // Assertion primitives (shared singleton)
-        services.AddSingleton<AssertionPrimitives>();
+        builder.Services.AddSingleton<AssertionPrimitives>();
 
-        // Step executors (5 built-in kinds)
-        services.AddSingleton<IStepExecutor, CommentStepExecutor>();
-        services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
-        services.AddSingleton<IStepExecutor, AssertSignalStepExecutor>();
-        services.AddSingleton<IStepExecutor, WaitForSignalStepExecutor>();
-        services.AddSingleton<IStepExecutor, DelayStepExecutor>();
+        // Step executors (6 existing internal classes — L1/L2 fix)
+        builder.Services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
+        builder.Services.AddSingleton<IStepExecutor, SendSequenceStepExecutor>;
+        builder.Services.AddSingleton<IStepExecutor, AssertSignalStepExecutor>();
+        builder.Services.AddSingleton<IStepExecutor, AssertRangeStepExecutor>();
+        builder.Services.AddSingleton<IStepExecutor, WaitForSignalStepExecutor>();
+        builder.Services.AddSingleton<IStepExecutor, DelayStepExecutor>();
 
         // Engine
-        services.AddSingleton<TestSuiteEngine>();
+        builder.Services.AddSingleton<TestSuiteEngine>();
 
         // Logging
-        services.AddLogging(b => b.AddSerilog(new LoggerConfiguration()
+        builder.Logging.AddSerilog(new LoggerConfiguration()
             .WriteTo.Console()
             .WriteTo.File("hil.log")
-            .CreateLogger()));
+            .CreateLogger());
 
-        return services.BuildServiceProvider();
+        return builder.Build();
     }
 }
 ```
@@ -425,26 +451,22 @@ internal sealed class HeadlessDbcLookup : IDbcLookup
         _messages = new Dictionary<uint, Message>();
         foreach (var msg in doc.Messages)
         {
-            // DBC Message.Id stores extended IDs with bit 31 set (e.g., 0x98FEF100)
-            // CanId.Raw stores the raw ID without bit 31 (e.g., 0x18FEF100)
-            // ToDbcLookupKey reconciles the mismatch (D17)
-            var isExtended = (msg.Id & 0x80000000u) != 0;
-            var key = ToDbcLookupKey(msg.Id & 0x1FFFFFFFu, isExtended);
-            _messages[key] = msg;
+            // B1 fix: msg.Id already carries bit 31 for extended frames (D17).
+            // No ToDbcLookupKey needed at build time — direct key is correct.
+            // ToDbcLookupKey is only used at lookup time (ConsumerLoop) to
+            // convert CanFrame.Id.Raw (no bit 31) → DBC key format.
+            _messages[msg.Id] = msg;
         }
     }
 
     public Message? FindMessage(uint canId)
         => _messages.GetValueOrDefault(canId);
-
-    private static uint ToDbcLookupKey(uint rawId, bool isExtended)
-        => isExtended ? rawId | 0x80000000u : rawId;
 }
 ```
 
 ### 6.4 ConsoleProgress
 
-TestProgress fields: `CompletedCases`, `TotalCases`, `CurrentCaseName`, `Message`, `PercentComplete`.
+TestProgress properties: `CompletedCases`, `TotalCases`, `CurrentCaseName`, `Message` (constructor args), `PercentComplete` (computed: `CompletedCases / TotalCases * 100`).
 
 ```csharp
 internal sealed class ConsoleProgress : IProgress<TestProgress>
@@ -489,7 +511,7 @@ TRX schema (minimal):
 
 ## 7. File Structure
 
-PeakCan.Host.Cli/ (NEW project, Exe, net10.0): Program.cs, CliArgs.cs, ConsoleProgress.cs, ResultWriter.cs
+PeakCan.Host.Cli/ (NEW project, Exe, net10.0): Program.cs, CliArgs.cs, ConsoleProgress.cs, ResultWriter.cs, HeadlessHostBuilder.cs
 PeakCan.Host.Infrastructure/Channel/: TraceDrivenChannel.cs (NEW)
 PeakCan.Host.Infrastructure/HIL/: HILAssertionContext.cs (NEW), FrameReceivedSubscription.cs (NEW),
   HeadlessDbcLookup.cs (NEW), HeadlessFixtureResolver.cs (NEW)
@@ -504,7 +526,7 @@ tests/PeakCan.Host.Infrastructure.Tests/: TraceDrivenChannelTests.cs (NEW), HILA
 |---|---|---|
 | Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace, Frame conversion |
 | Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, Staleness (5s), Extended frame DBC lookup, Backward compat |
-| Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute, Console output, TRX output |
+| Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute (6 step kinds), Console output, TRX output |
 | Inc 4 | Integration | Load DBC + trace + suite -> full execution |
 
 ---
@@ -541,3 +563,7 @@ D17: ToDbcLookupKey conversion (bit 31 mismatch)
 D18: DropOldest + TryWrite (always succeeds)
 D19: NTP reset _playStartWallClock (pauses until catch-up)
 D20: ImmutableList for subscribers (thread-safe enumeration)
+D21: InternalsVisibleTo("PeakCan.Host.Infrastructure" | "PeakCan.Host.Cli") for executor access
+D22: Host.CreateApplicationBuilder() for CLI (returns IHost, not ServiceProvider)
+D23: Direct msg.Id key in HeadlessDbcLookup (bit 31 already set)
+D24: Sprint 2 supports 6 step kinds (WaitForFrame/AssertDtc/AssertNrc/AssertResponseTime deferred)
