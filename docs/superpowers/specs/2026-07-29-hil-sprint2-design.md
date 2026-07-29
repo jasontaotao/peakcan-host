@@ -1,7 +1,7 @@
 # HIL Sprint 2: TraceDrivenChannel & CLI Runner
 
 **Date**: 2026-07-29
-**Status**: Draft v10 (incorporates 9th round review)
+**Status**: Draft v11 (incorporates 10th round review)
 **Depends**: [Sprint 1 design](2026-07-29-hil-sprint1-design.md) (complete)
 **Scope**: Virtual CAN channel + headless test execution
 
@@ -348,6 +348,14 @@ CLI syntax: `peakcan-hil --dbc path.dbc --trace path.asc --suite tests.json [--o
 
 This enables Cli to reference the 6 `internal` executor classes in `PeakCan.Host.Core.HIL.StepExecutor.*`.
 
+**L2 fix (Infrastructure → Cli)**: `PeakCan.Host.Infrastructure.csproj` must also add:
+
+```xml
+<InternalsVisibleTo Include="PeakCan.Host.Cli" />
+```
+
+This enables Cli to reference `HILAssertionContext`, `HeadlessFixtureResolver`, `HeadlessDbcLookup` (all `internal` in Infrastructure).
+
 **D1 fix — return type**: Use `Host.CreateApplicationBuilder()` (returns `IHost`), not bare `ServiceCollection.BuildServiceProvider()` (returns `ServiceProvider`).
 
 **L1 fix — no CommentStepExecutor**: `TestSuiteEngine` handles `Comment` kind inline (never looks up an executor). Do NOT register a `CommentStepExecutor` — the class doesn't exist.
@@ -367,7 +375,7 @@ public static class HeadlessHostBuilder
 {
     public static IHost Build(CliArgs args)
     {
-        var builder = Host.CreateApplicationBuilder(args: [args.DbcPath, args.TracePath, args.SuitePath]);
+        var builder = Host.CreateApplicationBuilder();
 
         // Channel (TraceDrivenChannel loads ASC via LoadAscii)
         builder.Services.AddSingleton<ICanChannel>(sp =>
@@ -403,7 +411,7 @@ public static class HeadlessHostBuilder
 
         // Step executors (6 existing internal classes — L1/L2 fix)
         builder.Services.AddSingleton<IStepExecutor, SendFrameStepExecutor>();
-        builder.Services.AddSingleton<IStepExecutor, SendSequenceStepExecutor>;
+        builder.Services.AddSingleton<IStepExecutor, SendSequenceStepExecutor>();
         builder.Services.AddSingleton<IStepExecutor, AssertSignalStepExecutor>();
         builder.Services.AddSingleton<IStepExecutor, AssertRangeStepExecutor>();
         builder.Services.AddSingleton<IStepExecutor, WaitForSignalStepExecutor>();
@@ -423,7 +431,20 @@ public static class HeadlessHostBuilder
 }
 ```
 
-### 6.2 HeadlessFixtureResolver
+### 6.2 CLI NuGet Dependencies
+
+`PeakCan.Host.Cli.csproj` must reference:
+
+```xml
+<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+```
+
+`AddSerilog()` is provided by `Serilog.Extensions.Logging`. All other DI extensions (`AddSingleton`, `AddLogging`) come from `Microsoft.Extensions.Hosting`.
+
+### 6.3 HeadlessFixtureResolver
 
 ```csharp
 internal sealed class HeadlessFixtureResolver : IFixtureResolver
@@ -439,7 +460,7 @@ internal sealed class NoOpTestFixture : ITestFixture
 }
 ```
 
-### 6.3 HeadlessDbcLookup
+### 6.4 HeadlessDbcLookup
 
 ```csharp
 internal sealed class HeadlessDbcLookup : IDbcLookup
@@ -464,7 +485,7 @@ internal sealed class HeadlessDbcLookup : IDbcLookup
 }
 ```
 
-### 6.4 ConsoleProgress
+### 6.5 ConsoleProgress
 
 TestProgress properties: `CompletedCases`, `TotalCases`, `CurrentCaseName`, `Message` (constructor args), `PercentComplete` (computed: `CompletedCases / TotalCases * 100`).
 
@@ -487,7 +508,7 @@ internal sealed class ConsoleProgress : IProgress<TestProgress>
 }
 ```
 
-### 6.5 Output Formats
+### 6.6 Output Formats
 
 | Format | Flag | Implementation |
 |---|---|---|
@@ -526,7 +547,7 @@ tests/PeakCan.Host.Infrastructure.Tests/: TraceDrivenChannelTests.cs (NEW), HILA
 |---|---|---|
 | Inc 1 | TraceDrivenChannel | Load ASCII, Connect fires frames, State machine, Empty trace, Frame conversion |
 | Inc 2 | HILAssertionContext + IAssertionContext update | Subscribe receives decoded frames, Staleness (5s), Extended frame DBC lookup, Backward compat |
-| Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute (6 step kinds), Console output, TRX output |
+| Inc 3 | CLI Runner + HeadlessHostBuilder | Load suite JSON, Execute (7 step kinds: 6 executors + Comment inline), Console output, TRX output |
 | Inc 4 | Integration | Load DBC + trace + suite -> full execution |
 
 ---
@@ -566,4 +587,4 @@ D20: ImmutableList for subscribers (thread-safe enumeration)
 D21: InternalsVisibleTo("PeakCan.Host.Infrastructure" | "PeakCan.Host.Cli") for executor access
 D22: Host.CreateApplicationBuilder() for CLI (returns IHost, not ServiceProvider)
 D23: Direct msg.Id key in HeadlessDbcLookup (bit 31 already set)
-D24: Sprint 2 supports 6 step kinds (WaitForFrame/AssertDtc/AssertNrc/AssertResponseTime deferred)
+D24: Sprint 2 supports 7 step kinds (6 executors + Comment inline; WaitForFrame/AssertDtc/AssertNrc/AssertResponseTime deferred)
