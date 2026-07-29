@@ -50,10 +50,10 @@ PeakCan.Host.Core/HIL/
 │   ├── AssertDtcStep.cs
 │   ├── AssertNrcStep.cs
 │   ├── DelayStep.cs
-│   └── CommentStep.cs
+│   ├── CommentStep.cs
+│   └── StepParametersFactory.cs   // Dictionary -> strongly-typed (moved from StepExecutor/)
 ├── StepExecutor/
-│   ├── IStepExecutor.cs           // Strategy interface
-│   └── StepParametersFactory.cs   // Dictionary -> strongly-typed
+│   └── IStepExecutor.cs           // Strategy interface
 ├── Setup/
 │   ├── ITestFixture.cs            // Single fixture interface (Suite + Case level)
 │   └── IFixtureResolver.cs        // Fixture key -> instance resolution
@@ -63,7 +63,7 @@ PeakCan.Host.Core/HIL/
 ├── Diff/
 │   ├── DiffResult.cs
 │   ├── DiffEntry.cs
-│   ├── DiffConfig.cs              // Three-layer orthogonal config (with validation)
+│   ├── DiffConfig.cs              // Three-layer orthogonal config (with Validate method)
 │   ├── DiffGranularity.cs
 │   ├── AlignStrategy.cs
 │   ├── ToleranceSpec.cs
@@ -75,10 +75,12 @@ PeakCan.Host.Core/HIL/
 │   └── TestCaseGenerator.cs
 ├── Progress/
 │   └── TestProgress.cs
+├── Serialization/
+│   └── HILJsonOptions.cs          // Shared JsonSerializerOptions
 ├── TypeResolver.cs                // Type name -> Type resolution
 └── Contracts/
     ├── IAssertionContext.cs       // Frame stream + signal query + send
-    ├── DecodedFrame.cs            // Extracted from interface (standalone)
+    ├── DecodedFrame.cs            // Standalone (not nested)
     ├── ISignalObserver.cs         // Real-time signal observation (push)
     ├── ISignalHistory.cs          // Offline signal history (pull)
     └── IDbcLookup.cs             // DBC message lookup (App implements)
@@ -154,13 +156,13 @@ public sealed record TestCaseStep
 }
 ```
 
-**Design note**: Private constructor + factory method guarantees `Kind == Parameters.Kind` (crash point F fix).
+**Design note**: Private constructor + factory method guarantees `Kind == Parameters.Kind`.
 
 ### 4.5 StepParameters (strongly-typed hierarchy with polymorphic JSON)
 
 ```csharp
-[JsonDerivedType(typeof(WaitForSignalStep), "waitForSignal")]
 [JsonDerivedType(typeof(SendFrameStep), "sendFrame")]
+[JsonDerivedType(typeof(WaitForSignalStep), "waitForSignal")]
 [JsonDerivedType(typeof(AssertSignalStep), "assertSignal")]
 [JsonDerivedType(typeof(AssertRangeStep), "assertRange")]
 [JsonDerivedType(typeof(ExpectFrameStep), "expectFrame")]
@@ -207,6 +209,8 @@ public enum TestCaseStepKind
     Delay, Comment
 }
 ```
+
+**Note**: `SendSequence` is reserved for Sprint 2. Sprint 1 executor will throw `NotSupportedException` for SendSequence.
 
 ### 4.6 StepResult / TestCaseResult / TestSuiteResult
 
@@ -287,6 +291,9 @@ public interface IAssertionContext
     /// </summary>
     double? GetSignalValue(string signalName);
 
+    /// <summary>
+    /// Current timestamp in microseconds (matches CanFrame.Timestamp.TotalMicroseconds baseline).
+    /// </summary>
     double CurrentTimestamp { get; }
 
     ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct);
@@ -306,13 +313,13 @@ namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// Decoded frame with signal snapshot.
-    /// Signals dict contains ONLY signals from the current frame's matched message.
-    /// Key format: "MessageName.SignalName".
-    /// If frame matches no DBC message, Signals is empty.
-    /// </summary>
-    public sealed record DecodedFrame(
-        CanFrame Frame,
-        IReadOnlyDictionary<string, double> Signals);
+/// Signals dict contains ONLY signals from the current frame's matched message.
+/// Key format: "MessageName.SignalName".
+/// If frame matches no DBC message, Signals is empty.
+/// </summary>
+public sealed record DecodedFrame(
+    CanFrame Frame,
+    IReadOnlyDictionary<string, double> Signals);
 ```
 
 ### 5.3 ISignalObserver
@@ -352,6 +359,8 @@ Infrastructure/Channel/AssertionContext.cs ← injects IDbcLookup, uses for deco
 App/Services/DbcLookupAdapter.cs        ← implements IDbcLookup, wraps DbcService.Current
 App/Composition/AppHostBuilder.cs       ← services.AddSingleton<IDbcLookup, DbcLookupAdapter>()
 ```
+
+**Implementation verification required**: Verify DbcService.Current property and DbcDocument.FindMessage method exist.
 
 ### 5.6 ITestFixture
 
@@ -395,6 +404,34 @@ internal sealed class FakeFixtureResolver : IFixtureResolver
     public ITestFixture Resolve(string key) =>
         _fixtures.TryGetValue(key, out var f) ? f
         : throw new KeyNotFoundException($"Fixture '{key}' not in fake");
+}
+```
+
+### 5.8 AssertionContext Dispose Contract
+
+```csharp
+/// <summary>
+/// AssertionContext (Infrastructure layer) Dispose implementation contract:
+/// 1. Unsubscribe from frame source (stop new frame enqueues)
+/// 2. Signal channel writer as complete (no new writes)
+/// 3. Wait up to 5s for consumer thread to drain remaining frames
+/// 4. If timeout: force cancel consumer thread, discard remaining frames
+/// </summary>
+public void Dispose()
+{
+    // 1. Stop new frame enqueues
+    _frameSource.Unsubscribe();
+    _channel.Writer.Complete();
+
+    // 2. Wait for drain (do NOT cancel - let consumer finish naturally)
+    if (!_consumerTask.Wait(TimeSpan.FromSeconds(5)))
+    {
+        // 3. Timeout fallback: force cancel
+        _consumerCts.Cancel();
+        _consumerTask.Wait(TimeSpan.FromSeconds(1));
+    }
+
+    _consumerCts.Dispose();
 }
 ```
 
@@ -491,23 +528,17 @@ public sealed record DiffConfig(
     ToleranceSpec Tolerance = default,
     int NeighborWindowMs = 100)
 {
-    public DiffConfig(
-        DiffGranularity granularity,
-        AlignStrategy alignment,
-        ToleranceSpec tolerance,
-        int neighborWindowMs)
+    /// <summary>
+    /// Validates config invariants. Called by Diff() entry point to prevent with-expression bypass.
+    /// </summary>
+    public void Validate()
     {
-        if (alignment == AlignStrategy.NearestNeighbor && neighborWindowMs <= 0)
+        if (Alignment == AlignStrategy.NearestNeighbor && NeighborWindowMs <= 0)
             throw new ArgumentException(
                 "NeighborWindowMs must be > 0 for NearestNeighbor alignment",
-                nameof(neighborWindowMs));
-        if (tolerance.AbsoluteTolerance < 0 || tolerance.RelativeTolerance < 0)
-            throw new ArgumentException("Tolerance cannot be negative", nameof(tolerance));
-
-        Granularity = granularity;
-        Alignment = alignment;
-        Tolerance = tolerance;
-        NeighborWindowMs = neighborWindowMs;
+                nameof(NeighborWindowMs));
+        if (Tolerance.AbsoluteTolerance < 0 || Tolerance.RelativeTolerance < 0)
+            throw new ArgumentException("Tolerance cannot be negative", nameof(Tolerance));
     }
 }
 
@@ -539,6 +570,8 @@ internal sealed class DiffEngine : IDiffEngine
         IReadOnlyList<CanFrame> actual,
         DiffConfig config)
     {
+        config.Validate();  // Explicit validation at entry point (prevents with-expression bypass)
+
         if (config.Granularity == DiffGranularity.Signal && _dbcLookup is null)
             throw new InvalidOperationException(
                 "Signal-level diff requires IDbcLookup. Use DiffEngine(IDbcLookup) constructor.");
@@ -630,15 +663,17 @@ public static class StepParametersFactory
     {
         TestCaseStepKind.WaitForSignal => new WaitForSignalStep(
             (string)p["SignalName"],
-            Convert.ToDouble(p["Expected"]),
-            Convert.ToDouble(p["Tolerance"]),
-            Convert.ToInt32(p["TimeoutMs"])),
+            Convert.ToDouble(p["Expected"], CultureInfo.InvariantCulture),
+            Convert.ToDouble(p["Tolerance"], CultureInfo.InvariantCulture),
+            Convert.ToInt32(p["TimeoutMs"], CultureInfo.InvariantCulture)),
         TestCaseStepKind.SendFrame => new SendFrameStep(
-            new CanId(Convert.ToUInt32(p["Id"], 16)),
+            new CanId(Convert.ToUInt32(
+                ((string)p["Id"]).TrimStart("0x", "0X"), 16)),
             Convert.FromHexString((string)p["Data"]),
             Convert.ToBoolean(p["Fd"]),
             Convert.ToBoolean(p["Extended"])),
-        TestCaseStepKind.Delay => new DelayStep(Convert.ToInt32(p["Milliseconds"])),
+        TestCaseStepKind.Delay => new DelayStep(
+            Convert.ToInt32(p["Milliseconds"], CultureInfo.InvariantCulture)),
         TestCaseStepKind.Comment => new CommentStep((string)p["Text"]),
         // ... other kinds
         _ => throw new ArgumentException($"Unknown step kind: {kind}")
@@ -656,7 +691,29 @@ public static class StepParametersFactory
 
 Uses `System.Text.Json` polymorphic serialization attributes (Section 4.5). Each subclass registered with a string discriminator.
 
-### 9.2 TestCaseStep Custom Converter
+### 9.2 Shared JSON Options
+
+```csharp
+namespace PeakCan.Host.Core.HIL.Serialization;
+
+public static class HILJsonOptions
+{
+    /// <summary>
+    /// Shared options for all HIL JSON serialization.
+    /// - camelCase property names (matches JSON schema convention)
+    /// - Indented for human readability
+    /// - Polymorphic type discriminators for StepParameters
+    /// </summary>
+    public static readonly JsonSerializerOptions Default = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+}
+```
+
+### 9.3 TestCaseStep Custom Converter
 
 ```csharp
 internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
@@ -666,7 +723,8 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
         using var doc = JsonDocument.ParseValue(ref reader);
         var root = doc.RootElement;
         var kind = Enum.Parse<TestCaseStepKind>(root.GetProperty("$kind").GetString()!);
-        var parameters = JsonSerializer.Deserialize<StepParameters>(root.GetProperty("parameters").GetRawText(), options)!;
+        var parameters = JsonSerializer.Deserialize<StepParameters>(
+            root.GetProperty("parameters").GetRawText(), HILJsonOptions.Default)!;
         var label = root.TryGetProperty("label", out var l) ? l.GetString() : null;
         return TestCaseStep.Create(parameters, label);
     }
@@ -678,13 +736,13 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
         if (value.Label is not null)
             writer.WriteString("label", value.Label);
         writer.WritePropertyName("parameters");
-        JsonSerializer.Serialize(writer, value.Parameters, value.Parameters.GetType(), options);
+        JsonSerializer.Serialize(writer, value.Parameters, value.Parameters.GetType(), HILJsonOptions.Default);
         writer.WriteEndObject();
     }
 }
 ```
 
-### 9.3 JSON Schema Example
+### 9.4 JSON Schema Example
 
 ```json
 {
@@ -701,14 +759,18 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
         "$kind": "waitForSignal",
         "parameters": { "signalName": "BMS_Status.SleepCurrent", "expected": 0.01, "tolerance": 0.005, "timeoutMs": 5000 }
       }
-    ]
+    ],
+    "caseFixtureKeys": ["CanChannelFixture"],
+    "suiteFixtureKeys": ["DbcLoadFixture"],
+    "config": { "failurePolicy": "continueAll", "continueAfterSetupFailure": true },
+    "timeoutMs": 60000
   }],
   "globalCaseFixtureKeys": ["CanChannelFixture"],
-  "suiteFixtureKeys": ["DbcLoadFixture"],
-  "config": { "failurePolicy": "continueAll", "continueAfterSetupFailure": true },
-  "timeoutMs": 60000
+  "suiteFixtureKeys": ["DbcLoadFixture"]
 }
 ```
+
+**Note**: `"id": "0x7DF"` in JSON. `StepParametersFactory` strips `0x` prefix before `Convert.ToUInt32`.
 
 ---
 
@@ -869,6 +931,25 @@ public interface IStepExecutor
 }
 ```
 
+**Timeout management pattern** (for all executors handling steps with TimeoutMs):
+
+```csharp
+// All executors with TimeoutMs follow this pattern:
+public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
+{
+    var p = (WaitForSignalStep)step.Parameters;
+    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    timeoutCts.CancelAfter(p.TimeoutMs);
+    var assertionResult = await _primitives.WaitForSignalAsync(
+        p.SignalName, p.Expected, p.Tolerance, timeoutCts.Token);
+    return new StepResult(0, step.Kind, step.Label,
+        assertionResult.Passed ? StepStatus.Passed : StepStatus.Failed,
+        assertionResult.Message, assertionResult.ActualValue, assertionResult.ExpectedValue, 0);
+}
+```
+
+**Key rule**: Executor creates per-step linked CTS for timeout. External `ct` is respected via `CreateLinkedTokenSource`. Executor does NOT throw on timeout - returns `StepResult.Fail`.
+
 **Registration**: Each `TestCaseStepKind` maps to one executor. New step kind = new executor class + DI registration. Engine zero modification (Open/Closed principle).
 
 **Sprint 1 executors** (skeleton only, full implementation in Sprint 2):
@@ -881,6 +962,7 @@ public interface IStepExecutor
 - `AssertDtcStepExecutor`
 - `AssertNrcStepExecutor`
 - `DelayStepExecutor`
+- `SendSequenceStepExecutor` → throws `NotSupportedException("SendSequence not supported in Sprint 1")`
 
 ---
 
@@ -915,10 +997,10 @@ New test file: `tests/PeakCan.Host.Core.Tests/Architecture/HILLayeringTests.cs`
 public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 {
     var assembly = typeof(TestCase).Assembly;
-    var refs = assembly.GetReferencedAssemblies().Select(a => a.Name).ToHashSet();
+    var refs = assembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
 
-    Assert.DoesNotContain(refs, n => n == "PeakCan.Host.Infrastructure");
-    Assert.DoesNotContain(refs, n => n == "PeakCan.Host.App");
+    Assert.DoesNotContain("PeakCan.Host.Infrastructure", refs);
+    Assert.DoesNotContain("PeakCan.Host.App", refs);
 }
 ```
 
@@ -938,13 +1020,18 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 | IDbcLookup interface in Core | Breaks DBC resolution chain across layers |
 | ITestFixture single interface + IFixtureResolver | Avoids 4 separate interfaces; testable without keyed DI |
 | FailurePolicy enum (3 levels) | Covers all HIL failure propagation needs |
-| DiffConfig three-layer orthogonal + validation | Frame/Signal/Event × Timestamp/NearestNeighbor/Index × tolerance |
+| DiffConfig three-layer orthogonal + Validate() method | Frame/Signal/Event × Timestamp/NearestNeighbor/Index × tolerance |
+| DiffConfig.Validate() at Diff() entry | Prevents with-expression validation bypass |
 | TemplateStep (strings) + StepParametersFactory | Enables parameterized testing with type-safe output |
 | Channel + single consumer thread with DropOldest | Prevents backpressure deadlock on sink thread |
 | Teardown in try-finally with independent 10s CTS | Resource cleanup guaranteed even on cancellation |
 | Dispose: Complete -> Wait(5s) -> Cancel (timeout only) | Honors drain contract; cancel is fallback |
 | Polymorphic JSON + custom TestCaseStep converter | Full serialization round-trip for all step types |
+| HILJsonOptions with camelCase | Consistent serialization convention across all HIL types |
 | IFixtureResolver decouples from IServiceProvider | Simple test fakes; no NSubstitute keyed DI limitations |
+| All Convert calls use CultureInfo.InvariantCulture | Culture-independent parsing |
+| Executor creates per-step timeout CTS | Timeout management local to executor; Engine stays generic |
+| SendSequence throws NotSupported in Sprint 1 | Honest about Sprint 1 limitations |
 
 ---
 
@@ -959,6 +1046,7 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
 | LLM-assisted failure analysis (opt-in) | Phase 5 |
 | TraceDrivenChannel implementation | Sprint 2 |
 | CanId/CanFrame constructor signature verification | Sprint 1 implementation |
+| DbcService.Current / DbcDocument.FindMessage verification | Sprint 1 implementation |
 
 ---
 
@@ -993,14 +1081,22 @@ public void HIL_assembly_does_not_reference_Infrastructure_or_App()
    - Signal-level tolerance match -> IsMatch
    - Signal-level out of tolerance -> Modified = 1
    - Signal-level without IDbcLookup -> InvalidOperationException
-   - DiffConfig negative window -> ArgumentException
+   - DiffConfig negative window -> ArgumentException (via Validate)
+   - DiffConfig with-expression -> Validate still catches invalid state
 
 5. **Unit tests**: Serialization round-trip
-   - TestCase serialize -> deserialize -> equal
+   - TestCase serialize -> deserialize -> equal (using HILJsonOptions.Default)
    - Polymorphic StepParameters preserves all fields
    - TestCaseStep with private constructor round-trips correctly
+   - 0x prefix in hex strings handled correctly
 
-6. **Architecture test**: HIL namespace assembly references
+6. **Unit tests**: StepParametersFactory
+   - "0x7DF" -> CanId(0x7DF)
+   - "0X7DF" -> CanId(0x7DF)
+   - "7DF" -> CanId(0x7DF)
+   - InvariantCulture parsing: "3.14" -> 3.14 (even on comma-culture systems)
+
+7. **Architecture test**: HIL namespace assembly references
 
 ---
 
