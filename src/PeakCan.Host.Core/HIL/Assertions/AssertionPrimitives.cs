@@ -17,12 +17,6 @@ public sealed class AssertionPrimitives
         // TCS for signal match (completed by callback)
         var matchTcs = new TaskCompletionSource<bool>();
 
-        // TCS for timeout/cancellation (completed when CT fires)
-        var timeoutTcs = new TaskCompletionSource<bool>();
-
-        // Register cancellation: cancel timeoutTcs when CT fires
-        using var reg = ct.Register(() => timeoutTcs.TrySetCanceled());
-
         // Subscribe to frames: signal match completes matchTcs
         using var sub = _ctx.SubscribeDecodedFrames(frame =>
         {
@@ -31,8 +25,11 @@ public sealed class AssertionPrimitives
                 matchTcs.TrySetResult(true);
         });
 
-        // Await whichever completes first: match or timeout/cancel
-        var winner = await Task.WhenAny(matchTcs.Task, timeoutTcs.Task).ConfigureAwait(false);
+        // Create a task that completes when CT is cancelled
+        var cancelTask = Task.Delay(Timeout.Infinite, ct);
+
+        // Await whichever completes first: match or cancel
+        var winner = await Task.WhenAny(matchTcs.Task, cancelTask).ConfigureAwait(false);
 
         if (winner == matchTcs.Task)
         {
@@ -40,9 +37,9 @@ public sealed class AssertionPrimitives
             return AssertionResult.Pass($"signal {name} = {expected} ±{tolerance}");
         }
 
-        // timeoutTcs.Task completed - this means CT was cancelled
-        // Propagate as OperationCanceledException
-        throw new OperationCanceledException(ct);
+        // cancelTask completed - CT was cancelled. Await to propagate the OperationCanceledException.
+        await cancelTask.ConfigureAwait(false);
+        throw new OperationCanceledException(ct); // Fallback
     }
 
     public AssertionResult AssertSignal(string name, double expected, double tolerance)
