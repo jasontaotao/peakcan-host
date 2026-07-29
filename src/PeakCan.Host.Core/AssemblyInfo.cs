@@ -19,3 +19,7 @@ using System.Runtime.CompilerServices;
 // AppHostBuilderTests can assert the production DI graph threads
 // ILogger<UdsSession> all the way through to UdsSession.
 [assembly: InternalsVisibleTo("PeakCan.Host.App.Tests")]
+// Sprint 2: expose internal executor classes to Infrastructure + Cli
+// Note: use assembly name (not namespace). CLI assembly name = "peakcan-hil".
+[assembly: InternalsVisibleTo("PeakCan.Host.Infrastructure")]
+[assembly: InternalsVisibleTo("peakcan-hil")]

@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PeakCan.Host.Infrastructure.Tests" />
+    <!-- Sprint 2: expose HIL classes to Cli project (use assembly name "peakcan-hil") -->
+    <InternalsVisibleTo Include="peakcan-hil" />
   </ItemGroup>
 
 </Project>
