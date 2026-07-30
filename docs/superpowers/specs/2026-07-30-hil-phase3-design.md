@@ -1,7 +1,7 @@
 # HIL Phase 3: ECU Simulation, Fault Injection & Multi-ECU Matrix
 
 > Date: 2026-07-30
-> Status: Draft (v2 — fixed 20 spec errors from code review)
+> Status: Draft (v3 — fixed 37 spec errors from two code review rounds)
 > Depends: Sprint 1 (complete), Sprint 2 (complete), Sprint 3 (complete — v3.63.0)
 > Scope: VirtualEcu 模拟器、故障注入框架、多 ECU 矩阵
 
@@ -52,6 +52,8 @@ public sealed class VirtualChannel : ICanChannel
     private readonly object _subscribersLock = new();
     private Action<CanFrame>? _frameReceived;
     private int _isConnected; // 0=disconnected, 1=connected (CAS)
+    private readonly CancellationTokenSource _consumerCts = new();
+    private Task _consumerTask = Task.CompletedTask;
 
     public ChannelId Id => ChannelId.None; // 虚拟通道无硬件句柄
     public bool IsConnected => Volatile.Read(ref _isConnected) == 1;
@@ -81,13 +83,15 @@ public sealed class VirtualChannel : ICanChannel
     public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
     {
         Interlocked.Exchange(ref _isConnected, 1);
-        _ = ConsumerLoop(ct);
+        // 使用内部 CTS，不绑定调用者的 CancellationToken（避免调用者取消后消费者循环被意外终止）
+        _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token));
         return Task.FromResult(Result<Unit>.Ok(default));
     }
 
     public Task DisconnectAsync(CancellationToken ct = default)
     {
         Interlocked.Exchange(ref _isConnected, 0);
+        _consumerCts.Cancel();
         _frameChannel.Writer.TryComplete();
         return Task.CompletedTask;
     }
@@ -102,23 +106,33 @@ public sealed class VirtualChannel : ICanChannel
 
     private async Task ConsumerLoop(CancellationToken ct)
     {
-        await foreach (var frame in _frameChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        try
         {
-            Action<CanFrame>? handler;
-            lock (_subscribersLock) handler = _frameReceived;
-            handler?.Invoke(frame);
+            await foreach (var frame in _frameChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                Action<CanFrame>? handler;
+                lock (_subscribersLock) handler = _frameReceived;
+                handler?.Invoke(frame);
+            }
         }
+        catch (OperationCanceledException) { /* 正常关闭 */ }
+        catch (ChannelClosedException) { /* 正常关闭 */ }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        _consumerCts.Cancel();
         _frameChannel.Writer.TryComplete();
-        return ValueTask.CompletedTask;
+        try { await _consumerTask.ConfigureAwait(false); }
+        catch (OperationCanceledException) { /* 正常关闭 */ }
+        _consumerCts.Dispose();
     }
 
     public void Dispose()
     {
+        _consumerCts.Cancel();
         _frameChannel.Writer.TryComplete();
+        _consumerCts.Dispose();
     }
 }
 ```
@@ -155,7 +169,7 @@ public sealed class VirtualEcu : IDisposable
     private readonly CanIdConfig _ecuCanIds;
     private int _disposed;
 
-    public uint RequestId => _ecuCanIds.ResponseId; // ECU 监听的是 HIL 的发送 ID
+    public uint RequestId => _ecuCanIds.ResponseId; // ECU 监听的是 HIL 的发送 ID（= ECU 视角的 ResponseId）
 
     public VirtualEcu(ICanChannel channel, CanIdConfig ecuCanIds,
         IEnumerable<UdsResponseRule> rules, ILogger<VirtualEcu>? logger = null)
@@ -165,8 +179,9 @@ public sealed class VirtualEcu : IDisposable
         _rules = rules.ToList();
         _logger = logger;
 
-        // ECU 端 IsoTpLayer — CanIdConfig 与 HIL 端相同，但语义反转（见 §3.2.1）
-        _isoTp = new IsoTpLayer(_ecuCanIds, SendFrameAsync, logger);
+        // ECU 端 IsoTpLayer — CanIdConfig 已由 EcuScriptLoader 交换为 ECU 视角（见 §3.2.1）
+        // IsoTpLayer 需要 ILogger<IsoTpLayer>，VirtualEcu 的 logger 是 ILogger<VirtualEcu>，传 null
+        _isoTp = new IsoTpLayer(_ecuCanIds, SendFrameAsync, logger: null);
         _isoTp.MessageReceived += OnUdsRequestReceived;
         _channel.FrameReceived += OnCanFrameReceived;
     }
@@ -342,8 +357,8 @@ ECU 模拟器脚本是一个 JSON 文件，定义 VirtualEcu 的 CAN ID 配置�
   "$schema": "virtual-ecu-v1.json",
   "name": "BMS_Simulator",
   "canIds": {
-    "requestId": "0x7E8",
-    "responseId": "0x7E0",
+    "requestId": "0x7E0",
+    "responseId": "0x7E8",
     "isExtendedFrame": false
   },
   "rules": [
@@ -371,7 +386,7 @@ ECU 模拟器脚本是一个 JSON 文件，定义 VirtualEcu 的 CAN ID 配置�
 ```
 
 字段说明：
-- `canIds`: ECU 端 IsoTpLayer 的 CanIdConfig。**注意：requestId/responseId 与 HIL 端交换**（ECU 的 requestId = HIL 的 responseId = 0x7E8，ECU 的 responseId = HIL 的 requestId = 0x7E0）。EcuScriptLoader 负责解析时交换。
+- `canIds`: **HIL 视角**的 CAN ID 配置（requestId=0x7E0 = HIL 发送请求的 ID，responseId=0x7E8 = HIL 接收响应的 ID）。EcuScriptLoader 解析时自动交换为 ECU 视角（见 §3.5）。
 - `rules`: UdsResponseRule 列表，按顺序匹配
 - 规则 1: ReadDataByIdentifier (0x22)，匹配 DID 0xF190（VIN），返回 17 字节 VIN 数据
 - 规则 2: ReadDtcInformation (0x19) 子函数 0x02，返回 1 个 DTC（0x000009, statusByte 0x08）
@@ -440,7 +455,7 @@ public static class EcuScriptLoader
     {
         var s = element.GetString()!;
         return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-            => uint.Parse(s[2..], NumberStyles.HexNumber)
+            ? uint.Parse(s[2..], NumberStyles.HexNumber)
             : uint.Parse(s);
     }
 
@@ -565,14 +580,32 @@ private static void RegisterVirtualEcuMode(HostBuilder builder, CliArgs args)
         var dbcLookup = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
         return new HILAssertionContext(channel, dbcLookup);
     });
+
+    // 5. 混合模式：如果同时有 trace，后台注入 trace 帧到 VirtualChannel
+    if (args.TracePath is not null)
+    {
+        builder.Services.AddSingleton(sp =>
+        {
+            var channel = sp.GetRequiredService<ICanChannel>();
+            var logger = sp.GetService<ILogger<HeadlessHostBuilder>>();
+            // 后台启动 trace 注入（fire-and-forget，进程退出时自然终止）
+            _ = InjectTraceFramesAsync(channel, args.TracePath, logger);
+            return true; // 仅用于 DI 占位
+        });
+    }
 }
 
 private static void RegisterUdsServices(HostBuilder builder, CliArgs args)
 {
-    // IsoTpLayer（HIL 端视角：RequestId=0x7E0, ResponseId=0x7E8）
+    // IsoTpLayer（HIL 端视角：使用 CLI 参数 --uds-req/--uds-resp，默认 0x7E0/0x7E8）
     builder.Services.AddSingleton<IsoTpLayer>(sp =>
     {
-        var config = new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 };
+        var config = new CanIdConfig
+        {
+            RequestId = args.UdsRequestId,
+            ResponseId = args.UdsResponseId,
+            IsExtendedFrame = false
+        };
         var channel = sp.GetRequiredService<ICanChannel>();
         return new IsoTpLayer(config,
             async frame => { await channel.WriteAsync(frame, default).ConfigureAwait(false); });
@@ -608,28 +641,38 @@ private static void RegisterUdsServices(HostBuilder builder, CliArgs args)
 
 trace + 虚拟 ECU 混合模式下，trace 帧和 VirtualEcu 交互帧需要在同一个通道上共存。
 
-方案：VirtualChannel 作为主通道，trace 帧通过后台任务注入：
+方案：VirtualChannel 作为主通道，trace 帧通过后台任务注入。`InjectTraceFramesAsync` 接收文件路径，使用 `BlfParser.ParseAsync`（或 `AscParser.ParseAsync`）流式解析后按时间戳注入：
 
 ```csharp
 private static async Task InjectTraceFramesAsync(
-    VirtualChannel channel, IReadOnlyList<ReplayFrame> frames, CancellationToken ct)
+    VirtualChannel channel, string tracePath, ILogger? logger = null)
 {
-    double baseTimestamp = frames.Count > 0 ? frames[0].Timestamp : 0;
+    using var stream = File.OpenRead(tracePath);
+    var frames = BlfParser.ParseAsync(stream, ReplayOptions.Default, logger);
 
-    foreach (var frame in frames)
+    double baseTimestamp = 0;
+    bool first = true;
+
+    await foreach (var frame in frames.ConfigureAwait(false))
     {
+        if (first)
+        {
+            baseTimestamp = frame.Timestamp;
+            first = false;
+        }
+
         // 按 trace 时间戳间隔延迟
         var delay = frame.Timestamp - baseTimestamp;
         if (delay > 0)
-            await Task.Delay(TimeSpan.FromSeconds(delay), ct).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
 
         var canFrame = new CanFrame(
-            new CanId(frame.Id),
+            new CanId(frame.Id, FrameFormat.Standard),
             new ReadOnlyMemory<byte>(frame.Data),
             frame.Flags,
             ChannelId.None,
-            new Timestamp(TimeSpan.FromSeconds(frame.Timestamp)));
-        await channel.WriteAsync(canFrame, ct).ConfigureAwait(false);
+            new Timestamp((ulong)(frame.Timestamp * 1_000_000)));
+        await channel.WriteAsync(canFrame).ConfigureAwait(false);
 
         baseTimestamp = frame.Timestamp;
     }
@@ -748,8 +791,8 @@ public sealed class FaultInjector : ICanChannel
     public Task DisconnectAsync(CancellationToken ct = default)
         => _inner.DisconnectAsync(ct);
 
+    // ICanChannel 继承 IAsyncDisposable，不继承 IDisposable。只实现 DisposeAsync。
     public ValueTask DisposeAsync() => _inner.DisposeAsync();
-    public void Dispose() => _inner.Dispose();
 }
 
 public sealed record FaultHandle(Action Remove) : IDisposable
@@ -871,19 +914,19 @@ public enum TestCaseStepKind
 ```csharp
 // Core/HIL/StepParams/InjectFaultStep.cs
 public sealed record InjectFaultStep(
-    uint CanId,                    // 目标 CAN ID, 0 = 全部
+    CanId CanId,                   // 目标 CAN ID（匹配 JSON 中 CanIdJsonConverter 格式）
     FaultType FaultType,           // 枚举类型，JSON 反序列化用 JsonStringEnumConverter
     double Probability,            // Drop 概率 (0-1)
     int DelayMs,                   // Delay 毫秒
     int[]? CorruptByteIndices,     // Corrupt 字节位置
     byte CorruptXorMask,           // Corrupt XOR 掩码
     string? FaultId                // 可选标识符，用于 ClearFault 定向清除
-) : StepParameters;
+) : StepParameters(TestCaseStepKind.InjectFault);
 
 // Core/HIL/StepParams/ClearFaultStep.cs
 public sealed record ClearFaultStep(
     string? FaultId    // null = 清除所有故障, 非空 = 只清除指定 ID 的故障
-) : StepParameters;
+) : StepParameters(TestCaseStepKind.ClearFault);
 ```
 
 ### 4.4 IFaultInjectionContext 接口
@@ -925,7 +968,7 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
         var rule = new FaultRule
         {
             Type = p.FaultType,  // 已是枚举，无需 Enum.Parse
-            TargetCanId = p.CanId == 0 ? null : p.CanId,
+            TargetCanId = p.CanId.Raw == 0 ? null : p.CanId.Raw,
             Probability = p.Probability,
             DelayMs = p.DelayMs,
             CorruptByteIndices = p.CorruptByteIndices,
@@ -949,12 +992,12 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
 
 ```csharp
 // Infrastructure/HIL/HILAssertionContext.cs (扩展)
-// 注意：HILAssertionContext 保持 internal sealed。IFaultInjectionContext 接口定义在 Core 层，
+// HILAssertionContext 保持 internal sealed（与现有一致）。IFaultInjectionContext 接口定义在 Core 层，
 // Infrastructure 的 internal 类可以实现 Core 的 public 接口。
 // InjectFaultStepExecutor（Core 层）通过 `ctx is IFaultInjectionContext` cast 检查 —
 // 因为 IFaultInjectionContext 是 public 接口，cast 不需要引用 Infrastructure 程序集。
 
-public sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IDisposable
+internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IDisposable
 {
     private readonly ICanChannel _effectiveChannel;
     private readonly FaultInjector? _faultInjector;
@@ -1039,7 +1082,7 @@ public sealed class EcuMatrix : IDisposable
         _channel = new VirtualChannel(channelCapacity);
     }
 
-    public void AddEcu(EcuScript script, ILogger? logger = null)
+    public void AddEcu(EcuScript script, ILogger<VirtualEcu>? logger = null)
     {
         // CAN ID 冲突检测
         var newRequestId = script.CanIds.RequestId;
@@ -1092,19 +1135,19 @@ public sealed class EcuMatrix : IDisposable
   "ecus": [
     {
       "name": "BMS",
-      "canIds": { "requestId": "0x7E8", "responseId": "0x7E0" },
+      "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
       "rules": []
     },
     {
       "name": "MCU",
-      "canIds": { "requestId": "0x7EA", "responseId": "0x7E2" },
+      "canIds": { "requestId": "0x7E2", "responseId": "0x7EA" },
       "rules": []
     }
   ]
 }
 ```
 
-**注意**：canIds 中的 requestId/responseId 已经是 ECU 视角（与 HIL 端交换）。
+**注意**：canIds 中的 requestId/responseId 是 **HIL 视角**（与 ECU 脚本 JSON 格式一致）。EcuScriptLoader 解析时自动交换为 ECU 视角。
 
 ### 5.3 CLI Integration
 
@@ -1200,7 +1243,7 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 | P3-D11 | Delay 故障取最大延迟值 | 多个 Delay 故障同时匹配时，取最大值而非累加 — 避免延迟爆炸 |
 | P3-D12 | VirtualEcu 无匹配规则时返回 NRC 0x11 | 符合 ISO 14229-1 §11.3.2 — ECU 对不支持的 SID 返回 serviceNotSupported |
 | P3-D13 | Corrupt 故障通过字节索引 + XOR 掩码实现通用篡改 | 单一 Corrupt 类型覆盖 bit flip / byte replace / CRC 错误等场景，避免故障类型膨胀 |
-| P3-D14 | EcuScriptLoader 负责交换 RequestId/ResponseId | 测试作者在 JSON 中填 HIL 视角的 ID（requestId=0x7E0, responseId=0x7E8），Loader 自动交换为 ECU 视角 |
+| P3-D14 | EcuScriptLoader 负责交换 RequestId/ResponseId | 测试作者在 JSON 中填 HIL 视角的 ID（requestId=0x7E0, responseId=0x7E8），Loader 自动交换为 ECU 视角。JSON 格式统一为 HIL 视角，与 ECU 脚本/矩阵配置一致 |
 | P3-D15 | InjectFaultStep.FaultType 用 FaultType 枚举而非 string | 编译时检查，JSON 反序列化用 JsonStringEnumConverter（已有 HILJsonOptions 全局配置） |
 | P3-D16 | HILAssertionContext 保持 internal sealed | IFaultInjectionContext 是 Core 层 public 接口，Infrastructure 的 internal 类可实现；Core 层 cast 检查无需引用 Infrastructure |
 
@@ -1219,6 +1262,9 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 | 混合模式 trace 帧注入使用 Task.Delay，精度受 OS 调度影响 | LOW | 文档标注 ±15ms on Windows；纯虚拟模式无此问题 |
 | Random 线程安全问题 | MEDIUM | 使用 `Random.Shared`（.NET 6+ 线程安全），避免 `new Random()` 并发问题 |
 | DropOldest 模式下错误消息误导 | LOW | 修正错误消息为 "Virtual channel closed"（TryWrite 返回 false 的唯一原因是 channel 已完成） |
+| ConnectAsync 的 CancellationToken 传递给 ConsumerLoop | HIGH | 使用内部 CancellationTokenSource（_consumerCts），不绑定调用者 token |
+| fire-and-forget ConsumerLoop 异常丢失 | MEDIUM | 保存 _consumerTask 引用，DisposeAsync 中 await；ConsumerLoop 内 try-catch OperationCanceledException |
+| ILogger\<VirtualEcu\> 传给 ILogger\<IsoTpLayer\> | HIGH | VirtualEcu 对 IsoTpLayer 的 logger 参数传 null（类型不匹配，且 optional） |
 
 ---
 
