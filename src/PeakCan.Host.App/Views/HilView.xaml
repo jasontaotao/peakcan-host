@@ -17,6 +17,18 @@
             <TextBox Text="{Binding SuitePath}" Width="200" Margin="0,0,12,0" />
         </StackPanel>
 
+        <!-- Phase 3: ECU simulator + fault injection + matrix -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="ECU:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Text="{Binding EcuScriptPath}" Width="180" Margin="0,0,12,0"
+                     IsEnabled="{Binding !UseHardware}" />
+            <TextBlock Text="Matrix:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox Text="{Binding MatrixPath}" Width="180" Margin="0,0,12,0"
+                     IsEnabled="{Binding !UseHardware}" />
+            <CheckBox Content="Enable Faults" IsChecked="{Binding EnableFaultInjection}"
+                      VerticalAlignment="Center" Margin="0,0,12,0" />
+        </StackPanel>
+
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
             <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,12,0" />
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />

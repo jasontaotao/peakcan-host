@@ -10,6 +10,7 @@ using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.Host.Core.HIL.StepExecutor;
 using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Peak;
@@ -27,16 +28,43 @@ public static class HeadlessHostBuilder
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
 
-        // Channel factory (trace-replay or hardware)
+        // Channel factory (hardware / trace / virtual-ECU / matrix)
         if (args.HardwareChannel is not null)
         {
-            // Hardware mode
+            // Hardware mode (Sprint 3)
             var handle = ParseChannelHandle(args.HardwareChannel);
             builder.Services.AddSingleton<ICanChannel>(sp =>
             {
                 var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
                 return new PeakCanChannel(new ChannelId(handle), logger);
             });
+        }
+        else if (args.EcuScriptPath is not null)
+        {
+            // Virtual ECU mode (Sprint 4): VirtualChannel + VirtualEcu
+            builder.Services.AddSingleton<ICanChannel>(sp => new CanChannels.VirtualChannel());
+            builder.Services.AddSingleton(sp =>
+            {
+                var channel = sp.GetRequiredService<ICanChannel>();
+                var script = EcuScriptLoader.Load(args.EcuScriptPath!);
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<VirtualEcu>>();
+                return new VirtualEcu(channel, script.CanIds, script.Rules, logger);
+            });
+        }
+        else if (args.MatrixPath is not null)
+        {
+            // Multi-ECU matrix mode (Sprint 6): EcuMatrix with multiple VirtualEcu
+            builder.Services.AddSingleton(sp =>
+            {
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<VirtualEcu>>();
+                var config = MatrixConfigLoader.Load(args.MatrixPath!);
+                var matrix = new EcuMatrix();
+                foreach (var script in config.Ecus)
+                    matrix.AddEcu(script, logger);
+                return matrix;
+            });
+            builder.Services.AddSingleton<ICanChannel>(sp =>
+                sp.GetRequiredService<EcuMatrix>().Channel);
         }
         else
         {
@@ -60,7 +88,7 @@ public static class HeadlessHostBuilder
             return new HeadlessDbcLookup(doc.Value!);
         });
 
-        // Assertion context + UDS (hardware mode vs trace mode)
+        // Assertion context + UDS (hardware / virtual-ECU / matrix / trace)
         if (args.HardwareChannel is not null)
         {
             // Hardware mode: PeakCanAssertionContext + ISO-TP bridge + UDS
@@ -70,44 +98,22 @@ public static class HeadlessHostBuilder
                 var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
                 return new PeakCanAssertionContext(channel, dbc);
             });
-
-            // ISO-TP layer + UDS client + adapter
-            builder.Services.AddSingleton<IsoTpLayer>(sp =>
+            RegisterUdsServices(builder, args);
+        }
+        else if (args.EcuScriptPath is not null || args.MatrixPath is not null)
+        {
+            // Virtual ECU / Matrix mode (Sprint 4/6): HILAssertionContext + UDS + VirtualEcu already registered
+            builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
-                var config = new CanIdConfig
-                {
-                    RequestId = args.UdsRequestId,
-                    ResponseId = args.UdsResponseId,
-                    IsExtendedFrame = false
-                };
-                return new IsoTpLayer(config, async frame => { await channel.WriteAsync(frame, default).ConfigureAwait(false); });
+                var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
+                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection);
             });
-            builder.Services.AddSingleton<UdsClient>(sp =>
-            {
-                var isoTp = sp.GetRequiredService<IsoTpLayer>();
-                return new UdsClient(isoTp);
-            });
-            builder.Services.AddSingleton<IUdsSession>(sp =>
-            {
-                var client = sp.GetRequiredService<UdsClient>();
-                return new UdsSessionAdapter(client);
-            });
-            // ISO-TP frame bridge: forwards FrameReceived → IsoTpLayer.ProcessFrame
-            builder.Services.AddSingleton<HilIsoTpBridge>(sp =>
-            {
-                var channel = sp.GetRequiredService<ICanChannel>();
-                var isoTp = sp.GetRequiredService<IsoTpLayer>();
-                return new HilIsoTpBridge(channel, isoTp);
-            });
-
-            // UDS step executors
-            builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
-            builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
+            RegisterUdsServices(builder, args);
         }
         else
         {
-            // Trace-replay mode: HILAssertionContext
+            // Trace-replay mode: HILAssertionContext (no UDS — trace is read-only)
             builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
@@ -122,7 +128,7 @@ public static class HeadlessHostBuilder
         // Assertion primitives (shared singleton)
         builder.Services.AddSingleton<AssertionPrimitives>();
 
-        // Step executors (6 existing + WaitForFrame)
+        // Step executors (existing + Phase 3)
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, SendFrameStepExecutor>();
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, SendSequenceStepExecutor>();
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertSignalStepExecutor>();
@@ -131,6 +137,9 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, DelayStepExecutor>();
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, ExpectFrameStepExecutor>();
         builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertResponseTimeStepExecutor>();
+        // Phase 3: fault injection executors
+        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
+        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
 
         // Engine
         builder.Services.AddSingleton<TestSuiteEngine>();
@@ -142,6 +151,43 @@ public static class HeadlessHostBuilder
             .CreateLogger());
 
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Register ISO-TP + UDS services (shared between hardware and virtual ECU modes).
+    /// </summary>
+    private static void RegisterUdsServices(HostApplicationBuilder builder, CliArgs args)
+    {
+        builder.Services.AddSingleton<IsoTpLayer>(sp =>
+        {
+            var config = new CanIdConfig
+            {
+                RequestId = args.UdsRequestId,
+                ResponseId = args.UdsResponseId,
+                IsExtendedFrame = false
+            };
+            var channel = sp.GetRequiredService<ICanChannel>();
+            return new IsoTpLayer(config,
+                async frame => { await channel.WriteAsync(frame, default).ConfigureAwait(false); });
+        });
+        builder.Services.AddSingleton<UdsClient>(sp =>
+        {
+            var isoTp = sp.GetRequiredService<IsoTpLayer>();
+            return new UdsClient(isoTp);
+        });
+        builder.Services.AddSingleton<IUdsSession>(sp =>
+        {
+            var client = sp.GetRequiredService<UdsClient>();
+            return new UdsSessionAdapter(client);
+        });
+        builder.Services.AddSingleton<HilIsoTpBridge>(sp =>
+        {
+            var channel = sp.GetRequiredService<ICanChannel>();
+            var isoTp = sp.GetRequiredService<IsoTpLayer>();
+            return new HilIsoTpBridge(channel, isoTp);
+        });
+        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
+        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
     }
 
     /// <summary>

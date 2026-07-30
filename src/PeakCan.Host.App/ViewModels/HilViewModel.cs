@@ -18,6 +18,10 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _tracePath = "";
     [ObservableProperty] private bool _useHardware = false;
     [ObservableProperty] private string _hardwareChannel = "USB1";
+    // Phase 3: ECU simulator + fault injection + matrix
+    [ObservableProperty] private string _ecuScriptPath = "";
+    [ObservableProperty] private string _matrixPath = "";
+    [ObservableProperty] private bool _enableFaultInjection = false;
     [ObservableProperty] private bool _isRunning = false;
     [ObservableProperty] private double _progress = 0;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -42,7 +46,10 @@ public sealed partial class HilViewModel : ObservableObject
             var request = new HilRunRequest(
                 DbcPath, SuitePath,
                 UseHardware ? null : TracePath,
-                UseHardware ? HardwareChannel : null);
+                UseHardware ? HardwareChannel : null,
+                EcuScriptPath: string.IsNullOrEmpty(EcuScriptPath) ? null : EcuScriptPath,
+                MatrixPath: string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath,
+                EnableFaultInjection: EnableFaultInjection);
 
             var result = await _runner.RunAsync(request, null, default);
 
@@ -64,7 +71,8 @@ public sealed partial class HilViewModel : ObservableObject
         }
     }
 
-    private bool CanRun() => !IsRunning && !string.IsNullOrEmpty(SuitePath) && !string.IsNullOrEmpty(DbcPath);
+    private bool CanRun() => !IsRunning && !string.IsNullOrEmpty(SuitePath) && !string.IsNullOrEmpty(DbcPath)
+        && (UseHardware || !string.IsNullOrEmpty(TracePath) || !string.IsNullOrEmpty(EcuScriptPath) || !string.IsNullOrEmpty(MatrixPath));
 }
 
 public sealed partial class TestCaseResultViewModel : ObservableObject

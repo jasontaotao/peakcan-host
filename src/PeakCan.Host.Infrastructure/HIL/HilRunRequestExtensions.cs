@@ -12,5 +12,8 @@ public static class HilRunRequestExtensions
         r.Format,
         r.HardwareChannel,
         r.UdsRequestId,
-        r.UdsResponseId);
+        r.UdsResponseId,
+        r.EcuScriptPath,
+        r.EnableFaultInjection,
+        r.MatrixPath);
 }
