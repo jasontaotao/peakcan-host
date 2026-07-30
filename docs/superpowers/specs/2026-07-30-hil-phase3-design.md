@@ -1,7 +1,7 @@
 # HIL Phase 3: ECU Simulation, Fault Injection & Multi-ECU Matrix
 
 > Date: 2026-07-30
-> Status: Draft (v3 — fixed 37 spec errors from two code review rounds)
+> Status: Draft (v4 — fixed 43 spec errors from three code review rounds)
 > Depends: Sprint 1 (complete), Sprint 2 (complete), Sprint 3 (complete — v3.63.0)
 > Scope: VirtualEcu 模拟器、故障注入框架、多 ECU 矩阵
 
@@ -555,7 +555,7 @@ public static IHost Build(CliArgs args)
     // ... rest of setup ...
 }
 
-private static void RegisterVirtualEcuMode(HostBuilder builder, CliArgs args)
+private static void RegisterVirtualEcuMode(HostApplicationBuilder builder, CliArgs args)
 {
     // 1. VirtualChannel
     builder.Services.AddSingleton<ICanChannel>(sp => new VirtualChannel());
@@ -587,15 +587,15 @@ private static void RegisterVirtualEcuMode(HostBuilder builder, CliArgs args)
         builder.Services.AddSingleton(sp =>
         {
             var channel = sp.GetRequiredService<ICanChannel>();
-            var logger = sp.GetService<ILogger<HeadlessHostBuilder>>();
+            var logger = sp.GetService<ILogger<TraceInjector>>();
             // 后台启动 trace 注入（fire-and-forget，进程退出时自然终止）
-            _ = InjectTraceFramesAsync(channel, args.TracePath, logger);
+            _ = TraceInjector.InjectTraceFramesAsync(channel, args.TracePath, logger);
             return true; // 仅用于 DI 占位
         });
     }
 }
 
-private static void RegisterUdsServices(HostBuilder builder, CliArgs args)
+private static void RegisterUdsServices(HostApplicationBuilder builder, CliArgs args)
 {
     // IsoTpLayer（HIL 端视角：使用 CLI 参数 --uds-req/--uds-resp，默认 0x7E0/0x7E8）
     builder.Services.AddSingleton<IsoTpLayer>(sp =>
@@ -641,40 +641,60 @@ private static void RegisterUdsServices(HostBuilder builder, CliArgs args)
 
 trace + 虚拟 ECU 混合模式下，trace 帧和 VirtualEcu 交互帧需要在同一个通道上共存。
 
-方案：VirtualChannel 作为主通道，trace 帧通过后台任务注入。`InjectTraceFramesAsync` 接收文件路径，使用 `BlfParser.ParseAsync`（或 `AscParser.ParseAsync`）流式解析后按时间戳注入：
+方案：VirtualChannel 作为主通道，trace 帧通过后台任务注入。`TraceInjector` 是专用静态类，根据文件扩展名分派到 `BlfParser` 或 `AscParser`：
 
 ```csharp
-private static async Task InjectTraceFramesAsync(
-    VirtualChannel channel, string tracePath, ILogger? logger = null)
+// Infrastructure/HIL/TraceInjector.cs
+public static class TraceInjector
 {
-    using var stream = File.OpenRead(tracePath);
-    var frames = BlfParser.ParseAsync(stream, ReplayOptions.Default, logger);
-
-    double baseTimestamp = 0;
-    bool first = true;
-
-    await foreach (var frame in frames.ConfigureAwait(false))
+    /// <summary>
+    /// 后台注入 trace 帧到 VirtualChannel。按 trace 时间戳间隔延迟注入。
+    /// 支持 .blf 和 .asc 格式（根据扩展名自动分派）。
+    /// </summary>
+    public static async Task InjectTraceFramesAsync(
+        ICanChannel channel, string tracePath, ILogger? logger = null)
     {
-        if (first)
+        using var stream = File.OpenRead(tracePath);
+        IReadOnlyList<ReplayFrame> frames;
+
+        // 根据扩展名分派解析器
+        if (Path.GetExtension(tracePath).Equals(".asc", StringComparison.OrdinalIgnoreCase))
         {
-            baseTimestamp = frame.Timestamp;
-            first = false;
+            frames = await AscParser.ParseAsync(stream, ReplayOptions.Default, logger)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            frames = await BlfParser.ParseAsync(stream, ReplayOptions.Default, logger)
+                .ConfigureAwait(false);
         }
 
-        // 按 trace 时间戳间隔延迟
-        var delay = frame.Timestamp - baseTimestamp;
-        if (delay > 0)
-            await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+        double baseTimestamp = 0;
+        bool first = true;
 
-        var canFrame = new CanFrame(
-            new CanId(frame.Id, FrameFormat.Standard),
-            new ReadOnlyMemory<byte>(frame.Data),
-            frame.Flags,
-            ChannelId.None,
-            new Timestamp((ulong)(frame.Timestamp * 1_000_000)));
-        await channel.WriteAsync(canFrame).ConfigureAwait(false);
+        foreach (var frame in frames)
+        {
+            if (first)
+            {
+                baseTimestamp = frame.Timestamp;
+                first = false;
+            }
 
-        baseTimestamp = frame.Timestamp;
+            // 按 trace 时间戳间隔延迟
+            var delay = frame.Timestamp - baseTimestamp;
+            if (delay > 0)
+                await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
+
+            var canFrame = new CanFrame(
+                new CanId(frame.Id, FrameFormat.Standard),
+                new ReadOnlyMemory<byte>(frame.Data),
+                frame.Flags,
+                ChannelId.None,
+                new Timestamp((ulong)(frame.Timestamp * 1_000_000)));
+            await channel.WriteAsync(canFrame).ConfigureAwait(false);
+
+            baseTimestamp = frame.Timestamp;
+        }
     }
 }
 ```
@@ -807,7 +827,7 @@ public sealed record FaultHandle(Action Remove) : IDisposable
 - AddFault / RemoveFault 线程安全 — 测试步骤线程添加故障，消费者线程读取故障列表
 - Delay 故障取最大延迟值（P3-D11）— 多个 Delay 故障同时匹配时，取最大值而非累加，避免延迟爆炸
 - 实现 `ICanChannel` 全部成员：`Id`、`IsConnected`、`ConnectAsync`、`DisconnectAsync`、`WriteAsync`、`FrameReceived`、`ReadLoopError`
-- 实现 `IAsyncDisposable` + `Dispose`
+- 实现 `IAsyncDisposable`（`DisposeAsync`）— `ICanChannel` 不继承 `IDisposable`，无需同步 `Dispose`
 
 ### 4.2 Fault Types
 
