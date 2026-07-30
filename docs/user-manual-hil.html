@@ -1,0 +1,2598 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>PeakCan Host — HIL 硬件在环测试指南 (v3.63.0)</title>
+
+<style>
+
+  :root {
+
+    --bg: #fafafa;
+
+    --panel: #ffffff;
+
+    --border: #d0d7de;
+
+    --accent: #d62728;
+
+    --accent2: #1f77b4;
+
+    --muted: #6e7781;
+
+    --code-bg: #f6f8fa;
+
+    --ok: #1a7f37;
+
+    --warn: #bf8700;
+
+    --err: #cf222e;
+
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; background: var(--bg); color: #1f2328; font-family: "Microsoft YaHei", "PingFang SC", -apple-system, Segoe UI, sans-serif; line-height: 1.65; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 28px 80px; }
+
+  header.cover { background: linear-gradient(135deg, #8b0000 0%, #d62728 100%); color: #fff; padding: 40px 32px; border-radius: 12px; margin-bottom: 32px; }
+
+  header.cover h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0.5px; }
+
+  header.cover .sub { opacity: 0.92; font-size: 15px; }
+
+  header.cover .meta { margin-top: 16px; font-size: 13px; opacity: 0.85; }
+
+  header.cover .meta span { margin-right: 18px; }
+
+  nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 26px; margin-bottom: 32px; }
+
+  nav.toc h2 { margin: 0 0 12px; font-size: 17px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+
+  nav.toc ol { padding-left: 20px; margin: 0; }
+
+  nav.toc ol ol { padding-left: 24px; }
+
+  nav.toc li { margin: 4px 0; }
+
+  nav.toc a { color: #1f2328; text-decoration: none; }
+
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  h2 { font-size: 23px; margin-top: 44px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); color: #8b0000; }
+
+  h3 { font-size: 18px; margin-top: 26px; margin-bottom: 10px; color: #8b0000; }
+
+  h4 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; color: #444; }
+
+  p, li { font-size: 14.5px; }
+
+  code, pre { font-family: "Cascadia Code", "Consolas", "JetBrains Mono", monospace; font-size: 13px; }
+
+  code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: #cf222e; }
+
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; position: relative; }
+
+  pre .filename { position: absolute; top: 0; right: 0; background: #e8e8e8; padding: 2px 10px; font-size: 11px; color: #666; border-radius: 0 6px 0 6px; }
+
+  pre code { background: transparent; border: 0; padding: 0; color: #1f2328; white-space: pre; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 14px; background: var(--panel); }
+
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+
+  th { background: #fdecea; font-weight: 600; color: #8b0000; }
+
+  blockquote { border-left: 4px solid var(--accent); background: #fdecea; margin: 12px 0; padding: 10px 16px; color: #1f2328; border-radius: 0 6px 6px 0; }
+
+  blockquote.tip { border-left-color: var(--accent2); background: #eef4fa; }
+
+  blockquote.warn { border-left-color: var(--warn); background: #fff8e1; }
+
+  blockquote.ok { border-left-color: var(--ok); background: #dafbe1; }
+
+  .figure { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin: 18px 0; }
+
+  .figure .caption { margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; }
+
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+
+  .badge.ok { background: #dafbe1; color: var(--ok); border: 1px solid #1a7f3733; }
+
+  .badge.warn { background: #fff8c5; color: #7d4e00; border: 1px solid #d4a72c33; }
+
+  .badge.info { background: #ddf4ff; color: #0550ae; border: 1px solid #54aeff33; }
+
+  .badge.red { background: #fdecea; color: #cf222e; border: 1px solid #cf222e33; }
+
+  footer { margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); text-align: center; }
+
+  .kbd { display: inline-block; padding: 1px 6px; border: 1px solid #c8c8c8; border-bottom-width: 2px; border-radius: 4px; font-family: Consolas, monospace; font-size: 12px; background: #f5f5f5; color: #333; }
+
+  .diagram { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin: 18px 0; font-family: "Cascadia Code", "Consolas", monospace; font-size: 13px; line-height: 1.8; white-space: pre; overflow-x: auto; }
+
+  .step-flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; }
+
+  .step-flow .box { background: #fdecea; border: 1px solid #d62728; border-radius: 6px; padding: 6px 14px; font-size: 13px; font-weight: 600; color: #8b0000; }
+
+  .step-flow .arrow { color: #888; font-size: 18px; }
+
+  .step-flow .box.pass { background: #dafbe1; border-color: #1a7f37; color: #1a7f37; }
+
+  .step-flow .box.info { background: #ddf4ff; border-color: #1f77b4; color: #1f77b4; }
+
+  .result-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; padding: 12px; background: #f6f8fa; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; font-size: 13px; }
+
+  .result-grid .label { font-weight: 600; color: #555; }
+
+  .result-grid .value.pass { color: var(--ok); }
+
+  .result-grid .value.fail { color: var(--err); }
+
+</style>
+
+</head>
+
+<body>
+
+<div class="wrap">
+
+
+
+<header class="cover">
+
+  <h1>PeakCan Host — HIL 硬件在环测试指南</h1>
+
+  <div class="sub">基于真实 CAN 总线信号的自动化测试框架 · 支持 UI 交互与 CLI 无头运行</div>
+
+  <div class="meta">
+
+    <span>版本：<strong>v3.63.0</strong></span>
+
+    <span>框架：WPF · .NET 10</span>
+
+    <span>平台：Windows 10 1809+ / Windows 11</span>
+
+    <span>更新日期：2026-07-30</span>
+
+  </div>
+
+</header>
+
+
+
+<nav class="toc">
+
+  <h2>目录</h2>
+
+  <ol>
+
+    <li><a href="#intro">HIL 测试框架概述</a>
+
+      <ol>
+
+        <li><a href="#intro-what">什么是 HIL 测试</a></li>
+
+        <li><a href="#intro-arch">框架架构</a></li>
+
+        <li><a href="#intro-when">什么时候用 HIL</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#quickstart">快速入门：5 分钟跑通第一个测试</a></li>
+
+    <li><a href="#testcase">测试用例模型</a>
+
+      <ol>
+
+        <li><a href="#testcase-model">TestCase 数据结构</a></li>
+
+        <li><a href="#testcase-step">测试步骤类型</a></li>
+
+        <li><a href="#testcase-create">创建测试用例</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#steps">测试步骤详解与示例</a>
+
+      <ol>
+
+        <li><a href="#step-sendframe">SendFrame — 发送帧</a></li>
+
+        <li><a href="#step-sendsequence">SendSequence — 发送序列</a></li>
+
+        <li><a href="#step-expectframe">ExpectFrame — 等待期望帧</a></li>
+
+        <li><a href="#step-waitforsignal">WaitForSignal — 等待信号值</a></li>
+
+        <li><a href="#step-assertsignal">AssertSignal — 断言信号值</a></li>
+
+        <li><a href="#step-assertrange">AssertRange — 断言信号范围</a></li>
+
+        <li><a href="#step-assertdtc">AssertDtc — 断言 DTC</a></li>
+
+        <li><a href="#step-assertnrc">AssertNrc — 断言 NRC</a></li>
+
+        <li><a href="#step-assertresponsetime">AssertResponseTime — 断言响应时间</a></li>
+
+        <li><a href="#step-delay">Delay — 延时等待</a></li>
+
+        <li><a href="#step-comment">Comment — 注释</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#suite">测试套件与执行引擎</a>
+
+      <ol>
+
+        <li><a href="#suite-model">TestSuite 数据结构</a></li>
+
+        <li><a href="#suite-engine">三阶段执行引擎 (Stage A/B/C)</a></li>
+
+        <li><a href="#suite-fixtures">Fixture 机制</a></li>
+
+        <li><a href="#suite-runner">HilRunnerService</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#diff">DiffEngine — 差异比较引擎</a>
+
+      <ol>
+
+        <li><a href="#diff-frame">帧级比较 (Frame Granularity)</a></li>
+
+        <li><a href="#diff-event">事件级比较 (Event Granularity)</a></li>
+
+        <li><a href="#diff-signal">信号级比较 (Signal Granularity)</a></li>
+
+        <li><a href="#diff-config">比较配置</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#param">参数化测试与 TestCaseGenerator</a>
+
+      <ol>
+
+        <li><a href="#param-template">模板定义</a></li>
+
+        <li><a href="#param-gen">生成测试用例</a></li>
+
+        <li><a href="#param-example">完整示例：温度传感器测试</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#trace-driven">TraceDrivenChannel — 基于录制数据的回放测试</a></li>
+
+    <li><a href="#cli">CLI Runner — 无头自动化测试</a>
+
+      <ol>
+
+        <li><a href="#cli-usage">命令行用法</a></li>
+
+        <li><a href="#cli-request">HilRunRequest 配置</a></li>
+
+        <li><a href="#cli-ci">CI 集成</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#examples">综合实战场景</a>
+
+      <ol>
+
+        <li><a href="#ex-uds">场景 1：UDS 诊断流程测试</a></li>
+
+        <li><a href="#ex-signal">场景 2：信号值变化趋势验证</a></li>
+
+        <li><a href="#ex-regression">场景 3：回归测试 — DiffEngine</a></li>
+
+        <li><a href="#ex-multi">场景 4：多 ECU 矩阵测试</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#results">测试结果解读</a>
+
+      <ol>
+
+        <li><a href="#results-struct">结果数据结构</a></li>
+
+        <li><a href="#results-junit">JUnit XML 输出</a></li>
+
+        <li><a href="#results-progress">实时进度报告</a></li>
+
+      </ol>
+
+    </li>
+
+    <li><a href="#ref">API 参考</a></li>
+
+  </ol>
+
+</nav>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="intro">1. HIL 测试框架概述</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="intro-what">1.1 什么是 HIL 测试</h3>
+
+<p><strong>HIL</strong>（Hardware-in-the-Loop，硬件在环）测试框架是 PeakCan Host 的核心测试能力之一，用于在<strong>真实 CAN 总线</strong>上编写、执行和验证自动化测试用例。</p>
+
+<p>与纯软件模拟测试不同，HIL 测试直接操作 PCAN-USB FD 硬件，向真实 ECU 发送 CAN 帧并验证其响应。这使得 HIL 测试特别适合：</p>
+
+<ul>
+
+  <li><strong>ECU 集成测试</strong>：验证多个 ECU 之间的交互行为</li>
+
+  <li><strong>回归测试</strong>：固件更新后快速验证已有功能未被破坏</li>
+
+  <li><strong>故障注入测试</strong>：模拟异常总线条件验证 ECU 容错能力</li>
+
+  <li><strong>UDS 诊断流程验证</strong>：自动化执行诊断会话/读写/刷写等流程</li>
+
+  <li><strong>CI/CD 集成</strong>：在持续集成管道中自动运行 CAN 总线测试</li>
+
+</ul>
+
+
+
+<h3 id="intro-arch">1.2 框架架构</h3>
+
+<div class="diagram">┌─────────────────────────────────────────────────────────────┐
+│                       HIL 测试框架                             │
+│                                                               │
+│  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐  │
+│  │  TestSuite    │───▶│ TestSuiteEngine│───▶│  StepExecutor │  │
+│  │  (测试用例集)  │    │  (三阶段执行)  │    │  (步骤执行器)  │  │
+│  └───────────────┘    └───────────────┘    └───────────────┘  │
+│         │                      │                     │         │
+│         ▼                      ▼                     ▼         │
+│  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐  │
+│  │  TestCase     │    │  IAssertion   │    │  Assertion    │  │
+│  │  (测试用例)    │    │  Context      │    │  Primitives   │  │
+│  └───────────────┘    └───────────────┘    └───────────────┘  │
+│                                                               │
+│  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐  │
+│  │  DiffEngine   │    │  TestCase     │    │  TraceDriven  │  │
+│  │  (差异比较)    │    │  Generator    │    │  Channel      │  │
+│  └───────────────┘    └───────────────┘    └───────────────┘  │
+│                                                               │
+│  ┌───────────────┐    ┌───────────────┐                        │
+│  │  CLI Runner   │    │  HeadlessHost │                        │
+│  │  (peakcan-hil)│    │  Builder      │                        │
+│  └───────────────┘    └───────────────┘                        │
+└─────────────────────────────────────────────────────────────┘</div>
+
+
+
+<h3 id="intro-when">1.3 什么时候用 HIL</h3>
+
+<table>
+
+  <tr><th>场景</th><th>推荐工具</th><th>说明</th></tr>
+
+  <tr><td>手动发送一帧看反应</td><td>Send 视图</td><td>临时调试，不需要自动化</td></tr>
+
+  <tr><td>录制总线数据供后续分析</td><td>Trace Viewer + Recording</td><td>离线回放，不涉及总线写入</td></tr>
+
+  <tr><td>重复执行相同测试序列</td><td><strong>HIL 测试框架</strong></td><td>自动化、可重复、可断言</td></tr>
+
+  <tr><td>固件升级后全功能回归</td><td><strong>HIL + DiffEngine</strong></td><td>比较升级前后的帧序列</td></tr>
+
+  <tr><td>CI 管道中自动验证 ECU</td><td><strong>HIL CLI Runner</strong></td><td>无头运行，JUnit XML 输出</td></tr>
+
+  <tr><td>参数化测试（不同温度/电压）</td><td><strong>HIL + TestCaseGenerator</strong></td><td>模板展开为 N 个用例</td></tr>
+
+</table>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="quickstart">2. 快速入门：5 分钟跑通第一个测试</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p>以下示例演示一个完整的 HIL 测试流程：发送一个 CAN 帧，然后验证 ECU 的响应。</p>
+
+
+
+<h3>步骤 1：准备硬件</h3>
+
+<ol>
+
+  <li>插上 PCAN-USB FD</li>
+
+  <li>启动 PeakCan Host</li>
+
+  <li>Probe → Connect（连接到目标 ECU 所在的总线）</li>
+
+  <li>加载 DBC 文件（<strong>File ▸ Open DBC...</strong>）</li>
+
+</ol>
+
+
+
+<h3>步骤 2：打开 HIL 面板</h3>
+
+<p>菜单 <strong>View ▸ HIL</strong> 打开 HIL 测试面板。</p>
+
+
+
+<h3>步骤 3：创建测试用例</h3>
+
+<p>在 HIL 面板中，点击 <strong>新建测试用例</strong>，输入以下内容：</p>
+
+
+
+<pre><code><span class="filename">测试用例 1</span>名称:   发送诊断请求并验证响应
+
+描述:   发送 0x10 03（编程会话请求），等待 ECU 正响应
+
+步骤:
+
+  1. [SendFrame]   发送 CAN ID 0x7DF，数据 10 03
+
+  2. [Delay]       等待 100ms
+
+  3. [ExpectFrame] 期望 CAN ID 0x7E8，数据前缀 50 03
+
+  4. [AssertNrc]   无 NRC 返回</code></pre>
+
+
+
+<h3>步骤 4：运行测试</h3>
+
+<p>点击 <strong>Run</strong> 按钮，观察执行进度：</p>
+
+
+
+<div class="result-grid">
+
+  <span class="label">用例名称</span>  <span class="value">发送诊断请求并验证响应</span>
+
+  <span class="label">步骤 1</span>  <span class="value pass">✅ SendFrame 0x7DF → 10 03</span>
+
+  <span class="label">步骤 2</span>  <span class="value pass">✅ Delay 100ms</span>
+
+  <span class="label">步骤 3</span>  <span class="value pass">✅ ExpectFrame 0x7E8 ← 50 03 （匹配）</span>
+
+  <span class="label">步骤 4</span>  <span class="value pass">✅ AssertNrc — 无 NRC</span>
+
+  <span class="label" style="font-weight:700;color:var(--ok)">结果</span>  <span class="value pass" style="font-weight:700">✅ 通过（4/4 步骤全部通过，耗时 210ms）</span>
+
+</div>
+
+
+
+<blockquote class="tip">
+
+<strong>提示：</strong>首次运行前请确认 DBC 文件中包含消息 ID 0x7DF 和 0x7E8 的定义，或者确保 HIL 面板中已正确配置目标 CAN ID。
+
+</blockquote>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="testcase">3. 测试用例模型</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="testcase-model">3.1 TestCase 数据结构</h3>
+
+<p>一个测试用例包含以下字段：</p>
+
+
+
+<table>
+
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>Id</code></td><td><code>string</code></td><td>唯一标识符（如 <code>"TC-CAN-001"</code>）</td></tr>
+
+  <tr><td><code>Name</code></td><td><code>string</code></td><td>人类可读的测试用例名称</td></tr>
+
+  <tr><td><code>Description</code></td><td><code>string</code></td><td>详细描述测试目的</td></tr>
+
+  <tr><td><code>PreConditions</code></td><td><code>string?</code></td><td>前置条件说明（当前为文档性）</td></tr>
+
+  <tr><td><code>Steps</code></td><td><code>IReadOnlyList&lt;TestCaseStep&gt;</code></td><td>测试步骤列表（按顺序执行）</td></tr>
+
+  <tr><td><code>PostConditions</code></td><td><code>string?</code></td><td>后置条件说明（当前为文档性）</td></tr>
+
+  <tr><td><code>Tags</code></td><td><code>IReadOnlyList&lt;string&gt;</code></td><td>标签，用于分类筛选（如 <code>["smoke", "uds"]</code>）</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>用例超时时间（毫秒），0 表示不限制</td></tr>
+
+  <tr><td><code>CaseFixtureKeys</code></td><td><code>IReadOnlyList&lt;string&gt;?</code></td><td>用例级 fixture 键列表</td></tr>
+
+</table>
+
+
+
+<blockquote class="tip">
+
+<strong>设计原则：</strong>TestCase 是纯数据模型（record），可序列化为 JSON/YAML 持久化存储。
+
+</blockquote>
+
+
+
+<h3 id="testcase-step">3.2 测试步骤类型</h3>
+
+<p>框架支持 11 种测试步骤，每种对应一个 <code>TestCaseStepKind</code>：</p>
+
+
+
+<table>
+
+  <tr><th>步骤类型</th><th>标识</th><th>功能</th></tr>
+
+  <tr><td><strong>SendFrame</strong></td><td><code>TestCaseStepKind.SendFrame</code></td><td>向总线发送一帧 CAN 消息</td></tr>
+
+  <tr><td><strong>SendSequence</strong></td><td><code>TestCaseStepKind.SendSequence</code></td><td>发送预定义的帧序列</td></tr>
+
+  <tr><td><strong>ExpectFrame</strong></td><td><code>TestCaseStepKind.ExpectFrame</code></td><td>等待期望的 CAN 帧到达</td></tr>
+
+  <tr><td><strong>WaitForSignal</strong></td><td><code>TestCaseStepKind.WaitForSignal</code></td><td>等待信号达到指定值</td></tr>
+
+  <tr><td><strong>AssertSignal</strong></td><td><code>TestCaseStepKind.AssertSignal</code></td><td>断言信号当前值在容差内</td></tr>
+
+  <tr><td><strong>AssertRange</strong></td><td><code>TestCaseStepKind.AssertRange</code></td><td>断言信号值在指定范围内</td></tr>
+
+  <tr><td><strong>AssertDtc</strong></td><td><code>TestCaseStepKind.AssertDtc</code></td><td>断言 ECU 的 DTC 状态</td></tr>
+
+  <tr><td><strong>AssertNrc</strong></td><td><code>TestCaseStepKind.AssertNrc</code></td><td>断言 UDS 负响应码</td></tr>
+
+  <tr><td><strong>AssertResponseTime</strong></td><td><code>TestCaseStepKind.AssertResponseTime</code></td><td>断言 ECU 响应时间在阈值内</td></tr>
+
+  <tr><td><strong>Delay</strong></td><td><code>TestCaseStepKind.Delay</code></td><td>等待指定时间（毫秒）</td></tr>
+
+  <tr><td><strong>Comment</strong></td><td><code>TestCaseStepKind.Comment</code></td><td>注释，不计入执行统计</td></tr>
+
+</table>
+
+
+
+<h3 id="testcase-create">3.3 创建测试用例</h3>
+
+<p>HIL 面板支持两种方式创建测试用例：</p>
+
+
+
+<h4>方式 1：UI 创建（推荐初学者）</h4>
+
+<ol>
+
+  <li>在 HIL 面板点击 <strong>新建测试用例</strong></li>
+
+  <li>填写用例名称、描述、标签</li>
+
+  <li>点击 <strong>添加步骤</strong>，选择步骤类型并填写参数</li>
+
+  <li>拖拽步骤可调整顺序</li>
+
+  <li>点击 <strong>保存</strong></li>
+
+</ol>
+
+
+
+<h4>方式 2：编码创建（C# 代码）</h4>
+
+<pre><code><span class="filename">C# 代码</span>using PeakCan.Host.Core.HIL;
+
+var testCase = new TestCase(
+
+    Id: "TC-CAN-001",
+
+    Name: "发送诊断请求并验证响应",
+
+    Description: "验证 ECU 对 0x10 03 诊断会话请求的响应",
+
+    PreConditions: "ECU 已上电，总线连接正常",
+
+    Steps: new TestCaseStep[]
+
+    {
+
+        TestCaseStep.Create(new SendFrameParams(0x7DF, [0x10, 0x03]),
+
+            label: "发送编程会话请求"),
+
+        TestCaseStep.Create(new DelayParams(100),
+
+            label: "等待 ECU 处理"),
+
+        TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x50, 0x03]),
+
+            label: "验证正响应"),
+
+        TestCaseStep.Create(new AssertNrcParams(),
+
+            label: "确认无负响应"),
+
+    },
+
+    PostConditions: "ECU 保持在当前会话",
+
+    Tags: new[] { "smoke", "uds", "diagnostic" },
+
+    TimeoutMs: 5000
+
+);</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="steps">4. 测试步骤详解与示例</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="step-sendframe">4.1 SendFrame — 发送帧</h3>
+
+<p>向 CAN 总线发送一帧消息。这是最基础的步骤，用于触发 ECU 的响应。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>CanId</code></td><td><code>uint</code></td><td>CAN ID（11 位或 29 位）</td></tr>
+
+  <tr><td><code>Data</code></td><td><code>byte[]</code></td><td>数据字节</td></tr>
+
+  <tr><td><code>IsExtended</code></td><td><code>bool</code></td><td>是否使用 29 位扩展帧格式</td></tr>
+
+  <tr><td><code>IsFd</code></td><td><code>bool</code></td><td>是否使用 CAN-FD 帧格式</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 发送 UDS 诊断请求</span>// 发送 0x22 F1 90（ReadDataByIdentifier — VIN）
+
+TestCaseStep.Create(new SendFrameParams(
+
+    CanId: 0x7DF,
+
+    Data:  [0x22, 0xF1, 0x90],
+
+    IsExtended: false,
+
+    IsFd: false
+
+), label: "发送 VIN 读取请求");
+
+
+
+// 发送 0x2E F1 90 + 数据（WriteDataByIdentifier — 写 VIN）
+
+TestCaseStep.Create(new SendFrameParams(
+
+    CanId: 0x7DF,
+
+    Data:  [0x2E, 0xF1, 0x90, 0x31, 0x48, 0x47, 0x43, 0x4D],
+
+    IsExtended: false,
+
+    IsFd: false
+
+), label: "发送 VIN 写入请求");</code></pre>
+
+
+
+<h3 id="step-sendsequence">4.2 SendSequence — 发送序列</h3>
+
+<p>按顺序发送一组预定义的帧，每帧之间可指定间隔。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>Frames</code></td><td><code>IReadOnlyList&lt;CanFrame&gt;</code></td><td>要发送的帧序列</td></tr>
+
+  <tr><td><code>IntervalMs</code></td><td><code>int</code></td><td>帧间间隔（毫秒）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 发送 UDS 会话切换序列</span>// 发送 Default → Extended → Programming 三个会话请求
+
+TestCaseStep.Create(new SendSequenceParams(
+
+    Frames: new CanFrame[]
+
+    {
+
+        new(0x7DF, [0x10, 0x01]),  // Default 会话
+
+        new(0x7DF, [0x10, 0x02]),  // Extended 会话
+
+        new(0x7DF, [0x10, 0x03]),  // Programming 会话
+
+    },
+
+    IntervalMs: 50
+
+), label: "遍历三种诊断会话");</code></pre>
+
+
+
+<h3 id="step-expectframe">4.3 ExpectFrame — 等待期望帧</h3>
+
+<p>等待总线上出现与指定模式匹配的 CAN 帧。支持数据掩码匹配。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>ExpectedId</code></td><td><code>CanId</code></td><td>期望的 CAN ID</td></tr>
+
+  <tr><td><code>DataMask</code></td><td><code>byte[]?</code></td><td>数据掩码（null 表示不检查数据）</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>超时时间（毫秒），默认 1000</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 1 — 等待 UDS 正响应</span>// 发送 0x10 03 后等待 0x50 03 正响应
+
+// 步骤 1: SendFrame(0x7DF, [0x10, 0x03])
+
+// 步骤 2: ExpectFrame(0x7E8, [0x50, 0x03])
+
+TestCaseStep.Create(new ExpectFrameParams(
+
+    ExpectedId: 0x7E8,
+
+    DataMask:   [0x50, 0x03],  // 匹配 SID+SubFunction
+
+    TimeoutMs:  1000
+
+), label: "等待编程会话正响应");
+
+
+
+<span class="filename">示例 2 — 只等待 ID，不关心数据</span>TestCaseStep.Create(new ExpectFrameParams(
+
+    ExpectedId: 0x7E8,
+
+    DataMask:   null,  // 任何数据都匹配
+
+    TimeoutMs:  500
+
+), label: "等待 ECU 返回任何响应");</code></pre>
+
+
+
+<h3 id="step-waitforsignal">4.4 WaitForSignal — 等待信号值</h3>
+
+<p>等待 DBC 解码后的信号达到指定值（在容差范围内）。需先加载 DBC 文件。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>SignalName</code></td><td><code>string</code></td><td>信号名，格式 <code>"MessageName.SignalName"</code></td></tr>
+
+  <tr><td><code>ExpectedValue</code></td><td><code>double</code></td><td>期望的物理值</td></tr>
+
+  <tr><td><code>Tolerance</code></td><td><code>double</code></td><td>容差范围</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>超时时间（毫秒），默认 5000</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 等待发动机转速达到目标值</span>// 发动机管理系统发送转速信号后，等待转速达到 2500 rpm
+
+TestCaseStep.Create(new WaitForSignalParams(
+
+    SignalName:    "Engine_State.Engine_RPM",
+
+    ExpectedValue: 2500.0,
+
+    Tolerance:     50.0,      // ±50 rpm 容差
+
+    TimeoutMs:     10000      // 最多等 10 秒
+
+), label: "等待发动机转速达到 2500 rpm");</code></pre>
+
+
+
+<p>底层实现通过 <code>AssertionPrimitives.WaitForSignalAsync</code>：</p>
+
+
+
+<pre><code><span class="filename">HIL 源代码 — WaitForSignalAsync 实现邏輯</span>public async Task&lt;AssertionResult&gt; WaitForSignalAsync(
+
+    string name, double expected, double tolerance, CancellationToken ct)
+
+{
+
+    var matchTcs = new TaskCompletionSource&lt;bool&gt;();
+
+    using var sub = _ctx.SubscribeDecodedFrames(frame =>
+
+    {
+
+        var val = _ctx.GetSignalValue(name, maxAgeMs: 5000);
+
+        if (val is { } v && Math.Abs(v - expected) <= tolerance)
+
+            matchTcs.TrySetResult(true);
+
+    });
+
+    // 等待匹配或超时/取消
+
+    var cancelTask = Task.Delay(Timeout.Infinite, ct);
+
+    var winner = await Task.WhenAny(matchTcs.Task, cancelTask);
+
+    // ... 返回 Pass 或 Fail
+
+}</code></pre>
+
+
+
+<h3 id="step-assertsignal">4.5 AssertSignal — 断言信号值</h3>
+
+<p>立即检查信号当前值是否在容差范围内。与 WaitForSignal 不同，不等待——只检查当前值。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>SignalName</code></td><td><code>string</code></td><td>信号名，格式 <code>"MessageName.SignalName"</code></td></tr>
+
+  <tr><td><code>ExpectedValue</code></td><td><code>double</code></td><td>期望的物理值</td></tr>
+
+  <tr><td><code>Tolerance</code></td><td><code>double</code></td><td>容差范围</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 验证冷却液温度</span>// 在 ECU 发送冷却液温度后，断言温度在 90°C ± 5°C
+
+TestCaseStep.Create(new AssertSignalParams(
+
+    SignalName:    "Engine_State.Coolant_Temp",
+
+    ExpectedValue: 90.0,
+
+    Tolerance:     5.0
+
+), label: "冷却液温度应在 85-95°C");</code></pre>
+
+
+
+<h3 id="step-assertrange">4.6 AssertRange — 断言信号范围</h3>
+
+<p>断言信号当前值在指定的最小/最大范围内。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>SignalName</code></td><td><code>string</code></td><td>信号名</td></tr>
+
+  <tr><td><code>Min</code></td><td><code>double</code></td><td>最小值（含）</td></tr>
+
+  <tr><td><code>Max</code></td><td><code>double</code></td><td>最大值（含）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 验证电池电压范围</span>// 整车正常工作时，电池电压应在 11.0V - 14.5V
+
+TestCaseStep.Create(new AssertRangeParams(
+
+    SignalName: "BMS_Status.Battery_Voltage",
+
+    Min:        11.0,
+
+    Max:        14.5
+
+), label: "电池电压应在 11.0V ~ 14.5V 范围内");</code></pre>
+
+
+
+<h3 id="step-assertdtc">4.7 AssertDtc — 断言 DTC</h3>
+
+<p>读取 ECU 的 DTC（诊断故障码）并断言其状态。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>DtcCode</code></td><td><code>uint</code></td><td>DTC 代码（3 字节）</td></tr>
+
+  <tr><td><code>AssertPresent</code></td><td><code>bool</code></td><td>true = 断言 DTC 存在，false = 断言 DTC 不存在</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>超时时间（毫秒）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 1 — 验证故障码已设置</span>// 在故障注入后，验证 P0123（油门踏板位置传感器故障）已设置
+
+TestCaseStep.Create(new AssertDtcParams(
+
+    DtcCode:      0x050123,  // P0123
+
+    AssertPresent: true,
+
+    TimeoutMs:    5000
+
+), label: "验证 DTC P0123 已设置");
+
+
+
+<span class="filename">示例 2 — 清除后验证故障码已清除</span>// 清除故障码后，确认不再存在
+
+TestCaseStep.Create(new SendFrameParams(0x7DF, [0x14, 0xFF, 0xFF, 0xFF]),
+
+    label: "清除所有 DTC"),
+
+TestCaseStep.Create(new AssertDtcParams(
+
+    DtcCode:      0x050123,
+
+    AssertPresent: false,
+
+    TimeoutMs:    5000
+
+), label: "验证 DTC P0123 已清除");</code></pre>
+
+
+
+<h3 id="step-assertnrc">4.8 AssertNrc — 断言 NRC</h3>
+
+<p>断言 UDS 负响应码（NRC）符合预期。用于验证 ECU 正确拒绝非法请求。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>ExpectedNrc</code></td><td><code>byte?</code></td><td>期望的 NRC 值（null 表示期望无 NRC）</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>超时时间（毫秒）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 1 — 安全访问拒绝测试</span>// 发送错误的密钥，期望 NRC 0x35 (invalidKey)
+
+TestCaseStep.Create(new SendFrameParams(0x7DF, [0x27, 0x05, 0x00, 0x00]),
+
+    label: "发送错误的安全访问密钥"),
+
+TestCaseStep.Create(new AssertNrcParams(
+
+    ExpectedNrc: 0x35,      // invalidKey
+
+    TimeoutMs:   1000
+
+), label: "验证收到 invalidKey 拒绝");
+
+
+
+<span class="filename">示例 2 — 期望成功（无 NRC）</span>// 发送有效请求，期望无负响应
+
+TestCaseStep.Create(new AssertNrcParams(
+
+    ExpectedNrc: null,      // 无 NRC
+
+    TimeoutMs:   1000
+
+), label: "ECU 应正常响应，无 NRC");</code></pre>
+
+
+
+<h3 id="step-assertresponsetime">4.9 AssertResponseTime — 断言响应时间</h3>
+
+<p>断言 ECU 对请求的响应时间在指定阈值内。用于验证实时性要求。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>RequestId</code></td><td><code>uint</code></td><td>请求帧的 CAN ID</td></tr>
+
+  <tr><td><code>ResponseId</code></td><td><code>uint</code></td><td>响应帧的 CAN ID</td></tr>
+
+  <tr><td><code>MaxResponseTimeMs</code></td><td><code>int</code></td><td>最大允许响应时间（毫秒）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 验证 UDS 诊断响应时间</span>// 发送 0x22 F1 90（读 VIN），ECU 应在 100ms 内响应
+
+TestCaseStep.Create(new SendFrameParams(0x7DF, [0x22, 0xF1, 0x90]),
+
+    label: "发送读 VIN 请求"),
+
+TestCaseStep.Create(new AssertResponseTimeParams(
+
+    RequestId:        0x7DF,
+
+    ResponseId:       0x7E8,
+
+    MaxResponseTimeMs: 100
+
+), label: "VIN 读取响应应在 100ms 内");</code></pre>
+
+
+
+<h3 id="step-delay">4.10 Delay — 延时等待</h3>
+
+<p>在步骤之间插入等待时间，用于等待 ECU 处理或总线稳定。</p>
+
+
+
+<table>
+
+  <tr><th>参数</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>DelayMs</code></td><td><code>int</code></td><td>等待毫秒数</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">示例 — 常用延时场景</span>// 发送请求后等待 50ms
+
+TestCaseStep.Create(new DelayParams(50), label: "等待 50ms");
+
+
+
+// 总线初始化后等待 2s 让 ECU 启动
+
+TestCaseStep.Create(new DelayParams(2000), label: "等待 ECU 初始化完成");</code></pre>
+
+
+
+<h3 id="step-comment">4.11 Comment — 注释</h3>
+
+<p>注释步骤不在执行时产生任何操作，也不计入执行统计。用于在步骤列表中插入说明文字。</p>
+
+
+
+<pre><code><span class="filename">示例 — 插入注释</span>TestCaseStep.Create(new CommentParams("=== 以下测试 UDS 安全访问 ==="),
+
+    label: "注释：安全访问测试阶段"),
+
+TestCaseStep.Create(new SendFrameParams(0x7DF, [0x27, 0x01]),
+
+    label: "请求种子"),
+
+TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种子"),
+
+    label: "注释：预期行为说明");</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="suite">5. 测试套件与执行引擎</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="suite-model">5.1 TestSuite 数据结构</h3>
+
+<p>测试套件是测试用例的集合，包含共享配置和 fixture：</p>
+
+
+
+<table>
+
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>Name</code></td><td><code>string</code></td><td>套件名称</td></tr>
+
+  <tr><td><code>Cases</code></td><td><code>IReadOnlyList&lt;TestCase&gt;</code></td><td>测试用例列表</td></tr>
+
+  <tr><td><code>GlobalCaseFixtureKeys</code></td><td><code>IReadOnlyList&lt;string&gt;</code></td><td>所有用例共享的 fixture 键</td></tr>
+
+  <tr><td><code>SuiteFixtureKeys</code></td><td><code>IReadOnlyList&lt;string&gt;</code></td><td>套件级 fixture 键</td></tr>
+
+  <tr><td><code>Config</code></td><td><code>TestSuiteConfig</code></td><td>执行配置</td></tr>
+
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>套件超时时间（毫秒）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">创建测试套件</span>var suite = new TestSuite(
+
+    Name: "UDS Diagnostic Smoke Test",
+
+    Cases: new TestCase[] { tc1, tc2, tc3 },
+
+    GlobalCaseFixtureKeys: new[] { "uds-connection" },
+
+    SuiteFixtureKeys: new[] { "hil-hardware" },
+
+    Config: new TestSuiteConfig(
+
+        StopOnFirstFailure: false,
+
+        ParallelExecution:  false,
+
+        FixtureTimeoutMs:   10000,
+
+        CaseTimeoutMs:      5000
+
+    ),
+
+    TimeoutMs: 60000
+
+);</code></pre>
+
+
+
+<h3 id="suite-engine">5.2 三阶段执行引擎 (Stage A/B/C)</h3>
+
+<p>测试套件通过 <strong>TestSuiteEngine</strong> 执行，分为三个阶段：</p>
+
+
+
+<div class="step-flow">
+
+  <span class="box info">Stage A<br>Setup</span>
+
+  <span class="arrow">→</span>
+
+  <span class="box">Stage B<br>Execute</span>
+
+  <span class="arrow">→</span>
+
+  <span class="box info">Stage C<br>Teardown</span>
+
+</div>
+
+
+
+<table>
+
+  <tr><th>阶段</th><th>说明</th><th>失败处理</th></tr>
+
+  <tr><td><strong>Stage A — Setup</strong></td>
+
+      <td>初始化所有 fixture（硬件连接、DBC 加载、UDS 会话建立等）。如果 fixture 初始化失败，整个套件被标记为 SetupFailure。</td>
+
+      <td>Stage A 失败 → 跳过 Stage B，直接进入 Stage C</td></tr>
+
+  <tr><td><strong>Stage B — Execute</strong></td>
+
+      <td>按顺序执行每个测试用例。每个用例内部按步骤顺序执行，任何步骤失败导致该用例失败。</td>
+
+      <td>根据 <code>StopOnFirstFailure</code> 配置决定是否继续执行后续用例</td></tr>
+
+  <tr><td><strong>Stage C — Teardown</strong></td>
+
+      <td>清理所有 fixture（断开硬件、释放资源）。即使 Stage B 失败也强制执行。</td>
+
+      <td>Teardown 失败记录到 <code>SetupFailures</code> 列表，不影响测试结果</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">TestSuiteEngine 执行流程（伪代码）</span>async Task&lt;TestSuiteResult&gt; RunAsync(TestSuite suite, IAssertionContext ctx, CancellationToken ct)
+
+{
+
+    var setupFailures = new List&lt;string&gt;();
+
+    // Stage A: Setup
+
+    try { await SetupFixtures(suite, ct); }
+
+    catch (Exception ex) { setupFailures.Add(ex.Message); return EarlyExit(suite, setupFailures); }
+
+
+
+    // Stage B: Execute
+
+    var results = new List&lt;TestCaseResult&gt;();
+
+    foreach (var @case in suite.Cases)
+
+    {
+
+        if (ct.IsCancellationRequested) break;
+
+        var result = await RunTestCase(@case, ctx, ct);
+
+        results.Add(result);
+
+        if (!result.Passed &amp;&amp; suite.Config.StopOnFirstFailure) break;
+
+    }
+
+
+
+    // Stage C: Teardown
+
+    try { await TeardownFixtures(suite, ct); }
+
+    catch (Exception ex) { setupFailures.Add($"Teardown: {ex.Message}"); }
+
+
+
+    return Aggregate(suite, results, setupFailures);
+
+}</code></pre>
+
+
+
+<h3 id="suite-fixtures">5.3 Fixture 机制</h3>
+
+<p>Fixture 是测试的<strong>生命周期管理</strong>机制，用于在测试前后设置和清理环境：</p>
+
+
+
+<table>
+
+  <tr><th>接口</th><th>说明</th></tr>
+
+  <tr><td><code>ITestFixture</code></td><td>Fixture 接口，包含 <code>SetupAsync</code> 和 <code>TeardownAsync</code> 方法</td></tr>
+
+  <tr><td><code>IFixtureResolver</code></td><td>根据 fixture key 解析对应的 <code>ITestFixture</code> 实例</td></tr>
+
+  <tr><td><code>HeadlessFixtureResolver</code></td><td>无头模式下的 fixture 解析器，用于 CLI 运行</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">内置 Fixture 示例</span>// UDS 连接 Fixture
+
+public sealed class UdsConnectionFixture : ITestFixture
+
+{
+
+    public async Task&lt;Result&lt;Unit&gt;&gt; SetupAsync(CancellationToken ct)
+
+    {
+
+        // 建立 UDS 连接，切换到扩展会话
+
+        await _udsClient.DiagnosticSessionControlAsync(0x02, ct);
+
+        return Result.Ok();
+
+    }
+
+
+
+    public async Task&lt;Result&lt;Unit&gt;&gt; TeardownAsync(CancellationToken ct)
+
+    {
+
+        // 切回默认会话
+
+        await _udsClient.DiagnosticSessionControlAsync(0x01, ct);
+
+        return Result.Ok();
+
+    }
+
+}</code></pre>
+
+
+
+<h3 id="suite-runner">5.4 HilRunnerService</h3>
+
+<p><code>HilRunnerService</code> 是 HIL 测试的执行入口，负责将 <code>HilRunRequest</code> 转化为完整的测试执行：</p>
+
+
+
+<pre><code><span class="filename">HilRunnerService 接口</span>public interface IHilRunnerService
+
+{
+
+    Task&lt;TestSuiteResult&gt; RunAsync(
+
+        HilRunRequest request,
+
+        IProgress&lt;TestProgress&gt;? progress = null,
+
+        CancellationToken ct = default);
+
+}</code></pre>
+
+
+
+<p>在 UI 中，HIL 面板调用 <code>HilRunnerService.RunAsync</code> 并订阅 <code>IProgress&lt;TestProgress&gt;</code> 实时更新进度条。</p>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="diff">6. DiffEngine — 差异比较引擎</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p>DiffEngine 用于比较两个帧序列，支持三种粒度。特别适合固件升级前后的回归测试。</p>
+
+
+
+<h3 id="diff-frame">6.1 帧级比较 (Frame Granularity)</h3>
+
+<p>按位置逐帧比较。每个帧的 ID、DLC、数据逐一对比。</p>
+
+
+
+<pre><code><span class="filename">帧级比较</span>var engine = new DiffEngine();  // 无需 DBC
+
+var result = engine.Diff(goldenFrames, actualFrames, new DiffConfig(
+
+    Granularity: DiffGranularity.Frame,       // 帧级
+
+    Alignment:   AlignStrategy.Timestamp,      // 按时间戳对齐
+
+    Tolerance:   new ToleranceSpec(0, 0)       // 零容差（精确匹配）
+
+));
+
+
+
+// 输出:
+
+//   Matched: 142 帧
+
+//   Modified: 3 帧
+
+//   Added: 1 帧
+
+//   Removed: 0 帧</code></pre>
+
+
+
+<h3 id="diff-event">6.2 事件级比较 (Event Granularity)</h3>
+
+<p>基于"事件"（如 DID 读取、DTC 设置等高级语义）进行比较，而非逐帧。</p>
+
+
+
+<pre><code><span class="filename">事件级比较</span>var result = engine.Diff(goldenFrames, actualFrames, new DiffConfig(
+
+    Granularity: DiffGranularity.Event,
+
+    Alignment:   AlignStrategy.NearestNeighbor,  // 最近邻对齐
+
+    Tolerance:   new ToleranceSpec(0.1, 0.05),   // 绝对容差 0.1 + 相对容差 5%
+
+    NeighborWindowMs: 200                        // 200ms 窗口内找最近邻
+
+));</code></pre>
+
+
+
+<h3 id="diff-signal">6.3 信号级比较 (Signal Granularity)</h3>
+
+<p>需要 DBC 文件。按 DBC 解码后的信号物理值进行比较，而非原始字节。这是最语义化的比较方式。</p>
+
+
+
+<pre><code><span class="filename">信号级比较</span>// 需要 DBC 查找服务
+
+var engine = new DiffEngine(dbcLookup);  // 传入 IDbcLookup
+
+var result = engine.Diff(goldenFrames, actualFrames, new DiffConfig(
+
+    Granularity: DiffGranularity.Signal,      // 信号级
+
+    Alignment:   AlignStrategy.Timestamp,
+
+    Tolerance:   new ToleranceSpec(5.0, 0.1)  // 绝对 5.0 + 相对 10%
+
+));
+
+
+
+// 逐信号输出:
+
+//   Engine_RPM: matched=120, modified=2, added=0, removed=0
+
+//   Vehicle_Speed: matched=98, modified=0, added=0, removed=0
+
+//   Coolant_Temp: matched=50, modified=1, added=0, removed=0</code></pre>
+
+
+
+<h3 id="diff-config">6.4 比较配置</h3>
+
+<table>
+
+  <tr><th>配置项</th><th>可选值</th><th>说明</th></tr>
+
+  <tr><td><code>Granularity</code></td><td><code>Frame</code> / <code>Event</code> / <code>Signal</code></td><td>比较粒度</td></tr>
+
+  <tr><td><code>Alignment</code></td><td><code>Timestamp</code> / <code>NearestNeighbor</code> / <code>Index</code></td><td>帧对齐策略</td></tr>
+
+  <tr><td><code>Tolerance</code></td><td><code>ToleranceSpec(double absolute, double relative)</code></td><td>容差配置（绝对 + 相对）</td></tr>
+
+  <tr><td><code>NeighborWindowMs</code></td><td>int（默认 100ms）</td><td>最近邻对齐的搜索窗口</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">容差配置示例</span>// 严格容差：精确匹配
+
+new ToleranceSpec(AbsoluteTolerance: 0, RelativeTolerance: 0)
+
+
+
+// 宽松容差：允许 ±1.0 绝对误差或 ±5% 相对误差
+
+new ToleranceSpec(AbsoluteTolerance: 1.0, RelativeTolerance: 0.05)
+
+
+
+// 只检查相对容差
+
+new ToleranceSpec(AbsoluteTolerance: 0, RelativeTolerance: 0.1)</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="param">7. 参数化测试与 TestCaseGenerator</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p>参数化测试允许定义<strong>测试模板</strong>，然后通过不同的参数组合生成多个测试用例。避免为每个参数组合都写重复的步骤。</p>
+
+
+
+<h3 id="param-template">7.1 模板定义</h3>
+
+
+
+<pre><code><span class="filename">TestCaseTemplate</span>var template = new TestCaseTemplate(
+
+    BaseId: "TC-TEMP-{sensor}",
+
+    NameTemplate: "温度传感器 {{sensor}} — 在 {{temp}}°C 下验证",
+
+    DescriptionTemplate: "验证 {{sensor}} 在 {{temp}}°C 时的输出值",
+
+    Steps: new TemplateStep[]
+
+    {
+
+        new("SendFrame", new Dictionary&lt;string, object&gt;
+
+        {
+
+            ["CanId"] = 0x7DF,
+
+            ["Data"] = new byte[] { 0x22, 0xF1, 0x90 },
+
+        }, label: "发送读 VIN 请求"),
+
+        new("Delay", new Dictionary&lt;string, object&gt;
+
+        {
+
+            ["DelayMs"] = 100,
+
+        }, label: "等待 100ms"),
+
+        new("AssertRange", new Dictionary&lt;string, object&gt;
+
+        {
+
+            ["SignalName"] = "{{sensor}}.Temperature",
+
+            ["Min"] = "{{temp_min}}",
+
+            ["Max"] = "{{temp_max}}",
+
+        }, label: "验证温度在范围内"),
+
+    },
+
+    Tags: new[] { "temperature", "sensor" }
+
+);</code></pre>
+
+
+
+<h3 id="param-gen">7.2 生成测试用例</h3>
+
+
+
+<pre><code><span class="filename">TestCaseGenerator.Generate</span>// 定义参数集
+
+var paramSet = new ParameterSet(new Dictionary&lt;string, object&gt;
+
+{
+
+    ["sensor"]   = "Coolant_Sensor",
+
+    ["temp"]     = 90.0,
+
+    ["temp_min"] = 85.0,
+
+    ["temp_max"] = 95.0,
+
+});
+
+
+
+// 生成测试用例
+
+var testCase = TestCaseGenerator.Generate(template, paramSet);
+
+// 结果:
+
+//   Id: "TC-TEMP-Coolant_Sensor"
+
+//   Name: "温度传感器 Coolant_Sensor — 在 90°C 下验证"
+
+//   步骤 3: AssertRange Coolant_Sensor.Temperature ∈ [85, 95]</code></pre>
+
+
+
+<h3 id="param-example">7.3 完整示例：温度传感器测试</h3>
+
+
+
+<pre><code><span class="filename">批量生成 3 个温度传感器测试用例</span>var template = new TestCaseTemplate(
+
+    BaseId: "TC-TEMP-{probe}",
+
+    NameTemplate: "温度探头 {{probe}} — {{target}}°C 测试",
+
+    DescriptionTemplate: "验证温度探头 {{probe}} 在 {{target}}°C 时的测量精度",
+
+    Steps: new TemplateStep[]
+
+    {
+
+        new("SendFrame", new Dictionary&lt;string, object&gt;
+
+        {
+
+            ["CanId"] = 0x7DF,
+
+            ["Data"]  = new byte[] { 0x22, 0xF1, 0x90 },
+
+        }),
+
+        new("AssertRange", new Dictionary&lt;string, object&gt;
+
+        {
+
+            ["SignalName"] = "{{probe}}.Temperature",
+
+            ["Min"] = "{{X}}",
+
+            ["Max"] = "{{Y}}",
+
+        }),
+
+    },
+
+    Tags: new[] { "temperature", "probe" }
+
+);
+
+
+
+// 三个参数组合
+
+var paramSets = new[]
+
+{
+
+    new ParameterSet(new() { ["probe"] = "Coolant", ["target"] = 90,  ["X"] = 85,  ["Y"] = 95  }),
+
+    new ParameterSet(new() { ["probe"] = "Oil",     ["target"] = 110, ["X"] = 105, ["Y"] = 115 }),
+
+    new ParameterSet(new() { ["probe"] = "Ambient", ["target"] = 25,  ["X"] = 22,  ["Y"] = 28  }),
+
+};
+
+
+
+var cases = paramSets.Select(p => TestCaseGenerator.Generate(template, p)).ToList();
+
+// 3 个用例: TC-TEMP-Coolant, TC-TEMP-Oil, TC-TEMP-Ambient</code></pre>
+
+
+
+<blockquote class="tip">
+
+<strong>提示：</strong>参数化测试特别适合以下场景：
+
+<ul>
+
+  <li>多传感器验证（温度、压力、电压等）</li>
+
+  <li>多 ECU 节点测试（相同步骤，不同 CAN ID）</li>
+
+  <li>边界值测试（最小值、最大值、中间值）</li>
+
+  <li>跨版本回归测试（相同测试用例在不同固件版本上运行）</li>
+
+</ul>
+
+</blockquote>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="trace-driven">8. TraceDrivenChannel — 基于录制数据的回放测试</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p><strong>TraceDrivenChannel</strong> 是 HIL 框架中的特殊通道，基于已录制的 <code>.asc</code> 或 <code>.blf</code> 文件驱动测试，<strong>不需要真实硬件</strong>即可运行 HIL 测试。</p>
+
+
+
+<p>这在以下场景非常有用：</p>
+
+<ul>
+
+  <li><strong>离线开发</strong>：在无硬件环境下调试测试用例</li>
+
+  <li><strong>回归测试</strong>：用历史录制数据验证新版本 ECU 行为</li>
+
+  <li><strong>CI 环境</strong>：在无硬件的 CI 服务器上运行测试（使用录制数据）</li>
+
+</ul>
+
+
+
+<pre><code><span class="filename">使用 TraceDrivenChannel（伪代码）</span>// 创建 TraceDrivenChannel，加载录制文件
+
+var channel = new TraceDrivenChannel("recordings/engine_startup.asc");
+
+
+
+// 注册到 HIL 上下文
+
+var ctx = new HilAssertionContext(channel, dbcLookup);
+
+
+
+// 运行测试 — 回放录制帧，测试引擎检查帧序列
+
+var result = await runner.RunAsync(suite, ctx, ct);
+
+// 结果:
+
+//   用例 "发动机启动时序验证": ✅ 通过
+
+//   用例 "怠速转速范围":      ✅ 通过
+
+//   用例 "水温上升趋势":      ✅ 通过</code></pre>
+
+
+
+<blockquote class="warn">
+
+<strong>注意：</strong>TraceDrivenChannel 是<strong>只读</strong>回放通道。SendFrame 等写入操作在此通道上会返回失败结果。如需写入总线，请使用真实硬件通道。
+
+</blockquote>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="cli">9. CLI Runner — 无头自动化测试</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p>CLI Runner 允许在无人值守环境中运行 HIL 测试，适合集成到 CI/CD 管道。</p>
+
+
+
+<h3 id="cli-usage">9.1 命令行用法</h3>
+
+
+
+<pre><code><span class="filename">基本用法</span># 运行 HIL 测试套件
+
+peakcan-hil --dbc engine_v3.dbc --suite hil-tests/smoke.json
+
+
+
+# 指定录制文件（TraceDrivenChannel 模式，无需硬件）
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/smoke.json \
+
+            --trace recordings/engine_startup.asc
+
+
+
+# 指定硬件通道
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/uds-smoke.json \
+
+            --channel USB1
+
+
+
+# 输出为 JUnit XML 格式
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/smoke.json \
+
+            --format junit \
+
+            --output results.xml</code></pre>
+
+
+
+<h3 id="cli-request">9.2 HilRunRequest 配置</h3>
+
+<p>CLI 参数映射到 <code>HilRunRequest</code> 数据结构：</p>
+
+
+
+<table>
+
+  <tr><th>CLI 参数</th><th>HilRunRequest 字段</th><th>说明</th></tr>
+
+  <tr><td><code>--dbc</code></td><td><code>DbcPath</code></td><td>DBC 文件路径</td></tr>
+
+  <tr><td><code>--suite</code></td><td><code>SuitePath</code></td><td>测试套件 JSON 文件路径</td></tr>
+
+  <tr><td><code>--trace</code></td><td><code>TracePath</code></td><td>录制文件路径（可选，无硬件模式）</td></tr>
+
+  <tr><td><code>--channel</code></td><td><code>HardwareChannel</code></td><td>硬件通道名（可选，缺省自动探测）</td></tr>
+
+  <tr><td><code>--format</code></td><td><code>Format</code></td><td>输出格式：<code>console</code> / <code>junit</code> / <code>json</code></td></tr>
+
+  <tr><td><code>--uds-req-id</code></td><td><code>UdsRequestId</code></td><td>UDS 请求 CAN ID（默认 0x7DF）</td></tr>
+
+  <tr><td><code>--uds-resp-id</code></td><td><code>UdsResponseId</code></td><td>UDS 响应 CAN ID（默认 0x7E8）</td></tr>
+
+</table>
+
+
+
+<pre><code><span class="filename">HilRunRequest 数据结构</span>public sealed record HilRunRequest(
+
+    string DbcPath,
+
+    string SuitePath,
+
+    string? TracePath = null,
+
+    string? HardwareChannel = null,
+
+    string Format = "console",
+
+    uint UdsRequestId = 0x7DF,
+
+    uint UdsResponseId = 0x7E8);</code></pre>
+
+
+
+<h3 id="cli-ci">9.3 CI 集成</h3>
+
+
+
+<p>将 HIL 测试集成到 CI 管道中：</p>
+
+
+
+<pre><code><span class="filename">GitHub Actions 示例</span># .github/workflows/hil-tests.yml
+
+name: HIL Tests
+
+on: [push, pull_request]
+
+
+
+jobs:
+
+  hil:
+
+    runs-on: [self-hosted, windows, x64]
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+
+
+      - name: Run HIL Smoke Tests
+
+        run: |
+
+          peakcan-hil ^
+
+            --dbc tests/fixtures/engine_v3.dbc ^
+
+            --suite tests/hil/smoke.json ^
+
+            --format junit ^
+
+            --output test-results/hil-results.xml ^
+
+            --channel USB1
+
+
+
+      - name: Upload Test Results
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: hil-test-results
+
+          path: test-results/
+
+
+
+      - name: Publish Test Report
+
+        uses: dorny/test-reporter@v1
+
+        if: success() || failure()
+
+        with:
+
+          name: HIL Test Report
+
+          path: test-results/hil-results.xml
+
+          reporter: java-junit</code></pre>
+
+
+
+<pre><code><span class="filename">无硬件 CI 模式（使用 TraceDrivenChannel）</span># 在普通 CI runner 上运行（无 PCAN 硬件）
+
+peakcan-hil ^
+
+  --dbc tests/fixtures/engine_v3.dbc ^
+
+  --suite tests/hil/smoke.json ^
+
+  --trace recordings/engine_startup.asc ^
+
+  --format junit ^
+
+  --output test-results/hil-results.xml</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="examples">10. 综合实战场景</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="ex-uds">10.1 场景 1：UDS 诊断流程测试</h3>
+
+<p>完整的 UDS 诊断流程测试，模拟诊断仪器的标准操作：</p>
+
+
+
+<pre><code><span class="filename">UDS 诊断全流程测试套件</span>var suite = new TestSuite(
+
+    Name: "UDS Diagnostic Full Flow",
+
+    Cases: new TestCase[]
+
+    {
+
+        new("TC-UDS-001", "读取 VIN",
+
+            "验证 ECU 正确返回 VIN 码",
+
+            null, new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x22, 0xF1, 0x90]),
+
+                    label: "发送 0x22 F1 90（读 VIN）"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x62, 0xF1, 0x90]),
+
+                    label: "等待 0x62 F1 90 + 数据"),
+
+            }, null, new[] { "uds", "vin" }, 3000),
+
+
+
+        new("TC-UDS-002", "安全访问解锁",
+
+            "验证 SecurityAccess 流程（请求种子 → 计算密钥 → 发送密钥）",
+
+            "ECU 需支持 SecurityAccess Level 1", new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new CommentParams("步骤 1: 请求种子"),
+
+                    label: "请求 27 01"),
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x27, 0x01]),
+
+                    label: "发送 SecurityAccess RequestSeed"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x67, 0x01]),
+
+                    label: "等待种子响应 (67 01 + 4 字节种子)"),
+
+                TestCaseStep.Create(new AssertResponseTimeParams(0x7DF, 0x7E8, 50),
+
+                    label: "种子响应应在 50ms 内"),
+
+                TestCaseStep.Create(new CommentParams("步骤 2: 发送密钥（由 IKeyDerivationAlgorithm 计算）"),
+
+                    label: "发送 27 02 + 密钥"),
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x27, 0x02, 0xAA, 0xBB, 0xCC, 0xDD]),
+
+                    label: "发送 SecurityAccess SendKey"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x67, 0x02]),
+
+                    label: "等待安全访问成功响应"),
+
+            }, null, new[] { "uds", "security" }, 5000),
+
+
+
+        new("TC-UDS-003", "读取并清除 DTC",
+
+            "验证 DTC 读取和清除功能", null, new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x19, 0x02, 0xFF]),
+
+                    label: "发送 0x19 02 FF（读 DTC）"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x59, 0x02]),
+
+                    label: "等待 DTC 响应"),
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x14, 0xFF, 0xFF, 0xFF]),
+
+                    label: "发送 0x14 FF FF FF（清除 DTC）"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x7E8, [0x54]),
+
+                    label: "等待清除确认"),
+
+            }, null, new[] { "uds", "dtc" }, 5000),
+
+
+
+        new("TC-UDS-004", "NRC 拒绝测试",
+
+            "验证 ECU 拒绝 Default 会话下的 0x2E 写入请求（应返回 NRC 0x7F）",
+
+            "ECU 在 Default 会话下不应允许写 DID", new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new SendFrameParams(0x7DF, [0x2E, 0xF1, 0x90, 0x00]),
+
+                    label: "在 Default 会话下尝试写 VIN"),
+
+                TestCaseStep.Create(new AssertNrcParams(0x7F, 1000),
+
+                    label: "验证收到 NRC 0x7F (serviceNotSupportedInActiveSession)"),
+
+            }, null, new[] { "uds", "negative" }, 3000),
+
+    },
+
+    GlobalCaseFixtureKeys: new[] { "uds-connection" },
+
+    SuiteFixtureKeys: new[] { "hil-hardware" },
+
+    Config: new TestSuiteConfig(
+
+        StopOnFirstFailure: false,
+
+        ParallelExecution:  false,
+
+        FixtureTimeoutMs:   10000,
+
+        CaseTimeoutMs:      5000
+
+    )
+
+);
+
+
+
+// 预期结果:
+
+//   TC-UDS-001 读取 VIN:          ✅ 通过
+
+//   TC-UDS-002 安全访问解锁:      ✅ 通过
+
+//   TC-UDS-003 读取并清除 DTC:    ✅ 通过
+
+//   TC-UDS-004 NRC 拒绝测试:      ✅ 通过
+
+//   ----------------------------------------
+
+//   通过率: 4/4 (100%)</code></pre>
+
+
+
+<h3 id="ex-signal">10.2 场景 2：信号值变化趋势验证</h3>
+
+<p>验证 ECU 在特定激励下信号值的变化趋势是否符合预期：</p>
+
+
+
+<pre><code><span class="filename">发动机转速响应测试</span>var suite = new TestSuite(
+
+    Name: "Engine RPM Response Test",
+
+    Cases: new TestCase[]
+
+    {
+
+        new("TC-RPM-001", "怠速转速验证",
+
+            "发动机启动后，怠速转速应在 700-900 rpm 范围内",
+
+            null, new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new DelayParams(3000),
+
+                    label: "等待发动机启动稳定"),
+
+                TestCaseStep.Create(new AssertRangeParams(
+
+                    "Engine_State.Engine_RPM", 700, 900),
+
+                    label: "怠速转速应在 700-900 rpm"),
+
+            }, null, new[] { "engine", "rpm" }, 10000)
+
+
+
+        new("TC-RPM-002", "加速响应测试",
+
+            "发送油门踏板信号后，发动机转速应在 2s 内达到 3000 rpm",
+
+            null, new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new SendFrameParams(0x200, [0x00, 0x50]),
+
+                    label: "发送油门踏板 50% 开度"),
+
+                TestCaseStep.Create(new WaitForSignalParams(
+
+                    "Engine_State.Engine_RPM", 3000.0, 100.0, 5000),
+
+                    label: "等待转速达到 3000 rpm"),
+
+                TestCaseStep.Create(new AssertResponseTimeParams(
+
+                    0x200, 0x100, 2000),
+
+                    label: "响应时间应在 2s 内"),
+
+            }, null, new[] { "engine", "rpm", "response" }, 10000)
+
+    },
+
+    // ...
+
+);</code></pre>
+
+
+
+<h3 id="ex-regression">10.3 场景 3：回归测试 — DiffEngine</h3>
+
+<p>固件升级后，用 DiffEngine 比较升级前后的帧序列，快速发现行为差异：</p>
+
+
+
+<pre><code><span class="filename">固件升级回归测试</span>// 步骤 1: 运行相同的激励序列，录制两次
+
+//   golden.asc  = 固件 v1.0 下的响应
+
+//   actual.asc  = 固件 v2.0 下的响应
+
+
+
+// 步骤 2: 用 DiffEngine 比较
+
+var engine = new DiffEngine(dbcLookup);
+
+var result = engine.Diff(goldenFrames, actualFrames, new DiffConfig(
+
+    Granularity: DiffGranularity.Signal,
+
+    Alignment:   AlignStrategy.Timestamp,
+
+    Tolerance:   new ToleranceSpec(2.0, 0.05)  // ±2 或 ±5%
+
+));
+
+
+
+// 步骤 3: 分析差异
+
+//   DiffResult:
+
+//     Matched:   523 帧 (98.5%)  ✅
+
+//     Modified:  5 帧  (0.9%)   ⚠️ 需要人工审查
+
+//     Added:     3 帧  (0.6%)   ⚠️ 新行为
+
+//     Removed:   0 帧  (0.0%)   ✅
+
+//     ---
+
+//     修改的信号: Engine_RPM (2 处), Coolant_Temp (3 处)
+
+//             新帧: 0x180 (J1939 新消息)</code></pre>
+
+
+
+<h3 id="ex-multi">10.4 场景 4：多 ECU 矩阵测试</h3>
+
+<p>多个 ECU 同时在线时的交互测试（v3.63.0 支持单 ECU，多 ECU 矩阵规划中）：</p>
+
+
+
+<pre><code><span class="filename">多 ECU 间信号交互验证</span>// 场景: 网关转发测试
+
+//   ECU-A (0x100) 发送 Engine_RPM
+
+//   ECU-B (0x200) 应转发到另一条总线
+
+//   通过 HIL 测试观察 ECU-B 的输出
+
+
+
+var suite = new TestSuite(
+
+    Name: "Multi-ECU Gateway Test",
+
+    Cases: new TestCase[]
+
+    {
+
+        new("TC-GW-001", "CAN 信号转发延迟",
+
+            "验证网关 ECU 转发信号的延迟在 50ms 内",
+
+            null, new TestCaseStep[]
+
+            {
+
+                TestCaseStep.Create(new SendFrameParams(0x100, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+
+                    label: "ECU-A 发送 Engine_RPM 信号"),
+
+                TestCaseStep.Create(new ExpectFrameParams(0x200, null, 100),
+
+                    label: "ECU-B 应在 100ms 内转发"),
+
+                TestCaseStep.Create(new AssertResponseTimeParams(0x100, 0x200, 50),
+
+                    label: "转发延迟应在 50ms 内"),
+
+            }, null, new[] { "gateway", "latency" }, 5000)
+
+    },
+
+    // ...
+
+);</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="results">11. 测试结果解读</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="results-struct">11.1 结果数据结构</h3>
+
+
+
+<pre><code><span class="filename">TestSuiteResult</span>public sealed record TestSuiteResult(
+
+    string SuiteName,           // 套件名称
+
+    int TotalCases,             // 总用例数
+
+    int PassedCases,            // 通过数
+
+    int FailedCases,            // 失败数
+
+    int SkippedCases,           // 跳过数
+
+    int ElapsedMs,              // 执行耗时（毫秒）
+
+    IReadOnlyList&lt;string&gt; SetupFailures,  // fixture 设置失败列表
+
+    IReadOnlyList&lt;TestCaseResult&gt; CaseResults  // 每个用例的详细结果
+
+)
+
+{
+
+    public double PassRate =&gt; ...;      // 通过率 (0.0 - 1.0)
+
+    public bool AllPassed =&gt; ...;       // 是否全部通过
+
+}
+
+
+
+<span class="filename">TestCaseResult</span>public sealed record TestCaseResult(
+
+    string TestCaseId,          // 用例 ID
+
+    string TestCaseName,        // 用例名称
+
+    bool Passed,                // 是否通过
+
+    string? FailureReason,      // 失败原因
+
+    int ElapsedMs,              // 执行耗时（毫秒）
+
+    int TotalSteps,             // 总步骤数（不含 Comment）
+
+    int PassedSteps,            // 通过步骤数
+
+    int FailedSteps,            // 失败步骤数
+
+    int SkippedSteps,           // 跳过步骤数
+
+    int CommentSteps,           // 注释步骤数
+
+    IReadOnlyList&lt;StepResult&gt; StepResults  // 每个步骤的详细结果
+
+)
+
+
+
+<span class="filename">StepResult</span>public sealed record StepResult(
+
+    TestCaseStepKind Kind,      // 步骤类型
+
+    string? Label,              // 步骤标签
+
+    StepStatus Status,          // 状态: Passed / Failed / Skipped / Comment
+
+    string? Message,            // 结果消息
+
+    int ElapsedMs               // 步骤耗时（毫秒）
+
+)</code></pre>
+
+
+
+<h3 id="results-junit">11.2 JUnit XML 输出</h3>
+
+<p>CI 模式下，测试结果以 JUnit XML 格式输出，可被 Jenkins、GitHub Actions 等工具解析：</p>
+
+
+
+<pre><code><span class="filename">JUnit XML 输出示例</span>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+
+&lt;testsuite name="UDS Diagnostic Full Flow"
+
+           tests="4" failures="0" errors="0" skipped="0"
+
+           time="3.452"&gt;
+
+  &lt;testcase name="TC-UDS-001 读取 VIN"
+
+            classname="HIL.UDS" time="0.521"&gt;
+
+    &lt;system-out&gt;Passed in 521ms (3 steps, 3 passed)&lt;/system-out&gt;
+
+  &lt;/testcase&gt;
+
+  &lt;testcase name="TC-UDS-002 安全访问解锁"
+
+            classname="HIL.UDS" time="1.233"&gt;
+
+    &lt;system-out&gt;Passed in 1233ms (7 steps, 7 passed)&lt;/system-out&gt;
+
+  &lt;/testcase&gt;
+
+  &lt;testcase name="TC-UDS-003 读取并清除 DTC"
+
+            classname="HIL.UDS" time="0.845"&gt;
+
+    &lt;system-out&gt;Passed in 845ms (4 steps, 4 passed)&lt;/system-out&gt;
+
+  &lt;/testcase&gt;
+
+  &lt;testcase name="TC-UDS-004 NRC 拒绝测试"
+
+            classname="HIL.UDS" time="0.853"&gt;
+
+    &lt;system-out&gt;Passed in 853ms (2 steps, 2 passed)&lt;/system-out&gt;
+
+  &lt;/testcase&gt;
+
+  &lt;system-out&gt;
+
+    All 4 cases passed. Pass rate: 100.0%
+
+  &lt;/system-out&gt;
+
+&lt;/testsuite&gt;</code></pre>
+
+
+
+<h3 id="results-progress">11.3 实时进度报告</h3>
+
+<p>测试执行期间，通过 <code>IProgress&lt;TestProgress&gt;</code> 实时报告进度：</p>
+
+
+
+<table>
+
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+
+  <tr><td><code>CompletedCases</code></td><td><code>int</code></td><td>已完成的用例数</td></tr>
+
+  <tr><td><code>TotalCases</code></td><td><code>int</code></td><td>总用例数</td></tr>
+
+  <tr><td><code>CurrentCaseName</code></td><td><code>string?</code></td><td>当前正在执行的用例名称</td></tr>
+
+  <tr><td><code>Message</code></td><td><code>string?</code></td><td>当前进度消息</td></tr>
+
+  <tr><td><code>PercentComplete</code></td><td><code>double</code></td><td>计算属性：已完成百分比</td></tr>
+
+</table>
+
+
+
+<p>在 HIL UI 面板中，进度条和状态文本实时反映测试进度：</p>
+
+
+
+<div class="result-grid">
+
+  <span class="label">进度</span>  <span class="value">████████░░░░ 50% （2/4 已完成）</span>
+
+  <span class="label">当前用例</span>  <span class="value">TC-UDS-003 读取并清除 DTC</span>
+
+  <span class="label">当前步骤</span>  <span class="value">步骤 3/4: 发送 0x14 FF FF FF（清除 DTC）</span>
+
+  <span class="label">已用时间</span>  <span class="value">2.1s / 预期 60s</span>
+
+</div>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="ref">12. API 参考</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3>核心命名空间</h3>
+
+<table>
+
+  <tr><th>命名空间</th><th>说明</th></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL</code></td><td>核心数据模型（TestCase、TestSuite、枚举等）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Assertions</code></td><td>断言原语（AssertionPrimitives、AssertionResult）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Contracts</code></td><td>断言上下文接口（IAssertionContext、IDbcLookup 等）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Diff</code></td><td>差异比较引擎（DiffEngine、DiffConfig 等）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Parameterization</code></td><td>参数化测试（TestCaseGenerator、TestCaseTemplate）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Progress</code></td><td>实时进度报告（TestProgress）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Serialization</code></td><td>JSON 序列化选项（HILJsonOptions）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Setup</code></td><td>Fixture 接口（IFixtureResolver、ITestFixture）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.StepExecutor</code></td><td>步骤执行器（IStepExecutor 及 11 种实现）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Infrastructure.HIL</code></td><td>HIL 基础设施（HilRunnerService、HeadlessHostBuilder 等）</td></tr>
+
+</table>
+
+
+
+<h3>关键接口速查</h3>
+
+<table>
+
+  <tr><th>接口 / 类型</th><th>方法 / 属性</th><th>说明</th></tr>
+
+  <tr><td><code>IAssertionContext</code></td><td><code>SubscribeDecodedFrames(onFrame)</code></td><td>订阅解码帧流</td></tr>
+
+  <tr><td></td><td><code>GetSignalValue(name, maxAgeMs)</code></td><td>获取信号当前值</td></tr>
+
+  <tr><td></td><td><code>SendFrameAsync(frame, ct)</code></td><td>发送帧到总线</td></tr>
+
+  <tr><td></td><td><code>CurrentTimestamp</code></td><td>当前时间戳（微秒）</td></tr>
+
+  <tr><td><code>AssertionPrimitives</code></td><td><code>WaitForSignalAsync(name, expected, tolerance, ct)</code></td><td>等待信号达到值</td></tr>
+
+  <tr><td></td><td><code>AssertSignal(name, expected, tolerance)</code></td><td>断言信号值</td></tr>
+
+  <tr><td></td><td><code>AssertRange(name, min, max)</code></td><td>断言信号范围</td></tr>
+
+  <tr><td></td><td><code>WaitForFrameAsync(id, mask, timeoutMs, ct)</code></td><td>等待期望帧</td></tr>
+
+  <tr><td><code>IDiffEngine</code></td><td><code>Diff(golden, actual, config)</code></td><td>比较两个帧序列</td></tr>
+
+  <tr><td><code>IHilRunnerService</code></td><td><code>RunAsync(request, progress, ct)</code></td><td>运行测试套件</td></tr>
+
+  <tr><td><code>TestCaseGenerator</code></td><td><code>Generate(template, parameters)</code></td><td>从模板生成测试用例</td></tr>
+
+  <tr><td><code>IStepExecutor</code></td><td><code>ExecuteAsync(step, ctx, ct)</code></td><td>执行单个测试步骤</td></tr>
+
+</table>
+
+
+
+<h3>StepParameters 子类速查</h3>
+
+<table>
+
+  <tr><th>步骤类型</th><th>StepParameters 子类</th><th>关键参数</th></tr>
+
+  <tr><td><code>SendFrame</code></td><td><code>SendFrameParams</code></td><td><code>CanId</code>, <code>Data</code>, <code>IsExtended</code>, <code>IsFd</code></td></tr>
+
+  <tr><td><code>SendSequence</code></td><td><code>SendSequenceParams</code></td><td><code>Frames</code>, <code>IntervalMs</code></td></tr>
+
+  <tr><td><code>ExpectFrame</code></td><td><code>ExpectFrameParams</code></td><td><code>ExpectedId</code>, <code>DataMask</code>, <code>TimeoutMs</code></td></tr>
+
+  <tr><td><code>WaitForSignal</code></td><td><code>WaitForSignalParams</code></td><td><code>SignalName</code>, <code>ExpectedValue</code>, <code>Tolerance</code>, <code>TimeoutMs</code></td></tr>
+
+  <tr><td><code>AssertSignal</code></td><td><code>AssertSignalParams</code></td><td><code>SignalName</code>, <code>ExpectedValue</code>, <code>Tolerance</code></td></tr>
+
+  <tr><td><code>AssertRange</code></td><td><code>AssertRangeParams</code></td><td><code>SignalName</code>, <code>Min</code>, <code>Max</code></td></tr>
+
+  <tr><td><code>AssertDtc</code></td><td><code>AssertDtcParams</code></td><td><code>DtcCode</code>, <code>AssertPresent</code>, <code>TimeoutMs</code></td></tr>
+
+  <tr><td><code>AssertNrc</code></td><td><code>AssertNrcParams</code></td><td><code>ExpectedNrc</code>, <code>TimeoutMs</code></td></tr>
+
+  <tr><td><code>AssertResponseTime</code></td><td><code>AssertResponseTimeParams</code></td><td><code>RequestId</code>, <code>ResponseId</code>, <code>MaxResponseTimeMs</code></td></tr>
+
+  <tr><td><code>Delay</code></td><td><code>DelayParams</code></td><td><code>DelayMs</code></td></tr>
+
+  <tr><td><code>Comment</code></td><td><code>CommentParams</code></td><td><code>Text</code></td></tr>
+
+</table>
+
+
+
+<blockquote class="tip">
+
+<strong>提示：</strong>所有 <code>StepParameters</code> 子类均通过 <code>StepParametersFactory.Create(kind, parameters)</code> 工厂方法创建，保证 <code>Kind</code> 与参数类型的一致性。
+
+</blockquote>
+
+
+
+<footer>
+
+  PeakCan Host v3.63.0 — HIL 硬件在环测试指南 · 更新于 2026-07-30 ·
+
+  与 <code>docs/user-manual.html</code> 同步 ·
+
+  报告问题请附当日 Serilog 日志
+
+</footer>
+
+
+
+</div>
+
+</body>
+
+</html>
