@@ -12,7 +12,9 @@ public sealed record CliArgs(
     // Stage B additions:
     string? HardwareChannel = null,  // e.g. "USB1" — if set, use real hardware
     uint UdsRequestId = 0x7DF,
-    uint UdsResponseId = 0x7E8);
+    uint UdsResponseId = 0x7E8,
+    // Phase 3 Sprint 4 additions:
+    string? EcuScriptPath = null);  // ECU simulator script JSON path
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -22,7 +24,7 @@ public static class CliArgsParser
     public static CliArgs Parse(string[] args)
     {
         string? dbc = null, trace = null, suite = null, output = null, format = "console";
-        string? hw = null;
+        string? hw = null, ecu = null;
         uint udsReq = 0x7DF, udsResp = 0x7E8;
 
         for (int i = 0; i < args.Length; i++)
@@ -35,6 +37,7 @@ public static class CliArgsParser
                 case "--output": output = args[++i]; break;
                 case "--format": format = args[++i]; break;
                 case "--hw": hw = args[++i]; break;
+                case "--ecu": ecu = args[++i]; break;
                 case "--uds-req": udsReq = ParseUdsId(args[++i]); break;
                 case "--uds-resp": udsResp = ParseUdsId(args[++i]); break;
                 case "--help":
@@ -47,12 +50,14 @@ public static class CliArgsParser
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
         if (suite is null) throw new ArgumentException("Missing required --suite argument.");
-        if (trace is null && hw is null)
-            throw new ArgumentException("Must specify --trace or --hw.");
+        if (trace is null && hw is null && ecu is null)
+            throw new ArgumentException("Must specify --trace, --hw, or --ecu.");
         if (trace is not null && hw is not null)
             throw new ArgumentException("Cannot use --trace and --hw simultaneously.");
+        if (ecu is not null && hw is not null)
+            throw new ArgumentException("Cannot use --ecu and --hw simultaneously.");
 
-        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp);
+        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu);
     }
 
     /// <summary>

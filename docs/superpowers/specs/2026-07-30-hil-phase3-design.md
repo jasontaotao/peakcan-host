@@ -587,7 +587,7 @@ private static void RegisterVirtualEcuMode(HostApplicationBuilder builder, CliAr
         builder.Services.AddSingleton(sp =>
         {
             var channel = sp.GetRequiredService<ICanChannel>();
-            var logger = sp.GetService<ILogger<TraceInjector>>();
+            var logger = sp.GetService<ILoggerFactory>()?.CreateLogger("TraceInjector");
             // 后台启动 trace 注入（fire-and-forget，进程退出时自然终止）
             _ = TraceInjector.InjectTraceFramesAsync(channel, args.TracePath, logger);
             return true; // 仅用于 DI 占位

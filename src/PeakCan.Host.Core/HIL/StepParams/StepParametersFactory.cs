@@ -66,6 +66,22 @@ public static class StepParametersFactory
 
         TestCaseStepKind.Comment => new CommentStep((string)p["Text"]),
 
+        TestCaseStepKind.InjectFault => new InjectFaultStep(
+            new CanId(
+                Convert.ToUInt32(StripHexPrefix((string)p["CanId"]), 16),
+                (bool)p["Extended"] ? FrameFormat.Extended : FrameFormat.Standard),
+            Enum.Parse<Contracts.FaultType>((string)p["FaultType"], ignoreCase: true),
+            p.TryGetValue("Probability", out var prob) ? Convert.ToDouble(prob) : 1.0,
+            p.TryGetValue("DelayMs", out var delay) ? Convert.ToInt32(delay) : 0,
+            p.TryGetValue("CorruptByteIndices", out var indices)
+                ? ((IEnumerable<object>)indices).Select(o => Convert.ToInt32(o)).ToArray() : null,
+            p.TryGetValue("CorruptXorMask", out var mask)
+                ? Convert.ToByte(StripHexPrefix((string)mask), 16) : (byte)0xFF,
+            p.TryGetValue("FaultId", out var fid) ? (string?)fid : null),
+
+        TestCaseStepKind.ClearFault => new ClearFaultStep(
+            p.TryGetValue("FaultId", out var clearFid) ? (string?)clearFid : null),
+
         _ => throw new ArgumentException($"Unknown step kind: {kind}", nameof(kind)),
     };
 }

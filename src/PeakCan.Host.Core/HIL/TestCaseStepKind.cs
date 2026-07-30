@@ -16,4 +16,6 @@ public enum TestCaseStepKind
     AssertResponseTime,
     Delay,
     Comment,
+    InjectFault,    // Phase 3 Sprint 5
+    ClearFault,     // Phase 3 Sprint 5
 }

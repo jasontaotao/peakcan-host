@@ -18,5 +18,7 @@ namespace PeakCan.Host.Core.HIL;
 [JsonDerivedType(typeof(AssertNrcStep), "assertNrc")]
 [JsonDerivedType(typeof(DelayStep), "delay")]
 [JsonDerivedType(typeof(CommentStep), "comment")]
+[JsonDerivedType(typeof(InjectFaultStep), "injectFault")]
+[JsonDerivedType(typeof(ClearFaultStep), "clearFault")]
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$kind")]
 public abstract record StepParameters(TestCaseStepKind Kind);

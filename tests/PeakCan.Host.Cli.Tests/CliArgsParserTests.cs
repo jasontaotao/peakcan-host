@@ -34,10 +34,10 @@ public class CliArgsParserTests
     }
 
     [Fact]
-    public void Parse_NeitherHwNorTrace_Throws()
+    public void Parse_NeitherHwNorTraceNorEcu_Throws()
     {
         var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(_baseArgs));
-        Assert.Contains("Must specify --trace or --hw", ex.Message);
+        Assert.Contains("Must specify --trace, --hw, or --ecu", ex.Message);
     }
 
     [Fact]
@@ -52,5 +52,31 @@ public class CliArgsParserTests
     {
         var cli = CliArgsParser.Parse(With("--hw", "USB1", "--uds-req", "2015"));
         Assert.Equal(0x7DFu, cli.UdsRequestId); // 2015 decimal = 0x7DF hex
+    }
+
+    // --- Phase 3: --ecu flag tests ---
+
+    [Fact]
+    public void Parse_EcuFlag_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--ecu", "bms_sim.json"));
+        Assert.Equal("bms_sim.json", cli.EcuScriptPath);
+        Assert.Null(cli.HardwareChannel);
+        Assert.Null(cli.TracePath);
+    }
+
+    [Fact]
+    public void Parse_EcuAndHw_AreMutuallyExclusive()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            CliArgsParser.Parse(With("--ecu", "bms_sim.json", "--hw", "USB1")));
+        Assert.Contains("Cannot use --ecu and --hw", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_EcuDefaultsNull()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1"));
+        Assert.Null(cli.EcuScriptPath);
     }
 }
