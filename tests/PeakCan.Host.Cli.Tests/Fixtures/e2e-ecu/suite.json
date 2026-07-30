@@ -1,0 +1,78 @@
+{
+  "name": "EcuSimulatorSmokeSuite",
+  "cases": [
+    {
+      "id": "case_3e",
+      "name": "TesterPresent_0x3E",
+      "description": "Send TesterPresent request, expect positive response 0x7E",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2016, "format": "Standard", "type": "Data" },
+            "data": [2, 62, 0]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2024, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 126],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    },
+    {
+      "id": "case_22",
+      "name": "ReadDataByIdentifier_0x22",
+      "description": "Read DID 0xF190, expect positive response with DID echo",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2016, "format": "Standard", "type": "Data" },
+            "data": [3, 34, 241, 144]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2024, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 98, 241, 144, 0, 0],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    },
+    {
+      "id": "case_19",
+      "name": "ReadDTC_0x19",
+      "description": "Read DTC (subFunction 0x02), expect response",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2016, "format": "Standard", "type": "Data" },
+            "data": [3, 25, 2, 0]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2024, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 89, 2, 8, 0],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}

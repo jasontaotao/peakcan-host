@@ -1,0 +1,78 @@
+{
+  "name": "MultiEcuMatrixSuite",
+  "cases": [
+    {
+      "id": "bms_3e",
+      "name": "BMS_TesterPresent",
+      "description": "Send TesterPresent to BMS (0x7E0->0x7E8), expect response",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2016, "format": "Standard", "type": "Data" },
+            "data": [2, 62, 0]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2024, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 126],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    },
+    {
+      "id": "mcu_3e",
+      "name": "MCU_TesterPresent",
+      "description": "Send TesterPresent to MCU (0x7E1->0x7E9), expect response",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2017, "format": "Standard", "type": "Data" },
+            "data": [2, 62, 0]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2025, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 126],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    },
+    {
+      "id": "bms_vin",
+      "name": "BMS_ReadVIN",
+      "description": "Read VIN from BMS, expect 8-byte payload",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "sendFrame",
+            "id": { "raw": 2016, "format": "Standard", "type": "Data" },
+            "data": [3, 34, 241, 144]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": { "raw": 2024, "format": "Standard", "type": "Data" },
+            "dataMask": [0, 98, 241, 144, 0, 0],
+            "timeoutMs": 2000
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}

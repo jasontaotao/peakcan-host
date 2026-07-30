@@ -1,0 +1,7 @@
+{
+  "name": "PowertrainMatrix",
+  "ecus": [
+    { "scriptPath": "bms_sim.json" },
+    { "scriptPath": "mcu_sim.json" }
+  ]
+}

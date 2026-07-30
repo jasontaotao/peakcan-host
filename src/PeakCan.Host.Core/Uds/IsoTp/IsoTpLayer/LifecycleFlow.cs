@@ -16,13 +16,15 @@ public sealed partial class IsoTpLayer
     /// <summary>Create a new ISO-TP layer.</summary>
     /// <param name="config">CAN ID configuration for request/response.</param>
     /// <param name="sendFrame">Callback to send a CAN frame.</param>
-    public IsoTpLayer(CanIdConfig config, Action<CanFrame> sendFrame)
+    /// <param name="txCanId">CAN ID for transmitted frames. Defaults to config.RequestId. For ECU simulators, set to config.ResponseId.</param>
+    public IsoTpLayer(CanIdConfig config, Action<CanFrame> sendFrame, uint? txCanId = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(sendFrame);
 
         _config = config;
         _sendFrame = sendFrame;
+        _txCanId = txCanId ?? config.RequestId;
     }
 
     /// <summary>
@@ -36,7 +38,8 @@ public sealed partial class IsoTpLayer
     /// <param name="config">CAN ID configuration for request/response.</param>
     /// <param name="sendFrame">Async callback to send a CAN frame.</param>
     /// <param name="logger">Optional logger for send-callback exceptions (logged at Error, not propagated).</param>
-    public IsoTpLayer(CanIdConfig config, Func<CanFrame, Task> sendFrame, ILogger<IsoTpLayer>? logger = null)
+    /// <param name="txCanId">CAN ID for transmitted frames. Defaults to config.RequestId. For ECU simulators, set to config.ResponseId.</param>
+    public IsoTpLayer(CanIdConfig config, Func<CanFrame, Task> sendFrame, ILogger<IsoTpLayer>? logger = null, uint? txCanId = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(sendFrame);
@@ -44,6 +47,7 @@ public sealed partial class IsoTpLayer
         _config = config;
         _sendFrameAsync = sendFrame;
         _logger = logger;
+        _txCanId = txCanId ?? config.RequestId;
     }
 
     /// <summary>Reset reassembly state (e.g., on timeout).</summary>

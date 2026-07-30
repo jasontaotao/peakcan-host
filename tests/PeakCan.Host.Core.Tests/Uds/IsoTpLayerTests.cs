@@ -823,6 +823,35 @@ public sealed class IsoTpLayerTests
         }
     }
 
+    /// <summary>
+    /// txCanId override: when explicitly provided, SendCanFrameAsync must use txCanId
+    /// instead of RequestId. This is required for ECU simulators where the send CAN ID
+    /// differs from the default RequestId.
+    /// </summary>
+    [Fact]
+    public async Task SingleFrame_With_TxCanId_Override_Sends_On_TxCanId()
+    {
+        var observedIds = new List<uint>();
+        var sendFrame = new Func<CanFrame, Task>(frame =>
+        {
+            lock (observedIds) { observedIds.Add(frame.Id.Raw); }
+            return Task.CompletedTask;
+        });
+
+        // txCanId = ResponseId (0x7E8) — ECU simulator scenario
+        var layer = new IsoTpLayer(DefaultAsyncConfig, sendFrame, logger: null, txCanId: 0x7E8);
+
+        var payload = new byte[] { 0x3E, 0x00 }; // TesterPresent
+        await layer.SendMessageAsync(payload, CancellationToken.None);
+
+        lock (observedIds)
+        {
+            observedIds.Should().HaveCount(1);
+            observedIds[0].Should().Be(0x7E8,
+                "txCanId override must be used for sending, not RequestId");
+        }
+    }
+
     // ========================================================================
     // v1.2.12 PATCH Item 3: try/catch around MessageReceived invoke.
     // The previous HandleConsecutiveFrame released _rxLock via Monitor.Exit

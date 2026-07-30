@@ -1,0 +1,9 @@
+{
+  "name": "BMS_Simulator",
+  "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+  "rules": [
+    { "serviceId": "0x3E", "subFunction": 0, "responseData": [126] },
+    { "serviceId": "0x22", "subFunction": 241, "dataMask": [255], "dataPattern": [144],
+      "responseData": [98, 241, 144, 1, 2, 3] }
+  ]
+}

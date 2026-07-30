@@ -29,9 +29,13 @@ public sealed class VirtualEcu : IDisposable
         _ecuCanIds = ecuCanIds;
         _rules = rules.ToList();
         _logger = logger;
+        Interlocked.Increment(ref InstanceCount);
 
-        // ECU-side IsoTpLayer — CanIdConfig already swapped to ECU perspective by EcuScriptLoader
-        // IsoTpLayer needs ILogger<IsoTpLayer>, VirtualEcu's logger is ILogger<VirtualEcu>, pass null
+        // ECU-side IsoTpLayer — CanIdConfig already swapped to ECU perspective by EcuScriptLoader.
+        // After swap: ECU.RequestId=0x7E8 (HIL listens here), ECU.ResponseId=0x7E0 (HIL sends here).
+        // IsoTpLayer default: txCanId=RequestId=0x7E8 (ECU sends where HIL listens) [OK]
+        //                    filter=ResponseId=0x7E0 (ECU receives where HIL sends) [OK]
+        // No txCanId override needed for swapped config.
         _isoTp = new IsoTpLayer(_ecuCanIds, SendFrameAsync, logger: null);
         _isoTp.MessageReceived += OnUdsRequestReceived;
         _channel.FrameReceived += OnCanFrameReceived;
@@ -40,7 +44,7 @@ public sealed class VirtualEcu : IDisposable
     private void OnCanFrameReceived(CanFrame frame)
     {
         try { _isoTp.ProcessFrame(frame); }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
             // Frame filtered out by IsoTpLayer (wrong CAN ID) - normal
         }
@@ -61,7 +65,7 @@ public sealed class VirtualEcu : IDisposable
         }
 
         // No matching rule -> NRC 0x11 (serviceNotSupported)
-        // NRC format (ISO 14229-1 §11.3.2): [0x7F, originalSID, nrc]
+        // NRC format (ISO 14229-1): [0x7F, originalSID, nrc]
         _ = SendUdsResponseAsync(new byte[] { 0x7F, sid, 0x11 }, 0);
     }
 

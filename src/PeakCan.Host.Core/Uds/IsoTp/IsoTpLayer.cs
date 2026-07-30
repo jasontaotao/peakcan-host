@@ -35,6 +35,13 @@ public sealed partial class IsoTpLayer : IDisposable
     private readonly ILogger<IsoTpLayer>? _logger;
 
     /// <summary>
+    /// CAN ID used for transmitted frames. Defaults to <see cref="CanIdConfig.RequestId"/>.
+    /// For ECU simulators, set to <see cref="CanIdConfig.ResponseId"/> so responses
+    /// go out on the ID the HIL listens on.
+    /// </summary>
+    private readonly uint _txCanId;
+
+    /// <summary>
     /// v1.2.13 PATCH Item 5: number of multi-frame send failures since
     /// process start. Incremented when SendCanFrameAsync's catch arm fires
     /// AND we throw out (not the swallow path which no longer exists for

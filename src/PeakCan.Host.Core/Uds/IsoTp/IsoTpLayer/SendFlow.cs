@@ -95,7 +95,7 @@ public sealed partial class IsoTpLayer
     private async Task SendCanFrameAsync(byte[] data, int frameIndex)
     {
         var frame = new CanFrame(
-            new CanId(_config.RequestId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            new CanId(_txCanId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
@@ -129,7 +129,7 @@ public sealed partial class IsoTpLayer
     private void SendCanFrame(byte[] data)
     {
         var frame = new CanFrame(
-            new CanId(_config.RequestId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            new CanId(_txCanId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
