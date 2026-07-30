@@ -6,7 +6,7 @@
 
 <meta charset="UTF-8">
 
-<title>PeakCan Host 用户使用手册 (v3.39.0)</title>
+<title>PeakCan Host 用户使用手册 (v3.63.0)</title>
 
 <style>
 
@@ -126,17 +126,17 @@
 
   <h1>PeakCan Host — 用户使用手册</h1>
 
-  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机</div>
+  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机 + AI 分析</div>
 
   <div class="meta">
 
-    <span>版本：<strong>v3.39.0</strong></span>
+    <span>版本：<strong>v3.63.0</strong></span>
 
     <span>框架：WPF · .NET 10</span>
 
     <span>平台：Windows 10 1809+ / Windows 11</span>
 
-    <span>更新日期：2026-07-04</span>
+    <span>更新日期：2026-07-30</span>
 
   </div>
 
@@ -172,7 +172,13 @@
 
     <li><a href="#uds">UDS（UDS 诊断栈）</a></li>
 
-    <li><a href="#trace-viewer">Trace Viewer（离线 .asc 回放）</a></li>
+    <li><a href="#trace-viewer">Trace Viewer（离线 .asc/.blf 回放）</a></li>
+
+    <li><a href="#ai-analysis">AI Analysis（AI 辅助故障分析）</a></li>
+
+    <li><a href="#ai-chat">AI Chat（AI 聊天助手）</a></li>
+
+    <li><a href="#hil">HIL（硬件在环测试）</a></li>
 
     <li><a href="#dbc-scope">DBC 解析器支持范围</a></li>
 
@@ -200,7 +206,7 @@
 
 <strong>PEAK PCAN-USB FD</strong>（或 Pro FD）CAN/CAN-FD 硬件，提供通用的
 
-CAN 总线监控、解码、手动发送与总线负载统计能力。</p>
+CAN 总线监控、解码、手动发送、总线负载统计、AI 辅助分析、UDS 诊断与 HIL 测试能力。</p>
 
 
 
@@ -222,11 +228,19 @@ CAN 总线监控、解码、手动发送与总线负载统计能力。</p>
 
   <tr><td>帧录制</td><td>将接收到的帧录制到 ASC（Vector ASCII）或 CSV 文件</td></tr>
 
-  <tr><td>Stats 视图</td><td>1 Hz OxyPlot 折线图，显示每秒帧数与总线负载百分比，含总帧 / 错误帧计数</td></tr>
+  <tr><td>Stats 视图</td><td>1 Hz 图表，显示每秒帧数与总线负载百分比，含总帧 / 错误帧计数</td></tr>
 
   <tr><td><strong>Script 视图</strong> <span class="badge info">v1.2.0</span></td><td>CodeMirror 6 脚本引擎 + Roslyn 沙箱，可在 UI 内编写/运行 C# 脚本自动化测试场景</td></tr>
 
   <tr><td><strong>UDS 诊断栈</strong> <span class="badge info">v1.2.0</span></td><td>4 面板 UDS 诊断 UI（Session / DID / Routine / DTC），含 DataGrid 绑定的 JSON 配置 DID/Routine 库与共享彩色 OutputLog</td></tr>
+
+  <tr><td><strong>Trace Viewer 离线回放</strong> <span class="badge info">v3.0.0</span></td><td>非模态窗口加载 <code>.asc</code> / <code>.blf</code> 文件，per-signal 图表，绿线锚点同步，Sampling Table，CSV 导出</td></tr>
+
+  <tr><td><strong>AI Analysis 故障分析</strong> <span class="badge info">v3.52.0</span></td><td>基于双锚（绿/蓝）的本地 evidence 提取 + 可选 DeepSeek LLM 归因分析，SSE 流式输出</td></tr>
+
+  <tr><td><strong>AI Chat 聊天助手</strong> <span class="badge info">v3.62.0</span></td><td>LLM 驱动的聊天助手，支持信号搜索、时序分析、异常检测、分组管理等工具</td></tr>
+
+  <tr><td><strong>HIL 测试面板</strong> <span class="badge info">v3.63.0</span></td><td>硬件在环测试框架，支持测试用例编写、执行、断言与 CLI 自动化运行</td></tr>
 
   <tr><td>滚动日志</td><td>Serilog 按天滚动写入 <code>%LocalAppData%\PeakCan.Host\logs\</code>，保留 14 天</td></tr>
 
@@ -326,6 +340,10 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <li>切到 <strong>Send</strong> 标签页，输入 ID 与数据，点击 <strong>Send</strong> 发送一帧。</li>
 
+  <li>（可选）菜单 <strong>View ▸ Trace Viewer…</strong> 打开离线回放窗口，加载 .asc/.blf 文件查看信号曲线。</li>
+
+  <li>（可选）菜单 <strong>View ▸ AI Chat</strong> 打开 AI 聊天助手，用自然语言查询信号信息。</li>
+
 </ol>
 
 
@@ -386,9 +404,9 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 
 
-  <!-- View sub-menu (7 items) -->
+  <!-- View sub-menu (9 items) -->
 
-  <rect x="60" y="60" width="92" height="160" fill="#ffffff" stroke="#bbbbbb"/>
+  <rect x="60" y="60" width="106" height="210" fill="#ffffff" stroke="#bbbbbb"/>
 
   <text x="72" y="78" fill="#222">Trace</text>
 
@@ -404,59 +422,63 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <text x="72" y="198" fill="#222">UDS</text>
 
+  <text x="72" y="218" fill="#222">AI Chat</text>
+
+  <text x="72" y="238" fill="#222">HIL</text>
+
   <!-- toolbar (v1.1+ with channel selector, baud rate, CAN FD) -->
 
-  <rect x="10" y="226" width="1060" height="34" fill="#fafafa" stroke="#cccccc"/>
+  <rect x="10" y="274" width="1060" height="34" fill="#fafafa" stroke="#cccccc"/>
 
-  <text x="22" y="248" fill="#444">USB1 (1 Mbps)</text>
+  <text x="22" y="296" fill="#444">USB1 (1 Mbps)</text>
 
-  <line x1="120" y1="232" x2="120" y2="254" stroke="#cccccc"/>
+  <line x1="120" y1="280" x2="120" y2="302" stroke="#cccccc"/>
 
-  <rect x="128" y="234" width="56" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <rect x="128" y="282" width="56" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
 
-  <text x="142" y="249" fill="#222">Probe</text>
+  <text x="142" y="297" fill="#222">Probe</text>
 
-  <rect x="192" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <rect x="192" y="282" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
 
-  <text x="200" y="249" fill="#666">▾ USB1, FD</text>
+  <text x="200" y="297" fill="#666">▾ USB1, FD</text>
 
-  <line x1="320" y1="232" x2="320" y2="254" stroke="#cccccc"/>
+  <line x1="320" y1="280" x2="320" y2="302" stroke="#cccccc"/>
 
-  <rect x="328" y="237" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
+  <rect x="328" y="285" width="14" height="14" rx="2" fill="#1f77b4" stroke="#1f77b4"/>
 
-  <path d="M331 246 L335 250 L344 240" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <path d="M331 294 L335 298 L344 288" stroke="#ffffff" stroke-width="2" fill="none"/>
 
-  <text x="350" y="249" fill="#222">CAN FD</text>
+  <text x="350" y="297" fill="#222">CAN FD</text>
 
-  <rect x="410" y="234" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
+  <rect x="410" y="282" width="120" height="20" rx="3" fill="#ffffff" stroke="#999"/>
 
-  <text x="418" y="249" fill="#666">▾ 1 Mbps</text>
+  <text x="418" y="297" fill="#666">▾ 1 Mbps</text>
 
-  <line x1="538" y1="232" x2="538" y2="254" stroke="#cccccc"/>
+  <line x1="538" y1="280" x2="538" y2="302" stroke="#cccccc"/>
 
-  <rect x="546" y="234" width="68" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <rect x="546" y="282" width="68" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
 
-  <text x="560" y="249" fill="#222">Connect</text>
+  <text x="560" y="297" fill="#222">Connect</text>
 
-  <rect x="622" y="234" width="84" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
+  <rect x="622" y="282" width="84" height="20" rx="3" fill="#e8e8e8" stroke="#999"/>
 
-  <text x="634" y="249" fill="#222">Disconnect</text>
+  <text x="634" y="297" fill="#222">Disconnect</text>
 
-  <line x1="714" y1="232" x2="714" y2="254" stroke="#cccccc"/>
+  <line x1="714" y1="280" x2="714" y2="302" stroke="#cccccc"/>
 
-  <text x="722" y="248" fill="#444">Connected to USB1 (CAN FD 1 Mbps)</text>
+  <text x="722" y="296" fill="#444">Connected to USB1 (CAN FD 1 Mbps)</text>
 
   <!-- main content area placeholder -->
 
-  <rect x="10" y="264" width="1060" height="158" fill="#ffffff" stroke="#cccccc"/>
+  <rect x="10" y="312" width="1060" height="112" fill="#ffffff" stroke="#cccccc"/>
 
-  <text x="22" y="284" fill="#888" font-style="italic">主内容区（ContentControl，根据 View 菜单切换 Trace / DBC / Send / Signals / Stats / Script / UDS）</text>
+  <text x="22" y="332" fill="#888" font-style="italic">主内容区（ContentControl，根据 View 菜单切换 Trace / DBC / Send / Signals / Stats / Script / UDS / AI Chat / HIL）</text>
 
   <!-- status bar -->
 
-  <rect x="10" y="426" width="1060" height="34" fill="#f0f0f0" stroke="#cccccc"/>
+  <rect x="10" y="428" width="1060" height="34" fill="#f0f0f0" stroke="#cccccc"/>
 
-  <text x="22" y="448" fill="#222">Connected</text>
+  <text x="22" y="450" fill="#222">Connected</text>
 
   <!-- callouts -->
 
@@ -464,33 +486,33 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <text x="190" y="20" fill="#1f77b4" font-size="12">① File 菜单</text>
 
-  <line x1="100" y1="52" x2="180" y2="50" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="100" y1="52" x2="280" y2="50" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="280" y="50" fill="#1f77b4" font-size="12">② View 菜单（7 个标签）</text>
+  <text x="380" y="50" fill="#1f77b4" font-size="12">② View 菜单（9 个标签，新增 AI Chat / HIL）</text>
 
-  <line x1="156" y1="248" x2="220" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="156" y1="296" x2="220" y2="260" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="230" y="195" fill="#1f77b4" font-size="12">③ Probe + 通道下拉</text>
+  <text x="230" y="255" fill="#1f77b4" font-size="12">③ Probe + 通道下拉</text>
 
-  <line x1="350" y1="248" x2="430" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="350" y1="296" x2="430" y2="260" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="440" y="195" fill="#1f77b4" font-size="12">④ CAN FD + 波特率</text>
+  <text x="440" y="255" fill="#1f77b4" font-size="12">④ CAN FD + 波特率</text>
 
-  <line x1="580" y1="248" x2="650" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="580" y1="296" x2="650" y2="260" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="660" y="195" fill="#1f77b4" font-size="12">⑤ Connect / Disconnect</text>
+  <text x="660" y="255" fill="#1f77b4" font-size="12">⑤ Connect / Disconnect</text>
 
-  <line x1="780" y1="248" x2="860" y2="200" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="780" y1="296" x2="860" y2="260" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="870" y="195" fill="#1f77b4" font-size="12">⑥ 连接状态</text>
+  <text x="870" y="255" fill="#1f77b4" font-size="12">⑥ 连接状态</text>
 
-  <line x1="540" y1="448" x2="640" y2="380" stroke="#1f77b4" stroke-dasharray="3,2"/>
+  <line x1="540" y1="450" x2="640" y2="390" stroke="#1f77b4" stroke-dasharray="3,2"/>
 
-  <text x="650" y="375" fill="#1f77b4" font-size="12">⑦ 状态栏（Serilog 日志同步）</text>
+  <text x="650" y="385" fill="#1f77b4" font-size="12">⑦ 状态栏（Serilog 日志同步）</text>
 
 </svg>
 
-<div class="caption">图 1 — 主窗口布局（菜单、工具栏、状态栏）。View 菜单在 7 个视图间切换。</div>
+<div class="caption">图 1 — 主窗口布局（菜单、工具栏、状态栏）。View 菜单在 9 个视图间切换。</div>
 
 </div>
 
@@ -504,7 +526,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <tr><td>通道列表（左侧文本）</td><td>显示最近一次 Probe 的结果。初始为 <code>"(click Probe to detect)"</code>；成功时显示通道名（如 <code>"USB1 (1 Mbps)"</code>）；失败时变为 <code>"No PEAK hardware detected: ..."</code>。</td></tr>
 
-  <tr><td><strong>Probe</strong> 按钮</td><td>检测 PCAN-USB FD 1–16 通道是否在线。仅在未连接时可用（<code>!IsConnected</code>）。v1.1 起支持多通道探测。</td></tr>
+  <tr><td><strong>Probe</strong> 按钮</td><td>检测 PCAN-USB FD 1–16 通道是否在线。仅在未连接时可用（<code>!IsConnected</code>）。</td></tr>
 
   <tr><td><strong>通道下拉</strong> <span class="badge info">v1.1</span></td><td>Probe 成功后填充所有检测到的通道（<code>DisplayMemberPath="Name"</code>），可选择任意通道连接。仅在未连接时可用。</td></tr>
 
@@ -526,13 +548,17 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 <p>底部状态栏显示当前操作的简短反馈（如 <code>"Connected"</code>、<code>"FAIL: ..."</code>）。
 
-完整的诊断信息写入 Serilog 滚动文件，详见 <a href="#logs">第 12 节</a>。</p>
+完整的诊断信息写入 Serilog 滚动文件，详见 <a href="#logs">第 17 节</a>。</p>
 
 
 
 <h3>4.3 View 菜单</h3>
 
-<p>7 个标签对应 7 个视图（Trace / DBC / Send / Signals / Stats / Script / UDS，详见后续章节）。视图实例被<strong>缓存</strong>——重复切换不会丢失滚动位置或选中行。</p>
+<p>9 个标签对应 9 个视图（Trace / DBC / Send / Signals / Stats / Script / UDS / <strong>AI Chat</strong> / <strong>HIL</strong>，详见后续章节）。视图实例被<strong>缓存</strong>——重复切换不会丢失滚动位置或选中行。</p>
+
+
+
+<p>此外，View 菜单还包含 <strong>Trace Viewer…</strong> 和 <strong>Replay</strong> 两个非模态窗口入口，分别在 <a href="#trace-viewer">§12</a> 和 <a href="#faq">§18</a> 中详述。</p>
 
 
 
@@ -1248,7 +1274,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <rect x="2" y="2" width="1076" height="456" rx="6" fill="#f4f4f4" stroke="#888"/>
 
-  <text x="14" y="22" fill="#222" font-weight="600">Stats View（1 Hz OxyPlot，60 样本滚动窗口）</text>
+  <text x="14" y="22" fill="#222" font-weight="600">Stats View（1 Hz 图表，60 样本滚动窗口）</text>
 
   <!-- header line -->
 
@@ -1440,7 +1466,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 
 
-<p><strong>UDS 视图</strong>（v1.2.0 起）是 PeakCan Host 的核心诊断 UI，按 ISO 14229（UDS-on-IP）实现应用层协议，运行在 CAN 之上。所有命令通过当前连接（<code>UdsClient</code> 单例）发往 ECU。</p>
+<p><strong>UDS 视图</strong>（v1.2.0 起）是 PeakCan Host 的核心诊断 UI，按 ISO 14229（UDS-on-CAN）实现应用层协议，运行在 CAN 之上。所有命令通过当前连接（<code>UdsClient</code> 单例）发往 ECU。</p>
 
 
 
@@ -1516,11 +1542,13 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <text x="100" y="113" fill="#222" font-weight="600" font-size="11">Name</text>
 
-  <text x="220" y="113" fill="#222" font-weight="600" font-size="11">Len</text>
+  <text x="220" y="113" fill="#222" font-weight="600" font-size="11">Length</text>
 
-  <text x="260" y="113" fill="#222" font-weight="600" font-size="11">R/W</text>
+  <text x="280" y="113" fill="#222" font-weight="600" font-size="11">Type</text>
 
-  <text x="300" y="113" fill="#222" font-weight="600" font-size="11">Value</text>
+  <text x="340" y="113" fill="#222" font-weight="600" font-size="11">R/W</text>
+
+  <text x="380" y="113" fill="#222" font-weight="600" font-size="11">Value</text>
 
   <g font-size="11">
 
@@ -1532,9 +1560,11 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
     <text x="220" y="134" font-family="Consolas, monospace">17</text>
 
-    <text x="260" y="134">R</text>
+    <text x="280" y="134" font-family="Consolas, monospace">AsciiString[17B]</text>
 
-    <text x="300" y="134" font-family="Consolas, monospace">LSV...</text>
+    <text x="340" y="134">R</text>
+
+    <text x="380" y="134" font-family="Consolas, monospace">1HGCM82633A123456</text>
 
     <rect x="10" y="140" width="440" height="20" fill="#f8f8f8"/>
 
@@ -1544,9 +1574,11 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
     <text x="220" y="154" font-family="Consolas, monospace">10</text>
 
-    <text x="260" y="154">R</text>
+    <text x="280" y="154" font-family="Consolas, monospace">AsciiString[10B]</text>
 
-    <text x="300" y="154" font-family="Consolas, monospace">PN-12345</text>
+    <text x="340" y="154">R</text>
+
+    <text x="380" y="154" font-family="Consolas, monospace">PN-12345</text>
 
     <rect x="10" y="160" width="440" height="20" fill="#ffffff"/>
 
@@ -1556,9 +1588,11 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
     <text x="220" y="174" font-family="Consolas, monospace">9</text>
 
-    <text x="260" y="174">R</text>
+    <text x="280" y="174" font-family="Consolas, monospace">AsciiString[9B]</text>
 
-    <text x="300" y="174" font-family="Consolas, monospace">v3.2.1</text>
+    <text x="340" y="174">R</text>
+
+    <text x="380" y="174" font-family="Consolas, monospace">v3.2.1</text>
 
   </g>
 
@@ -1572,11 +1606,11 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <text x="462" y="138" fill="#444">Length: 17 bytes</text>
 
-  <text x="462" y="170" fill="#444">Write value (hex)</text>
+  <text x="462" y="158" fill="#444">Type: AsciiString[17B]</text>
 
-  <rect x="462" y="176" width="400" height="26" rx="3" fill="#ffffff" stroke="#999"/>
+  <text x="462" y="178" fill="#444">Decoded fields:</text>
 
-  <text x="472" y="194" fill="#999" font-style="italic" font-size="11">— (VIN is read-only)</text>
+  <text x="462" y="196" fill="#444" font-family="Consolas, monospace">  VIN = "1HGCM82633A123456"</text>
 
   <rect x="462" y="218" width="60" height="26" rx="3" fill="#e8e8e8" stroke="#999"/>
 
@@ -1602,7 +1636,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
     <text x="22" y="420" fill="#D4D4D4">14:23:03.422  Info   Reading DID 0xF190 (VIN)...</text>
 
-    <text x="22" y="438" fill="#D4D4D4">14:23:03.587  Info   Read DID 0xF190 OK (17 bytes): 4C 53 56 4F ...</text>
+    <text x="22" y="438" fill="#D4D4D4">14:23:03.587  Info   Read DID 0xF190 OK (17 bytes): 1HGCM82633A123456</text>
 
     <text x="22" y="456" fill="#d4a72c">14:23:05.001  Warn   SecurityAccess 0x01 failed: NRC 0x35 (invalidKey)</text>
 
@@ -1636,7 +1670,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 </svg>
 
-<div class="caption">图 7 — UDS 视图：顶部 Session 条 + 3-tab TabControl + 底部共享 OutputLog。</div>
+<div class="caption">图 7 — UDS 视图：顶部 Session 条 + 3-tab TabControl + 底部共享 OutputLog。（v3.61.0 新增 Type 列与 Decoded fields）</div>
 
 </div>
 
@@ -1654,7 +1688,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <tr><td><strong>Programming</strong> 按钮</td><td><code>DiagnosticSessionControl 0x03</code> — 切到编程会话（预刷写状态）。</td></tr>
 
-  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。<code>Dispose</code> 被显式调用时也会停掉循环并复位标志位——但 DI 容器不调用 Dispose（单例 VM 生命周期 ≈ 进程），详见 <a href="#known-limitations">15.2</a>。</td></tr>
+  <tr><td><strong>TesterPresent</strong> 复选框</td><td>勾选 = 后台每 2 秒发送 <code>TesterPresent 0x3E 0x00</code> 维持非默认会话；取消勾选停止循环。</td></tr>
 
   <tr><td><strong>SecurityAccess (Level 1)</strong> 按钮</td><td>触发 <code>SecurityAccess RequestSeed 0x01</code> → 调 <code>IKeyDerivationAlgorithm.ComputeKey(...)</code> → <code>SendKey 0x02</code>。成功时 <code>Level: 0x01</code> 显示在右侧。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
 
@@ -1706,7 +1740,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 
 
-<h4>11.2.2 DIDs Tab 字段</h4>
+<h4>11.2.2 DIDs Tab 字段（v3.61.0 更新）</h4>
 
 <table>
 
@@ -1718,9 +1752,11 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <tr><td><strong>Length</strong></td><td>数据长度（字节）。</td></tr>
 
+  <tr><td><strong>Type</strong> <span class="badge info">v3.61.0</span></td><td>数据类型描述（如 <code>AsciiString[17B]</code>、<code>UInt32[16]</code>、<code>ByteField ×8</code>、<code>(no type)</code>）。ODX 导入后自动推断。</td></tr>
+
   <tr><td><strong>R/W</strong></td><td>是否可写（来自 JSON 的 <code>writable</code> 字段，内置默认都为 <code>R</code>）。</td></tr>
 
-  <tr><td><strong>Value</strong></td><td>最近一次 Read 后的字节序列（首次未读取时为空）。</td></tr>
+  <tr><td><strong>Value</strong></td><td>最近一次 Read 后的解码值（v3.61.0 起显示物理值而非原始 hex，如 VIN 显示为字符串 "1HGCM..."，温度显示为 "90.0°C"）。</td></tr>
 
 </table>
 
@@ -1730,15 +1766,37 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 <ol>
 
-  <li>选择 DataGrid 中的某一行 → 右侧详情面板填充 Name / Length。</li>
+  <li>选择 DataGrid 中的某一行 → 右侧详情面板填充 Name / Length / Type / Decoded fields。</li>
 
-  <li>点击 <strong>Read</strong> → <code>UdsClient.ReadDataByIdentifierAsync(id)</code> → 成功后 Value 列填充十六进制字节。</li>
+  <li>点击 <strong>Read</strong> → <code>UdsClient.ReadDataByIdentifierAsync(id)</code> → 成功后 Value 列显示解码后的物理值（字符串、数字、物理量），详情面板显示逐字段解码详情。</li>
 
-  <li>若 DID 可写（<code>Writable=true</code>），可在 <strong>Write value (hex)</strong> 文本框输入字节（空格/连字符分隔），点击 <strong>Write</strong> → <code>WriteDataByIdentifierAsync(id, bytes)</code>。</li>
+  <li>若 DID 可写（<code>Writable=true</code>），可在 <strong>Write value (hex)</strong> 文本框输入字节，点击 <strong>Write</strong> → <code>WriteDataByIdentifierAsync(id, bytes)</code>。</li>
 
   <li>每次操作的结果会追加到底部 OutputLog：<code>Info</code>（成功）/ <code>Warn</code>（NRC）/ <code>Error</code>（异常）。</li>
 
 </ol>
+
+
+
+<h4>11.2.4 DID 数据类型识别（v3.61.0）</h4>
+
+<p>ODX 导入后，DID 的数据类型信息自动解析：</p>
+
+<ul>
+
+  <li><strong>基础类型</strong>：UInt32、Int32、Float64、AsciiString、Unicode2String、ByteField、Unknown</li>
+
+  <li><strong>物理换算</strong>：IDENTICAL（raw = physical）、LINEAR（<code>physical = (V0 + V1 × raw) / D0</code>）、TEXTTABLE（枚举值查表）</li>
+
+  <li><strong>复合 DID</strong>：含多个字段的 DID 按字段逐一解码，右侧详情面板显示每个字段的 Name / Physical / Unit</li>
+
+  <li><strong>无 ODX 时</strong>：回退到原始 hex 透传（v3.39.0 及之前的行为）</li>
+
+</ul>
+
+
+
+<p>示例：ODX 导入后读 VIN（0xF190）→ Value 列显示 <code>1HGCM82633A123456</code>（而非原始 hex 4C 53 56...）。</p>
 
 
 
@@ -1782,7 +1840,7 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
   <tr><td><strong>Status</strong></td><td>1 字节 DTC 状态位掩码（<code>0xNN</code>）。</td></tr>
 
-  <tr><td><strong>Description</strong></td><td>分类描述（Powertrain / Chassis / Body / Network / Unknown，按 ISO 15031-6 高 2 bit 分类）。</td></tr>
+  <tr><td><strong>Description</strong></td><td>分类描述（Powertrain / Chassis / Body / Network / Unknown，按 ISO 15031-6 高 2 bit 分类；ODX 导入后优先使用 ODX 中的 TEXT 描述）。</td></tr>
 
 </table>
 
@@ -1792,29 +1850,23 @@ artifacts/win-x64/PeakCan.Host.exe</code></pre>
 
 
 
-<h3 id="uds-odx">11.5 ODX 诊断描述导入（v2.0.0 起，v2.0.4 支持 <code>.odx-d</code>）</h3>
+<h3 id="uds-odx">11.5 ODX 诊断描述导入（v2.0.0 起）</h3>
 
 
 
-<p>v2.0.0 起，UDS 视图顶部条新增 <strong>Load ODX…</strong> 按钮。v2.0.4 起支持 Vector CANdelaStudio 输出的 <code>.odx-d</code> 文件（ODX-D 子集）：</p>
+<p>UDS 视图顶部条新增 <strong>Load ODX…</strong> 按钮。支持 Vector CANdelaStudio 输出的 <code>.odx-d</code> 文件：</p>
 
 <ol>
 
   <li>点击按钮 → 文件对话框（filter: <code>*.odx</code> / <code>*.pdx</code> / <code>*.odx-d</code> / <code>*.*</code>）。</li>
 
-  <li>选择供应商提供的 <code>.odx</code>、<code>.pdx</code>（zip 容器）或 <code>.odx-d</code>（Vector CANdelaStudio 导出）文件。</li>
+  <li>选择供应商提供的 <code>.odx</code>、<code>.pdx</code>（zip 容器）或 <code>.odx-d</code> 文件。</li>
 
-  <li><code>OdxImportService</code> 解析 <code>DIAG-LAYER-CONTAINER</code> → 映射 <code>DOP-BASE</code> / <code>DTC-DOP</code> / <code>ECU-JOB</code>（canonical ODX 2.x）+ <code>BASE-VARIANT</code> + <code>REQUEST</code>（<code>0x22</code>/<code>0x2E</code>/<code>0x31</code> 三个 UDS service id，<code>.odx-d</code> 实际数据所在）→ 填充 <code>DidDatabase</code> / <code>DtcDatabase</code> / <code>RoutineDatabase</code>。</li>
+  <li>解析后填充 DID / DTC / Routine 数据库。</li>
 
-  <li>底部 status bar 显示 <code>ODX loaded: N DIDs / M Routines / K DTCs from &lt;path&gt;</code>。如果 warnings &gt; 0，会附 warning 数（也显示在 modal summary）。</li>
-
-  <li>DTC panel 重新刷新 — 如果之前 ECU 已读过 DTC 但描述为空，<strong>现在会自动用 ODX 中的 <code>TEXT/DTC-TAB</code> 替换 ISO 14294 category fallback</strong>。</li>
+  <li>底部 status bar 显示 <code>ODX loaded: N DIDs / M Routines / K DTCs from &lt;path&gt;</code>。</li>
 
 </ol>
-
-
-
-<p><strong>v2.0.5 起</strong>：DID 数据长度（<code>LengthBytes</code>）通过走 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链自动解析（响应体总 bit-length 求和后按 byte 对齐）。DID 列表、Writable 标志、LengthBytes 全部正确导入。</p>
 
 
 
@@ -1850,14 +1902,6 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 
 
-<p>如果未注册任何算法（或注册的是占位实现），UI 会输出：</p>
-
-<pre><code>14:23:05.001  Warn   Security access failed: KeyAlgorithmNotConfiguredException
-
-14:23:05.002  Info   Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.</code></pre>
-
-
-
 <h3>11.7 OutputLog（共享日志）</h3>
 
 <p>底部 RichTextBox 由 4 个面板共享，每条日志按 <code>Level</code> 染色：</p>
@@ -1876,7 +1920,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 
 
-<p>点击右上 <strong>Clear</strong> 清空 OutputLog（<code>UdsViewModel.ClearOutputCommand</code>）。</p>
+<p>点击右上 <strong>Clear</strong> 清空 OutputLog。</p>
 
 
 
@@ -1888,19 +1932,41 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 
 
+<h3>11.8 UDS Flash 刷写管道（v3.61.0+）</h3>
+
+<p>UDS 视图支持 Flash 刷写管道，用于 ECU 固件更新：</p>
+
+<ul>
+
+  <li><strong>刷写步骤编辑</strong>：支持可添加/删除/排序的刷写步骤列表</li>
+
+  <li><strong>预编程检查（PreCheck）</strong>：ISO 14229 标准两步检查，通过 RoutineControl 执行预检查 routine</li>
+
+  <li><strong>编程依赖性检查（DependencyCheck）</strong>：验证 ECU 处于可编程状态</li>
+
+  <li><strong>CAN-ID 编辑</strong>：Req/Resp/Func 三个 TextBox 分别编辑请求/响应/功能寻址 CAN ID</li>
+
+  <li><strong>Flash Driver 下载</strong>：支持 <code>.hex</code> / <code>.s19</code> 文件格式的驱动下载步骤</li>
+
+  <li><strong>Verify 步骤</strong>：编程完成后自动校验</li>
+
+  <li><strong>段选择</strong>：FlashSegment 支持按段索引选择</li>
+
+</ul>
+
+
+
 <!-- =========================================================== -->
 
-<h2 id="trace-viewer">12. Trace Viewer（离线 .asc 回放） <span class="badge info">v3.0.0</span></h2>
+<h2 id="trace-viewer">12. Trace Viewer（离线 .asc/.blf 回放） <span class="badge info">v3.0.0</span></h2>
 
 <!-- =========================================================== -->
 
 
 
-<p><strong>Trace Viewer</strong>（v3.0.0 MINOR 起）是 PeakCan Host 的<strong>离线回放</strong>窗口，
+<p><strong>Trace Viewer</strong> 是 PeakCan Host 的<strong>离线回放</strong>窗口，
 
-对应中文"<strong>回放</strong>"语义：加载已录制的 <code>.asc</code> 文件并按时间轴<strong>只读
-
-地</strong>查看信号变化曲线，<strong>绝不向 CAN 总线写入任何帧</strong>。</p>
+加载已录制的 <code>.asc</code>（Vector ASCII）或 <code>.blf</code>（Vector Binary Logging Format，v3.51.0 起）文件并按时间轴<strong>只读地</strong>查看信号变化曲线，<strong>绝不向 CAN 总线写入任何帧</strong>。</p>
 
 
 
@@ -1910,19 +1976,9 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <ul>
 
-  <li><strong>Trace Viewer（回放，v3.0.0）</strong>：加载 <code>.asc</code> → 解析 → 显示图表。
+  <li><strong>Trace Viewer（回放，v3.0.0）</strong>：加载 <code>.asc</code> / <code>.blf</code> → 解析 → 显示图表。<strong>无总线写入</strong>。</li>
 
-      <strong>无总线写入</strong>。代码路径走 <code>ITraceViewerService</code>，反射测试
-
-      <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 强制该类型不能引用
-
-      <code>IReplayFrameSink</code>。</li>
-
-  <li><strong>Replay（重发，v1.4.0）</strong>：加载 <code>.asc</code> → 通过 <code>IReplayFrameSink.SendFrameAsync</code>
-
-      <strong>把帧重新写到总线上</strong>，影响真实总线状态。自 v2.1.4 PATCH 起 <code>View ▸ Replay</code>
-
-      菜单入口可用。</li>
+  <li><strong>Replay（重发，v1.4.0）</strong>：加载 <code>.asc</code> → 通过 <code>IReplayFrameSink</code> <strong>把帧重新写到总线上</strong>，影响真实总线状态。</li>
 
 </ul>
 
@@ -1938,7 +1994,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <li>弹出<strong>非模态</strong>窗口（<code>TraceViewerView</code>），可与主窗口同时操作、独立关闭。</li>
 
-  <li>窗口内顶部工具栏：<strong>Open .asc</strong>（打开录制文件）+ <strong>Open DBC</strong>（可选，解析信号）+ 播放控件
+  <li>窗口内顶部工具栏：<strong>Open .asc/.blf</strong>（打开录制文件）+ <strong>Open DBC</strong>（可选，解析信号）+ 播放控件
 
       <span class="kbd">▶</span> / <span class="kbd">⏸</span> / <span class="kbd">⏹</span> + 速度下拉（0.25× / 0.5× / 1× / 2× / 4×）+ Loop 复选框
 
@@ -1950,7 +2006,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
       <li><strong>左侧：信号列表</strong>（按 <code>(CAN ID, signal)</code> 一行），列：Plot 复选框 / CAN ID hex / 信号名 / 最新值 / 单位。</li>
 
-      <li><strong>右侧：每个选中信号的子图</strong>（每个 <code>OxyPlot.PlotView</code> 独立 Y 轴），共享 X 轴（0..TotalDuration）。</li>
+      <li><strong>右侧：每个选中信号的子图</strong>（每个 <code>PlotView</code> 独立 Y 轴），共享 X 轴（0..TotalDuration）。v3.62.0 起使用 ScottPlot 5.x 渲染（替代 OxyPlot）。</li>
 
     </ul>
 
@@ -1962,7 +2018,21 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 
 
-<h3>12.2 关键行为</h3>
+<h3>12.2 文件格式支持</h3>
+
+<table>
+
+  <tr><th>格式</th><th>说明</th><th>支持版本</th></tr>
+
+  <tr><td><strong>ASC</strong>（Vector ASCII）</td><td>Vector CANalyzer/CANoe 标准的 ASCII 日志格式</td><td>v3.0.0 起</td></tr>
+
+  <tr><td><strong>BLF</strong>（Vector Binary Logging Format）</td><td>Vector CANalyzer/CANoe 二进制日志格式，体积更小、解析更快</td><td><span class="badge info">v3.51.0 起</span></td></tr>
+
+</table>
+
+
+
+<h3>12.3 关键行为</h3>
 
 <table>
 
@@ -1970,37 +2040,23 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>无总线写入</strong></td>
 
-       <td><code>TraceViewerService</code> 不持有 <code>IReplayFrameSink</code>；
-
-           反射测试 <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 在每次 CI 中验证
-
-           <code>IReplayFrameSink</code> 不出现在 <code>TraceViewerService</code> 的 ctor 参数、属性或字段中。
-
-           加载 ASC 后，CPU 资源被消耗，但 PCAN-USB FD 硬件<strong>不会</strong>发出任何帧。</td></tr>
+       <td><code>TraceViewerService</code> 不持有 <code>IReplayFrameSink</code>；反射测试强制验证。</td></tr>
 
   <tr><td><strong>帧数上限</strong></td>
 
-       <td>软警告 50 000 帧；硬上限 100 000 帧。超出后 <code>TraceViewerService.LoadAsync</code> 抛
-
-           <code>ReplayLoadException</code>，UI 弹错误对话框。</td></tr>
+       <td>软警告 50 000 帧；硬上限 100 000 帧。超出后弹错误对话框。</td></tr>
 
   <tr><td><strong>共享 X 轴同步</strong></td>
 
-       <td>所有子图的 X 轴通过 <code>LinearAxis.AxisChanged</code> 事件级联；
-
-           用 <code>_syncing</code> 布尔标志位防止重入 ping-pong。zoom / pan 一个子图时其他子图同步。</td></tr>
+       <td>所有子图的 X 轴通过事件级联同步；zoom / pan 一个子图时其他子图同步。</td></tr>
 
   <tr><td><strong>播放游标</strong></td>
 
-       <td>红色垂直 <code>LineAnnotation</code>，由 <code>ValueChanged</code> 事件驱动；为避免 10k 点的全量重绘，
-
-           用 <code>PlotModel.InvalidatePlot(false)</code> 只刷新 annotation 层（~50× 快于无参重载）。</td></tr>
+       <td>红色垂直 <code>LineAnnotation</code>，由 <code>ValueChanged</code> 事件驱动。</td></tr>
 
   <tr><td><strong>CSV 导出</strong></td>
 
-       <td>所有 Plot 复选框勾选的信号 → 写出 <code>time,SignalA,SignalB,…</code> 格式 CSV；
-
-           时间列单位为秒（相对录制起点）。</td></tr>
+       <td>所有 Plot 复选框勾选的信号 → 写出 <code>time,SignalA,SignalB,…</code> 格式 CSV。</td></tr>
 
   <tr><td><strong>统计 chip</strong></td>
 
@@ -2012,13 +2068,57 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>多实例</strong></td>
 
-       <td>可同时开多个 Trace Viewer 窗口看不同 <code>.asc</code>；每个窗口独立 VM（DI 单例复用，但 View 独立）。</td></tr>
+       <td>可同时开多个 Trace Viewer 窗口看不同文件；每个窗口独立。</td></tr>
+
+  <tr><td><strong>绿线锚点</strong> <span class="badge info">v3.50.0</span></td>
+
+       <td>每个子图可拖拽一条绿色竖线作为锚点。拖任意一条绿线 → 所有子图的绿线同步到同一时刻。所有 <code>WatchedSignalRow</code> 的 <code>LatestValue</code> / <code>FrameCount</code> 同步更新为该时刻的值。NaN 清空所有绿线。</td></tr>
+
+  <tr><td><strong>Shift+Click 范围选择</strong> <span class="badge info">v3.62.0</span></td>
+
+       <td>按住 Shift 点击信号行可批量勾选/取消勾选；支持全选/反选操作。</td></tr>
+
+  <tr><td><strong>ScottPlot 5.x 渲染</strong> <span class="badge info">v3.62.0</span></td>
+
+       <td>图表渲染引擎从 OxyPlot 迁移至 ScottPlot 5.x，支持渐进填充引擎，渲染性能提升。</td></tr>
 
 </table>
 
 
 
-<h3>12.3 字段含义</h3>
+<h3>12.4 Recording 录制控件（v3.49.0 起内嵌）</h3>
+
+<p>v3.49.0 起，Recording 控件从独立 AppShell 标签移至 Trace Viewer 窗口底部 Expander 内嵌。</p>
+
+<ul>
+
+  <li><strong>ASC 输出</strong>：Vector ASCII 格式，与 <code>AscFormat</code> 单源格式化器一致（v3.49.0 统一 ASC 写入/解析格式）</li>
+
+  <li><strong>CSV 输出</strong>：逗号分隔值格式</li>
+
+  <li><strong>一键录制</strong>：点击 Record 按钮开始录制，再次点击停止</li>
+
+</ul>
+
+
+
+<h3>12.5 Sampling Table（v3.49.0）</h3>
+
+<p>Trace Viewer 右侧新增 <strong>Sampling Table</strong> 面板，提供在绿线锚点时刻所有信号值的统一视图：</p>
+
+<ul>
+
+  <li>按 <code>(CAN ID, signal)</code> 列出所有信号及其当前值</li>
+
+  <li>绿线锚点拖拽时，所有行同步更新为锚点时刻的值</li>
+
+  <li>解码使用真实 <code>SignalDecoder.Decode</code>（Factor + Offset 物理量）</li>
+
+</ul>
+
+
+
+<h3>12.6 字段含义</h3>
 
 <table>
 
@@ -2026,7 +2126,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>Plot 复选框</strong></td>
 
-       <td>勾选后该 <code>(ID, signal)</code> 行进入右侧子图区域；最多 10 个同时显示（Tableau 10 调色板）。</td></tr>
+       <td>勾选后该 <code>(ID, signal)</code> 行进入右侧子图区域；最多 10 个同时显示。</td></tr>
 
   <tr><td><strong>CAN ID (hex)</strong></td>
 
@@ -2038,7 +2138,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>Latest</strong></td>
 
-       <td>播放游标位置（最新一次）该信号的物理值；最多 3 位小数。</td></tr>
+       <td>播放游标位置（或绿线锚点位置）该信号的物理值；最多 3 位小数。</td></tr>
 
   <tr><td><strong>Unit</strong></td>
 
@@ -2046,33 +2146,25 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>状态栏</strong></td>
 
-       <td>显示 <code>"Loaded N frames from &lt;file&gt;"</code> / <code>"Playback: HH:MM:SS.mmm / HH:MM:SS.mmm"</code> /
-
-           <code>"FAIL: &lt;code&gt; &lt;message&gt;"</code>。</td></tr>
+       <td>显示 <code>"Loaded N frames from &lt;file&gt;"</code> / <code>"Playback: HH:MM:SS.mmm / HH:MM:SS.mmm"</code>。</td></tr>
 
 </table>
 
 
 
-<h3>12.4 与 Replay（重发）的差异</h3>
+<h3>12.7 与 Replay（重发）的差异</h3>
 
 <table>
 
-  <tr><th>维度</th><th>Trace Viewer（v3.0.0）</th><th>Replay（v1.4.0 / v2.1.4）</th></tr>
+  <tr><th>维度</th><th>Trace Viewer</th><th>Replay</th></tr>
 
-  <tr><td>输入</td><td><code>.asc</code> 文件</td><td><code>.asc</code> 文件</td></tr>
+  <tr><td>输入</td><td><code>.asc</code> / <code>.blf</code> 文件</td><td><code>.asc</code> 文件</td></tr>
 
-  <tr><td>输出</td><td>屏幕图表（OxyPlot）</td><td>真实 CAN 帧（通过 <code>IReplayFrameSink</code>）</td></tr>
+  <tr><td>输出</td><td>屏幕图表（ScottPlot 5.x）</td><td>真实 CAN 帧（通过 <code>IReplayFrameSink</code>）</td></tr>
 
   <tr><td>总线写入</td><td><strong>无</strong>（反射测试强制）</td><td>有（每帧调用 <code>SendFrameAsync</code>）</td></tr>
 
-  <tr><td>服务接口</td><td><code>ITraceViewerService</code>（无 sink）</td><td><code>IReplayService</code>（接受 sink）</td></tr>
-
-  <tr><td>UI 入口</td><td><code>View ▸ Trace Viewer…</code></td><td><code>View ▸ Replay</code>（v2.1.4 PATCH 起）</td></tr>
-
-  <tr><td>典型场景</td><td>事故分析、信号曲线查看、回归测试历史</td><td>回灌测试、台架复现、故障注入</td></tr>
-
-  <tr><td>硬件依赖</td><td>不需要 PCAN-USB FD 即可加载（纯本地解析）</td><td>需要已连接硬件以发送帧</td></tr>
+  <tr><td>硬件依赖</td><td>不需要 PCAN-USB FD</td><td>需要已连接硬件</td></tr>
 
 </table>
 
@@ -2080,27 +2172,21 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <blockquote class="warn">
 
-<strong>安全提示：</strong>Trace Viewer 是<strong>只读</strong>工具，不会对总线产生任何影响；但若你同时打开了
-
-Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察的同一条总线——否则重发帧会与录制回放的图表
-
-"<strong>混入</strong>"，造成分析误导。两个窗口的视觉样式（颜色、布局）有显著差异，但功能职责不同。
+<strong>安全提示：</strong>Trace Viewer 是<strong>只读</strong>工具，不会对总线产生任何影响。
 
 </blockquote>
 
 
 
-<h3>12.5 已知限制（V1）</h3>
+<h3>12.8 已知限制</h3>
 
 <ul>
 
-  <li>最多同时显示 10 个信号子图（Tableau 10 调色板）；超过 10 个需手动取消勾选前面的再勾选新的。</li>
+  <li>最多同时显示 10 个信号子图。</li>
 
-  <li>录制时间超过 100 000 帧会被拒绝加载；建议先用 <strong>Record</strong> 服务的 CSV 模式导出大文件做趋势分析。</li>
+  <li>录制时间超过 100 000 帧会被拒绝加载。</li>
 
   <li>DBC 热重载不支持——换 DBC 后需关闭 + 重开窗口。</li>
-
-  <li>无书签 / 标注 / 多 trace 对比 / PNG 导出 / J1939 协议解码（均明确出 V1 scope）。</li>
 
 </ul>
 
@@ -2108,13 +2194,395 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 <!-- =========================================================== -->
 
-<h2 id="dbc-scope">13. DBC 解析器支持范围</h2>
+<h2 id="ai-analysis">13. AI Analysis（AI 辅助故障分析） <span class="badge info">v3.52.0</span></h2>
 
 <!-- =========================================================== -->
 
 
 
-<p>当前 DBC 解析器（v1.2.2 起保持稳定）支持以下关键字与特性：</p>
+<p><strong>AI Analysis</strong> 面板是 Trace Viewer 窗口右侧 TabControl 的第 3 个 Tab，提供基于双锚（绿线/蓝线）的故障分析能力。支持本地 evidence 提取与可选的 LLM（DeepSeek）归因分析。</p>
+
+
+
+<h3>13.1 核心概念</h3>
+
+<table>
+
+  <tr><th>概念</th><th>说明</th></tr>
+
+  <tr><td><strong>绿线锚点</strong> <span class="badge info">v3.50.0</span></td><td>故障时刻标记。拖拽任意子图中的绿色竖线 → 所有子图同步到该时刻。</td></tr>
+
+  <tr><td><strong>蓝线锚点</strong></td><td>对照时刻标记。与绿线锚点配合，用于对比故障前后信号变化。</td></tr>
+
+  <tr><td><strong>锁定 anchor 状态</strong></td><td>将当前绿/蓝锚点位置固定为 evidence snapshot 起点。双锚齐全才能锁定。</td></tr>
+
+  <tr><td><strong>本地 evidence</strong></td><td>在 ±500ms 窗口内提取的确定性特征（信号跳变、异常值、帧丢失等），无需 LLM。</td></tr>
+
+  <tr><td><strong>LLM 归因</strong> <span class="badge info">v3.54.0</span></td><td>可选：将 evidence 发送到 DeepSeek API 进行自然语言归因分析。</td></tr>
+
+</table>
+
+
+
+<h3>13.2 操作流程</h3>
+
+<ol>
+
+  <li><strong>设置绿线锚点</strong>：在 Trace Viewer 子图中拖拽绿色竖线到故障时刻。</li>
+
+  <li><strong>设置蓝线锚点</strong>：在需要对比的时刻设置蓝线作为对照参考。</li>
+
+  <li><strong>锁定 anchor 状态</strong>：点击工具栏 <span class="kbd">🔒 锁定 anchor 状态</span> 按钮（双锚齐全才能锁定；蓝锚缺失弹提示阻止）。</li>
+
+  <li><strong>运行分析</strong>：点击 <span class="kbd">🤖 运行分析</span> 按钮触发 <code>RunAnalysisAsync</code>。AI Analysis 面板显示：
+
+    <ul>
+
+      <li><strong>FaultEvent header</strong>：故障时刻 + 窗口信息</li>
+
+      <li><strong>Evidence DataGrid</strong>：本地提取的确定性证据列表</li>
+
+      <li><strong>Candidates DataGrid</strong>：候选关联因素</li>
+
+      <li><strong>Summary 文本</strong>：分析结论摘要</li>
+
+    </ul>
+
+  </li>
+
+</ol>
+
+
+
+<h3>13.3 诚实信号</h3>
+
+<p>AI Analysis 面板始终诚实标识分析结果的可靠性：</p>
+
+<ul>
+
+  <li>顶部<strong>黄色横幅</strong>：<code>本地推断（无归因；无 LLM 验证）</code></li>
+
+  <li>未发现可靠关联时显示：<code>未发现可靠关联（仅本地特征；无 LLM 归因）</code>——这是合法输出，不是 error</li>
+
+  <li>文案始终明确"无归因；无 LLM 验证"</li>
+
+</ul>
+
+
+
+<h3>13.4 LLM Provider（DeepSeek） <span class="badge info">v3.54.0</span></h3>
+
+<p>AI Analysis 面板支持可选的 DeepSeek LLM 归因分析：</p>
+
+<ul>
+
+  <li><strong>API Key 配置</strong>：通过 AI Analysis 面板顶部的 API Key 输入区设置（v3.58.0 起支持 UI 内设置/验证/删除）</li>
+
+  <li><strong>Windows Credential Manager</strong>：API Key 通过 Windows Credential Manager 加密存储（DPAPI），永不落盘明文</li>
+
+  <li><strong>流式输出</strong> <span class="badge info">v3.59.0</span>：SSE（Server-Sent Events）流式传输，首 token 延迟从 ~30s 降至 ~1s</li>
+
+  <li><strong>未配置 API Key</strong>：回退到本地仅分析报告，不调用 LLM</li>
+
+</ul>
+
+
+
+<h4>13.4.1 API Key 配置（v3.58.0）</h4>
+
+<p>AI Analysis 面板顶部包含 API Key 管理区域：</p>
+
+<ul>
+
+  <li><strong>PasswordBox</strong>：安全输入 API Key（WPF PasswordBox，不回显明文）</li>
+
+  <li><strong>设置</strong> 按钮：保存 API Key 到 Windows Credential Manager</li>
+
+  <li><strong>验证</strong> 按钮：测试当前配置的 API Key 是否有效（无网络请求，仅状态探测）</li>
+
+  <li><strong>删除</strong> 按钮：从 Windows Credential Manager 移除 API Key</li>
+
+  <li><strong>状态指示</strong>：显示 <code>NotSet</code> / <code>Configured</code>（含上次更新时间）/ <code>Removed</code></li>
+
+</ul>
+
+
+
+<blockquote class="warn">
+
+<strong>安全：</strong>API Key 永不写入日志文件；PasswordBox 防止 UI 中明文泄露；<code>ApiKeyStatus</code> 记录不包含 <code>Value</code> 字段。
+
+</blockquote>
+
+
+
+<h4>13.4.2 流式输出（v3.59.0）</h4>
+
+<p>DeepSeek Provider 支持 SSE 流式输出：</p>
+
+<ul>
+
+  <li>运行分析后，AI Analysis 面板的 Summary 区域会<strong>逐 token 增量更新</strong></li>
+
+  <li>首 token 延迟约 1 秒（非流式模式约 30 秒）</li>
+
+  <li>PartialSummary / PartialEvidenceId / FinalResult 三种增量更新类型</li>
+
+  <li>取消操作（点击停止）会立即中断 HTTP 请求，不等待响应完成</li>
+
+</ul>
+
+
+
+<h3>13.5 空状态</h3>
+
+<p>AI Analysis 面板打开时显示空状态提示：</p>
+
+<ul>
+
+  <li>无锚点锁定：提示"拖拽绿/蓝锚点并锁定以开始分析"</li>
+
+  <li>已锁定但未分析：显示"锚点已锁定。点击运行分析按钮"</li>
+
+</ul>
+
+
+
+<h3>13.6 已知限制</h3>
+
+<ul>
+
+  <li>LLM 分析需要网络连接到 DeepSeek API（中国区用户可能需要代理）</li>
+
+  <li>Azure / Ollama Provider 尚未实现（接口已预留）</li>
+
+  <li>Token 用量持久化尚未实现（仅日志记录）</li>
+
+  <li>API Key 无密钥轮换 UI（单 key 模型）</li>
+
+</ul>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="ai-chat">14. AI Chat（AI 聊天助手） <span class="badge info">v3.62.0</span></h2>
+
+<!-- =========================================================== -->
+
+
+
+<p><strong>AI Chat</strong> 视图（View ▸ AI Chat）是 PeakCan Host 内置的 LLM 驱动聊天助手，支持通过自然语言与 CAN 总线数据进行交互——查询信号、搜索时序、检测异常、管理信号分组等。</p>
+
+
+
+<h3>14.1 界面概览</h3>
+
+<ul>
+
+  <li>主窗口 View 菜单选择 <strong>AI Chat</strong> 标签页</li>
+
+  <li>左侧为聊天消息区（流式渲染 LLM 响应）</li>
+
+  <li>底部为输入框，支持自然语言输入</li>
+
+  <li>右侧/底部为工具调用结果面板</li>
+
+</ul>
+
+
+
+<h3>14.2 可用工具</h3>
+
+<table>
+
+  <tr><th>工具</th><th>功能</th></tr>
+
+  <tr><td><strong>GetSignalOverviewTool</strong></td><td>获取信号概览信息</td></tr>
+
+  <tr><td><strong>SearchSignalsTool</strong></td><td>搜索信号（按名称、ID、消息等）</td></tr>
+
+  <tr><td><strong>GetTraceInfoTool</strong></td><td>查询 Trace 元数据信息</td></tr>
+
+  <tr><td><strong>SearchSignalTraceTool</strong></td><td>在 Trace 中搜索特定信号的时序数据</td></tr>
+
+  <tr><td><strong>GetDbcInfoTool</strong></td><td>查询已加载 DBC 文件的信息</td></tr>
+
+  <tr><td><strong>CreateGroupTool</strong></td><td>创建信号分组</td></tr>
+
+  <tr><td><strong>AddToGroupTool</strong></td><td>将信号添加到指定分组</td></tr>
+
+  <tr><td><strong>RemoveFromGroupTool</strong></td><td>从分组中移除信号</td></tr>
+
+  <tr><td><strong>SetGroupNotesTool</strong></td><td>设置分组备注</td></tr>
+
+  <tr><td><strong>AnalyzeTimingSequenceTool</strong></td><td>分析时序序列</td></tr>
+
+  <tr><td><strong>AnomalyScanTool</strong></td><td>扫描信号异常</td></tr>
+
+  <tr><td><strong>RemoveFromWatchListTool</strong></td><td>从关注列表中移除信号</td></tr>
+
+  <tr><td><strong>ProposeToWatchListTool</strong></td><td>建议将信号加入关注列表</td></tr>
+
+  <tr><td><strong>SetSignalAliasTool</strong></td><td>设置信号别名（DisplayName）</td></tr>
+
+</table>
+
+
+
+<h3>14.3 典型用法示例</h3>
+
+<ul>
+
+  <li><strong>"显示所有 Engine 相关的信号"</strong> → SearchSignalsTool 搜索</li>
+
+  <li><strong>"把 Engine_RPM 和 Vehicle_Speed 加入关注列表"</strong> → ProposeToWatchListTool</li>
+
+  <li><strong>"创建一个名为 '动力系统' 的分组，把我关注的信号都加进去"</strong> → CreateGroupTool + AddToGroupTool</li>
+
+  <li><strong>"检查 Engine_RPM 在过去 10 秒内是否有异常"</strong> → AnomalyScanTool</li>
+
+  <li><strong>"给信号 0x100/Engine_RPM 设置别名为 '转速'"</strong> → SetSignalAliasTool</li>
+
+  <li><strong>"分析 0x100 和 0x101 之间的时序关系"</strong> → AnalyzeTimingSequenceTool</li>
+
+</ul>
+
+
+
+<h3>14.4 空状态</h3>
+
+<p>AI Chat 视图首次打开时显示欢迎 UI，提示用户可用的查询类型和示例问题。</p>
+
+
+
+<h3>14.5 已知限制</h3>
+
+<ul>
+
+  <li>AI Chat 需要连接的 LLM Provider 已配置 API Key（与 AI Analysis 共用 DeepSeek Provider）</li>
+
+  <li>工具调用结果不持久化——关闭 AI Chat 标签后会话历史丢失</li>
+
+  <li>不支持多轮对话上下文记忆（当前为单轮问答模式）</li>
+
+</ul>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="hil">15. HIL（硬件在环测试） <span class="badge info">v3.63.0</span></h2>
+
+<!-- =========================================================== -->
+
+
+
+<p><strong>HIL 测试面板</strong>（View ▸ HIL）是 PeakCan Host 的硬件在环测试框架，用于编写、执行和验证自动化测试用例，确认 ECU 在真实 CAN 总线上的行为符合预期。</p>
+
+
+
+<h3>15.1 启动方式</h3>
+
+<ul>
+
+  <li>主窗口菜单 <strong>View ▸ HIL</strong> 打开 HIL 测试面板</li>
+
+  <li>面板集成在 AppShell 主窗口中，作为独立的 ContentControl 视图</li>
+
+</ul>
+
+
+
+<h3>15.2 核心能力</h3>
+
+<table>
+
+  <tr><th>能力</th><th>说明</th></tr>
+
+  <tr><td><strong>测试用例管理</strong></td><td>创建、编辑、删除、组织测试用例</td></tr>
+
+  <tr><td><strong>测试执行管道</strong></td><td>Stage A/B/C 三阶段执行引擎，支持顺序/并行执行</td></tr>
+
+  <tr><td><strong>断言原语</strong></td><td>帧级断言（FrameReceived、FrameNotReceived、Timeout 等）</td></tr>
+
+  <tr><td><strong>TraceDrivenChannel</strong></td><td>基于录制数据的测试驱动通道</td></tr>
+
+  <tr><td><strong>DiffEngine</strong></td><td>帧级差异比较引擎，用于回归测试</td></tr>
+
+  <tr><td><strong>JUnit XML 输出</strong></td><td>测试结果导出为 JUnit XML 格式，供 CI 集成</td></tr>
+
+  <tr><td><strong>CLI Runner</strong></td><td>命令行工具 <code>peakcan-hil</code>，支持无头自动化测试</td></tr>
+
+</table>
+
+
+
+<h3>15.3 测试执行流程</h3>
+
+<ol>
+
+  <li><strong>准备测试用例</strong>：定义测试步骤、预期帧、超时时间</li>
+
+  <li><strong>执行测试</strong>：点击 Run 按钮或通过 CLI 触发</li>
+
+  <li><strong>实时监控</strong>：测试执行过程中显示进度、断言结果、失败信息</li>
+
+  <li><strong>查看报告</strong>：测试完成后生成详细报告（JUnit XML / 控制台输出）</li>
+
+</ol>
+
+
+
+<h3>15.4 CLI Runner</h3>
+
+<p>HIL 测试框架提供独立的 CLI 工具 <code>peakcan-hil</code>：</p>
+
+<ul>
+
+  <li>无头运行：无需 WPF UI，适合 CI 集成</li>
+
+  <li>HeadlessHostBuilder：DI 管道无头化，注入模拟依赖</li>
+
+  <li>HeadlessDbcLookup / FixtureResolver：测试 fixture 解析</li>
+
+  <li>JSON 序列化：测试结果以 JSON 格式输出</li>
+
+</ul>
+
+
+
+<blockquote>
+
+<strong>提示：</strong>HIL 测试需要已连接 PCAN-USB FD 硬件。CLI 模式也需要硬件接入。
+
+</blockquote>
+
+
+
+<h3>15.5 已知限制</h3>
+
+<ul>
+
+  <li>测试用例目前不支持持久化存储（运行中定义，运行后消失）</li>
+
+  <li>多 ECU 矩阵测试尚在开发中</li>
+
+  <li>故障注入（Fault Injection）模型尚在规划中</li>
+
+</ul>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="dbc-scope">16. DBC 解析器支持范围</h2>
+
+<!-- =========================================================== -->
+
+
+
+<p>当前 DBC 解析器支持以下关键字与特性：</p>
 
 
 
@@ -2128,9 +2596,9 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
   <tr><td>消息</td><td><code>BO_</code></td><td>完整支持</td></tr>
 
-  <tr><td>信号</td><td><code>SG_</code>（含 Intel / Motorola, signed / unsigned）</td><td>完整解码（除 M / m 多路复用）</td></tr>
+  <tr><td>信号</td><td><code>SG_</code>（含 Intel / Motorola, signed / unsigned）</td><td>完整解码</td></tr>
 
-  <tr><td>值表</td><td><code>VAL_</code>, <code>VAL_TABLE_</code></td><td>解析；v1.1 在 Signals 视图显示映射名称</td></tr>
+  <tr><td>值表</td><td><code>VAL_</code>, <code>VAL_TABLE_</code></td><td>解析；在 Signals 视图显示映射名称</td></tr>
 
   <tr><td>注释</td><td><code>CM_</code></td><td>解析；当前 UI 不展示</td></tr>
 
@@ -2140,7 +2608,7 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
   <tr><td>环境变量</td><td><code>EV_</code></td><td>解析；当前未使用</td></tr>
 
-  <tr><td>多路复用</td><td><code>M</code> / <code>m</code> 修饰符</td><td>解析；<strong>不在 Signals 视图解码</strong>（v1.1）</td></tr>
+  <tr><td>多路复用</td><td><code>M</code> / <code>m</code> 修饰符</td><td>完整解码</td></tr>
 
   <tr><td>Vector 扩展浮点</td><td><code>IEEE float</code> / <code>IEEE double</code></td><td>接受；解码器在关键字未识别时回退为 <code>int</code></td></tr>
 
@@ -2150,7 +2618,7 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 <blockquote>
 
-<strong>已知限制：</strong>非标准 / 厂商私有扩展可能被忽略。加载失败时状态行会显示具体错误码；常见错误为"<code>Parse error: unexpected token</code>"。
+<strong>已知限制：</strong>非标准 / 厂商私有扩展可能被忽略。加载失败时状态行会显示具体错误码。
 
 </blockquote>
 
@@ -2158,13 +2626,13 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 <!-- =========================================================== -->
 
-<h2 id="logs">14. 日志与故障排查</h2>
+<h2 id="logs">17. 日志与故障排查</h2>
 
 <!-- =========================================================== -->
 
 
 
-<h3>14.1 日志位置</h3>
+<h3>17.1 日志位置</h3>
 
 <p>Serilog 按天滚动写入（保留 14 天）：</p>
 
@@ -2172,7 +2640,7 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 
 
-<h3>14.2 常见问题对照表</h3>
+<h3>17.2 常见问题对照表</h3>
 
 <table>
 
@@ -2190,11 +2658,17 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
   <tr><td>Trace 滚动卡顿</td><td>总线负载极高（&gt;5000 fps）</td><td>预期行为；可降低总线流量或减小 MaxRows</td></tr>
 
+  <tr><td>AI Analysis 返回 "API key not configured"</td><td>未设置 DeepSeek API Key</td><td>在 AI Analysis 面板的 API Key 输入区设置密钥</td></tr>
+
+  <tr><td>AI Chat 无响应</td><td>LLM Provider 未配置或网络不通</td><td>检查 API Key 配置；确认网络可访问 DeepSeek API</td></tr>
+
+  <tr><td>BLF 文件加载失败</td><td>文件格式不兼容或损坏</td><td>确认 BLF 文件由 Vector 工具生成；检查日志</td></tr>
+
 </table>
 
 
 
-<h3>14.3 如何获取完整诊断信息</h3>
+<h3>17.3 如何获取完整诊断信息</h3>
 
 <ol>
 
@@ -2210,177 +2684,137 @@ Replay（重发）窗口，请确认 Replay 的目标通道不是你正在观察
 
 <!-- =========================================================== -->
 
-<h2 id="faq">15. FAQ &amp; 已知限制</h2>
+<h2 id="faq">18. FAQ &amp; 已知限制</h2>
 
 <!-- =========================================================== -->
 
 
 
-<h3>15.1 FAQ</h3>
+<h3>18.1 FAQ</h3>
 
 
 
 <h4>Q1: 能否连接多块 PCAN-USB FD 或多通道?</h4>
 
-<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v3.x 范围——见 §15.3 路线图）。</p>
+<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v3.x 范围）。</p>
 
 
 
 <h4>Q2: 能否录制总线数据供后续回放?</h4>
 
-<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC Vector ASCII + CSV 输出）。<strong>回放</strong>已提供：v1.4.0 MINOR 起 <code>Replay</code> 服务实现（Open/Play/Pause/Stop/Scrubber/Speed/Loop/CAN-ID 过滤/时间范围过滤），但 UI 入口在 v2.1.4 PATCH 之前未挂上 AppShell。自 v2.1.4 PATCH 起 <strong>View ▸ Replay</strong> 菜单可直接打开。</p>
+<p>A: 录制 <strong>可以</strong>（v1.1.0 起，<strong>Record</strong> 服务支持 ASC + CSV 输出）。<strong>回放</strong>已提供：v1.4.0 起 <code>Replay</code> 服务实现，v2.1.4 起 <strong>View ▸ Replay</strong> 菜单可直接打开。离线查看信号曲线走 <strong>Trace Viewer</strong>（v3.0.0 起，<strong>View ▸ Trace Viewer…</strong>）。</p>
 
 
 
-<h4>Q3: 多路复用（M / m）信号能否解码?</h4>
+<h4>Q3: BLF 文件能否加载?</h4>
 
-<p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。Signals 视图会显示当前多路复用器值下激活的子信号。</p>
-
-
-
-<h4>Q4: 能否在后台运行脚本自动化测试?</h4>
-
-<p>A: <strong>可以</strong>。v1.2.0 起内置 <strong>Script 视图</strong>：CodeMirror 6 编辑器 + Roslyn 沙箱，<code>%LocalAppData%\PeakCan.Host\scripts\*.csx</code> 文件管理。详见 <a href="#script">§10</a>。</p>
+<p>A: <strong>可以</strong>。v3.51.0 起 Trace Viewer 支持加载 Vector BLF（Binary Logging Format）文件。BLF 是 Vector CANalyzer/CANoe 的二进制日志格式，体积更小、解析更快。</p>
 
 
 
-<h4>Q5: 程序崩溃了日志在哪?</h4>
+<h4>Q4: 多路复用（M / m）信号能否解码?</h4>
 
-<p>A: <code>%LocalAppData%\PeakCan.Host\logs\peak-yyyy-MM-dd.log</code>（Serilog，保留 14 天），加上 Windows 应用事件查看器（Application Error 事件）。</p>
+<p>A: <strong>可以</strong>。v1.1.0 起 <code>DbcParser</code> 识别 <code>M</code> / <code>m</code> 修饰符，<code>SignalDecoder</code> 按多路复用器值动态选择被复用信号。</p>
 
 
 
-<h4>Q6: 能否选择非 1 Mbps 的波特率?</h4>
+<h4>Q5: AI 分析需要什么配置?</h4>
 
-<p>A: <strong>可以</strong>。v1.1.0 起工具栏的波特率下拉支持 1 Mbps / 500 kbps / 250 kbps / 125 kbps / 100 kbps / 50 kbps / 等常见档位（<code>AvailableBaudRates</code> 列表由 PEAK SDK 提供）。</p>
+<p>A: <strong>本地分析</strong>（无 LLM）不需要任何配置。如需 LLM 归因分析，需要在 AI Analysis 面板设置 DeepSeek API Key（通过 Windows Credential Manager 加密存储）。流式输出（v3.59.0）开箱即用。</p>
+
+
+
+<h4>Q6: AI Chat 和 AI Analysis 有什么区别?</h4>
+
+<p>A: <strong>AI Chat</strong>（v3.62.0）是自然语言交互的聊天助手，通过工具调用查询信号信息、管理分组。<strong>AI Analysis</strong>（v3.52.0）是 Trace Viewer 内的故障分析面板，基于双锚（绿/蓝线）提取证据，可选 LLM 归因。两者共用 DeepSeek Provider。</p>
 
 
 
 <h4>Q7: UDS SecurityAccess 直接能工作吗?</h4>
 
-<p>A: <strong>不能直接</strong>。v1.2.0 默认注册的是 <code>PlaceholderKeyAlgorithm</code>——原样回传 seed，仅用于联调；真实 ECU 会返回 NRC <code>0x35 invalidKey</code>。<strong>OEM 客户需要实现 <code>IKeyDerivationAlgorithm</code> 并在 <code>AppHostBuilder</code> 替换</strong>。详见 <a href="#uds-secauth">§11.6</a>。</p>
+<p>A: <strong>不能直接</strong>。默认注册的是 <code>PlaceholderKeyAlgorithm</code>——原样回传 seed，仅用于联调；真实 ECU 会返回 NRC <code>0x35 invalidKey</code>。<strong>OEM 客户需要实现 <code>IKeyDerivationAlgorithm</code> 并在 <code>AppHostBuilder</code> 替换</strong>。详见 <a href="#uds-secauth">§11.6</a>。</p>
 
 
 
 <h4>Q8: DID/Routine 库能不能扩展?</h4>
 
-<p>A: <strong>可以</strong>。v1.1.0 起 <code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code> + <code>uds-routines.json</code> 可放置用户 JSON，缺失/格式错误时回退到内置默认。详见 <a href="#uds">§11</a>。</p>
+<p>A: <strong>可以</strong>。<code>%LOCALAPPDATA%\PeakCan.Host\uds-dids.json</code> + <code>uds-routines.json</code> 可放置用户 JSON，缺失/格式错误时回退到内置默认。详见 <a href="#uds">§11</a>。</p>
 
 
 
-<h4>Q9: UDS 视图如何与 Trace/DBC 视图联动?</h4>
+<h4>Q9: HIL 测试框架需要什么?</h4>
 
-<p>A: 通过同一个 <code>UdsClient</code> 单例（DI 注入）。UDS 视图发出的请求帧会通过底层 CAN 通道被 <code>ChannelRouter</code> 广播，Trace 视图同步看到；DBC 中已加载的消息 ID 在 UDS 响应解码时被复用（如果响应 ID 命中 DBC 中消息）。</p>
+<p>A: HIL 测试需要已连接的 PCAN-USB FD 硬件。CLI 模式（<code>peakcan-hil</code>）也需硬件接入，适合 CI 自动化。</p>
 
 
 
 <h4>Q10: 能否在 UI 关闭后保留 TesterPresent?</h4>
 
-<p>A: <strong>不能</strong>。TesterPresent 后台循环由 <code>SessionPanelViewModel</code> 持有，VM 是 DI 单例直到进程退出。<strong>关闭 UDS 视图标签</strong>不会停止 TesterPresent；切换会话前请手动取消勾选，或关闭整个应用。</p>
+<p>A: <strong>不能</strong>。TesterPresent 后台循环由 <code>SessionPanelViewModel</code> 持有，VM 是 DI 单例直到进程退出。切换会话前请手动取消勾选。</p>
 
 
 
-<h3 id="known-limitations">15.2 v1.2.2 已知限制</h3>
+<h3 id="known-limitations">18.2 已知限制</h3>
 
 <table>
 
-  <tr><th>类别</th><th>限制</th><th>自何时</th></tr>
+  <tr><th>类别</th><th>限制</th></tr>
 
-  <tr><td>多连接</td><td>同一时刻单连接（多通道并行收发未实现）</td><td>v0.x MVP</td></tr>
+  <tr><td>多连接</td><td>同一时刻单连接（多通道并行收发未实现）</td></tr>
 
-  <tr><td>UDS SecurityAccess</td><td>无默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</td><td>v1.1.0</td></tr>
+  <tr><td>UDS SecurityAccess</td><td>无默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</td></tr>
 
-  <tr><td>UDS VM 生命周期</td><td>TesterPresent 循环无法跨 UDS 视图关闭（VM 单例生命周期）</td><td>v1.2.2</td></tr>
+  <tr><td>AI Chat 会话</td><td>关闭 AI Chat 标签后会话历史丢失（不支持持久化）</td></tr>
 
-  <tr><td>UDS 子功能</td><td>UDS DID/Routine 仅支持 ISO 14229 简单子功能（<code>0x01 Start</code> / <code>0x02 Stop</code> / <code>0x03 QueryResults</code>）；<code>RequestCorrectlyReceived</code> 等长流程未实现</td><td>v1.2.0</td></tr>
+  <tr><td>LLM Provider</td><td>仅支持 DeepSeek；Azure / Ollama 尚未实现</td></tr>
 
-  <tr><td>DI 容器</td><td><code>SessionPanelViewModel</code> 实现 <code>IDisposable</code>（v1.2.2 起）但<strong>未被 DI 容器调用 Dispose</strong>——VM 单例直到进程退出</td><td>v1.2.2</td></tr>
+  <tr><td>HIL 测试用例持久化</td><td>测试用例不持久化存储（运行中定义，运行后消失）</td></tr>
 
-  <tr><td>协议层</td><td>无 J1939 / CANopen 协议层</td><td>v1.2.2</td></tr>
+  <tr><td>ODX DIAG-LAYER 子类型</td><td>仅支持 <code>BASE-VARIANT</code>；<code>CONDITIONAL</code> / <code>ECU-VARIANT</code> 推迟</td></tr>
 
-  <tr><td>平台</td><td>仅 Windows 平台（依赖 WPF）</td><td>v0.x MVP</td></tr>
+  <tr><td>协议层</td><td>无 J1939 / CANopen 协议层</td></tr>
+
+  <tr><td>平台</td><td>仅 Windows 平台（依赖 WPF）</td></tr>
 
 </table>
 
 
 
-<h3>15.2b v2.0.0 ODX 导入限制</h3>
-
-<table>
-
-  <tr><th>类别</th><th>限制</th><th>自何时</th></tr>
-
-  <tr><td>DIAG-LAYER 子类型</td><td>仅支持 <code>BASE-VARIANT</code>；<code>CONDITIONAL</code> / <code>ECU-VARIANT</code> 推迟到 v2.2 🔜（见 <a href="#roadmap">§15.3 路线图</a>）</td><td>v2.0.0</td></tr>
-
-  <tr><td>ODX schema 版本</td><td>仅接受 2.0.0 + 2.2.0 版本；其他版本 warn + 尝试解析（v2.5+ schema 元素未实现）</td><td>v2.0.0</td></tr>
-
-  <tr><td>Element 范围</td><td>仅 <code>DOP-BASE</code>（DID）+ <code>DTC-DOP</code>（DTC）+ <code>ECU-JOB</code>（Routine）三种 element；<code>COMPARAM-SPEC</code>、<code>ECU-CONFIG</code>、<code>ECU-MULTIPLE-JOB</code> 等 out of scope</td><td>v2.0.0</td></tr>
-
-  <tr><td>导入 DoS 守卫</td><td>10000 items/type（超出后 <code>OdxImportResult.HasError</code> + <code>ErrorCode = OdxErrorCode.Refused</code>）</td><td>v2.0.0</td></tr>
-
-  <tr><td>V8 脚本沙箱</td><td>无法加载 ODX——ODX 是 proprietary ECU 描述，文件系统白名单归为安全决策推迟到未来 MINOR</td><td>v2.0.0</td></tr>
-
-  <tr><td>DTC 描述 fallback</td><td>ODX 导入后优先采用 <code>DTC-DOP/TEXT/DTC-TAB</code>；无 ODX 数据时回退到 ISO 14294 category 映射（Powertrain/Chassis/Body/Network/Unknown）</td><td>v2.0.0</td></tr>
-
-</table>
-
-
-
-<h3>15.3 路线图</h3>
+<h3>18.3 路线图</h3>
 
 <table>
 
   <tr><th>版本</th><th>主要内容</th></tr>
 
-  <tr><td><strong>v1.1.0 ✅</strong></td><td>多通道枚举、ASC/CSV 录制、帧过滤、循环发送、多路复用解码、值表（VAL_）名称显示、<code>IFileDialogService</code> 抽象、波特率下拉、<code>IKeyDerivationAlgorithm</code> 抽象 + 占位实现、DidDatabase / RoutineDatabase JSON 加载</td></tr>
+  <tr><td><strong>v3.39.0 ✅</strong></td><td>ChannelRouter god-class 重构（21st 系列）</td></tr>
 
-  <tr><td><strong>v1.2.0 ✅</strong></td><td>实时 OxyPlot 信号曲线（v0.10.1 已含）、CodeMirror 6 脚本引擎 + Roslyn 沙箱、4 面板 UDS 诊断 UI（Session / DID / Routine / DTC）、共享彩色 OutputLog</td></tr>
+  <tr><td><strong>v3.40.0-v3.48.0 ✅</strong></td><td>9 个 god-class 重构（CanApi / RecentSessionsService / DbcService / SendFrameLibrary / SequenceSendService / ReplayService / DbcApi / SequenceLibrary / CyclicSendService）</td></tr>
 
-  <tr><td><strong>v1.2.1 ✅</strong></td><td>DidDatabase 2-arg ctor null-ILogger NRE 修复 + STA Dispatcher 泄漏 flake 修复（4 个测试类）</td></tr>
+  <tr><td><strong>v3.49.0 ✅</strong></td><td>ASC 单源格式 + Sampling Table + Recording 内嵌到 Trace Viewer</td></tr>
 
-  <tr><td><strong>v1.2.2 ✅</strong></td><td>RoutineDatabase NRE 修复 + SessionPanelVM.Dispose 复位 TesterPresentActive</td></tr>
+  <tr><td><strong>v3.50.0 ✅</strong></td><td>绿线锚点 watch 同步（绿线拖拽 → 所有子图 + 信号值同步）</td></tr>
 
-  <tr><td><strong>v1.3.0 🔜</strong></td><td>OEM-specific <code>IKeyDerivationAlgorithm</code> 实现（需 OEM 列表 / 客户触发）+ 多通道并行收发（可选）+ UDS SecurityAccess 多级支持（Level 1/3/5 按 OEM 需求）</td></tr>
+  <tr><td><strong>v3.51.0 ✅</strong></td><td>BLF（Vector Binary Logging Format）解析器</td></tr>
 
-  <tr><td><strong>v2.0.0 ✅</strong></td><td>ODX-D (ISO 22901) 诊断描述导入 — <code>*.odx</code> / <code>*.pdx</code> 文件加载 + DID/DTC/Routine 数据库填充 + DtcPanel ODX 描述优先 + UDS 视图 Load ODX… 按钮 + 新 DtcDatabase（非 v2.0 候选 J1939/CANopen/SocketCAN——属于更大 v2.x 重命名后</td></tr>
+  <tr><td><strong>v3.52.0 ✅</strong></td><td>Trace Viewer AI 推理 v1（AI Analysis 面板 + 本地 evidence 提取）</td></tr>
 
-  <tr><td><strong>v2.0.1 ✅</strong></td><td>v2.0.0 closure Tidy：test-count drift 修正（release-notes <code>~902</code> → <code>905</code>；manual §A.3 <code>900</code> → <code>905</code> + <code>Core 378</code> → <code>Core 379</code>） + 清理 stray root 设计草稿（<code>_plan.md</code> / <code>_spec.md</code>） + Option B release notes。0 代码改动。</td></tr>
+  <tr><td><strong>v3.53.1 ✅</strong></td><td>ICredentialStore + Windows Credential Manager（安全存储基础）</td></tr>
 
-  <tr><td><strong>v2.0.2 ✅</strong></td><td>PATCH：v2.0.1 closure Tidy——<code>.gitignore</code> 加 <code>_[!_]*.md</code> 规则排除单下划线根级 scratch 文件（exempt 双下划线） + manual §15.3 补 v2.0.1 ✅ 行。0 代码改动。v2.0.3 不存在。</td></tr>
+  <tr><td><strong>v3.54.0 ✅</strong></td><td>DeepSeek LLM Provider 集成（P1b + P1c）</td></tr>
 
-  <tr><td><strong>v2.0.4 ✅</strong></td><td>PATCH：真实 OEM <code>.odx-d</code>（Vector CANdelaStudio 输出）导入路径走通——DID / DTC / Routine 数据库填充 + DtcPanel ODX 描述优先 + UDS 视图 Load ODX… 接受 <code>*.odx-d</code>。替换占位 <code>Demo_Cdd.odx-d</code> fixture（v2.0.0 起的合成数据）。</td></tr>
+  <tr><td><strong>v3.58.0 ✅</strong></td><td>API Key UI（AI Analysis 面板 PasswordBox 输入）</td></tr>
 
-  <tr><td><strong>v2.0.5 ✅</strong></td><td>PATCH：DID <code>LengthBytes</code> 从 <code>POS-RESPONSE</code> → <code>DOP-REF</code> → <code>DIAG-CODED-TYPE BIT-LENGTH</code> 链自动解析（响应体总 bit-length 求和后按 byte 对齐）。DID 列表、<code>Writable</code> 标志、<code>LengthBytes</code> 全部正确导入。详见 <a href="#uds-odx">§11.5</a>。</td></tr>
+  <tr><td><strong>v3.59.0 ✅</strong></td><td>Streaming LLM Response（SSE 流式输出，首 token ~1s）</td></tr>
 
-  <tr><td><strong>v2.0.6 ✅</strong></td><td>PATCH：3 bug 修复 + 1 UI tidy——<code>AppHostBuilder</code> DI 注册 <code>DbcSendViewModel</code> + <code>UdsViewModel</code> ODX panel refresh + <code>UdsViewModel</code> crash regression + <code>MapperTests</code> DTC DOP mapping section。</td></tr>
+  <tr><td><strong>v3.60.0 ✅</strong></td><td>WatchedSignalRow god-class 重构（32nd 系列）</td></tr>
 
-  <tr><td><strong>v2.0.7 ✅</strong></td><td>PATCH：3 bug 修复——<code>UdsView</code> <code>CollectionChanged.Reset</code> 重建 + <code>RequestBasedMappers</code> SHORT-NAME attribute-or-child fallback + <code>ScriptView</code> WebView2 lifecycle。</td></tr>
+  <tr><td><strong>v3.61.0 ✅</strong></td><td>UDS View DID 数据类型识别（Type 列 + Decoded fields）+ UDS Flash 刷写管道</td></tr>
 
-  <tr><td><strong>v2.1.0 ✅</strong></td><td>MINOR：Multi-frame 发送窗口（concurrent / sequential / iteration count，<code>SequenceSendService</code> 派发 Raw 行 + DBC 行）。</td></tr>
+  <tr><td><strong>v3.62.0 ✅</strong></td><td>AI Chat 聊天助手 + Trace Viewer ScottPlot 5.x 迁移 + Shift+Click 范围选择</td></tr>
 
-  <tr><td><strong>v2.1.1 ✅</strong></td><td>PATCH：Multi-frame 窗口加 DBC 行类型支持（<code>DbcEncodeService.Encode(message, values)</code> + PEAK IDE bit 剥离）。</td></tr>
+  <tr><td><strong>v3.63.0 ✅</strong></td><td>HIL 测试面板（View ▸ HIL）</td></tr>
 
-  <tr><td><strong>v2.1.2 ✅</strong></td><td>PATCH：命名 sequence 持久化到 <code>%APPDATA%\PeakCan.Host\sequences.json</code>（Save / Load / Delete），atomic write + 锁 + last-wins。</td></tr>
-
-  <tr><td><strong>v2.1.3 ✅</strong></td><td>PATCH：stale manual refs Tidy（0 代码改动）。</td></tr>
-
-  <tr><td><strong>v2.1.4 ✅</strong></td><td>PATCH：Replay 标签 UI orphan 闭合（<code>View ▸ Replay</code> 菜单入口 + <code>ShowReplayCommand</code> + <code>ReplayViewModel</code> DI 注册；自 v1.4.0 起 Replay 服务已实现但 UI 不可达）。</td></tr>
-
-  <tr><td><strong>v2.1.5 ✅</strong></td><td>PATCH：CI 失败 gap 闭合（<code>%LOCALAPPDATA%\PeakCan.Host</code> 目录缺失 + <code>Demo_Cdd.odx-d</code> fixture 软跳过）。</td></tr>
-
-  <tr><td><strong>v2.1.6 ✅</strong></td><td>PATCH：Doc-only Tidy（4 stale refs in user-manual §15/§A）。</td></tr>
-
-  <tr><td><strong>v2.1.7 ✅</strong></td><td>PATCH：Multi-frame AppShell menu entry（Pattern A2 orphan：<code>View ▸ Multi-frame...</code> 菜单入口 + <code>OpenMultiFrameCommand</code>）。</td></tr>
-
-  <tr><td><strong>v3.0.0 ✅</strong></td><td>MINOR：<strong>Trace Viewer（回放/inspection）</strong>——非模态窗口，<code>View ▸ Trace Viewer…</code> 菜单入口；加载 <code>.asc</code> + 可选 DBC → 共享 X 轴的 per-signal OxyPlot 子图；播放控件（▶/⏸/⏹/速度/Loop）+ scrubber + 统计 chip + CSV 导出。<strong>无总线写入</strong>（<code>ITraceViewerService</code> 无 <code>IReplayFrameSink</code> 依赖，反射测试 <code>Constructor_DoesNotAcceptIReplayFrameSink</code> 强制）。详见 <a href="#trace-viewer">§12</a>。</td></tr>
-
-  <tr><td><strong>v3.0.1 ✅</strong></td><td>PATCH：v3.0.0 V1 stub 闭合——<code>RebuildSignalsAsync</code> 改为按 DBC 消息 × 信号维度展开信号表，<code>LatestValue</code> 取最后一帧的解码值；DBC 解码走 <code>SignalDecoder.Decode</code>（signed / float / factor / offset 与 Trace Chart VM 完全一致）；<code>ITraceViewerService.LoadedFrames</code> 暴露为只读属性供 VM 消费；行按 <code>(CAN ID hex, signal name)</code> ordinal 排序保证确定性。</td></tr>
-
-  <tr><td><strong>v3.0.2 ✅</strong></td><td>PATCH：v3.0.0 V1 UI stub 闭合——<code>PlotView.Height</code> 绑定 <code>TraceChartSeries.AdaptiveHeight</code>（不再 hardcode 160 px），由 <code>TraceChartViewModel.ChartAreaHeight</code> + <code>Compute</code> 静态算法按 spec §3 计算（collapsed 24 / focused <code>clamp(H·0.5, 80, 250)</code> / 其余 <code>clamp((H·0.5)/max(N-1,1), 80, 250)</code> / 一般 <code>clamp(H/N, 80, 250)</code>）；子图 header 增加 <code>[Focus]</code> + <code>[▼ Collapse]</code> 两个内联按钮；<code>Loaded</code> + <code>SizeChanged</code> 双 hook 驱动 <code>ChartAreaHeight</code> 实时同步窗口尺寸。</td></tr>
-
-  <tr><td><strong>v3.39.0 ✅</strong></td><td>MINOR：<strong>ChannelRouter god-class 重构</strong>（21st god-class refactor in W3-W25 series）——<code>src/PeakCan.Host.Infrastructure/Channel/ChannelRouter.cs</code> 拆分为 3 个 partial-class（<code>ChannelRouter/FrameRouting.partial.cs</code> + <code>ChannelRouter/Sinks.partial.cs</code> + <code>ChannelRouter/Channels.partial.cs</code>）。<strong>无 user-facing 行为变更</strong>——<code>ChannelRouter</code> 公开 API（<code>IFrameSource</code> + <code>RegisterChannel</code> + <code>UnregisterChannel</code> + <code>AttachSink</code> + <code>DetachSink</code>）签名、<code>Volatile.Read/Write</code> 内存语义、3 个 EventId（<code>6004</code> sink OnError + <code>6010</code> sink OnFrame + <code>6011</code> DetachSink 失败）全部保留不变；DI 注册路径 <code>AppHostBuilder.cs</code> 无修改。0 个 PEAK SDK 调用点受影响。用户视角无差异：连接/断开/帧分发/sink 注册逻辑完全一致。详见 <code>docs/release-notes-v3.39.0.md</code>。</td></tr>
-
-  <tr><td><strong>v2.2 🔜</strong></td><td>ODX CONDITIONAL / ECU-VARIANT DIAG-LAYER 子类型支持 + V8 沙箱 ODX 加载白名单（安全审查后）。</td></tr>
+  <tr><td><strong>v3.64.0 🔜</strong></td><td>多通道并行收发（可选）+ Azure / Ollama Provider</td></tr>
 
 </table>
 
@@ -2430,17 +2864,21 @@ CI 会拒绝破坏此边界的 PR。</p>
 
   <tr><td><strong>Peak.PCANBasic.NET 5.0.1</strong>（非 <code>Peak.Can.Basic</code>）</td><td>旧的 <code>Peak.Can.Basic</code> 在 nuget.org 上不可寻；<code>Peak.PCANBasic.NET</code> 是 PEAK 官方替代（12.7 万次下载）。</td></tr>
 
-  <tr><td><strong>OxyPlot.Wpf 2.2.0</strong>（非 LiveChartsCore 2.0.4）</td><td>LiveCharts 2.0.4 的原生依赖（OpenTK + SkiaSharp.Views.WPF）仅目标 .NET Framework，在 .NET 10 上启动失败。OxyPlot 是纯托管的，干净。</td></tr>
+  <tr><td><strong>OxyPlot.Wpf → ScottPlot 5.x</strong> <span class="badge info">v3.62.0</span></td><td>Trace Viewer 图表渲染引擎从 OxyPlot 迁移至 ScottPlot 5.x，支持渐进填充引擎，渲染性能显著提升。Stats 视图仍使用 OxyPlot。</td></tr>
 
-  <tr><td><strong>多通道探测 + 单连接（v1.1 起）</strong></td><td>v0.x MVP 仅探测 + 连接第一个 handle 0x51；v1.1 起 Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。多通道并行收发不实现（v3.x 范围外的长期非目标，与 J1939/CANopen/SocketCAN 一起推迟到更远的将来）。</td></tr>
+  <tr><td><strong>DeepSeek LLM Provider</strong> <span class="badge info">v3.54.0</span></td><td>AI Analysis 和 AI Chat 共用 DeepSeek Provider 作为 LLM 后端。API Key 通过 Windows Credential Manager 加密存储。SSE 流式输出（v3.59.0）降低首 token 延迟。</td></tr>
 
-  <tr><td><strong>VM 部分 IDisposable（v1.2.2 起）</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，v1.2.2 起实现 <code>IDisposable</code> 复位 <code>TesterPresentActive=false</code> + Cancel/Dispose CTS。<strong>注</strong>：当前 DI 容器不调用 <code>Dispose()</code>——VM 生命周期 ≈ 进程生命周期，Dispose 仅作为防御性 API 暴露。</td></tr>
+  <tr><td><strong>多通道探测 + 单连接</strong></td><td>Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。</td></tr>
 
-  <tr><td><strong><code>IFileDialogService</code> 抽象（v1.1 起）</strong></td><td>v0.x <code>DbcViewModel.OpenAsync</code> 内联调用 <code>OpenFileDialog.ShowDialog</code>，用户取消路径测试为 <code>[Fact(Skip=...)]</code>。v1.1 起抽取为 <code>IFileDialogService</code> 接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
+  <tr><td><strong>VM 部分 IDisposable</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，实现 <code>IDisposable</code> 复位。当前 DI 容器不调用 <code>Dispose()</code>。</td></tr>
 
-  <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code>（v1.1 起）</strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异（典型：HMAC-SHA256、HSM 模拟、硬件安全模块等）。v1.1 抽取为接口并提供占位实现（<em>原样回传 seed</em>）让 UI 联调可跑通；OEM 客户需自行实现并替换。详见 <a href="#uds-secauth">§11.6</a>。</td></tr>
+  <tr><td><strong><code>IFileDialogService</code> 抽象</strong></td><td>抽取为接口 + <code>WpfFileDialogService</code> 实现，所有用户取消测试改为真实断言。</td></tr>
 
-  <tr><td><strong>UDS 4 面板 orchestrator 模式（v1.2.0 起）</strong></td><td>原 <code>UdsViewModel</code> 单体 279 行 / 8 个 <code>[RelayCommand]</code>，v1.2.0 拆为 4 个 panel VM（Session / DID / Routine / DTC） + ≤80 行 orchestrator。每个 panel VM 通过 <code>IUdsPanel.AttachLog(...)</code> 接口共享一个 <code>OutputLog</code>。</td></tr>
+  <tr><td><strong><code>IKeyDerivationAlgorithm</code> 抽象 + <code>PlaceholderKeyAlgorithm</code></strong></td><td>UDS SecurityAccess 的 seed-to-key 算法因 OEM 而异。提供占位实现让 UI 联调可跑通；OEM 客户需自行实现并替换。</td></tr>
+
+  <tr><td><strong>UDS 4 面板 orchestrator 模式</strong></td><td>拆为 4 个 panel VM（Session / DID / Routine / DTC） +  orchestrator，每个 panel VM 通过 <code>IUdsPanel.AttachLog(...)</code> 接口共享一个 <code>OutputLog</code>。</td></tr>
+
+  <tr><td><strong>AI Analysis 双锚模式</strong> <span class="badge info">v3.52.0</span></td><td>绿线 + 蓝线双锚作为故障/对照时刻，本地 evidence 提取与可选的 LLM 归因分离。诚实信号标识（黄色横幅）始终明确分析局限性。</td></tr>
 
 </table>
 
@@ -2450,11 +2888,11 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <ul>
 
-  <li><strong>997 pass + 6 SKIP + 0 fail</strong>：Core 393 + App 520 + Infrastructure 84 (含 ODX</li>
+  <li><strong>~1228 pass + 5 SKIP + 0 fail</strong>：Core 421 + App 723 + Infrastructure 84</li>
 
-  <li>6 SKIP：5 个硬件条件（PCAN-USB FD 未插入）+ 1 个 TraceService flush</li>
+  <li>5 SKIP：3 个硬件条件（PCAN-USB FD 未插入）+ 2 个无关跳过</li>
 
-  <li><strong>3 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
+  <li><strong>5 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
 
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
 
@@ -2474,13 +2912,15 @@ CI 会拒绝破坏此边界的 PR。</p>
 
   <li>UDS-on-CAN 标准：ISO 14229-1:2013 + ISO 15765-2（ISO-TP）</li>
 
+  <li>BLF 文件格式参考：Vector Binary Logging Format 规范</li>
+
 </ul>
 
 
 
 <footer>
 
-  PeakCan Host v3.39.0 用户使用手册 · 更新于 2026-07-12 ·
+  PeakCan Host v3.63.0 用户使用手册 · 更新于 2026-07-30 ·
 
   与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
 
@@ -2495,4 +2935,3 @@ CI 会拒绝破坏此边界的 PR。</p>
 </body>
 
 </html>
-
