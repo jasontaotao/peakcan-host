@@ -20,10 +20,18 @@ public sealed class FakeIFaultInjectionContext : IAssertionContext, IFaultInject
     public int ClearAllCallCount { get; private set; }
     public List<string> ClearedFaultIds { get; } = new();
 
+    public List<FaultRule> AddedReceiveFaults { get; } = new();
+
     public IDisposable AddFault(FaultRule fault)
     {
         AddedFaults.Add(fault);
         return new FakeFaultHandle(() => AddedFaults.Remove(fault));
+    }
+
+    public IDisposable AddReceiveFault(FaultRule fault)
+    {
+        AddedReceiveFaults.Add(fault);
+        return new FakeFaultHandle(() => AddedReceiveFaults.Remove(fault));
     }
 
     public void TagFault(string faultId, IDisposable handle)

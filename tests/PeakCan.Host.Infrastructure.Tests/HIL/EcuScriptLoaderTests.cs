@@ -24,7 +24,9 @@ public class EcuScriptLoaderTests
         var script = EcuScriptLoader.Parse(json);
 
         Assert.Equal("BMS_Simulator", script.Name);
-        Assert.Equal(3, script.Rules.Count);
+        // Stateless rules converted to wildcard transitions
+        var (response, _) = script.StateMachine.ProcessRequest(new byte[] { 0x3E, 0x00 });
+        Assert.Equal(new byte[] { 0x7E }, response);
     }
 
     [Fact]

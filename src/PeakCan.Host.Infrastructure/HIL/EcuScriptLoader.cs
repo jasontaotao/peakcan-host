@@ -1,13 +1,15 @@
 using System.Globalization;
 using System.Text.Json;
 using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
 /// <summary>
-/// Loads an ECU simulator script from JSON. Parses CAN IDs and response rules.
+/// Loads an ECU simulator script from JSON. Parses CAN IDs and states/rules.
 /// Swaps RequestId/ResponseId to produce ECU-perspective CanIdConfig.
+/// Supports both stateless ("rules") and stateful ("states") JSON formats.
 /// </summary>
 public static class EcuScriptLoader
 {
@@ -38,31 +40,141 @@ public static class EcuScriptLoader
     /// </summary>
     public static EcuScript ParseEcuScript(JsonElement element)
     {
-        // Parse canIds (HIL perspective)
-        var canIdsHil = element.GetProperty("canIds");
-        var requestIdHil = ParseCanId(canIdsHil.GetProperty("requestId"));
-        var responseIdHil = ParseCanId(canIdsHil.GetProperty("responseId"));
-        var isExtended = canIdsHil.TryGetProperty("isExtendedFrame", out var ext) && ext.GetBoolean();
+        // Parse canIds (HIL perspective) and swap to ECU perspective
+        var canIds = ParseCanIds(element.GetProperty("canIds"));
 
-        // ECU side swaps RequestId/ResponseId
-        var ecuCanIds = new CanIdConfig
+        // Determine format: "states" (stateful) or "rules" (stateless)
+        bool hasStates = element.TryGetProperty("states", out var statesEl);
+        bool hasRules = element.TryGetProperty("rules", out var rulesEl);
+
+        if (hasStates && hasRules)
+            throw new JsonException("Cannot specify both 'states' and 'rules' in ECU script.");
+
+        EcuStateMachine stateMachine;
+        if (hasStates)
+        {
+            stateMachine = ParseStateMachine(statesEl, GetBuiltInGenerators());
+        }
+        else if (hasRules)
+        {
+            stateMachine = ParseRules(rulesEl);
+        }
+        else
+        {
+            throw new JsonException("ECU script must contain either 'states' or 'rules'.");
+        }
+
+        return new EcuScript(
+            Name: element.GetProperty("name").GetString()!,
+            CanIds: canIds,
+            StateMachine: stateMachine);
+    }
+
+    /// <summary>
+    /// Parse canIds from HIL perspective and swap to ECU perspective.
+    /// ECU listens on HIL's RequestId, sends on HIL's ResponseId.
+    /// </summary>
+    private static CanIdConfig ParseCanIds(JsonElement canIdsEl)
+    {
+        var requestIdHil = ParseCanId(canIdsEl.GetProperty("requestId"));
+        var responseIdHil = ParseCanId(canIdsEl.GetProperty("responseId"));
+        var isExtended = canIdsEl.TryGetProperty("isExtendedFrame", out var ext) && ext.GetBoolean();
+
+        return new CanIdConfig
         {
             RequestId = responseIdHil,   // ECU sends on HIL's ResponseId
             ResponseId = requestIdHil,   // ECU receives on HIL's RequestId
             IsExtendedFrame = isExtended
         };
+    }
 
-        // Parse rules
+    /// <summary>
+    /// Parse states array into EcuStateMachine.
+    /// Uses JsonSerializer with HILJsonOptions for polymorphic EcuResponse deserialization.
+    /// </summary>
+    private static EcuStateMachine ParseStateMachine(JsonElement statesEl, List<IEcuResponseGenerator> generators)
+    {
+        var allTransitions = new List<EcuStateTransition>();
+
+        foreach (var stateEl in statesEl.EnumerateArray())
+        {
+            var stateName = stateEl.GetProperty("name").GetString()!;
+            var transitionsEl = stateEl.GetProperty("transitions");
+
+            foreach (var transitionEl in transitionsEl.EnumerateArray())
+            {
+                var transition = ParseTransition(transitionEl, stateName);
+                allTransitions.Add(transition);
+            }
+        }
+
+        return new EcuStateMachine(allTransitions, generators);
+    }
+
+    /// <summary>
+    /// Parse a single transition from JSON.
+    /// Uses HILJsonOptions for polymorphic EcuResponse deserialization ($type discriminator).
+    /// </summary>
+    private static EcuStateTransition ParseTransition(JsonElement el, string stateName)
+    {
+        var serviceIdEl = el.GetProperty("serviceId");
+        var serviceId = serviceIdEl.ValueKind == JsonValueKind.Number
+            ? serviceIdEl.GetByte()
+            : ParseHexString(serviceIdEl.GetString()!);
+
+        byte? subFunction = null;
+        if (el.TryGetProperty("subFunction", out var subFunc) && subFunc.ValueKind != JsonValueKind.Null)
+        {
+            subFunction = subFunc.ValueKind == JsonValueKind.Number
+                ? subFunc.GetByte()
+                : ParseHexString(subFunc.GetString()!);
+        }
+
+        byte[]? dataMask = null;
+        byte[]? dataPattern = null;
+        if (el.TryGetProperty("dataMask", out var mask))
+        {
+            dataMask = mask.EnumerateArray().Select(b => b.GetByte()).ToArray();
+            dataPattern = el.GetProperty("dataPattern").EnumerateArray().Select(b => b.GetByte()).ToArray();
+        }
+
+        // Parse polymorphic response using HILJsonOptions
+        var responseEl = el.GetProperty("response");
+        var response = JsonSerializer.Deserialize<EcuResponse>(responseEl.GetRawText(), HILJsonOptions.Default)
+            ?? throw new JsonException("Failed to parse response in transition.");
+
+        string? toState = null;
+        if (el.TryGetProperty("toState", out var toStateEl) && toStateEl.ValueKind != JsonValueKind.Null)
+        {
+            toState = toStateEl.GetString();
+        }
+
+        var delayMs = el.TryGetProperty("responseDelayMs", out var delay) ? delay.GetInt32() : 0;
+
+        return new EcuStateTransition
+        {
+            FromState = stateName,
+            ServiceId = serviceId,
+            SubFunction = subFunction,
+            DataMask = dataMask,
+            DataPattern = dataPattern,
+            Response = response,
+            ToState = toState,
+            ResponseDelayMs = delayMs
+        };
+    }
+
+    /// <summary>
+    /// Parse stateless rules into a state machine (wildcard transitions for backward compat).
+    /// </summary>
+    private static EcuStateMachine ParseRules(JsonElement rulesEl)
+    {
         var rules = new List<UdsResponseRule>();
-        foreach (var ruleEl in element.GetProperty("rules").EnumerateArray())
+        foreach (var ruleEl in rulesEl.EnumerateArray())
         {
             rules.Add(ParseRule(ruleEl));
         }
-
-        return new EcuScript(
-            Name: element.GetProperty("name").GetString()!,
-            CanIds: ecuCanIds,
-            Rules: rules);
+        return EcuStateMachine.FromRules(rules);
     }
 
     private static uint ParseCanId(JsonElement element)
@@ -121,6 +233,16 @@ public static class EcuScriptLoader
             DataPattern = dataPattern,
             ResponseData = responseData,
             ResponseDelayMs = delayMs
+        };
+    }
+
+    private static List<IEcuResponseGenerator> GetBuiltInGenerators()
+    {
+        return new()
+        {
+            new Generators.SecurityAccessSeedGenerator(),
+            new Generators.SecurityAccessVerifyKeyGenerator(),
+            new Generators.ClearDtcGenerator(),
         };
     }
 }

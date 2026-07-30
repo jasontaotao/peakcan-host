@@ -5,6 +5,7 @@ using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.HIL.Odx;
 
 namespace PeakCan.Host.Cli;
 
@@ -15,6 +16,29 @@ public static class Program
         try
         {
             var cli = CliArgsParser.Parse(args);
+
+            // ODX import mode: no DI container needed
+            if (cli.ImportOdxPath is not null)
+            {
+                var json = OdxEcuScriptImporter.ImportToJson(
+                    cli.ImportOdxPath,
+                    cli.ImportOdxEcuName ?? "ImportedECU",
+                    cli.ImportOdxRequestId,
+                    cli.ImportOdxResponseId);
+
+                if (cli.OutputPath is not null)
+                {
+                    await File.WriteAllTextAsync(cli.OutputPath, json);
+                    Console.WriteLine($"ECU script written to {cli.OutputPath}");
+                }
+                else
+                {
+                    Console.WriteLine(json);
+                }
+                return 0;
+            }
+
+            // Normal HIL test mode
             using var host = HeadlessHostBuilder.Build(cli);
 
             var engine = host.Services.GetRequiredService<TestSuiteEngine>();

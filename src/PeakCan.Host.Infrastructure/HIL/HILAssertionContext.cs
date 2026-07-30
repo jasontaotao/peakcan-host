@@ -18,6 +18,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     private readonly ICanChannel _channel;
     private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
     private readonly FaultInjector? _faultInjector;
+    private readonly ReceivePathFaultInjector? _receiveFaultInjector;
     private readonly IDbcLookup _dbcLookup;
     private readonly Channel<CanFrame> _frameChannel;
     private readonly CancellationTokenSource _consumerCts = new();
@@ -34,11 +35,13 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
         _channel = channel;
         _dbcLookup = dbcLookup;
 
-        // When fault injection is enabled, wrap channel with FaultInjector
+        // When fault injection is enabled, wrap channel with FaultInjector (send path)
+        // and ReceivePathFaultInjector (receive path).
         if (enableFaultInjection)
         {
             _faultInjector = new FaultInjector(channel);
-            _effectiveChannel = _faultInjector;
+            _receiveFaultInjector = new ReceivePathFaultInjector(_faultInjector);
+            _effectiveChannel = _receiveFaultInjector;
         }
         else
         {
@@ -107,6 +110,13 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
         if (_faultInjector is null)
             throw new InvalidOperationException("Fault injection not enabled");
         return _faultInjector.AddFault(fault);
+    }
+
+    public IDisposable AddReceiveFault(FaultRule fault)
+    {
+        if (_receiveFaultInjector is null)
+            throw new InvalidOperationException("Receive fault injection not enabled");
+        return _receiveFaultInjector.AddReceiveFault(fault);
     }
 
     public void TagFault(string faultId, IDisposable handle)

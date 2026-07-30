@@ -4,6 +4,7 @@ namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes InjectFault steps. Adds a fault rule to the channel via IFaultInjectionContext.
+/// Supports Send, Receive, and Both directions.
 /// </summary>
 public sealed class InjectFaultStepExecutor : IStepExecutor
 {
@@ -26,12 +27,30 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
             CorruptXorMask = p.CorruptXorMask,
         };
 
-        var handle = faultCtx.AddFault(rule);
+        IDisposable? sendHandle = null;
+        IDisposable? recvHandle = null;
+
+        switch (p.Direction)
+        {
+            case FaultDirection.Send:
+                sendHandle = faultCtx.AddFault(rule);
+                break;
+            case FaultDirection.Receive:
+                recvHandle = faultCtx.AddReceiveFault(rule);
+                break;
+            case FaultDirection.Both:
+                sendHandle = faultCtx.AddFault(rule);
+                recvHandle = faultCtx.AddReceiveFault(rule);
+                break;
+        }
 
         if (p.FaultId is not null)
-            faultCtx.TagFault(p.FaultId, handle);
+        {
+            if (sendHandle is not null) faultCtx.TagFault(p.FaultId + "_tx", sendHandle);
+            if (recvHandle is not null) faultCtx.TagFault(p.FaultId + "_rx", recvHandle);
+        }
 
         return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-            $"Fault injected: {p.FaultType}", null, null, 0));
+            $"Fault injected: {p.FaultType} ({p.Direction})", null, null, 0));
     }
 }

@@ -10,5 +10,6 @@ public sealed record InjectFaultStep(
     int DelayMs,                   // Delay in ms
     int[]? CorruptByteIndices,     // Corrupt byte positions
     byte CorruptXorMask,           // Corrupt XOR mask
-    string? FaultId                // Optional ID for targeted clearing
+    string? FaultId,               // Optional ID for targeted clearing
+    Contracts.FaultDirection Direction = Contracts.FaultDirection.Send // Send/Receive/Both
 ) : StepParameters(TestCaseStepKind.InjectFault);

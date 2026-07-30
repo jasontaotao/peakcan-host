@@ -6,12 +6,12 @@ using PeakCan.Host.Infrastructure.CanChannels;
 namespace PeakCan.Host.Infrastructure.HIL;
 
 /// <summary>
-/// Multiple VirtualEcu instances sharing a single VirtualChannel.
+/// Multiple StatefulVirtualEcu instances sharing a single VirtualChannel.
 /// Each ECU responds to different CAN ID pairs.
 /// </summary>
 public sealed class EcuMatrix : IDisposable
 {
-    private readonly List<VirtualEcu> _ecus = new();
+    private readonly List<StatefulVirtualEcu> _ecus = new();
     private readonly VirtualChannel _channel;
     private int _disposed;
 
@@ -20,18 +20,17 @@ public sealed class EcuMatrix : IDisposable
         _channel = new VirtualChannel(channelCapacity);
     }
 
-    public void AddEcu(EcuScript script, ILogger<VirtualEcu>? logger = null)
+    public void AddEcu(EcuScript script, ILogger<StatefulVirtualEcu>? logger = null)
     {
-        // Create ECU first to get its actual send ID (VirtualEcu.RequestId = CanIds.ResponseId)
-        var ecu = new VirtualEcu(_channel, script.CanIds, script.Rules, logger);
+        var ecu = new StatefulVirtualEcu(_channel, script.CanIds, script.StateMachine, logger);
 
         // CAN ID conflict detection: two ECUs cannot send on the same CAN ID
-        var newSendId = ecu.RequestId;
-        if (_ecus.Any(e => e.RequestId == newSendId))
+        var newSendId = ecu.SendCanId;
+        if (_ecus.Any(e => e.SendCanId == newSendId))
         {
             ecu.Dispose();
             throw new InvalidOperationException(
-                $"CAN ID conflict: request ID 0x{newSendId:X3} already assigned to another ECU");
+                $"CAN ID conflict: send ID 0x{newSendId:X3} already assigned to another ECU");
         }
 
         _ecus.Add(ecu);

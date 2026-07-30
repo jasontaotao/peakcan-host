@@ -9,7 +9,8 @@ public class EcuMatrixTests
 {
     private static EcuScript CreateScript(string name, uint requestId, uint responseId, params UdsResponseRule[] rules)
     {
-        return new EcuScript(name, new CanIdConfig { RequestId = requestId, ResponseId = responseId }, rules);
+        var sm = EcuStateMachine.FromRules(rules);
+        return new EcuScript(name, new CanIdConfig { RequestId = requestId, ResponseId = responseId }, sm);
     }
 
     [Fact]

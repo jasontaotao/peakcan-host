@@ -77,7 +77,10 @@ public static class StepParametersFactory
                 ? ((IEnumerable<object>)indices).Select(o => Convert.ToInt32(o)).ToArray() : null,
             p.TryGetValue("CorruptXorMask", out var mask)
                 ? Convert.ToByte(StripHexPrefix((string)mask), 16) : (byte)0xFF,
-            p.TryGetValue("FaultId", out var fid) ? (string?)fid : null),
+            p.TryGetValue("FaultId", out var fid) ? (string?)fid : null,
+            p.TryGetValue("Direction", out var dir)
+                ? Enum.Parse<Contracts.FaultDirection>((string)dir, ignoreCase: true)
+                : Contracts.FaultDirection.Send),
 
         TestCaseStepKind.ClearFault => new ClearFaultStep(
             p.TryGetValue("FaultId", out var clearFid) ? (string?)clearFid : null),

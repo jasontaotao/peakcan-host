@@ -6,8 +6,11 @@ namespace PeakCan.Host.Core.HIL.Contracts;
 /// </summary>
 public interface IFaultInjectionContext
 {
-    /// <summary>Add a fault rule. Returns a disposable handle for removal.</summary>
+    /// <summary>Add a send-path fault rule. Returns a disposable handle for removal.</summary>
     IDisposable AddFault(FaultRule fault);
+
+    /// <summary>Add a receive-path fault rule. Returns a disposable handle for removal.</summary>
+    IDisposable AddReceiveFault(FaultRule fault);
 
     /// <summary>Tag a fault handle with an ID for targeted clearing.</summary>
     void TagFault(string faultId, IDisposable handle);

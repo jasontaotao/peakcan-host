@@ -66,7 +66,7 @@ public class InjectFaultStepExecutorTests
         await executor.ExecuteAsync(step, fakeCtx, CancellationToken.None);
 
         Assert.Single(fakeCtx.TaggedFaults);
-        Assert.True(fakeCtx.TaggedFaults.ContainsKey("fault1"));
+        Assert.True(fakeCtx.TaggedFaults.ContainsKey("fault1_tx"));
     }
 
     /// <summary>

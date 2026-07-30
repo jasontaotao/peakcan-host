@@ -18,7 +18,12 @@ public sealed record CliArgs(
     // Phase 3 Sprint 5 additions:
     bool EnableFaultInjection = false,  // Enable fault injection in channel
     // Phase 3 Sprint 6 additions:
-    string? MatrixPath = null);  // Multi-ECU matrix config JSON path
+    string? MatrixPath = null,  // Multi-ECU matrix config JSON path
+    // Phase 4 Sprint 8 additions (ODX import):
+    string? ImportOdxPath = null,
+    string? ImportOdxEcuName = null,
+    uint ImportOdxRequestId = 0x7E0,
+    uint ImportOdxResponseId = 0x7E8);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -31,6 +36,9 @@ public static class CliArgsParser
         string? hw = null, ecu = null, matrix = null;
         bool enableFaults = false;
         uint udsReq = 0x7DF, udsResp = 0x7E8;
+        // Phase 4 ODX import
+        string? importOdx = null, importEcuName = null;
+        uint importReq = 0x7E0, importResp = 0x7E8;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -47,12 +55,25 @@ public static class CliArgsParser
                 case "--enable-faults": enableFaults = true; break;
                 case "--uds-req": udsReq = ParseUdsId(args[++i]); break;
                 case "--uds-resp": udsResp = ParseUdsId(args[++i]); break;
+                // Phase 4 ODX import
+                case "--import-odx": importOdx = args[++i]; break;
+                case "--ecu-name": importEcuName = args[++i]; break;
+                case "--import-uds-req": importReq = ParseUdsId(args[++i]); break;
+                case "--import-uds-resp": importResp = ParseUdsId(args[++i]); break;
                 case "--help":
                 case "-h":
                     PrintHelp();
                     Environment.Exit(0);
                     break;
             }
+        }
+
+        // Validation: ODX import mode OR normal mode
+        if (importOdx is not null)
+        {
+            // ODX import mode: no other required args
+            return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -68,7 +89,8 @@ public static class CliArgsParser
         if (matrix is not null && ecu is not null)
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
-        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix);
+        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
+            importOdx, importEcuName, importReq, importResp);
     }
 
     /// <summary>
@@ -85,6 +107,7 @@ public static class CliArgsParser
     {
         Console.WriteLine("Usage: peakcan-hil --dbc <path.dbc> --trace <path.asc|path.blf> --suite <tests.json> [options]");
         Console.WriteLine("       peakcan-hil --dbc <path.dbc> --hw USB1 --suite <tests.json> [options]");
+        Console.WriteLine("       peakcan-hil --import-odx <path.odx> --ecu-name <name> [options]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML)");
@@ -92,6 +115,10 @@ public static class CliArgsParser
         Console.WriteLine("  --hw <channel>    Hardware channel (USB1..USB16) for real PCAN");
         Console.WriteLine("  --uds-req <id>    UDS request CAN ID (default: 0x7DF)");
         Console.WriteLine("  --uds-resp <id>   UDS response CAN ID (default: 0x7E8)");
+        Console.WriteLine("  --import-odx <path>  Import ODX file and generate ECU script JSON");
+        Console.WriteLine("  --ecu-name <name>    ECU name for ODX import (default: ImportedECU)");
+        Console.WriteLine("  --import-uds-req <id>   Request CAN ID for ODX import (default: 0x7E0)");
+        Console.WriteLine("  --import-uds-resp <id>  Response CAN ID for ODX import (default: 0x7E8)");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

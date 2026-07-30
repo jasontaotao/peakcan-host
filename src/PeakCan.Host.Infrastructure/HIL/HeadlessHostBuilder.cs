@@ -47,7 +47,7 @@ public static class HeadlessHostBuilder
             var ecuScript = EcuScriptLoader.Load(args.EcuScriptPath!);
             var channel = new CanChannels.VirtualChannel();
             // Eagerly create VirtualEcu (subscribes to channel.FrameReceived)
-            var ecu = new VirtualEcu(channel, ecuScript.CanIds, ecuScript.Rules, logger: null);
+            var ecu = new StatefulVirtualEcu(channel, ecuScript.CanIds, ecuScript.StateMachine, logger: null);
             // Register as instances (not factories) to guarantee same object reference
             builder.Services.AddSingleton<ICanChannel>(channel);
             builder.Services.AddSingleton(ecu);
