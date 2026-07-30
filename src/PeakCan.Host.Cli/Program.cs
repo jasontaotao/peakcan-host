@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Serialization;
+using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Cli;
 
@@ -29,19 +31,26 @@ public static class Program
             }
 
             await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
-
-            var progress = cli.Format == "console" ? new ConsoleProgress() : null;
-            var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(),
-                progress, default);
-
-            await channel.DisconnectAsync();
-
-            if (cli.OutputPath is not null && cli.Format == "trx")
+            try
             {
-                await ResultWriter.WriteTrx(result, cli.OutputPath);
-            }
+                var progress = cli.Format == "console" ? new ConsoleProgress() : null;
+                var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(),
+                    progress, default);
 
-            return result.AllPassed ? 0 : 1;
+                if (cli.OutputPath is not null)
+                {
+                    if (cli.Format == "trx")
+                        await ResultWriter.WriteTrx(result, cli.OutputPath);
+                    else if (cli.Format == "junit")
+                        await JUnitWriter.WriteJunit(result, cli.OutputPath);
+                }
+
+                return result.AllPassed ? 0 : 1;
+            }
+            finally
+            {
+                await channel.DisconnectAsync();
+            }
         }
         catch (ArgumentException ex)
         {

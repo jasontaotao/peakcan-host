@@ -1,9 +1,11 @@
 using System.Text;
 using System.Xml.Linq;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Cli;
+using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
 
 namespace PeakCan.Host.Cli.Tests;
@@ -111,7 +113,7 @@ base hex  timestamps absolute
         try
         {
             // Build host via HeadlessHostBuilder (production DI configuration)
-            var cli = new CliArgs(dbcPath, ascPath, "/dev/null");
+            var cli = new CliArgs(dbcPath, "/dev/null", ascPath);
             using var host = HeadlessHostBuilder.Build(cli);
 
             var engine = host.Services.GetRequiredService<TestSuiteEngine>();

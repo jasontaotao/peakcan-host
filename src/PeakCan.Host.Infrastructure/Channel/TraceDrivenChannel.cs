@@ -86,6 +86,36 @@ public sealed class TraceDrivenChannel : ICanChannel
             frames.Count, _playStartTimestamp);
     }
 
+    public void LoadBlf(string path, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_state == 2, this);
+
+        if (IsConnected)
+            throw new InvalidOperationException("Cannot load trace while playing. Disconnect first.");
+
+        if (!File.Exists(path))
+            throw new FileNotFoundException("BLF trace file not found.", path);
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var frames = BlfParser.ParseAsync(stream, ReplayOptions.Default, logger: null, ct)
+            .GetAwaiter().GetResult();
+
+        if (frames.Count > _maxTraceFrames)
+            throw new InvalidOperationException(
+                $"Trace file has {frames.Count} frames, exceeds MaxTraceFrames={_maxTraceFrames}.");
+
+        lock (_framesLock)
+        {
+            _frames.Clear();
+            _frames.AddRange(frames);
+            _nextFrameIndex = 0;
+            _playStartTimestamp = frames.Count > 0 ? frames[0].Timestamp : -1;
+        }
+
+        _logger?.LogInformation("Loaded BLF trace: {FrameCount} frames, first timestamp={Timestamp}s",
+            frames.Count, _playStartTimestamp);
+    }
+
     public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_state == 2, this);
@@ -111,20 +141,52 @@ public sealed class TraceDrivenChannel : ICanChannel
         return Task.CompletedTask;
     }
 
+    // Loopback channel: sent frames become received frames
+    private readonly System.Threading.Channels.Channel<CanFrame> _loopbackChannel =
+        System.Threading.Channels.Channel.CreateBounded<CanFrame>(
+        new BoundedChannelOptions(1000)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleWriter = true,
+            SingleReader = true,
+        });
+
+    // 线程安全：FrameReceived 可能被两个线程同时 invoke（WriteAsync 测试线程 vs OnTick ThreadPool 线程）
+    private readonly object _loopbackLock = new();
+
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
     {
-        // Sprint 2: no physical bus. Write is a no-op.
+        // Sprint 3: loopback mode — sent frames become received frames
+        _loopbackChannel.Writer.TryWrite(frame);
+
+        // 立即同步排空 loopback 帧（不依赖 OnTick）
+        // 原因：(1) 避免 OnTick 停止后帧滞留 (2) 测试引擎单线程执行步骤
+        ProcessLoopbackInternal();
+
         return ValueTask.FromResult(Result<Unit>.Ok(default));
+    }
+
+    private void ProcessLoopbackInternal()
+    {
+        lock (_loopbackLock)
+        {
+            while (_loopbackChannel.Reader.TryRead(out var frame))
+            {
+                FrameReceived?.Invoke(frame);
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        // CAS preferred; Exchange only as timeout fallback
-        SpinWait.SpinUntil(() => Interlocked.Read(ref _state) != 1, 200);
-        Interlocked.CompareExchange(ref _state, 2, 0);
+        // 1. 先停止 timer（阻止新的 OnTick 触发）
         _timer?.Dispose();
-        SpinWait.SpinUntil(() => Interlocked.Read(ref _state) != 1, 200);
-        Interlocked.Exchange(ref _state, 2); // Force Disposing even if OnTick set Idle(0) during wait
+
+        // 2. 等待当前正在执行的 OnTick 完成（state 从 1→0）
+        SpinWait.SpinUntil(() => Interlocked.Read(ref _state) != 1, 500);
+
+        // 3. 强制设为 Disposing 状态（防止 OnTick 重新进入）
+        Interlocked.Exchange(ref _state, 2);
 
         await Task.CompletedTask;
     }

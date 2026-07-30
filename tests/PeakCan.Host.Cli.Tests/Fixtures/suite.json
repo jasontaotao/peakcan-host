@@ -1,0 +1,45 @@
+{
+  "name": "Sprint3SmokeSuite",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "WaitForFrame_0x18FF60A2",
+      "description": "Wait for frame 0x18FF60A2 in trace",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "expectFrame",
+            "id": {
+              "raw": 419389602,
+              "format": "Extended",
+              "type": "Data"
+            },
+            "timeoutMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "id": "case_2",
+      "name": "AssertSignal_TestSignal",
+      "description": "Assert signal value (will fail - signal not in DBC)",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "assertSignal",
+            "signalName": "NonExistentSignal",
+            "expected": 100.0,
+            "tolerance": 5.0
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}

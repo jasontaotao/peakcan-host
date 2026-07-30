@@ -68,4 +68,40 @@ public sealed class AssertionPrimitives
             ? AssertionResult.Pass()
             : AssertionResult.Fail($"signal {name} = {val} outside [{min}, {max}]");
     }
+
+    public async Task<AssertionResult> WaitForFrameAsync(
+        CanId expectedId, byte[]? dataMask, int timeoutMs, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<CanFrame>();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linkedCts.CancelAfter(timeoutMs);
+
+        using var sub = _ctx.SubscribeDecodedFrames(frame =>
+        {
+            if (frame.Frame.Id.Raw == expectedId.Raw && MatchesMask(frame.Frame.Data, dataMask))
+                tcs.TrySetResult(frame.Frame);
+        });
+
+        using var registration = linkedCts.Token.Register(() => tcs.TrySetCanceled());
+        try
+        {
+            var matched = await tcs.Task.ConfigureAwait(false);
+            return AssertionResult.Pass($"frame 0x{expectedId.Raw:X} received");
+        }
+        catch (OperationCanceledException)
+        {
+            return AssertionResult.Fail($"timeout waiting for frame 0x{expectedId.Raw:X} ({timeoutMs}ms)");
+        }
+    }
+
+    private static bool MatchesMask(ReadOnlyMemory<byte> data, byte[]? mask)
+    {
+        if (mask is null || mask.Length == 0) return true;
+        if (data.Length < mask.Length) return false;
+        for (int i = 0; i < mask.Length; i++)
+        {
+            if ((data.Span[i] & mask[i]) != mask[i]) return false;
+        }
+        return true;
+    }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PeakCan.Host.Core;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace PeakCan.Host.Core;
 /// callers cannot accidentally cross the wire.
 /// </para>
 /// </summary>
+[JsonConverter(typeof(CanIdJsonConverter))]
 public readonly record struct CanId
 {
     /// <summary>Raw identifier bits. 11-bit when <see cref="Format"/> is Standard, 29-bit when Extended.</summary>

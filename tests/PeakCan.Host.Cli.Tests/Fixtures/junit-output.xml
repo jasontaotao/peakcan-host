@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="Sprint3SmokeSuite" tests="2" failures="1" skipped="0" time="0.032">
+    <testcase name="WaitForFrame_0x18FF60A2" classname="Sprint3SmokeSuite" time="0.029" />
+    <testcase name="AssertSignal_TestSignal" classname="Sprint3SmokeSuite" time="0.000">
+      <failure message="Steps failed: 1">Step 0: signal NonExistentSignal not found</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -9,10 +9,11 @@ using PeakCan.Host.Core.HIL.Contracts;
 namespace PeakCan.Host.Infrastructure.HIL;
 
 /// <summary>
-/// Bridges a virtual CAN channel to the HIL assertion context.
-/// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
+/// Bridges a physical CAN channel (PeakCanChannel) to the HIL assertion context.
+/// Reuses the same thread model as HILAssertionContext.
+/// The only difference: SendFrameAsync delegates to _channel.WriteAsync (real hardware).
 /// </summary>
-internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames, IDisposable
+internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly IDbcLookup _dbcLookup;
@@ -25,7 +26,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
     private ImmutableList<Action<DecodedFrame>> _subscribers = ImmutableList<Action<DecodedFrame>>.Empty;
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
 
-    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup)
+    public PeakCanAssertionContext(ICanChannel channel, IDbcLookup dbcLookup)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
@@ -44,7 +45,6 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame)
     {
-        // Thread-safe add: spin until Interlocked.Exchange succeeds
         ImmutableList<Action<DecodedFrame>> current, updated;
         do
         {
@@ -80,7 +80,6 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
 
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct = default)
     {
-        // Sprint 2: delegate to channel (which is a no-op for TraceDrivenChannel)
         return _channel.WriteAsync(frame, ct);
     }
 
@@ -94,7 +93,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
         // 2. 再取消 channel 订阅（阻止新帧进入 channel）
         _frameSubscription.Dispose();
 
-        // 3. 等待 consumer 线程退出（确保所有 subscriber 回调已完成）
+        // 3. 等待 consumer 线程退出
         try
         {
             _consumerTask.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
@@ -129,7 +128,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
 
                 _recentFrames.Add(frame);
 
-                var key = ToDbcLookupKey(frame.Id.Raw, frame.Id.IsExtended);
+                var key = DbcLookupKey.ToLookupKey(frame.Id.Raw, frame.Id.IsExtended);
                 var message = _dbcLookup.FindMessage(key);
 
                 DecodedFrame decoded;
@@ -159,7 +158,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
                     }
                     catch (Exception)
                     {
-                        // Isolate per subscriber; swallow to prevent one bad callback from killing the loop
+                        // Isolate per subscriber
                     }
                 }
             }
@@ -169,23 +168,4 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
             // Normal shutdown
         }
     }
-
-    /// <summary>
-    /// DBC Message.Id stores extended IDs with bit 31 set (e.g., 0x98FEF100).
-    /// CanFrame.Id.Raw stores the raw ID without bit 31 (e.g., 0x18FEF100).
-    /// </summary>
-    private static uint ToDbcLookupKey(uint rawId, bool isExtended) =>
-        isExtended ? rawId | 0x80000000u : rawId;
-}
-
-/// <summary>
-/// IDisposable that removes a subscriber on Dispose.
-/// </summary>
-internal sealed class SubscriberSubscription : IDisposable
-{
-    private Action? _dispose;
-
-    public SubscriberSubscription(Action dispose) => _dispose = dispose;
-
-    public void Dispose() => Interlocked.Exchange(ref _dispose, null)?.Invoke();
 }

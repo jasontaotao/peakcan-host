@@ -17,7 +17,7 @@ internal sealed class SendFrameStepExecutor : IStepExecutor
 
             return new StepResult(0, step.Kind, step.Label,
                 result.IsSuccess ? StepStatus.Passed : StepStatus.Failed,
-                result.IsSuccess ? "Frame sent" : result.Error?.Message,
+                result.IsSuccess ? "Frame sent" : (result.Error?.Message ?? "SendFrame failed (no error detail)"),
                 null, null, 0);
         }
         catch (Exception ex)

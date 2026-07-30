@@ -12,6 +12,7 @@ using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.Path;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.Statistics;
 using Serilog;
 
@@ -289,6 +290,10 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<IHostApplicationLifetime>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
+
+        // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
+        builder.Services.AddSingleton<Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
+        builder.Services.AddTransient<ViewModels.HilViewModel>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
         // Core parser/persistence plus App-layer service + VM glue.

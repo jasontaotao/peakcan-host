@@ -1,0 +1,81 @@
+namespace PeakCan.Host.Infrastructure.Cli;
+
+/// <summary>
+/// Parsed CLI arguments for peakcan-hil.
+/// </summary>
+public sealed record CliArgs(
+    string DbcPath,
+    string SuitePath,
+    string? TracePath = null,
+    string? OutputPath = null,
+    string Format = "console",
+    // Stage B additions:
+    string? HardwareChannel = null,  // e.g. "USB1" — if set, use real hardware
+    uint UdsRequestId = 0x7DF,
+    uint UdsResponseId = 0x7E8);
+
+/// <summary>
+/// Simple CLI argument parser for peakcan-hil.
+/// </summary>
+public static class CliArgsParser
+{
+    public static CliArgs Parse(string[] args)
+    {
+        string? dbc = null, trace = null, suite = null, output = null, format = "console";
+        string? hw = null;
+        uint udsReq = 0x7DF, udsResp = 0x7E8;
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--dbc": dbc = args[++i]; break;
+                case "--trace": trace = args[++i]; break;
+                case "--suite": suite = args[++i]; break;
+                case "--output": output = args[++i]; break;
+                case "--format": format = args[++i]; break;
+                case "--hw": hw = args[++i]; break;
+                case "--uds-req": udsReq = ParseUdsId(args[++i]); break;
+                case "--uds-resp": udsResp = ParseUdsId(args[++i]); break;
+                case "--help":
+                case "-h":
+                    PrintHelp();
+                    Environment.Exit(0);
+                    break;
+            }
+        }
+
+        if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
+        if (suite is null) throw new ArgumentException("Missing required --suite argument.");
+        if (trace is null && hw is null)
+            throw new ArgumentException("Must specify --trace or --hw.");
+        if (trace is not null && hw is not null)
+            throw new ArgumentException("Cannot use --trace and --hw simultaneously.");
+
+        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp);
+    }
+
+    /// <summary>
+    /// 解析 UDS CAN ID 字符串（支持十进制和 0x 前缀十六进制）。
+    /// </summary>
+    private static uint ParseUdsId(string raw)
+    {
+        if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return Convert.ToUInt32(raw[2..], 16);
+        return Convert.ToUInt32(raw);
+    }
+
+    private static void PrintHelp()
+    {
+        Console.WriteLine("Usage: peakcan-hil --dbc <path.dbc> --trace <path.asc|path.blf> --suite <tests.json> [options]");
+        Console.WriteLine("       peakcan-hil --dbc <path.dbc> --hw USB1 --suite <tests.json> [options]");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML)");
+        Console.WriteLine("  --format <format>  Output format: console (default), trx, junit");
+        Console.WriteLine("  --hw <channel>    Hardware channel (USB1..USB16) for real PCAN");
+        Console.WriteLine("  --uds-req <id>    UDS request CAN ID (default: 0x7DF)");
+        Console.WriteLine("  --uds-resp <id>   UDS response CAN ID (default: 0x7E8)");
+        Console.WriteLine("  --help, -h         Show this help");
+    }
+}

@@ -1,0 +1,56 @@
+using PeakCan.Host.Infrastructure.Cli;
+using Xunit;
+
+namespace PeakCan.Host.Cli.Tests;
+
+public class CliArgsParserTests
+{
+    private static readonly string[] _baseArgs = { "--dbc", "x.dbc", "--suite", "y.json" };
+
+    private static string[] With(params string[] extra) => _baseArgs.Concat(extra).ToArray();
+
+    [Fact]
+    public void Parse_HwOnly_NoTrace_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1"));
+        Assert.Equal("USB1", cli.HardwareChannel);
+        Assert.Null(cli.TracePath);
+    }
+
+    [Fact]
+    public void Parse_TraceOnly_NoHw_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--trace", "x.asc"));
+        Assert.Equal("x.asc", cli.TracePath);
+        Assert.Null(cli.HardwareChannel);
+    }
+
+    [Fact]
+    public void Parse_BothHwAndTrace_Throws()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            CliArgsParser.Parse(With("--hw", "USB1", "--trace", "x.asc")));
+        Assert.Contains("Cannot use --trace and --hw", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_NeitherHwNorTrace_Throws()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(_baseArgs));
+        Assert.Contains("Must specify --trace or --hw", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_UdsReqHex_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1", "--uds-req", "0x7DF"));
+        Assert.Equal(0x7DFu, cli.UdsRequestId);
+    }
+
+    [Fact]
+    public void Parse_UdsReqDecimal_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1", "--uds-req", "2015"));
+        Assert.Equal(0x7DFu, cli.UdsRequestId); // 2015 decimal = 0x7DF hex
+    }
+}

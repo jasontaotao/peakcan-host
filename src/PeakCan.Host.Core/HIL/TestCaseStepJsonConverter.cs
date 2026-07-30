@@ -14,8 +14,16 @@ internal sealed class TestCaseStepJsonConverter : JsonConverter<TestCaseStep>
         using var doc = JsonDocument.ParseValue(ref reader);
         var root = doc.RootElement;
 
+        // 防御性检查：parameters 字段必须存在
+        if (!root.TryGetProperty("parameters", out var parametersElement))
+        {
+            throw new JsonException("Missing required property 'parameters' in test case step.");
+        }
+
         var parameters = JsonSerializer.Deserialize<StepParameters>(
-            root.GetProperty("parameters").GetRawText(), Serialization.HILJsonOptions.Default)!;
+            parametersElement.GetRawText(), Serialization.HILJsonOptions.Default)
+            ?? throw new JsonException("Failed to deserialize 'parameters' — unknown $kind or null value.");
+
         var label = root.TryGetProperty("label", out var l) ? l.GetString() : null;
 
         return TestCaseStep.Create(parameters, label);

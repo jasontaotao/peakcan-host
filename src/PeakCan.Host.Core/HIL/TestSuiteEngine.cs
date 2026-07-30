@@ -1,3 +1,4 @@
+using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.Host.Core.HIL.StepExecutor;
 
@@ -155,6 +156,15 @@ public sealed class TestSuiteEngine
                     }
                     stepSw.Stop();
                     stepResults.Add(result with { StepIndex = i, ElapsedMs = (int)stepSw.ElapsedMilliseconds });
+                }
+
+                // Capture FramesAroundFailure on step failure
+                if (!stepResults[^1].Passed && stepResults[^1].FramesAroundFailure is null && ctx is IHasRecentFrames hasRecent)
+                {
+                    stepResults[^1] = stepResults[^1] with
+                    {
+                        FramesAroundFailure = hasRecent.GetRecentFrames().ToList()
+                    };
                 }
 
                 // FailurePolicy: StopCaseOnFailure
