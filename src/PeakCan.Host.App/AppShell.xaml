@@ -36,6 +36,7 @@
                 <MenuItem Header="Stats" Command="{Binding ShowStatsCommand}" />
                 <MenuItem Header="Script" Command="{Binding ShowScriptCommand}" />
                 <MenuItem Header="UDS" Command="{Binding ShowUdsCommand}" />
+                <MenuItem Header="HIL" Command="{Binding ShowHilCommand}" />
                 <MenuItem Header="Replay" Command="{Binding ShowReplayCommand}" />
                 <MenuItem Header="Trace Viewer…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="Multi-frame..." Command="{Binding OpenMultiFrameCommand}" />

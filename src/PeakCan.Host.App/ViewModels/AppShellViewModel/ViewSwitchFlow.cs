@@ -173,6 +173,17 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
+    private void ShowHil()
+    {
+        // Sprint 3: HIL testing panel (offline trace-replay + hardware-in-the-loop)
+        ViewSwitcher.Show(
+            factory: () => new HilView { DataContext = _hilViewModel },
+            cache: ref _hilView,
+            setCurrent: v => CurrentView = v,
+            menuName: nameof(ShowHil));
+    }
+
+    [RelayCommand]
     private void ShowTraceViewer()
     {
         // v3.0 MINOR Task 7: Trace Viewer non-modal window from the

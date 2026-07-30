@@ -340,6 +340,8 @@ public partial class AppHostBuilder
             // OpenRecentSessionAsync (WPFMessageBoxPrompt wired by DI
             // registration above; tests inject Substitute.For<...>()).
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+            // Sprint 3: HIL testing panel VM
+            sp.GetRequiredService<ViewModels.HilViewModel>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
 

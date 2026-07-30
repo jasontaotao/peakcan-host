@@ -109,6 +109,8 @@ public sealed partial class AppShellViewModel : ObservableObject
     // VM so the menu, future SendView button, and any other consumer all
     // bind to the same loaded trace + signal list + chart scrubber state.
     private readonly TraceViewerViewModel _traceViewerViewModel;
+    // Sprint 3: HIL testing panel VM (transient, created per navigation)
+    private readonly HilViewModel _hilViewModel;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -147,6 +149,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private ScriptView? _scriptView;
     private UdsWindow? _udsWindow;
     private ReplayView? _replayView;
+    private HilView? _hilView;
     // v3.0 MINOR Task 7: TraceViewerView is a non-modal Window (not a
     // tab in the MainArea ContentControl), so it lives outside the
     // WPF View cache. Lazy + Closed-reset pattern mirrors the
@@ -274,6 +277,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         // always wires the WPF impl; test sites inject
         // Substitute.For<IMessageBoxPrompt>().
         IMessageBoxPrompt messageBoxPrompt,
+        // Sprint 3: HIL testing panel VM (required ctor arg for DI wiring)
+        HilViewModel hilViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -301,6 +306,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         // were updated to construct with a stub ITraceViewerService +
         // null DbcService substitute.
         _traceViewerViewModel = traceViewerViewModel ?? throw new ArgumentNullException(nameof(traceViewerViewModel));
+        // Sprint 3: HIL testing panel VM
+        _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
         // RecentSessionsService is a singleton; subscribing to its
         // PropertyChanged keeps the AppShell menu in sync with
