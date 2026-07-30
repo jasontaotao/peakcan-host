@@ -11,6 +11,7 @@ public sealed class FakeIFaultInjectionContext : IAssertionContext, IFaultInject
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame) => throw new NotImplementedException();
     public double? GetSignalValue(string signalName, int maxAgeMs = 5000) => null;
     public double CurrentTimestamp => 0;
+    public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct) => throw new NotImplementedException();
 
     // IFaultInjectionContext

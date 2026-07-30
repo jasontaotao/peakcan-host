@@ -21,6 +21,7 @@ internal sealed class FakeAssertionContextWithRecent : IAssertionContext, IHasRe
     private readonly Dictionary<string, double> _signalValues = new();
 
     public double CurrentTimestamp { get; set; }
+    public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame)
     {

@@ -13,6 +13,6 @@ public static class HILJsonOptions
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         IgnoreNullValues = true,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        Converters = { new ByteArrayJsonConverter(), new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 }

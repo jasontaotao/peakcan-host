@@ -14,6 +14,7 @@ internal sealed class FakeAssertionContext : IAssertionContext
 
     public IReadOnlyList<CanFrame> SentFrames => _sentFrames;
     public double CurrentTimestamp { get; set; }
+    public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame)
     {

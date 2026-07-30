@@ -100,6 +100,7 @@ public class AssertResponseTimeStepExecutorTests
     private sealed class FailingSendContext : IAssertionContext
     {
         public double CurrentTimestamp => 0;
+        public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
         public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame) => null!;
         public double? GetSignalValue(string signalName, int maxAgeMs = 5000) => null;
         public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct) =>
