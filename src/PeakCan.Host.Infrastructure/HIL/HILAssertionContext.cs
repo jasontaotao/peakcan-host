@@ -128,6 +128,15 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
 
+    // IAssertionContext.GetRecentDecodedFrames — tracks decoded frames for race-condition-free WaitForFrame
+    private readonly List<DecodedFrame> _decodedRecentFrames = new();
+    private readonly object _decodedFramesLock = new();
+
+    public IReadOnlyList<DecodedFrame> GetRecentDecodedFrames()
+    {
+        lock (_decodedFramesLock) return _decodedRecentFrames.ToList();
+    }
+
     public void Dispose()
     {
         // 1. 先取消 consumer loop（阻止处理新帧）
@@ -190,6 +199,14 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
                 else
                 {
                     decoded = new DecodedFrame(frame, new Dictionary<string, double>());
+                }
+
+                // Track decoded frames for GetRecentDecodedFrames (race-condition-free WaitForFrame)
+                lock (_decodedFramesLock)
+                {
+                    _decodedRecentFrames.Add(decoded);
+                    if (_decodedRecentFrames.Count > 100)
+                        _decodedRecentFrames.RemoveRange(0, _decodedRecentFrames.Count - 100);
                 }
 
                 var subscribers = Volatile.Read(ref _subscribers);

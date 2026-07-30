@@ -67,13 +67,17 @@ public static class EcuScriptLoader
 
     private static uint ParseCanId(JsonElement element)
     {
+        // CanIdJsonConverter writes "raw" as a number (e.g. 2016), but ECU script JSON
+        // may also use string format (e.g. "0x7E0"). Handle both.
+        if (element.ValueKind == JsonValueKind.Number)
+            return element.GetUInt32();
         var s = element.GetString()!;
         return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             ? uint.Parse(s[2..], NumberStyles.HexNumber)
             : uint.Parse(s);
     }
 
-    private static byte ParseHexByte(string s)
+    private static byte ParseHexString(string s)
     {
         return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             ? byte.Parse(s[2..], NumberStyles.HexNumber)
@@ -82,16 +86,21 @@ public static class EcuScriptLoader
 
     private static UdsResponseRule ParseRule(JsonElement el)
     {
-        var serviceId = ParseHexByte(el.GetProperty("serviceId").GetString()!);
-        var responseData = el.GetProperty("responseData").EnumerateArray()
-            .Select(b => b.GetByte()).ToArray();
+        var serviceIdEl = el.GetProperty("serviceId");
+        var serviceId = serviceIdEl.ValueKind == JsonValueKind.Number
+            ? serviceIdEl.GetByte()
+            : ParseHexString(serviceIdEl.GetString()!);
+        var responseDataEl = el.GetProperty("responseData");
+        var responseData = responseDataEl.ValueKind == JsonValueKind.String
+            ? Convert.FromBase64String(responseDataEl.GetString()!)
+            : responseDataEl.EnumerateArray().Select(b => b.GetByte()).ToArray();
 
         byte? subFunction = null;
         if (el.TryGetProperty("subFunction", out var subFunc) && subFunc.ValueKind != JsonValueKind.Null)
         {
             subFunction = subFunc.ValueKind == JsonValueKind.Number
                 ? subFunc.GetByte()
-                : ParseHexByte(subFunc.GetString()!);
+                : ParseHexString(subFunc.GetString()!);
         }
 
         byte[]? dataMask = null;

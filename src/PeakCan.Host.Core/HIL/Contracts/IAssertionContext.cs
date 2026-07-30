@@ -37,4 +37,10 @@ public interface IAssertionContext
     /// Send frame to bus. Returns failed Result on error (never throws).
     /// </summary>
     ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct);
+
+    /// <summary>
+    /// Get recent frames (decoded). Used by WaitForFrame to check if a frame
+    /// already arrived before subscription (avoids race condition with fast ECUs).
+    /// </summary>
+    IReadOnlyList<DecodedFrame> GetRecentDecodedFrames();
 }

@@ -92,7 +92,6 @@ public sealed class VirtualChannel : ICanChannel
                         catch (Exception ex)
                         {
                             // Log but do not re-throw — other subscribers must still receive frames
-                            System.Diagnostics.Debug.WriteLine($"[VirtualChannel] Subscriber threw: {ex.Message}");
                         }
                     }
                 }

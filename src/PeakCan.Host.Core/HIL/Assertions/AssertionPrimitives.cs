@@ -72,6 +72,15 @@ public sealed class AssertionPrimitives
     public async Task<AssertionResult> WaitForFrameAsync(
         CanId expectedId, byte[]? dataMask, int timeoutMs, CancellationToken ct)
     {
+        // Check recent frames first — avoids race condition when frame arrives before subscription
+        // (e.g. VirtualEcu responds in microseconds, faster than the subscription can be established)
+        var recentFrames = _ctx.GetRecentDecodedFrames();
+        foreach (var f in recentFrames)
+        {
+            if (f.Frame.Id.Raw == expectedId.Raw && MatchesMask(f.Frame.Data, dataMask))
+                return AssertionResult.Pass($"frame 0x{expectedId.Raw:X} received (from buffer)");
+        }
+
         var tcs = new TaskCompletionSource<CanFrame>();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(timeoutMs);

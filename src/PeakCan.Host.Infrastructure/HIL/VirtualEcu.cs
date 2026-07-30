@@ -11,6 +11,8 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// </summary>
 public sealed class VirtualEcu : IDisposable
 {
+    public static int InstanceCount;
+
     private readonly ICanChannel _channel;
     private readonly IsoTpLayer _isoTp;
     private readonly List<UdsResponseRule> _rules;
@@ -40,7 +42,7 @@ public sealed class VirtualEcu : IDisposable
         try { _isoTp.ProcessFrame(frame); }
         catch (ArgumentException ex)
         {
-            _logger?.LogDebug("VirtualEcu: frame rejected by IsoTpLayer: {Error}", ex.Message);
+            // Frame filtered out by IsoTpLayer (wrong CAN ID) - normal
         }
     }
 

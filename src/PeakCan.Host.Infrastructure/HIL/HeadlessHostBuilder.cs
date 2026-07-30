@@ -29,6 +29,7 @@ public static class HeadlessHostBuilder
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
+        System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
         if (args.HardwareChannel is not null)
         {
             // Hardware mode (Sprint 3)
@@ -42,29 +43,24 @@ public static class HeadlessHostBuilder
         else if (args.EcuScriptPath is not null)
         {
             // Virtual ECU mode (Sprint 4): VirtualChannel + VirtualEcu
-            builder.Services.AddSingleton<ICanChannel>(sp => new CanChannels.VirtualChannel());
-            builder.Services.AddSingleton(sp =>
-            {
-                var channel = sp.GetRequiredService<ICanChannel>();
-                var script = EcuScriptLoader.Load(args.EcuScriptPath!);
-                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<VirtualEcu>>();
-                return new VirtualEcu(channel, script.CanIds, script.Rules, logger);
-            });
+            // Single VirtualChannel instance shared between VirtualEcu and HILAssertionContext
+            var ecuScript = EcuScriptLoader.Load(args.EcuScriptPath!);
+            var channel = new CanChannels.VirtualChannel();
+            // Eagerly create VirtualEcu (subscribes to channel.FrameReceived)
+            var ecu = new VirtualEcu(channel, ecuScript.CanIds, ecuScript.Rules, logger: null);
+            // Register as instances (not factories) to guarantee same object reference
+            builder.Services.AddSingleton<ICanChannel>(channel);
+            builder.Services.AddSingleton(ecu);
         }
         else if (args.MatrixPath is not null)
         {
             // Multi-ECU matrix mode (Sprint 6): EcuMatrix with multiple VirtualEcu
-            builder.Services.AddSingleton(sp =>
-            {
-                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<VirtualEcu>>();
-                var config = MatrixConfigLoader.Load(args.MatrixPath!);
-                var matrix = new EcuMatrix();
-                foreach (var script in config.Ecus)
-                    matrix.AddEcu(script, logger);
-                return matrix;
-            });
-            builder.Services.AddSingleton<ICanChannel>(sp =>
-                sp.GetRequiredService<EcuMatrix>().Channel);
+            var config = MatrixConfigLoader.Load(args.MatrixPath!);
+            var matrix = new EcuMatrix();
+            foreach (var script in config.Ecus)
+                matrix.AddEcu(script);
+            builder.Services.AddSingleton(_ => matrix);
+            builder.Services.AddSingleton<ICanChannel>(_ => matrix.Channel);
         }
         else
         {
