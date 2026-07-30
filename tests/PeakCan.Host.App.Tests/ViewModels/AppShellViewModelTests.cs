@@ -13,6 +13,7 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
@@ -140,7 +141,9 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                // Phase 4: HilViewModel ctor arg
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
     }
 
     /// <summary>
@@ -467,7 +470,9 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                // Phase 4: HilViewModel ctor arg
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -562,7 +567,9 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                // Phase 4: HilViewModel ctor arg
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
     }
 
     [Fact]
@@ -698,7 +705,9 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                // Phase 4: HilViewModel ctor arg
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -997,7 +1006,9 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                // Phase 4: HilViewModel ctor arg
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
 
         // ACT
@@ -1096,6 +1107,8 @@ public class AppShellViewModelTests
             // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
             // (the 2 missing-.asc call sites route through this).
             Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+            // Phase 4: HilViewModel ctor arg
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance),
             enumerator,
             writableConfig);
     }

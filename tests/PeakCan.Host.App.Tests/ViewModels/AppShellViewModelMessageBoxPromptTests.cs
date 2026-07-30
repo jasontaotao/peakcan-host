@@ -11,6 +11,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
@@ -169,7 +170,9 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 recentTemp),
             fileDialogs,
-            prompt);
+            prompt,
+            // Phase 4: HilViewModel ctor arg
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
     }
 
     /// <summary>Test double for <see cref="IChannelFactory"/>

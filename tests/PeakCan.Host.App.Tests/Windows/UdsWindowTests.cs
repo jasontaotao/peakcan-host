@@ -11,6 +11,7 @@ using PeakCan.Host.App.Tests.ViewModels;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
+using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
@@ -98,7 +99,9 @@ public class UdsWindowTests
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, recentTemp),
             NSubstitute.Substitute.For<IFileDialogService>(),
-            NSubstitute.Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>());
+            NSubstitute.Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+            // Phase 4: HilViewModel ctor arg
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
     }
 
     /// <summary>
