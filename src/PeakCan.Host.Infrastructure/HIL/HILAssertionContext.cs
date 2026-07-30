@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -12,9 +13,11 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Bridges a virtual CAN channel to the HIL assertion context.
 /// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
 /// </summary>
-internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames, IDisposable
+internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IDisposable
 {
     private readonly ICanChannel _channel;
+    private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
+    private readonly FaultInjector? _faultInjector;
     private readonly IDbcLookup _dbcLookup;
     private readonly Channel<CanFrame> _frameChannel;
     private readonly CancellationTokenSource _consumerCts = new();
@@ -24,11 +27,24 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
     private readonly IDisposable _frameSubscription;
     private ImmutableList<Action<DecodedFrame>> _subscribers = ImmutableList<Action<DecodedFrame>>.Empty;
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
+    private readonly Dictionary<string, IDisposable> _faultHandles = new();
 
-    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup)
+    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
+
+        // When fault injection is enabled, wrap channel with FaultInjector
+        if (enableFaultInjection)
+        {
+            _faultInjector = new FaultInjector(channel);
+            _effectiveChannel = _faultInjector;
+        }
+        else
+        {
+            _effectiveChannel = channel;
+        }
+
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
             new BoundedChannelOptions(10000)
             {
@@ -36,7 +52,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
                 SingleWriter = true,
                 SingleReader = true,
             });
-        _frameSubscription = new FrameReceivedSubscription(channel, OnFrame);
+        _frameSubscription = new FrameReceivedSubscription(_effectiveChannel, OnFrame);
         _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token));
     }
 
@@ -80,8 +96,34 @@ internal sealed class HILAssertionContext : IAssertionContext, IHasRecentFrames,
 
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct = default)
     {
-        // Sprint 2: delegate to channel (which is a no-op for TraceDrivenChannel)
-        return _channel.WriteAsync(frame, ct);
+        // Delegate to effective channel (FaultInjector wrapper or raw channel)
+        return _effectiveChannel.WriteAsync(frame, ct);
+    }
+
+    // --- IFaultInjectionContext ---
+
+    public IDisposable AddFault(FaultRule fault)
+    {
+        if (_faultInjector is null)
+            throw new InvalidOperationException("Fault injection not enabled");
+        return _faultInjector.AddFault(fault);
+    }
+
+    public void TagFault(string faultId, IDisposable handle)
+        => _faultHandles[faultId] = handle;
+
+    public void ClearFaults(string? faultId = null)
+    {
+        if (faultId is null)
+        {
+            foreach (var h in _faultHandles.Values) h.Dispose();
+            _faultHandles.Clear();
+        }
+        else if (_faultHandles.TryGetValue(faultId, out var h))
+        {
+            h.Dispose();
+            _faultHandles.Remove(faultId);
+        }
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();

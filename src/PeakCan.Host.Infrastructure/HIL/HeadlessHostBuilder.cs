@@ -112,7 +112,7 @@ public static class HeadlessHostBuilder
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
-                return new HILAssertionContext(channel, dbc);
+                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection);
             });
         }
 

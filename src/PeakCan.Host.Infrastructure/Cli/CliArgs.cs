@@ -14,7 +14,11 @@ public sealed record CliArgs(
     uint UdsRequestId = 0x7DF,
     uint UdsResponseId = 0x7E8,
     // Phase 3 Sprint 4 additions:
-    string? EcuScriptPath = null);  // ECU simulator script JSON path
+    string? EcuScriptPath = null,  // ECU simulator script JSON path
+    // Phase 3 Sprint 5 additions:
+    bool EnableFaultInjection = false,  // Enable fault injection in channel
+    // Phase 3 Sprint 6 additions:
+    string? MatrixPath = null);  // Multi-ECU matrix config JSON path
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -24,7 +28,8 @@ public static class CliArgsParser
     public static CliArgs Parse(string[] args)
     {
         string? dbc = null, trace = null, suite = null, output = null, format = "console";
-        string? hw = null, ecu = null;
+        string? hw = null, ecu = null, matrix = null;
+        bool enableFaults = false;
         uint udsReq = 0x7DF, udsResp = 0x7E8;
 
         for (int i = 0; i < args.Length; i++)
@@ -38,6 +43,8 @@ public static class CliArgsParser
                 case "--format": format = args[++i]; break;
                 case "--hw": hw = args[++i]; break;
                 case "--ecu": ecu = args[++i]; break;
+                case "--matrix": matrix = args[++i]; break;
+                case "--enable-faults": enableFaults = true; break;
                 case "--uds-req": udsReq = ParseUdsId(args[++i]); break;
                 case "--uds-resp": udsResp = ParseUdsId(args[++i]); break;
                 case "--help":
@@ -50,14 +57,18 @@ public static class CliArgsParser
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
         if (suite is null) throw new ArgumentException("Missing required --suite argument.");
-        if (trace is null && hw is null && ecu is null)
-            throw new ArgumentException("Must specify --trace, --hw, or --ecu.");
+        if (trace is null && hw is null && ecu is null && matrix is null)
+            throw new ArgumentException("Must specify --trace, --hw, --ecu, or --matrix.");
         if (trace is not null && hw is not null)
             throw new ArgumentException("Cannot use --trace and --hw simultaneously.");
         if (ecu is not null && hw is not null)
             throw new ArgumentException("Cannot use --ecu and --hw simultaneously.");
+        if (matrix is not null && hw is not null)
+            throw new ArgumentException("Cannot use --matrix and --hw simultaneously.");
+        if (matrix is not null && ecu is not null)
+            throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
-        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu);
+        return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix);
     }
 
     /// <summary>

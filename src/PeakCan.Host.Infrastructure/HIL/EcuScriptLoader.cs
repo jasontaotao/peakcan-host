@@ -30,10 +30,16 @@ public static class EcuScriptLoader
     public static EcuScript Parse(string json)
     {
         using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        return ParseEcuScript(doc.RootElement);
+    }
 
+    /// <summary>
+    /// Parse ECU script from a JSON element (used by both Parse and MatrixConfigLoader).
+    /// </summary>
+    public static EcuScript ParseEcuScript(JsonElement element)
+    {
         // Parse canIds (HIL perspective)
-        var canIdsHil = root.GetProperty("canIds");
+        var canIdsHil = element.GetProperty("canIds");
         var requestIdHil = ParseCanId(canIdsHil.GetProperty("requestId"));
         var responseIdHil = ParseCanId(canIdsHil.GetProperty("responseId"));
         var isExtended = canIdsHil.TryGetProperty("isExtendedFrame", out var ext) && ext.GetBoolean();
@@ -48,13 +54,13 @@ public static class EcuScriptLoader
 
         // Parse rules
         var rules = new List<UdsResponseRule>();
-        foreach (var ruleEl in root.GetProperty("rules").EnumerateArray())
+        foreach (var ruleEl in element.GetProperty("rules").EnumerateArray())
         {
             rules.Add(ParseRule(ruleEl));
         }
 
         return new EcuScript(
-            Name: root.GetProperty("name").GetString()!,
+            Name: element.GetProperty("name").GetString()!,
             CanIds: ecuCanIds,
             Rules: rules);
     }

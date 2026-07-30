@@ -37,7 +37,7 @@ public class CliArgsParserTests
     public void Parse_NeitherHwNorTraceNorEcu_Throws()
     {
         var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(_baseArgs));
-        Assert.Contains("Must specify --trace, --hw, or --ecu", ex.Message);
+        Assert.Contains("Must specify --trace, --hw, --ecu, or --matrix", ex.Message);
     }
 
     [Fact]
@@ -78,5 +78,24 @@ public class CliArgsParserTests
     {
         var cli = CliArgsParser.Parse(With("--hw", "USB1"));
         Assert.Null(cli.EcuScriptPath);
+    }
+
+    // --- Phase 3 Sprint 6: --matrix flag tests ---
+
+    [Fact]
+    public void Parse_MatrixFlag_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--matrix", "powertrain.json"));
+        Assert.Equal("powertrain.json", cli.MatrixPath);
+        Assert.Null(cli.EcuScriptPath);
+        Assert.Null(cli.HardwareChannel);
+    }
+
+    [Fact]
+    public void Parse_MatrixAndEcu_AreMutuallyExclusive()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            CliArgsParser.Parse(With("--matrix", "powertrain.json", "--ecu", "bms_sim.json")));
+        Assert.Contains("Cannot use --matrix and --ecu", ex.Message);
     }
 }
