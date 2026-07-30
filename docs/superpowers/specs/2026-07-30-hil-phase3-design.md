@@ -1,7 +1,7 @@
 # HIL Phase 3: ECU Simulation, Fault Injection & Multi-ECU Matrix
 
 > Date: 2026-07-30
-> Status: Draft
+> Status: Draft (v2 — fixed 20 spec errors from code review)
 > Depends: Sprint 1 (complete), Sprint 2 (complete), Sprint 3 (complete — v3.63.0)
 > Scope: VirtualEcu 模拟器、故障注入框架、多 ECU 矩阵
 
@@ -53,12 +53,19 @@ public sealed class VirtualChannel : ICanChannel
     private Action<CanFrame>? _frameReceived;
     private int _isConnected; // 0=disconnected, 1=connected (CAS)
 
+    public ChannelId Id => ChannelId.None; // 虚拟通道无硬件句柄
     public bool IsConnected => Volatile.Read(ref _isConnected) == 1;
 
     public event Action<CanFrame>? FrameReceived
     {
         add { lock (_subscribersLock) _frameReceived += value; }
         remove { lock (_subscribersLock) _frameReceived -= value; }
+    }
+
+    public event Action<ReadLoopError>? ReadLoopError
+    {
+        add { /* 虚拟通道无硬件读取循环，忽略 */ }
+        remove { /* 虚拟通道无硬件读取循环，忽略 */ }
     }
 
     public VirtualChannel(int capacity = 1000)
@@ -87,8 +94,9 @@ public sealed class VirtualChannel : ICanChannel
 
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
     {
+        // DropOldest 模式下 TryWrite 只在 channel 完成时返回 false
         if (!_frameChannel.Writer.TryWrite(frame))
-            return ValueTask.FromResult(Result<Unit>.Fail("Virtual channel full"));
+            return ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "Virtual channel closed"));
         return ValueTask.FromResult(Result<Unit>.Ok(default));
     }
 
@@ -101,6 +109,17 @@ public sealed class VirtualChannel : ICanChannel
             handler?.Invoke(frame);
         }
     }
+
+    public ValueTask DisposeAsync()
+    {
+        _frameChannel.Writer.TryComplete();
+        return ValueTask.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        _frameChannel.Writer.TryComplete();
+    }
 }
 ```
 
@@ -109,6 +128,8 @@ public sealed class VirtualChannel : ICanChannel
 - `DropOldest` 有界 channel — 与 `HILAssertionContext` 一致，避免 OOM
 - `FrameReceived` 在 lock 内取快照后释放锁再 invoke — 避免回调中订阅/取消订阅导致死锁
 - `ConnectAsync` 启动消费者循环；`DisconnectAsync` 停止
+- 实现 `ICanChannel` 全部成员：`Id`、`IsConnected`、`ConnectAsync`、`DisconnectAsync`、`WriteAsync`、`FrameReceived`、`ReadLoopError`
+- 实现 `IAsyncDisposable`（`DisposeAsync`）+ 同步 `Dispose`
 
 **与 TraceDrivenChannel loopback 的区别：**
 
@@ -130,21 +151,21 @@ public sealed class VirtualEcu : IDisposable
     private readonly ICanChannel _channel;
     private readonly IsoTpLayer _isoTp;
     private readonly List<UdsResponseRule> _rules;
-    private readonly ILogger? _logger;
+    private readonly ILogger<VirtualEcu>? _logger;
     private readonly CanIdConfig _ecuCanIds;
     private int _disposed;
 
-    public uint RequestId => _ecuCanIds.RequestId;
+    public uint RequestId => _ecuCanIds.ResponseId; // ECU 监听的是 HIL 的发送 ID
 
     public VirtualEcu(ICanChannel channel, CanIdConfig ecuCanIds,
-        IEnumerable<UdsResponseRule> rules, ILogger? logger = null)
+        IEnumerable<UdsResponseRule> rules, ILogger<VirtualEcu>? logger = null)
     {
         _channel = channel;
         _ecuCanIds = ecuCanIds;
         _rules = rules.ToList();
         _logger = logger;
 
-        // ECU 端 IsoTpLayer — CanIdConfig 与 HIL 端相同（见 §3.2.1 方向说明）
+        // ECU 端 IsoTpLayer — CanIdConfig 与 HIL 端相同，但语义反转（见 §3.2.1）
         _isoTp = new IsoTpLayer(_ecuCanIds, SendFrameAsync, logger);
         _isoTp.MessageReceived += OnUdsRequestReceived;
         _channel.FrameReceived += OnCanFrameReceived;
@@ -183,7 +204,7 @@ public sealed class VirtualEcu : IDisposable
         if (delayMs > 0)
             await Task.Delay(delayMs).ConfigureAwait(false);
 
-        await _isoTp.SendAsync(data).ConfigureAwait(false);
+        await _isoTp.SendMessageAsync(data).ConfigureAwait(false);
     }
 
     private Task SendFrameAsync(CanFrame frame)
@@ -199,22 +220,41 @@ public sealed class VirtualEcu : IDisposable
 }
 ```
 
-#### 3.2.1 IsoTpLayer 方向说明
+#### 3.2.1 IsoTpLayer 方向说明（修正）
 
-HIL 测试引擎端的 IsoTpLayer：
-- RequestId = 0x7E0（发请求到此 ID）
-- ResponseId = 0x7E8（接收响应从此 ID）
+**CanIdConfig 始终从 HIL/客户端视角定义：**
 
-VirtualEcu 端的 IsoTpLayer（镜像）：
-- RequestId = 0x7E0（监听此 ID 的请求帧 — 与 HIL 端相同，因为 ECU 接收的是同一总线上的请求帧）
-- ResponseId = 0x7E8（发送响应到此 ID — ECU 发送响应帧到总线上，HIL 端从该 ID 接收）
+```csharp
+// IsoTpLayer.cs 源码注释
+// RequestId: "CAN ID for request frames (client → ECU)"
+// ResponseId: "CAN ID for response frames (ECU → client)"
+```
 
-CanIdConfig 的语义是"本端关注的 CAN ID"，不是"本端发送的 CAN ID"。IsoTpLayer 内部根据 RequestId 过滤收到的帧，根据 ResponseId 标记发送的帧。因此 VirtualEcu 的 CanIdConfig 与 HIL 端完全相同（都填 0x7E0/0x7E8），但角色不同：
+IsoTpLayer 内部语义（验证自源码）：
+- `ProcessFrame(CanFrame frame)` → 只处理 `frame.Id.Raw == _config.ResponseId` 的帧（ReceiveFlow.cs:28-30）
+- `SendMessageAsync` → 发送帧的 CAN ID 使用 `_config.RequestId`（SendFlow.cs:58-61）
 
-- HIL 端：IsoTpLayer 从 0x7E8 收到响应，往 0x7E0 发请求
-- ECU 端：IsoTpLayer 从 0x7E0 收到请求，往 0x7E8 发响应
+即：**IsoTpLayer 用 ResponseId 过滤接收，用 RequestId 标记发送。**
 
-验证依据：`IsoTpLayer/LifecycleFlow.cs` 中 CanIdConfig 用于 `ProcessFrame` 过滤和 `SendAsync` 目标 ID。两个 IsoTpLayer 实例使用相同的 CanIdConfig，但各自独立处理。
+**HIL 端**（发起请求，接收响应）：
+- RequestId = 0x7E0 → HIL 发送请求帧的目标 ID
+- ResponseId = 0x7E8 → HIL 接收响应帧的过滤 ID
+
+**ECU 端**（接收请求，发送响应）：
+- ECU 需要接收 HIL 发到 0x7E0 的帧 → ECU 的 `ProcessFrame` 必须过滤 0x7E0 → ECU 的 ResponseId = 0x7E0
+- ECU 需要发送响应到 0x7E8（让 HIL 收到）→ ECU 的 `SendMessageAsync` 必须发到 0x7E8 → ECU 的 RequestId = 0x7E8
+
+**结论：ECU 端 CanIdConfig 必须交换 RequestId/ResponseId：**
+
+```csharp
+// HIL 端
+var hilConfig = new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 };
+
+// ECU 端 — 交换 ID
+var ecuConfig = new CanIdConfig { RequestId = 0x7E8, ResponseId = 0x7E0 };
+```
+
+两个 IsoTpLayer 实例使用**镜像的** CanIdConfig，各自独立处理。
 
 ### 3.3 UDS Response Rule Engine
 
@@ -288,6 +328,11 @@ public sealed record UdsResponseRule
 // 0x7F = NegativeResponse SID, 0x22 = original SID, 0x31 = requestOutOfRange
 ```
 
+**Positive response vs NRC 区分规则**：
+- ResponseData[0] == `0x7F` → NRC 响应（格式：`[0x7F, originalSID, nrc]`）
+- ResponseData[0] == `SID | 0x40` → Positive response（格式：`[SID|0x40, ...data]`）
+- 测试作者负责填对字节，规则引擎不做校验
+
 ### 3.4 ECU Script JSON Format
 
 ECU 模拟器脚本是一个 JSON 文件，定义 VirtualEcu 的 CAN ID 配置和响应规则列表。
@@ -297,8 +342,8 @@ ECU 模拟器脚本是一个 JSON 文件，定义 VirtualEcu 的 CAN ID 配置�
   "$schema": "virtual-ecu-v1.json",
   "name": "BMS_Simulator",
   "canIds": {
-    "requestId": "0x7E0",
-    "responseId": "0x7E8",
+    "requestId": "0x7E8",
+    "responseId": "0x7E0",
     "isExtendedFrame": false
   },
   "rules": [
@@ -326,13 +371,92 @@ ECU 模拟器脚本是一个 JSON 文件，定义 VirtualEcu 的 CAN ID 配置�
 ```
 
 字段说明：
-- `canIds`: ECU 端 IsoTpLayer 的 CanIdConfig，与 HIL 端使用相同的 ID 对
+- `canIds`: ECU 端 IsoTpLayer 的 CanIdConfig。**注意：requestId/responseId 与 HIL 端交换**（ECU 的 requestId = HIL 的 responseId = 0x7E8，ECU 的 responseId = HIL 的 requestId = 0x7E0）。EcuScriptLoader 负责解析时交换。
 - `rules`: UdsResponseRule 列表，按顺序匹配
 - 规则 1: ReadDataByIdentifier (0x22)，匹配 DID 0xF190（VIN），返回 17 字节 VIN 数据
 - 规则 2: ReadDtcInformation (0x19) 子函数 0x02，返回 1 个 DTC（0x000009, statusByte 0x08）
 - 规则 3: TesterPresent (0x3E) 子函数 0x00，返回 positive response
 
-### 3.5 CLI Integration
+### 3.5 EcuScriptLoader
+
+```csharp
+// Infrastructure/HIL/EcuScriptLoader.cs
+
+/// <summary>
+/// Loads an ECU simulator script from JSON. Parses CAN IDs and response rules.
+/// Swaps RequestId/ResponseId to produce ECU-perspective CanIdConfig.
+/// </summary>
+public static class EcuScriptLoader
+{
+    /// <summary>
+    /// Load ECU script from a JSON file path.
+    /// </summary>
+    /// <param name="path">Absolute or relative path to the .json ECU script.</param>
+    /// <returns>Parsed EcuScript with ECU-perspective CanIdConfig (IDs swapped).</returns>
+    /// <exception cref="FileNotFoundException">Script file not found.</exception>
+    /// <exception cref="JsonException">JSON malformed or missing required fields.</exception>
+    public static EcuScript Load(string path)
+    {
+        var json = File.ReadAllText(path);
+        return Parse(json);
+    }
+
+    /// <summary>
+    /// Parse ECU script from JSON string.
+    /// </summary>
+    public static EcuScript Parse(string json)
+    {
+        var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // 解析 canIds（HIL 视角）
+        var canIdsHil = root.GetProperty("canIds");
+        var requestIdHil = ParseCanId(canIdsHil.GetProperty("requestId"));
+        var responseIdHil = ParseCanId(canIdsHil.GetProperty("responseId"));
+        var isExtended = canIdsHil.TryGetProperty("isExtendedFrame", out var ext) && ext.GetBoolean();
+
+        // ECU 端交换 RequestId/ResponseId
+        var ecuCanIds = new CanIdConfig
+        {
+            RequestId = responseIdHil,   // ECU 发送用 HIL 的 ResponseId
+            ResponseId = requestIdHil,   // ECU 接收用 HIL 的 RequestId
+            IsExtendedFrame = isExtended
+        };
+
+        // 解析 rules
+        var rules = new List<UdsResponseRule>();
+        foreach (var ruleEl in root.GetProperty("rules").EnumerateArray())
+        {
+            rules.Add(ParseRule(ruleEl));
+        }
+
+        return new EcuScript(
+            name: root.GetProperty("name").GetString()!,
+            canIds: ecuCanIds,
+            rules: rules);
+    }
+
+    private static uint ParseCanId(JsonElement element)
+    {
+        var s = element.GetString()!;
+        return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            => uint.Parse(s[2..], NumberStyles.HexNumber)
+            : uint.Parse(s);
+    }
+
+    private static UdsResponseRule ParseRule(JsonElement el) { /* ... */ }
+}
+
+/// <summary>
+/// Parsed ECU simulator script. CanIdConfig is already in ECU perspective (IDs swapped).
+/// </summary>
+public sealed record EcuScript(
+    string Name,
+    CanIdConfig CanIds,
+    IReadOnlyList<UdsResponseRule> Rules);
+```
+
+### 3.6 CLI Integration
 
 CLI 新增 `--ecu` 参数，指定 ECU 脚本文件路径：
 
@@ -341,7 +465,7 @@ CLI 新增 `--ecu` 参数，指定 ECU 脚本文件路径：
 peakcan-hil --suite tests.json --ecu bms_sim.json --output results.xml
 
 # trace + 虚拟 ECU 混合模式
-peakcan-hil --suite tests.json --trace recording.asc --ecu bms_sim.json --output results.xml
+peakcan-hil --suite tests.json --trace recording.blf --ecu bms_sim.json --output results.xml
 ```
 
 **模式互斥规则：**
@@ -358,9 +482,9 @@ peakcan-hil --suite tests.json --trace recording.asc --ecu bms_sim.json --output
 
 **VirtualChannel + VirtualEcu 组装流程（纯虚拟模式）：**
 
-1. 解析 `--ecu` 脚本 → `EcuScript` (canIds + rules)
+1. 解析 `--ecu` 脚本 → `EcuScript` (canIds + rules) — EcuScriptLoader 已交换 ID
 2. 创建 `VirtualChannel`
-3. 创建 `VirtualEcu(channel, canIds, rules)`
+3. 创建 `VirtualEcu(channel, script.CanIds, script.Rules)`
 4. 创建 `HILAssertionContext(channel)` — 订阅 FrameReceived
 5. VirtualEcu 和 HILAssertionContext 共享同一个 VirtualChannel
 6. `channel.ConnectAsync()` → 启动消费者循环
@@ -369,7 +493,7 @@ peakcan-hil --suite tests.json --trace recording.asc --ecu bms_sim.json --output
    - VirtualEcu 收到 FrameReceived → IsoTpLayer 重组 → 匹配规则 → WriteAsync 响应帧
    - HILAssertionContext 收到响应帧 FrameReceived → WaitForFrame / AssertDtc 通过
 
-### 3.6 HilRunRequest 扩展
+### 3.7 HilRunRequest 扩展
 
 在 Sprint 3 的 HilRunRequest 中新增 ECU 脚本路径：
 
@@ -387,50 +511,100 @@ public sealed record HilRunRequest
 }
 ```
 
-### 3.7 HeadlessHostBuilder 扩展
+### 3.8 HeadlessHostBuilder 扩展
 
 ```csharp
 // Infrastructure/HIL/HeadlessHostBuilder.cs (扩展)
-private static ICanChannel CreateChannel(HilRunRequest request)
+// 注意：HeadlessHostBuilder.Build(CliArgs args) 是入口方法，新增逻辑在 Build 内部
+
+public static IHost Build(CliArgs args)
 {
-    // 优先级: --hw > --trace + --ecu > --trace only > --ecu only
-    if (request.HardwareChannel is not null)
+    // ... existing setup code ...
+
+    if (args.HardwareChannel is not null)
     {
-        // 硬件模式 (Sprint 3)
-        return CreateHardwareChannel(request);
+        // 硬件模式 (Sprint 3) — 注册硬件通道 + UDS 全套
+        RegisterHardwareMode(builder, args);
+    }
+    else if (args.EcuScriptPath is not null)
+    {
+        // 虚拟 ECU 模式 (Sprint 4) — 注册 VirtualChannel + VirtualEcu + UDS 全套
+        RegisterVirtualEcuMode(builder, args);
+    }
+    else
+    {
+        // 纯 trace 回放 (Sprint 2) — 仅注册 HILAssertionContext
+        RegisterTraceOnlyMode(builder, args);
     }
 
-    if (request.TracePath is not null && request.EcuScriptPath is null)
+    // ... rest of setup ...
+}
+
+private static void RegisterVirtualEcuMode(HostBuilder builder, CliArgs args)
+{
+    // 1. VirtualChannel
+    builder.Services.AddSingleton<ICanChannel>(sp => new VirtualChannel());
+
+    // 2. VirtualEcu（订阅 FrameReceived，自动响应）
+    builder.Services.AddSingleton(sp =>
     {
-        // 纯 trace 回放 (Sprint 2)
-        var channel = new TraceDrivenChannel(/* ... */);
-        channel.LoadBlf(request.TracePath);
-        return channel;
-    }
+        var channel = sp.GetRequiredService<ICanChannel>();
+        var script = EcuScriptLoader.Load(args.EcuScriptPath!);
+        var logger = sp.GetService<ILogger<VirtualEcu>>();
+        return new VirtualEcu(channel, script.CanIds, script.Rules, logger);
+    });
 
-    if (request.EcuScriptPath is not null)
+    // 3. UDS 全套（虚拟 ECU 模式下 AssertDtc/AssertNrc 仍可用）
+    //    IsoTpLayer + UdsClient + IUdsSession + HilIsoTpBridge + AssertDtc/Nrc executors
+    RegisterUdsServices(builder, args);
+
+    // 4. HILAssertionContext（订阅 FrameReceived 用于断言）
+    builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
     {
-        // 虚拟 ECU 模式 (Sprint 4)
-        var channel = new VirtualChannel();
+        var channel = sp.GetRequiredService<ICanChannel>();
+        var dbcLookup = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
+        return new HILAssertionContext(channel, dbcLookup);
+    });
+}
 
-        var script = EcuScriptLoader.Load(request.EcuScriptPath);
-        var ecu = new VirtualEcu(channel, script.CanIds, script.Rules, logger);
+private static void RegisterUdsServices(HostBuilder builder, CliArgs args)
+{
+    // IsoTpLayer（HIL 端视角：RequestId=0x7E0, ResponseId=0x7E8）
+    builder.Services.AddSingleton<IsoTpLayer>(sp =>
+    {
+        var config = new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 };
+        var channel = sp.GetRequiredService<ICanChannel>();
+        return new IsoTpLayer(config,
+            async frame => { await channel.WriteAsync(frame, default).ConfigureAwait(false); });
+    });
 
-        if (request.TracePath is not null)
-        {
-            // 混合模式: trace 帧注入 VirtualChannel
-            var traceFrames = BlfParser.ParseAsync(request.TracePath, ReplayOptions.Default);
-            _ = InjectTraceFramesAsync(channel, traceFrames);
-        }
+    // UdsClient + IUdsSession
+    builder.Services.AddSingleton<UdsClient>(sp =>
+    {
+        var isoTp = sp.GetRequiredService<IsoTpLayer>();
+        return new UdsClient(isoTp);
+    });
+    builder.Services.AddSingleton<IUdsSession>(sp =>
+    {
+        var client = sp.GetRequiredService<UdsClient>();
+        return new UdsSessionAdapter(client);
+    });
 
-        return channel;
-    }
+    // ISO-TP frame bridge
+    builder.Services.AddSingleton<HilIsoTpBridge>(sp =>
+    {
+        var channel = sp.GetRequiredService<ICanChannel>();
+        var isoTp = sp.GetRequiredService<IsoTpLayer>();
+        return new HilIsoTpBridge(channel, isoTp);
+    });
 
-    throw new InvalidOperationException("No data source specified");
+    // UDS executors
+    builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
+    builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
 }
 ```
 
-### 3.8 混合模式（trace + VirtualEcu）
+### 3.9 混合模式（trace + VirtualEcu）
 
 trace + 虚拟 ECU 混合模式下，trace 帧和 VirtualEcu 交互帧需要在同一个通道上共存。
 
@@ -454,7 +628,7 @@ private static async Task InjectTraceFramesAsync(
             new ReadOnlyMemory<byte>(frame.Data),
             frame.Flags,
             ChannelId.None,
-            TimeSpan.FromSeconds(frame.Timestamp));
+            new Timestamp(TimeSpan.FromSeconds(frame.Timestamp)));
         await channel.WriteAsync(canFrame, ct).ConfigureAwait(false);
 
         baseTimestamp = frame.Timestamp;
@@ -464,7 +638,7 @@ private static async Task InjectTraceFramesAsync(
 
 **已知限制**：trace 帧注入是 wall-clock 驱动的（Task.Delay），精度受 OS 调度影响（±15ms on Windows）。对于毫秒级时序要求的测试，应使用纯虚拟模式或硬件模式。
 
-### 3.9 WPF HIL Panel 扩展
+### 3.10 WPF HIL Panel 扩展
 
 Sprint 3 的 HIL Panel 新增 ECU 脚本路径选择：
 
@@ -496,14 +670,20 @@ public sealed class FaultInjector : ICanChannel
     private readonly ICanChannel _inner;
     private readonly object _faultsLock = new();
     private readonly List<FaultRule> _activeFaults = new();
-    private readonly Random _rng = new();
 
+    public ChannelId Id => _inner.Id;
     public bool IsConnected => _inner.IsConnected;
 
     public event Action<CanFrame>? FrameReceived
     {
         add => _inner.FrameReceived += value;
         remove => _inner.FrameReceived -= value;
+    }
+
+    public event Action<ReadLoopError>? ReadLoopError
+    {
+        add => _inner.ReadLoopError += value;
+        remove => _inner.ReadLoopError -= value;
     }
 
     public FaultInjector(ICanChannel inner) => _inner = inner;
@@ -545,7 +725,7 @@ public sealed class FaultInjector : ICanChannel
             if (!fault.Matches(frame)) continue;
             var next = new List<CanFrame>();
             foreach (var f in frames)
-                next.AddRange(fault.Apply(f, _rng));
+                next.AddRange(fault.Apply(f));
             frames = next;
         }
 
@@ -567,9 +747,12 @@ public sealed class FaultInjector : ICanChannel
 
     public Task DisconnectAsync(CancellationToken ct = default)
         => _inner.DisconnectAsync(ct);
+
+    public ValueTask DisposeAsync() => _inner.DisposeAsync();
+    public void Dispose() => _inner.Dispose();
 }
 
-public sealed record FaultHandle(Action Remove)
+public sealed record FaultHandle(Action Remove) : IDisposable
 {
     public void Dispose() => Remove();
 }
@@ -580,6 +763,8 @@ public sealed record FaultHandle(Action Remove)
 - FrameReceived 事件直接透传到底层通道 — FaultInjector 不拦截接收帧
 - AddFault / RemoveFault 线程安全 — 测试步骤线程添加故障，消费者线程读取故障列表
 - Delay 故障取最大延迟值（P3-D11）— 多个 Delay 故障同时匹配时，取最大值而非累加，避免延迟爆炸
+- 实现 `ICanChannel` 全部成员：`Id`、`IsConnected`、`ConnectAsync`、`DisconnectAsync`、`WriteAsync`、`FrameReceived`、`ReadLoopError`
+- 实现 `IAsyncDisposable` + `Dispose`
 
 ### 4.2 Fault Types
 
@@ -609,23 +794,24 @@ public sealed record FaultRule
     public byte CorruptXorMask { get; init; } = 0xFF;
 
     public bool Matches(CanFrame frame)
-        => TargetCanId is null || frame.Id == TargetCanId.Value;
+        => TargetCanId is null || frame.Id.Raw == TargetCanId.Value;
 
-    public IReadOnlyList<CanFrame> Apply(CanFrame frame, Random rng)
+    public IReadOnlyList<CanFrame> Apply(CanFrame frame)
     {
         return Type switch
         {
-            FaultType.Drop => ApplyDrop(frame, rng),
+            FaultType.Drop => ApplyDrop(frame),
             FaultType.Corrupt => ApplyCorrupt(frame),
             FaultType.Duplicate => ApplyDuplicate(frame),
             _ => new[] { frame }
         };
     }
 
-    private IReadOnlyList<CanFrame> ApplyDrop(CanFrame frame, Random rng)
+    private IReadOnlyList<CanFrame> ApplyDrop(CanFrame frame)
     {
-        if (rng.NextDouble() < Probability)
-            return Array.Empty<byte>(); // 丢帧
+        // Random.Shared 是线程安全的
+        if (Random.Shared.NextDouble() < Probability)
+            return Array.Empty<CanFrame>(); // 丢帧
         return new[] { frame };
     }
 
@@ -686,7 +872,7 @@ public enum TestCaseStepKind
 // Core/HIL/StepParams/InjectFaultStep.cs
 public sealed record InjectFaultStep(
     uint CanId,                    // 目标 CAN ID, 0 = 全部
-    string FaultType,              // "drop" | "delay" | "corrupt" | "duplicate"
+    FaultType FaultType,           // 枚举类型，JSON 反序列化用 JsonStringEnumConverter
     double Probability,            // Drop 概率 (0-1)
     int DelayMs,                   // Delay 毫秒
     int[]? CorruptByteIndices,     // Corrupt 字节位置
@@ -738,7 +924,7 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
         var p = (InjectFaultStep)step.Parameters;
         var rule = new FaultRule
         {
-            Type = Enum.Parse<FaultType>(p.FaultType, ignoreCase: true),
+            Type = p.FaultType,  // 已是枚举，无需 Enum.Parse
             TargetCanId = p.CanId == 0 ? null : p.CanId,
             Probability = p.Probability,
             DelayMs = p.DelayMs,
@@ -763,13 +949,18 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
 
 ```csharp
 // Infrastructure/HIL/HILAssertionContext.cs (扩展)
+// 注意：HILAssertionContext 保持 internal sealed。IFaultInjectionContext 接口定义在 Core 层，
+// Infrastructure 的 internal 类可以实现 Core 的 public 接口。
+// InjectFaultStepExecutor（Core 层）通过 `ctx is IFaultInjectionContext` cast 检查 —
+// 因为 IFaultInjectionContext 是 public 接口，cast 不需要引用 Infrastructure 程序集。
+
 public sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IDisposable
 {
     private readonly ICanChannel _effectiveChannel;
     private readonly FaultInjector? _faultInjector;
     private readonly Dictionary<string, IDisposable> _faultHandles = new();
 
-    public HILAssertionContext(ICanChannel channel, bool enableFaultInjection, /* ... */ ...)
+    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false)
     {
         if (enableFaultInjection)
         {
@@ -782,7 +973,7 @@ public sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCont
         }
 
         _effectiveChannel.FrameReceived += OnFrameReceived;
-        // ...
+        // ... rest of initialization ...
     }
 
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct)
@@ -901,17 +1092,19 @@ public sealed class EcuMatrix : IDisposable
   "ecus": [
     {
       "name": "BMS",
-      "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+      "canIds": { "requestId": "0x7E8", "responseId": "0x7E0" },
       "rules": []
     },
     {
       "name": "MCU",
-      "canIds": { "requestId": "0x7E2", "responseId": "0x7EA" },
+      "canIds": { "requestId": "0x7EA", "responseId": "0x7E2" },
       "rules": []
     }
   ]
 }
 ```
+
+**注意**：canIds 中的 requestId/responseId 已经是 ECU 视角（与 HIL 端交换）。
 
 ### 5.3 CLI Integration
 
@@ -995,7 +1188,7 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 | ID | Decision | Rationale |
 |---|---|---|
 | P3-D1 | VirtualEcu 复用 IsoTpLayer 处理 ISO-TP 分帧 | 避免 reimplement ISO-TP 重组/分帧逻辑；IsoTpLayer 已经过 Sprint 3 审查 |
-| P3-D2 | VirtualEcu 的 CanIdConfig 与 HIL 端相同 | CanIdConfig 语义是"本端关注的 CAN ID"，非"本端发送的 CAN ID"；两个 IsoTpLayer 实例各自独立处理 |
+| P3-D2 | ECU 端 CanIdConfig 交换 RequestId/ResponseId | IsoTpLayer 用 ResponseId 过滤接收、RequestId 标记发送；ECU 接收 HIL 的请求（0x7E0）需 ResponseId=0x7E0，发送响应（0x7E8）需 RequestId=0x7E8 |
 | P3-D3 | FaultInjector 使用 Decorator 模式包裹 ICanChannel | 透明叠加，不影响现有通道实现；可在 trace/hardware/virtual 任意通道上使用 |
 | P3-D4 | 故障注入仅作用于发送方向（WriteAsync） | HIL 测试引擎发送激励帧，故障注入测试 ECU 对异常输入的处理；接收方向故障注入留给 Phase 4 |
 | P3-D5 | InjectFault/ClearFault 作为 StepKind 而非通道配置 | 故障注入需要在测试序列的特定时点触发/清除，StepKind 提供精确控制 |
@@ -1007,6 +1200,9 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 | P3-D11 | Delay 故障取最大延迟值 | 多个 Delay 故障同时匹配时，取最大值而非累加 — 避免延迟爆炸 |
 | P3-D12 | VirtualEcu 无匹配规则时返回 NRC 0x11 | 符合 ISO 14229-1 §11.3.2 — ECU 对不支持的 SID 返回 serviceNotSupported |
 | P3-D13 | Corrupt 故障通过字节索引 + XOR 掩码实现通用篡改 | 单一 Corrupt 类型覆盖 bit flip / byte replace / CRC 错误等场景，避免故障类型膨胀 |
+| P3-D14 | EcuScriptLoader 负责交换 RequestId/ResponseId | 测试作者在 JSON 中填 HIL 视角的 ID（requestId=0x7E0, responseId=0x7E8），Loader 自动交换为 ECU 视角 |
+| P3-D15 | InjectFaultStep.FaultType 用 FaultType 枚举而非 string | 编译时检查，JSON 反序列化用 JsonStringEnumConverter（已有 HILJsonOptions 全局配置） |
+| P3-D16 | HILAssertionContext 保持 internal sealed | IFaultInjectionContext 是 Core 层 public 接口，Infrastructure 的 internal 类可实现；Core 层 cast 检查无需引用 Infrastructure |
 
 ---
 
@@ -1014,13 +1210,15 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| VirtualEcu IsoTpLayer 与 HIL 端 IsoTpLayer 竞争同一帧 | HIGH | VirtualEcu 的 IsoTpLayer 只处理 RequestId 匹配的帧，HIL 端的 IsoTpLayer 只处理 ResponseId 匹配的帧 — 实际不竞争（不同 CAN ID） |
+| VirtualEcu IsoTpLayer 与 HIL 端 IsoTpLayer 竞争同一帧 | HIGH | ECU 端 ResponseId=0x7E0（接收请求），HIL 端 ResponseId=0x7E8（接收响应）— 过滤 ID 不同，不竞争 |
 | VirtualChannel 消费者线程延迟影响时序敏感测试 | MEDIUM | 消费者线程调度延迟 ~µs 级；时序敏感测试应使用硬件模式；文档标注已知限制 |
 | FaultInjector 的 lock(_faultsLock) 在高帧率下成为瓶颈 | MEDIUM | 测试步骤中添加/清除故障是低频操作；帧发送时取快照后释放锁 — 锁持有时间极短 |
 | 多 ECU 矩阵中 broadcast 帧（如 0x7DF）触发所有 ECU 响应 | LOW | UDS 功能寻址（0x7DF）允许多 ECU 响应；如果不需要，测试用例应使用物理寻址（0x7E0 等） |
 | VirtualEcu 响应规则 JSON 中 responseData 手写字节易出错 | MEDIUM | 可选：后续提供 odx/dbc 导入工具自动生成规则；Sprint 4 范围内手动编写 |
 | CanFrame.Data 是 ReadOnlyMemory\<byte\>，Corrupt 故障需要复制-修改-重新包装 | HIGH | ApplyCorrupt 实现：`frame.Data.ToArray()` → 修改 → `new ReadOnlyMemory<byte>(data)` → `frame with { Data = ... }` |
 | 混合模式 trace 帧注入使用 Task.Delay，精度受 OS 调度影响 | LOW | 文档标注 ±15ms on Windows；纯虚拟模式无此问题 |
+| Random 线程安全问题 | MEDIUM | 使用 `Random.Shared`（.NET 6+ 线程安全），避免 `new Random()` 并发问题 |
+| DropOldest 模式下错误消息误导 | LOW | 修正错误消息为 "Virtual channel closed"（TryWrite 返回 false 的唯一原因是 channel 已完成） |
 
 ---
 
@@ -1028,14 +1226,14 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 
 | Inc | Component | Tests | Description |
 |---|---|---|---|
-| 0 | VirtualChannel | 5 | 连接/断开、WriteAsync 回环、FrameReceived 多订阅者、DropOldest 满载、Dispose 幂等 |
+| 0 | VirtualChannel | 6 | 连接/断开、WriteAsync 回环、FrameReceived 多订阅者、DropOldest 满载、Dispose 幂等、Id/ReadLoopError 成员存在 |
 | 1 | UdsResponseRule | 4 | SID 匹配、子函数匹配、DataMask 匹配、无匹配返回 false |
-| 2 | EcuScriptLoader | 3 | JSON 反序列化、canIds 解析（0x 前缀）、rules 列表解析 |
+| 2 | EcuScriptLoader | 4 | JSON 反序列化、canIds 解析（0x 前缀）、rules 列表解析、ID 交换验证 |
 | 3 | VirtualEcu | 6 | 单帧 UDS 请求→响应、多帧 ISO-TP 重组→响应、无匹配规则 NRC 0x11、ResponseDelayMs、Dispose 取消订阅、多规则优先级 |
 | 4 | CLI --ecu 模式 | 4 | 纯虚拟模式端到端、--ecu 与 --hw 互斥校验、ECU 脚本不存在错误处理、JUnit 输出验证 |
 | 5 | WPF Panel | 0 | ECU 脚本路径选择 + 互斥校验（手动验证） |
 
-**Total: ~22 tests**
+**Total: ~24 tests**
 
 ---
 
@@ -1044,12 +1242,12 @@ peakcan-hil --suite tests.json --matrix powertrain.json --enable-faults --output
 | Inc | Component | Tests | Description |
 |---|---|---|---|
 | 0 | FaultRule | 5 | Drop 100%/0%、Corrupt 指定字节、Duplicate 帧数 x2、Delay 标记、TargetCanId 匹配/不匹配 |
-| 1 | FaultInjector | 6 | 无故障透传、Drop 丢帧、Corrupt 篡改、Duplicate 双发、Delay 延迟、多故障叠加 |
+| 1 | FaultInjector | 7 | 无故障透传、Drop 丢帧、Corrupt 篡改、Duplicate 双发、Delay 延迟、多故障叠加、Id/ReadLoopError 透传 |
 | 2 | InjectFaultStepExecutor | 3 | 添加故障成功、Context 不支持故障注入→失败、FaultId 标记 |
 | 3 | ClearFaultStepExecutor | 3 | 清除指定 FaultId、清除全部、无 FaultId 不报错 |
 | 4 | CLI --enable-faults | 2 | 故障注入端到端、FaultInjector 包裹硬件通道 |
 
-**Total: ~19 tests**
+**Total: ~20 tests**
 
 ---
 
