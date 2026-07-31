@@ -655,4 +655,18 @@ public class AppHostBuilderTests
             "the DI factory must default to 200 MB when Replay:MaxFileSizeBytes is absent " +
             "so legacy operators see no observable behavior change");
     }
+
+    /// <summary>
+    /// Sprint 17 §3.3: the WPF path must register ICredentialStore as a
+    /// ChainedCredentialStore(WindowsCredentialManagerStore, SimpleCredentialStore)
+    /// so both credential sources are visible (not WCM alone).
+    /// </summary>
+    [Fact]
+    public void Build_Registers_CredentialStore_As_Chained()
+    {
+        using var host = new AppHostBuilder().Build();
+        var store = host.Services.GetRequiredService<Core.Analysis.ICredentialStore>();
+
+        store.Should().BeOfType<Infrastructure.HIL.Analysis.ChainedCredentialStore>();
+    }
 }

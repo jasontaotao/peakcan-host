@@ -174,8 +174,16 @@ public partial class AppHostBuilder
         services.AddSingleton<PeakCan.Host.Core.Analysis.AnalysisSessionRegistry>();
         // v3.53.1 PATCH P1a: API Key secure storage via Windows Credential Manager
         // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
-        services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
-                             PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore>();
+        // Sprint 17 §3.3: wrap WCM as the primary store in a ChainedCredentialStore so
+        // the WPF path also sees file/env credentials (WCM → env var → ~/.hil/credentials).
+        services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore>(sp =>
+        {
+            var winStore = new PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore(
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<
+                    PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore>>());
+            return new PeakCan.Host.Infrastructure.HIL.Analysis.ChainedCredentialStore(
+                winStore, new PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore());
+        });
         // W40 P2 PATCH: ApiKeyManager wraps ICredentialStore to expose
         // configured/not-configured state to the AI Analysis panel without
         // leaking the key value itself. Singleton so the LastUpdatedAt
