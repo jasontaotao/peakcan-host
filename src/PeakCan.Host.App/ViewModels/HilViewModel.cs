@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -14,6 +15,7 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly IHilRunnerService _runner;
     private readonly ILogger<HilViewModel> _logger;
     private readonly IFileDialogService _fileDialog;
+    private readonly IHilAnalysisService _analysisService;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -27,6 +29,12 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private HilMode _selectedMode = HilMode.TraceReplay;
 
+    // LLM failure analysis (Sprint 16).
+    [ObservableProperty] private string _analysisResult = "";
+    [ObservableProperty] private bool _isAnalyzing = false;
+    [ObservableProperty] private bool _enableAnalyze = false;
+    private TestSuiteResult? _lastResult;
+
     // ECU editor: raw JSON content typed in the panel.
     [ObservableProperty] private string _ecuEditorJson = "";
 
@@ -39,11 +47,12 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
 
-    public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog)
+    public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog, IHilAnalysisService analysisService)
     {
         _runner = runner;
         _logger = logger;
         _fileDialog = fileDialog;
+        _analysisService = analysisService;
     }
 
     // --- Browse commands ---
@@ -103,15 +112,40 @@ public sealed partial class HilViewModel : ObservableObject
 
     private bool CanSaveEcu() => !string.IsNullOrWhiteSpace(EcuEditorJson);
 
-    // --- Analyze command (Sprint 14 stub) ---
+    // --- Analyze command (Sprint 16: LLM failure analysis) ---
 
-    [RelayCommand]
-    private Task AnalyzeAsync()
+    [RelayCommand(CanExecute = nameof(CanAnalyze))]
+    private async Task AnalyzeAsync()
     {
-        // Sprint 14: LLM-based failure analysis. Stub for now.
-        _logger.LogInformation("AnalyzeCommand invoked (Sprint 14 stub)");
-        return Task.CompletedTask;
+        if (_lastResult is null || _lastResult.AllPassed)
+            return;
+
+        IsAnalyzing = true;
+        try
+        {
+            var result = await _analysisService.AnalyzeAsync(_lastResult);
+            if (result is null)
+            {
+                AnalysisResult = "Analysis unavailable.";
+            }
+            else if (result.IsUnavailable)
+            {
+                AnalysisResult = result.UnavailableReason ?? "Analysis unavailable.";
+            }
+            else
+            {
+                AnalysisResult = result.Content;
+            }
+        }
+        finally
+        {
+            IsAnalyzing = false;
+            AnalyzeCommand.NotifyCanExecuteChanged();
+        }
     }
+
+    private bool CanAnalyze()
+        => !IsRunning && !IsAnalyzing && _lastResult is { AllPassed: false };
 
     // --- Run command ---
 
@@ -136,9 +170,12 @@ public sealed partial class HilViewModel : ObservableObject
                 MatrixPath: SelectedMode == HilMode.Matrix ? (string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath) : null,
                 EnableFaultInjection: EnableFaultInjection,
                 Mode: SelectedMode,
-                EnableAnalyze: false);
+                EnableAnalyze: EnableAnalyze);
 
             var result = await _runner.RunAsync(request, progress, default);
+
+            _lastResult = result;
+            AnalyzeCommand.NotifyCanExecuteChanged();
 
             foreach (var cr in result.CaseResults)
                 Results.Add(new TestCaseResultViewModel(cr));
@@ -157,6 +194,7 @@ public sealed partial class HilViewModel : ObservableObject
         finally
         {
             IsRunning = false;
+            AnalyzeCommand.NotifyCanExecuteChanged();
         }
     }
 

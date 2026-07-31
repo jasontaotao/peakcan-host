@@ -6,6 +6,7 @@ using NSubstitute;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
@@ -26,7 +27,7 @@ public sealed class HilViewModelTests
         var r = runner ?? Substitute.For<IHilRunnerService>();
         var log = NullLogger<HilViewModel>.Instance;
         var fd = fileDialog ?? Substitute.For<IFileDialogService>();
-        return new HilViewModel(r, log, fd);
+        return new HilViewModel(r, log, fd, Substitute.For<IHilAnalysisService>());
     }
 
     private static TestSuiteResult AllPassedResult() => new(

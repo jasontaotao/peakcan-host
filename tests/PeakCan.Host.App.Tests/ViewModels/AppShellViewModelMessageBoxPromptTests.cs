@@ -12,6 +12,7 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
@@ -172,7 +173,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
             fileDialogs,
             prompt,
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
     }
 
     /// <summary>Test double for <see cref="IChannelFactory"/>

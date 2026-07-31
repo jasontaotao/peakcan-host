@@ -14,6 +14,7 @@ using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Services;
 using PeakCan.Host.Core.Uds;
@@ -143,7 +144,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
     }
 
     /// <summary>
@@ -472,7 +473,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -569,7 +570,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
     }
 
     [Fact]
@@ -707,7 +708,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -1008,7 +1009,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
 
         // ACT
@@ -1108,7 +1109,7 @@ public class AppShellViewModelTests
             // (the 2 missing-.asc call sites route through this).
             Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()),
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()),
             enumerator,
             writableConfig);
     }

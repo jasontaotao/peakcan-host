@@ -42,6 +42,8 @@
 
             <CheckBox Content="Faults" IsChecked="{Binding EnableFaultInjection}"
                       VerticalAlignment="Center" Margin="0,0,12,0" />
+            <CheckBox Content="Analyze" IsChecked="{Binding EnableAnalyze}"
+                      VerticalAlignment="Center" Margin="0,0,12,0" />
         </StackPanel>
 
         <!-- ECU editor + Run / Analyze buttons -->
@@ -98,5 +100,11 @@
                 </TreeView.Resources>
             </TreeView>
         </Grid>
+
+        <!-- LLM analysis result (Sprint 16) -->
+        <TextBox DockPanel.Dock="Bottom" Text="{Binding AnalysisResult, Mode=OneWay}"
+                 IsReadOnly="True" AcceptsReturn="True" MinHeight="80"
+                 VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"
+                 ToolTip="LLM failure analysis result" />
     </DockPanel>
 </UserControl>
