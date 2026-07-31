@@ -11,6 +11,11 @@
 > `--simulate` 顺带修复 host 泄漏（L3），ALC 子类代码给出（E1），`volatile` 内存模型（B3），
 > Matrix 三层签名透传（B2/L4/T3），`GeneratorPluginLoader` 不改（E2），null 边界（B1），
 > 重试异常集扩展（B4），事件类型声明（E3），`Dispose` 语义明确（T4），record 参数位置（T2）。
+>
+> **Revision 4（2026-07-31）**：按 code-review 6 项（R1-R6）补充。R1 `CliArgsParser` 三处构造调用点
+> （`CliArgs.cs:87,100,117`）必须传 `GeneratorDir` 命名参数；R2 每 DLL 独立 `GeneratorLoadContext`；
+> R3 `_current` 字段 `volatile`；R4 `EcuStateMachine` 新增 `using System.Threading`；R5 Reload 失败
+> 路径立即 Unload 半加载 ALC；R6 `MatrixConfigLoader` 三层默认值 `= null` 零改动调用方。
 
 ---
 
@@ -146,16 +151,21 @@ await host.RunAsync(cts.Token);   // Ctrl+C → using 块 dispose host + manager
 ### 3.5 `GeneratorPluginManager` 内部设计（E1/B1/B4/E3/T4）
 
 ```
+字段：`private volatile IReadOnlyList<IEcuResponseGenerator> _current;`（R3——与 `_generators`
+     一致用 `volatile`，写用 `Interlocked.Exchange`，读保证获取语义）
+
 构造(dir)
   ├─ dir 为 null 或空 → Current = empty，不启动 watcher（B1）
   ├─ 否则：ALC 加载目录 DLL → external 列表 → Current
   ├─ FileSystemWatcher(dir, "*.dll") 监听 Created/Changed/Renamed/Deleted
   └─ debounce Timer ~300ms（合并 DLL burst 事件）
      └─ Reload():
-          ├─ 新 GeneratorLoadContext 加载目录 → 新 external 列表
+          ├─ 每个 DLL 创建独立 GeneratorLoadContext（R2，见下）→ 新 external 列表
           ├─ Interlocked.Exchange(ref _current, newList)
           ├─ 触发 GeneratorsChanged
-          └─ 旧 ALC.Unload()（标记，GC 回收 —— M2）
+          ├─ 旧 ALC 逐个 Unload()（标记，GC 回收 —— M2）
+          └─ 失败路径（R5）：新 ALC 已创建但加载失败 → 该 ALC 立即 Unload()（collectible ALC
+             只有 Unload 后 GC 才能回收，否则半加载 ALC 泄漏），保留旧 _current
 
 Dispose()（T4 明确）
   ├─ watcher.Dispose()
@@ -185,6 +195,10 @@ internal sealed class GeneratorLoadContext : AssemblyLoadContext
 
 - 插件依赖（`PeakCan.Host.Core` 等）经 `AssemblyDependencyResolver` fallback 到默认 ALC，保证插件里的
   `IEcuResponseGenerator` 与 Core 接口是**同一类型**。
+- **多 DLL 目录（R2）**：目录中每个 DLL 创建**独立** `GeneratorLoadContext`（`mainAssemblyPath` =
+  该 DLL 路径，各自 `AssemblyDependencyResolver` 解析自身依赖）。插件场景（一个插件 = 一个 DLL 含
+  `IEcuResponseGenerator` 实现）下 DLL 互不引用，类型隔离干净；Reload 时逐个 Unload。不共享一个
+  ALC（避免不同插件 DLL 的依赖冲突）。
 - **失败重试（B4，异常集对齐 `GeneratorPluginLoader.cs:39-54`）**：加载失败捕获
   `BadImageFormatException` / `IOException`（文件锁）/ `FileLoadException` / `FileNotFoundException`
   （文件已删）→ 延迟 ~200ms 重试最多 3 次；耗尽仍失败 → 保留旧 `Current`，记日志，不中断。
@@ -195,6 +209,9 @@ internal sealed class GeneratorLoadContext : AssemblyLoadContext
 ### 3.6 `EcuStateMachine.ReplaceGenerators` 并发模型（H3/B3）
 
 **变更 `EcuStateMachine`**（`Core/HIL/Contracts/EcuStateMachine.cs`）：
+
+- 新增 `using System.Threading;`（Interlocked，当前文件无任何 using，`EcuStateMachine.cs:1` 直接
+  `namespace` 声明，R4）。
 
 - `_generators` 由 `readonly`（`:11`）改为 **`volatile`** 字段（B3——`Interlocked.Exchange` 写有全栅栏，
   但普通读在 ARM 弱内存模型可能读旧引用；`volatile` 保证读的获取语义，x86/x64 上语义同样正确）：
@@ -219,11 +236,11 @@ public void ReplaceGenerators(IEnumerable<IEcuResponseGenerator> generators)
 | 文件 | 新增 |
 |------|------|
 | `CliArgs` | `string? GeneratorDir = null` 字段（positional **末尾**，现有调用不受影响） |
-| `CliArgsParser` | `--generator-dir <path>` 解析 + `PrintHelp`（同文件 `CliArgs.cs:35`） |
+| `CliArgsParser` | `--generator-dir <path>` 解析 + `PrintHelp`；**三处 `new CliArgs(...)` 构造调用点（`CliArgs.cs:87,100,117`）均加 `GeneratorDir: generatorDir` 命名参数**（R1——只解析不传参会静默丢弃，`GeneratorDir` 恒 null） |
 | `HilRunRequest` | `string? GeneratorDir = null`（positional record **末尾**，`EnableAnalyze` 之后，T2） |
 | `HilRunRequestExtensions.ToCliArgs` | `GeneratorDir` 传递（positional 末尾） |
 | `HeadlessHostBuilder` | 虚拟 ECU + Matrix 两个分支读 `args.GeneratorDir` → `LoadFromDirectory`（T3） |
-| `MatrixConfigLoader` | `Parse`/`LoadFromFile`/`Load` 三层加 `externalGenerators` 参数透传（B2） |
+| `MatrixConfigLoader` | `Parse`/`LoadFromFile`/`Load` 三层加 `IEnumerable<IEcuResponseGenerator>? externalGenerators = null` **默认值**透传（B2/R6——默认值使现有调用方零改动） |
 
 ---
 
@@ -233,7 +250,7 @@ public void ReplaceGenerators(IEnumerable<IEcuResponseGenerator> generators)
 |------|------|
 | `src/PeakCan.Host.Infrastructure/HIL/Generators/GeneratorPluginManager.cs` | NEW — ALC + watcher + debounce + 重试 + 事件 |
 | `src/PeakCan.Host.Infrastructure/HIL/Generators/BuiltInGenerators.cs` | NEW — built-in 单一来源（`CreateAll()`） |
-| `src/PeakCan.Host.Core/HIL/Contracts/EcuStateMachine.cs` | MODIFY — `_generators` volatile + `ReplaceGenerators`（Interlocked） |
+| `src/PeakCan.Host.Core/HIL/Contracts/EcuStateMachine.cs` | MODIFY — 新增 `using System.Threading;` + `_generators` volatile + `ReplaceGenerators`（Interlocked）（R4） |
 | `src/PeakCan.Host.Infrastructure/HIL/EcuScriptLoader.cs` | MODIFY — 删 `GetBuiltInGenerators`（:240），`ParseEcuScript` 改调 `BuiltInGenerators.CreateAll()` |
 | `src/PeakCan.Host.Infrastructure/HIL/HeadlessHostBuilder.cs` | MODIFY — 虚拟 ECU/Matrix 分支传 `LoadFromDirectory(args.GeneratorDir)` |
 | `src/PeakCan.Host.Infrastructure/HIL/MatrixConfigLoader.cs` | MODIFY — 三层签名加 `externalGenerators` 透传 |
