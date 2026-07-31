@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
@@ -8,25 +9,25 @@ namespace PeakCan.Host.Infrastructure.HIL.Analysis;
 
 /// <summary>
 /// Sprint 14: Calls DeepSeek API to analyze test failures.
-/// Uses new HttpClient() with hardcoded endpoint (no IHttpClientFactory dependency).
-/// Model: deepseek-v4-flash (matches DeepSeekOptions.Model).
+/// Phase 7 Unit A: endpoint and model read from IOptions&lt;DeepSeekOptions&gt;
+/// (injected via AddHttpClient&lt;&gt;); HTTP timeout from TimeoutSeconds × 5.
+/// stream=false (non-streaming); UseStreaming does not affect this service.
 /// </summary>
 public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
 {
-    private const string ApiEndpoint = "https://api.deepseek.com/chat/completions";
-    private const string Model = "deepseek-v4-flash";
-
     private readonly ICredentialStore _credentialStore;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly DeepSeekOptions _options;
 
-    public HilAnalysisService(HttpClient httpClient, ICredentialStore credentialStore)
+    public HilAnalysisService(HttpClient httpClient, ICredentialStore credentialStore, IOptions<DeepSeekOptions> options)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(credentialStore);
         _credentialStore = credentialStore;
         _httpClient = httpClient;
         _ownsHttpClient = false;
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "peakcan-host/hil-analyze");
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
     }
@@ -48,7 +49,7 @@ public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
         var prompt = HilPromptBuilder.Build(result);
         var requestBody = new
         {
-            model = Model,
+            model = _options.Model,
             messages = new[]
             {
                 new { role = "system", content = "You are an automotive ECU diagnostic test failure analyst. Analyze the test failure and suggest root causes." },
@@ -59,7 +60,7 @@ public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
         };
 
         var json = JsonSerializer.Serialize(requestBody);
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, ApiEndpoint)
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase.TrimEnd('/')}/chat/completions")
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };

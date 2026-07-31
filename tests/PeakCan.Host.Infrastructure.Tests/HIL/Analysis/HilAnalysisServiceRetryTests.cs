@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Options;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Infrastructure.HIL.Analysis;
@@ -64,7 +66,7 @@ public class HilAnalysisServiceRetryTests
         var httpClient = new HttpClient(policyHandler);
         var store = new SimpleCredentialStore();
         store.SetAsync("deepseek-api-key", "test-key").GetAwaiter().GetResult();
-        return (new HilAnalysisService(httpClient, store), handler, store);
+        return (new HilAnalysisService(httpClient, store, Options.Create(new DeepSeekOptions())), handler, store);
     }
 
     private static TestSuiteResult CreateFailedResult()
@@ -126,5 +128,95 @@ public class HilAnalysisServiceRetryTests
         Assert.NotNull(result);
         Assert.False(result.IsUnavailable);
         Assert.Equal(1, handler.InvocationCount); // single call, no retry
+    }
+
+    // --- Phase 7 Unit A: endpoint/model/TrimEnd 用例 ---
+
+    /// <summary>
+    /// Captures the outgoing HttpRequestMessage for assertion.
+    /// </summary>
+    private sealed class CapturingMockHandler : HttpMessageHandler
+    {
+        public HttpRequestMessage? LastRequest;
+        public string? LastRequestBody;
+        private readonly HttpResponseMessage _response;
+
+        public CapturingMockHandler(HttpResponseMessage response) => _response = response;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            LastRequest = request;
+            if (request.Content is not null)
+                LastRequestBody = await request.Content.ReadAsStringAsync(ct);
+            return _response;
+        }
+    }
+
+    private static HttpResponseMessage OkResponse() => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(new
+        {
+            choices = new[] { new { message = new { content = "analysis" } } }
+        }))
+    };
+
+    [Fact]
+    public async Task AnalyzeService_UsesOptionsModelAndEndpoint()
+    {
+        var handler = new CapturingMockHandler(OkResponse());
+        var httpClient = new HttpClient(handler);
+        var store = new SimpleCredentialStore();
+        await store.SetAsync("deepseek-api-key", "test-key");
+        var options = Options.Create(new DeepSeekOptions
+        {
+            ApiBase = "https://custom.api.com",
+            Model = "custom-model"
+        });
+        var service = new HilAnalysisService(httpClient, store, options);
+
+        await service.AnalyzeAsync(CreateFailedResult());
+
+        Assert.NotNull(handler.LastRequest);
+        Assert.Equal("https://custom.api.com/chat/completions", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Contains("\"model\":\"custom-model\"", handler.LastRequestBody);
+        // L3/E1 invariants: HIL analysis is always non-streaming (UseStreaming is
+        // inert for this service) and never uses json_object response_format.
+        Assert.Contains("\"stream\":false", handler.LastRequestBody);
+        Assert.DoesNotContain("response_format", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task AnalyzeService_DefaultOptions_UsesDeepSeekDefaults()
+    {
+        var handler = new CapturingMockHandler(OkResponse());
+        var httpClient = new HttpClient(handler);
+        var store = new SimpleCredentialStore();
+        await store.SetAsync("deepseek-api-key", "test-key");
+        var service = new HilAnalysisService(httpClient, store, Options.Create(new DeepSeekOptions()));
+
+        await service.AnalyzeAsync(CreateFailedResult());
+
+        Assert.NotNull(handler.LastRequest);
+        Assert.Equal("https://api.deepseek.com/chat/completions", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Contains("\"model\":\"deepseek-v4-flash\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task AnalyzeService_ApiBaseTrailingSlash_NoDoubleSlash()
+    {
+        var handler = new CapturingMockHandler(OkResponse());
+        var httpClient = new HttpClient(handler);
+        var store = new SimpleCredentialStore();
+        await store.SetAsync("deepseek-api-key", "test-key");
+        var options = Options.Create(new DeepSeekOptions
+        {
+            ApiBase = "https://api.deepseek.com/"
+        });
+        var service = new HilAnalysisService(httpClient, store, options);
+
+        await service.AnalyzeAsync(CreateFailedResult());
+
+        Assert.NotNull(handler.LastRequest);
+        Assert.Equal("https://api.deepseek.com/chat/completions", handler.LastRequest!.RequestUri!.ToString());
     }
 }

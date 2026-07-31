@@ -219,9 +219,10 @@ public partial class AppHostBuilder
         // retry mirrors GetRetryPolicy in HeadlessHostBuilder: transient errors
         // + 429 retried up to 3 times with exponential backoff (1s → 2s → 4s).
         services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
-            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((_, client) =>
+            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
-            client.Timeout = TimeSpan.FromSeconds(150);
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
         })
         .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
             .HandleTransientHttpError()
@@ -232,8 +233,6 @@ public partial class AppHostBuilder
         // named HttpClient + credential store + options. Tools are NOT DI-registered
         // (VM↔IChatTool cycle); VM builds them lazily in ChatPanelContent.
         services.AddSingleton<PeakCan.Host.Core.Analysis.Chat.IChatProvider, PeakCan.Host.App.Services.ChatProvider.DeepSeekChatProvider>();
-        // DeepSeekOptions default (override via appsettings.json:Llm:DeepSeek section in future PATCH)
-        services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(options => { });
         services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
     }

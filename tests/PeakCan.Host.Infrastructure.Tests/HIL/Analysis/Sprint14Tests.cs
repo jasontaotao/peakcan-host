@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Infrastructure.HIL;
@@ -93,7 +95,7 @@ public class Sprint14Tests
         var credentialStore = new SimpleCredentialStore();
         await credentialStore.SetAsync("deepseek-api-key", "test-key");
 
-        var service = new HilAnalysisService(httpClient, credentialStore);
+        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new DeepSeekOptions()));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -105,7 +107,7 @@ public class Sprint14Tests
     public async Task AnalysisService_MissingApiKey_ReturnsUnavailable()
     {
         var credentialStore = new SimpleCredentialStore();
-        var service = new HilAnalysisService(new HttpClient(), credentialStore);
+        var service = new HilAnalysisService(new HttpClient(), credentialStore, Options.Create(new DeepSeekOptions()));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -120,7 +122,7 @@ public class Sprint14Tests
         var credentialStore = new SimpleCredentialStore();
         await credentialStore.SetAsync("deepseek-api-key", "test-key");
 
-        var service = new HilAnalysisService(httpClient, credentialStore);
+        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new DeepSeekOptions()));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);

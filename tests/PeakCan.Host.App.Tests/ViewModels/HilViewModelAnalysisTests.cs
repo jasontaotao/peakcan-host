@@ -38,7 +38,7 @@ public sealed class HilViewModelAnalysisTests
         CaseResults: new[] { new TestCaseResult("tc1", "Case1", false, "signal mismatch", 100, 1, 0, 1, 0, 0, Array.Empty<StepResult>()) });
 
     /// <summary>Run the VM once with the given result, returning the VM wired to that runner.</summary>
-    private static async Task<HilViewModel> RunOnceAsync(TestSuiteResult result, IHilAnalysisService? analysis = null)
+    private static async Task<HilViewModel> RunOnceAsync(TestSuiteResult result, IHilAnalysisService? analysis = null, bool enableAnalyze = false)
     {
         var runner = Substitute.For<IHilRunnerService>();
         runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
@@ -47,6 +47,7 @@ public sealed class HilViewModelAnalysisTests
         vm.DbcPath = "x.dbc";
         vm.SuitePath = "y.json";
         vm.TracePath = "t.asc";
+        vm.EnableAnalyze = enableAnalyze;
         await vm.RunCommand.ExecuteAsync(null);
         return vm;
     }
@@ -149,5 +150,61 @@ public sealed class HilViewModelAnalysisTests
 
         tcs.SetResult(FailedResult());
         await runTask;
+    }
+
+    // --- Phase 7 Unit A: EnableAnalyze auto-analyze ---
+
+    private static TestSuiteResult EmptySuiteResult() => new(
+        "empty", TotalCases: 0, PassedCases: 0, FailedCases: 0, SkippedCases: 0,
+        ElapsedMs: 0, SetupFailures: Array.Empty<string>(), CaseResults: Array.Empty<TestCaseResult>());
+
+    [Fact]
+    public async Task RunAsync_EnableAnalyzeTrueWithFailures_AutoAnalyzes()
+    {
+        var analysis = Substitute.For<IHilAnalysisService>();
+        analysis.AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>())
+            .Returns(AnalysisResult.Success("Auto analysis result"));
+        var vm = await RunOnceAsync(FailedResult(), analysis, enableAnalyze: true);
+
+        await analysis.Received(1).AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>());
+        Assert.Equal("Auto analysis result", vm.AnalysisResult);
+    }
+
+    [Fact]
+    public async Task RunAsync_EnableAnalyzeFalseWithFailures_DoesNotAutoAnalyze()
+    {
+        var analysis = Substitute.For<IHilAnalysisService>();
+        _ = await RunOnceAsync(FailedResult(), analysis, enableAnalyze: false);
+
+        await analysis.DidNotReceive().AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_EnableAnalyzeTrueAllPassed_DoesNotAutoAnalyze()
+    {
+        var analysis = Substitute.For<IHilAnalysisService>();
+        _ = await RunOnceAsync(AllPassedResult(), analysis, enableAnalyze: true);
+
+        await analysis.DidNotReceive().AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_EnableAnalyzeTrueEmptySuite_DoesNotAutoAnalyze()
+    {
+        var analysis = Substitute.For<IHilAnalysisService>();
+        _ = await RunOnceAsync(EmptySuiteResult(), analysis, enableAnalyze: true);
+
+        await analysis.DidNotReceive().AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_EnableAnalyzeTrueAnalysisUnavailable_ShowsReason()
+    {
+        var analysis = Substitute.For<IHilAnalysisService>();
+        analysis.AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>())
+            .Returns(AnalysisResult.Unavailable("API key not configured"));
+        var vm = await RunOnceAsync(FailedResult(), analysis, enableAnalyze: true);
+
+        Assert.Contains("API key not configured", vm.AnalysisResult);
     }
 }

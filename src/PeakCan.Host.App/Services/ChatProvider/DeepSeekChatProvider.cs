@@ -108,7 +108,7 @@ public sealed class DeepSeekChatProvider : IChatProvider
         var http = _httpClientFactory.CreateClient(HttpClientName);
         using var httpRequest = new HttpRequestMessage(
             HttpMethod.Post,
-            $"{_options.Value.ApiBase}/chat/completions")
+            $"{_options.Value.ApiBase.TrimEnd('/')}/chat/completions")
         {
             Content = JsonContent.Create(request),
         };

@@ -78,7 +78,10 @@ Run 完不会自动分析。Phase 6 spec 修了一半（CheckBox 已绑定），
 
 - ctor 由 `(HttpClient httpClient, ICredentialStore credentialStore)` 改为
   `(HttpClient httpClient, ICredentialStore credentialStore, IOptions<DeepSeekOptions> options)`
-  —— 与 `DeepSeekProvider`（`DeepSeekProvider.cs:37-47`）模式一致。
+  —— 与 `DeepSeekProvider`（`DeepSeekProvider.cs:37-47`）模式一致。**R3 存储方式**：参照
+  `DeepSeekProvider`（`:35,46`），ctor 中解包存 `DeepSeekOptions` 字段
+  （`_options = options?.Value ?? throw new ArgumentNullException(nameof(options));`），
+  不存 `IOptions<T>` 包装。
 - 删除常量 `ApiEndpoint`（`:16`）和 `Model`（`:17`）。
 - `AnalyzeAsync` 中（`:49-58` 请求体构造处）：
   - endpoint：`$"{opts.ApiBase.TrimEnd('/')}/chat/completions"`（**B4**：`TrimEnd('/')`
@@ -86,6 +89,12 @@ Run 完不会自动分析。Phase 6 spec 修了一半（CheckBox 已绑定），
   - model：`opts.Model`
   - **`stream` 保持 `false`，请求体保持匿名类型，不引入 `ResponseFormat`**（L3/E1，见下）
   - 默认值由 `DeepSeekOptions` 记录自身提供（`DeepSeekOptions.cs:8-9`），与现硬编码值一致。
+
+**L3（code-review）三消费者 TrimEnd 一致性**：由于 L1 `Llm:DeepSeek` 节全局生效，若用户
+配置 `ApiBase` 带尾斜杠，仅 HIL 分析 TrimEnd 会造成三消费者行为不一致。故
+`DeepSeekProvider`（`DeepSeekProvider.cs:139,275`）与 `DeepSeekChatProvider`
+（`DeepSeekChatProvider.cs:111`）的 `$"{ApiBase}/chat/completions"` 拼接**同步加
+`TrimEnd('/')`**。默认 `ApiBase` 无尾斜杠，行为无变化。
 
 **L3 UseStreaming 语义（显式声明）**：`UseStreaming` 对 `HilAnalysisService` **无效**。
 HIL 分析需要一次性完整文本展示在 `AnalysisResult` TextBox，不做 SSE 增量。请求体始终
@@ -102,7 +111,9 @@ timeout），不是请求协议。本 spec 不改任何请求体。
 改为从 options 读取，与 DeepSeek named client 模式一致（`AppServicesFlow.cs:206-207`）：
 
 ```csharp
-// AppServicesFlow.cs:221-229 与 HeadlessHostBuilder.cs:150-155 的 delegate 均改为：
+// AppServicesFlow.cs:221-229 与 HeadlessHostBuilder.cs:150-155 的 delegate 均改为
+// （签名从 (_, client) 改为 (sp, client)，参照 AppServicesFlow.cs:206 named client 模式）：
+var opts = sp.GetRequiredService<IOptions<DeepSeekOptions>>().Value;
 client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
 ```
 
@@ -192,8 +203,10 @@ if (EnableAnalyze && result.FailedCases > 0)
 |------|------|
 | `src/PeakCan.Host.Infrastructure/HIL/Analysis/HilAnalysisService.cs` | MODIFY — ctor + 去硬编码（endpoint/model/TrimEnd/UseStreaming 声明） |
 | `src/PeakCan.Host.App/Composition/AppHostBuilder/AppServicesFlow.cs` | MODIFY — 删 `:236` 空 Configure；`:224` delegate 超时改读 options |
+| `src/PeakCan.Host.App/Services/LlmProvider/DeepSeekProvider.cs` | MODIFY — `:139`/`:275` 拼接加 `TrimEnd('/')`（code-review L3） |
+| `src/PeakCan.Host.App/Services/ChatProvider/DeepSeekChatProvider.cs` | MODIFY — `:111` 拼接加 `TrimEnd('/')`（code-review L3） |
 | `src/PeakCan.Host.App/Composition/AppHostBuilder.cs` | MODIFY — `Build()` 中新增 `Configure<DeepSeekOptions>(GetSection("Llm:DeepSeek"))` |
-| `src/PeakCan.Host.Infrastructure/HIL/HeadlessHostBuilder.cs` | MODIFY — 新增同款 `Configure<DeepSeekOptions>`；`:153` delegate 超时改读 options |
+| `src/PeakCan.Host.Infrastructure/HIL/HeadlessHostBuilder.cs` | MODIFY - 新增同款 `Configure<DeepSeekOptions>`；`:153` delegate 超时改读 options；新增 `using Microsoft.Extensions.Options;`（当前 using 列表无此引用，delegate 中 `sp.GetRequiredService<IOptions<DeepSeekOptions>>()` 依赖它） |
 | `src/PeakCan.Host.App/ViewModels/HilViewModel.cs` | MODIFY — `RunAsync` 自动分析（`FailedCases > 0`，插入点 `:200` 后） |
 | `appsettings.json` | MODIFY — 新增 `Llm:DeepSeek` 层级节 |
 | `tests/PeakCan.Host.Infrastructure.Tests/HIL/Analysis/HilAnalysisServiceRetryTests.cs` | MODIFY — `:67` ctor 调用点补 fake options；新增 endpoint/model/timeout 用例 |
@@ -213,7 +226,7 @@ if (EnableAnalyze && result.FailedCases > 0)
 | `HilAnalysisService` ctor 注入 options | 使用 `ApiBase.TrimEnd('/') + "/chat/completions"`、`Model` 来自 fake options（非硬编码） |
 | `HilAnalysisService` 默认 options | 不传显式配置时使用 `DeepSeekOptions` 默认值 |
 | `HilAnalysisService` ApiBase 尾斜杠 | `ApiBase = "https://api.deepseek.com/"` → endpoint 为 `.../chat/completions` 单斜杠 |
-| AddHttpClient timeout | `TimeoutSeconds=60` → `client.Timeout == 300s`（×5，L2） |
+| AddHttpClient timeout（**代码审查验证**，非自动化测试） | typed client 的 HttpClient 不暴露给外部，无法在 unit test 中断言 `.Timeout`；通过 CR 确认 delegate 逻辑：`sp.GetRequiredService<IOptions<DeepSeekOptions>>().Value` -> `client.Timeout == opts.TimeoutSeconds * 5`（L2） |
 | `HilViewModel`：EnableAnalyze=true + 有失败 | `RunAsync` 后自动调用 `_analysisService.AnalyzeAsync` |
 | `HilViewModel`：EnableAnalyze=false + 有失败 | 不自动调用 |
 | `HilViewModel`：EnableAnalyze=true + AllPassed | 不自动调用 |

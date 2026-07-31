@@ -198,6 +198,12 @@ public sealed partial class HilViewModel : ObservableObject
             StatusMessage = result.AllPassed
                 ? $"All {result.TotalCases} cases passed"
                 : $"{result.FailedCases}/{result.TotalCases} cases failed";
+
+            // Phase 7 Unit A: EnableAnalyze=true 且有失败 -> 自动分析（复用 AnalyzeAsync）。
+            // 插入点在结果填充和 StatusMessage 之后，确保 UI 先渲染测试结果。
+            // AnalyzeAsync 方法体不检查 IsRunning（此时仍为 true），仅依赖 _lastResult。
+            if (EnableAnalyze && result.FailedCases > 0)
+                await AnalyzeAsync();
         }
         catch (Exception ex)
         {

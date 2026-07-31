@@ -158,7 +158,7 @@
 
     <span>平台：Windows 10 1809+ / Windows 11</span>
 
-    <span>更新日期：2026-07-30</span>
+    <span>更新日期：2026-07-31</span>
 
   </div>
 
@@ -187,6 +187,22 @@
     </li>
 
     <li><a href="#quickstart">快速入门：5 分钟跑通第一个测试</a></li>
+
+    <li><a href="#ui-guide">HIL 面板 UI 操作详解</a>
+
+      <ol>
+        <li><a href="#ui-layout">面板布局总览</a></li>
+        <li><a href="#ui-mode">模式与通道选择</a></li>
+        <li><a href="#ui-config">DBC 与套件加载</a></li>
+        <li><a href="#ui-editor">测试用例编辑器</a></li>
+        <li><a href="#ui-step-editor">步骤参数编辑器</a></li>
+        <li><a href="#ui-run">运行控制与进度</a></li>
+        <li><a href="#ui-results">结果查看与导出</a></li>
+        <li><a href="#ui-analyze">分析选项卡</a></li>
+        <li><a href="#ui-odx">ODX 导入 UI 操作</a></li>
+        <li><a href="#ui-credential">凭据管理 UI</a></li>
+      </ol>
+    </li>
 
     <li><a href="#testcase">测试用例模型</a>
 
@@ -279,6 +295,43 @@
     </li>
 
     <li><a href="#trace-driven">TraceDrivenChannel — 基于录制数据的回放测试</a></li>
+
+    <li><a href="#simulator">ECU 独立模拟器 — 无测试套件的仿真模式</a>
+
+      <ol>
+        <li><a href="#sim-overview">概述</a></li>
+        <li><a href="#sim-usage">命令行用法</a></li>
+        <li><a href="#sim-script">ECU 脚本格式</a></li>
+        <li><a href="#sim-stateful">状态机与状态转换</a></li>
+      </ol>
+    </li>
+
+    <li><a href="#fault">故障注入 — 模拟总线异常</a>
+
+      <ol>
+        <li><a href="#fault-overview">概述</a></li>
+        <li><a href="#fault-types">故障类型</a></li>
+        <li><a href="#fault-usage">在测试中使用</a></li>
+      </ol>
+    </li>
+
+    <li><a href="#odx">ODX 导入 — 从 ODX 自动生成 ECU 脚本</a>
+
+      <ol>
+        <li><a href="#odx-overview">概述</a></li>
+        <li><a href="#odx-usage">命令行用法</a></li>
+        <li><a href="#odx-statechart">ODX STATE-CHART 解析</a></li>
+      </ol>
+    </li>
+
+    <li><a href="#llm">LLM 分析 — AI 辅助测试结果分析</a>
+
+      <ol>
+        <li><a href="#llm-overview">概述</a></li>
+        <li><a href="#llm-usage">使用方式</a></li>
+        <li><a href="#llm-credential">凭据管理 (ChainedCredentialStore)</a></li>
+      </ol>
+    </li>
 
     <li><a href="#cli">CLI Runner — 无头自动化测试</a>
 
@@ -2065,7 +2118,390 @@ var result = await runner.RunAsync(suite, ctx, ct);
 
 <strong>注意：</strong>TraceDrivenChannel 是<strong>只读</strong>回放通道。SendFrame 等写入操作在此通道上会返回失败结果。如需写入总线，请使用真实硬件通道。
 
+<!-- =========================================================== -->
+
+<h2 id="simulator">8a. ECU 独立模拟器 — 无测试套件的仿真模式</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="sim-overview">8a.1 概述</h3>
+
+<p><strong>ECU 独立模拟器</strong>（Standalone Simulator）是 Phase 5 Sprint 13 引入的功能，允许在<strong>没有测试套件</strong>的情况下，在真实 PCAN 通道上运行一个虚拟 ECU。它加载一个 ECU 脚本 JSON 文件，定义状态机和响应规则，然后自动响应来自总线的 UDS 请求。</p>
+
+<p>与测试套件模式不同，独立模拟器：</p>
+
+<ul>
+  <li><strong>不需要 JSON 测试套件文件</strong> — 直接加载 ECU 脚本</li>
+  <li><strong>自动 ISO-TP 响应</strong> — 基于状态机自动回复，无需手动编写步骤</li>
+  <li><strong>阻塞运行</strong> — 连接成功后持续运行，直到 Ctrl+C 退出</li>
+  <li><strong>支持 stateless 和 stateful 两种模式</strong></li>
+</ul>
+
+<p>典型应用场景：</p>
+
+<ul>
+  <li><strong>开发调试</strong>：在测试工具开发过程中替代真实 ECU</li>
+  <li><strong>回归测试</strong>：用模拟 ECU 验证测试工具本身的功能</li>
+  <li><strong>演示展示</strong>：无需连接真实 ECU 即可演示 HIL 测试流程</li>
+</ul>
+
+
+
+<h3 id="sim-usage">8a.2 命令行用法</h3>
+
+<pre><code><span class="filename">基本用法</span># 启动 ECU 模拟器，阻塞运行
+peakcan-hil --dbc vehicle.dbc \
+            --ecu bms_simulator.json \
+            --hw USB1 \
+            --simulate
+# 输出: Simulating ECU 'BMS_Simulator' on USB1. Press Ctrl+C to exit.</code></pre>
+
+<table>
+  <tr><th>参数</th><th>说明</th></tr>
+  <tr><td><code>--dbc</code></td><td>DBC 文件路径（用于日志中的信号解码）</td></tr>
+  <tr><td><code>--ecu</code></td><td>ECU 模拟器脚本 JSON 路径</td></tr>
+  <tr><td><code>--hw</code></td><td>硬件通道名（USB1..USB16）</td></tr>
+  <tr><td><code>--uds-req</code></td><td>UDS 请求 CAN ID（默认 0x7DF，ECU 视角）</td></tr>
+  <tr><td><code>--uds-resp</code></td><td>UDS 响应 CAN ID（默认 0x7E8）</td></tr>
+</table>
+
+
+
+<h3 id="sim-script">8a.3 ECU 脚本格式</h3>
+
+<p>ECU 脚本是一个 JSON 文件，定义 ECU 的名称、CAN ID 映射和状态机：</p>
+
+<pre><code><span class="filename">bms_simulator.json — 基本示例</span>{
+  "name": "BMS_Simulator",
+  "canIds": {
+    "requestId": "0x7E0",
+    "responseId": "0x7E8"
+  },
+  "states": [
+    {
+      "name": "default",
+      "transitions": [
+        {
+          "serviceId": "0x10",
+          "subFunction": 2,
+          "response": {
+            "kind": "static",
+            "data": [80, 2]
+          },
+          "toState": "extendedSession"
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+<table>
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td><code>name</code></td><td>ECU 名称，用于日志标识</td></tr>
+  <tr><td><code>canIds.requestId</code></td><td>ECU 视角的请求 CAN ID（与 HIL 测试视角相反）</td></tr>
+  <tr><td><code>canIds.responseId</code></td><td>ECU 视角的响应 CAN ID</td></tr>
+  <tr><td><code>states</code></td><td>状态列表，每个状态包含 N 个转换规则</td></tr>
+  <tr><td><code>rules</code></td><td>替代 <code>states</code> 的简化格式，用于 stateless 模式</td></tr>
+</table>
+
+
+
+<h3 id="sim-stateful">8a.4 状态机与状态转换</h3>
+
+<p>每个 <code>EcuStateTransition</code> 定义：</p>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>fromState</code></td><td><code>string?</code></td><td>当前状态名（null = 通配符，匹配任何状态）</td></tr>
+  <tr><td><code>serviceId</code></td><td><code>byte</code></td><td>UDS 服务 ID</td></tr>
+  <tr><td><code>subFunction</code></td><td><code>byte?</code></td><td>子功能（null = 任意）</td></tr>
+  <tr><td><code>toState</code></td><td><code>string?</code></td><td>转换后的目标状态（null = 保持当前状态）</td></tr>
+  <tr><td><code>response</code></td><td><code>StaticResponse | DynamicResponse</code></td><td>响应定义：固定字节或动态生成器</td></tr>
+  <tr><td><code>responseDelayMs</code></td><td><code>int</code></td><td>模拟 ECU 处理延迟（毫秒）</td></tr>
+</table>
+
+<p>支持两种响应类型：</p>
+
+<ul>
+  <li><strong>StaticResponse</strong>：固定字节数组，每次返回相同数据</li>
+  <li><strong>DynamicResponse</strong>：通过 <code>IEcuResponseGenerator</code> 动态生成，如 <code>SecurityAccessSeed</code>（种子生成）、<code>DidReadout</code>（DID读取）、<code>SecurityAccessVerifyKey</code>（密钥验证）</li>
+</ul>
+
+<pre><code><span class="filename">Stateful 模式示例 — 安全访问流程</span>{
+  "name": "BMS_Simulator",
+  "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+  "states": [
+    {
+      "name": "default",
+      "transitions": [
+        {
+          "serviceId": "0x27", "subFunction": 1,
+          "response": { "kind": "dynamic", "generatorName": "SecurityAccessSeed" },
+          "toState": "seedSent"
+        }
+      ]
+    },
+    {
+      "name": "seedSent",
+      "transitions": [
+        {
+          "serviceId": "0x27", "subFunction": 2,
+          "response": { "kind": "dynamic", "generatorName": "SecurityAccessVerifyKey" },
+          "toState": "unlocked"
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="fault">8b. 故障注入 — 模拟总线异常</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="fault-overview">8b.1 概述</h3>
+
+<p><strong>故障注入</strong>（Fault Injection）是 Phase 3/4 引入的能力，允许在测试执行期间模拟 CAN 总线异常，验证 ECU 的容错能力和故障响应行为。</p>
+
+<p>故障注入通过 <code>IFaultInjectionContext</code> 接口管理，支持在发送路径和接收路径上注入故障。</p>
+
+
+
+<h3 id="fault-types">8b.2 故障类型</h3>
+
+<table>
+  <tr><th>故障类型</th><th><code>FaultType</code></th><th>说明</th></tr>
+  <tr><td><strong>丢帧</strong></td><td><code>Drop</code></td><td>丢弃匹配的 CAN 帧（支持概率性丢帧）</td></tr>
+  <tr><td><strong>延迟</strong></td><td><code>Delay</code></td><td>延迟指定毫秒数后发送</td></tr>
+  <tr><td><strong>损坏</strong></td><td><code>Corrupt</code></td><td>对指定字节位置进行 XOR 掩码损坏</td></tr>
+  <tr><td><strong>重复</strong></td><td><code>Duplicate</code></td><td>将帧发送两次（模拟总线重复帧）</td></tr>
+</table>
+
+<p>每个 <code>FaultRule</code> 包含以下配置：</p>
+
+<table>
+  <tr><th>参数</th><th>说明</th></tr>
+  <tr><td><code>Type</code></td><td>故障类型（Drop / Delay / Corrupt / Duplicate）</td></tr>
+  <tr><td><code>TargetCanId</code></td><td>目标 CAN ID（null = 匹配所有帧）</td></tr>
+  <tr><td><code>Probability</code></td><td>丢帧概率 0.0-1.0（仅 Drop 类型）</td></tr>
+  <tr><td><code>DelayMs</code></td><td>延迟毫秒数（仅 Delay 类型）</td></tr>
+  <tr><td><code>CorruptByteIndices</code></td><td>要损坏的字节位置（仅 Corrupt 类型）</td></tr>
+  <tr><td><code>CorruptXorMask</code></td><td>损坏 XOR 掩码（默认 0xFF，仅 Corrupt 类型）</td></tr>
+</table>
+
+
+
+<h3 id="fault-usage">8b.3 在测试中使用</h3>
+
+<p>故障注入可以通过 CLI 的 <code>--enable-faults</code> 开关启用，或通过 <code>IFaultInjectionContext</code> 编程控制：</p>
+
+<pre><code><span class="filename">故障注入 CLI 示例</span># 启用故障注入（运行时加载故障规则）
+peakcan-hil --dbc vehicle.dbc \
+            --suite tests/fault-smoke.json \
+            --hw USB1 \
+            --enable-faults</code></pre>
+
+<pre><code><span class="filename">编程方式 — 通过 IFaultInjectionContext</span>// 获取故障注入上下文（IAssertionContext 实现可能支持）
+var faultCtx = assertionContext as IFaultInjectionContext;
+if (faultCtx is not null)
+{
+    // 丢弃 50% 的 CAN ID 0x100 帧
+    var handle = faultCtx.AddFault(new FaultRule
+    {
+        Type = FaultType.Drop,
+        TargetCanId = 0x100,
+        Probability = 0.5
+    });
+
+    // 损坏 CAN ID 0x200 的字节 3 和 7
+    faultCtx.AddFault(new FaultRule
+    {
+        Type = FaultType.Corrupt,
+        TargetCanId = 0x200,
+        CorruptByteIndices = new[] { 3, 7 },
+        CorruptXorMask = 0xFF
+    });
+
+    // 在接收路径上注入延迟
+    faultCtx.AddReceiveFault(new FaultRule
+    {
+        Type = FaultType.Delay,
+        TargetCanId = 0x7E8,
+        DelayMs = 50
+    });
+
+    // 清理所有故障
+    faultCtx.ClearFaults();
+}</code></pre>
+
+<div class="diagram">┌─────────────────────────────────────────────────────────────────┐
+│                    故障注入数据流                                   │
+│                                                                   │
+│  ┌──────────┐   SendPath        ┌──────────────┐   ReceivePath   │
+│  │ TestCase │─── Frame ────────▶│ FaultInjector│─── Frame ──────▶│  ECU
+│  │ (Steps)  │                   │               │                 │
+│  └──────────┘                   │  Drop ? /     │                 │
+│                                 │  Delay ? /    │                 │
+│  ┌──────────┐   ReceivePath     │  Corrupt ? /  │   SendPath     │
+│  │ TestCase │◀── Frame ────────│  Duplicate?   │◀── Frame ──────│  ECU
+│  └──────────┘                   └──────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="odx">8c. ODX 导入 — 从 ODX 自动生成 ECU 脚本</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="odx-overview">8c.1 概述</h3>
+
+<p><strong>ODX 导入</strong>（Phase 4/5/6）允许从标准的 ODX（Open Diagnostic Data Exchange，.odx/.pdx）文件中自动提取 ECU 诊断能力，生成为 <code>EcuScript</code> 格式的状态机脚本。</p>
+
+<p>ODX 是 ASAM 标准定义的诊断数据格式，广泛应用于量产 ECU 的诊断描述。ODX 导入功能支持：</p>
+
+<ul>
+  <li>自动提取 <strong>DID</strong>（Data Identifier）读取规则</li>
+  <li>自动提取 <strong>Routine</strong>（0x31 服务）的 POS-RESPONSE 链</li>
+  <li>自动提取 <strong>SecurityAccess</strong> 安全访问流程</li>
+  <li>解析 <strong>ODX STATE-CHART</strong>，映射状态机转换（Phase 6）</li>
+  <li>支持 <strong>DIAG-COMM</strong> 到 <strong>STATE-TRANSITION</strong> 的关联映射</li>
+</ul>
+
+
+
+<h3 id="odx-usage">8c.2 命令行用法</h3>
+
+<pre><code><span class="filename">从 ODX 导入并生成 ECU 脚本</span># 导入 ODX 文件，生成 ECU 脚本 JSON
+peakcan-hil --import-odx ecu_diagnostic.odx \
+            --ecu-name BMS_Simulator \
+            --import-uds-req 0x7E0 \
+            --import-uds-resp 0x7E8
+
+# 输出: 生成 bms_simulator.json（包含所有状态转换规则）</code></pre>
+
+<table>
+  <tr><th>参数</th><th>说明</th></tr>
+  <tr><td><code>--import-odx</code></td><td>ODX/PDX 文件路径</td></tr>
+  <tr><td><code>--ecu-name</code></td><td>生成后的 ECU 模拟器名称</td></tr>
+  <tr><td><code>--import-uds-req</code></td><td>ECU 视角的请求 CAN ID（默认 0x7E0）</td></tr>
+  <tr><td><code>--import-uds-resp</code></td><td>ECU 视角的响应 CAN ID（默认 0x7E8）</td></tr>
+</table>
+
+
+
+<h3 id="odx-statechart">8c.3 ODX STATE-CHART 解析</h3>
+
+<p>Phase 6 增加了对 ODX <code>STATE-CHART</code> 的完整支持。ODX 文件中定义的 STATE-CHART（如 Session 状态机、SecurityAccess 状态机）会被解析并映射到 <code>EcuStateMachine</code> 的 <code>FromState</code>/<code>ToState</code> 字段，实现真正的状态相关响应。</p>
+
+<pre><code><span class="filename">ODX STATE-CHART 映射示例</span>// ODX 中的 STATE-CHART 定义:
+//   STATE "Locked" → DIAG-SERVICE "RequestSeed" → STATE "seedSent"
+//   STATE "seedSent" → DIAG-SERVICE "SendKey" → STATE "unlocked"
+
+// 生成的 EcuStateTransition:
+//
+//   { FromState: "Locked",    ServiceId: 0x27, SubFunction: 0x01, ToState: "seedSent" }
+//   { FromState: "seedSent",  ServiceId: 0x27, SubFunction: 0x02, ToState: "unlocked" }
+//
+// 多引用处理: 同一个 DIAG-SERVICE 出现在多个 STATE-TRANSITION-REF 中时，
+// 生成多个 FromState 不同的转换规则（code-review M1 修复）。</code></pre>
+
+<p>生成的 ECU 脚本可以直接用于 <code>--simulate</code> 模式或 <code>--matrix</code> 多 ECU 矩阵模式。</p>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="llm">8d. LLM 分析 — AI 辅助测试结果分析</h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="llm-overview">8d.1 概述</h3>
+
+<p><strong>LLM 分析</strong>（Phase 5/6）使用大语言模型自动分析 HIL 测试失败结果，帮助快速定位故障根因。集成 <strong>DeepSeek</strong> API，通过 <code>IHilAnalysisService</code> 接口提供分析能力。</p>
+
+<p>分析流程：</p>
+
+<ol>
+  <li>测试套件运行完成后，收集失败用例的详细信息</li>
+  <li><code>HilPromptBuilder</code> 构建包含失败上下文的分析提示</li>
+  <li>调用 DeepSeek API（流式/非流式），返回分析报告</li>
+  <li>分析结果以结构化的 <code>AnalysisResult</code> 返回</li>
+</ol>
+
+
+
+<h3 id="llm-usage">8d.2 使用方式</h3>
+
+<pre><code><span class="filename">UI 自动分析</span>// 在 HIL 测试面板中，测试运行完成后自动触发分析。
+// 启用条件：HilRunRequest.EnableAnalyze = true
+// 分析结果显示在测试面板的 "分析" 选项卡中。
+
+// 在 HilViewModel 中：
+var analysisResult = await _analysisService.AnalyzeAsync(suiteResult, ct);
+if (analysisResult?.IsUnavailable == true)
+{
+    _logger.LogWarning("LLM 分析不可用: {Reason}", analysisResult.UnavailableReason);
+}
+else
+{
+    _logger.LogInformation("LLM 分析完成: {Content}", analysisResult.Content);
+}</code></pre>
+
+<pre><code><span class="filename">CLI 模式</span># 在 CLI 运行模式下启用分析（需配置 API Key）
+peakcan-hil --dbc vehicle.dbc \
+            --suite tests/smoke.json \
+            --hw USB1 \
+            --format html \
+            --output results.html
+# 分析结果会自动嵌入 HTML 报告中</code></pre>
+
+
+
+<h3 id="llm-credential">8d.3 凭据管理 (ChainedCredentialStore)</h3>
+
+<p>Phase 6 引入 <strong>ChainedCredentialStore</strong> 统一凭据管理链，用于安全存储 API Key 等敏感信息：</p>
+
+<pre><code><span class="filename">凭据链优先级</span>// ChainedCredentialStore 按顺序尝试以下存储（第一个非空值返回）:
+//
+//   1. Windows Credential Manager（系统级加密存储）
+//      → 使用 advapi32 P/Invoke，DPAPI 加密
+//   2. 环境变量（进程级）
+//   3. ~/.hil/credentials JSON 文件（回退）
+
+// 接口定义 (ICredentialStore):
+//   Task<string?> GetAsync(key, ct)    — 获取凭据
+//   Task SetAsync(key, value, ct)      — 存储凭据（写入第一个存储）
+//   Task DeleteAsync(key, ct)          — 删除凭据（所有存储）</code></pre>
+
+<p>凭据键名：</p>
+
+<table>
+  <tr><th>键名</th><th>用途</th></tr>
+  <tr><td><code>deepseek-api-key</code></td><td>DeepSeek API 密钥（用于 LLM 分析）</td></tr>
+</table>
+
+<blockquote class="warn">
+<strong>安全要求：</strong>API Key 必须通过 <code>ICredentialStore</code> 管理，<strong>禁止</strong>硬编码在 <code>appsettings.json</code> 或日志中。Windows Credential Manager 下使用 DPAPI 加密存储。
 </blockquote>
+
+
+
+</blockquote>
+
+
 
 
 
@@ -2233,7 +2669,47 @@ peakcan-hil --dbc engine_v3.dbc \
 
             --format junit \
 
-            --output results.xml</code></pre>
+            --output results.xml
+
+
+
+# 输出为 HTML 报告（含趋势图表）
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/smoke.json \
+
+            --format html \
+
+            --output report.html
+
+
+
+# 同时输出 HTML + JUnit
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/smoke.json \
+
+            --format html+junit \
+
+            --output results/
+
+
+
+# 导出帧捕获到目录
+
+peakcan-hil --dbc engine_v3.dbc \
+
+            --suite hil-tests/smoke.json \
+
+            --channel USB1 \
+
+            --format html \
+
+            --export-frames frames/ \
+
+            --output report.html</code></pre>
 
 
 
@@ -2255,17 +2731,27 @@ peakcan-hil --dbc engine_v3.dbc \
 
   <tr><td><code>--channel</code></td><td><code>HardwareChannel</code></td><td>硬件通道名（可选，缺省自动探测）</td></tr>
 
-  <tr><td><code>--format</code></td><td><code>Format</code></td><td>输出格式：<code>console</code> / <code>junit</code> / <code>json</code></td></tr>
+  <tr><td><code>--format</code></td><td><code>Format</code></td><td>输出格式：<code>console</code> / <code>junit</code> / <code>json</code> / <code>html</code> / <code>html+junit</code></td></tr>
 
   <tr><td><code>--uds-req-id</code></td><td><code>UdsRequestId</code></td><td>UDS 请求 CAN ID（默认 0x7DF）</td></tr>
 
   <tr><td><code>--uds-resp-id</code></td><td><code>UdsResponseId</code></td><td>UDS 响应 CAN ID（默认 0x7E8）</td></tr>
 
+  <tr><td><code>--hw</code></td><td><code>HardwareChannel</code></td><td>硬件通道名（如 USB1，Phase 3 起支持）</td></tr>
+
+  <tr><td><code>--ecu</code></td><td><code>EcuScriptPath</code></td><td>ECU 模拟器脚本路径（Phase 3）</td></tr>
+
+  <tr><td><code>--matrix</code></td><td><code>MatrixPath</code></td><td>多 ECU 矩阵配置 JSON 路径（Phase 3）</td></tr>
+
+  <tr><td><code>--enable-faults</code></td><td><code>EnableFaultInjection</code></td><td>启用故障注入（Phase 3）</td></tr>
+
+  <tr><td><code>--export-frames</code></td><td><code>ExportFramesDir</code></td><td>帧捕获导出目录（Phase 6）</td></tr>
+
 </table>
 
 
 
-<pre><code><span class="filename">HilRunRequest 数据结构</span>public sealed record HilRunRequest(
+<pre><code><span class="filename">HilRunRequest 数据结构（v3.63.0）</span>public sealed record HilRunRequest(
 
     string DbcPath,
 
@@ -2279,7 +2765,21 @@ peakcan-hil --dbc engine_v3.dbc \
 
     uint UdsRequestId = 0x7DF,
 
-    uint UdsResponseId = 0x7E8);</code></pre>
+    uint UdsResponseId = 0x7E8,
+
+    // Phase 3: ECU 模拟器、多 ECU 矩阵、故障注入
+
+    string? EcuScriptPath = null,
+
+    string? MatrixPath = null,
+
+    bool EnableFaultInjection = false,
+
+    // Sprint 12: 执行模式、LLM 分析
+
+    HilMode Mode = HilMode.TraceReplay,
+
+    bool EnableAnalyze = false);</code></pre>
 
 
 
@@ -2659,7 +3159,7 @@ var result = engine.Diff(goldenFrames, actualFrames, new DiffConfig(
 
 <h3 id="ex-multi">10.4 场景 4：多 ECU 矩阵测试</h3>
 
-<p>多个 ECU 同时在线时的交互测试（v3.63.0 支持单 ECU，多 ECU 矩阵规划中）：</p>
+<p>多个 ECU 同时在线时的交互测试，使用 <strong>MatrixConfig</strong> 定义多 ECU 矩阵：</p>
 
 
 
@@ -2929,6 +3429,16 @@ var suite = new TestSuite(
 
   <tr><td><code>PeakCan.Host.Infrastructure.HIL</code></td><td>HIL 基础设施（HilRunnerService、HeadlessHostBuilder 等）</td></tr>
 
+  <tr><td><code>PeakCan.Host.Core.HIL.Contracts</code></td><td>故障注入（FaultRule、FaultType、IFaultInjectionContext）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Analysis</code></td><td>LLM 分析（IHilAnalysisService、AnalysisResult）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.Analysis</code></td><td>凭据管理（ICredentialStore、CredentialStoreException）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Infrastructure.HIL.Odx</code></td><td>ODX 导入（OdxToEcuScriptAdapter、OdxEcuScriptImporter）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Infrastructure.HIL.Analysis</code></td><td>分析实现（HilAnalysisService、ChainedCredentialStore）</td></tr>
+
 </table>
 
 
@@ -2962,6 +3472,26 @@ var suite = new TestSuite(
   <tr><td><code>TestCaseGenerator</code></td><td><code>Generate(template, parameters)</code></td><td>从模板生成测试用例</td></tr>
 
   <tr><td><code>IStepExecutor</code></td><td><code>ExecuteAsync(step, ctx, ct)</code></td><td>执行单个测试步骤</td></tr>
+
+  <tr><td><code>IFaultInjectionContext</code></td><td><code>AddFault(rule)</code></td><td>添加发送路径故障规则</td></tr>
+
+  <tr><td></td><td><code>AddReceiveFault(rule)</code></td><td>添加接收路径故障规则</td></tr>
+
+  <tr><td></td><td><code>ClearFaults(faultId?)</code></td><td>清除故障规则</td></tr>
+
+  <tr><td><code>IHilAnalysisService</code></td><td><code>AnalyzeAsync(result, ct)</code></td><td>LLM 分析测试失败结果</td></tr>
+
+  <tr><td><code>ICredentialStore</code></td><td><code>GetAsync(key, ct)</code></td><td>获取凭据（API Key 等）</td></tr>
+
+  <tr><td></td><td><code>SetAsync(key, value, ct)</code></td><td>存储凭据</td></tr>
+
+  <tr><td></td><td><code>DeleteAsync(key, ct)</code></td><td>删除凭据</td></tr>
+
+  <tr><td><code>EcuStateMachine</code></td><td><code>ProcessRequest(request)</code></td><td>处理 UDS 请求，返回响应 + 延迟</td></tr>
+
+  <tr><td></td><td><code>Reset()</code></td><td>重置到初始状态</td></tr>
+
+  <tr><td><code>EcuSimulatorHost</code></td><td><code>RunAsync(ct)</code></td><td>启动独立模拟器，阻塞直到取消</td></tr>
 
 </table>
 
@@ -3009,7 +3539,7 @@ var suite = new TestSuite(
 
 <footer>
 
-  PeakCan Host v3.63.0 — HIL 硬件在环测试指南 · 更新于 2026-07-30 ·
+  PeakCan Host v3.63.0 — HIL 硬件在环测试指南 · 更新于 2026-07-31 ·
 
   与 <code>docs/user-manual.html</code> 同步 ·
 

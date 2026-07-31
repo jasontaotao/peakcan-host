@@ -136,7 +136,7 @@ public sealed class DeepSeekProvider : ILlmProvider
         var http = _httpClientFactory.CreateClient("DeepSeek");
         try
         {
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase}/chat/completions")
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase.TrimEnd('/')}/chat/completions")
             {
                 Content = JsonContent.Create(request),
             };
@@ -272,7 +272,7 @@ public sealed class DeepSeekProvider : ILlmProvider
 
         // 3. Open SSE stream
         var http = _httpClientFactory.CreateClient("DeepSeek");
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase}/chat/completions")
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase.TrimEnd('/')}/chat/completions")
         {
             Content = JsonContent.Create(request),
         };
