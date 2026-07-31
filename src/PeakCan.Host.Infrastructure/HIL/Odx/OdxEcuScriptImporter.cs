@@ -18,7 +18,7 @@ public static class OdxEcuScriptImporter
         string odxPath, string ecuName, uint requestId, uint responseId)
     {
         var adapter = new OdxToEcuScriptAdapter();
-        var transitions = adapter.Load(odxPath);
+        var transitions = adapter.Load(odxPath, out var initialState);
 
         if (transitions.Count == 0)
             throw new InvalidOperationException($"No UDS services found in ODX file: {odxPath}");
@@ -49,6 +49,7 @@ public static class OdxEcuScriptImporter
         var script = new
         {
             name = ecuName,
+            initialState,  // Sprint 18 Inc 7: STATE-CHART start state (e.g. "Locked")
             canIds = new { requestId = $"0x{requestId:X3}", responseId = $"0x{responseId:X3}" },
             states
         };

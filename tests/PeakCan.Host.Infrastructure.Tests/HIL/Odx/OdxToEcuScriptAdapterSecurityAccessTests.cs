@@ -69,7 +69,7 @@ public class OdxToEcuScriptAdapterSecurityAccessTests
         {
             // Act
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: 2 SecurityAccess transitions (seed + key verify)
             var secTransitions = transitions
@@ -114,7 +114,7 @@ public class OdxToEcuScriptAdapterSecurityAccessTests
         {
             // Act
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: No SecurityAccess transitions (skipped)
             var secTransitions = transitions.Where(t => t.ServiceId == 0x27).ToList();
@@ -137,7 +137,7 @@ public class OdxToEcuScriptAdapterSecurityAccessTests
         try
         {
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Act: Feed transitions into EcuStateMachine with a real generator
             var generators = new List<IEcuResponseGenerator>

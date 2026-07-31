@@ -49,7 +49,7 @@ public class OdxToEcuScriptAdapterDidTests
         try
         {
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: 1 DID Read transition for 0xF190 (61840 decimal)
             var didTransitions = transitions.Where(t => t.ServiceId == 0x22).ToList();

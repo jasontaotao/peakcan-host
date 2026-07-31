@@ -10,7 +10,8 @@ public sealed class EcuStateMachine
     private readonly List<EcuStateTransition> _transitions;
     private readonly Dictionary<string, IEcuResponseGenerator> _generators;
     private readonly EcuContextStore _context = new();
-    private string _currentState = "default";
+    private readonly string _initialState;
+    private string _currentState;
 
     /// <summary>Current ECU state name.</summary>
     public string CurrentState => _currentState;
@@ -21,12 +22,16 @@ public sealed class EcuStateMachine
     /// <summary>
     /// Create a state machine from transitions and optional dynamic generators.
     /// </summary>
+    /// <param name="initialState">State the machine starts in and returns to on Reset.</param>
     public EcuStateMachine(
         IEnumerable<EcuStateTransition> transitions,
-        IEnumerable<IEcuResponseGenerator>? generators = null)
+        IEnumerable<IEcuResponseGenerator>? generators = null,
+        string initialState = "default")
     {
         _transitions = transitions.ToList();
         _generators = generators?.ToDictionary(g => g.Name) ?? new();
+        _initialState = initialState;
+        _currentState = initialState;
     }
 
     /// <summary>
@@ -99,7 +104,7 @@ public sealed class EcuStateMachine
     /// <summary>Reset to initial state and clear context.</summary>
     public void Reset()
     {
-        _currentState = "default";
+        _currentState = _initialState;
         _context.Clear();
     }
 

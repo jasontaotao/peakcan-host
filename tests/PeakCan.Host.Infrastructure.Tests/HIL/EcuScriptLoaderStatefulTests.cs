@@ -96,4 +96,55 @@ public class EcuScriptLoaderStatefulTests
 
         Assert.Throws<JsonException>(() => EcuScriptLoader.Parse(json));
     }
+
+    // === Inc 6: initialState from JSON (L1-R4 critical fix) ===
+
+    [Fact]
+    public void EcuScriptLoader_LoadsInitialState_FromJson()
+    {
+        var json = """
+        {
+            "name": "SecureEcu",
+            "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+            "initialState": "Locked",
+            "states": [
+                {
+                    "name": "Locked",
+                    "transitions": [
+                        { "serviceId": "0x27", "subFunction": 1, "response": { "$type": "static", "data": [103, 1] }, "toState": "seedSent" }
+                    ]
+                }
+            ]
+        }
+        """;
+
+        var script = EcuScriptLoader.Parse(json);
+
+        Assert.Equal("Locked", script.InitialState);
+        Assert.Equal("Locked", script.StateMachine.CurrentState);
+    }
+
+    [Fact]
+    public void EcuScriptLoader_MissingInitialState_DefaultsToDefault()
+    {
+        var json = """
+        {
+            "name": "SecureEcu",
+            "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+            "states": [
+                {
+                    "name": "Locked",
+                    "transitions": [
+                        { "serviceId": "0x27", "subFunction": 1, "response": { "$type": "static", "data": [103, 1] }, "toState": "seedSent" }
+                    ]
+                }
+            ]
+        }
+        """;
+
+        var script = EcuScriptLoader.Parse(json);
+
+        Assert.Equal("default", script.InitialState);
+        Assert.Equal("default", script.StateMachine.CurrentState);
+    }
 }

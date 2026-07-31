@@ -127,4 +127,42 @@ public class EcuStateMachineTests
 
         Assert.Equal(new byte[] { 0x7F, 0x10, 0x11 }, response);
     }
+
+    // === Inc 6: Custom initial state (L1-R4 critical fix) ===
+
+    [Fact]
+    public void EcuStateMachine_CustomInitialState_ResetRestoresToInitial()
+    {
+        var sm = new EcuStateMachine(Array.Empty<EcuStateTransition>(), initialState: "Locked");
+
+        // Transition to a different state, then reset must restore the custom initial state.
+        var transitions = new[]
+        {
+            new EcuStateTransition
+            {
+                FromState = "Locked",
+                ServiceId = 0x27,
+                SubFunction = 0x02,
+                Response = new StaticResponse(new byte[] { 0x67, 0x02 }),
+                ToState = "UnlockedL1",
+            }
+        };
+        sm = new EcuStateMachine(transitions, initialState: "Locked");
+        sm.ProcessRequest(new byte[] { 0x27, 0x02 });
+        Assert.Equal("UnlockedL1", sm.CurrentState);
+
+        sm.Reset();
+
+        Assert.Equal("Locked", sm.CurrentState);
+    }
+
+    [Fact]
+    public void EcuStateMachine_DefaultInitialState_ResetRestoresToDefault()
+    {
+        var sm = new EcuStateMachine(Array.Empty<EcuStateTransition>());
+
+        sm.Reset();
+
+        Assert.Equal("default", sm.CurrentState);
+    }
 }

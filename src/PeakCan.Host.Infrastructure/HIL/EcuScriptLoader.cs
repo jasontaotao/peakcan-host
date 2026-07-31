@@ -31,6 +31,12 @@ public static class EcuScriptLoader
     {
         var canIds = ParseCanIds(element.GetProperty("canIds"));
 
+        // Sprint 18 Inc 6: optional initialState (default "default"). Fed into
+        // the state machine so Reset() restores the ODX-defined start state.
+        var initialState = element.TryGetProperty("initialState", out var isEl)
+            ? isEl.GetString() ?? "default"
+            : "default";
+
         bool hasStates = element.TryGetProperty("states", out var statesEl);
         bool hasRules = element.TryGetProperty("rules", out var rulesEl);
 
@@ -42,7 +48,7 @@ public static class EcuScriptLoader
         EcuStateMachine stateMachine;
         if (hasStates)
         {
-            stateMachine = ParseStateMachine(statesEl, mergedGenerators);
+            stateMachine = ParseStateMachine(statesEl, mergedGenerators, initialState);
         }
         else if (hasRules)
         {
@@ -77,7 +83,8 @@ public static class EcuScriptLoader
             Name: element.GetProperty("name").GetString()!,
             CanIds: canIds,
             StateMachine: stateMachine,
-            DidValues: didValues);
+            DidValues: didValues,
+            InitialState: initialState);
     }
 
     private static CanIdConfig ParseCanIds(JsonElement canIdsEl)
@@ -94,7 +101,7 @@ public static class EcuScriptLoader
         };
     }
 
-    private static EcuStateMachine ParseStateMachine(JsonElement statesEl, List<IEcuResponseGenerator> generators)
+    private static EcuStateMachine ParseStateMachine(JsonElement statesEl, List<IEcuResponseGenerator> generators, string initialState)
     {
         var allTransitions = new List<EcuStateTransition>();
 
@@ -112,7 +119,7 @@ public static class EcuScriptLoader
             }
         }
 
-        return new EcuStateMachine(allTransitions, generators);
+        return new EcuStateMachine(allTransitions, generators, initialState);
     }
 
     private static EcuStateTransition ParseTransition(JsonElement el, string stateName)

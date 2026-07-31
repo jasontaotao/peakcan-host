@@ -11,4 +11,5 @@ public sealed record EcuScript(
     string Name,
     CanIdConfig CanIds,
     EcuStateMachine StateMachine,
-    Dictionary<ushort, byte[]>? DidValues = null);
+    Dictionary<ushort, byte[]>? DidValues = null,
+    string InitialState = "default");

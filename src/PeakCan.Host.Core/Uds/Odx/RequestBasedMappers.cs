@@ -438,7 +438,105 @@ public static class RequestBasedMappers
         return routines.Values.ToList();
     }
 
-    private static byte? ReadServiceId(XElement req, XNamespace ns)
+    /// <summary>
+    /// Sprint 18 Inc 5: build the POS-RESPONSE byte payload for each 0x31
+    /// routine ([0x71, subFunc, ...data]) so the ECU simulator replies with
+    /// the actual ODX-defined response instead of a hardcoded placeholder.
+    /// Keyed by routine ID (2-byte). Walk path:
+    /// REQUEST(0x31) → DIAG-SERVICE → POS-RESPONSE-REF → POS-RESPONSE
+    /// → PARAM SEMANTIC="DATA" → CODED-VALUE.
+    /// </summary>
+    public static IReadOnlyDictionary<ushort, byte[]> ExtractRoutineResponses(
+        XDocument xdoc, XNamespace ns)
+    {
+        ArgumentNullException.ThrowIfNull(xdoc);
+
+        // First pass: index 0x31 REQUESTs by their id attribute.
+        var byRequestId = new Dictionary<string, (ushort Id, byte Sub)>();
+        foreach (var req in xdoc.Descendants(ns + "REQUEST"))
+        {
+            if (ReadServiceId(req, ns) != ServiceId_RoutineControl) continue;
+            var id = ReadIdParam(req, ns);
+            if (id is null) continue;
+            var reqId = (string?)req.Attribute("ID");
+            if (reqId is null) continue;
+            byRequestId[reqId] = (id.Value, ReadSubfunctionParam(req, ns));
+        }
+
+        // Index POS-RESPONSE elements by id.
+        var posById = new Dictionary<string, XElement>();
+        foreach (var pos in xdoc.Descendants(ns + "POS-RESPONSE"))
+        {
+            var posId = (string?)pos.Attribute("ID");
+            if (posId is not null) posById[posId] = pos;
+        }
+
+        var responses = new Dictionary<ushort, byte[]>();
+        foreach (var svc in xdoc.Descendants(ns + "DIAG-SERVICE"))
+        {
+            var reqRef = svc.Element(ns + "REQUEST-REF");
+            if (reqRef is null) continue;
+            var reqRefId = (string?)reqRef.Attribute("ID-REF");
+            if (reqRefId is null || !byRequestId.TryGetValue(reqRefId, out var info))
+                continue;
+
+            // First POS-RESPONSE from REQUEST-REF chain; inline fallback for OEM tools.
+            // Per spec §3.5: skip when no POS-RESPONSE exists — the adapter then
+            // falls back to its hardcoded [0x71, subFunc] placeholder.
+            var pos = svc.Elements(ns + "POS-RESPONSE-REFS")
+                        .Elements(ns + "POS-RESPONSE-REF")
+                        .Select(r => (string?)r.Attribute("ID-REF"))
+                        .Where(id => id is not null && posById.TryGetValue(id!, out _))
+                        .Select(id => posById[id!])
+                        .FirstOrDefault()
+                     ?? svc.Elements(ns + "POS-RESPONSE").FirstOrDefault();
+
+            if (pos is null) continue;
+
+            var data = ExtractResponseBytes(pos, ns);
+            var header = new byte[] { 0x71, info.Sub };
+            responses[info.Id] = header.Concat(data).ToArray();
+        }
+
+        return responses;
+    }
+
+    /// <summary>
+    /// Extract response DATA bytes from a POS-RESPONSE element: concatenates
+    /// each PARAM SEMANTIC="DATA" CODED-VALUE (decimal per ODX schema; see
+    /// T2-R1 — hex interpretation would corrupt multi-byte responses).
+    /// Falls back to PHYSICAL-VALUE when CODED-VALUE is absent. Returns empty
+    /// when the response has no SEMANTIC="DATA" params.
+    /// </summary>
+    internal static byte[] ExtractResponseBytes(XElement pos, XNamespace ns)
+    {
+        ArgumentNullException.ThrowIfNull(pos);
+
+        var bytes = new List<byte>();
+        foreach (var param in pos.Descendants(ns + "PARAM"))
+        {
+            if ((string?)param.Attribute("SEMANTIC") != "DATA") continue;
+
+            var coded = (string?)param.Element(ns + "CODED-VALUE");
+            if (coded is not null &&
+                byte.TryParse(coded, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b))
+            {
+                bytes.Add(b);
+                continue;
+            }
+
+            var physical = (string?)param.Element(ns + "PHYSICAL-VALUE");
+            if (physical is not null &&
+                byte.TryParse(physical, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pb))
+            {
+                bytes.Add(pb);
+            }
+        }
+
+        return bytes.ToArray();
+    }
+
+    internal static byte? ReadServiceId(XElement req, XNamespace ns)
     {
         var p = req.Elements(ns + "PARAMS")
             .Elements(ns + "PARAM")
@@ -461,14 +559,14 @@ public static class RequestBasedMappers
         return (ushort)raw.Value;
     }
 
-    private static byte ReadSubfunctionParam(XElement req, XNamespace ns)
+    internal static byte ReadSubfunctionParam(XElement req, XNamespace ns)
     {
         var p = req.Descendants(ns + "PARAM")
             .FirstOrDefault(x => (string?)x.Attribute("SEMANTIC") == "SUBFUNCTION");
         return p is null ? (byte)0 : ParseByte(p) ?? (byte)0;
     }
 
-    private static byte? ParseByte(XElement p)
+    internal static byte? ParseByte(XElement p)
     {
         var v = (string?)p.Element((p.Name.Namespace) + "CODED-VALUE")
             ?? (string?)p.Element(XName.Get("CODED-VALUE", p.Name.Namespace.NamespaceName));

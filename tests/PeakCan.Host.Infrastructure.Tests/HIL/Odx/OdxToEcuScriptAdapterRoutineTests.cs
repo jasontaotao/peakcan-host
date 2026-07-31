@@ -52,7 +52,7 @@ public class OdxToEcuScriptAdapterRoutineTests
         try
         {
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: 3 routine transitions (start=0x01, stop=0x02, results=0x03)
             var routineTransitions = transitions.Where(t => t.ServiceId == 0x31).ToList();
@@ -90,7 +90,7 @@ public class OdxToEcuScriptAdapterRoutineTests
         try
         {
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             var routineTransitions = transitions.Where(t => t.ServiceId == 0x31).ToList();
             foreach (var t in routineTransitions)

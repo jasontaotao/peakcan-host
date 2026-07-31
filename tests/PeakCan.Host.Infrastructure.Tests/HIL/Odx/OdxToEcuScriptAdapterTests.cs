@@ -46,7 +46,7 @@ public class OdxToEcuScriptAdapterTests
         {
             // Act
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: adapter successfully parsed (transitions may be empty if no
             // extractable services, but namespace resolution must not throw)
@@ -77,7 +77,7 @@ public class OdxToEcuScriptAdapterTests
         {
             // Act
             var adapter = new OdxToEcuScriptAdapter();
-            var transitions = adapter.Load(tempPath);
+            var transitions = adapter.Load(tempPath, out _);
 
             // Assert: empty namespace resolved successfully
             Assert.NotNull(transitions);
@@ -112,7 +112,7 @@ public class OdxToEcuScriptAdapterTests
 
             try
             {
-                transitions = adapter.Load(tempPath);
+                transitions = adapter.Load(tempPath, out _);
             }
             catch (Exception)
             {
