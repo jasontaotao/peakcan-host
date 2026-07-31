@@ -93,7 +93,7 @@ public class Sprint14Tests
         var credentialStore = new SimpleCredentialStore();
         await credentialStore.SetAsync("deepseek-api-key", "test-key");
 
-        var service = new HilAnalysisService(credentialStore, httpClient);
+        var service = new HilAnalysisService(httpClient, credentialStore);
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -105,7 +105,7 @@ public class Sprint14Tests
     public async Task AnalysisService_MissingApiKey_ReturnsUnavailable()
     {
         var credentialStore = new SimpleCredentialStore();
-        var service = new HilAnalysisService(credentialStore);
+        var service = new HilAnalysisService(new HttpClient(), credentialStore);
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -120,7 +120,7 @@ public class Sprint14Tests
         var credentialStore = new SimpleCredentialStore();
         await credentialStore.SetAsync("deepseek-api-key", "test-key");
 
-        var service = new HilAnalysisService(credentialStore, httpClient);
+        var service = new HilAnalysisService(httpClient, credentialStore);
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);

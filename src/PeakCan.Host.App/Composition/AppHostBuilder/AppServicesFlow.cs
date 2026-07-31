@@ -206,6 +206,19 @@ public partial class AppHostBuilder
         .AddTransientHttpErrorPolicy(builder => builder
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
+        // Sprint 19 Inc 8: HIL test failure analysis service (headless/CLI sibling).
+        // Reuses the Windows Credential Manager store registered above. Polly
+        // retry mirrors GetRetryPolicy in HeadlessHostBuilder: transient errors
+        // + 429 retried up to 3 times with exponential backoff (1s → 2s → 4s).
+        services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
+            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((_, client) =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(150);
+        })
+        .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .OrResult(r => (int)r.StatusCode == 429)
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt))));
         // AI Chat (spec 2026-07-25): streaming multi-round tool-calling provider.
         // Sister of ILlmProvider (single-shot) - distinct interface, same DeepSeek
         // named HttpClient + credential store + options. Tools are NOT DI-registered

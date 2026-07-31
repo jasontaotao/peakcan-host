@@ -9,6 +9,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <!-- Sprint 3: HeadlessHostBuilder 迁移到 Infrastructure -->
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- Sprint 19 Inc 8: Polly retry for HilAnalysisService HTTP calls -->
+    <PackageReference Include="Microsoft.Extensions.Http.Polly" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Serilog.Sinks.File" />

@@ -20,16 +20,15 @@ public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
 
-    public HilAnalysisService(ICredentialStore credentialStore, HttpClient? httpClient = null)
+    public HilAnalysisService(HttpClient httpClient, ICredentialStore credentialStore)
     {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(credentialStore);
         _credentialStore = credentialStore;
-        _httpClient = httpClient ?? new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(150)
-        };
-        _ownsHttpClient = httpClient is null;
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "peakcan-host/hil-analyze");
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+        _httpClient = httpClient;
+        _ownsHttpClient = false;
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "peakcan-host/hil-analyze");
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
     }
 
     public void Dispose()

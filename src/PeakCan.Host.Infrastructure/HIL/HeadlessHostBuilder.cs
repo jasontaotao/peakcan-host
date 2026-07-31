@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Polly;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.HIL;
@@ -142,6 +143,17 @@ public static class HeadlessHostBuilder
         // Engine
         builder.Services.AddSingleton<TestSuiteEngine>();
 
+        // Sprint 19 Inc 8: LLM failure analysis service with Polly retry.
+        // Credential store for headless/CLI runs (env var / ~/.hil/credentials).
+        builder.Services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
+            PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore>();
+        builder.Services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
+            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((_, client) =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(150);
+        })
+        .AddPolicyHandler(GetRetryPolicy());
+
         // Logging
         builder.Logging.AddSerilog(new LoggerConfiguration()
             .WriteTo.Console()
@@ -150,6 +162,17 @@ public static class HeadlessHostBuilder
 
         return builder.Build();
     }
+
+    /// <summary>
+    /// Sprint 19 Inc 8: Polly retry policy for HilAnalysisService — retries
+    /// transient HTTP errors and 429 rate limits up to 3 times with
+    /// exponential backoff (1s → 2s → 4s).
+    /// </summary>
+    private static Polly.IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+        => Polly.Extensions.Http.HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .OrResult(r => (int)r.StatusCode == 429)
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)));
 
     /// <summary>
     /// Register ISO-TP + UDS services (shared between hardware and virtual ECU modes).
