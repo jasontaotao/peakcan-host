@@ -180,8 +180,159 @@ public class OdxToEcuScriptAdapterStateChartTests
 
             var startT = transitions.Single(t => t.ServiceId == 0x31 && t.SubFunction == 0x01);
             var staticResp = Assert.IsType<StaticResponse>(startT.Response);
-            // [0x71, subFunc=0x01, ...data from ODX (0x0A)]
-            Assert.Equal(new byte[] { 0x71, 0x01, 0x0A }, staticResp.Data);
+            // [0x71, subFunc=0x01, idHi=0xFF, idLo=0x00 (routine 65280), ...data 0x0A]
+            // Code-review M4: ISO 14229-1 routine response echoes the 2-byte ID.
+            Assert.Equal(new byte[] { 0x71, 0x01, 0xFF, 0x00, 0x0A }, staticResp.Data);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    /// <summary>
+    /// Build an inline ODX with a SECURITY STATE-CHART mirroring Demo_Cdd's layout:
+    /// seed (0x27 0x01) has NO STATE-TRANSITION-REF; Send_Key (0x27 0x02) has three
+    /// refs (Locked→UnlockedL1, UnlockedL1→UnlockedL1, Unlocked_L2→UnlockedL1).
+    /// </summary>
+    private static string CreateSecurityChartOdx()
+    {
+        return """
+            <?xml version="1.0" encoding="utf-8"?>
+            <ODX xmlns="http://www.asam.net/xml/odx">
+                <DIAG-LAYER-CONTAINER ID="L1">
+                    <DIAG-LAYER ID="ECU_Layer" SHORT-NAME="ECU">
+                        <DIAG-COMMS>
+                            <DIAG-SERVICE ID="SES_RequestSeed" SHORT-NAME="Request_Seed">
+                                <REQUEST-REF ID-REF="REQ_Seed"/>
+                                <POS-RESPONSE-REFS>
+                                    <POS-RESPONSE-REF ID-REF="POS_Seed"/>
+                                </POS-RESPONSE-REFS>
+                            </DIAG-SERVICE>
+                            <DIAG-SERVICE ID="SES_SendKey" SHORT-NAME="Send_Key">
+                                <REQUEST-REF ID-REF="REQ_SendKey"/>
+                                <POS-RESPONSE-REFS>
+                                    <POS-RESPONSE-REF ID-REF="POS_Seed"/>
+                                </POS-RESPONSE-REFS>
+                                <STATE-TRANSITION-REFS>
+                                    <STATE-TRANSITION-REF ID-REF="ST_A"/>
+                                    <STATE-TRANSITION-REF ID-REF="ST_B"/>
+                                    <STATE-TRANSITION-REF ID-REF="ST_C"/>
+                                </STATE-TRANSITION-REFS>
+                            </DIAG-SERVICE>
+                        </DIAG-COMMS>
+                        <REQUESTS>
+                            <REQUEST ID="REQ_Seed">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>39</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>1</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </REQUEST>
+                            <REQUEST ID="REQ_SendKey">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>39</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>2</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </REQUEST>
+                        </REQUESTS>
+                        <POS-RESPONSES>
+                            <POS-RESPONSE ID="POS_Seed">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="DATA">
+                                        <DIAG-CODED-TYPE><BIT-LENGTH>32</BIT-LENGTH></DIAG-CODED-TYPE>
+                                    </PARAM>
+                                </PARAMS>
+                            </POS-RESPONSE>
+                        </POS-RESPONSES>
+                        <STATE-CHARTS>
+                            <STATE-CHART ID="SC_Security">
+                                <SHORT-NAME>SecurityAccess</SHORT-NAME>
+                                <SEMANTIC>SECURITY</SEMANTIC>
+                                <STATE-TRANSITIONS>
+                                    <STATE-TRANSITION ID="ST_A">
+                                        <SOURCE-SNREF SHORT-NAME="Locked" />
+                                        <TARGET-SNREF SHORT-NAME="UnlockedL1" />
+                                    </STATE-TRANSITION>
+                                    <STATE-TRANSITION ID="ST_B">
+                                        <SOURCE-SNREF SHORT-NAME="UnlockedL1" />
+                                        <TARGET-SNREF SHORT-NAME="UnlockedL1" />
+                                    </STATE-TRANSITION>
+                                    <STATE-TRANSITION ID="ST_C">
+                                        <SOURCE-SNREF SHORT-NAME="Unlocked_L2" />
+                                        <TARGET-SNREF SHORT-NAME="UnlockedL1" />
+                                    </STATE-TRANSITION>
+                                </STATE-TRANSITIONS>
+                                <START-STATE-SNREF SHORT-NAME="Locked" />
+                                <STATES>
+                                    <STATE ID="S_Locked"><SHORT-NAME>Locked</SHORT-NAME></STATE>
+                                    <STATE ID="S_UnlockedL1"><SHORT-NAME>UnlockedL1</SHORT-NAME></STATE>
+                                    <STATE ID="S_UnlockedL2"><SHORT-NAME>Unlocked_L2</SHORT-NAME></STATE>
+                                </STATES>
+                            </STATE-CHART>
+                        </STATE-CHARTS>
+                    </DIAG-LAYER>
+                </DIAG-LAYER-CONTAINER>
+            </ODX>
+            """;
+    }
+
+    [Fact]
+    public void Load_InlineSecurityChart_SeedThenKeyVerify_StateChainWorks()
+    {
+        // Code-review M1: seed must NOT transition to the legacy "seedSent" state
+        // (chart states are Locked/UnlockedL1/Unlocked_L2), and Send_Key's three
+        // STATE-TRANSITION-REFs must each generate a transition so key-verify
+        // matches from any chart state.
+        var tempPath = Path.GetTempFileName() + ".odx";
+        File.WriteAllText(tempPath, CreateSecurityChartOdx());
+
+        try
+        {
+            var adapter = new OdxToEcuScriptAdapter();
+            var transitions = adapter.Load(tempPath, out var initialState);
+            var sm = new EcuStateMachine(transitions, initialState: initialState);
+
+            // Initial state comes from the SECURITY chart START-STATE-SNREF.
+            Assert.Equal("Locked", sm.CurrentState);
+
+            // Seed request: no chart transition-ref -> state stays in Locked.
+            sm.ProcessRequest(new byte[] { 0x27, 0x01 });
+            Assert.Equal("Locked", sm.CurrentState);
+
+            // Key verify: Locked -> UnlockedL1 (chart ref ST_A).
+            sm.ProcessRequest(new byte[] { 0x27, 0x02 });
+            Assert.Equal("UnlockedL1", sm.CurrentState);
+
+            // Re-key from UnlockedL1: chart ref ST_B is UnlockedL1 -> UnlockedL1.
+            sm.ProcessRequest(new byte[] { 0x27, 0x02 });
+            Assert.Equal("UnlockedL1", sm.CurrentState);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public void Load_InlineSecurityChart_MultipleRefs_GeneratesOneTransitionPerRef()
+    {
+        // Code-review M1: a DIAG-SERVICE with multiple STATE-TRANSITION-REFs
+        // must generate one transition per ref (each distinct FromState), not
+        // silently keep only the first.
+        var tempPath = Path.GetTempFileName() + ".odx";
+        File.WriteAllText(tempPath, CreateSecurityChartOdx());
+
+        try
+        {
+            var adapter = new OdxToEcuScriptAdapter();
+            var transitions = adapter.Load(tempPath, out _);
+
+            // Three Send_Key transitions, one per STATE-TRANSITION-REF.
+            var keyVerify = transitions.Where(t => t.ServiceId == 0x27 && t.SubFunction == 0x02).ToList();
+            Assert.Equal(3, keyVerify.Count);
+            Assert.Contains(keyVerify, t => t.FromState == "Locked" && t.ToState == "UnlockedL1");
+            Assert.Contains(keyVerify, t => t.FromState == "UnlockedL1" && t.ToState == "UnlockedL1");
+            Assert.Contains(keyVerify, t => t.FromState == "Unlocked_L2" && t.ToState == "UnlockedL1");
         }
         finally
         {
@@ -262,8 +413,9 @@ public class OdxToEcuScriptAdapterStateChartTests
 
             var startT = transitions.Single(t => t.ServiceId == 0x31 && t.SubFunction == 0x01);
             var stopT = transitions.Single(t => t.ServiceId == 0x31 && t.SubFunction == 0x02);
-            Assert.Equal(new byte[] { 0x71, 0x01, 0x0A }, Assert.IsType<StaticResponse>(startT.Response).Data);
-            Assert.Equal(new byte[] { 0x71, 0x02, 0x14 }, Assert.IsType<StaticResponse>(stopT.Response).Data);
+            // Routine id 65280 = 0xFF00 echoed after [0x71, sub] (code-review M4).
+            Assert.Equal(new byte[] { 0x71, 0x01, 0xFF, 0x00, 0x0A }, Assert.IsType<StaticResponse>(startT.Response).Data);
+            Assert.Equal(new byte[] { 0x71, 0x02, 0xFF, 0x00, 0x14 }, Assert.IsType<StaticResponse>(stopT.Response).Data);
         }
         finally
         {

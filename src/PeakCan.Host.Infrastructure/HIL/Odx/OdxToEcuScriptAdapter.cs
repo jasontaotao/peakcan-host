@@ -161,14 +161,37 @@ public sealed class OdxToEcuScriptAdapter
                 }
             }
 
-            for (int i = 0; i < transitions.Count; i++)
+            // Code-review M1: replace each matched transition with ONE transition per
+            // STATE-TRANSITION-REF (each distinct FromState), so e.g. Send_Key with
+            // refs _639/_640/_641 yields Locked→UnlockedL1, UnlockedL1→UnlockedL1,
+            // Unlocked_L2→UnlockedL1. Previously only st[0] survived, so key-verify
+            // from any non-Locked state returned NRC 0x11.
+            var expanded = new List<EcuStateTransition>();
+            foreach (var t in transitions)
             {
-                var t = transitions[i];
                 if (t.SubFunction is { } sub &&
                     stateTransitionsByService.TryGetValue(new ServiceRequest(t.ServiceId, sub), out var st))
                 {
-                    var (fromState, toState) = st[0];
-                    transitions[i] = t with { FromState = fromState, ToState = toState };
+                    foreach (var (fromState, toState) in st)
+                        expanded.Add(t with { FromState = fromState, ToState = toState });
+                }
+                else
+                {
+                    expanded.Add(t);
+                }
+            }
+            transitions = expanded;
+
+            // Code-review M1: the SecurityAccess seed request (0x27 0x01) has no
+            // STATE-TRANSITION-REF in Demo_Cdd — it must NOT leave the machine in the
+            // legacy "seedSent" state (which matches no chart state). Keep it in the
+            // current state (ToState = null) so key-verify can still fire.
+            for (int i = 0; i < transitions.Count; i++)
+            {
+                var t = transitions[i];
+                if (t.ServiceId == 0x27 && t.SubFunction == 0x01 && t.FromState is null)
+                {
+                    transitions[i] = t with { ToState = null };
                 }
             }
         }

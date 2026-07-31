@@ -497,8 +497,16 @@ public static class RequestBasedMappers
             if (pos is null) continue;
 
             var data = ExtractResponseBytes(pos, ns);
+            // Code-review M4: ISO 14229-1 RoutineControl positive response MUST
+            // echo the 2-byte routine identifier after [0x71, subFunction]:
+            //   [0x71, subFunc, idHi, idLo, ...data]
             var header = new byte[] { 0x71, info.Sub };
-            responses[(info.Id, info.Sub)] = header.Concat(data).ToArray();
+            var idHi = (byte)((info.Id >> 8) & 0xFF);
+            var idLo = (byte)(info.Id & 0xFF);
+            responses[(info.Id, info.Sub)] = header
+                .Concat(new[] { idHi, idLo })
+                .Concat(data)
+                .ToArray();
         }
 
         return responses;
@@ -508,6 +516,9 @@ public static class RequestBasedMappers
     /// Extract response DATA bytes from a POS-RESPONSE element: concatenates
     /// each PARAM SEMANTIC="DATA" CODED-VALUE (decimal per ODX schema; see
     /// T2-R1 — hex interpretation would corrupt multi-byte responses).
+    /// Multi-byte values (e.g. a 16-bit status word "300") are emitted big-endian
+    /// using the DIAG-CODED-TYPE BIT-LENGTH when present, else the minimal byte
+    /// count for the value (code-review M3 — byte.TryParse silently dropped &gt;255).
     /// Falls back to PHYSICAL-VALUE when CODED-VALUE is absent. Returns empty
     /// when the response has no SEMANTIC="DATA" params.
     /// </summary>
@@ -522,9 +533,18 @@ public static class RequestBasedMappers
 
             var coded = (string?)param.Element(ns + "CODED-VALUE");
             if (coded is not null &&
-                byte.TryParse(coded, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b))
+                ulong.TryParse(coded, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
             {
-                bytes.Add(b);
+                // BIT-LENGTH decides byte count (ceil(bits/8)); default to the
+                // minimal bytes needed to represent the value (at least 1).
+                var bitLength = ReadBitLength(param, ns);
+                var byteCount = bitLength.HasValue
+                    ? Math.Max(1, (bitLength.Value + 7) / 8)
+                    : Math.Max(1, (int)Math.Ceiling(BigIntegerByteCount(value)));
+
+                // Big-endian emission (ODX CODED-VALUE is a plain integer).
+                for (int i = byteCount - 1; i >= 0; i--)
+                    bytes.Add((byte)((value >> (8 * i)) & 0xFF));
                 continue;
             }
 
@@ -537,6 +557,15 @@ public static class RequestBasedMappers
         }
 
         return bytes.ToArray();
+
+        // Byte count required to represent an integer value (big-endian). 0 -> 1 byte.
+        static double BigIntegerByteCount(ulong v)
+        {
+            if (v == 0) return 1;
+            var bits = 0;
+            while (v > 0) { bits++; v >>= 1; }
+            return bits / 8.0;
+        }
     }
 
     internal static byte? ReadServiceId(XElement req, XNamespace ns)
