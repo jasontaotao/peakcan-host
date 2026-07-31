@@ -104,6 +104,21 @@ public sealed class HilViewModelAnalysisTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_ServiceThrowsOperationCancelled_ShowsTimeout()
+    {
+        // Code-review M2: HttpClient.Timeout surfaces as TaskCanceledException
+        // which must be surfaced to the user, not silently swallowed.
+        var analysis = Substitute.For<IHilAnalysisService>();
+        analysis.AnalyzeAsync(Arg.Any<TestSuiteResult>(), Arg.Any<CancellationToken>())
+            .Returns<Task<AnalysisResult?>>(Task.FromException<AnalysisResult?>(new OperationCanceledException()));
+        var vm = await RunOnceAsync(FailedResult(), analysis);
+
+        await vm.AnalyzeCommand.ExecuteAsync(null);
+
+        Assert.Equal("Analysis timed out.", vm.AnalysisResult);
+    }
+
+    [Fact]
     public async Task CanAnalyze_NotRunningWithFailedResult_ReturnsTrue()
     {
         var vm = await RunOnceAsync(FailedResult());

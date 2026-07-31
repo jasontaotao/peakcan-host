@@ -172,7 +172,7 @@ public static class HeadlessHostBuilder
         => Polly.Extensions.Http.HttpPolicyExtensions
             .HandleTransientHttpError()
             .OrResult(r => (int)r.StatusCode == 429)
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
 
     /// <summary>
     /// Register ISO-TP + UDS services (shared between hardware and virtual ECU modes).

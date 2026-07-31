@@ -79,18 +79,20 @@ public sealed class OdxToEcuScriptAdapter
         // Routine Control transitions (0x31) — wildcard (default state).
         // Sprint 18 Inc 7: response bytes come from the ODX POS-RESPONSE chain
         // (ExtractRoutineResponses) instead of a hardcoded [0x71, subFunc].
+        // Keyed by (routineId, subFunction) so Start/Stop/RequestResults each
+        // echo their own subfunction byte (code-review H1 fix).
         var routineResponses = RequestBasedMappers.ExtractRoutineResponses(doc, ns);
         var routines = RequestBasedMappers.ExtractRoutines(doc, ns);
         foreach (var routine in routines)
         {
             // Fallback when the ODX has no extractable response payload.
-            var startResp = routineResponses.TryGetValue(routine.Id, out var startBytes)
+            var startResp = routineResponses.TryGetValue((routine.Id, (byte)0x01), out var startBytes)
                 ? startBytes
                 : new byte[] { 0x71, 0x01 };
-            var stopResp = routineResponses.TryGetValue(routine.Id, out var stopBytes)
+            var stopResp = routineResponses.TryGetValue((routine.Id, (byte)0x02), out var stopBytes)
                 ? stopBytes
                 : new byte[] { 0x71, 0x02 };
-            var resultsResp = routineResponses.TryGetValue(routine.Id, out var resultsBytes)
+            var resultsResp = routineResponses.TryGetValue((routine.Id, (byte)0x03), out var resultsBytes)
                 ? resultsBytes
                 : new byte[] { 0x71, 0x03 };
 

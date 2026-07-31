@@ -82,7 +82,7 @@ public class RequestBasedMappersRoutineResponseTests
         var responses = RequestBasedMappers.ExtractRoutineResponses(xdoc, NoNs);
 
         responses.Should().HaveCount(1);
-        var bytes = responses[514];
+        var bytes = responses[(514, (byte)0x01)];
         bytes.Should().StartWith(new byte[] { 0x71, 0x01 });
         bytes[^1].Should().Be(0x0A); // trailing data byte from DATA param
     }

@@ -137,6 +137,19 @@ public sealed partial class HilViewModel : ObservableObject
                 AnalysisResult = result.Content;
             }
         }
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout (150s in HilAnalysisService) surfaces as a
+            // TaskCanceledException. Without this handler the command faults
+            // silently (AsyncRelayCommand default) and the user gets no feedback
+            // (code-review M2).
+            AnalysisResult = "Analysis timed out.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "HIL analysis failed");
+            AnalysisResult = $"Analysis failed: {ex.Message}";
+        }
         finally
         {
             IsAnalyzing = false;

@@ -218,7 +218,7 @@ public partial class AppHostBuilder
         .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
             .HandleTransientHttpError()
             .OrResult(r => (int)r.StatusCode == 429)
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt))));
+            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         // AI Chat (spec 2026-07-25): streaming multi-round tool-calling provider.
         // Sister of ILlmProvider (single-shot) - distinct interface, same DeepSeek
         // named HttpClient + credential store + options. Tools are NOT DI-registered

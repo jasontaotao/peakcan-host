@@ -188,4 +188,86 @@ public class OdxToEcuScriptAdapterStateChartTests
             File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public void Load_InlineOdx_RoutineStartStop_ResponsesCarryOwnSubFunction()
+    {
+        // Regression (code-review H1): a routine with distinct Start (sub=1) and
+        // Stop (sub=2) DIAG-SERVICEs must echo each transition's own subfunction
+        // byte in its response, not share one byte[] keyed only by routine id.
+        var odxXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <ODX xmlns="http://www.asam.net/xml/odx">
+                <DIAG-LAYER-CONTAINER ID="L1">
+                    <DIAG-LAYER ID="ECU_Layer" SHORT-NAME="ECU">
+                        <DIAG-COMMS>
+                            <DIAG-SERVICE ID="SES_Start" SHORT-NAME="Erase_Memory_Start">
+                                <REQUEST-REF ID-REF="REQ_Start"/>
+                                <POS-RESPONSE-REFS>
+                                    <POS-RESPONSE-REF ID-REF="PR_Start"/>
+                                </POS-RESPONSE-REFS>
+                            </DIAG-SERVICE>
+                            <DIAG-SERVICE ID="SES_Stop" SHORT-NAME="Erase_Memory_Stop">
+                                <REQUEST-REF ID-REF="REQ_Stop"/>
+                                <POS-RESPONSE-REFS>
+                                    <POS-RESPONSE-REF ID-REF="PR_Stop"/>
+                                </POS-RESPONSE-REFS>
+                            </DIAG-SERVICE>
+                        </DIAG-COMMS>
+                        <REQUESTS>
+                            <REQUEST ID="REQ_Start">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>49</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>1</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="ID"><CODED-VALUE>65280</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </REQUEST>
+                            <REQUEST ID="REQ_Stop">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>49</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>2</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="ID"><CODED-VALUE>65280</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </REQUEST>
+                        </REQUESTS>
+                        <POS-RESPONSES>
+                            <POS-RESPONSE ID="PR_Start">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>113</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>1</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="ID"><CODED-VALUE>65280</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="DATA"><CODED-VALUE>10</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </POS-RESPONSE>
+                            <POS-RESPONSE ID="PR_Stop">
+                                <PARAMS>
+                                    <PARAM SEMANTIC="SERVICE-ID"><CODED-VALUE>113</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="SUBFUNCTION"><CODED-VALUE>2</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="ID"><CODED-VALUE>65280</CODED-VALUE></PARAM>
+                                    <PARAM SEMANTIC="DATA"><CODED-VALUE>20</CODED-VALUE></PARAM>
+                                </PARAMS>
+                            </POS-RESPONSE>
+                        </POS-RESPONSES>
+                    </DIAG-LAYER>
+                </DIAG-LAYER-CONTAINER>
+            </ODX>
+            """;
+        var tempPath = Path.GetTempFileName() + ".odx";
+        File.WriteAllText(tempPath, odxXml);
+
+        try
+        {
+            var adapter = new OdxToEcuScriptAdapter();
+            var transitions = adapter.Load(tempPath, out _);
+
+            var startT = transitions.Single(t => t.ServiceId == 0x31 && t.SubFunction == 0x01);
+            var stopT = transitions.Single(t => t.ServiceId == 0x31 && t.SubFunction == 0x02);
+            Assert.Equal(new byte[] { 0x71, 0x01, 0x0A }, Assert.IsType<StaticResponse>(startT.Response).Data);
+            Assert.Equal(new byte[] { 0x71, 0x02, 0x14 }, Assert.IsType<StaticResponse>(stopT.Response).Data);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
 }

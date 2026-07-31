@@ -439,14 +439,17 @@ public static class RequestBasedMappers
     }
 
     /// <summary>
-    /// Sprint 18 Inc 5: build the POS-RESPONSE byte payload for each 0x31
-    /// routine ([0x71, subFunc, ...data]) so the ECU simulator replies with
-    /// the actual ODX-defined response instead of a hardcoded placeholder.
-    /// Keyed by routine ID (2-byte). Walk path:
+    /// Sprint 18 Inc 5: build the POS-RESPONSE byte payload for each (0x31
+    /// routine, subfunction) pair ([0x71, subFunc, ...data]) so the ECU
+    /// simulator replies with the actual ODX-defined response instead of a
+    /// hardcoded placeholder. Keyed by (routine ID, subfunction) — distinct
+    /// Start/Stop/RequestResults transitions must echo their own subfunction
+    /// byte (code-review H1 fix: a routineId-only key let Stop's bytes
+    /// overwrite Start's). Walk path:
     /// REQUEST(0x31) → DIAG-SERVICE → POS-RESPONSE-REF → POS-RESPONSE
     /// → PARAM SEMANTIC="DATA" → CODED-VALUE.
     /// </summary>
-    public static IReadOnlyDictionary<ushort, byte[]> ExtractRoutineResponses(
+    public static IReadOnlyDictionary<(ushort Id, byte Sub), byte[]> ExtractRoutineResponses(
         XDocument xdoc, XNamespace ns)
     {
         ArgumentNullException.ThrowIfNull(xdoc);
@@ -471,7 +474,7 @@ public static class RequestBasedMappers
             if (posId is not null) posById[posId] = pos;
         }
 
-        var responses = new Dictionary<ushort, byte[]>();
+        var responses = new Dictionary<(ushort Id, byte Sub), byte[]>();
         foreach (var svc in xdoc.Descendants(ns + "DIAG-SERVICE"))
         {
             var reqRef = svc.Element(ns + "REQUEST-REF");
@@ -495,7 +498,7 @@ public static class RequestBasedMappers
 
             var data = ExtractResponseBytes(pos, ns);
             var header = new byte[] { 0x71, info.Sub };
-            responses[info.Id] = header.Concat(data).ToArray();
+            responses[(info.Id, info.Sub)] = header.Concat(data).ToArray();
         }
 
         return responses;
