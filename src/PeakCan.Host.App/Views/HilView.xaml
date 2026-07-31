@@ -1,46 +1,102 @@
 <UserControl x:Class="PeakCan.Host.App.Views.HilView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels">
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             xmlns:core="clr-namespace:PeakCan.Host.Core.HIL;assembly=PeakCan.Host.Core">
+    <UserControl.Resources>
+        <ObjectDataProvider x:Key="HilModeValues" MethodName="GetValues" ObjectType="{x:Type core:HilMode}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="core:HilMode" />
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+    </UserControl.Resources>
     <DockPanel Margin="16">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-            <ToggleButton IsChecked="{Binding UseHardware}" Content="Hardware" Margin="0,0,12,0" />
+        <!-- Mode selector + DBC / Suite paths -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox Width="150" Margin="0,0,16,0"
+                      ItemsSource="{Binding Source={StaticResource HilModeValues}}"
+                      SelectedItem="{Binding SelectedMode}" />
+            <TextBox Text="{Binding DbcPath}" Width="180" Margin="0,0,4,0" ToolTip="DBC file path" />
+            <Button Content="Browse..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
+            <TextBox Text="{Binding SuitePath}" Width="180" Margin="0,0,4,0" ToolTip="Test suite JSON path" />
+            <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
+        </StackPanel>
+
+        <!-- Mode-specific path -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBox Text="{Binding TracePath}" Width="260" Margin="0,0,4,0"
+                     ToolTip="Trace file (ASC/BLF)" />
+            <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
+
             <TextBox Text="{Binding HardwareChannel}" Width="80" Margin="0,0,12,0"
-                     IsEnabled="{Binding UseHardware}" />
-            <TextBlock Text="or" VerticalAlignment="Center" Margin="0,0,12,0" />
-            <TextBox Text="{Binding TracePath}" Width="200" Margin="0,0,12,0"
-                     IsEnabled="{Binding !UseHardware}" />
-        </StackPanel>
+                     ToolTip="Hardware channel (USB1..USB16)" />
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-            <TextBox Text="{Binding DbcPath}" Width="200" Margin="0,0,12,0" />
-            <TextBox Text="{Binding SuitePath}" Width="200" Margin="0,0,12,0" />
-        </StackPanel>
+            <TextBox Text="{Binding EcuScriptPath}" Width="160" Margin="0,0,4,0"
+                     ToolTip="ECU script JSON path" />
+            <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
 
-        <!-- Phase 3: ECU simulator + fault injection + matrix -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-            <TextBlock Text="ECU:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Text="{Binding EcuScriptPath}" Width="180" Margin="0,0,12,0"
-                     IsEnabled="{Binding !UseHardware}" />
-            <TextBlock Text="Matrix:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <TextBox Text="{Binding MatrixPath}" Width="180" Margin="0,0,12,0"
-                     IsEnabled="{Binding !UseHardware}" />
-            <CheckBox Content="Enable Faults" IsChecked="{Binding EnableFaultInjection}"
+            <TextBox Text="{Binding MatrixPath}" Width="160" Margin="0,0,4,0"
+                     ToolTip="Matrix config JSON path" />
+            <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
+
+            <CheckBox Content="Faults" IsChecked="{Binding EnableFaultInjection}"
                       VerticalAlignment="Center" Margin="0,0,12,0" />
         </StackPanel>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-            <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,12,0" />
-            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
-        </StackPanel>
+        <!-- ECU editor + Run / Analyze buttons -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Save ECU" Command="{Binding SaveEcuCommand}" Padding="16,4" Margin="0,0,8,0" />
+                <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
+                <Button Content="Analyze" Command="{Binding AnalyzeCommand}" Padding="16,4" />
+            </StackPanel>
+            <TextBox Text="{Binding EcuEditorJson, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Height="60"
+                     ToolTip="ECU simulator script JSON (Save ECU writes to temp file)" />
+        </DockPanel>
 
-        <DataGrid ItemsSource="{Binding Results}" AutoGenerateColumns="False"
-                  IsReadOnly="True" Margin="0,12,0,0">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Case" Binding="{Binding Name}" Width="*" />
-                <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
-                <DataGridTextColumn Header="Failure Reason" Binding="{Binding FailureReason}" Width="2*" />
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- Progress bar + status -->
+        <ProgressBar DockPanel.Dock="Top" Height="16" Margin="0,0,0,4"
+                     Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
+        <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}" Margin="0,0,0,8" />
+
+        <!-- Results: summary DataGrid + hierarchical TreeView -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+
+            <DataGrid Grid.Column="0" ItemsSource="{Binding Results}" AutoGenerateColumns="False"
+                      IsReadOnly="True" Margin="0,0,8,0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Case" Binding="{Binding Name}" Width="*" />
+                    <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
+                    <DataGridTextColumn Header="Failure Reason" Binding="{Binding FailureReason}" Width="2*" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <TreeView Grid.Column="1" ItemsSource="{Binding ResultsTree}">
+                <TreeView.Resources>
+                    <HierarchicalDataTemplate DataType="{x:Type vm:TestCaseNode}" ItemsSource="{Binding Steps}">
+                        <TextBlock Text="{Binding Name}" FontWeight="Bold" />
+                    </HierarchicalDataTemplate>
+                    <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Name}" Width="140" />
+                            <TextBlock Text="{Binding Status}" Width="70" />
+                            <TextBlock Text="{Binding Message}" />
+                        </StackPanel>
+                    </HierarchicalDataTemplate>
+                    <DataTemplate DataType="{x:Type vm:FrameNode}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding CanId}" Width="70" />
+                            <TextBlock Text="{Binding DataHex}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </TreeView.Resources>
+            </TreeView>
+        </Grid>
     </DockPanel>
 </UserControl>

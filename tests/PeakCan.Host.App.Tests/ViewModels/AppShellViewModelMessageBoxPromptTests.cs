@@ -172,7 +172,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
             fileDialogs,
             prompt,
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
     }
 
     /// <summary>Test double for <see cref="IChannelFactory"/>

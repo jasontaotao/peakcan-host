@@ -101,7 +101,7 @@ public class UdsWindowTests
             NSubstitute.Substitute.For<IFileDialogService>(),
             NSubstitute.Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
     }
 
     /// <summary>

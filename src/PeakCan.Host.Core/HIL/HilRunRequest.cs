@@ -11,4 +11,7 @@ public sealed record HilRunRequest(
     // Phase 3 additions:
     string? EcuScriptPath = null,
     string? MatrixPath = null,
-    bool EnableFaultInjection = false);
+    bool EnableFaultInjection = false,
+    // Sprint 12 additions:
+    HilMode Mode = HilMode.TraceReplay,
+    bool EnableAnalyze = false);

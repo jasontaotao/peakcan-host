@@ -9,7 +9,7 @@ public class HilRunRequestTests
     public void ToCliArgs_TraceMode_MapsCorrectly()
     {
         // Arrange
-        var request = new HilRunRequest("x.dbc", "y.json", TracePath: "x.asc");
+        var request = new HilRunRequest("x.dbc", "y.json", TracePath: "x.asc", Mode: HilMode.TraceReplay);
 
         // Act
         var cli = Infrastructure.HIL.HilRunRequestExtensions.ToCliArgs(request);
@@ -23,7 +23,7 @@ public class HilRunRequestTests
     public void ToCliArgs_HardwareMode_MapsCorrectly()
     {
         // Arrange
-        var request = new HilRunRequest("x.dbc", "y.json", HardwareChannel: "USB1");
+        var request = new HilRunRequest("x.dbc", "y.json", HardwareChannel: "USB1", Mode: HilMode.Hardware);
 
         // Act
         var cli = Infrastructure.HIL.HilRunRequestExtensions.ToCliArgs(request);
@@ -38,7 +38,7 @@ public class HilRunRequestTests
     {
         // Arrange
         var request = new HilRunRequest("x.dbc", "y.json", HardwareChannel: "USB1",
-            UdsRequestId: 0x714, UdsResponseId: 0x760);
+            UdsRequestId: 0x714, UdsResponseId: 0x760, Mode: HilMode.Hardware);
 
         // Act
         var cli = Infrastructure.HIL.HilRunRequestExtensions.ToCliArgs(request);
@@ -46,5 +46,29 @@ public class HilRunRequestTests
         // Assert
         Assert.Equal(0x714u, cli.UdsRequestId);
         Assert.Equal(0x760u, cli.UdsResponseId);
+    }
+
+    // --- Sprint 12: Mode-based mapping tests ---
+
+    [Fact]
+    public void ToCliArgs_VirtualEcuMode_MapsEcuScriptPath()
+    {
+        var request = new HilRunRequest("x.dbc", "y.json", EcuScriptPath: "ecu.json", Mode: HilMode.VirtualEcu);
+        var cli = Infrastructure.HIL.HilRunRequestExtensions.ToCliArgs(request);
+
+        Assert.Equal("ecu.json", cli.EcuScriptPath);
+        Assert.Null(cli.TracePath);
+        Assert.Null(cli.HardwareChannel);
+    }
+
+    [Fact]
+    public void ToCliArgs_MatrixMode_MapsMatrixPath()
+    {
+        var request = new HilRunRequest("x.dbc", "y.json", MatrixPath: "matrix.json", Mode: HilMode.Matrix);
+        var cli = Infrastructure.HIL.HilRunRequestExtensions.ToCliArgs(request);
+
+        Assert.Equal("matrix.json", cli.MatrixPath);
+        Assert.Null(cli.TracePath);
+        Assert.Null(cli.EcuScriptPath);
     }
 }

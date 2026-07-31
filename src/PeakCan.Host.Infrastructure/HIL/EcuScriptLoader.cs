@@ -3,6 +3,7 @@ using System.Text.Json;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Infrastructure.HIL.Generators;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -10,50 +11,38 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Loads an ECU simulator script from JSON. Parses CAN IDs and states/rules.
 /// Swaps RequestId/ResponseId to produce ECU-perspective CanIdConfig.
 /// Supports both stateless ("rules") and stateful ("states") JSON formats.
+/// Sprint 10: Added external generator support and didValues injection.
 /// </summary>
 public static class EcuScriptLoader
 {
-    /// <summary>
-    /// Load ECU script from a JSON file path.
-    /// </summary>
-    /// <param name="path">Absolute or relative path to the .json ECU script.</param>
-    /// <returns>Parsed EcuScript with ECU-perspective CanIdConfig (IDs swapped).</returns>
-    /// <exception cref="FileNotFoundException">Script file not found.</exception>
-    /// <exception cref="JsonException">JSON malformed or missing required fields.</exception>
-    public static EcuScript Load(string path)
+    public static EcuScript Load(string path, IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
     {
         var json = File.ReadAllText(path);
-        return Parse(json);
+        return Parse(json, externalGenerators);
     }
 
-    /// <summary>
-    /// Parse ECU script from JSON string.
-    /// </summary>
-    public static EcuScript Parse(string json)
+    public static EcuScript Parse(string json, IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
     {
         using var doc = JsonDocument.Parse(json);
-        return ParseEcuScript(doc.RootElement);
+        return ParseEcuScript(doc.RootElement, externalGenerators);
     }
 
-    /// <summary>
-    /// Parse ECU script from a JSON element (used by both Parse and MatrixConfigLoader).
-    /// </summary>
-    public static EcuScript ParseEcuScript(JsonElement element)
+    public static EcuScript ParseEcuScript(JsonElement element, IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
     {
-        // Parse canIds (HIL perspective) and swap to ECU perspective
         var canIds = ParseCanIds(element.GetProperty("canIds"));
 
-        // Determine format: "states" (stateful) or "rules" (stateless)
         bool hasStates = element.TryGetProperty("states", out var statesEl);
         bool hasRules = element.TryGetProperty("rules", out var rulesEl);
 
         if (hasStates && hasRules)
             throw new JsonException("Cannot specify both 'states' and 'rules' in ECU script.");
 
+        var mergedGenerators = GeneratorPluginLoader.MergeGenerators(GetBuiltInGenerators(), externalGenerators).ToList();
+
         EcuStateMachine stateMachine;
         if (hasStates)
         {
-            stateMachine = ParseStateMachine(statesEl, GetBuiltInGenerators());
+            stateMachine = ParseStateMachine(statesEl, mergedGenerators);
         }
         else if (hasRules)
         {
@@ -64,16 +53,33 @@ public static class EcuScriptLoader
             throw new JsonException("ECU script must contain either 'states' or 'rules'.");
         }
 
+        // Parse didValues (optional)
+        Dictionary<ushort, byte[]>? didValues = null;
+        if (element.TryGetProperty("didValues", out var didValuesEl))
+        {
+            didValues = new Dictionary<ushort, byte[]>();
+            foreach (var prop in didValuesEl.EnumerateObject())
+            {
+                var didStr = prop.Name.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? prop.Name[2..] : prop.Name;
+                var did = ushort.Parse(didStr, NumberStyles.HexNumber);
+                var value = prop.Value.EnumerateArray().Select(b => b.GetByte()).ToArray();
+                didValues[did] = value;
+            }
+        }
+
+        // Inject didValues into context
+        if (didValues is { Count: > 0 })
+        {
+            stateMachine.Context.Set("DidValues", didValues);
+        }
+
         return new EcuScript(
             Name: element.GetProperty("name").GetString()!,
             CanIds: canIds,
-            StateMachine: stateMachine);
+            StateMachine: stateMachine,
+            DidValues: didValues);
     }
 
-    /// <summary>
-    /// Parse canIds from HIL perspective and swap to ECU perspective.
-    /// ECU listens on HIL's RequestId, sends on HIL's ResponseId.
-    /// </summary>
     private static CanIdConfig ParseCanIds(JsonElement canIdsEl)
     {
         var requestIdHil = ParseCanId(canIdsEl.GetProperty("requestId"));
@@ -82,16 +88,12 @@ public static class EcuScriptLoader
 
         return new CanIdConfig
         {
-            RequestId = responseIdHil,   // ECU sends on HIL's ResponseId
-            ResponseId = requestIdHil,   // ECU receives on HIL's RequestId
+            RequestId = responseIdHil,
+            ResponseId = requestIdHil,
             IsExtendedFrame = isExtended
         };
     }
 
-    /// <summary>
-    /// Parse states array into EcuStateMachine.
-    /// Uses JsonSerializer with HILJsonOptions for polymorphic EcuResponse deserialization.
-    /// </summary>
     private static EcuStateMachine ParseStateMachine(JsonElement statesEl, List<IEcuResponseGenerator> generators)
     {
         var allTransitions = new List<EcuStateTransition>();
@@ -99,11 +101,13 @@ public static class EcuScriptLoader
         foreach (var stateEl in statesEl.EnumerateArray())
         {
             var stateName = stateEl.GetProperty("name").GetString()!;
+            // "wildcard" is a special state name meaning FromState=null (matches any state)
+            var fromState = stateName == "wildcard" ? null : stateName;
             var transitionsEl = stateEl.GetProperty("transitions");
 
             foreach (var transitionEl in transitionsEl.EnumerateArray())
             {
-                var transition = ParseTransition(transitionEl, stateName);
+                var transition = ParseTransition(transitionEl, fromState);
                 allTransitions.Add(transition);
             }
         }
@@ -111,10 +115,6 @@ public static class EcuScriptLoader
         return new EcuStateMachine(allTransitions, generators);
     }
 
-    /// <summary>
-    /// Parse a single transition from JSON.
-    /// Uses HILJsonOptions for polymorphic EcuResponse deserialization ($type discriminator).
-    /// </summary>
     private static EcuStateTransition ParseTransition(JsonElement el, string stateName)
     {
         var serviceIdEl = el.GetProperty("serviceId");
@@ -138,7 +138,6 @@ public static class EcuScriptLoader
             dataPattern = el.GetProperty("dataPattern").EnumerateArray().Select(b => b.GetByte()).ToArray();
         }
 
-        // Parse polymorphic response using HILJsonOptions
         var responseEl = el.GetProperty("response");
         var response = JsonSerializer.Deserialize<EcuResponse>(responseEl.GetRawText(), HILJsonOptions.Default)
             ?? throw new JsonException("Failed to parse response in transition.");
@@ -164,9 +163,6 @@ public static class EcuScriptLoader
         };
     }
 
-    /// <summary>
-    /// Parse stateless rules into a state machine (wildcard transitions for backward compat).
-    /// </summary>
     private static EcuStateMachine ParseRules(JsonElement rulesEl)
     {
         var rules = new List<UdsResponseRule>();
@@ -179,8 +175,6 @@ public static class EcuScriptLoader
 
     private static uint ParseCanId(JsonElement element)
     {
-        // CanIdJsonConverter writes "raw" as a number (e.g. 2016), but ECU script JSON
-        // may also use string format (e.g. "0x7E0"). Handle both.
         if (element.ValueKind == JsonValueKind.Number)
             return element.GetUInt32();
         var s = element.GetString()!;
@@ -243,6 +237,8 @@ public static class EcuScriptLoader
             new Generators.SecurityAccessSeedGenerator(),
             new Generators.SecurityAccessVerifyKeyGenerator(),
             new Generators.ClearDtcGenerator(),
+            new Generators.DidReadoutGenerator(),
+            new Generators.DidWriteGenerator(),
         };
     }
 }

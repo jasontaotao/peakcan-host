@@ -58,6 +58,8 @@ public sealed class ReceivePathFaultInjector : ICanChannel
     }
 
     private readonly ConcurrentDictionary<int, Task> _pendingDelayTasks = new();
+    private readonly CancellationTokenSource _delayCts = new();
+    private Exception? _delayFaultException;
     private int _taskIdCounter;
 
     private void OnInnerFrameReceived(CanFrame frame)
@@ -85,8 +87,16 @@ public sealed class ReceivePathFaultInjector : ICanChannel
                 {
                     try
                     {
-                        await Task.Delay(maxDelay).ConfigureAwait(false);
+                        await Task.Delay(maxDelay, _delayCts.Token).ConfigureAwait(false);
                         ApplyAndDispatch(frame, handler, snapshot);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Dispose triggered cancellation — silent exit
+                    }
+                    catch (Exception ex)
+                    {
+                        _delayFaultException = ex;
                     }
                     finally
                     {
@@ -153,11 +163,21 @@ public sealed class ReceivePathFaultInjector : ICanChannel
     public Task DisconnectAsync(CancellationToken ct = default)
         => _inner.DisconnectAsync(ct);
 
+    /// <summary>
+    /// Returns the last exception thrown by a delay fault Task, or null if none.
+    /// Useful for diagnostics when a delay fault pipeline fails.
+    /// </summary>
+    public Exception? GetLastDelayFaultException() => _delayFaultException;
+
     public async ValueTask DisposeAsync()
     {
+        // Cancel pending delay tasks before waiting — prevents indefinite hangs
+        _delayCts.Cancel();
+
         // Wait for pending delay tasks to complete before disposing inner channel
         try { await WaitForPendingDelaysAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
         catch (TimeoutException) { /* force continue with disposal */ }
         await _inner.DisposeAsync().ConfigureAwait(false);
+        _delayCts.Dispose();
     }
 }

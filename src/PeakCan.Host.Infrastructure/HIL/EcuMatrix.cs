@@ -24,6 +24,12 @@ public sealed class EcuMatrix : IDisposable
     {
         var ecu = new StatefulVirtualEcu(_channel, script.CanIds, script.StateMachine, logger);
 
+        // Sprint 10: Inject DidValues if present in script but not yet in context
+        if (script.DidValues is { Count: > 0 } && !ecu.StateMachine.Context.HasKey("DidValues"))
+        {
+            ecu.StateMachine.Context.Set("DidValues", script.DidValues);
+        }
+
         // CAN ID conflict detection: two ECUs cannot send on the same CAN ID
         var newSendId = ecu.SendCanId;
         if (_ecus.Any(e => e.SendCanId == newSendId))

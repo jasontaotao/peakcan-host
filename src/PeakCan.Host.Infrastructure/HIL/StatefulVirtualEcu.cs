@@ -23,6 +23,9 @@ public sealed class StatefulVirtualEcu : IDisposable
     /// <summary>Current ECU state name (delegated to state machine).</summary>
     public string CurrentState => _stateMachine.CurrentState;
 
+    /// <summary>Underlying state machine (for context access in tests).</summary>
+    public EcuStateMachine StateMachine => _stateMachine;
+
     /// <summary>
     /// ECU's send CAN ID (HIL listens here). Maps to CanIds.ResponseId (ECU perspective).
     /// </summary>

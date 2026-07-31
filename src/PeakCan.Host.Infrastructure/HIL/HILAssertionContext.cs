@@ -28,7 +28,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     private readonly IDisposable _frameSubscription;
     private ImmutableList<Action<DecodedFrame>> _subscribers = ImmutableList<Action<DecodedFrame>>.Empty;
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
-    private readonly Dictionary<string, IDisposable> _faultHandles = new();
+    private readonly ConcurrentDictionary<string, IDisposable> _faultHandles = new();
 
     public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false)
     {
@@ -126,13 +126,15 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     {
         if (faultId is null)
         {
-            foreach (var h in _faultHandles.Values) h.Dispose();
-            _faultHandles.Clear();
+            var snapshot = _faultHandles.ToList();
+            foreach (var (key, handle) in snapshot)
+            {
+                if (_faultHandles.TryRemove(key, out _)) handle.Dispose();
+            }
         }
-        else if (_faultHandles.TryGetValue(faultId, out var h))
+        else if (_faultHandles.TryRemove(faultId, out var h))
         {
             h.Dispose();
-            _faultHandles.Remove(faultId);
         }
     }
 

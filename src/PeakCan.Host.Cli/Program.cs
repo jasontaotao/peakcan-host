@@ -6,6 +6,7 @@ using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Odx;
+using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.Cli;
 
@@ -38,12 +39,27 @@ public static class Program
                 return 0;
             }
 
-            // Normal HIL test mode
-            using var host = HeadlessHostBuilder.Build(cli);
+            // Phase 5 Sprint 13: standalone ECU simulator mode
+            if (cli.Simulate)
+            {
+                var ecuScript = EcuScriptLoader.Load(cli.EcuScriptPath!);
+                var handle = HeadlessHostBuilder.ParseChannelHandle(cli.HardwareChannel!);
+                var channel = new PeakCanChannel(new ChannelId(handle), null);
+                var host = new EcuSimulatorHost(channel, ecuScript.CanIds, ecuScript.StateMachine, null);
 
-            var engine = host.Services.GetRequiredService<TestSuiteEngine>();
-            var channel = host.Services.GetRequiredService<ICanChannel>();
-            var ctx = host.Services.GetRequiredService<Core.HIL.Contracts.IAssertionContext>();
+                using var cts = new CancellationTokenSource();
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                Console.WriteLine($"Simulating ECU '{ecuScript.Name}' on {cli.HardwareChannel}. Press Ctrl+C to exit.");
+                await host.RunAsync(cts.Token);
+                return 0;
+            }
+
+            // Normal HIL test mode
+            using var host2 = HeadlessHostBuilder.Build(cli);
+
+            var engine = host2.Services.GetRequiredService<TestSuiteEngine>();
+            var channel2 = host2.Services.GetRequiredService<ICanChannel>();
+            var ctx = host2.Services.GetRequiredService<Core.HIL.Contracts.IAssertionContext>();
 
             var suiteJson = await File.ReadAllTextAsync(cli.SuitePath);
             var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, HILJsonOptions.Default);
@@ -54,7 +70,7 @@ public static class Program
                 return 2;
             }
 
-            await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
+            await channel2.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
             try
             {
                 var progress = cli.Format == "console" ? new ConsoleProgress() : null;
@@ -73,7 +89,7 @@ public static class Program
             }
             finally
             {
-                await channel.DisconnectAsync();
+                await channel2.DisconnectAsync();
             }
         }
         catch (ArgumentException ex)

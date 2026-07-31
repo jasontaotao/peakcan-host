@@ -143,7 +143,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
     }
 
     /// <summary>
@@ -472,7 +472,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -569,7 +569,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
     }
 
     [Fact]
@@ -707,7 +707,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -1008,7 +1008,7 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
 
         // ACT
@@ -1108,7 +1108,7 @@ public class AppShellViewModelTests
             // (the 2 missing-.asc call sites route through this).
             Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance),
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>()),
             enumerator,
             writableConfig);
     }

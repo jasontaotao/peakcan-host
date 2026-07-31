@@ -10,4 +10,5 @@ namespace PeakCan.Host.Infrastructure.HIL;
 public sealed record EcuScript(
     string Name,
     CanIdConfig CanIds,
-    EcuStateMachine StateMachine);
+    EcuStateMachine StateMachine,
+    Dictionary<ushort, byte[]>? DidValues = null);

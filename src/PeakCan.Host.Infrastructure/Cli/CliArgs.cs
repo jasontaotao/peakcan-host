@@ -23,7 +23,9 @@ public sealed record CliArgs(
     string? ImportOdxPath = null,
     string? ImportOdxEcuName = null,
     uint ImportOdxRequestId = 0x7E0,
-    uint ImportOdxResponseId = 0x7E8);
+    uint ImportOdxResponseId = 0x7E8,
+    // Phase 5 Sprint 13 additions (standalone simulator):
+    bool Simulate = false);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -39,6 +41,8 @@ public static class CliArgsParser
         // Phase 4 ODX import
         string? importOdx = null, importEcuName = null;
         uint importReq = 0x7E0, importResp = 0x7E8;
+        // Phase 5 Sprint 13 standalone simulator
+        bool simulate = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -60,6 +64,8 @@ public static class CliArgsParser
                 case "--ecu-name": importEcuName = args[++i]; break;
                 case "--import-uds-req": importReq = ParseUdsId(args[++i]); break;
                 case "--import-uds-resp": importResp = ParseUdsId(args[++i]); break;
+                // Phase 5 Sprint 13 standalone simulator
+                case "--simulate": simulate = true; break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -68,12 +74,25 @@ public static class CliArgsParser
             }
         }
 
-        // Validation: ODX import mode OR normal mode
+        // Validation: ODX import mode OR simulate mode OR normal mode
         if (importOdx is not null)
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp);
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false);
+        }
+
+        if (simulate)
+        {
+            // Standalone simulator mode: requires --ecu and --hw
+            if (ecu is null)
+                throw new ArgumentException("--simulate requires --ecu <path>.");
+            if (hw is null)
+                throw new ArgumentException("--simulate requires --hw <channel>.");
+            if (dbc is null)
+                throw new ArgumentException("--simulate requires --dbc <path>.");
+            return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -90,7 +109,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp);
+            importOdx, importEcuName, importReq, importResp, Simulate: false);
     }
 
     /// <summary>
@@ -107,12 +126,15 @@ public static class CliArgsParser
     {
         Console.WriteLine("Usage: peakcan-hil --dbc <path.dbc> --trace <path.asc|path.blf> --suite <tests.json> [options]");
         Console.WriteLine("       peakcan-hil --dbc <path.dbc> --hw USB1 --suite <tests.json> [options]");
+        Console.WriteLine("       peakcan-hil --dbc <path.dbc> --ecu <script.json> --hw USB1 --simulate");
         Console.WriteLine("       peakcan-hil --import-odx <path.odx> --ecu-name <name> [options]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML)");
         Console.WriteLine("  --format <format>  Output format: console (default), trx, junit");
         Console.WriteLine("  --hw <channel>    Hardware channel (USB1..USB16) for real PCAN");
+        Console.WriteLine("  --ecu <path>      ECU simulator script JSON path");
+        Console.WriteLine("  --simulate        Standalone ECU simulator mode (requires --ecu and --hw)");
         Console.WriteLine("  --uds-req <id>    UDS request CAN ID (default: 0x7DF)");
         Console.WriteLine("  --uds-resp <id>   UDS response CAN ID (default: 0x7E8)");
         Console.WriteLine("  --import-odx <path>  Import ODX file and generate ECU script JSON");
