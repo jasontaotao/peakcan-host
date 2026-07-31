@@ -22,8 +22,8 @@ public class AssertionPrimitivesTests
             ctx.PushFrame(MakeFrame(0x123));
         });
 
-        // Start wait, signal ready, then await
-        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
+        // BUG-001 fix: pass timeoutMs (5000ms) + CancellationToken
+        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, 5000, default);
         readyTcs.SetResult(true);
 
         var result = await waitTask;
@@ -47,7 +47,7 @@ public class AssertionPrimitivesTests
             ctx.PushFrame(MakeFrame(0x123));
         });
 
-        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
+        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, 5000, default);
         readyTcs.SetResult(true);
 
         var result = await waitTask;
@@ -61,9 +61,8 @@ public class AssertionPrimitivesTests
     {
         var ctx = new FakeAssertionContext();
         var primitives = new AssertionPrimitives(ctx);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-
-        var result = await primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, cts.Token);
+        // BUG-001 fix: use timeoutMs parameter instead of external CTS
+        var result = await primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, 200, default);
 
         Assert.False(result.Passed);
         Assert.Null(result.ActualValue);
@@ -79,7 +78,7 @@ public class AssertionPrimitivesTests
         var primitives = new AssertionPrimitives(ctx);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, cts.Token));
+            () => primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, 5000, cts.Token));
     }
 
     [Fact(Skip = "Async WaitForSignal deadlock - needs sync context fix in test infra")]
@@ -89,7 +88,7 @@ public class AssertionPrimitivesTests
         var primitives = new AssertionPrimitives(ctx);
         var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, default);
+        var waitTask = primitives.WaitForSignalAsync("RPM", 3000.0, 10.0, 5000, default);
 
         // Push non-matching frame
         var push1 = Task.Run(async () =>

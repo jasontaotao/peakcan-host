@@ -121,7 +121,7 @@ public sealed class TraceDrivenChannel : ICanChannel
         ObjectDisposedException.ThrowIf(_state == 2, this);
 
         if (_playStartTimestamp < 0)
-            throw new InvalidOperationException("No trace loaded. Call LoadAscii first.");
+            throw new InvalidOperationException("No trace loaded. Call LoadAscii or LoadBlf first.");
 
         IsConnected = true;
         _playStartWallClock = DateTime.UtcNow;

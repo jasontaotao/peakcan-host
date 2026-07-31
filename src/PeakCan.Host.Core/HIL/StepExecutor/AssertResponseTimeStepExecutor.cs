@@ -31,8 +31,9 @@ internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
         using var registration = cts.Token.Register(() => tcs.TrySetCanceled());
 
         // Send request frame（订阅已就绪 + 计时器已启动后才发送）
+        // BUG-003 fix: use cts.Token (with per-step timeout) instead of external ct
         var sendResult = await ctx.SendFrameAsync(
-            new CanFrame(p.ReqId, ReadOnlyMemory<byte>.Empty, FrameFlags.None, default, default), ct);
+            new CanFrame(p.ReqId, ReadOnlyMemory<byte>.Empty, FrameFlags.None, default, default), cts.Token);
         if (!sendResult.IsSuccess)
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Failed to send request: {sendResult.Error?.Message}", null, null, 0);

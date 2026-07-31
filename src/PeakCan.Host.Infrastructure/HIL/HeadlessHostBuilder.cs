@@ -80,7 +80,7 @@ public static class HeadlessHostBuilder
             var text = File.ReadAllText(args.DbcPath);
             var doc = Core.Dbc.DbcParser.Parse(text);
             if (!doc.IsSuccess)
-                throw new InvalidOperationException($"DBC parse failed: {doc.Error?.Message}");
+                throw new InvalidOperationException($"DBC parse failed for '{args.DbcPath}': {doc.Error?.Message}");
             return new HeadlessDbcLookup(doc.Value!);
         });
 
@@ -103,7 +103,8 @@ public static class HeadlessHostBuilder
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
-                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection);
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
+                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
             });
             RegisterUdsServices(builder, args);
         }
@@ -114,7 +115,8 @@ public static class HeadlessHostBuilder
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
-                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection);
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
+                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
             });
         }
 

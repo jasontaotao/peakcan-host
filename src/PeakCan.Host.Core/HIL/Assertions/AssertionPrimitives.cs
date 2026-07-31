@@ -11,8 +11,12 @@ public sealed class AssertionPrimitives
 
     public AssertionPrimitives(Contracts.IAssertionContext ctx) => _ctx = ctx;
 
+    /// <summary>
+    /// Wait for a signal to match the expected value within tolerance.
+    /// BUG-001 fix: timeoutMs is now honoured via a linked CancellationTokenSource.
+    /// </summary>
     public async Task<AssertionResult> WaitForSignalAsync(
-        string name, double expected, double tolerance, CancellationToken ct)
+        string name, double expected, double tolerance, int timeoutMs, CancellationToken ct)
     {
         var matchTcs = new TaskCompletionSource<bool>();
 
@@ -23,15 +27,19 @@ public sealed class AssertionPrimitives
                 matchTcs.TrySetResult(true);
         });
 
-        // Task.Delay with CT: throws OperationCanceledException when CT fires
-        var cancelTask = Task.Delay(Timeout.Infinite, ct);
+        // BUG-001 fix: honour timeoutMs via linked CTS
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (timeoutMs > 0)
+            timeoutCts.CancelAfter(timeoutMs);
+
+        var cancelTask = Task.Delay(Timeout.Infinite, timeoutCts.Token);
 
         var winner = await Task.WhenAny(matchTcs.Task, cancelTask).ConfigureAwait(false);
 
         if (winner == matchTcs.Task)
             return AssertionResult.Pass($"signal {name} = {expected} ±{tolerance}");
 
-        // cancelTask won (CT cancelled). Await to trigger exception propagation.
+        // cancelTask won (timeout or external CT). Await to trigger exception propagation.
         try
         {
             await cancelTask.ConfigureAwait(false);

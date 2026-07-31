@@ -20,6 +20,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     private readonly FaultInjector? _faultInjector;
     private readonly ReceivePathFaultInjector? _receiveFaultInjector;
     private readonly IDbcLookup _dbcLookup;
+    private readonly ILogger? _logger;
     private readonly Channel<CanFrame> _frameChannel;
     private readonly CancellationTokenSource _consumerCts = new();
     private readonly Task _consumerTask;
@@ -30,10 +31,11 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
     private readonly ConcurrentDictionary<string, IDisposable> _faultHandles = new();
 
-    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false)
+    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false, ILogger? logger = null)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
+        _logger = logger;
 
         // When fault injection is enabled, wrap channel with FaultInjector (send path)
         // and ReceivePathFaultInjector (receive path).
@@ -196,15 +198,32 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
                 var message = _dbcLookup.FindMessage(key);
 
                 DecodedFrame decoded;
+                // FIND-001 fix: use frame.Timestamp instead of _currentTimestamp.
+                // _currentTimestamp is written by OnFrame (producer) and can be overwritten
+                // before the consumer processes this frame, causing signal cache to store
+                // incorrect timestamps.
+                var frameTimestampUs = frame.Timestamp.TotalMicroseconds;
+
                 if (message is not null)
                 {
                     var signals = new Dictionary<string, double>();
                     foreach (var signal in message.Signals)
                     {
                         var signalName = $"{message.Name}.{signal.Name}";
-                        var value = SignalDecoder.Decode(frame.Data.Span, signal);
-                        signals[signalName] = value;
-                        _signalCache[signalName] = (value, _currentTimestamp);
+                        try
+                        {
+                            // FIND-004 fix: protect against decode exceptions (e.g.,
+                            // ArgumentOutOfRangeException for signal.Length > 64).
+                            var value = SignalDecoder.Decode(frame.Data.Span, signal);
+                            signals[signalName] = value;
+                            _signalCache[signalName] = (value, frameTimestampUs);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log and skip this signal — don't kill the consumer loop.
+                            _logger?.LogWarning(ex, "Failed to decode signal {Signal} in message {Message}",
+                                signal.Name, message.Name);
+                        }
                     }
                     decoded = new DecodedFrame(frame, signals);
                 }

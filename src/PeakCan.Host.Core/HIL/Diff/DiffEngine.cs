@@ -48,7 +48,8 @@ internal sealed class DiffEngine : IDiffEngine
 
             if (hasGolden && hasActual)
             {
-                if (FramesEqual(golden[i], actual[i]))
+                // DIFF-02 fix: use config.Tolerance for frame comparison
+                if (FramesEqualWithTolerance(golden[i], actual[i], config.Tolerance))
                 {
                     entries.Add(new DiffEntry(DiffEntryType.Matched, i, i, null, golden[i], actual[i]));
                     matched++;
@@ -79,8 +80,8 @@ internal sealed class DiffEngine : IDiffEngine
         IReadOnlyList<CanFrame> actual,
         DiffConfig config)
     {
-        // Event-level: match by frame presence within time window (simplified: index-based)
-        // For Sprint 1, use same logic as frame-level but with ID+flags only (ignore data)
+        // DIFF-06 fix: Event-level compares by CAN ID only (no flags check in current implementation).
+        // Simplified: index-based alignment. Future: add flags comparison and time-window matching.
         var entries = new List<DiffEntry>();
         int matched = 0, modified = 0, added = 0, removed = 0;
 
@@ -118,10 +119,31 @@ internal sealed class DiffEngine : IDiffEngine
         return new DiffResult(golden.Count, actual.Count, matched, added, removed, modified, entries);
     }
 
-    private static bool FramesEqual(CanFrame a, CanFrame b)
+    /// <summary>
+    /// DIFF-02 fix: frame comparison with tolerance.
+    /// When Tolerance is null or zero, behaves like exact match.
+    /// When Tolerance is set, allows byte-level differences within absolute tolerance.
+    /// </summary>
+    private static bool FramesEqualWithTolerance(CanFrame a, CanFrame b, ToleranceSpec? tolerance)
     {
         if (a.Id.Raw != b.Id.Raw) return false;
         if (a.Data.Length != b.Data.Length) return false;
-        return a.Data.Span.SequenceEqual(b.Data.Span);
+        // No tolerance configured — exact match
+        if (tolerance is null || (tolerance.AbsoluteTolerance == 0 && tolerance.RelativeTolerance == 0))
+            return a.Data.Span.SequenceEqual(b.Data.Span);
+
+        // Compare byte-by-byte with absolute tolerance
+        var absTol = tolerance.AbsoluteTolerance;
+        var spanA = a.Data.Span;
+        var spanB = b.Data.Span;
+        for (int i = 0; i < spanA.Length; i++)
+        {
+            var diff = Math.Abs((double)spanA[i] - (double)spanB[i]);
+            if (diff > absTol) return false;
+        }
+        return true;
     }
+
+    /// <summary>Exact frame equality (no tolerance).</summary>
+    private static bool FramesEqual(CanFrame a, CanFrame b) => FramesEqualWithTolerance(a, b, null);
 }
