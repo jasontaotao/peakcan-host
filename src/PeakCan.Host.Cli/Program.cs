@@ -4,6 +4,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Infrastructure.Cli.Reporting;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 using PeakCan.Host.Infrastructure.Peak;
@@ -77,12 +78,47 @@ public static class Program
                 var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(),
                     progress, default);
 
-                if (cli.OutputPath is not null)
+                // Report generation (after engine.ExecuteAsync).
+                // console 模式下，engine.ExecuteAsync 运行期间已通过 ConsoleProgress 输出逐条进度（ProgressBar）；
+                // 运行结束后追加 ConsoleSummaryFormatter 汇总。两者输出不冲突（进度是行内\r刷新，汇总是换行输出）。
+                switch (cli.Format)
                 {
-                    if (cli.Format == "trx")
-                        await ResultWriter.WriteTrx(result, cli.OutputPath);
-                    else if (cli.Format == "junit")
-                        await JUnitWriter.WriteJunit(result, cli.OutputPath);
+                    case "html":
+                        var trends = TrendTracker.Load("./hil-trends.json");
+                        var html = HtmlReportGenerator.GenerateHtml(result, trends);
+                        var htmlPath = cli.OutputPath ?? $"hil-report-{DateTime.UtcNow:yyyyMMddHHmmss}.html";
+                        await File.WriteAllTextAsync(htmlPath, html);
+                        Console.WriteLine($"HTML report written to {htmlPath}");
+                        TrendTracker.Record(new TrendEntry(DateTime.UtcNow, result.SuiteName,
+                            result.TotalCases, result.PassedCases, result.FailedCases, (int)result.ElapsedMs));
+                        break;
+                    case "html+junit":
+                        var trends2 = TrendTracker.Load("./hil-trends.json");
+                        var html2 = HtmlReportGenerator.GenerateHtml(result, trends2);
+                        var htmlPath2 = Path.ChangeExtension(cli.OutputPath ?? "hil-report", ".html");
+                        await File.WriteAllTextAsync(htmlPath2, html2);
+                        var junitPath = Path.ChangeExtension(cli.OutputPath ?? "hil-report", ".xml");
+                        await JUnitWriter.WriteJunit(result, junitPath);
+                        TrendTracker.Record(new TrendEntry(DateTime.UtcNow, result.SuiteName,
+                            result.TotalCases, result.PassedCases, result.FailedCases, (int)result.ElapsedMs));
+                        break;
+                    case "junit":
+                        await JUnitWriter.WriteJunit(result, cli.OutputPath ?? "hil-report.xml");
+                        break;
+                    case "trx":
+                        await ResultWriter.WriteTrx(result, cli.OutputPath ?? "hil-report.trx");
+                        break;
+                    case "console":
+                    default:
+                        Console.WriteLine(ConsoleSummaryFormatter.Format(result));
+                        break;
+                }
+
+                // Frame export (independent of format)
+                if (cli.ExportFramesDir is not null)
+                {
+                    await FrameCaptureExporter.ExportAsync(result, cli.ExportFramesDir);
+                    Console.WriteLine($"Frame captures exported to {cli.ExportFramesDir}");
                 }
 
                 return result.AllPassed ? 0 : 1;

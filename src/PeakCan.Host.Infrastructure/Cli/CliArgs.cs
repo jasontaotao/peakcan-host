@@ -25,7 +25,9 @@ public sealed record CliArgs(
     uint ImportOdxRequestId = 0x7E0,
     uint ImportOdxResponseId = 0x7E8,
     // Phase 5 Sprint 13 additions (standalone simulator):
-    bool Simulate = false);
+    bool Simulate = false,
+    // Phase 6 Sprint 15 additions (report format + frame export):
+    string? ExportFramesDir = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -43,6 +45,8 @@ public static class CliArgsParser
         uint importReq = 0x7E0, importResp = 0x7E8;
         // Phase 5 Sprint 13 standalone simulator
         bool simulate = false;
+        // Phase 6 Sprint 15 frame export directory
+        string? exportFramesDir = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -66,6 +70,8 @@ public static class CliArgsParser
                 case "--import-uds-resp": importResp = ParseUdsId(args[++i]); break;
                 // Phase 5 Sprint 13 standalone simulator
                 case "--simulate": simulate = true; break;
+                // Phase 6 Sprint 15 frame export
+                case "--export-frames": exportFramesDir = args[++i]; break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -79,7 +85,7 @@ public static class CliArgsParser
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false);
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir);
         }
 
         if (simulate)
@@ -92,7 +98,7 @@ public static class CliArgsParser
             if (dbc is null)
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true);
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -109,7 +115,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false);
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir);
     }
 
     /// <summary>
@@ -130,8 +136,9 @@ public static class CliArgsParser
         Console.WriteLine("       peakcan-hil --import-odx <path.odx> --ecu-name <name> [options]");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML)");
-        Console.WriteLine("  --format <format>  Output format: console (default), trx, junit");
+        Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML, or HTML report)");
+        Console.WriteLine("  --format <format>  Output format: console (default), trx, junit, html, html+junit");
+        Console.WriteLine("  --export-frames <dir>  Export fault frames as .asc files (independent of format)");
         Console.WriteLine("  --hw <channel>    Hardware channel (USB1..USB16) for real PCAN");
         Console.WriteLine("  --ecu <path>      ECU simulator script JSON path");
         Console.WriteLine("  --simulate        Standalone ECU simulator mode (requires --ecu and --hw)");
