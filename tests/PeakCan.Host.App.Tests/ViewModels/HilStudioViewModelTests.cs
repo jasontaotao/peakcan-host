@@ -181,4 +181,51 @@ public class HilStudioViewModelTests
 
         vm.SelectedSignal.Should().BeNull();
     }
+
+    private static Message MsgWith(params Signal[] signals) => new(
+        0x100, "M1", 8, "ECU1", signals, IsMultiplexed: false, MultiplexorSignalIndex: null);
+
+    private static Signal Sig(string name) => new(
+        name, 0, 16, ByteOrder.LittleEndian, DbcValueType.Unsigned, 1, 0, 0, 6553.5, "", Array.Empty<string>());
+
+    [Fact]
+    public void Selecting_Message_Populates_VisibleSignals()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(MsgWith(Sig("Speed"), Sig("Temp"))));
+
+        vm.SelectedMessage = vm.Messages[0];
+
+        vm.VisibleSignals.Should().HaveCount(2);
+        vm.VisibleSignals[0].Name.Should().Be("Speed");
+    }
+
+    [Fact]
+    public void Search_Filters_VisibleSignals_To_Matching()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(MsgWith(Sig("Speed"), Sig("Temp"))));
+        vm.SelectedMessage = vm.Messages[0];
+
+        vm.SearchText = "speed";
+
+        vm.VisibleSignals.Should().HaveCount(1);
+        vm.VisibleSignals[0].Name.Should().Be("Speed");
+    }
+
+    [Fact]
+    public void Deselecting_Message_Clears_VisibleSignals()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(MsgWith(Sig("Speed"))));
+        vm.SelectedMessage = vm.Messages[0];
+        vm.VisibleSignals.Should().HaveCount(1);
+
+        vm.SelectedMessage = null;
+
+        vm.VisibleSignals.Should().BeEmpty();
+    }
 }

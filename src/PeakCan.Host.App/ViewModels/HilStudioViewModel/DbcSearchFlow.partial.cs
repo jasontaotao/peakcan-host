@@ -2,7 +2,27 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class HilStudioViewModel
 {
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
+    partial void OnSearchTextChanged(string value)
+    {
+        ApplyFilter();
+        UpdateVisibleSignals();
+    }
+
+    /// <summary>
+    /// 重建选中消息的信号 grid。搜索激活时只保留 Name 匹配的信号，
+    /// 解决"搜信号关键字却显示整个 message 所有信号"的问题。
+    /// </summary>
+    private void UpdateVisibleSignals()
+    {
+        VisibleSignals.Clear();
+        if (SelectedMessage is not { } msg) return;
+        var pattern = SearchText.Trim();
+        foreach (var s in msg.Signals)
+        {
+            if (pattern.Length == 0 || s.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                VisibleSignals.Add(s);
+        }
+    }
 
     /// <summary>
     /// 全量重建过滤集合。匹配 Message.Name / Sender / Signal.Name（结构化, OrdinalIgnoreCase）。

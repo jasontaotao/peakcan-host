@@ -12,27 +12,34 @@
       <ColumnDefinition Width="*" MinWidth="240"/>
     </Grid.ColumnDefinitions>
 
-    <!-- ===== col 0: DBC Browser（Phase 1） ===== -->
+    <!-- ===== col 0: DBC Browser（Phase 1） 主从式: 消息 grid 上 / 信号 grid 下 ===== -->
     <Grid Grid.Column="0" Margin="8">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
-        <RowDefinition Height="*"/>
+        <RowDefinition Height="*" MinHeight="120"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*" MinHeight="120"/>
       </Grid.RowDefinitions>
+
+      <!-- toolbar -->
       <StackPanel Orientation="Horizontal">
         <Button Content="Open DBC..." Command="{Binding OpenCommand}" Padding="8,2"/>
         <TextBlock Text="{Binding Status}" Margin="8,3,0,0" VerticalAlignment="Center"/>
       </StackPanel>
+
+      <!-- search -->
       <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,6,0,4">
         <TextBlock Text="Search:" VerticalAlignment="Center"/>
         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="4,0"/>
-        <TextBlock Text="{Binding FilteredMessages.Count, StringFormat='{}{0} shown'}"
+        <TextBlock Text="{Binding FilteredMessages.Count, StringFormat='{}{0} messages'}"
                    VerticalAlignment="Center" Margin="4,0,0,0" Foreground="Gray"/>
       </StackPanel>
+
+      <!-- 消息 grid（约束高度 -> 虚拟化） -->
       <DataGrid Grid.Row="2" ItemsSource="{Binding FilteredMessages}"
                 IsReadOnly="True" EnableRowVirtualization="True" RowHeight="20"
                 AlternatingRowBackground="#F8F8F8"
-                RowDetailsVisibilityMode="VisibleWhenSelected"
                 SelectedItem="{Binding SelectedMessage, Mode=TwoWay}"
                 AutoGenerateColumns="False">
         <DataGrid.Columns>
@@ -50,58 +57,68 @@
             </DataGridTextColumn.ElementStyle>
           </DataGridTextColumn>
         </DataGrid.Columns>
-        <DataGrid.RowDetailsTemplate>
-          <DataTemplate>
-            <DataGrid ItemsSource="{Binding Signals}" IsReadOnly="True"
-                      EnableRowVirtualization="True" RowHeight="20"
-                      RowDetailsVisibilityMode="VisibleWhenSelected"
-                      SelectedItem="{Binding DataContext.SelectedSignal,
-                                    RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
-                      AutoGenerateColumns="False">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
-                <DataGridTextColumn Header="Bits" Binding="{Binding BitLayout}" Width="110"/>
-                <DataGridTextColumn Header="Scale" Binding="{Binding FactorOffset}" Width="90"/>
-                <DataGridTextColumn Header="Range" Binding="{Binding MinMax}" Width="110"/>
-                <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="70"/>
-                <DataGridTextColumn Header="Value Table" Binding="{Binding ValueTableName}" Width="110"/>
-                <DataGridTextColumn Header="Comment" Binding="{Binding Comment}" Width="*">
-                  <DataGridTextColumn.ElementStyle>
-                    <Style TargetType="TextBlock">
-                      <Setter Property="Foreground" Value="Gray"/>
-                      <Setter Property="FontStyle" Value="Italic"/>
-                    </Style>
-                  </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-              </DataGrid.Columns>
-              <!-- 值表展开：信号级嵌套 DataGrid 的 RowDetailsTemplate（约束 #10） -->
-              <DataGrid.RowDetailsTemplate>
-                <DataTemplate>
-                  <Border Visibility="{Binding ValueTableEntries,
-                              Converter={StaticResource NullToVisibilityConverter}}"
-                          Margin="16,4,4,4">
-                    <StackPanel>
-                      <TextBlock Text="{Binding ValueTableName, StringFormat='Value Table: {0}'}"
-                                 FontWeight="SemiBold" FontSize="11"/>
-                      <ItemsControl ItemsSource="{Binding ValueTableEntries}">
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Margin="0,1">
-                              <TextBlock Text="{Binding Key}" FontFamily="Consolas" Foreground="Gray" Width="48"/>
-                              <TextBlock Text=" = "/>
-                              <TextBlock Text="{Binding Label}"/>
-                            </StackPanel>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                    </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </DataGrid.RowDetailsTemplate>
-            </DataGrid>
-          </DataTemplate>
-        </DataGrid.RowDetailsTemplate>
       </DataGrid>
+
+      <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch" Background="#CCCCCC"
+                    ResizeBehavior="PreviousAndNext"/>
+
+      <!-- 信号区: 头 + 信号 grid（搜索激活时只显示匹配信号） -->
+      <Grid Grid.Row="4">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="{Binding SelectedMessage.Name, StringFormat='Signals of {0}'}"
+                   FontWeight="SemiBold" Margin="0,2,0,2"/>
+        <DataGrid Grid.Row="1" ItemsSource="{Binding VisibleSignals}"
+                  IsReadOnly="True" EnableRowVirtualization="True" RowHeight="20"
+                  AlternatingRowBackground="#F8F8F8"
+                  RowDetailsVisibilityMode="VisibleWhenSelected"
+                  SelectedItem="{Binding SelectedSignal, Mode=TwoWay}"
+                  AutoGenerateColumns="False">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
+            <DataGridTextColumn Header="Bits" Binding="{Binding BitLayout}" Width="110"/>
+            <DataGridTextColumn Header="Scale" Binding="{Binding FactorOffset}" Width="90"/>
+            <DataGridTextColumn Header="Range" Binding="{Binding MinMax}" Width="110"/>
+            <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="70"/>
+            <DataGridTextColumn Header="Value Table" Binding="{Binding ValueTableName}" Width="110"/>
+            <DataGridTextColumn Header="Comment" Binding="{Binding Comment}" Width="*">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Foreground" Value="Gray"/>
+                  <Setter Property="FontStyle" Value="Italic"/>
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+          </DataGrid.Columns>
+          <!-- 值表展开（约束 #10） -->
+          <DataGrid.RowDetailsTemplate>
+            <DataTemplate>
+              <Border Visibility="{Binding ValueTableEntries,
+                          Converter={StaticResource NullToVisibilityConverter}}"
+                      Margin="16,4,4,4">
+                <StackPanel>
+                  <TextBlock Text="{Binding ValueTableName, StringFormat='Value Table: {0}'}"
+                             FontWeight="SemiBold" FontSize="11"/>
+                  <ItemsControl ItemsSource="{Binding ValueTableEntries}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Margin="0,1">
+                          <TextBlock Text="{Binding Key}" FontFamily="Consolas" Foreground="Gray" Width="48"/>
+                          <TextBlock Text=" = "/>
+                          <TextBlock Text="{Binding Label}"/>
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </DataGrid.RowDetailsTemplate>
+        </DataGrid>
+      </Grid>
     </Grid>
 
     <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"

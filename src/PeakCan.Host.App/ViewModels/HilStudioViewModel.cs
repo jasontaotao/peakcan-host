@@ -21,6 +21,9 @@ public sealed partial class HilStudioViewModel : ObservableObject
     public ObservableCollection<HilStudioDbcMessageRow> Messages { get; } = new();
     public ObservableCollection<HilStudioDbcMessageRow> FilteredMessages { get; } = new();
 
+    /// <summary>选中消息在信号 grid 显示的行（搜索时只显示匹配信号）。</summary>
+    public ObservableCollection<HilStudioDbcSignalRow> VisibleSignals { get; } = new();
+
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _status = "No DBC loaded";
     [ObservableProperty] private string _loadedPath = "";
@@ -41,6 +44,10 @@ public sealed partial class HilStudioViewModel : ObservableObject
         _svc.LoadFailed += OnLoadFailed;
     }
 
-    /// <summary>切消息时清掉残留的信号选择（防御嵌套 DataGrid 重载写回 null）。</summary>
-    partial void OnSelectedMessageChanged(HilStudioDbcMessageRow? value) => SelectedSignal = null;
+    /// <summary>切消息时清掉残留的信号选择 + 重建信号 grid（防御嵌套 DataGrid 重载写回 null）。</summary>
+    partial void OnSelectedMessageChanged(HilStudioDbcMessageRow? value)
+    {
+        SelectedSignal = null;
+        UpdateVisibleSignals();
+    }
 }
