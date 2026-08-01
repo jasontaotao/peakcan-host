@@ -191,10 +191,10 @@
                    SelectedItem="{Binding SuiteBuilder.SelectedStep}">
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <TextBlock>
-                  <Run Text="{Binding Kind}" FontWeight="SemiBold"/>
-                  <Run Text="{Binding Label, StringFormat='  {0}'}" Foreground="Gray"/>
-                </TextBlock>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Kind}" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding Label, StringFormat='  {0}'}" Foreground="Gray"/>
+                </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
@@ -279,8 +279,9 @@
                   </Style>
                 </StackPanel.Style>
                 <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}"
-                          SelectedItem="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
+                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
+                          SelectedValuePath="FullName"
+                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
                 <TextBlock Text="Expected" Margin="0,6,0,2"/>
                 <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Expected], Mode=TwoWay}"/>
                 <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
@@ -302,8 +303,9 @@
                   </Style>
                 </StackPanel.Style>
                 <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}"
-                          SelectedItem="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
+                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
+                          SelectedValuePath="FullName"
+                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
                 <TextBlock Text="Expected" Margin="0,6,0,2"/>
                 <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Expected], Mode=TwoWay}"/>
                 <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
@@ -323,8 +325,9 @@
                   </Style>
                 </StackPanel.Style>
                 <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}"
-                          SelectedItem="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
+                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
+                          SelectedValuePath="FullName"
+                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
                 <TextBlock Text="Min" Margin="0,6,0,2"/>
                 <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Min], Mode=TwoWay}"/>
                 <TextBlock Text="Max" Margin="0,6,0,2"/>

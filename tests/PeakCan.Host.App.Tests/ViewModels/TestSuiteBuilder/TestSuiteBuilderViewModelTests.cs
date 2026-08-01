@@ -82,7 +82,7 @@ public class TestSuiteBuilderViewModelTests
         svc.SetCurrentForTests(doc);
         var vm = new TestSuiteBuilderViewModel(svc, NullLogger<TestSuiteBuilderViewModel>.Instance, null);
 
-        vm.DbcSignals.Should().Contain("M1.Speed");
+        vm.DbcSignals.Should().Contain(s => s.FullName == "M1.Speed");
         vm.DbcMessages.Should().HaveCount(1);
         vm.DbcMessages[0].Hex.Should().Be("0x100");
     }

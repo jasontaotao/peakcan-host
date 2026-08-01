@@ -40,7 +40,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
 
     // DBC 独立下拉（DbcOptionsFlow）
     [ObservableProperty] private IReadOnlyList<DbcMessageOption> _dbcMessages = Array.Empty<DbcMessageOption>();
-    [ObservableProperty] private IReadOnlyList<string> _dbcSignals = Array.Empty<string>();
+    [ObservableProperty] private IReadOnlyList<DbcSignalOption> _dbcSignals = Array.Empty<DbcSignalOption>();
 
     public TestSuiteBuilderViewModel(
         DbcService svc, ILogger logger, IFileDialogService? fileDialog = null, DbcEncodeService? encodeService = null)

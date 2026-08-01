@@ -10,9 +10,9 @@ public sealed partial class TestSuiteBuilderViewModel
         var doc = _svc.Current;
         DbcMessages = doc?.Messages.Select(DbcMessageOption.From).ToList() ?? new List<DbcMessageOption>();
         DbcSignals = doc?.Messages
-            .SelectMany(m => m.Signals.Select(s => $"{m.Name}.{s.Name}"))
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .ToList() ?? new List<string>();
+            .SelectMany(m => m.Signals.Select(s => new DbcSignalOption($"{m.Name}.{s.Name}", s.Comment)))
+            .OrderBy(x => x.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<DbcSignalOption>();
         Composer?.RefreshMessages();
     }
 }
@@ -32,4 +32,13 @@ public sealed record DbcMessageOption(uint RawId, bool IsExtended, string Name)
         var ext = (m.Id & 0x80000000u) != 0;
         return new DbcMessageOption(ext ? m.Id & 0x7FFFFFFFu : m.Id, ext, m.Name);
     }
+}
+
+/// <summary>
+/// DBC 信号下拉选项。FullName 是干净的 "Msg.Sig"（写入 step 参数）,
+/// Display 附带 CM_ SG_ comment 供用户辨识。
+/// </summary>
+public sealed record DbcSignalOption(string FullName, string? Comment)
+{
+    public string Display => string.IsNullOrEmpty(Comment) ? FullName : $"{FullName} — {Comment}";
 }
