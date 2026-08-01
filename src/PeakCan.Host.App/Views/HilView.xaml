@@ -115,9 +115,8 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
                         <Button Content="Select All" Command="{Binding SelectAllCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
                         <Button Content="Select None" Command="{Binding SelectNoCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
-                        <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
-                            <Run Text="{Binding AvailableCases.Count}" /> cases loaded
-                        </TextBlock>
+                        <TextBlock Text="{Binding AvailableCases.Count, StringFormat='{}{0} cases loaded'}"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
                     <DataGrid ItemsSource="{Binding AvailableCases}" AutoGenerateColumns="False"
                               CanUserAddRows="False" CanUserDeleteRows="False">
