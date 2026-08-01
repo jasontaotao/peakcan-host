@@ -59,34 +59,44 @@
             <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
         </StackPanel>
 
-        <!-- Mode-specific path -->
+        <!-- Mode-specific path (按 Mode 切换显隐) -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Grid Width="260" Margin="0,0,4,0">
-                <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" IsReadOnly="True" />
-                <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, ElementName=TracePathBox,
-                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
-            </Grid>
-            <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
+            <StackPanel Orientation="Horizontal" Visibility="{Binding IsTraceMode, Converter={StaticResource BoolToVis}}">
+                <Grid Width="260" Margin="0,0,4,0">
+                    <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" IsReadOnly="True" />
+                    <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
+                               Visibility="{Binding Text, ElementName=TracePathBox,
+                                            Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+                </Grid>
+                <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
+            </StackPanel>
 
-            <TextBox Text="{Binding HardwareChannel}" Width="80" Margin="0,0,12,0"
-                     ToolTip="Hardware channel (USB1..USB16)" />
+            <StackPanel Orientation="Horizontal" Visibility="{Binding IsHardwareMode, Converter={StaticResource BoolToVis}}">
+                <ComboBox ItemsSource="{Binding AvailableChannels}"
+                          SelectedItem="{Binding HardwareChannel}"
+                          Width="90" Margin="0,0,12,0"
+                          ToolTip="PCAN hardware channel" />
+            </StackPanel>
 
-            <Grid Width="160" Margin="0,0,4,0">
-                <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" IsReadOnly="True" />
-                <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, ElementName=EcuScriptPathBox,
-                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
-            </Grid>
-            <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
+            <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
+                <Grid Width="160" Margin="0,0,4,0">
+                    <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" IsReadOnly="True" />
+                    <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
+                               Visibility="{Binding Text, ElementName=EcuScriptPathBox,
+                                            Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+                </Grid>
+                <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
+            </StackPanel>
 
-            <Grid Width="160" Margin="0,0,4,0">
-                <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" IsReadOnly="True" />
-                <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, ElementName=MatrixPathBox,
-                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
-            </Grid>
-            <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
+            <StackPanel Orientation="Horizontal" Visibility="{Binding IsMatrixMode, Converter={StaticResource BoolToVis}}">
+                <Grid Width="160" Margin="0,0,4,0">
+                    <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" IsReadOnly="True" />
+                    <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
+                               Visibility="{Binding Text, ElementName=MatrixPathBox,
+                                            Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+                </Grid>
+                <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
+            </StackPanel>
 
             <CheckBox Content="Faults" IsChecked="{Binding EnableFaultInjection}"
                       VerticalAlignment="Center" Margin="0,0,12,0" />

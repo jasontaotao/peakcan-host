@@ -55,6 +55,28 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
 
+    /// <summary>PCAN 硬件通道下拉选项: USB1..USB16.</summary>
+    public ObservableCollection<string> AvailableChannels { get; } = new()
+    {
+        "USB1", "USB2", "USB3", "USB4", "USB5", "USB6", "USB7", "USB8",
+        "USB9", "USB10", "USB11", "USB12", "USB13", "USB14", "USB15", "USB16",
+    };
+
+    // --- Mode-specific field visibility ---
+
+    [ObservableProperty] private bool _isTraceMode = true;
+    [ObservableProperty] private bool _isHardwareMode;
+    [ObservableProperty] private bool _isVirtualEcuMode;
+    [ObservableProperty] private bool _isMatrixMode;
+
+    partial void OnSelectedModeChanged(HilMode value)
+    {
+        IsTraceMode = value == HilMode.TraceReplay;
+        IsHardwareMode = value == HilMode.Hardware;
+        IsVirtualEcuMode = value == HilMode.VirtualEcu;
+        IsMatrixMode = value == HilMode.Matrix;
+    }
+
     public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog, IHilAnalysisService analysisService, IHilReportService reportService)
     {
         _runner = runner;
