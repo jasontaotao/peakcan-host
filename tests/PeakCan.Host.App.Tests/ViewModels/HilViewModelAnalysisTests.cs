@@ -5,6 +5,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -18,13 +19,15 @@ public sealed class HilViewModelAnalysisTests
 {
     private static HilViewModel CreateViewModel(
         IHilRunnerService? runner = null,
-        IHilAnalysisService? analysis = null)
+        IHilAnalysisService? analysis = null,
+        IHilReportService? reportService = null)
     {
         var r = runner ?? Substitute.For<IHilRunnerService>();
         var log = NullLogger<HilViewModel>.Instance;
         var fd = Substitute.For<IFileDialogService>();
         var a = analysis ?? Substitute.For<IHilAnalysisService>();
-        return new HilViewModel(r, log, fd, a);
+        return new HilViewModel(r, log, fd, a,
+            reportService ?? Substitute.For<IHilReportService>());
     }
 
     private static TestSuiteResult AllPassedResult() => new(

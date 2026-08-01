@@ -301,6 +301,9 @@ public partial class AppHostBuilder
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
         builder.Services.AddSingleton<Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
         builder.Services.AddTransient<ViewModels.HilViewModel>();
+        // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
+        builder.Services.AddSingleton<Infrastructure.HIL.Reporting.IHilReportService,
+            Infrastructure.HIL.Reporting.HilReportService>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
         // Core parser/persistence plus App-layer service + VM glue.

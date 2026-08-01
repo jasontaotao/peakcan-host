@@ -19,6 +19,7 @@ using PeakCan.Host.Core.Uds;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.HIL.Reporting;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -173,7 +174,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
             fileDialogs,
             prompt,
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
     }
 
     /// <summary>Test double for <see cref="IChannelFactory"/>

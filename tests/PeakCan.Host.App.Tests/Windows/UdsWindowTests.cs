@@ -20,6 +20,7 @@ using PeakCan.Host.Core.Uds.Database;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 
@@ -102,7 +103,7 @@ public class UdsWindowTests
             NSubstitute.Substitute.For<IFileDialogService>(),
             NSubstitute.Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Phase 4: HilViewModel ctor arg
-            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>()));
+            new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
     }
 
     /// <summary>

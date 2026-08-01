@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
-             xmlns:core="clr-namespace:PeakCan.Host.Core.HIL;assembly=PeakCan.Host.Core">
+             xmlns:core="clr-namespace:PeakCan.Host.Core.HIL;assembly=PeakCan.Host.Core"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
     <UserControl.Resources>
         <ObjectDataProvider x:Key="HilModeValues" MethodName="GetValues" ObjectType="{x:Type core:HilMode}">
             <ObjectDataProvider.MethodParameters>
@@ -63,43 +64,75 @@
                      Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
         <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}" Margin="0,0,0,8" />
 
-        <!-- Results: summary DataGrid + hierarchical TreeView -->
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="2*" />
-            </Grid.ColumnDefinitions>
+        <!-- Phase 7 Unit C: 中部填充区改 TabControl —— Results(原 DataGrid+TreeView) / HTML Report(WebView2)。
+             LLM Analysis TextBox 保留 DockPanel 底部（T3）。 -->
+        <TabControl>
+            <TabItem Header="Results">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="2*" />
+                    </Grid.ColumnDefinitions>
 
-            <DataGrid Grid.Column="0" ItemsSource="{Binding Results}" AutoGenerateColumns="False"
-                      IsReadOnly="True" Margin="0,0,8,0">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Case" Binding="{Binding Name}" Width="*" />
-                    <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
-                    <DataGridTextColumn Header="Failure Reason" Binding="{Binding FailureReason}" Width="2*" />
-                </DataGrid.Columns>
-            </DataGrid>
+                    <DataGrid Grid.Column="0" ItemsSource="{Binding Results}" AutoGenerateColumns="False"
+                              IsReadOnly="True" Margin="0,0,8,0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Case" Binding="{Binding Name}" Width="*" />
+                            <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
+                            <DataGridTextColumn Header="Failure Reason" Binding="{Binding FailureReason}" Width="2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
 
-            <TreeView Grid.Column="1" ItemsSource="{Binding ResultsTree}">
-                <TreeView.Resources>
-                    <HierarchicalDataTemplate DataType="{x:Type vm:TestCaseNode}" ItemsSource="{Binding Steps}">
-                        <TextBlock Text="{Binding Name}" FontWeight="Bold" />
-                    </HierarchicalDataTemplate>
-                    <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding Name}" Width="140" />
-                            <TextBlock Text="{Binding Status}" Width="70" />
-                            <TextBlock Text="{Binding Message}" />
-                        </StackPanel>
-                    </HierarchicalDataTemplate>
-                    <DataTemplate DataType="{x:Type vm:FrameNode}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding CanId}" Width="70" />
-                            <TextBlock Text="{Binding DataHex}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </TreeView.Resources>
-            </TreeView>
-        </Grid>
+                    <TreeView Grid.Column="1" ItemsSource="{Binding ResultsTree}">
+                        <TreeView.Resources>
+                            <HierarchicalDataTemplate DataType="{x:Type vm:TestCaseNode}" ItemsSource="{Binding Steps}">
+                                <TextBlock Text="{Binding Name}" FontWeight="Bold" />
+                            </HierarchicalDataTemplate>
+                            <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Name}" Width="140" />
+                                    <TextBlock Text="{Binding Status}" Width="70" />
+                                    <TextBlock Text="{Binding Message}" />
+                                </StackPanel>
+                            </HierarchicalDataTemplate>
+                            <DataTemplate DataType="{x:Type vm:FrameNode}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding CanId}" Width="70" />
+                                    <TextBlock Text="{Binding DataHex}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </TreeView.Resources>
+                    </TreeView>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="HTML Report">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="{Binding LatestReportPath}" VerticalAlignment="Center"
+                                   Foreground="Gray" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
+                                   MaxWidth="280" />
+                        <Button Content="Open in Browser" Command="{Binding OpenReportCommand}"
+                                HorizontalAlignment="Right" Padding="8,2" />
+                    </StackPanel>
+                    <!-- R1：WebView2 与 fallback 用 Grid 叠放 —— Grid 是 DockPanel last-child 占满剩余空间；
+                         Border(WebView2) 填满 Grid，fallback TextBlock 覆盖其上（默认 ZIndex 更高）。不能把
+                         TextBlock 放 Grid 外当 last-child（DockPanel LastChildFill 会坍缩 WebView2）。 -->
+                    <Grid>
+                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+                            <wv2:WebView2 x:Name="ReportWebView" />
+                        </Border>
+                        <!-- T4/MEDIUM-1/2: fallback 可见性由 code-behind UpdateReportPanel 管理（Text 绑
+                             ReportError，初始 Collapsed）。不在 XAML 用 DataTrigger —— WebView2 是 HWND
+                             控件，报告失败时需 Collapse WebView2 才能让 fallback 文字可见（WPF airspace）；
+                             WebView2 init 错误是视图本地状态，VM 重置 ShowReportError 不影响它。 -->
+                        <TextBlock x:Name="ReportFallbackText" Text="{Binding ReportError}" Foreground="DarkRed"
+                                   Padding="12" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Visibility="Collapsed" />
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
 
         <!-- LLM analysis result (Sprint 16) -->
         <TextBox DockPanel.Dock="Bottom" Text="{Binding AnalysisResult, Mode=OneWay}"

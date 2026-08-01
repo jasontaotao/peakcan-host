@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -7,6 +8,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Infrastructure.HIL.Reporting;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -16,6 +18,7 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly ILogger<HilViewModel> _logger;
     private readonly IFileDialogService _fileDialog;
     private readonly IHilAnalysisService _analysisService;
+    private readonly IHilReportService _reportService;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -35,6 +38,11 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private bool _enableAnalyze = false;
     private TestSuiteResult? _lastResult;
 
+    // Web 报告 UI（Phase 7 Unit C）：最新报告文件路径 + 报告错误状态。
+    [ObservableProperty] private string _latestReportPath = "";
+    [ObservableProperty] private bool _showReportError = false;
+    [ObservableProperty] private string _reportError = "";
+
     // ECU editor: raw JSON content typed in the panel.
     [ObservableProperty] private string _ecuEditorJson = "";
 
@@ -47,12 +55,13 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
 
-    public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog, IHilAnalysisService analysisService)
+    public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog, IHilAnalysisService analysisService, IHilReportService reportService)
     {
         _runner = runner;
         _logger = logger;
         _fileDialog = fileDialog;
         _analysisService = analysisService;
+        _reportService = reportService;
     }
 
     // --- Browse commands ---
@@ -160,6 +169,37 @@ public sealed partial class HilViewModel : ObservableObject
     private bool CanAnalyze()
         => !IsRunning && !IsAnalyzing && _lastResult is { AllPassed: false };
 
+    // --- Open report command (Phase 7 Unit C) ---
+
+    [RelayCommand]
+    private void OpenReport()
+    {
+        if (string.IsNullOrEmpty(LatestReportPath) || !File.Exists(LatestReportPath)) return;
+        try
+        {
+            // MEDIUM-3: File.Exists 与 Process.Start 间有竞态（文件被删），且 UseShellExecute 在
+            // 无文件关联时抛 Win32Exception —— 包 try/catch，避免命令异常冒泡到 WPF Dispatcher。
+            Process.Start(new ProcessStartInfo(LatestReportPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open HIL report {Path}", LatestReportPath);
+            ReportError = $"Failed to open report: {ex.Message}";
+            ShowReportError = true;
+        }
+    }
+
+    /// <summary>
+    /// Phase 7 Unit C (LOW-1): WebView2 Runtime 缺失等 init 失败时由 HilView 调用 ——
+    /// 记录日志并设置报告错误状态（fallback 提示 + Open in Browser 兜底）。
+    /// </summary>
+    public void OnReportWebView2InitFailed(Exception ex, string message)
+    {
+        _logger.LogError(ex, "HIL report WebView2 init failed");
+        ReportError = message;
+        ShowReportError = true;
+    }
+
     // --- Run command ---
 
     [RelayCommand(CanExecute = nameof(CanRun))]
@@ -170,6 +210,8 @@ public sealed partial class HilViewModel : ObservableObject
         Results.Clear();
         ResultsTree.Clear();
         ProgressPercent = 0;
+        // LOW-2: 每次 Run 从空报告开始 —— 报告失败时不残留旧报告（WebView 不显示过期结果）。
+        LatestReportPath = "";
 
         try
         {
@@ -198,6 +240,23 @@ public sealed partial class HilViewModel : ObservableObject
             StatusMessage = result.AllPassed
                 ? $"All {result.TotalCases} cases passed"
                 : $"{result.FailedCases}/{result.TotalCases} cases failed";
+
+            // Phase 7 Unit C: 生成 HTML 报告。插入点在 StatusMessage 之后、Phase 7 A 的
+            // AnalyzeAsync 之前 —— 报告是秒级本地 IO，不被 LLM 调用（最长 ~150s 超时）阻塞。
+            // 失败不阻断测试结果展示（ShowReportError=true → UI 显示错误而非崩溃）。
+            try
+            {
+                var report = _reportService.Generate(result);
+                LatestReportPath = report.FilePath;
+                ShowReportError = false;
+                ReportError = "";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "HIL report generation failed");
+                ReportError = ex.Message;
+                ShowReportError = true;
+            }
 
             // Phase 7 Unit A: EnableAnalyze=true 且有失败 -> 自动分析（复用 AnalyzeAsync）。
             // 插入点在结果填充和 StatusMessage 之后，确保 UI 先渲染测试结果。

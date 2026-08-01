@@ -9,6 +9,7 @@ using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -22,12 +23,14 @@ public sealed class HilViewModelTests
 {
     private static HilViewModel CreateViewModel(
         IHilRunnerService? runner = null,
-        IFileDialogService? fileDialog = null)
+        IFileDialogService? fileDialog = null,
+        IHilReportService? reportService = null)
     {
         var r = runner ?? Substitute.For<IHilRunnerService>();
         var log = NullLogger<HilViewModel>.Instance;
         var fd = fileDialog ?? Substitute.For<IFileDialogService>();
-        return new HilViewModel(r, log, fd, Substitute.For<IHilAnalysisService>());
+        return new HilViewModel(r, log, fd, Substitute.For<IHilAnalysisService>(),
+            reportService ?? Substitute.For<IHilReportService>());
     }
 
     private static TestSuiteResult AllPassedResult() => new(
