@@ -44,16 +44,16 @@
                        ToolTip="{Binding SelectedMode, Converter={StaticResource HilModeDesc}}"
                        VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16" />
             <Grid Width="180" Margin="0,0,4,0">
-                <TextBox Text="{Binding DbcPath}" ToolTip="DBC file path" />
+                <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" IsReadOnly="True" />
                 <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                           Visibility="{Binding Text, ElementName=DbcPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
             <Grid Width="180" Margin="0,0,4,0">
-                <TextBox Text="{Binding SuitePath}" ToolTip="Test suite JSON path" />
+                <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="Test suite JSON path" IsReadOnly="True" />
                 <TextBlock Text="选择测试套件 JSON..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                           Visibility="{Binding Text, ElementName=SuitePathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
@@ -62,9 +62,9 @@
         <!-- Mode-specific path -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Grid Width="260" Margin="0,0,4,0">
-                <TextBox Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" />
+                <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" IsReadOnly="True" />
                 <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                           Visibility="{Binding Text, ElementName=TracePathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
@@ -73,17 +73,17 @@
                      ToolTip="Hardware channel (USB1..USB16)" />
 
             <Grid Width="160" Margin="0,0,4,0">
-                <TextBox Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" />
+                <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" IsReadOnly="True" />
                 <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                           Visibility="{Binding Text, ElementName=EcuScriptPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
 
             <Grid Width="160" Margin="0,0,4,0">
-                <TextBox Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" />
+                <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" IsReadOnly="True" />
                 <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
-                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                           Visibility="{Binding Text, ElementName=MatrixPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
