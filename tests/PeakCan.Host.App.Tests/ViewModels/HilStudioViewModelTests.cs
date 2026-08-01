@@ -112,4 +112,73 @@ public class HilStudioViewModelTests
 
         vm.Status.Should().Be("No DBC loaded");
     }
+
+    [Fact]
+    public void Search_Filters_By_Message_Name_CaseInsensitive()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1", new List<Signal>(), false, null),
+            new Message(0x200, "M2", 4, "ECU2", new List<Signal>(), false, null)));
+
+        vm.SearchText = "m1";
+
+        vm.FilteredMessages.Should().HaveCount(1);
+        vm.FilteredMessages[0].Name.Should().Be("M1");
+    }
+
+    [Fact]
+    public void Search_Filters_By_Sender_And_By_Signal_Name()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1",
+                new List<Signal> { new("Speed", 0, 16, ByteOrder.LittleEndian, DbcValueType.Unsigned, 1, 0, 0, 6553.5, "", Array.Empty<string>()) },
+                IsMultiplexed: false, MultiplexorSignalIndex: null)));
+
+        vm.SearchText = "ECU1";
+        vm.FilteredMessages.Should().HaveCount(1);
+
+        vm.SearchText = "speed"; // Signal.Name 匹配（结构化，约束 #6）
+        vm.FilteredMessages.Should().HaveCount(1);
+
+        vm.SearchText = "zzz";
+        vm.FilteredMessages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Clearing_Search_Restores_All()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1", new List<Signal>(), false, null),
+            new Message(0x200, "M2", 4, "ECU2", new List<Signal>(), false, null)));
+
+        vm.SearchText = "m1";
+        vm.FilteredMessages.Should().HaveCount(1);
+
+        vm.SearchText = "";
+        vm.FilteredMessages.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Changing_SelectedMessage_Clears_SelectedSignal()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1",
+                new List<Signal> { new("Speed", 0, 16, ByteOrder.LittleEndian, DbcValueType.Unsigned, 1, 0, 0, 6553.5, "", Array.Empty<string>()) },
+                IsMultiplexed: false, MultiplexorSignalIndex: null)));
+        vm.SelectedMessage = vm.Messages[0];
+        vm.SelectedSignal = vm.Messages[0].Signals[0];
+        vm.SelectedSignal.Should().NotBeNull();
+
+        vm.SelectedMessage = null;
+
+        vm.SelectedSignal.Should().BeNull();
+    }
 }
