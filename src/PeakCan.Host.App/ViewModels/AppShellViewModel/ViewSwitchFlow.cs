@@ -281,6 +281,28 @@ public sealed partial class AppShellViewModel
             _ecuScriptEditorWindow.Activate();
     }
 
+    [RelayCommand]
+    private void ShowHilStudio()
+    {
+        ViewSwitcher.ShowWindow(
+            factory: () =>
+            {
+                var win = new HilStudioWindow(_hilStudioViewModel);
+                _hilStudioViewModel.RefreshFromCurrent();
+                return win;
+            },
+            cache: ref _hilStudioWindow);
+        if (_hilStudioWindow is null) return;
+
+        if (Application.Current?.MainWindow is { } owner && owner != _hilStudioWindow)
+            _hilStudioWindow.Owner = owner;
+
+        if (!_hilStudioWindow.IsVisible)
+            _hilStudioWindow.Show();
+        else
+            _hilStudioWindow.Activate();
+    }
+
     private void OnOpenEcuEditorRequested() => ShowEcuScriptEditorCommand.Execute(null);
 
     private void OnEcuScriptPathSetExternally(string path)
