@@ -109,6 +109,26 @@
         <!-- Phase 7 Unit C: 中部填充区改 TabControl —— Results(原 DataGrid+TreeView) / HTML Report(WebView2)。
              LLM Analysis TextBox 保留 DockPanel 底部（T3）。 -->
         <TabControl>
+            <!-- Test Cases: Browse Suite 后列出用例, 用户勾选要运行的用例 -->
+            <TabItem Header="Test Cases">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
+                        <Button Content="Select All" Command="{Binding SelectAllCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
+                        <Button Content="Select None" Command="{Binding SelectNoCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
+                        <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
+                            <Run Text="{Binding AvailableCases.Count}" /> cases loaded
+                        </TextBlock>
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding AvailableCases}" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Run" Binding="{Binding IsSelected}" Width="50" />
+                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
             <TabItem Header="Results">
                 <Grid>
                     <Grid.ColumnDefinitions>

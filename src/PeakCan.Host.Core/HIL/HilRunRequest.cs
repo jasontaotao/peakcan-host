@@ -16,4 +16,6 @@ public sealed record HilRunRequest(
     HilMode Mode = HilMode.TraceReplay,
     bool EnableAnalyze = false,
     // Phase 7 Unit B: external generator plugin directory
-    string? GeneratorDir = null);
+    string? GeneratorDir = null,
+    // Test case selection: null = run all; non-empty = run only matching case names
+    IReadOnlyList<string>? SelectedCaseNames = null);

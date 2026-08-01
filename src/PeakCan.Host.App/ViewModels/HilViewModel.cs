@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -48,6 +49,9 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Flat result list for the summary DataGrid.</summary>
     public ObservableCollection<TestCaseResultViewModel> Results { get; } = new();
 
+    /// <summary>用例选择列表: Browse Suite 后填充, Run 时只运行选中的用例.</summary>
+    public ObservableCollection<TestCaseSelection> AvailableCases { get; } = new();
+
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
 
@@ -73,7 +77,47 @@ public sealed partial class HilViewModel : ObservableObject
     private void BrowseSuite()
     {
         var path = _fileDialog.ShowOpenDialog("Test Suite JSON|*.json|All Files|*.*");
-        if (path is not null) SuitePath = path;
+        if (path is not null)
+        {
+            SuitePath = path;
+            LoadCaseList(path);
+        }
+    }
+
+    /// <summary>轻量解析 Suite JSON, 只提取 cases[].id + cases[].name.</summary>
+    private void LoadCaseList(string suitePath)
+    {
+        AvailableCases.Clear();
+        try
+        {
+            var json = File.ReadAllText(suitePath);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("cases", out var casesEl))
+            {
+                foreach (var caseEl in casesEl.EnumerateArray())
+                {
+                    var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                    var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                    AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
+                }
+            }
+        }
+        catch
+        {
+            // 解析失败不阻塞 -- Run 时完整反序列化会报具体错误
+        }
+    }
+
+    [RelayCommand]
+    private void SelectAllCases()
+    {
+        foreach (var c in AvailableCases) c.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void SelectNoCases()
+    {
+        foreach (var c in AvailableCases) c.IsSelected = false;
     }
 
     [RelayCommand]
@@ -216,7 +260,10 @@ public sealed partial class HilViewModel : ObservableObject
                 MatrixPath: SelectedMode == HilMode.Matrix ? (string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath) : null,
                 EnableFaultInjection: EnableFaultInjection,
                 Mode: SelectedMode,
-                EnableAnalyze: EnableAnalyze);
+                EnableAnalyze: EnableAnalyze,
+                SelectedCaseNames: AvailableCases.Count > 0
+                    ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
+                    : null);
 
             var result = await _runner.RunAsync(request, progress, default);
 
@@ -333,4 +380,12 @@ public sealed partial class TestCaseResultViewModel : ObservableObject
         _passed = result.Passed;
         _failureReason = result.FailureReason ?? "";
     }
+}
+
+/// <summary>用例选择项: 显示在 Test Cases tab, 用户勾选要运行的用例.</summary>
+public sealed partial class TestCaseSelection : ObservableObject
+{
+    [ObservableProperty] private bool _isSelected = true;
+    public required string Id { get; init; }
+    public required string Name { get; init; }
 }

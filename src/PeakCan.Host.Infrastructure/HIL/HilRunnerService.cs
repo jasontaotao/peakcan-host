@@ -25,6 +25,10 @@ public sealed class HilRunnerService : IHilRunnerService
         var suite = System.Text.Json.JsonSerializer.Deserialize<TestSuite>(suiteJson, Core.HIL.Serialization.HILJsonOptions.Default)
             ?? throw new InvalidOperationException("Failed to deserialize test suite JSON.");
 
+        // 用例选择: 非空列表时只运行匹配的用例
+        if (request.SelectedCaseNames is { Count: > 0 } selected)
+            suite = suite with { Cases = suite.Cases.Where(c => selected.Contains(c.Name)).ToList() };
+
         await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true, ct);
         try
         {
