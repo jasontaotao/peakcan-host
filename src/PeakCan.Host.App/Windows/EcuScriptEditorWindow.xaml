@@ -1,0 +1,26 @@
+<Window x:Class="PeakCan.Host.App.Windows.EcuScriptEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding WindowTitle}" Width="900" Height="600"
+        WindowStartupLocation="CenterOwner">
+  <DockPanel>
+    <!-- 工具栏：StackPanel + Button（贴合项目现有按钮风格） -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
+      <Button Content="📂 Open" Command="{Binding OpenCommand}" Margin="0,0,4,0" Padding="8,3" />
+      <Button Content="💾 Save" Command="{Binding SaveCommand}" Margin="0,0,4,0" Padding="8,3" />
+      <Button Content="Save As..." Command="{Binding SaveAsCommand}" Margin="0,0,4,0" Padding="8,3" />
+      <Button Content="✨ Format" Command="{Binding FormatCommand}" Margin="0,0,4,0" Padding="8,3" />
+      <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" />
+    </StackPanel>
+    <!-- 错误条 -->
+    <Border DockPanel.Dock="Bottom" BorderBrush="#CCCCCC" BorderThickness="1" Margin="4">
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" TextWrapping="Wrap" />
+    </Border>
+    <!-- 编辑区：Consolas 等宽、多行、横向/纵向滚动、PropertyChanged 即时回写 -->
+    <TextBox Text="{Binding EditorText, UpdateSourceTrigger=PropertyChanged}"
+             AcceptsReturn="True" TextWrapping="NoWrap"
+             FontFamily="Cascadia Mono, Consolas"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+             Padding="4" Margin="4" />
+  </DockPanel>
+</Window>

@@ -145,7 +145,8 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+                new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
     }
 
     /// <summary>
@@ -474,7 +475,8 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+                new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
         vm.EnumerateChannelsCommand.Execute(null);
         vm.ConnectCommand.Execute(null);
         svc.ActiveChannel.Should().NotBeNull();
@@ -571,7 +573,8 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+                new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
     }
 
     [Fact]
@@ -709,7 +712,8 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+                new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
@@ -1010,7 +1014,8 @@ public class AppShellViewModelTests
                 // (the 2 missing-.asc call sites route through this).
                 Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
-                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()));
+                new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+                new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
 
         // ACT
@@ -1111,6 +1116,7 @@ public class AppShellViewModelTests
             Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Phase 4: HilViewModel ctor arg
             new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
+            new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance),
             enumerator,
             writableConfig);
     }

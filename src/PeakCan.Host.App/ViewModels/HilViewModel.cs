@@ -43,11 +43,7 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private bool _showReportError = false;
     [ObservableProperty] private string _reportError = "";
 
-    // ECU editor: raw JSON content typed in the panel.
-    [ObservableProperty] private string _ecuEditorJson = "";
-
-    // Track the current ECU temp file so we can clean it up on next save.
-    private string? _currentEcuTempPath;
+    // ECU editor integration: see OpenEcuEditorRequested / EcuScriptPathSetExternally events below.
 
     /// <summary>Flat result list for the summary DataGrid.</summary>
     public ObservableCollection<TestCaseResultViewModel> Results { get; } = new();
@@ -91,7 +87,11 @@ public sealed partial class HilViewModel : ObservableObject
     private void BrowseEcu()
     {
         var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.json|All Files|*.*");
-        if (path is not null) EcuScriptPath = path;
+        if (path is not null)
+        {
+            EcuScriptPath = path;
+            EcuScriptPathSetExternally?.Invoke(path);
+        }
     }
 
     [RelayCommand]
@@ -101,25 +101,16 @@ public sealed partial class HilViewModel : ObservableObject
         if (path is not null) MatrixPath = path;
     }
 
-    /// <summary>
-    /// Save the ECU editor JSON to a temp file and set EcuScriptPath.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanSaveEcu))]
-    private void SaveEcu()
-    {
-        if (string.IsNullOrWhiteSpace(EcuEditorJson)) return;
-        // Clean up previous temp file before creating a new one
-        if (_currentEcuTempPath is not null && File.Exists(_currentEcuTempPath))
-        {
-            try { File.Delete(_currentEcuTempPath); } catch { /* best-effort cleanup */ }
-        }
-        var tempPath = Path.Combine(Path.GetTempPath(), $"peakcan_ecu_{Guid.NewGuid():N}.json");
-        File.WriteAllText(tempPath, EcuEditorJson);
-        _currentEcuTempPath = tempPath;
-        EcuScriptPath = tempPath;
-    }
+    // --- ECU editor integration ---
 
-    private bool CanSaveEcu() => !string.IsNullOrWhiteSpace(EcuEditorJson);
+    /// <summary>Raised when user clicks "Open ECU Editor" button in HIL view.</summary>
+    public event Action? OpenEcuEditorRequested;
+
+    /// <summary>Raised after BrowseEcu sets EcuScriptPath (path is non-null).</summary>
+    public event Action<string>? EcuScriptPathSetExternally;
+
+    [RelayCommand]
+    private void OpenEcuEditor() => OpenEcuEditorRequested?.Invoke();
 
     // --- Analyze command (Sprint 16: LLM failure analysis) ---
 

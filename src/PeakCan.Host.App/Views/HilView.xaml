@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:core="clr-namespace:PeakCan.Host.Core.HIL;assembly=PeakCan.Host.Core"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
     <UserControl.Resources>
         <ObjectDataProvider x:Key="HilModeValues" MethodName="GetValues" ObjectType="{x:Type core:HilMode}">
@@ -10,6 +11,18 @@
                 <x:Type TypeName="core:HilMode" />
             </ObjectDataProvider.MethodParameters>
         </ObjectDataProvider>
+        <!-- Browse 字段空态占位符样式 -->
+        <Style x:Key="HintTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="Gray" />
+            <Setter Property="FontStyle" Value="Italic" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+        </Style>
+        <conv:HilModeToIconConverter x:Key="HilModeIcon" />
+        <conv:HilModeToDescriptionConverter x:Key="HilModeDesc" />
     </UserControl.Resources>
     <DockPanel Margin="16">
         <!-- Mode selector + DBC / Suite paths -->
@@ -17,28 +30,62 @@
             <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,8,0" />
             <ComboBox Width="150" Margin="0,0,16,0"
                       ItemsSource="{Binding Source={StaticResource HilModeValues}}"
-                      SelectedItem="{Binding SelectedMode}" />
-            <TextBox Text="{Binding DbcPath}" Width="180" Margin="0,0,4,0" ToolTip="DBC file path" />
+                      SelectedItem="{Binding SelectedMode}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Converter={StaticResource HilModeIcon}}" Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="{Binding SelectedMode, Converter={StaticResource HilModeIcon}}"
+                       ToolTip="{Binding SelectedMode, Converter={StaticResource HilModeDesc}}"
+                       VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16" />
+            <Grid Width="180" Margin="0,0,4,0">
+                <TextBox Text="{Binding DbcPath}" ToolTip="DBC file path" />
+                <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
             <Button Content="Browse..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
-            <TextBox Text="{Binding SuitePath}" Width="180" Margin="0,0,4,0" ToolTip="Test suite JSON path" />
+            <Grid Width="180" Margin="0,0,4,0">
+                <TextBox Text="{Binding SuitePath}" ToolTip="Test suite JSON path" />
+                <TextBlock Text="选择测试套件 JSON..." Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
             <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
         </StackPanel>
 
         <!-- Mode-specific path -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBox Text="{Binding TracePath}" Width="260" Margin="0,0,4,0"
-                     ToolTip="Trace file (ASC/BLF)" />
+            <Grid Width="260" Margin="0,0,4,0">
+                <TextBox Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" />
+                <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
             <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
 
             <TextBox Text="{Binding HardwareChannel}" Width="80" Margin="0,0,12,0"
                      ToolTip="Hardware channel (USB1..USB16)" />
 
-            <TextBox Text="{Binding EcuScriptPath}" Width="160" Margin="0,0,4,0"
-                     ToolTip="ECU script JSON path" />
+            <Grid Width="160" Margin="0,0,4,0">
+                <TextBox Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" />
+                <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
             <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
 
-            <TextBox Text="{Binding MatrixPath}" Width="160" Margin="0,0,4,0"
-                     ToolTip="Matrix config JSON path" />
+            <Grid Width="160" Margin="0,0,4,0">
+                <TextBox Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" />
+                <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, RelativeSource={RelativeSource AncestorType=TextBox},
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
             <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
 
             <CheckBox Content="Faults" IsChecked="{Binding EnableFaultInjection}"
@@ -48,16 +95,11 @@
         </StackPanel>
 
         <!-- ECU editor + Run / Analyze buttons -->
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Content="Save ECU" Command="{Binding SaveEcuCommand}" Padding="16,4" Margin="0,0,8,0" />
-                <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
-                <Button Content="Analyze" Command="{Binding AnalyzeCommand}" Padding="16,4" />
-            </StackPanel>
-            <TextBox Text="{Binding EcuEditorJson, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Height="60"
-                     ToolTip="ECU simulator script JSON (Save ECU writes to temp file)" />
-        </DockPanel>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="Open ECU Editor" Command="{Binding OpenEcuEditorCommand}" Padding="16,4" Margin="0,0,8,0" />
+            <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
+            <Button Content="Analyze" Command="{Binding AnalyzeCommand}" Padding="16,4" />
+        </StackPanel>
 
         <!-- Progress bar + status -->
         <ProgressBar DockPanel.Dock="Top" Height="16" Margin="0,0,0,4"

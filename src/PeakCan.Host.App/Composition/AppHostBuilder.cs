@@ -301,6 +301,7 @@ public partial class AppHostBuilder
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
         builder.Services.AddSingleton<Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
         builder.Services.AddTransient<ViewModels.HilViewModel>();
+        builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
         builder.Services.AddSingleton<Infrastructure.HIL.Reporting.IHilReportService,
             Infrastructure.HIL.Reporting.HilReportService>();
@@ -352,6 +353,7 @@ public partial class AppHostBuilder
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             // Sprint 3: HIL testing panel VM
             sp.GetRequiredService<ViewModels.HilViewModel>(),
+            sp.GetRequiredService<ViewModels.EcuScriptEditorViewModel>(),
             sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>()));
 

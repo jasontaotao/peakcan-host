@@ -24,6 +24,8 @@
         <!-- HexConverter: 双向 hex 绑定 (数值 <-> "0x{hex}" 字符串). 解决 StringFormat=0x{0:X4}
              在双向 TextBox 绑定时无法解析回源的问题 (operator 编辑后切换 step 值被重置). -->
         <conv:HexConverter x:Key="HexConverter" />
+        <!-- 空字符串占位符转换器: null/"" -> Visible, 非空 -> Collapsed. HIL Browse 字段 overlay 用. -->
+        <conv:EmptyStringToVisibilityConverter x:Key="EmptyStringToVisibilityConverter" />
         <!-- v3.11.6 PATCH: per-source master-radio resource removed; the
              legend-strip XAML now uses MultiBinding + the singleton
              SourceIdEqualsMasterConverter instead. -->

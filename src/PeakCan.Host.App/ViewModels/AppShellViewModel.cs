@@ -111,6 +111,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly TraceViewerViewModel _traceViewerViewModel;
     // Sprint 3: HIL testing panel VM (transient, created per navigation)
     private readonly HilViewModel _hilViewModel;
+    private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -156,6 +157,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     // OpenMultiFrame window precedent (each menu click reopens the
     // cached window without spawning a fresh one).
     private TraceViewerView? _traceViewerView;
+    private EcuScriptEditorWindow? _ecuScriptEditorWindow;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -279,6 +281,7 @@ public sealed partial class AppShellViewModel : ObservableObject
         IMessageBoxPrompt messageBoxPrompt,
         // Sprint 3: HIL testing panel VM (required ctor arg for DI wiring)
         HilViewModel hilViewModel,
+        EcuScriptEditorViewModel ecuScriptEditorViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -308,6 +311,11 @@ public sealed partial class AppShellViewModel : ObservableObject
         _traceViewerViewModel = traceViewerViewModel ?? throw new ArgumentNullException(nameof(traceViewerViewModel));
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
+        _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
+        // ECU 编辑器接线：3 条订阅
+        _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
+        _hilViewModel.EcuScriptPathSetExternally += OnEcuScriptPathSetExternally;
+        _ecuScriptEditorViewModel.PropertyChanged += OnEcuScriptEditorPropertyChanged;
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
         // RecentSessionsService is a singleton; subscribing to its
         // PropertyChanged keeps the AppShell menu in sync with

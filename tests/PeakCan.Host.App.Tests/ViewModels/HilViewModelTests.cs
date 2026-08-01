@@ -210,32 +210,16 @@ public sealed class HilViewModelTests
         Assert.Empty(caseNode.Steps[0].Frames); // no frames captured when passed
     }
 
-    // --- ECU editor ---
+    // --- ECU script path ---
 
     [Fact]
-    public void EcuEditor_SaveAndRun_WritesTempFile_SetsEcuScriptPath()
-    {
-        var vm = CreateViewModel();
-        vm.EcuEditorJson = """{"name":"Test","canIds":{"requestId":"0x7E0","responseId":"0x7E8"},"rules":[]}""";
-
-        Assert.True(vm.SaveEcuCommand.CanExecute(null));
-        vm.SaveEcuCommand.Execute(null);
-
-        Assert.False(string.IsNullOrEmpty(vm.EcuScriptPath));
-        Assert.True(File.Exists(vm.EcuScriptPath));
-        var content = File.ReadAllText(vm.EcuScriptPath);
-        Assert.Contains("Test", content);
-    }
-
-    [Fact]
-    public void EcuEditor_EmptyJson_RunButtonDisabled()
+    public void EcuScriptPath_Empty_RunButtonDisabled()
     {
         var vm = CreateViewModel();
         vm.DbcPath = "x.dbc";
         vm.SuitePath = "y.json";
         vm.SelectedMode = HilMode.VirtualEcu;
-        vm.EcuEditorJson = ""; // empty
-        vm.EcuScriptPath = ""; // no script saved
+        vm.EcuScriptPath = ""; // no script path
 
         Assert.False(vm.RunCommand.CanExecute(null));
     }
