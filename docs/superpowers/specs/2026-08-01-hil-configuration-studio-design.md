@@ -112,6 +112,13 @@
 - **加分项（阶段末评估）**：`DbcEncodeService.Encode(Message, Dictionary<string,double>)` 做"选报文→填信号→生成 SendFrame 的 Data 字节"
 - 保存 suite.json 后接回现有 `HilViewModel` 路径（Browse 已选路径）
 
+### Phase 2 设计决策（2026-08-01 用户确认）
+
+1. **DBC 参数来源 = 独立下拉**：每个参数控件（CAN ID / SignalName / Expected）从整个 `DbcService.Current` 拉独立下拉，不依赖 DBC Browser 的选中（浏览与构建解耦）。
+2. **SendFrame.Data = 内置信号组合器**（用户选进取舍）：SendFrame 编辑内建"选 DBC 报文→填信号工程值→`DbcEncodeService.Encode` 生成 Data 字节"，而非仅 hex 编辑器。
+3. **编辑模型 = dict + factory 复用**：`EditableTestCaseStep` 持 `Dictionary<string,object>`（`StepParametersFactory.Create` 期望形态），保存时复用工厂；新增 Core 类 `StepParametersExporter`（强类型→dict，factory 的逆操作）支持加载。12 个 kind 无需 12 个手写面板数据模型。
+4. **属性面板 = 字段描述符驱动**：每 kind 一个 `StepFieldDescriptor` 列表（Key/Label/FieldKind），一个通用 DataTemplate 按 FieldKind 渲染（Text/Number/Bool/Enum/CanId/DbcSignal/HexBytes），覆盖全部 12 种。
+
 ## Phase 3 — ECU Simulator（后续阶段，概要）
 
 - **round-trip（约束 #1）**：加载 `EcuScriptLoader.Load(path)` → `EcuScript`，再把 `CanIds` **反交换为文件视角**进表单；保存序列化文件视角，**不再经 `Parse`**。表单模型 = `Name / CanIds(文件视角) / StateMachine / DidValues / InitialState`。
