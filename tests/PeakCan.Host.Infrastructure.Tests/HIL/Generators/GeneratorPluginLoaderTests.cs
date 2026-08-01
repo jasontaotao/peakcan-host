@@ -1,4 +1,7 @@
+using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Generators;
@@ -66,6 +69,54 @@ public class GeneratorPluginLoaderTests
         Assert.Equal(2, merged.Count);
         Assert.Contains(merged, g => g.Name == "SecurityAccessSeed");
         Assert.Contains(merged, g => g.Name == "CustomGen");
+    }
+
+    // --- Phase 7 Unit B: BuiltInGenerators single source ---
+
+    [Fact]
+    public void BuiltInGenerators_CreateAll_ReturnsFiveGenerators()
+    {
+        var gens = BuiltInGenerators.CreateAll();
+
+        Assert.Equal(5, gens.Count);
+        Assert.Contains(gens, g => g.Name == "SecurityAccessSeed");
+        Assert.Contains(gens, g => g.Name == "SecurityAccessVerifyKey");
+        Assert.Contains(gens, g => g.Name == "ClearDtc");
+        Assert.Contains(gens, g => g.Name == "DidReadout");
+        Assert.Contains(gens, g => g.Name == "DidWrite");
+    }
+
+    [Fact]
+    public void EcuScriptLoader_UsesBuiltInGenerators_NoPrivateMethod()
+    {
+        // Single source: EcuScriptLoader must not define its own built-in list.
+        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var loaderPath = Path.Combine(repoRoot, "src", "PeakCan.Host.Infrastructure", "HIL", "EcuScriptLoader.cs");
+        Assert.True(File.Exists(loaderPath), $"EcuScriptLoader.cs not found at {loaderPath}");
+        Assert.DoesNotContain("GetBuiltInGenerators", File.ReadAllText(loaderPath));
+    }
+
+    // --- Phase 7 Unit B: GeneratorDir 接线参数 (Inc 3) ---
+
+    private static readonly string[] GeneratorDirCliArgs =
+        { "--dbc", "x.dbc", "--suite", "y.json", "--trace", "x.asc", "--generator-dir", "/tmp/gens" };
+
+    [Fact]
+    public void CliArgsParser_GeneratorDir_ParsesFlag()
+    {
+        var cli = CliArgsParser.Parse(GeneratorDirCliArgs);
+
+        Assert.Equal("/tmp/gens", cli.GeneratorDir);
+    }
+
+    [Fact]
+    public void ToCliArgs_PassesGeneratorDir()
+    {
+        var req = new HilRunRequest("x.dbc", "y.json", TracePath: "t.asc", GeneratorDir: "/tmp/gens");
+
+        var cli = req.ToCliArgs();
+
+        Assert.Equal("/tmp/gens", cli.GeneratorDir);
     }
 
     private sealed class FakeGen : IEcuResponseGenerator

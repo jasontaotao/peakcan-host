@@ -14,4 +14,6 @@ public sealed record HilRunRequest(
     bool EnableFaultInjection = false,
     // Sprint 12 additions:
     HilMode Mode = HilMode.TraceReplay,
-    bool EnableAnalyze = false);
+    bool EnableAnalyze = false,
+    // Phase 7 Unit B: external generator plugin directory
+    string? GeneratorDir = null);

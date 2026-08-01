@@ -164,12 +164,12 @@ await host.RunAsync(cts.Token);   // Ctrl+C → using 块 dispose host + manager
           ├─ Interlocked.Exchange(ref _current, newList)
           ├─ 触发 GeneratorsChanged
           ├─ 旧 ALC 逐个 Unload()（标记，GC 回收 —— M2）
-          └─ 失败路径（R5）：新 ALC 已创建但加载失败 → 该 ALC 立即 Unload()（collectible ALC
+          └─ 失败路径（R5）：新 ALC 已创建但加载失败 → 所有新创建的 ALC 逐个（包括加载成功的） 立即 Unload()（collectible ALC
              只有 Unload 后 GC 才能回收，否则半加载 ALC 泄漏），保留旧 _current
 
 Dispose()（T4 明确）
   ├─ watcher.Dispose()
-  ├─ 取消 debounce Timer
+  ├─ 取消 debounce Timer（用 `Timer.Dispose(WaitHandle)` 或 `ManualResetEventSlim` 等待回调完成，避免 Reload 在 Dispose 后继续执行；R9）
   ├─ GeneratorsChanged = null（清事件，防泄漏 —— H2）
   └─ 不调 ALC.Unload()——generator 实例可能仍被 EcuStateMachine 引用（ProcessRequest 栈帧），
      Dispose 时机（Ctrl+C）后无新请求，ALC 由 GC 回收；Unload 在 Dispose 中无意义且有破坏风险
@@ -255,7 +255,7 @@ public void ReplaceGenerators(IEnumerable<IEcuResponseGenerator> generators)
 | `src/PeakCan.Host.Infrastructure/HIL/HeadlessHostBuilder.cs` | MODIFY — 虚拟 ECU/Matrix 分支传 `LoadFromDirectory(args.GeneratorDir)` |
 | `src/PeakCan.Host.Infrastructure/HIL/MatrixConfigLoader.cs` | MODIFY — 三层签名加 `externalGenerators` 透传 |
 | `src/PeakCan.Host.Infrastructure/Cli/CliArgs.cs` | MODIFY — `GeneratorDir` 字段 + `--generator-dir` 解析 + help |
-| `src/PeakCan.Host.Cli/Program.cs` | MODIFY — `--simulate` 分支 `GeneratorPluginManager` + 热替换订阅 + `using var host` |
+| `src/PeakCan.Host.Cli/Program.cs` | MODIFY — `--simulate` 分支 `GeneratorPluginManager` + 热替换订阅 + `using var host` ；新增 `using PeakCan.Host.Infrastructure.HIL.Generators;`（访问 `GeneratorPluginManager` / `BuiltInGenerators`） |
 | `src/PeakCan.Host.Core/HIL/HilRunRequest.cs` | MODIFY — `GeneratorDir` 参数（record 末尾） |
 | `src/PeakCan.Host.Infrastructure/HIL/HilRunRequestExtensions.cs` | MODIFY — `ToCliArgs` 传 `GeneratorDir` |
 | `tests/PeakCan.Host.Infrastructure.Tests/HIL/Generators/GeneratorPluginManagerTests.cs` | NEW |

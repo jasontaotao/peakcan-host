@@ -27,7 +27,9 @@ public sealed record CliArgs(
     // Phase 5 Sprint 13 additions (standalone simulator):
     bool Simulate = false,
     // Phase 6 Sprint 15 additions (report format + frame export):
-    string? ExportFramesDir = null);
+    string? ExportFramesDir = null,
+    // Phase 7 Unit B additions (external generator plugin directory):
+    string? GeneratorDir = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -47,6 +49,8 @@ public static class CliArgsParser
         bool simulate = false;
         // Phase 6 Sprint 15 frame export directory
         string? exportFramesDir = null;
+        // Phase 7 Unit B external generator plugin directory
+        string? generatorDir = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -72,6 +76,8 @@ public static class CliArgsParser
                 case "--simulate": simulate = true; break;
                 // Phase 6 Sprint 15 frame export
                 case "--export-frames": exportFramesDir = args[++i]; break;
+                // Phase 7 Unit B external generator plugin directory
+                case "--generator-dir": generatorDir = args[++i]; break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -85,7 +91,7 @@ public static class CliArgsParser
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir);
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir);
         }
 
         if (simulate)
@@ -98,7 +104,7 @@ public static class CliArgsParser
             if (dbc is null)
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir);
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -115,7 +121,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir);
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir);
     }
 
     /// <summary>
@@ -148,6 +154,7 @@ public static class CliArgsParser
         Console.WriteLine("  --ecu-name <name>    ECU name for ODX import (default: ImportedECU)");
         Console.WriteLine("  --import-uds-req <id>   Request CAN ID for ODX import (default: 0x7E0)");
         Console.WriteLine("  --import-uds-resp <id>  Response CAN ID for ODX import (default: 0x7E8)");
+        Console.WriteLine("  --generator-dir <path>  Directory of external IEcuResponseGenerator plugin DLLs");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

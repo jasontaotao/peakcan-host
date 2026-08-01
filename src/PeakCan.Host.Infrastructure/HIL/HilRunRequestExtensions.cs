@@ -29,6 +29,7 @@ public static class HilRunRequestExtensions
             r.UdsResponseId,
             ecuPath,
             r.EnableFaultInjection,
-            matrixPath);
+            matrixPath,
+            GeneratorDir: r.GeneratorDir);
     }
 }

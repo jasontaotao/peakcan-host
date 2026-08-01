@@ -6,6 +6,7 @@ using PeakCan.Host.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 using PeakCan.Host.Infrastructure.Peak;
 
@@ -43,10 +44,15 @@ public static class Program
             // Phase 5 Sprint 13: standalone ECU simulator mode
             if (cli.Simulate)
             {
-                var ecuScript = EcuScriptLoader.Load(cli.EcuScriptPath!);
+                // Phase 7 Unit B: hot-reloadable external generator plugins. manager
+                // lives for the whole simulate run; ApplyTo wires built-in+external
+                // merge and re-subscribes on every plugin directory change.
+                using var manager = new GeneratorPluginManager(cli.GeneratorDir);
+                var ecuScript = EcuScriptLoader.Load(cli.EcuScriptPath!, manager.Current);
+                manager.ApplyTo(ecuScript.StateMachine);
                 var handle = HeadlessHostBuilder.ParseChannelHandle(cli.HardwareChannel!);
                 var channel = new PeakCanChannel(new ChannelId(handle), null);
-                var host = new EcuSimulatorHost(channel, ecuScript.CanIds, ecuScript.StateMachine, null);
+                using var host = new EcuSimulatorHost(channel, ecuScript.CanIds, ecuScript.StateMachine, null);
 
                 using var cts = new CancellationTokenSource();
                 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };

@@ -43,7 +43,7 @@ public static class EcuScriptLoader
         if (hasStates && hasRules)
             throw new JsonException("Cannot specify both 'states' and 'rules' in ECU script.");
 
-        var mergedGenerators = GeneratorPluginLoader.MergeGenerators(GetBuiltInGenerators(), externalGenerators).ToList();
+        var mergedGenerators = GeneratorPluginLoader.MergeGenerators(BuiltInGenerators.CreateAll(), externalGenerators).ToList();
 
         EcuStateMachine stateMachine;
         if (hasStates)
@@ -234,18 +234,6 @@ public static class EcuScriptLoader
             DataPattern = dataPattern,
             ResponseData = responseData,
             ResponseDelayMs = delayMs
-        };
-    }
-
-    private static List<IEcuResponseGenerator> GetBuiltInGenerators()
-    {
-        return new()
-        {
-            new Generators.SecurityAccessSeedGenerator(),
-            new Generators.SecurityAccessVerifyKeyGenerator(),
-            new Generators.ClearDtcGenerator(),
-            new Generators.DidReadoutGenerator(),
-            new Generators.DidWriteGenerator(),
         };
     }
 }

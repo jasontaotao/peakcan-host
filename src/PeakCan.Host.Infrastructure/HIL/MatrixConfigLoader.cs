@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -13,7 +14,9 @@ public static class MatrixConfigLoader
     /// </summary>
     /// <param name="json">Matrix JSON string.</param>
     /// <param name="basePath">Base directory for resolving relative scriptPath references. Null = current directory.</param>
-    public static MatrixConfig Parse(string json, string? basePath = null)
+    /// <param name="externalGenerators">Phase 7 Unit B: external plugin generators passed to each ECU script (optional).</param>
+    public static MatrixConfig Parse(string json, string? basePath = null,
+        IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -44,12 +47,12 @@ public static class MatrixConfigLoader
                     }
                 }
 
-                ecus.Add(EcuScriptLoader.Load(fullPath));
+                ecus.Add(EcuScriptLoader.Load(fullPath, externalGenerators));
             }
             else
             {
                 // Inline ECU definition
-                ecus.Add(EcuScriptLoader.ParseEcuScript(ecuEl));
+                ecus.Add(EcuScriptLoader.ParseEcuScript(ecuEl, externalGenerators));
             }
         }
 
@@ -60,15 +63,18 @@ public static class MatrixConfigLoader
     /// Load matrix config from a JSON file path. Resolves scriptPath references
     /// relative to the matrix file's directory.
     /// </summary>
-    public static MatrixConfig LoadFromFile(string path)
+    public static MatrixConfig LoadFromFile(string path,
+        IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
     {
         var json = File.ReadAllText(path);
         var basePath = Path.GetDirectoryName(Path.GetFullPath(path));
-        return Parse(json, basePath);
+        return Parse(json, basePath, externalGenerators);
     }
 
     /// <summary>
     /// Load matrix config from a JSON file path (backward compat).
     /// </summary>
-    public static MatrixConfig Load(string path) => LoadFromFile(path);
+    public static MatrixConfig Load(string path,
+        IEnumerable<IEcuResponseGenerator>? externalGenerators = null)
+        => LoadFromFile(path, externalGenerators);
 }

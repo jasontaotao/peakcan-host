@@ -1,3 +1,5 @@
+using System.Threading;
+
 namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace PeakCan.Host.Core.HIL.Contracts;
 public sealed class EcuStateMachine
 {
     private readonly List<EcuStateTransition> _transitions;
-    private readonly Dictionary<string, IEcuResponseGenerator> _generators;
+    private volatile Dictionary<string, IEcuResponseGenerator> _generators;
     private readonly EcuContextStore _context = new();
     private readonly string _initialState;
     private string _currentState;
@@ -101,7 +103,21 @@ public sealed class EcuStateMachine
         return true;
     }
 
-    /// <summary>Reset to initial state and clear context.</summary>
+    /// <summary>
+    /// Phase 7 Unit B: atomically swap the generator table (hot-reload).
+    /// Interlocked.Exchange under a volatile field — ProcessRequest reads the
+    /// latest without locks; the old dictionary is never mutated after the swap,
+    /// so a stack frame holding it stays safe (spec §3.6).
+    /// </summary>
+    public void ReplaceGenerators(IEnumerable<IEcuResponseGenerator> generators)
+    {
+        var newDict = generators.ToDictionary(g => g.Name);
+        Interlocked.Exchange(ref _generators, newDict);
+    }
+
+    /// <summary>
+    /// Reset to initial state and clear context.
+    /// </summary>
     public void Reset()
     {
         _currentState = _initialState;

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using Polly;
 using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Assertions;
@@ -46,7 +47,9 @@ public static class HeadlessHostBuilder
         {
             // Virtual ECU mode (Sprint 4): VirtualChannel + VirtualEcu
             // Single VirtualChannel instance shared between VirtualEcu and HILAssertionContext
-            var ecuScript = EcuScriptLoader.Load(args.EcuScriptPath!);
+            // Phase 7 Unit B: external generator plugin directory (optional, LoadFromDirectory(null) = empty)
+            var external = GeneratorPluginLoader.LoadFromDirectory(args.GeneratorDir!);
+            var ecuScript = EcuScriptLoader.Load(args.EcuScriptPath!, external);
             var channel = new CanChannels.VirtualChannel();
             // Eagerly create VirtualEcu (subscribes to channel.FrameReceived)
             var ecu = new StatefulVirtualEcu(channel, ecuScript.CanIds, ecuScript.StateMachine, logger: null);
@@ -57,7 +60,9 @@ public static class HeadlessHostBuilder
         else if (args.MatrixPath is not null)
         {
             // Multi-ECU matrix mode (Sprint 6): EcuMatrix with multiple VirtualEcu
-            var config = MatrixConfigLoader.Load(args.MatrixPath!);
+            // Phase 7 Unit B: external generator plugin directory (L4/T3)
+            var external = GeneratorPluginLoader.LoadFromDirectory(args.GeneratorDir!);
+            var config = MatrixConfigLoader.Load(args.MatrixPath!, external);
             var matrix = new EcuMatrix();
             foreach (var script in config.Ecus)
                 matrix.AddEcu(script);
