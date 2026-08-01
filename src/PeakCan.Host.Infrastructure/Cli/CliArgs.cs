@@ -29,7 +29,9 @@ public sealed record CliArgs(
     // Phase 6 Sprint 15 additions (report format + frame export):
     string? ExportFramesDir = null,
     // Phase 7 Unit B additions (external generator plugin directory):
-    string? GeneratorDir = null);
+    string? GeneratorDir = null,
+    // Phase 7 Unit D additions (multi-bus gateway config):
+    string? GatewayPath = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -51,6 +53,8 @@ public static class CliArgsParser
         string? exportFramesDir = null;
         // Phase 7 Unit B external generator plugin directory
         string? generatorDir = null;
+        // Phase 7 Unit D multi-bus gateway config
+        string? gatewayPath = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -78,6 +82,8 @@ public static class CliArgsParser
                 case "--export-frames": exportFramesDir = args[++i]; break;
                 // Phase 7 Unit B external generator plugin directory
                 case "--generator-dir": generatorDir = args[++i]; break;
+                // Phase 7 Unit D multi-bus gateway config
+                case "--gateway": gatewayPath = args[++i]; break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -91,7 +97,7 @@ public static class CliArgsParser
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir);
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
         }
 
         if (simulate)
@@ -104,7 +110,7 @@ public static class CliArgsParser
             if (dbc is null)
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir);
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -121,7 +127,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir);
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
     }
 
     /// <summary>
@@ -155,6 +161,7 @@ public static class CliArgsParser
         Console.WriteLine("  --import-uds-req <id>   Request CAN ID for ODX import (default: 0x7E0)");
         Console.WriteLine("  --import-uds-resp <id>  Response CAN ID for ODX import (default: 0x7E8)");
         Console.WriteLine("  --generator-dir <path>  Directory of external IEcuResponseGenerator plugin DLLs");
+        Console.WriteLine("  --gateway <path>  Multi-bus gateway config JSON (bus-to-bus frame forwarding)");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

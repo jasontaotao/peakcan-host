@@ -98,4 +98,20 @@ public class CliArgsParserTests
             CliArgsParser.Parse(With("--matrix", "powertrain.json", "--ecu", "bms_sim.json")));
         Assert.Contains("Cannot use --matrix and --ecu", ex.Message);
     }
+
+    // --- Phase 7 Unit D: --gateway flag tests ---
+
+    [Fact]
+    public void Parse_GatewayPath_Succeeds()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1", "--gateway", "gateway.json"));
+        Assert.Equal("gateway.json", cli.GatewayPath);
+    }
+
+    [Fact]
+    public void Parse_NoGateway_DefaultsNull()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1"));
+        Assert.Null(cli.GatewayPath);
+    }
 }
