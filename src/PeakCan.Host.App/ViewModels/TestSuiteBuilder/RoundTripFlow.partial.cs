@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Serialization;
 
@@ -29,6 +30,7 @@ public sealed partial class TestSuiteBuilderViewModel
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Suite load failed");
             ErrorMessage = ex.Message;
             Status = "Load failed.";
         }
@@ -47,6 +49,7 @@ public sealed partial class TestSuiteBuilderViewModel
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Suite open failed");
             ErrorMessage = ex.Message;
             Status = "Open failed.";
         }
@@ -77,6 +80,7 @@ public sealed partial class TestSuiteBuilderViewModel
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Suite save failed");
             ErrorMessage = ex.Message;
             Status = "Save failed.";
         }

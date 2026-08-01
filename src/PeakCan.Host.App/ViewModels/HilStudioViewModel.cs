@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.ViewModels.TestSuiteBuilder;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -24,6 +26,9 @@ public sealed partial class HilStudioViewModel : ObservableObject
     /// <summary>选中消息在信号 grid 显示的行（搜索时只显示匹配信号）。</summary>
     public ObservableCollection<HilStudioDbcSignalRow> VisibleSignals { get; } = new();
 
+    /// <summary>col2 Test Suite Builder 子面板 VM。</summary>
+    public TestSuiteBuilderViewModel SuiteBuilder { get; }
+
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _status = "No DBC loaded";
     [ObservableProperty] private string _loadedPath = "";
@@ -35,11 +40,13 @@ public sealed partial class HilStudioViewModel : ObservableObject
     public HilStudioViewModel(
         DbcService svc,
         ILogger<HilStudioViewModel> logger,
-        IFileDialogService? fileDialog = null)
+        IFileDialogService? fileDialog = null,
+        DbcEncodeService? encodeService = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _fileDialog = fileDialog ?? new WpfFileDialogService();
+        SuiteBuilder = new TestSuiteBuilderViewModel(svc, logger, _fileDialog, encodeService);
         _svc.DbcLoaded += OnLoaded;
         _svc.LoadFailed += OnLoadFailed;
     }

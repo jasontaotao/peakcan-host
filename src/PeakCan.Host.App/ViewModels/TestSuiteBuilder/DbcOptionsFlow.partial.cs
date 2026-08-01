@@ -13,6 +13,7 @@ public sealed partial class TestSuiteBuilderViewModel
             .SelectMany(m => m.Signals.Select(s => $"{m.Name}.{s.Name}"))
             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
             .ToList() ?? new List<string>();
+        Composer?.RefreshMessages();
     }
 }
 

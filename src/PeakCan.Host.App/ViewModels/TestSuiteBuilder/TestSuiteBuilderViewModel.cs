@@ -3,7 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.Dbc;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels.TestSuiteBuilder;
@@ -16,7 +18,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
 {
     private readonly DbcService _svc;
     private readonly IFileDialogService _fileDialog;
-    private readonly ILogger<TestSuiteBuilderViewModel> _logger;
+    private readonly ILogger _logger;
     private string? _suitePath;
 
     // suite-level pass-through 字段（round-trip 保真）
@@ -25,6 +27,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
 
     public ObservableCollection<EditableTestCase> Cases { get; } = new();
     public IReadOnlyList<TestCaseStepKind> AvailableKinds => StepFieldDescriptors.AllKinds;
+    public SendFrameComposerViewModel? Composer { get; }
 
     [ObservableProperty] private EditableTestCase? _selectedCase;
     [ObservableProperty] private EditableTestCaseStep? _selectedStep;
@@ -40,13 +43,24 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     [ObservableProperty] private IReadOnlyList<string> _dbcSignals = Array.Empty<string>();
 
     public TestSuiteBuilderViewModel(
-        DbcService svc, ILogger<TestSuiteBuilderViewModel> logger, IFileDialogService? fileDialog = null)
+        DbcService svc, ILogger logger, IFileDialogService? fileDialog = null, DbcEncodeService? encodeService = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _fileDialog = fileDialog ?? new WpfFileDialogService();
+        Composer = encodeService is null ? null : new SendFrameComposerViewModel(svc, encodeService, logger);
         _svc.DbcLoaded += (_) => ((Action)RefreshDbcOptions).RunOnUi();
         RefreshDbcOptions();
+    }
+
+    [RelayCommand]
+    private void ComposeData()
+    {
+        if (SelectedStep is { Kind: TestCaseStepKind.SendFrame } && Composer is { } c)
+        {
+            var hex = c.ComposeHex();
+            if (hex.Length > 0) SelectedStep.Params["Data"] = hex;
+        }
     }
 
     [RelayCommand]
