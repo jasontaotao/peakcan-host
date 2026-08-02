@@ -154,12 +154,7 @@ public static partial class DbcParser
                                 {
                                     var comment = Current.Lexeme;
                                     Consume();
-                                    if (_pendingMessagesById.TryGetValue(msgId, out var msg) && msg is not null)
-                                    {
-                                        var updated = msg with { Comment = comment };
-                                        _pendingMessages[_pendingMessages.FindIndex(m => m.Id == msgId)] = updated;
-                                        _pendingMessagesById[msgId] = updated;
-                                    }
+                                    ApplyMessageComment(msgId, comment);
                                 }
                             }
                         }
@@ -178,16 +173,7 @@ public static partial class DbcParser
                                     {
                                         var comment = Current.Lexeme;
                                         Consume();
-                                        if (_pendingMessagesById.TryGetValue(msgId, out var msg) && msg is not null)
-                                        {
-                                            var signals = msg.Signals.Select(s =>
-                                                s.Name == sigName
-                                                    ? s with { Comment = comment }
-                                                    : s).ToList();
-                                            var updated = msg with { Signals = signals };
-                                            _pendingMessages[_pendingMessages.FindIndex(m => m.Id == msgId)] = updated;
-                                            _pendingMessagesById[msgId] = updated;
-                                        }
+                                        ApplySignalComment(msgId, sigName, comment);
                                     }
                                 }
                             }
@@ -195,9 +181,12 @@ public static partial class DbcParser
                         if (Current.Type == TokenType.Semicolon) Consume();
                         break;
 
+                    case TokenType.Keyword_BA_:
+                        ParseBaAttributes();
+                        break;
+
                     case TokenType.Keyword_EV_:
                     case TokenType.Keyword_BA_DEF_:
-                    case TokenType.Keyword_BA_:
                     case TokenType.Keyword_SIG_GROUP_:
                     case TokenType.Keyword_NS_DESC_:
                         SkipUntilSemicolon();
@@ -210,8 +199,7 @@ public static partial class DbcParser
                 }
             }
 
-            var byId = _pendingMessages.ToDictionary(m => m.Id & 0x7FFFFFFFu);
-            // v3.14.1 PATCH: strip the DBC IDE-bit (0x80000000) from the
+            var byId = _pendingMessages.ToDictionary(m => m.Id & 0x7FFFFFFFu);            // v3.14.1 PATCH: strip the DBC IDE-bit (0x80000000) from the
             // 32-bit ID before keying MessagesById. The DBC stores
             // extended-frame IDs as `<29-bit-raw> | 0x80000000` (e.g.
             // 0x1802F3D0 | 0x80000000 = 0x9802F3D0 = 2550330320 dec),
@@ -230,6 +218,96 @@ public static partial class DbcParser
             // the most-recently-defined table wins).
             foreach (var (name, vt) in _pendingValueTables) valueTables[name] = vt;
             return Result<DbcDocument>.Ok(new DbcDocument(version, nodes, _pendingMessages, byId, valueTables));
+        }
+
+        /// <summary>
+        /// 解析 BA_ 属性行; 只提取 comment 类字符串属性（Comment / GenMsgComment / GenSigComment）
+        /// 附加到消息/信号。其余 BA_（周期、DLC 等）照旧跳过。
+        /// </summary>
+        private void ParseBaAttributes()
+        {
+            Consume(); // BA_
+            if (Current.Type != TokenType.String)
+            {
+                SkipUntilSemicolon();
+                return;
+            }
+            var attrName = Consume().Lexeme;
+            if (!attrName.Contains("Comment", StringComparison.OrdinalIgnoreCase))
+            {
+                SkipUntilSemicolon();
+                return;
+            }
+
+            if (Current.Type == TokenType.Keyword_BO_)
+            {
+                Consume();
+                if (Current.Type != TokenType.Integer) { SkipUntilSemicolon(); return; }
+                var msgId = uint.Parse(Current.Lexeme, CultureInfo.InvariantCulture);
+                Consume();
+                if (Current.Type == TokenType.String)
+                {
+                    var comment = Consume().Lexeme;
+                    ApplyMessageComment(msgId, comment);
+                }
+                if (Current.Type == TokenType.Semicolon) Consume();
+            }
+            else if (Current.Type == TokenType.Keyword_SG_)
+            {
+                Consume();
+                if (Current.Type != TokenType.Integer) { SkipUntilSemicolon(); return; }
+                var msgId = uint.Parse(Current.Lexeme, CultureInfo.InvariantCulture);
+                Consume();
+                if (Current.Type == TokenType.Identifier)
+                {
+                    var sigName = Consume().Lexeme;
+                    if (Current.Type == TokenType.String)
+                    {
+                        var comment = Consume().Lexeme;
+                        ApplySignalComment(msgId, sigName, comment);
+                    }
+                }
+                if (Current.Type == TokenType.Semicolon) Consume();
+            }
+            else
+            {
+                SkipUntilSemicolon();
+            }
+        }
+
+        /// <summary>
+        /// 解析 CM_/BA_ 的原始 id 与 _pendingMessagesById 的 key（BO_ 合并 id, 扩展帧带 bit31）
+        /// 不一致时的兜底: 先试原始, 再试合并。
+        /// </summary>
+        private uint? ResolveMessageKey(uint msgId)
+        {
+            if (_pendingMessagesById.ContainsKey(msgId)) return msgId;
+            var merged = msgId | 0x80000000u;
+            return _pendingMessagesById.ContainsKey(merged) ? merged : null;
+        }
+
+        private void ApplyMessageComment(uint msgId, string comment)
+        {
+            if (ResolveMessageKey(msgId) is { } key
+                && _pendingMessagesById.TryGetValue(key, out var msg) && msg is not null)
+            {
+                var updated = msg with { Comment = comment };
+                _pendingMessages[_pendingMessages.FindIndex(m => m.Id == key)] = updated;
+                _pendingMessagesById[key] = updated;
+            }
+        }
+
+        private void ApplySignalComment(uint msgId, string sigName, string comment)
+        {
+            if (ResolveMessageKey(msgId) is { } key
+                && _pendingMessagesById.TryGetValue(key, out var msg) && msg is not null)
+            {
+                var signals = msg.Signals.Select(s =>
+                    s.Name == sigName ? s with { Comment = comment } : s).ToList();
+                var updated = msg with { Signals = signals };
+                _pendingMessages[_pendingMessages.FindIndex(m => m.Id == key)] = updated;
+                _pendingMessagesById[key] = updated;
+            }
         }
     }
 }
