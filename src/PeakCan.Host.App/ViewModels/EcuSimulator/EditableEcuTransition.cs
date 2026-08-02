@@ -47,17 +47,23 @@ public sealed partial class EditableEcuTransition : EditableEcuNode
         return e;
     }
 
-    /// <summary>序列化为文件视角匿名对象（serviceId 用 hex 字符串, response 走 EcuResponse $type）。</summary>
-    public object ToTransitionObject() => new
+    /// <summary>序列化为文件视角匿名对象（serviceId 用 hex 字符串, response 走 EcuResponse $type）。
+    /// dataMask/dataPattern 成对出现: 仅当两者都非空才输出, 否则同时省略——loader 要求二者同现。</summary>
+    public object ToTransitionObject()
     {
-        serviceId = ServiceIdHex,
-        subFunction = string.IsNullOrEmpty(SubFunctionHex) ? null : SubFunctionHex,
-        dataMask = EditableEcuScript.ParseHexBytes(DataMaskHex),
-        dataPattern = EditableEcuScript.ParseHexBytes(DataPatternHex),
-        response = ResponseMode == EcuResponseMode.Dynamic
-            ? (EcuResponse)new DynamicResponse(GeneratorName)
-            : new StaticResponse(EditableEcuScript.ParseHexBytes(StaticDataHex) ?? Array.Empty<byte>()),
-        toState = string.IsNullOrEmpty(ToState) ? null : ToState,
-        responseDelayMs = ResponseDelayMs,
-    };
+        var mask = EditableEcuScript.ParseHexBytes(DataMaskHex);
+        var pattern = EditableEcuScript.ParseHexBytes(DataPatternHex);
+        return new
+        {
+            serviceId = ServiceIdHex,
+            subFunction = string.IsNullOrEmpty(SubFunctionHex) ? null : SubFunctionHex,
+            dataMask = mask is not null && pattern is not null ? mask : null,
+            dataPattern = pattern is not null && mask is not null ? pattern : null,
+            response = ResponseMode == EcuResponseMode.Dynamic
+                ? (EcuResponse)new DynamicResponse(GeneratorName)
+                : new StaticResponse(EditableEcuScript.ParseHexBytes(StaticDataHex) ?? Array.Empty<byte>()),
+            toState = string.IsNullOrEmpty(ToState) ? null : ToState,
+            responseDelayMs = ResponseDelayMs,
+        };
+    }
 }

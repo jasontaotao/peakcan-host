@@ -119,4 +119,47 @@ public class EditableEcuScriptTests
         resp.GetProperty("$type").GetString().Should().Be("dynamic");
         resp.GetProperty("generatorName").GetString().Should().Be("SecurityAccessSeed");
     }
+
+    [Fact]
+    public void ToJson_RoundTrips_DidValues_Including_Empty_Bytes()
+    {
+        const string json = """
+        { "name": "D", "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" },
+          "didValues": { "0xF190": [1, 2], "0xF191": [] },
+          "states": [] }
+        """;
+        var e = EditableEcuScript.FromEcuScript(EcuScriptLoader.Parse(json));
+        var outJson = e.ToJson();
+
+        var reparsed = EcuScriptLoader.Parse(outJson);
+        reparsed.DidValues.Should().NotBeNull();
+        reparsed.DidValues![(ushort)0xF190].Should().BeEquivalentTo(new byte[] { 1, 2 });
+        reparsed.DidValues![(ushort)0xF191].Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ToJson_Omits_DataMask_When_Pattern_Is_Empty_And_Reloads_Safely()
+    {
+        var e = new EditableEcuScript
+        {
+            Name = "M",
+            InitialState = "default",
+            RequestIdHex = "0x7E0",
+            ResponseIdHex = "0x7E8",
+        };
+        var s = new EditableEcuState { Name = "wildcard" };
+        s.Transitions.Add(new EditableEcuTransition
+        {
+            ServiceIdHex = "0x22",
+            DataMaskHex = "FF",
+            DataPatternHex = "",
+        });
+        e.States.Add(s);
+
+        var outJson = e.ToJson();
+        outJson.Should().NotContain("dataMask");
+
+        var reparsed = EcuScriptLoader.Parse(outJson);   // 不得抛异常
+        reparsed.StateMachine.Transitions.Should().ContainSingle();
+    }
 }

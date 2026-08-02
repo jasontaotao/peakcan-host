@@ -78,7 +78,7 @@ public sealed partial class EditableEcuScript : EditableEcuNode
                 isExtendedFrame = IsExtendedFrame,
             },
             didValues = DidValues.Count > 0
-                ? DidValues.ToDictionary(d => d.KeyHex, d => ParseHexBytes(d.BytesHex))
+                ? DidValues.ToDictionary(d => d.KeyHex, d => ParseHexBytes(d.BytesHex) ?? Array.Empty<byte>())
                 : null,
             states = States.Select(s => new
             {
