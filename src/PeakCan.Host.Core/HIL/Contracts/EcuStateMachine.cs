@@ -18,6 +18,9 @@ public sealed class EcuStateMachine
     /// <summary>Current ECU state name.</summary>
     public string CurrentState => _currentState;
 
+    /// <summary>All transitions (read-only). Exposed for the studio editor; runtime logic reads via ProcessRequest only.</summary>
+    public IReadOnlyList<EcuStateTransition> Transitions => _transitions;
+
     /// <summary>Shared context store for stateful data across requests.</summary>
     public IEcuContext Context => _context;
 
