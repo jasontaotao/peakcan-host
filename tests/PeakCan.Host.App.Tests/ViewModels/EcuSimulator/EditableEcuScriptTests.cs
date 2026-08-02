@@ -91,4 +91,32 @@ public class EditableEcuScriptTests
         e.States[0].Transitions[0].ServiceIdHex = "0x28";
         raised.Should().BeGreaterThan(0);
     }
+
+    [Fact]
+    public void ToJson_RoundTrips_Through_Loader_Without_Data_Loss()
+    {
+        var e = EditableEcuScript.FromEcuScript(EcuScriptLoader.Parse(StatesJson));
+        var outJson = e.ToJson();
+
+        var reparsed = EcuScriptLoader.Parse(outJson);
+        reparsed.Name.Should().Be("Door");
+        reparsed.InitialState.Should().Be("Locked");
+        // 文件视角 canIds 反交换回来 = 原文件视角
+        reparsed.CanIds.RequestId.Should().Be(0x7E8);   // ECU 视角; 文件 requestId 0x7E0 → ECU ResponseId
+        reparsed.CanIds.ResponseId.Should().Be(0x7E0);
+        reparsed.StateMachine.Transitions.Should().BeEquivalentTo(
+            EcuScriptLoader.Parse(StatesJson).StateMachine.Transitions);
+    }
+
+    [Fact]
+    public void ToJson_Emits_Response_As_Type_Discriminator()
+    {
+        var e = EditableEcuScript.FromEcuScript(EcuScriptLoader.Parse(StatesJson));
+        var outJson = e.ToJson();
+        using var doc = System.Text.Json.JsonDocument.Parse(outJson);
+        var resp = doc.RootElement.GetProperty("states")[0]
+            .GetProperty("transitions")[0].GetProperty("response");
+        resp.GetProperty("$type").GetString().Should().Be("dynamic");
+        resp.GetProperty("generatorName").GetString().Should().Be("SecurityAccessSeed");
+    }
 }

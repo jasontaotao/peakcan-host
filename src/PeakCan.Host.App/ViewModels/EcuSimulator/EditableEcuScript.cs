@@ -63,4 +63,29 @@ public sealed partial class EditableEcuScript : EditableEcuNode
             bytes[i] = byte.Parse(parts[i], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         return bytes;
     }
+
+    /// <summary>序列化文件视角 JSON（约束 #1/#2: 不经 EcuScriptLoader.Parse, response 走 $type）。</summary>
+    public string ToJson()
+    {
+        var script = new
+        {
+            name = Name,
+            initialState = InitialState,
+            canIds = new
+            {
+                requestId = RequestIdHex,
+                responseId = ResponseIdHex,
+                isExtendedFrame = IsExtendedFrame,
+            },
+            didValues = DidValues.Count > 0
+                ? DidValues.ToDictionary(d => d.KeyHex, d => ParseHexBytes(d.BytesHex))
+                : null,
+            states = States.Select(s => new
+            {
+                name = s.Name,
+                transitions = s.Transitions.Select(t => t.ToTransitionObject()).ToList(),
+            }),
+        };
+        return System.Text.Json.JsonSerializer.Serialize(script, PeakCan.Host.Core.HIL.Serialization.HILJsonOptions.Default);
+    }
 }

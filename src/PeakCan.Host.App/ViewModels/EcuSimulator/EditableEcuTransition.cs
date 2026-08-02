@@ -46,4 +46,18 @@ public sealed partial class EditableEcuTransition : EditableEcuNode
         }
         return e;
     }
+
+    /// <summary>序列化为文件视角匿名对象（serviceId 用 hex 字符串, response 走 EcuResponse $type）。</summary>
+    public object ToTransitionObject() => new
+    {
+        serviceId = ServiceIdHex,
+        subFunction = string.IsNullOrEmpty(SubFunctionHex) ? null : SubFunctionHex,
+        dataMask = EditableEcuScript.ParseHexBytes(DataMaskHex),
+        dataPattern = EditableEcuScript.ParseHexBytes(DataPatternHex),
+        response = ResponseMode == EcuResponseMode.Dynamic
+            ? (EcuResponse)new DynamicResponse(GeneratorName)
+            : new StaticResponse(EditableEcuScript.ParseHexBytes(StaticDataHex) ?? Array.Empty<byte>()),
+        toState = string.IsNullOrEmpty(ToState) ? null : ToState,
+        responseDelayMs = ResponseDelayMs,
+    };
 }
