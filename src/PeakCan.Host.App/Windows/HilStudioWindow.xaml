@@ -146,11 +146,11 @@
                   DisplayMemberPath="Display" SelectedValuePath="Hex"
                   SelectedValue="{Binding Params[CanId], Mode=TwoWay}"/>
         <TextBlock Text="Fault type" Margin="0,6,0,2"/>
-        <ComboBox SelectedItem="{Binding Params[FaultType], Mode=TwoWay}">
-          <ComboBoxItem Content="Drop"/>
-          <ComboBoxItem Content="Delay"/>
-          <ComboBoxItem Content="Corrupt"/>
-          <ComboBoxItem Content="Duplicate"/>
+        <ComboBox SelectedValuePath="Tag" SelectedValue="{Binding Params[FaultType], Mode=TwoWay}">
+          <ComboBoxItem Content="Drop" Tag="Drop"/>
+          <ComboBoxItem Content="Delay" Tag="Delay"/>
+          <ComboBoxItem Content="Corrupt" Tag="Corrupt"/>
+          <ComboBoxItem Content="Duplicate" Tag="Duplicate"/>
         </ComboBox>
         <TextBlock Text="Probability (0-1)" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[Probability], Mode=TwoWay}"/>
@@ -161,10 +161,10 @@
         <TextBlock Text="Fault ID (optional)" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[FaultId], Mode=TwoWay}"/>
         <TextBlock Text="Direction" Margin="0,6,0,2"/>
-        <ComboBox SelectedItem="{Binding Params[Direction], Mode=TwoWay}">
-          <ComboBoxItem Content="Send"/>
-          <ComboBoxItem Content="Receive"/>
-          <ComboBoxItem Content="Both"/>
+        <ComboBox SelectedValuePath="Tag" SelectedValue="{Binding Params[Direction], Mode=TwoWay}">
+          <ComboBoxItem Content="Send" Tag="Send"/>
+          <ComboBoxItem Content="Receive" Tag="Receive"/>
+          <ComboBoxItem Content="Both" Tag="Both"/>
         </ComboBox>
       </StackPanel>
     </DataTemplate>

@@ -1,7 +1,10 @@
+using System.IO;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels.TestSuiteBuilder;
+using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core.HIL.Serialization;
 
@@ -17,9 +20,17 @@ public class TestSuiteBuilderViewModelTests
     }
     """;
 
-    private static TestSuiteBuilderViewModel NewVm()
+    private static TestSuiteBuilderViewModel NewVm(IFileDialogService? dlg = null)
         => new(new DbcService(NullLogger<DbcService>.Instance),
-            NullLogger<TestSuiteBuilderViewModel>.Instance, null);
+            NullLogger<TestSuiteBuilderViewModel>.Instance, dlg);
+
+    private sealed class FileDialogStub : IFileDialogService
+    {
+        public string? OpenResult { get; set; }
+        public string? SaveResult { get; set; }
+        public string? ShowOpenDialog(string filter) => OpenResult;
+        public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => SaveResult;
+    }
 
     [Fact]
     public void LoadFromText_Populates_Cases()
@@ -104,5 +115,59 @@ public class TestSuiteBuilderViewModelTests
         parsed!.Cases.Should().HaveCount(2);
         parsed.Cases[0].Steps.Should().HaveCount(2);
         parsed.Cases[1].Steps.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Open_Then_Add_Then_Save_Overwrites_Original_File()
+    {
+        var dir = Directory.CreateTempSubdirectory("peakcan-suite-test");
+        var path = Path.Combine(dir.FullName, "suite.json");
+        File.WriteAllText(path, SampleSuite);
+        var vm = NewVm(new FileDialogStub { OpenResult = path });
+
+        await vm.OpenCommand.ExecuteAsync(null);
+        vm.AddCaseCommand.Execute(null);                              // c1 + case_2
+        vm.AddStepCommand.Execute(TestCaseStepKind.SendFrame);
+
+        vm.SaveCommand.Execute(null);
+
+        var parsed = JsonSerializer.Deserialize<TestSuite>(File.ReadAllText(path), HILJsonOptions.Default);
+        parsed!.Cases.Should().HaveCount(2);
+        vm.Status.Should().Contain("Saved");
+    }
+
+    [Fact]
+    public async Task Open_Then_SaveAs_Creates_New_File()
+    {
+        var dir = Directory.CreateTempSubdirectory("peakcan-suite-test");
+        var src = Path.Combine(dir.FullName, "suite.json");
+        var dst = Path.Combine(dir.FullName, "copy.json");
+        File.WriteAllText(src, SampleSuite);
+        var vm = NewVm(new FileDialogStub { OpenResult = src, SaveResult = dst });
+
+        await vm.OpenCommand.ExecuteAsync(null);
+        vm.SaveAsCommand.Execute(null);
+
+        File.Exists(dst).Should().BeTrue();
+        var parsed = JsonSerializer.Deserialize<TestSuite>(File.ReadAllText(dst), HILJsonOptions.Default);
+        parsed!.Cases.Should().HaveCount(1);
+        vm.Status.Should().Contain("Saved");
+    }
+
+    [Fact]
+    public void InjectFault_Suite_RoundTrips_With_String_FaultType_And_Direction()
+    {
+        var vm = NewVm();
+        vm.AddCaseCommand.Execute(null);
+        vm.AddStepCommand.Execute(TestCaseStepKind.InjectFault);
+        vm.SelectedStep!.SetParam("CanId", "0x100");
+        vm.SelectedStep.SetParam("FaultType", "Corrupt");
+        vm.SelectedStep.SetParam("Direction", "Send");
+        vm.SelectedStep.SetParam("CorruptXorMask", "0x08");
+
+        var json = JsonSerializer.Serialize(vm.ToSuite(), HILJsonOptions.Default);
+        var parsed = JsonSerializer.Deserialize<TestSuite>(json, HILJsonOptions.Default);
+
+        parsed!.Cases[0].Steps[0].Parameters.Should().BeOfType<InjectFaultStep>();
     }
 }
