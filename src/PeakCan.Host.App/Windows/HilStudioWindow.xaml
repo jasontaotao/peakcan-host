@@ -601,8 +601,8 @@
       </StackPanel>
 
       <!-- 只读图形预览（Task 6） -->
-      <Border Grid.Row="6" BorderBrush="#DDDDDD" BorderThickness="1" Margin="0,6,0,0">
-        <controls:EcuStatePreview DataContext="{Binding EcuSimulator.Script}"/>
+      <Border Grid.Row="6" BorderBrush="#DDDDDD" BorderThickness="1" Margin="0,6,0,0" DataContext="{Binding EcuSimulator.Script}">
+        <controls:EcuStatePreview Data="{Binding}"/>
       </Border>
     </Grid>
   </Grid>
