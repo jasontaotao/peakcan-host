@@ -83,7 +83,8 @@ peakcan-studio/
 | `App/ViewModels/EcuSimulator/*`（6 文件） | ECU 模拟器 VM + Editable 模型 |
 | `App/Windows/HilStudioWindow.xaml` `.cs` | 主窗口（610 行 XAML） |
 | `App/Controls/EcuStatePreview.cs` `EcuResponseModeToVisibilityConverter.cs` | 控件 + converter |
-| `App/Composition/Converters/NullToVisibilityConverter.cs` | 唯一 App 全局资源依赖，Studio 自带 |
+| `App/ViewModels/DispatcherExtensions.cs` | `RunOnUi` 扩展（DbcLoadingFlow 依赖，复制整个文件） |
+| `App/Composition/Converters/NullToVisibilityConverter.cs` | 复制自带；**非仅 Studio 用**（DbcView/ReplayView/TraceViewer/UdsWindow 也在用），peakcan-host 保留 |
 | `App/Services/DbcService.cs` `DbcOptions.cs` | DBC 加载（依赖 Core，无 WPF；**复制**，peakcan-host 侧因 DBC View 保留原份） |
 | `App/Services/Trace/WpfMessageBoxPrompt.cs` + 等价 `IMessageBoxPrompt` 接口 | MessageBox 确认框（Import ODX 用） |
 | `App/Services/WpfFileDialogService.cs` | 文件对话框 WPF 实现 |
@@ -103,13 +104,12 @@ peakcan-studio/
 - `ViewModels/EcuSimulator/*`（6）
 - `Windows/HilStudioWindow.xaml` `.cs`
 - `Controls/EcuStatePreview.cs` `EcuResponseModeToVisibilityConverter.cs`
-- `Composition/Converters/NullToVisibilityConverter.cs`（若仅 Studio 用，先 grep 确认）
+- `Composition/Converters/NullToVisibilityConverter.cs` — **保留**（已确认 DbcView/ReplayView/TraceViewerView.AIPanel/UdsWindow 在用，非仅 Studio）
 
 ### 代码删除
 
 - `ViewSwitchFlow.cs`：`ShowHilStudioCommand` → `SyncEcuScriptPath` 整段（含 `OnEcuScriptPathSetExternally`/`OnEcuSimulatorPropertyChanged`/`SyncEcuScriptPath`/`_hilStudioWindow` field）；**保留** `ShowEcuScriptEditorCommand` 及 EcuScriptEditor 同步
 - `AppHostBuilder.cs:305,357-358`：`HilStudioViewModel` DI 注册
-- `App.xaml`：`NullToVisibilityConverter` 资源声明（若仅 Studio 用）
 
 ### 保留（不动）
 
