@@ -86,4 +86,23 @@ public class TestSuiteBuilderViewModelTests
         vm.DbcMessages.Should().HaveCount(1);
         vm.DbcMessages[0].Hex.Should().Be("0x100");
     }
+
+    [Fact]
+    public void Save_RoundTrips_Multiple_Cases_And_Steps()
+    {
+        var vm = NewVm();
+        vm.SuiteName = "Multi";
+        vm.AddCaseCommand.Execute(null);                              // case_1
+        vm.AddStepCommand.Execute(TestCaseStepKind.AssertSignal);
+        vm.AddStepCommand.Execute(TestCaseStepKind.Delay);
+        vm.AddCaseCommand.Execute(null);                              // case_2
+        vm.AddStepCommand.Execute(TestCaseStepKind.SendFrame);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(vm.ToSuite(), HILJsonOptions.Default);
+        var parsed = System.Text.Json.JsonSerializer.Deserialize<TestSuite>(json, HILJsonOptions.Default);
+
+        parsed!.Cases.Should().HaveCount(2);
+        parsed.Cases[0].Steps.Should().HaveCount(2);
+        parsed.Cases[1].Steps.Should().HaveCount(1);
+    }
 }
