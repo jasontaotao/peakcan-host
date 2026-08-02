@@ -122,12 +122,16 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
     {
         var path = _fileDialog.ShowOpenDialog("ODX Files|*.odx;*.pdx|All Files|*.*");
         if (path is null) return;
+        // 与 OpenAsync 一致: 导入会整体替换当前 Script, 有未保存修改时先确认, 避免静默丢弃。
+        if (await _messageBoxConfirm() is null or false) return;
         try
         {
             var json = OdxEcuScriptImporter.ImportToJson(
                 path, OdxEcuName,
                 ParseHexUint(OdxRequestIdHex), ParseHexUint(OdxResponseIdHex));
-            if (LoadFromText(json)) { _suitePath = path; FilePath = null; }
+            // 导入成功后 Save 降级 SaveAs（_suitePath=null → SaveCore 走 SaveAs 另存 .json）,
+            // 绝不覆盖源 .odx 文件（数据丢失风险）。
+            if (LoadFromText(json)) { _suitePath = null; FilePath = null; }
             StatusMessage = $"Imported {Path.GetFileName(path)}";
         }
         catch (InvalidOperationException ex)

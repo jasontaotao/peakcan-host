@@ -129,6 +129,24 @@ public class EcuSimulatorViewModelTests
     }
 
     [Fact]
+    public async Task ImportOdx_InvalidOperationException_Preserves_Existing_Script()
+    {
+        var dir = Directory.CreateTempSubdirectory("ecusim-odx");
+        var odx = Path.Combine(dir.FullName, "empty.odx");
+        await File.WriteAllTextAsync(odx, "<empty/>");
+        var vm = NewVm(new FileDialogStub { OpenResult = odx });
+        vm.OdxEcuName = "ECU"; vm.OdxRequestIdHex = "0x7E0"; vm.OdxResponseIdHex = "0x7E8";
+        vm.LoadFromText(StatesJson);
+
+        await vm.ImportOdxCommand.ExecuteAsync(null);
+
+        vm.IsValidEcuScript.Should().BeTrue();            // 原有脚本未被清空
+        vm.Script.Name.Should().Be("Door");               // 内容保持不变
+        vm.ErrorMessage.Should().NotBeNullOrEmpty();
+        vm.StatusMessage.Should().Contain("Import ODX failed");
+    }
+
+    [Fact]
     public void GeneratorNames_Comes_From_BuiltInGenerators()
     {
         var vm = NewVm();
