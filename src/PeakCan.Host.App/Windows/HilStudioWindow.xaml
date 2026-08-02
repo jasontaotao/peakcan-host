@@ -3,6 +3,177 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HIL Configuration Studio" Width="1400" Height="800"
         WindowStartupLocation="CenterOwner">
+  <Window.Resources>
+    <!-- ===== 12 个 step kind 的属性面板模板（只实例化激活的） ===== -->
+    <DataTemplate x:Key="SendFrameTemplate">
+      <StackPanel>
+        <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="Hex"
+                  SelectedValue="{Binding Params[Id], Mode=TwoWay}"/>
+        <CheckBox Content="CAN FD" IsChecked="{Binding Params[Fd], Mode=TwoWay}" Margin="0,4,0,0"/>
+        <CheckBox Content="Extended ID" IsChecked="{Binding Params[Extended], Mode=TwoWay}" Margin="0,2,0,0"/>
+        <TextBlock Text="Composer (pick message → fill signals)" FontWeight="SemiBold" Margin="0,10,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.Composer.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display"
+                  SelectedItem="{Binding DataContext.SuiteBuilder.Composer.SelectedMessage, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"/>
+        <ItemsControl ItemsSource="{Binding DataContext.SuiteBuilder.Composer.SignalValues, RelativeSource={RelativeSource AncestorType=Window}}"
+                      Margin="0,4,0,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal" Margin="0,1">
+                <TextBlock Text="{Binding Name}" Width="100"/>
+                <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+          <Button Content="Compose Data" Command="{Binding DataContext.SuiteBuilder.ComposeDataCommand, RelativeSource={RelativeSource AncestorType=Window}}" Padding="6,1"/>
+          <TextBlock Text="Data:" VerticalAlignment="Center" Margin="8,0,4,0"/>
+          <TextBox Text="{Binding Params[Data], Mode=TwoWay}" Width="120" FontFamily="Consolas"/>
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ExpectFrameTemplate">
+      <StackPanel>
+        <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="Hex"
+                  SelectedValue="{Binding Params[Id], Mode=TwoWay}"/>
+        <TextBlock Text="Data mask (hex, optional)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[DataMask], Mode=TwoWay}" FontFamily="Consolas"/>
+        <TextBlock Text="Timeout (ms)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[TimeoutMs], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="WaitForSignalTemplate">
+      <StackPanel>
+        <TextBlock Text="Signal" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
+        <TextBlock Text="Expected" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Expected], Mode=TwoWay}"/>
+        <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Tolerance], Mode=TwoWay}"/>
+        <TextBlock Text="Timeout (ms)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[TimeoutMs], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="AssertSignalTemplate">
+      <StackPanel>
+        <TextBlock Text="Signal" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
+        <TextBlock Text="Expected" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Expected], Mode=TwoWay}"/>
+        <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Tolerance], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="AssertRangeTemplate">
+      <StackPanel>
+        <TextBlock Text="Signal" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
+        <TextBlock Text="Min" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Min], Mode=TwoWay}"/>
+        <TextBlock Text="Max" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Max], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="AssertResponseTimeTemplate">
+      <StackPanel>
+        <TextBlock Text="Request ID" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="Hex"
+                  SelectedValue="{Binding Params[ReqId], Mode=TwoWay}"/>
+        <TextBlock Text="Response ID" Margin="0,6,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="Hex"
+                  SelectedValue="{Binding Params[RespId], Mode=TwoWay}"/>
+        <TextBlock Text="Max (ms)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[MaxMs], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="AssertDtcTemplate">
+      <StackPanel>
+        <TextBlock Text="DTC (hex, optional)" Margin="0,0,0,2"/>
+        <TextBox Text="{Binding Params[DtcCode], Mode=TwoWay}"/>
+        <CheckBox Content="Expect present" IsChecked="{Binding Params[ExpectPresent], Mode=TwoWay}" Margin="0,6,0,0"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="AssertNrcTemplate">
+      <StackPanel>
+        <TextBlock Text="Service ID (hex)" Margin="0,0,0,2"/>
+        <TextBox Text="{Binding Params[ServiceId], Mode=TwoWay}"/>
+        <TextBlock Text="Expected NRC (hex)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[ExpectedNrc], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="DelayTemplate">
+      <StackPanel>
+        <TextBlock Text="Delay (ms)" Margin="0,0,0,2"/>
+        <TextBox Text="{Binding Params[Milliseconds], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="CommentTemplate">
+      <StackPanel>
+        <TextBlock Text="Comment" Margin="0,0,0,2"/>
+        <TextBox Text="{Binding Params[Text], Mode=TwoWay}" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="InjectFaultTemplate">
+      <StackPanel>
+        <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
+        <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
+                  DisplayMemberPath="Display" SelectedValuePath="Hex"
+                  SelectedValue="{Binding Params[CanId], Mode=TwoWay}"/>
+        <TextBlock Text="Fault type" Margin="0,6,0,2"/>
+        <ComboBox SelectedItem="{Binding Params[FaultType], Mode=TwoWay}">
+          <ComboBoxItem Content="Drop"/>
+          <ComboBoxItem Content="Delay"/>
+          <ComboBoxItem Content="Corrupt"/>
+          <ComboBoxItem Content="Duplicate"/>
+        </ComboBox>
+        <TextBlock Text="Probability (0-1)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[Probability], Mode=TwoWay}"/>
+        <TextBlock Text="Delay (ms)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[DelayMs], Mode=TwoWay}"/>
+        <TextBlock Text="Corrupt XOR mask (hex)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[CorruptXorMask], Mode=TwoWay}" FontFamily="Consolas"/>
+        <TextBlock Text="Fault ID (optional)" Margin="0,6,0,2"/>
+        <TextBox Text="{Binding Params[FaultId], Mode=TwoWay}"/>
+        <TextBlock Text="Direction" Margin="0,6,0,2"/>
+        <ComboBox SelectedItem="{Binding Params[Direction], Mode=TwoWay}">
+          <ComboBoxItem Content="Send"/>
+          <ComboBoxItem Content="Receive"/>
+          <ComboBoxItem Content="Both"/>
+        </ComboBox>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ClearFaultTemplate">
+      <StackPanel>
+        <TextBlock Text="Fault ID (empty = clear all)" Margin="0,0,0,2"/>
+        <TextBox Text="{Binding Params[FaultId], Mode=TwoWay}"/>
+      </StackPanel>
+    </DataTemplate>
+  </Window.Resources>
+
   <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="*" MinWidth="320"/>
@@ -12,7 +183,7 @@
       <ColumnDefinition Width="*" MinWidth="240"/>
     </Grid.ColumnDefinitions>
 
-    <!-- ===== col 0: DBC Browser（Phase 1） 主从式: 消息 grid 上 / 信号 grid 下 ===== -->
+    <!-- ===== col 0: DBC Browser（Phase 1） ===== -->
     <Grid Grid.Column="0" Margin="8">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -145,7 +316,6 @@
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- 左: cases + toolbox -->
         <Grid Grid.Column="0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -173,7 +343,6 @@
                       VerticalAlignment="Stretch" Background="#CCCCCC"
                       ResizeBehavior="PreviousAndNext"/>
 
-        <!-- 右: steps + 属性面板 -->
         <Grid Grid.Column="2">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -201,285 +370,52 @@
           <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch"
                         VerticalAlignment="Stretch" Background="#CCCCCC"
                         ResizeBehavior="PreviousAndNext"/>
+          <!-- 属性面板: 只实例化激活 kind 的模板（修复切换慢） -->
           <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-            <StackPanel>
-              <TextBlock Text="{Binding SuiteBuilder.SelectedStep.Kind, StringFormat='{}{0} step'}"
-                         FontWeight="SemiBold" Margin="0,0,0,6"/>
-
-              <!-- ===== SendFrame + 组合器 ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="SendFrame">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedValuePath="Hex"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[Id], Mode=TwoWay}"/>
-                <CheckBox Content="CAN FD" IsChecked="{Binding SuiteBuilder.SelectedStep.Params[Fd], Mode=TwoWay}" Margin="0,4,0,0"/>
-                <CheckBox Content="Extended ID" IsChecked="{Binding SuiteBuilder.SelectedStep.Params[Extended], Mode=TwoWay}" Margin="0,2,0,0"/>
-                <TextBlock Text="Composer (pick message → fill signals)" FontWeight="SemiBold" Margin="0,10,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.Composer.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedItem="{Binding SuiteBuilder.Composer.SelectedMessage, Mode=TwoWay}"/>
-                <ItemsControl ItemsSource="{Binding SuiteBuilder.Composer.SignalValues}" Margin="0,4,0,0">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <StackPanel Orientation="Horizontal" Margin="0,1">
-                        <TextBlock Text="{Binding Name}" Width="100"/>
-                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                      </StackPanel>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                  <Button Content="Compose Data" Command="{Binding SuiteBuilder.ComposeDataCommand}" Padding="6,1"/>
-                  <TextBlock Text="Data:" VerticalAlignment="Center" Margin="8,0,4,0"/>
-                  <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Data]}" Width="120" FontFamily="Consolas"/>
-                </StackPanel>
-              </StackPanel>
-
-              <!-- ===== ExpectFrame ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="WaitForFrame">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedValuePath="Hex"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[Id], Mode=TwoWay}"/>
-                <TextBlock Text="Data mask (hex, optional)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[DataMask], Mode=TwoWay}" FontFamily="Consolas"/>
-                <TextBlock Text="Timeout (ms)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[TimeoutMs], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== WaitForSignal ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="WaitForSignal">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
-                          SelectedValuePath="FullName"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
-                <TextBlock Text="Expected" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Expected], Mode=TwoWay}"/>
-                <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Tolerance], Mode=TwoWay}"/>
-                <TextBlock Text="Timeout (ms)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[TimeoutMs], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== AssertSignal ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertSignal">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
-                          SelectedValuePath="FullName"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
-                <TextBlock Text="Expected" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Expected], Mode=TwoWay}"/>
-                <TextBlock Text="Tolerance" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Tolerance], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== AssertRange ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertRange">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Signal" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcSignals}" DisplayMemberPath="Display"
-                          SelectedValuePath="FullName"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[SignalName], Mode=TwoWay}"/>
-                <TextBlock Text="Min" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Min], Mode=TwoWay}"/>
-                <TextBlock Text="Max" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Max], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== AssertResponseTime ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertResponseTime">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Request ID" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedValuePath="Hex"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[ReqId], Mode=TwoWay}"/>
-                <TextBlock Text="Response ID" Margin="0,6,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedValuePath="Hex"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[RespId], Mode=TwoWay}"/>
-                <TextBlock Text="Max (ms)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[MaxMs], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== AssertDtc ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertDtc">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="DTC (hex, optional)" Margin="0,0,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[DtcCode], Mode=TwoWay}"/>
-                <CheckBox Content="Expect present" IsChecked="{Binding SuiteBuilder.SelectedStep.Params[ExpectPresent], Mode=TwoWay}" Margin="0,6,0,0"/>
-              </StackPanel>
-
-              <!-- ===== AssertNrc ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertNrc">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Service ID (hex)" Margin="0,0,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[ServiceId], Mode=TwoWay}"/>
-                <TextBlock Text="Expected NRC (hex)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[ExpectedNrc], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== Delay ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="Delay">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Delay (ms)" Margin="0,0,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Milliseconds], Mode=TwoWay}"/>
-              </StackPanel>
-
-              <!-- ===== Comment ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="Comment">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Comment" Margin="0,0,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Text], Mode=TwoWay}" AcceptsReturn="True" Height="60" TextWrapping="Wrap"/>
-              </StackPanel>
-
-              <!-- ===== InjectFault ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="InjectFault">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="CAN ID" Margin="0,0,0,2"/>
-                <ComboBox ItemsSource="{Binding SuiteBuilder.DbcMessages}" DisplayMemberPath="Display"
-                          SelectedValuePath="Hex"
-                          SelectedValue="{Binding SuiteBuilder.SelectedStep.Params[CanId], Mode=TwoWay}"/>
-                <TextBlock Text="Fault type" Margin="0,6,0,2"/>
-                <ComboBox SelectedItem="{Binding SuiteBuilder.SelectedStep.Params[FaultType], Mode=TwoWay}">
-                  <ComboBoxItem Content="Drop"/>
-                  <ComboBoxItem Content="Delay"/>
-                  <ComboBoxItem Content="Corrupt"/>
-                  <ComboBoxItem Content="Duplicate"/>
-                </ComboBox>
-                <TextBlock Text="Probability (0-1)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[Probability], Mode=TwoWay}"/>
-                <TextBlock Text="Delay (ms)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[DelayMs], Mode=TwoWay}"/>
-                <TextBlock Text="Corrupt XOR mask (hex)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[CorruptXorMask], Mode=TwoWay}" FontFamily="Consolas"/>
-                <TextBlock Text="Fault ID (optional)" Margin="0,6,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[FaultId], Mode=TwoWay}"/>
-                <TextBlock Text="Direction" Margin="0,6,0,2"/>
-                <ComboBox SelectedItem="{Binding SuiteBuilder.SelectedStep.Params[Direction], Mode=TwoWay}">
-                  <ComboBoxItem Content="Send"/>
-                  <ComboBoxItem Content="Receive"/>
-                  <ComboBoxItem Content="Both"/>
-                </ComboBox>
-              </StackPanel>
-
-              <!-- ===== ClearFault ===== -->
-              <StackPanel Visibility="Collapsed">
-                <StackPanel.Style>
-                  <Style TargetType="StackPanel">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                      <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="ClearFault">
-                        <Setter Property="Visibility" Value="Visible"/>
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
-                </StackPanel.Style>
-                <TextBlock Text="Fault ID (empty = clear all)" Margin="0,0,0,2"/>
-                <TextBox Text="{Binding SuiteBuilder.SelectedStep.Params[FaultId], Mode=TwoWay}"/>
-              </StackPanel>
-            </StackPanel>
+            <ContentControl Content="{Binding SuiteBuilder.SelectedStep}">
+              <ContentControl.Style>
+                <Style TargetType="ContentControl">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="SendFrame">
+                      <Setter Property="ContentTemplate" Value="{StaticResource SendFrameTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="WaitForFrame">
+                      <Setter Property="ContentTemplate" Value="{StaticResource ExpectFrameTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="WaitForSignal">
+                      <Setter Property="ContentTemplate" Value="{StaticResource WaitForSignalTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertSignal">
+                      <Setter Property="ContentTemplate" Value="{StaticResource AssertSignalTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertRange">
+                      <Setter Property="ContentTemplate" Value="{StaticResource AssertRangeTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertResponseTime">
+                      <Setter Property="ContentTemplate" Value="{StaticResource AssertResponseTimeTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertDtc">
+                      <Setter Property="ContentTemplate" Value="{StaticResource AssertDtcTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="AssertNrc">
+                      <Setter Property="ContentTemplate" Value="{StaticResource AssertNrcTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="Delay">
+                      <Setter Property="ContentTemplate" Value="{StaticResource DelayTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="Comment">
+                      <Setter Property="ContentTemplate" Value="{StaticResource CommentTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="InjectFault">
+                      <Setter Property="ContentTemplate" Value="{StaticResource InjectFaultTemplate}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SuiteBuilder.SelectedStep.Kind}" Value="ClearFault">
+                      <Setter Property="ContentTemplate" Value="{StaticResource ClearFaultTemplate}"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ContentControl.Style>
+            </ContentControl>
           </ScrollViewer>
         </Grid>
       </Grid>
