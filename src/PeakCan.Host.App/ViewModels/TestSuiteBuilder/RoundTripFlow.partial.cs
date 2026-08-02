@@ -9,7 +9,8 @@ namespace PeakCan.Host.App.ViewModels.TestSuiteBuilder;
 
 public sealed partial class TestSuiteBuilderViewModel
 {
-    public void LoadFromText(string json)
+    /// <summary>反序列化并填充 VM；成功返回 true, 失败返回 false（ErrorMessage/Status 已置）。</summary>
+    public bool LoadFromText(string json)
     {
         try
         {
@@ -17,6 +18,7 @@ public sealed partial class TestSuiteBuilderViewModel
                 ?? throw new InvalidDataException("suite.json is empty");
             Cases.Clear();
             foreach (var c in suite.Cases) Cases.Add(EditableTestCase.FromCase(c));
+            ResetCaseIdCounter();
             SuiteName = suite.Name;
             GlobalCaseFixtureKeys = suite.GlobalCaseFixtureKeys ?? Array.Empty<string>();
             SuiteFixtureKeys = suite.SuiteFixtureKeys ?? Array.Empty<string>();
@@ -27,12 +29,14 @@ public sealed partial class TestSuiteBuilderViewModel
             SelectedStep = null;
             Status = $"Loaded {Cases.Count} case(s) from {_suitePath ?? "(text)"}";
             ErrorMessage = null;
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Suite load failed");
             ErrorMessage = ex.Message;
             Status = "Load failed.";
+            return false;
         }
     }
 
@@ -44,8 +48,9 @@ public sealed partial class TestSuiteBuilderViewModel
         try
         {
             var json = await File.ReadAllTextAsync(path);
+            var previous = _suitePath;
             _suitePath = path;
-            LoadFromText(json);
+            if (!LoadFromText(json)) _suitePath = previous; // 加载失败不覆盖原路径, 防止 Save 写到坏文件
         }
         catch (Exception ex)
         {

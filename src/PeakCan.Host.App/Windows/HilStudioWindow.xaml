@@ -42,6 +42,7 @@
         <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
                   DisplayMemberPath="Display" SelectedValuePath="Hex"
                   SelectedValue="{Binding Params[Id], Mode=TwoWay}"/>
+        <CheckBox Content="Extended ID" IsChecked="{Binding Params[Extended], Mode=TwoWay}" Margin="0,4,0,0"/>
         <TextBlock Text="Data mask (hex, optional)" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[DataMask], Mode=TwoWay}" FontFamily="Consolas"/>
         <TextBlock Text="Timeout (ms)" Margin="0,6,0,2"/>
@@ -103,6 +104,8 @@
         <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
                   DisplayMemberPath="Display" SelectedValuePath="Hex"
                   SelectedValue="{Binding Params[RespId], Mode=TwoWay}"/>
+        <CheckBox Content="Req extended" IsChecked="{Binding Params[ReqExtended], Mode=TwoWay}" Margin="0,4,0,0"/>
+        <CheckBox Content="Resp extended" IsChecked="{Binding Params[RespExtended], Mode=TwoWay}" Margin="0,4,0,0"/>
         <TextBlock Text="Max (ms)" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[MaxMs], Mode=TwoWay}"/>
       </StackPanel>

@@ -170,4 +170,37 @@ public class TestSuiteBuilderViewModelTests
 
         parsed!.Cases[0].Steps[0].Parameters.Should().BeOfType<InjectFaultStep>();
     }
+
+    [Fact]
+    public void RemoveCase_Clears_SelectedStep_And_Does_Not_Throw_On_Remove()
+    {
+        var vm = NewVm();
+        vm.AddCaseCommand.Execute(null);                            // case_1
+        vm.AddStepCommand.Execute(TestCaseStepKind.Delay);          // step lives in case_1
+        vm.AddCaseCommand.Execute(null);                            // case_2
+        vm.AddStepCommand.Execute(TestCaseStepKind.Delay);
+        vm.SelectedCase = vm.Cases[0];
+        vm.SelectedStep = vm.Cases[0].Steps[0];
+
+        vm.RemoveCaseCommand.Execute(null);                         // deletes case_1, the holder of SelectedStep
+
+        vm.SelectedCase.Should().Be(vm.Cases[0]);                   // case_2
+        vm.SelectedStep.Should().BeNull();                          // 修复前是孤儿 step
+        var act = () => vm.RemoveStepCommand.Execute(null);
+        act.Should().NotThrow();                                    // 修复前 RemoveAt(-1) 抛 ArgumentOutOfRangeException
+    }
+
+    [Fact]
+    public void AddCase_After_Removal_Does_Not_Reuse_Id()
+    {
+        var vm = NewVm();
+        vm.AddCaseCommand.Execute(null);                            // case_1
+        vm.AddCaseCommand.Execute(null);                            // case_2
+        vm.Cases.RemoveAt(0);                                       // remove case_1
+
+        vm.AddCaseCommand.Execute(null);
+
+        vm.Cases.Select(c => c.Id).Should().OnlyHaveUniqueItems();
+        vm.Cases.Select(c => c.Id).Should().Contain("case_3");
+    }
 }

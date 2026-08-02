@@ -31,6 +31,10 @@ public sealed partial class HilStudioViewModel
     /// </summary>
     private void ApplyFilter()
     {
+        // DataGrid 收到集合 Reset 时会经 TwoWay 把 SelectedMessage 写回 null;
+        // 重建后恢复选中引用, 避免"搜中当前消息但信号面板被清空"。仅当选中项仍在结果中才恢复。
+        var keepMessage = SelectedMessage;
+        var keepSignal = SelectedSignal;
         FilteredMessages.Clear();
         var pattern = SearchText.Trim();
         foreach (var m in _allMessages)
@@ -43,5 +47,7 @@ public sealed partial class HilStudioViewModel
                 FilteredMessages.Add(m);
             }
         }
+        SelectedMessage = keepMessage is not null && FilteredMessages.Contains(keepMessage) ? keepMessage : null;
+        SelectedSignal = keepSignal is not null && VisibleSignals.Contains(keepSignal) ? keepSignal : null;
     }
 }

@@ -22,8 +22,8 @@ public sealed partial class TestSuiteBuilderViewModel
 /// </summary>
 public sealed record DbcMessageOption(uint RawId, bool IsExtended, string Name)
 {
-    /// <summary>工厂期望的 CAN ID hex 字符串（"0x123" / 扩展 "0x1FFFFFFF"）。</summary>
-    public string Hex => $"0x{RawId:X}";
+    /// <summary>工厂期望的 CAN ID hex 字符串（"0x123" / 扩展 "0x1FFFFFFF"）。与 CanId.ToString 零填充对齐。</summary>
+    public string Hex => IsExtended ? $"0x{RawId:X8}" : $"0x{RawId:X3}";
 
     public string Display => $"{Hex} {Name}";
 

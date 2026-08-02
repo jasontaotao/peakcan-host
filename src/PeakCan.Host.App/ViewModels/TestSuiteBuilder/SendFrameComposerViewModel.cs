@@ -17,7 +17,7 @@ public sealed partial class SendFrameComposerViewModel : ObservableObject
     private readonly ILogger _logger;
     private Message? _current;
 
-    public IReadOnlyList<DbcMessageOption> DbcMessages { get; private set; } = Array.Empty<DbcMessageOption>();
+    [ObservableProperty] private IReadOnlyList<DbcMessageOption> _dbcMessages = Array.Empty<DbcMessageOption>();
     public ObservableCollection<SignalValueRow> SignalValues { get; } = new();
 
     [ObservableProperty] private DbcMessageOption? _selectedMessage;

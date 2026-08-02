@@ -20,6 +20,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     private readonly IFileDialogService _fileDialog;
     private readonly ILogger _logger;
     private string? _suitePath;
+    private int _nextCaseId = 1;
 
     // suite-level pass-through 字段（round-trip 保真）
     public IReadOnlyList<string> GlobalCaseFixtureKeys { get; private set; } = Array.Empty<string>();
@@ -86,6 +87,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     {
         if (SelectedCase is null || SelectedStep is null) return;
         var idx = SelectedCase.Steps.IndexOf(SelectedStep);
+        if (idx < 0) return; // 防御孤儿 step（RemoveCase 后残留）
         SelectedCase.Steps.RemoveAt(idx);
         SelectedStep = idx < SelectedCase.Steps.Count ? SelectedCase.Steps[idx] : SelectedCase.Steps.LastOrDefault();
     }
@@ -100,6 +102,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     {
         if (SelectedCase is null || SelectedStep is null) return;
         var idx = SelectedCase.Steps.IndexOf(SelectedStep);
+        if (idx < 0) return; // 防御孤儿 step
         var target = idx + delta;
         if (target < 0 || target >= SelectedCase.Steps.Count) return;
         SelectedCase.Steps.Move(idx, target);
@@ -109,7 +112,7 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     [RelayCommand]
     private void AddCase()
     {
-        var c = new EditableTestCase { Id = $"case_{Cases.Count + 1}", Name = "New Case" };
+        var c = new EditableTestCase { Id = $"case_{_nextCaseId++}", Name = "New Case" };
         Cases.Add(c);
         SelectedCase = c;
     }
@@ -119,7 +122,21 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
     {
         if (SelectedCase is null) return;
         Cases.Remove(SelectedCase);
+        SelectedStep = null; // 清空选中, 防孤儿 step 使 RemoveStep/MoveStep 对 -1 索引操作
         SelectedCase = Cases.LastOrDefault();
+    }
+
+    /// <summary>从现有 case Id 恢复自增计数, 避免删除 case 后新 Id 复用（破坏 TestCaseId 追踪）。</summary>
+    private void ResetCaseIdCounter()
+    {
+        var max = 0;
+        foreach (var c in Cases)
+        {
+            if (c.Id.StartsWith("case_", StringComparison.Ordinal)
+                && int.TryParse(c.Id.AsSpan("case_".Length), out var n) && n > max)
+                max = n;
+        }
+        _nextCaseId = max + 1;
     }
 
     public TestSuite ToSuite() => new(

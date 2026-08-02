@@ -165,6 +165,37 @@ public class HilStudioViewModelTests
     }
 
     [Fact]
+    public void Search_Preserves_SelectedMessage_When_It_Still_Matches()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1", new List<Signal>(), false, null),
+            new Message(0x200, "M2", 4, "ECU2", new List<Signal>(), false, null)));
+        vm.SelectedMessage = vm.FilteredMessages[0];   // select M1
+        var msg = vm.SelectedMessage;
+
+        vm.SearchText = "m1";                          // M1 still in filter
+
+        vm.SelectedMessage.Should().BeSameAs(msg);
+    }
+
+    [Fact]
+    public void Search_Clears_SelectedMessage_When_It_No_Longer_Matches()
+    {
+        var svc = new DbcService(NullLogger<DbcService>.Instance);
+        var vm = NewVm(svc);
+        RaiseLoaded(svc, DocWith(
+            new Message(0x100, "M1", 8, "ECU1", new List<Signal>(), false, null),
+            new Message(0x200, "M2", 4, "ECU2", new List<Signal>(), false, null)));
+        vm.SelectedMessage = vm.FilteredMessages[0];   // select M1
+
+        vm.SearchText = "zzz";                         // M1 filtered out
+
+        vm.SelectedMessage.Should().BeNull();          // 修复前: SelectedMessage 残留已过滤消息, 与列表不一致
+    }
+
+    [Fact]
     public void Changing_SelectedMessage_Clears_SelectedSignal()
     {
         var svc = new DbcService(NullLogger<DbcService>.Instance);
