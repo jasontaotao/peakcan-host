@@ -1,9 +1,11 @@
 <Window x:Class="PeakCan.Host.App.Windows.HilStudioWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:PeakCan.Host.App.Controls"
         Title="HIL Configuration Studio" Width="1400" Height="800"
         WindowStartupLocation="CenterOwner">
   <Window.Resources>
+    <controls:EcuResponseModeToVisibilityConverter x:Key="EcuResponseModeToVisibilityConverter"/>
     <!-- ===== 12 个 step kind 的属性面板模板（只实例化激活的） ===== -->
     <DataTemplate x:Key="SendFrameTemplate">
       <StackPanel>
@@ -186,7 +188,7 @@
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="*" MinWidth="240"/>
       <ColumnDefinition Width="Auto"/>
-      <ColumnDefinition Width="*" MinWidth="240"/>
+      <ColumnDefinition Width="*" MinWidth="340"/>
     </Grid.ColumnDefinitions>
 
     <!-- ===== col 0: DBC Browser（Phase 1） ===== -->
@@ -438,13 +440,170 @@
                   VerticalAlignment="Stretch" Background="#CCCCCC"
                   ResizeBehavior="PreviousAndNext"/>
 
-    <!-- ===== col 4: ECU Simulator 占位 ===== -->
-    <Border Grid.Column="4" Background="#FAFAFA" BorderBrush="#DDDDDD"
-            BorderThickness="1" Margin="4">
-      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-        <TextBlock Text="ECU Simulator" FontSize="16" FontWeight="SemiBold"/>
-        <TextBlock Text="(Phase 3)" Foreground="Gray"/>
+    <!-- ===== col 4: ECU Simulator（Phase 3） ===== -->
+    <Grid Grid.Column="4" Margin="8">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*" MinHeight="150"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*" MinHeight="120"/>
+      </Grid.RowDefinitions>
+
+      <!-- 工具栏 -->
+      <StackPanel Orientation="Horizontal">
+        <Button Content="Open" Command="{Binding EcuSimulator.OpenCommand}" Padding="6,1"/>
+        <Button Content="Save" Command="{Binding EcuSimulator.SaveCommand}" Padding="6,1"/>
+        <Button Content="SaveAs" Command="{Binding EcuSimulator.SaveAsCommand}" Padding="6,1"/>
+        <Button Content="Import ODX" Command="{Binding EcuSimulator.ImportOdxCommand}" Padding="6,1"/>
       </StackPanel>
-    </Border>
+
+      <!-- ODX 导入参数 -->
+      <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,4,0,0">
+        <TextBlock Text="ECU:" VerticalAlignment="Center"/>
+        <TextBox Text="{Binding EcuSimulator.OdxEcuName, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="4,0,0,0"/>
+        <TextBlock Text="Req:" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        <TextBox Text="{Binding EcuSimulator.OdxRequestIdHex, UpdateSourceTrigger=PropertyChanged}" Width="52" FontFamily="Consolas" Margin="4,0,0,0"/>
+        <TextBlock Text="Resp:" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        <TextBox Text="{Binding EcuSimulator.OdxResponseIdHex, UpdateSourceTrigger=PropertyChanged}" Width="52" FontFamily="Consolas" Margin="4,0,0,0"/>
+      </StackPanel>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,2,0,0">
+        <TextBlock Text="{Binding EcuSimulator.StatusMessage}" Foreground="Gray"/>
+        <TextBlock Text="{Binding EcuSimulator.ErrorMessage}" Foreground="Firebrick" Margin="8,0,0,0"
+                   TextTrimming="CharacterEllipsis" MaxWidth="320"/>
+      </StackPanel>
+
+      <!-- 脚本属性表单 -->
+      <Grid Grid.Row="3" Margin="0,6,0,2">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="Name:" VerticalAlignment="Center"/>
+        <TextBox Grid.Column="1" Text="{Binding EcuSimulator.Script.Name, UpdateSourceTrigger=PropertyChanged}"/>
+        <TextBlock Grid.Row="1" Text="Initial state:" VerticalAlignment="Center"/>
+        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding EcuSimulator.Script.InitialState, UpdateSourceTrigger=PropertyChanged}"/>
+        <TextBlock Grid.Column="2" Text="ReqID:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox Grid.Column="3" Text="{Binding EcuSimulator.Script.RequestIdHex, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="RespID:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox Grid.Row="1" Grid.Column="3" Text="{Binding EcuSimulator.Script.ResponseIdHex, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+        <CheckBox Grid.Row="1" Grid.Column="3" Content="Extended" IsChecked="{Binding EcuSimulator.Script.IsExtendedFrame, Mode=TwoWay}" Margin="0,22,0,0"/>
+      </Grid>
+
+      <!-- 状态列表 + 选中状态转移编辑 -->
+      <Grid Grid.Row="4">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="110"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid Grid.Column="0">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal">
+            <Button Content="+S" Command="{Binding EcuSimulator.AddStateCommand}" Padding="4,0"/>
+            <Button Content="-S" Command="{Binding EcuSimulator.RemoveStateCommand}" Padding="4,0" Margin="2,0,0,0"/>
+          </StackPanel>
+          <ListBox Grid.Row="1" ItemsSource="{Binding EcuSimulator.States}"
+                   SelectedItem="{Binding EcuSimulator.SelectedState}" DisplayMemberPath="Name"/>
+          <Button Grid.Row="2" Content="+Trans" Command="{Binding EcuSimulator.AddTransitionCommand}" Margin="0,2,0,0" Padding="4,0"/>
+        </Grid>
+        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch" Background="#CCCCCC"
+                      ResizeBehavior="PreviousAndNext"/>
+        <!-- 转移列表 + 编辑面板 -->
+        <Grid Grid.Column="2">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Transitions" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Content="-Trans" Command="{Binding EcuSimulator.RemoveTransitionCommand}" Margin="6,0,0,0" Padding="4,0"/>
+          </StackPanel>
+          <ListBox Grid.Row="1" ItemsSource="{Binding EcuSimulator.SelectedState.Transitions}"
+                   SelectedItem="{Binding EcuSimulator.SelectedTransition}">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding ServiceIdHex}" FontFamily="Consolas"/>
+                  <TextBlock Text="{Binding ToState, StringFormat='  → {0}'}" Foreground="Gray" Margin="4,0,0,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <!-- 转移属性编辑 -->
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="140">
+            <StackPanel DataContext="{Binding EcuSimulator.SelectedTransition}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="SID:" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding ServiceIdHex, UpdateSourceTrigger=PropertyChanged}" Width="52" FontFamily="Consolas" Margin="4,0,0,0"/>
+                <TextBlock Text="Sub:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <TextBox Text="{Binding SubFunctionHex, UpdateSourceTrigger=PropertyChanged}" Width="52" FontFamily="Consolas" Margin="4,0,0,0"/>
+                <TextBlock Text="Delay:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <TextBox Text="{Binding ResponseDelayMs, UpdateSourceTrigger=PropertyChanged}" Width="52" Margin="4,0,0,0"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="Mask:" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding DataMaskHex, UpdateSourceTrigger=PropertyChanged}" Width="110" FontFamily="Consolas" Margin="4,0,0,0"/>
+                <TextBlock Text="Pattern:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <TextBox Text="{Binding DataPatternHex, UpdateSourceTrigger=PropertyChanged}" Width="110" FontFamily="Consolas" Margin="4,0,0,0"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="ToState:" VerticalAlignment="Center"/>
+                <ComboBox ItemsSource="{Binding DataContext.EcuSimulator.States, RelativeSource={RelativeSource AncestorType=Window}}"
+                          DisplayMemberPath="Name" SelectedValuePath="Name"
+                          SelectedValue="{Binding ToState, Mode=TwoWay}" Width="90" Margin="4,0,0,0"/>
+                <TextBlock Text="Response:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <ComboBox SelectedValuePath="Tag" SelectedValue="{Binding ResponseMode, Mode=TwoWay}" Width="70" Margin="4,0,0,0">
+                  <ComboBoxItem Content="Static" Tag="Static"/>
+                  <ComboBoxItem Content="Dynamic" Tag="Dynamic"/>
+                </ComboBox>
+              </StackPanel>
+              <!-- 响应参数: 按 ResponseMode 显隐 -->
+              <StackPanel Margin="0,4,0,0" Visibility="{Binding ResponseMode, Converter={StaticResource EcuResponseModeToVisibilityConverter}}">
+                <TextBlock Text="Static data (hex):" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding StaticDataHex, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+              </StackPanel>
+              <StackPanel Margin="0,4,0,0" Visibility="{Binding ResponseMode, Converter={StaticResource EcuResponseModeToVisibilityConverter}, ConverterParameter=Dynamic}">
+                <TextBlock Text="Generator:" VerticalAlignment="Center"/>
+                <ComboBox ItemsSource="{Binding DataContext.EcuSimulator.GeneratorNames, RelativeSource={RelativeSource AncestorType=Window}}"
+                          SelectedItem="{Binding GeneratorName, Mode=TwoWay}" Width="150" Margin="4,0,0,0"/>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Grid>
+
+      <!-- DID 值编辑器 -->
+      <StackPanel Grid.Row="5" Margin="0,6,0,2">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="DID Values" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <Button Content="+DID" Command="{Binding EcuSimulator.AddDidValueCommand}" Margin="6,0,0,0" Padding="4,0"/>
+          <Button Content="-DID" Command="{Binding EcuSimulator.RemoveDidValueCommand}" Margin="2,0,0,0" Padding="4,0"/>
+        </StackPanel>
+        <ItemsControl ItemsSource="{Binding EcuSimulator.DidValues}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal" Margin="0,1">
+                <TextBox Text="{Binding KeyHex, UpdateSourceTrigger=PropertyChanged}" Width="64" FontFamily="Consolas"/>
+                <TextBox Text="{Binding BytesHex, UpdateSourceTrigger=PropertyChanged}" Width="150" FontFamily="Consolas" Margin="4,0,0,0"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+
+      <!-- 只读图形预览（Task 6） -->
+      <Border Grid.Row="6" BorderBrush="#DDDDDD" BorderThickness="1" Margin="0,6,0,0">
+        <controls:EcuStatePreview DataContext="{Binding EcuSimulator.Script}"/>
+      </Border>
+    </Grid>
   </Grid>
 </Window>

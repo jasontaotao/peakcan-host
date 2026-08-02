@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.ViewModels.EcuSimulator;
 using PeakCan.Host.App.ViewModels.TestSuiteBuilder;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Dbc;
@@ -29,6 +30,9 @@ public sealed partial class HilStudioViewModel : ObservableObject
     /// <summary>col2 Test Suite Builder 子面板 VM。</summary>
     public TestSuiteBuilderViewModel SuiteBuilder { get; }
 
+    /// <summary>col4 ECU Simulator 子面板 VM。</summary>
+    public EcuSimulatorViewModel EcuSimulator { get; }
+
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _status = "No DBC loaded";
     [ObservableProperty] private string _loadedPath = "";
@@ -47,6 +51,7 @@ public sealed partial class HilStudioViewModel : ObservableObject
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _fileDialog = fileDialog ?? new WpfFileDialogService();
         SuiteBuilder = new TestSuiteBuilderViewModel(svc, logger, _fileDialog, encodeService);
+        EcuSimulator = new EcuSimulatorViewModel(logger, _fileDialog);
         _svc.DbcLoaded += OnLoaded;
         _svc.LoadFailed += OnLoadFailed;
     }
