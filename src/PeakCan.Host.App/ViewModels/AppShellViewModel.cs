@@ -112,7 +112,6 @@ public sealed partial class AppShellViewModel : ObservableObject
     // Sprint 3: HIL testing panel VM (transient, created per navigation)
     private readonly HilViewModel _hilViewModel;
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
-    private readonly HilStudioViewModel _hilStudioViewModel;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -159,7 +158,6 @@ public sealed partial class AppShellViewModel : ObservableObject
     // cached window without spawning a fresh one).
     private TraceViewerView? _traceViewerView;
     private EcuScriptEditorWindow? _ecuScriptEditorWindow;
-    private HilStudioWindow? _hilStudioWindow;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -284,7 +282,6 @@ public sealed partial class AppShellViewModel : ObservableObject
         // Sprint 3: HIL testing panel VM (required ctor arg for DI wiring)
         HilViewModel hilViewModel,
         EcuScriptEditorViewModel ecuScriptEditorViewModel,
-        HilStudioViewModel hilStudioViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null)
     {
@@ -315,12 +312,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
-        _hilStudioViewModel = hilStudioViewModel ?? throw new ArgumentNullException(nameof(hilStudioViewModel));
-        // ECU 编辑器接线：3 条订阅（Phase 3 T7: FilePath 同步吸收进 Studio ECU 面板，
-        // 原 EcuScriptEditorViewModel 不再参与自动同步 —— 独立窗口仍可打开/编辑/保存）
+        // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
-        _hilViewModel.EcuScriptPathSetExternally += OnEcuScriptPathSetExternally;
-        _hilStudioViewModel.EcuSimulator.PropertyChanged += OnEcuSimulatorPropertyChanged;
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
         // RecentSessionsService is a singleton; subscribing to its
         // PropertyChanged keeps the AppShell menu in sync with

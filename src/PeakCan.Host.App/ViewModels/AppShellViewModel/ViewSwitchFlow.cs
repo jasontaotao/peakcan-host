@@ -1,8 +1,6 @@
-using System.ComponentModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Composition;
-using PeakCan.Host.App.ViewModels.EcuSimulator;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Windows;
 
@@ -282,51 +280,7 @@ public sealed partial class AppShellViewModel
             _ecuScriptEditorWindow.Activate();
     }
 
-    [RelayCommand]
-    private void ShowHilStudio()
-    {
-        ViewSwitcher.ShowWindow(
-            factory: () =>
-            {
-                var win = new HilStudioWindow(_hilStudioViewModel);
-                _hilStudioViewModel.RefreshFromCurrent();
-                _hilStudioViewModel.EcuSimulator.LoadInitialPath(_hilViewModel.EcuScriptPath);
-                return win;
-            },
-            cache: ref _hilStudioWindow);
-        if (_hilStudioWindow is null) return;
-
-        if (Application.Current?.MainWindow is { } owner && owner != _hilStudioWindow)
-            _hilStudioWindow.Owner = owner;
-
-        if (!_hilStudioWindow.IsVisible)
-            _hilStudioWindow.Show();
-        else
-            _hilStudioWindow.Activate();
-    }
-
     private void OnOpenEcuEditorRequested() => ShowEcuScriptEditorCommand.Execute(null);
-
-    private void OnEcuScriptPathSetExternally(string path)
-    {
-        // 吸收: BrowseEcu 外部加载同步进 Studio 的 ECU 面板（原 EcuScriptEditorWindow 不再接收）
-        if (_hilStudioWindow is not null)
-            _ = _hilStudioViewModel.EcuSimulator.LoadExternalAsync(path);
-    }
-
-    private void OnEcuSimulatorPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(EcuSimulatorViewModel.FilePath)
-            or nameof(EcuSimulatorViewModel.IsValidEcuScript))
-            SyncEcuScriptPath();
-    }
-
-    private void SyncEcuScriptPath()
-    {
-        var fp = _hilStudioViewModel.EcuSimulator.FilePath;
-        if (!string.IsNullOrEmpty(fp) && _hilStudioViewModel.EcuSimulator.IsValidEcuScript)
-            _hilViewModel.EcuScriptPath = fp;
-    }
 
     private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };
 }
