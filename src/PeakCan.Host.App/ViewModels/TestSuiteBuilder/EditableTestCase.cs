@@ -1,13 +1,14 @@
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels.TestSuiteBuilder;
 
 /// <summary>可编辑测试用例。保留全部字段以保证 ToCase/FromCase round-trip 保真。</summary>
-public sealed class EditableTestCase
+public sealed partial class EditableTestCase : ObservableObject
 {
     public string Id { get; set; } = "";
-    public string Name { get; set; } = "";
+    [ObservableProperty] private string _name = "";
     public string Description { get; set; } = "";
     public string? PreConditions { get; set; }
     public string? PostConditions { get; set; }

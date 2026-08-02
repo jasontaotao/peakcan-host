@@ -60,4 +60,17 @@ public class EditableModelTests
         var editable = EditableTestCase.FromCase(c);
         editable.ToCase().Should().BeEquivalentTo(c);
     }
+
+    [Fact]
+    public void Setting_CaseName_Raises_PropertyChanged_And_Reflects_In_ToCase()
+    {
+        var c = new EditableTestCase { Name = "Old" };
+        string? raised = null;
+        c.PropertyChanged += (_, e) => raised = e.PropertyName;
+
+        c.Name = "New";
+
+        raised.Should().Be(nameof(EditableTestCase.Name));
+        c.ToCase().Name.Should().Be("New");
+    }
 }
