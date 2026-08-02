@@ -35,6 +35,10 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
     [ObservableProperty] private EditableEcuState? _selectedState;
     [ObservableProperty] private EditableEcuTransition? _selectedTransition;
     [ObservableProperty] private EditableDidValue? _selectedDidValue;
+
+    // 切状态清残留转移, 防编辑/删除错目标（foreign transition 静默 no-op 缺陷修复）
+    partial void OnSelectedStateChanged(EditableEcuState? value)
+        => SelectedTransition = null;
     [ObservableProperty] private string? _filePath;
     [ObservableProperty] private bool _isValidEcuScript;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -202,6 +206,7 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
         var s = EditableEcuState.FromTransitions($"State{States.Count + 1}", Array.Empty<EcuStateTransition>(), Script);
         Script.States.Add(s);
         SelectedState = s;
+        SelectedTransition = null;   // 显式兜底: 切换目标状态后不应保留旧状态的转移
     }
 
     [RelayCommand]

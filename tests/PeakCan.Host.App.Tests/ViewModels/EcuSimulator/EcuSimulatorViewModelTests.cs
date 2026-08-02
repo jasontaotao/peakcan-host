@@ -152,4 +152,19 @@ public class EcuSimulatorViewModelTests
         var vm = NewVm();
         vm.GeneratorNames.Should().HaveCount(5);
     }
+
+    [Fact]
+    public void Switching_SelectedState_Clears_SelectedTransition()
+    {
+        var vm = NewVm();
+        vm.LoadFromText(StatesJson);            // StatesJson: 一个 "Locked" 状态（含 1 条转移）
+        vm.AddStateCommand.Execute(null);       // State2（无转移）
+        vm.SelectedState = vm.States[0];
+        vm.SelectedTransition = vm.States[0].Transitions[0];   // 先选中状态 A 的转移
+        vm.SelectedTransition.Should().NotBeNull();
+
+        vm.SelectedState = vm.States[1];        // 切到 State2
+
+        vm.SelectedTransition.Should().BeNull();
+    }
 }

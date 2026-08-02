@@ -290,6 +290,7 @@ public sealed partial class AppShellViewModel
             {
                 var win = new HilStudioWindow(_hilStudioViewModel);
                 _hilStudioViewModel.RefreshFromCurrent();
+                _hilStudioViewModel.EcuSimulator.LoadInitialPath(_hilViewModel.EcuScriptPath);
                 return win;
             },
             cache: ref _hilStudioWindow);
