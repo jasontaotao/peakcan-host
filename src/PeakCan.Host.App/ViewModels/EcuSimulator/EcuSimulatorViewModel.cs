@@ -42,7 +42,8 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
     [ObservableProperty] private string _odxRequestIdHex = "0x7E0";
     [ObservableProperty] private string _odxResponseIdHex = "0x7E8";
 
-    public bool HasUnsavedChanges => !string.Equals(Script.ToJson(), _savedJson, StringComparison.Ordinal);
+    public bool HasUnsavedChanges => _savedJson.Length > 0
+        && !string.Equals(Script.ToJson(), _savedJson, StringComparison.Ordinal);
 
     public EcuSimulatorViewModel(ILogger logger, IFileDialogService? fileDialog = null)
     {

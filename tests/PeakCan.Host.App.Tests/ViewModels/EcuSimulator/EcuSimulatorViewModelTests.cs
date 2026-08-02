@@ -60,6 +60,18 @@ public class EcuSimulatorViewModelTests
     }
 
     [Fact]
+    public void HasUnsavedChanges_Is_False_On_Fresh_Vm_And_After_Reset()
+    {
+        var vm = NewVm();
+        vm.HasUnsavedChanges.Should().BeFalse();
+        vm.LoadFromText(StatesJson);
+        vm.Script.States[0].Transitions[0].ServiceIdHex = "0x2A";
+        vm.HasUnsavedChanges.Should().BeTrue();
+        vm.Reset();
+        vm.HasUnsavedChanges.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Open_Then_Save_Overwrites_Original_File()
     {
         var dir = Directory.CreateTempSubdirectory("ecusim-test");
