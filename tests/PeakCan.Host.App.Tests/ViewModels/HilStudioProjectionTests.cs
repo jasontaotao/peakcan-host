@@ -72,6 +72,17 @@ public class HilStudioProjectionTests
     }
 
     [Fact]
+    public void Signal_Projection_Preserves_Comment()
+    {
+        var s = new Signal(
+            "SigD", 0, 8, ByteOrder.LittleEndian, DbcValueType.Unsigned,
+            1, 0, 0, 255, "", Array.Empty<string>(), Comment: "speed signal");
+
+        HilStudioDbcSignalRow.From(s, new Dictionary<string, ValueTable>())
+            .Comment.Should().Be("speed signal");
+    }
+
+    [Fact]
     public void ValueTable_Entries_Expanded_Ordered_By_Key()
     {
         var tables = new Dictionary<string, ValueTable> { ["M1_SigA_Table"] = OffOn };

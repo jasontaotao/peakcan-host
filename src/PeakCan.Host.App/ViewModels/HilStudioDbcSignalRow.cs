@@ -11,6 +11,7 @@ public sealed class HilStudioDbcSignalRow
     public string FactorOffset { get; init; } = "";
     public string MinMax { get; init; } = "";
     public string Unit { get; init; } = "";
+    public string? Comment { get; init; }
     public string? ValueTableName { get; init; }
     /// <summary>值表条目, 按 key 升序。表缺失/悬空引用 -> null（约束 #10 由 UI 收拢）。</summary>
     public IReadOnlyList<HilDbcValueTableEntryRow>? ValueTableEntries { get; init; }
@@ -33,6 +34,7 @@ public sealed class HilStudioDbcSignalRow
             FactorOffset = $"({s.Factor},{s.Offset})",
             MinMax = $"[{s.Min}|{s.Max}]",
             Unit = s.Unit,
+            Comment = s.Comment,
             ValueTableName = s.ValueTableName,
             ValueTableEntries = entries,
         };
