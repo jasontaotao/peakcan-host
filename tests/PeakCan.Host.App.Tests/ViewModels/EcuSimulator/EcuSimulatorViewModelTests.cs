@@ -1,8 +1,10 @@
 using System.IO;
 using System.Text.Json;
+using System.Windows;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels.EcuSimulator;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL.Serialization;
@@ -27,8 +29,17 @@ public class EcuSimulatorViewModelTests
         public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => SaveResult;
     }
 
-    private static EcuSimulatorViewModel NewVm(IFileDialogService? dlg = null)
-        => new(NullLogger<EcuSimulatorViewModel>.Instance, dlg);
+    /// <summary>始终回答 Yes —— 测试走确认分支时不卡在真实模态框。</summary>
+    private sealed class MessageBoxYesStub : IMessageBoxPrompt
+    {
+        public Task<MessageBoxResult> ShowAsync(string title, string message, Window? owner)
+            => Task.FromResult(MessageBoxResult.Yes);
+        public Task<MessageBoxResult> ShowInformationAsync(string title, string message, Window? owner)
+            => Task.FromResult(MessageBoxResult.OK);
+    }
+
+    private static EcuSimulatorViewModel NewVm(IFileDialogService? dlg = null, IMessageBoxPrompt? messageBox = null)
+        => new(NullLogger<EcuSimulatorViewModel>.Instance, dlg, messageBox ?? new MessageBoxYesStub());
 
     [Fact]
     public void LoadFromText_Populates_Script_And_Marks_Valid()
@@ -97,5 +108,30 @@ public class EcuSimulatorViewModelTests
         vm.GeneratorNames.Should().Contain("ClearDtc");
         vm.GeneratorNames.Should().Contain("DidReadout");
         vm.GeneratorNames.Should().Contain("DidWrite");
+    }
+
+    [Fact]
+    public async Task ImportOdx_InvalidOperationException_Shows_Error_Not_Crash()
+    {
+        var dir = Directory.CreateTempSubdirectory("ecusim-odx");
+        var odx = Path.Combine(dir.FullName, "empty.odx");   // 无 UDS 服务 → InvalidOperationException
+        await File.WriteAllTextAsync(odx, "<empty/>");
+        var vm = NewVm(new FileDialogStub { OpenResult = odx });
+        vm.OdxEcuName = "ECU";
+        vm.OdxRequestIdHex = "0x7E0";
+        vm.OdxResponseIdHex = "0x7E8";
+
+        await vm.ImportOdxCommand.ExecuteAsync(null);
+
+        vm.IsValidEcuScript.Should().BeFalse();      // 失败不清空原有脚本
+        vm.ErrorMessage.Should().NotBeNullOrEmpty();
+        vm.StatusMessage.Should().Contain("Import ODX failed");
+    }
+
+    [Fact]
+    public void GeneratorNames_Comes_From_BuiltInGenerators()
+    {
+        var vm = NewVm();
+        vm.GeneratorNames.Should().HaveCount(5);
     }
 }

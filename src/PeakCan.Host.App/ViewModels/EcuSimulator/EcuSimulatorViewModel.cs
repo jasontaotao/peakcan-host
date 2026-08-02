@@ -4,11 +4,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
+using PeakCan.Host.Infrastructure.HIL.Odx;
 
 namespace PeakCan.Host.App.ViewModels.EcuSimulator;
 
@@ -21,6 +23,7 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
 {
     private readonly ILogger _logger;
     private readonly IFileDialogService _fileDialog;
+    private readonly IMessageBoxPrompt _messageBox;
     private string? _suitePath;
     private string _savedJson = "";
 
@@ -45,10 +48,11 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
     public bool HasUnsavedChanges => _savedJson.Length > 0
         && !string.Equals(Script.ToJson(), _savedJson, StringComparison.Ordinal);
 
-    public EcuSimulatorViewModel(ILogger logger, IFileDialogService? fileDialog = null)
+    public EcuSimulatorViewModel(ILogger logger, IFileDialogService? fileDialog = null, IMessageBoxPrompt? messageBox = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _fileDialog = fileDialog ?? new WpfFileDialogService();
+        _messageBox = messageBox ?? new WpfMessageBoxPrompt();
         GeneratorNames = BuiltInGenerators.CreateAll().Select(g => g.Name).ToList();
         Script.Changed += () => OnPropertyChanged(nameof(HasUnsavedChanges));
     }
@@ -113,8 +117,46 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
         }
     }
 
-    // Task 4 注: 占位实现——Task 4 换成真实无阻塞确认（IMessageBoxPrompt）。测试无未保存修改, 不进此分支。
-    private Task<bool?> _messageBoxConfirm() => Task.FromResult<bool?>(true);
+    [RelayCommand]
+    private async Task ImportOdxAsync()
+    {
+        var path = _fileDialog.ShowOpenDialog("ODX Files|*.odx;*.pdx|All Files|*.*");
+        if (path is null) return;
+        try
+        {
+            var json = OdxEcuScriptImporter.ImportToJson(
+                path, OdxEcuName,
+                ParseHexUint(OdxRequestIdHex), ParseHexUint(OdxResponseIdHex));
+            if (LoadFromText(json)) { _suitePath = path; FilePath = null; }
+            StatusMessage = $"Imported {Path.GetFileName(path)}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "ODX import failed (no UDS services)");
+            ErrorMessage = ex.Message;
+            StatusMessage = "Import ODX failed.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ODX import failed");
+            ErrorMessage = ex.Message;
+            StatusMessage = "Import ODX failed.";
+        }
+    }
+
+    private static uint ParseHexUint(string s)
+    {
+        var clean = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s;
+        return uint.Parse(clean, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private async Task<bool?> _messageBoxConfirm()
+    {
+        if (!HasUnsavedChanges) return true;
+        var r = await _messageBox.ShowAsync("Discard changes?",
+            "Opening a file will discard unsaved changes. Continue?", null);
+        return r == System.Windows.MessageBoxResult.Yes;
+    }
 
     [RelayCommand]
     private void Save() => SaveCore(_suitePath);
