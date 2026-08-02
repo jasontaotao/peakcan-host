@@ -54,6 +54,7 @@
         <TextBlock Text="Signal" Margin="0,0,0,2"/>
         <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
                   DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  IsTextSearchEnabled="True" TextSearch.TextPath="FullName"
                   SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
         <TextBlock Text="Expected" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[Expected], Mode=TwoWay}"/>
@@ -69,6 +70,7 @@
         <TextBlock Text="Signal" Margin="0,0,0,2"/>
         <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
                   DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  IsTextSearchEnabled="True" TextSearch.TextPath="FullName"
                   SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
         <TextBlock Text="Expected" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[Expected], Mode=TwoWay}"/>
@@ -82,6 +84,7 @@
         <TextBlock Text="Signal" Margin="0,0,0,2"/>
         <ComboBox ItemsSource="{Binding DataContext.SuiteBuilder.DbcSignals, RelativeSource={RelativeSource AncestorType=Window}}"
                   DisplayMemberPath="Display" SelectedValuePath="FullName"
+                  IsTextSearchEnabled="True" TextSearch.TextPath="FullName"
                   SelectedValue="{Binding Params[SignalName], Mode=TwoWay}"/>
         <TextBlock Text="Min" Margin="0,6,0,2"/>
         <TextBox Text="{Binding Params[Min], Mode=TwoWay}"/>
