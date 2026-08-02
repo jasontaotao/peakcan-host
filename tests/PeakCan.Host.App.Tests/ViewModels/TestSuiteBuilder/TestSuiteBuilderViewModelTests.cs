@@ -203,4 +203,48 @@ public class TestSuiteBuilderViewModelTests
         vm.Cases.Select(c => c.Id).Should().OnlyHaveUniqueItems();
         vm.Cases.Select(c => c.Id).Should().Contain("case_3");
     }
+
+    [Fact]
+    public void All_Kinds_New_Then_Save_Do_Not_Throw()
+    {
+        foreach (var kind in StepFieldDescriptors.AllKinds)
+        {
+            var vm = NewVm();
+            vm.AddCaseCommand.Execute(null);
+            vm.AddStepCommand.Execute(kind);
+
+            var act = () => JsonSerializer.Serialize(vm.ToSuite(), HILJsonOptions.Default);
+            act.Should().NotThrow($"new {kind} step must save with default params");
+        }
+    }
+
+    [Fact]
+    public void All_Kinds_Load_Then_Save_RoundTrip()
+    {
+        foreach (var kind in StepFieldDescriptors.AllKinds)
+        {
+            var vm = NewVm();
+            vm.AddCaseCommand.Execute(null);
+            vm.AddStepCommand.Execute(kind);
+            var json = JsonSerializer.Serialize(vm.ToSuite(), HILJsonOptions.Default);
+
+            var vm2 = NewVm();
+            vm2.LoadFromText(json);
+
+            var act = () => JsonSerializer.Serialize(vm2.ToSuite(), HILJsonOptions.Default);
+            act.Should().NotThrow($"loaded {kind} step must re-save");
+        }
+    }
+
+    [Fact]
+    public void SendFrame_Data_And_DataMask_Accept_0x_Prefix()
+    {
+        var vm = NewVm();
+        vm.AddCaseCommand.Execute(null);
+        vm.AddStepCommand.Execute(TestCaseStepKind.SendFrame);
+        vm.SelectedStep!.SetParam("Id", "0x100");
+        vm.SelectedStep.SetParam("Data", "0x0102");
+        var act = () => JsonSerializer.Serialize(vm.ToSuite(), HILJsonOptions.Default);
+        act.Should().NotThrow("Data with 0x prefix must save (Convert.FromHexString rejects 0x)");
+    }
 }

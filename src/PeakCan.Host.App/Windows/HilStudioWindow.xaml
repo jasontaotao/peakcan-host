@@ -313,6 +313,7 @@
         <Button Content="+Case" Command="{Binding SuiteBuilder.AddCaseCommand}" Padding="6,1" Margin="6,0,0,0"/>
         <Button Content="-Case" Command="{Binding SuiteBuilder.RemoveCaseCommand}" Padding="6,1"/>
         <TextBlock Text="{Binding SuiteBuilder.Status}" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="Gray"/>
+        <TextBlock Text="{Binding SuiteBuilder.ErrorMessage}" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="Firebrick"/>
       </StackPanel>
 
       <Grid Grid.Row="1" Margin="0,6,0,0">

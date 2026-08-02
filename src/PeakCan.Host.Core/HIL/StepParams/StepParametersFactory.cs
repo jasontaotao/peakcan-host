@@ -24,7 +24,7 @@ public static class StepParametersFactory
             new CanId(
                 Convert.ToUInt32(StripHexPrefix((string)p["Id"]), 16),
                 (bool)p["Extended"] ? FrameFormat.Extended : FrameFormat.Standard),
-            Convert.FromHexString((string)p["Data"]),
+            Convert.FromHexString(StripHexPrefix((string)p["Data"])),
             (bool)p["Fd"],
             (bool)p["Extended"]),
 
@@ -43,7 +43,7 @@ public static class StepParametersFactory
                 Convert.ToUInt32(StripHexPrefix((string)p["Id"]), 16),
                 (bool)p["Extended"] ? FrameFormat.Extended : FrameFormat.Standard),
             p.TryGetValue("DataMask", out var mask) && mask is string s
-                ? Convert.FromHexString(s) : null,
+                ? Convert.FromHexString(StripHexPrefix(s)) : null,
             Convert.ToInt32(p["TimeoutMs"], CultureInfo.InvariantCulture)),
 
         TestCaseStepKind.AssertResponseTime => new AssertResponseTimeStep(
