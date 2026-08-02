@@ -316,10 +316,11 @@ public sealed partial class AppShellViewModel : ObservableObject
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
         _hilStudioViewModel = hilStudioViewModel ?? throw new ArgumentNullException(nameof(hilStudioViewModel));
-        // ECU 编辑器接线：3 条订阅
+        // ECU 编辑器接线：3 条订阅（Phase 3 T7: FilePath 同步吸收进 Studio ECU 面板，
+        // 原 EcuScriptEditorViewModel 不再参与自动同步 —— 独立窗口仍可打开/编辑/保存）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
         _hilViewModel.EcuScriptPathSetExternally += OnEcuScriptPathSetExternally;
-        _ecuScriptEditorViewModel.PropertyChanged += OnEcuScriptEditorPropertyChanged;
+        _hilStudioViewModel.EcuSimulator.PropertyChanged += OnEcuSimulatorPropertyChanged;
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
         // RecentSessionsService is a singleton; subscribing to its
         // PropertyChanged keeps the AppShell menu in sync with

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Composition;
+using PeakCan.Host.App.ViewModels.EcuSimulator;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Windows;
 
@@ -307,21 +308,22 @@ public sealed partial class AppShellViewModel
 
     private void OnEcuScriptPathSetExternally(string path)
     {
-        if (_ecuScriptEditorWindow is not null)
-            _ = _ecuScriptEditorViewModel.LoadExternalAsync(path);
+        // 吸收: BrowseEcu 外部加载同步进 Studio 的 ECU 面板（原 EcuScriptEditorWindow 不再接收）
+        if (_hilStudioWindow is not null)
+            _ = _hilStudioViewModel.EcuSimulator.LoadExternalAsync(path);
     }
 
-    private void OnEcuScriptEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnEcuSimulatorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(EcuScriptEditorViewModel.FilePath)
-            or nameof(EcuScriptEditorViewModel.IsValidEcuScript))
+        if (e.PropertyName is nameof(EcuSimulatorViewModel.FilePath)
+            or nameof(EcuSimulatorViewModel.IsValidEcuScript))
             SyncEcuScriptPath();
     }
 
     private void SyncEcuScriptPath()
     {
-        var fp = _ecuScriptEditorViewModel.FilePath;
-        if (!string.IsNullOrEmpty(fp) && _ecuScriptEditorViewModel.IsValidEcuScript)
+        var fp = _hilStudioViewModel.EcuSimulator.FilePath;
+        if (!string.IsNullOrEmpty(fp) && _hilStudioViewModel.EcuSimulator.IsValidEcuScript)
             _hilViewModel.EcuScriptPath = fp;
     }
 

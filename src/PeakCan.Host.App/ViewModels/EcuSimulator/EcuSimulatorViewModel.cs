@@ -296,5 +296,8 @@ public sealed partial class EcuSimulatorViewModel : ObservableObject
         IsValidEcuScript = false;
         ErrorMessage = null;
         StatusMessage = "Ready";
+        // 缺陷修复: _savedJson 在最后的 Script 变更通知之后才清空（States.Clear 等先触发
+        // Script.Changed → HasUnsavedChanges=true 的陈旧值）, 这里补发一次让 WPF 绑定读到 false。
+        OnPropertyChanged(nameof(HasUnsavedChanges));
     }
 }
