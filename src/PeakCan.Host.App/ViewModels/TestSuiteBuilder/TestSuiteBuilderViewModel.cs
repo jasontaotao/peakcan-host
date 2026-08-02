@@ -59,7 +59,16 @@ public sealed partial class TestSuiteBuilderViewModel : ObservableObject
         if (SelectedStep is { Kind: TestCaseStepKind.SendFrame } && Composer is { } c)
         {
             var hex = c.ComposeHex();
-            if (hex.Length > 0) SelectedStep.Params["Data"] = hex;
+            if (hex.Length > 0)
+            {
+                SelectedStep.SetParam("Data", hex);
+                Status = $"Composed {hex.Length / 2} bytes";
+                ErrorMessage = null;
+            }
+            else
+            {
+                Status = "Compose failed: no message / missing DBC / invalid value";
+            }
         }
     }
 

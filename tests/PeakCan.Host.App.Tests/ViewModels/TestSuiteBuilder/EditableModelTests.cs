@@ -37,6 +37,19 @@ public class EditableModelTests
     }
 
     [Fact]
+    public void SetParam_Updates_Dict_And_Raises_PropertyChanged()
+    {
+        var step = EditableTestCaseStep.New(TestCaseStepKind.SendFrame);
+        string? raised = null;
+        step.PropertyChanged += (_, e) => raised = e.PropertyName;
+
+        step.SetParam("Data", "0102");
+
+        raised.Should().Be(nameof(EditableTestCaseStep.Params));
+        step.Params["Data"].Should().Be("0102");
+    }
+
+    [Fact]
     public void TestCase_RoundTrip()
     {
         var c = new TestCase(
