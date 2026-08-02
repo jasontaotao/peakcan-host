@@ -35,6 +35,15 @@ CAN 总线监控工具，支持 DBC 解码、手动发送、实时信号视图
 - **循环发送（v0.5.0）** — 按配置的间隔周期性发送 CAN 帧。
 - **Serilog 滚动日志** — 位于 `%LocalAppData%\PeakCan.Host\logs\`。
 
+## HIL 配置器 Studio（独立仓库）
+
+HIL Configurator Studio（TestSuiteBuilder / EcuSimulator / OdxImport 三面板 UI）已移至独立仓库
+**`peakcan-studio`**（private，[jasontaotao/peakcan-studio](https://github.com/jasontaotao/peakcan-studio)）；
+本仓库保留 HIL 执行引擎（`EcuScriptLoader` / `HILJsonOptions` / 执行与报告）。
+**格式冻结约束：** suite/script JSON 模型签名（字段名、camelCase 序列化、step `$kind` 多态判别器、
+ECU 脚本 `canIds`/`states|rules` 结构等）由两仓库共享模型保证一致，任何一侧变更必须 lockstep 同步到
+另一侧并通过互操作测试（`peakcan-studio` 的 `InteropTests`），否则跨仓库加载直接失败。
+
 ## 系统要求
 
 - **Windows 10（1809+）或 Windows 11**（WPF 应用）
