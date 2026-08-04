@@ -84,6 +84,10 @@ internal sealed class BackgroundFrameTimer : IDisposable
     private readonly bool _fd;
     private readonly FrameFlags _flags;
     private readonly ILogger? _logger;
+    // Phase B2: counter/checksum 自动预处理（跨 tick 状态）
+    private readonly CounterConfig? _autoCounter;
+    private readonly ChecksumConfig? _autoChecksum;
+    private ushort _counterValue;
     private volatile byte[] _data;
     private Timer? _timer;
     private long _lastTickTimestamp;
@@ -101,6 +105,10 @@ internal sealed class BackgroundFrameTimer : IDisposable
         _fd = frame.Fd;
         _flags = frame.Fd ? FrameFlags.Fd : FrameFlags.None;
         _logger = logger;
+        _autoCounter = frame.AutoCounter;
+        _autoChecksum = frame.AutoChecksum;
+        // review MEDIUM-4: 首帧输出 StartValue（ApplyCyclic 先增后写；初始化为 StartValue-1 使首帧递增到 StartValue）
+        _counterValue = frame.AutoCounter is { } ac ? (ushort)(ac.StartValue - 1) : (ushort)0;
         _lastTickTimestamp = Stopwatch.GetTimestamp();
         _timer = new Timer(OnTick, null, 0, _periodMs);
     }
@@ -121,9 +129,14 @@ internal sealed class BackgroundFrameTimer : IDisposable
             if (elapsedMs < _periodMs * 0.5)
                 return;
 
+            // Phase B2: counter/checksum 预处理（无配置时不复制，向后兼容）
+            var payload = _autoCounter is null && _autoChecksum is null
+                ? _data
+                : FrameAutoConfigProcessor.ApplyCyclic(_data, _autoCounter, _autoChecksum, ref _counterValue);
+
             var frame = new CanFrame(
                 Id: _id,
-                Data: _data.AsMemory(),
+                Data: payload,
                 Flags: _flags,
                 Channel: default,
                 Timestamp: default);

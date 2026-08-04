@@ -13,7 +13,11 @@ internal sealed class SendFrameStepExecutor : IStepExecutor
         try
         {
             var flags = p.Fd ? FrameFlags.Fd : FrameFlags.None;
-            var result = await ctx.SendFrameAsync(new CanFrame(p.Id, p.Data, flags, default, default), ct);
+            // Phase B2: counter/checksum 预处理（单次发送：不递增 counter，仅重算 checksum）
+            var payload = p.AutoCounter is null && p.AutoChecksum is null
+                ? p.Data
+                : FrameAutoConfigProcessor.ApplyOneShot(p.Data, p.AutoCounter, p.AutoChecksum);
+            var result = await ctx.SendFrameAsync(new CanFrame(p.Id, payload, flags, default, default), ct);
 
             return new StepResult(0, step.Kind, step.Label,
                 result.IsSuccess ? StepStatus.Passed : StepStatus.Failed,
