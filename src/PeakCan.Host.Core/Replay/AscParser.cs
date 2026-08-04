@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// Parses Vector ASCII (ASC) trace files into <see cref="ReplayFrame"/>

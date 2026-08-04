@@ -2,14 +2,14 @@ using System.IO;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.Host.Core.Services;
+namespace PeakCan.HIL.Core.Services;
 
 /// <summary>
 /// v3.6.4 PATCH: streaming SHA-256 hash of an <c>.asc</c> recording's
 /// contents. The hash is stored alongside the path in a saved
 /// <c>.tmtrace</c> bundle (<see cref="PeakCan.Host.App.Services.Trace.BundleSourceDto.ContentHash"/>)
 /// so the bundle can be reloaded after the user moves or renames the
-/// <c>.asc</c> file. See <see cref="PeakCan.Host.Core.Services.IAscLocator"/>
+/// <c>.asc</c> file. See <see cref="PeakCan.HIL.Core.Services.IAscLocator"/>
 /// for the relocation side.
 /// <para>
 /// <b>Forward-compat:</b> the <c>contentHash</c> field is OPTIONAL on

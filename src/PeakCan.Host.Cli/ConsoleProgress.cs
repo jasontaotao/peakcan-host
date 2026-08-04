@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 
 namespace PeakCan.Host.Cli;
 

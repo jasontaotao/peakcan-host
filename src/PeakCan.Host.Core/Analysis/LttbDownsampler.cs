@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>
 /// v12 Step 2: LTTB (Largest Triangle Three Buckets) downsampling.

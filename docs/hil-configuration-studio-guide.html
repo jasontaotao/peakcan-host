@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIL Configuration Studio 使用指南 — PeakCan.Host</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #dee2e6;
+    --text: #1a1a2e;
+    --text-secondary: #495057;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --green: #16a34a;
+    --green-light: #dcfce7;
+    --red: #dc2626;
+    --amber: #d97706;
+    --amber-light: #fef3c7;
+    --code-bg: #1e293b;
+    --code-text: #e2e8f0;
+    --radius: 8px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #f1f5f9;
+    padding: 48px 24px;
+    text-align: center;
+    border-bottom: 4px solid var(--accent);
+  }
+  .hero h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 8px; }
+  .hero p { font-size: 1.05rem; opacity: 0.85; max-width: 640px; margin: 0 auto; }
+
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px; }
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 32px;
+  }
+  .toc h2 { font-size: 1rem; margin-bottom: 12px; color: var(--text-secondary); }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  section { margin-bottom: 40px; }
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+  }
+  h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--text);
+  }
+  h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 14px 0 6px;
+  }
+  p { margin-bottom: 12px; color: var(--text-secondary); }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 14px 18px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    margin: 12px 0 20px;
+    position: relative;
+  }
+  pre .filename {
+    position: absolute;
+    top: 0; right: 0;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 2px 10px;
+    border-radius: 0 var(--radius) 0 var(--radius);
+    font-family: var(--font);
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre code { background: none; color: inherit; padding: 0; border-radius: 0; }
+
+  .kw { color: #c678dd; }
+  .str { color: #98c379; }
+  .num { color: #d19a66; }
+  .cm { color: #5c6370; font-style: italic; }
+  .prop { color: #61afef; }
+
+  /* Layout diagrams */
+  .layout-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .layout-diagram .title {
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+  }
+  .layout-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .layout-cols .col {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+  .layout-cols .col h5 {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .layout-cols .col.col0 { border-top: 3px solid #2563eb; }
+  .layout-cols .col.col0 h5 { color: #2563eb; }
+  .layout-cols .col.col2 { border-top: 3px solid #16a34a; }
+  .layout-cols .col.col2 h5 { color: #16a34a; }
+  .layout-cols .col.col4 { border-top: 3px solid #d97706; }
+  .layout-cols .col.col4 h5 { color: #d97706; }
+  .layout-cols .col .btn { display: inline-block; background: #e2e8f0; padding: 0 6px; border-radius: 3px; font-size: 0.75rem; }
+  .layout-cols .col .list { color: var(--text-secondary); font-size: 0.78rem; }
+  .layout-legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  .layout-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .layout-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+
+  /* Info boxes */
+  .info-box {
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+  .info-box.tip { background: var(--green-light); border-left: 4px solid var(--green); color: #166534; }
+  .info-box.warn { background: var(--amber-light); border-left: 4px solid var(--amber); color: #92400e; }
+  .info-box.caution { background: var(--red-light); border-left: 4px solid var(--red); color: #991b1b; }
+
+  .step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .step-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    transition: box-shadow 0.2s;
+  }
+  .step-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .step-card h4 {
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .step-card .kind-tag {
+    font-size: 0.65rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-family: var(--mono);
+  }
+  .step-card p { font-size: 0.82rem; margin-bottom: 6px; }
+
+  /* Step flow */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .flow-step {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .flow-step.send { background: var(--accent-light); color: var(--accent); }
+  .flow-step.expect { background: var(--amber-light); color: var(--amber); }
+  .flow-step.assert { background: var(--green-light); color: var(--green); }
+  .flow-step.delay { background: #e2e8f0; color: #475569; }
+  .flow-step.comment { background: #f1f5f9; color: #94a3b8; }
+  .flow-step.fault { background: var(--red-light); color: var(--red); }
+  .flow-arrow { color: #94a3b8; font-size: 1.2rem; }
+
+  /* Image placeholder */
+  .studio-preview {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    text-align: center;
+    margin: 16px 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+
+  footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+    margin-top: 48px;
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🎛️ HIL Configuration Studio 使用指南</h1>
+  <p>可视化配置 HIL 测试套件 + ECU 模拟器 · 无需手写 JSON</p>
+</div>
+
+<div class="container">
+
+<div class="toc">
+  <h2>📖 目录</h2>
+  <ol>
+    <li><a href="#overview">什么是 HIL Configuration Studio？</a></li>
+    <li><a href="#open">如何打开</a></li>
+    <li><a href="#dbc">Col 1: DBC Browser — 信号浏览器</a></li>
+    <li><a href="#suite-builder">Col 2: Test Suite Builder — 测试套件构建器</a></li>
+    <li><a href="#ecu-simulator">Col 3: ECU Simulator — 虚拟 ECU 编辑器</a></li>
+    <li><a href="#workflow">完整工作流</a></li>
+  </ol>
+</div>
+
+<!-- ===== 1. Overview ===== -->
+<section id="overview">
+  <h2>1. 什么是 HIL Configuration Studio？</h2>
+
+  <p>
+    HIL Configuration Studio 是一个 <strong>三栏式可视化配置窗口</strong>，替代了之前散落在 HIL 面板顶部的
+    多个 TextBox 和 ECU 脚本编辑器窗口。它把 HIL 测试全流程的配置集中到一个界面：
+  </p>
+
+  <div class="layout-diagram">
+    <div class="title">🎛️ HIL Configuration Studio — 三栏布局</div>
+    <div class="layout-cols">
+      <div class="col col0">
+        <h5>📂 DBC Browser</h5>
+        <div>[<span class="btn">Open DBC...</span>] 已加载: Engine.dbc</div>
+        <div style="margin-top:6px;">🔍 Search: [___________]</div>
+        <div class="list" style="margin-top:4px;">
+          ── Messages ──<br>
+          0x123 EngineState  ·  8 bytes<br>
+          0x124 CoolantTemp  ·  8 bytes<br>
+          0x125 VehicleSpeed ·  8 bytes
+        </div>
+        <div class="list" style="margin-top:4px;">
+          ── Signals ──<br>
+          Speed   0|16@1+  (0.1,0)  [0,6553.5]  rpm<br>
+          Temp    8|16@1+  (1,-40)  [-40,215]  °C
+        </div>
+      </div>
+      <div class="col col2">
+        <h5>🧪 Test Suite Builder</h5>
+        <div>[<span class="btn">Open</span>] [<span class="btn">Save</span>] Suite: [UDS_Suite___]</div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <div>
+            <div class="list"><strong>Cases</strong></div>
+            <div class="list"><span class="btn">+Case</span></div>
+            <div class="list">► case_1: TP_3E</div>
+            <div class="list">  case_2: ReadDID</div>
+          </div>
+          <div>
+            <div class="list"><strong>Steps</strong> ▲ ▼ ✕</div>
+            <div class="list">📤 SendFrame</div>
+            <div class="list">⏳ ExpectFrame</div>
+            <div class="list">✅ AssertSignal</div>
+          </div>
+        </div>
+        <div style="margin-top:4px;border-top:1px solid var(--border);padding-top:4px;font-size:0.78rem;">
+          <strong>Property Panel</strong><br>
+          CAN ID: [▼ 0x123 EngineState]<br>
+          Data: [02 3E 00]&nbsp;&nbsp;Compose ▶
+        </div>
+      </div>
+      <div class="col col4">
+        <h5>🖥️ ECU Simulator</h5>
+        <div>[<span class="btn">Open</span>] [<span class="btn">Save</span>] [<span class="btn">Import ODX</span>]</div>
+        <div style="margin-top:6px;">
+          Name: [MyECU]&nbsp;&nbsp;Req: [0x7E0]&nbsp;&nbsp;Resp: [0x7E8]
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <div>
+            <div class="list"><strong>States</strong> +S −S</div>
+            <div class="list">► default</div>
+            <div class="list">  session</div>
+            <div class="list">  wildcard</div>
+          </div>
+          <div>
+            <div class="list"><strong>Trans</strong></div>
+            <div class="list">0x22 → session</div>
+            <div class="list">0x3E → default</div>
+          </div>
+        </div>
+        <div class="list" style="margin-top:4px;border-top:1px solid var(--border);padding-top:4px;">
+          DID Values: 0xF190 → [01 02 03]
+        </div>
+        <div class="list" style="margin-top:2px;font-style:italic;color:#94a3b8;">
+          [ State Preview Graph ]
+        </div>
+      </div>
+    </div>
+    <div class="layout-legend">
+      <span><span class="dot" style="background:#2563eb;"></span> DBC Browser</span>
+      <span><span class="dot" style="background:#16a34a;"></span> Test Suite Builder</span>
+      <span><span class="dot" style="background:#d97706;"></span> ECU Simulator</span>
+      <span>↔ 三栏可拖动调整宽度</span>
+    </div>
+  </div>
+
+  <div class="info-box tip">
+    <strong>💡 核心设计：</strong>三栏从左到右 = 数据准备 → 测试逻辑 → 模拟环境。
+    DBC Browser 为 Test Suite Builder 和 ECU Simulator 提供信号名和 CAN ID 的下拉选择，
+    用户不需要手写任何 JSON。
+  </div>
+</section>
+
+<!-- ===== 2. How to Open ===== -->
+<section id="open">
+  <h2>2. 如何打开</h2>
+
+  <p>两种方式：</p>
+  <ol style="margin-left:20px;margin-bottom:16px;color:var(--text-secondary);">
+    <li>
+      <strong>从 HIL 面板</strong> — 在 HIL 测试面板点 <strong>Open ECU Editor</strong>，
+      会自动打开旧的编辑器窗口。如果已实现入口，也可以通过菜单 <strong>Tools → HIL Configuration Studio</strong> 打开。
+    </li>
+    <li>
+      <strong>从菜单栏</strong> — 在 AppShell 菜单中，找到 <strong>HIL Studio</strong> 入口点击即可。
+    </li>
+  </ol>
+  <p>
+    窗口是非模态的，可以跟 HIL 面板同时打开。关闭后再打开自动恢复上次状态。
+  </p>
+</section>
+
+<!-- ===== 3. DBC Browser ===== -->
+<section id="dbc">
+  <h2>3. Col 1: DBC Browser — 信号浏览器</h2>
+
+  <p>这是整个 Studio 的 <strong>数据源</strong>。导入 DBC 文件后，消息和信号列表会同步提供给其他两栏使用。</p>
+
+  <h3>操作步骤</h3>
+  <ol style="margin-left:20px;margin-bottom:12px;color:var(--text-secondary);">
+    <li>点击 <strong>Open DBC...</strong> 按钮，选择 .dbc 文件</li>
+    <li>加载完成后，上半部分显示所有消息列表（ID、名称、DLC、发送节点、信号数）</li>
+    <li>点击某条消息，下半部分显示该消息的 <strong>信号详情</strong></li>
+    <li>搜索框支持实时过滤，按名称或 ID 搜索</li>
+  </ol>
+
+  <h3>信号详情列说明</h3>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:0.9rem;">
+      <tr style="background:var(--bg);border-bottom:2px solid var(--border);">
+        <th style="padding:8px 12px;text-align:left;">列</th>
+        <th style="padding:8px 12px;text-align:left;">含义</th>
+        <th style="padding:8px 12px;text-align:left;">示例</th>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Name</code></td>
+        <td style="padding:8px 12px;">信号名</td>
+        <td style="padding:8px 12px;"><code>EngineSpeed</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Bits</code></td>
+        <td style="padding:8px 12px;">起始位|长度@字节序(大端/小端)±符号</td>
+        <td style="padding:8px 12px;"><code>0|16@1+</code> (小端无符号, 16位)</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Scale</code></td>
+        <td style="padding:8px 12px;">比例因子 + 偏移量</td>
+        <td style="padding:8px 12px;"><code>0.1, 0</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Range</code></td>
+        <td style="padding:8px 12px;">物理值范围 [min, max]</td>
+        <td style="padding:8px 12px;"><code>[0, 6553.5]</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Unit</code></td>
+        <td style="padding:8px 12px;">单位</td>
+        <td style="padding:8px 12px;"><code>rpm</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Value Table</code></td>
+        <td style="padding:8px 12px;">枚举值表名（可展开查看映射）</td>
+        <td style="padding:8px 12px;"><code>State_Def</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px 12px;"><code>Comment</code></td>
+        <td style="padding:8px 12px;">CM_ SG_ 注释</td>
+        <td style="padding:8px 12px;"><code>// Engine speed in rpm</code></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="info-box tip">
+    <strong>💡 关键联动：</strong>DBC 加载后，Test Suite Builder 里的 CAN ID 下拉、信号名下拉
+    都会自动填充。你不需要手动输入 "0x123" 或 "EngineSpeed"——从下拉列表选就行。
+  </div>
+</section>
+
+<!-- ===== 4. Test Suite Builder ===== -->
+<section id="suite-builder">
+  <h2>4. Col 2: Test Suite Builder — 测试套件构建器</h2>
+
+  <p>
+    这是写测试用例的地方。不需要写 JSON，通过 <strong>点按钮添加步骤 → 填参数</strong> 的方式完成。
+  </p>
+
+  <h3>界面布局</h3>
+  <p>从上到下，从左到右：</p>
+  <ul style="margin-left:20px;margin-bottom:12px;color:var(--text-secondary);">
+    <li><strong>工具栏</strong> — Open / Save / SaveAs / Suite 名称输入框</li>
+    <li><strong>+Case / -Case</strong> — 添加/删除测试用例</li>
+    <li><strong>左侧列</strong> — 用例列表（ListBox） + 步骤工具箱（Toolbox）</li>
+    <li><strong>右侧列</strong> — 步骤列表（带 ▲ ▼ 排序和 Remove） + 属性面板</li>
+  </ul>
+
+  <h3>工作流：创建一个测试用例</h3>
+
+  <div class="flow-row">
+    <span class="flow-step comment">💬 Comment</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-step send">📤 SendFrame</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-step expect">⏳ ExpectFrame</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-step assert">✅ AssertSignal</span>
+  </div>
+
+  <ol style="margin-left:20px;margin-bottom:12px;color:var(--text-secondary);">
+    <li>点 <strong>+Case</strong> 添加用例，输入名称</li>
+    <li>在左侧 <strong>Toolbox</strong> 区域，点 <strong>SendFrame</strong> 按钮添加步骤</li>
+    <li>右侧属性面板显示该步骤的参数，<strong>CAN ID 从 DBC 下拉选择</strong>，不用手写</li>
+    <li>再点 <strong>ExpectFrame / WaitForSignal / AssertSignal</strong> 等添加更多步骤</li>
+    <li>用 <strong>▲ ▼</strong> 按钮调整步骤顺序，<strong>Remove</strong> 删除不需要的步骤</li>
+    <li>点 <strong>Save</strong> 保存为 suite.json</li>
+  </ol>
+
+  <h3>12 种步骤类型</h3>
+
+  <div class="step-grid">
+    <div class="step-card">
+      <h4><span>📤</span> SendFrame <span class="kind-tag">发送帧</span></h4>
+      <p>向总线发送一条 CAN 帧。CAN ID 从 DBC 下拉选，数据可用 Composer 拼装。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>⏳</span> ExpectFrame <span class="kind-tag">等待帧</span></h4>
+      <p>等待指定 ID 的帧出现，支持数据掩码匹配。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>📊</span> WaitForSignal <span class="kind-tag">等待信号</span></h4>
+      <p>等待 DBC 信号达到期望值（带容差、超时）。信号名从 DBC 下拉选。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>✅</span> AssertSignal <span class="kind-tag">断言信号</span></h4>
+      <p>立即断言信号值，不等待。信号名从 DBC 下拉选。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>📏</span> AssertRange <span class="kind-tag">范围断言</span></h4>
+      <p>断言信号值在 [min, max] 范围内。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>⏱️</span> AssertResponseTime <span class="kind-tag">响应时间</span></h4>
+      <p>断言请求到响应的延迟不超过指定毫秒数。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>⚠️</span> AssertDTC <span class="kind-tag">DTC 断言</span></h4>
+      <p>断言 DTC 存在或不存在。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>🚫</span> AssertNRC <span class="kind-tag">NRC 断言</span></h4>
+      <p>断言 ECU 返回了指定的否定响应码。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>⏸️</span> Delay <span class="kind-tag">延时</span></h4>
+      <p>固定延时等待。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>💬</span> Comment <span class="kind-tag">注释</span></h4>
+      <p>文档注释，不影响 pass/fail。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>💥</span> InjectFault <span class="kind-tag">故障注入</span></h4>
+      <p>注入丢帧/延迟/数据损坏/重复帧故障。</p>
+    </div>
+    <div class="step-card">
+      <h4><span>🧹</span> ClearFault <span class="kind-tag">清除故障</span></h4>
+      <p>清除已注入的故障。</p>
+    </div>
+  </div>
+
+  <h3>SendFrame 的 Composer（数据拼装器）</h3>
+  <p>
+    选择 CAN ID 后，Composer 会显示该消息的所有信号，你填入信号值后自动计算 HEX 数据。
+    不需要手动计算字节排列和比例因子。
+  </p>
+
+  <div class="info-box tip">
+    <strong>💡 信号名自动关联：</strong>WaitForSignal / AssertSignal / AssertRange 的
+    <strong>Signal</strong> 下拉框自动从已加载的 DBC 中提取所有信号，格式为
+    <code>MessageName.SignalName — Comment</code>，支持搜索过滤。
+  </div>
+</section>
+
+<!-- ===== 5. ECU Simulator ===== -->
+<section id="ecu-simulator">
+  <h2>5. Col 3: ECU Simulator — 虚拟 ECU 编辑器</h2>
+
+  <p>
+    用于编辑 <strong>ECU 模拟脚本</strong>（VirtualEcu 模式），定义虚拟 ECU 的行为：
+    收到什么 UDS 请求、回复什么数据、怎么跳转状态。
+  </p>
+
+  <h3>界面布局</h3>
+  <ul style="margin-left:20px;margin-bottom:12px;color:var(--text-secondary);">
+    <li><strong>工具栏</strong> — Open / Save / SaveAs / Import ODX（从 ODX 文件导入）</li>
+    <li><strong>ODX 导入参数</strong> — ECU 名称、请求 ID、响应 ID</li>
+    <li><strong>脚本属性</strong> — Name、InitialState、ReqID、RespID、Extended 复选框</li>
+    <li><strong>状态列表</strong> — +S / -S 管理状态，点 +Trans 添加转移</li>
+    <li><strong>转移编辑</strong> — ServiceId、SubFunction、Delay、Mask/Pattern、ToState、Response</li>
+    <li><strong>DID 值编辑器</strong> — 键值对编辑（DID → 字节数组）</li>
+    <li><strong>状态图预览</strong> — 底部只读图形化状态机</li>
+  </ul>
+
+  <h3>工作流：创建一个 ValidEcu 脚本</h3>
+
+  <ol style="margin-left:20px;margin-bottom:12px;color:var(--text-secondary);">
+    <li>填写脚本属性：<strong>Name</strong>（ECU 名）、<strong>ReqID</strong>（0x7E0）、<strong>RespID</strong>（0x7E8）</li>
+    <li><strong>+S</strong> 添加状态，如 "default"、"session"、"extendedSession"</li>
+    <li>选中一个状态，点 <strong>+Trans</strong> 添加转移规则</li>
+    <li>在下方编辑转移参数：
+      <ul>
+        <li><strong>SID</strong> — 服务 ID（如 0x22、0x3E、0x10）</li>
+        <li><strong>Sub</strong> — 子功能（可选）</li>
+        <li><strong>ToState</strong> — 匹配后跳转到的状态（从下拉选）</li>
+        <li><strong>Response</strong> — Static（固定数据回复）或 Dynamic（生成器）</li>
+        <li><strong>Static data</strong> — 回复的 HEX 数据</li>
+      </ul>
+    </li>
+    <li>在 <strong>DID Values</strong> 区域添加 DID 值（如 0xF190 → 01 02 03）</li>
+    <li>点 <strong>Save</strong> 保存为 ECU 脚本 JSON</li>
+    <li>切换回 HIL 面板，选 <strong>VirtualEcu 模式</strong>，选择刚才保存的脚本即可运行</li>
+  </ol>
+
+  <h3>状态机模型</h3>
+  <div class="info-box tip">
+    <strong>💡 状态机逻辑：</strong><br>
+    每个状态定义一组转移规则（收到什么请求 → 回复什么数据 → 跳转到哪个状态）。
+    <code>wildcard</code> 是特殊状态名，表示"任何状态下都匹配"。
+    <code>initialState</code> 指定启动后的初始状态。
+  </div>
+
+  <h3>ODX 导入</h3>
+  <p>
+    如果已经有 ODX（Open Diagnostic eXchange）文件，可以直接导入：
+    填写 ECU 名称和 CAN ID，点 Import ODX，自动生成状态机规则。
+  </p>
+
+  <div class="info-box warn">
+    <strong>⚠️ 注意：</strong>转移编辑中的 Response 支持两种模式：
+    <strong>Static</strong>（固定 HEX 数据回复）和 <strong>Dynamic</strong>（使用生成器动态计算）。
+    生成器名称从已注册的插件列表中选择。
+  </div>
+</section>
+
+<!-- ===== 6. Workflow ===== -->
+<section id="workflow">
+  <h2>6. 完整工作流</h2>
+
+  <p>一个典型的 HIL 测试配置流程：</p>
+
+  <div style="display:flex;flex-direction:column;gap:12px;margin:16px 0;">
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+      <span style="background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">1</span>
+      <div>
+        <strong>打开 HIL Studio</strong>
+        <div style="color:var(--text-secondary);font-size:0.85rem;">Tools → HIL Configuration Studio</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+      <span style="background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">2</span>
+      <div>
+        <strong>导入 DBC</strong>
+        <div style="color:var(--text-secondary);font-size:0.85rem;">Col 1 点 Open DBC... → 选择 DBC 文件。信号自动加载到其他两栏的下拉列表。</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+      <span style="background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">3</span>
+      <div>
+        <strong>构建测试套件</strong>
+        <div style="color:var(--text-secondary);font-size:0.85rem;">Col 2 添加用例 + 步骤，参数从 DBC 下拉选。Save 保存为 suite.json。</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+      <span style="background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">4</span>
+      <div>
+        <strong>配置虚拟 ECU（可选）</strong>
+        <div style="color:var(--text-secondary);font-size:0.85rem;">Col 3 编辑状态机、转移规则、DID 值。也可从 ODX 导入。</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+      <span style="background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;flex-shrink:0;">5</span>
+      <div>
+        <strong>切回 HIL 面板运行</strong>
+        <div style="color:var(--text-secondary);font-size:0.85rem;">选模式 → 选择 suite.json / ECU 脚本 → 点 Run 执行测试。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box tip">
+    <strong>💡 多模式兼容：</strong>同一个 suite.json 可以在 TraceReplay / Hardware / VirtualEcu / Matrix
+    四种模式下运行。测试逻辑不变，执行环境切换即可。
+  </div>
+
+  <div class="info-box warn">
+    <strong>⚠️ 注意事项：</strong><br>
+    • 先加载 DBC，再构建测试套件——参数下拉列表依赖 DBC 内容<br>
+    • ECU Simulator 编辑的脚本在 VirtualEcu 模式使用，其他模式不需要<br>
+    • 保存后返回 HIL 面板，路径会自动同步到对应的 TextBox
+  </div>
+</section>
+
+</div>
+
+<footer>
+  PeakCan.Host — HIL Configuration Studio Guide · v3.61.0+
+</footer>
+</body>
+</html>

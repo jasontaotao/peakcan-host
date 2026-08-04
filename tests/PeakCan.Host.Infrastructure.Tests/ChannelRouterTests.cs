@@ -2,7 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 

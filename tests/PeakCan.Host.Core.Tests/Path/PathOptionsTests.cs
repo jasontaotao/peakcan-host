@@ -1,7 +1,7 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 
-namespace PeakCan.Host.Core.Tests.Path;
+namespace PeakCan.HIL.Core.Tests.Path;
 
 /// <summary>
 /// v1.6.10 PATCH Item 2: verifies the <see cref="PathOptions"/> record

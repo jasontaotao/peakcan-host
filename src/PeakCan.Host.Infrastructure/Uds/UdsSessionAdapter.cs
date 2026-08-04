@@ -1,5 +1,5 @@
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.Uds;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.Uds;
 
 namespace PeakCan.Host.Infrastructure.Uds;
 

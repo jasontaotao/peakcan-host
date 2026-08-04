@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 internal sealed partial class ReplayTimeline
 {

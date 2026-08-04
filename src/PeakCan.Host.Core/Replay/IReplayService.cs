@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// Replays a recorded ASC trace file. Stateful, thread-safe.

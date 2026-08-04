@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.53.1 PATCH P1a: Core-side abstraction for secure credential
 /// storage. Implementations are platform-specific (Windows Credential

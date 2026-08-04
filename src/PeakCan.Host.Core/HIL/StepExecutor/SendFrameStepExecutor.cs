@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes SendFrame steps. Returns Passed when frame is sent successfully, Failed otherwise.

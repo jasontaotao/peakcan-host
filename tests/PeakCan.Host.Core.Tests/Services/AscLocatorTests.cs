@@ -3,13 +3,13 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Services;
 using Xunit;
-// v3.6.4 PATCH: the PeakCan.Host.Core.Path namespace exists; fully
-// qualify the BCL static so it doesn't resolve to PeakCan.Host.Core.Path.
+// v3.6.4 PATCH: the PeakCan.HIL.Core.Path namespace exists; fully
+// qualify the BCL static so it doesn't resolve to PeakCan.HIL.Core.Path.
 using IOPath = System.IO.Path;
 
-namespace PeakCan.Host.Core.Tests.Services;
+namespace PeakCan.HIL.Core.Tests.Services;
 
 /// <summary>
 /// v3.6.4 PATCH: pins the five core behaviors of

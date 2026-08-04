@@ -1,5 +1,5 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Gateway;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Gateway;
 using PeakCan.Host.Infrastructure.Channel.Gateway;
 using Xunit;
 

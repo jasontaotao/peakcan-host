@@ -1,7 +1,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -17,7 +17,7 @@ public sealed partial class AppShellViewModel
     //   - DisconnectAsync -> LogDisconnectOk/LogDisconnectThrew (Flow D)
     //   - OnReadLoopError -> LogReadLoopError (the 11th helper, lives here with its caller)
     //
-    // Required usings: Microsoft.Extensions.Logging, PeakCan.Host.Core (ErrorCode, ReadLoopError, ReadLoopErrorKind, BaudRate),
+    // Required usings: Microsoft.Extensions.Logging, PeakCan.HIL.Core (ErrorCode, ReadLoopError, ReadLoopErrorKind, BaudRate),
     // PeakCan.Host.Infrastructure.Channel (ChannelRouter, ChannelId, IChannelProbe, IChannelFactory, IChannelEnumerator)
 
     /// <summary>

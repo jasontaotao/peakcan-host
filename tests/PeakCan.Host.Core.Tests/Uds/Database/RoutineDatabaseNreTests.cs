@@ -1,8 +1,8 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds.Database;
 
-namespace PeakCan.Host.Core.Tests.Uds.Database;
+namespace PeakCan.HIL.Core.Tests.Uds.Database;
 
 public class RoutineDatabaseNreTests
 {

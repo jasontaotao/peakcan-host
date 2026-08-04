@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Text;
 using System.Web;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.Cli.Reporting;
 

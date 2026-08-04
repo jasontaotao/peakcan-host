@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.54.0 MINOR, updated 2026-07: configuration for the DeepSeek LLM provider.
 /// Default model changed from "deepseek-chat" (deprecated 2026-07-24) to

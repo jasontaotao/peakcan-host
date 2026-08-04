@@ -6,10 +6,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds.FlashPipeline;

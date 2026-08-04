@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: produces LocalReport from extracted evidence.
 /// Per hard-boundary #14: per-source normalization — score each candidate

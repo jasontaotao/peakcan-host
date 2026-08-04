@@ -1,6 +1,6 @@
 using System.Text.Json;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.Serialization;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Serialization;
 
 namespace PeakCan.Host.Infrastructure.HIL.Odx;
 

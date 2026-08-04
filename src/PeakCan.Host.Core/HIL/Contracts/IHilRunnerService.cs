@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL;
+namespace PeakCan.HIL.Core.HIL;
 
 /// <summary>
 /// Decouples the WPF App layer from the Infrastructure-layer HilRunnerService.
@@ -7,7 +7,7 @@ namespace PeakCan.Host.Core.HIL;
 public interface IHilRunnerService
 {
     Task<TestSuiteResult> RunAsync(
-        Core.HIL.HilRunRequest request,
+        PeakCan.HIL.Core.HIL.HilRunRequest request,
         IProgress<TestProgress>? progress = null,
         CancellationToken ct = default);
 }

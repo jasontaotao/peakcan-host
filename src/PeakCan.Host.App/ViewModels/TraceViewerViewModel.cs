@@ -12,15 +12,15 @@ using OxyPlot.Series;
 using PeakCan.Host.App.Helpers;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Analysis;
 using ScottPlot;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 using System.Collections.Specialized;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Services;
 using PeakCan.Host.App.Services.ChatTools;
-using PeakCan.Host.Core.Analysis.Chat;
+using PeakCan.HIL.Core.Analysis.Chat;
 namespace PeakCan.Host.App.ViewModels;
 
 
@@ -350,7 +350,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSignalCache;
     }
 
-    private readonly Dictionary<string, PeakCan.Host.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PeakCan.HIL.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
 
     private void OnWatchedSignalsCollectionChangedForSignalCache(object? sender, NotifyCollectionChangedEventArgs e)
     {

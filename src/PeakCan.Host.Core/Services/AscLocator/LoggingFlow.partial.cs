@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.Host.Core.Services;
+namespace PeakCan.HIL.Core.Services;
 
 /// <summary>W37 god-class refactor (22nd overall): 5 [LoggerMessage] partials
 /// extracted from main. Sister of W34 DbcSendViewModel/ subdirectory pattern

@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
-namespace PeakCan.Host.Core.Tests.Uds.Odx;
+namespace PeakCan.HIL.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// v3.49.0 MINOR — DID 数据类型识别 T0.1 类型模型的单元测试。

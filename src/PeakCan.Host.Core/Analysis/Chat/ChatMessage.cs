@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// One message in the chat conversation. Mirrors the DeepSeek

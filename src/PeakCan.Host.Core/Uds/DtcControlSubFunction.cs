@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 /// <summary>
 /// Phase 2: ISO 14229-1 §10.5 DTCControl (0x14) sub-functions.

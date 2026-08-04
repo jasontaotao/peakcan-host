@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: a single piece of locally-extracted evidence inside
 /// a fault window. EvidenceId format E-NNNN must be monotonically increasing

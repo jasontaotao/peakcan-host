@@ -5,9 +5,9 @@ using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.Database;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 
@@ -163,7 +163,7 @@ public sealed class UdsViewModelOrchestratorTests
     /// <summary>Minimal stub IOdxImportService so the 6-arg ctor test can build OdxImportViewModel.</summary>
     internal sealed class StubOdx : IOdxImportService
     {
-        public Task<PeakCan.Host.Core.Uds.Odx.OdxImportResult> ImportAsync(string odxPath, System.Threading.CancellationToken ct = default)
-            => Task.FromResult(PeakCan.Host.Core.Uds.Odx.OdxImportResult.Ok(0, 0, 0, System.Array.Empty<string>()));
+        public Task<PeakCan.HIL.Core.Uds.Odx.OdxImportResult> ImportAsync(string odxPath, System.Threading.CancellationToken ct = default)
+            => Task.FromResult(PeakCan.HIL.Core.Uds.Odx.OdxImportResult.Ok(0, 0, 0, System.Array.Empty<string>()));
     }
 }

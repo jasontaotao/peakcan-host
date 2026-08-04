@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Threading;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL.Generators;
 
@@ -219,7 +219,7 @@ public sealed class GeneratorPluginManager : IDisposable
 
 /// <summary>
 /// Collectible load context for one plugin DLL. Falls back to the default ALC first so
-/// shared assemblies (PeakCan.Host.Core, System.*) resolve to the SAME types the host
+/// shared assemblies (PeakCan.HIL.Core, System.*) resolve to the SAME types the host
 /// uses — guaranteeing IEcuResponseGenerator type identity across the plugin boundary
 /// (spec E1). Plugin-local dependencies resolve via its .deps.json (if present).
 /// </summary>

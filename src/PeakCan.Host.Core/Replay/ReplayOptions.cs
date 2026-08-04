@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// v3.10.0 MINOR T4 (H5): runtime configuration for ASC replay.

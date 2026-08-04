@@ -1,9 +1,9 @@
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.StepExecutor;
-using PeakCan.Host.Core.Tests.HIL.Fakes;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core.Tests.HIL.Fakes;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.HIL;
+namespace PeakCan.HIL.Core.Tests.HIL;
 
 public class TestSuiteEngineTests
 {

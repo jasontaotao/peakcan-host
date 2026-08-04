@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds.FlashPipeline;

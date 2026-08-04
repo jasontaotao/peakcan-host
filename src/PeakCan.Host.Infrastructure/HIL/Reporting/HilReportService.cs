@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
 
 namespace PeakCan.Host.Infrastructure.HIL.Reporting;

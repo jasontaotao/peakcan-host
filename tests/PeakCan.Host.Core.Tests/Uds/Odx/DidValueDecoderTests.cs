@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
-namespace PeakCan.Host.Core.Tests.Uds.Odx;
+namespace PeakCan.HIL.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// v3.49.0 MINOR: T3.1 — <see cref="DidValueDecoder"/> 解码单元测试

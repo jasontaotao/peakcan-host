@@ -20,7 +20,7 @@
 using System.Globalization;
 using System.IO;
 using System.Text;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 
 namespace PeakCan.Host.App.Services;
 

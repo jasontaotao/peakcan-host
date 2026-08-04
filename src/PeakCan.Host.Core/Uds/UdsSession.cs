@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 /// <summary>
 /// UDS diagnostic session state management. Tracks the current

@@ -1,5 +1,5 @@
 using Microsoft.Win32;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.Services;
 

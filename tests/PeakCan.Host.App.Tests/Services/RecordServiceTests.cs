@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;

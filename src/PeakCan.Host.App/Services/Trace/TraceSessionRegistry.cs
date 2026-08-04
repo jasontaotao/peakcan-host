@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ScottPlot;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.Services.Trace;
 

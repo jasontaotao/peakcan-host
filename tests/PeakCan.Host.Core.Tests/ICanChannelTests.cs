@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests;
+namespace PeakCan.HIL.Core.Tests;
 
 /// <summary>
 /// v1.6.1 PATCH Item 4: verifies <see cref="BaudRate.FromFdDescriptor"/>

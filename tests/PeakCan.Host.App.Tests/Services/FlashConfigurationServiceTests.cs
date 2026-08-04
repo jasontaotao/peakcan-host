@@ -1,6 +1,6 @@
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;

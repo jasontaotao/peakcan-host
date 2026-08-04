@@ -1,9 +1,9 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
-namespace PeakCan.Host.Core.Tests;
+namespace PeakCan.HIL.Core.Tests;
 
 /// <summary>
 /// Task 7: verifies that <see cref="SignalDecoder"/> correctly extracts the
@@ -248,7 +248,7 @@ public class TryDecodeEnumTextTests
 {
     private static readonly string FixturePath = System.IO.Path.Combine(
         AppContext.BaseDirectory,
-        "..", "..", "..", "..", "PeakCan.Host.Core.Tests", "Dbc", "Fixtures",
+        "..", "..", "..", "..", "PeakCan.HIL.Core.Tests", "Dbc", "Fixtures",
         "sample-with-val.dbc");
 
     private static DbcDocument LoadFixture()

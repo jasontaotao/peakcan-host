@@ -1,5 +1,5 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// Trace Viewer service: load an ASC recording and play it back for

@@ -2,8 +2,8 @@ using System.Text;
 using System.Xml.Linq;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
@@ -118,7 +118,7 @@ base hex  timestamps absolute
 
             var engine = host.Services.GetRequiredService<TestSuiteEngine>();
             var channel = host.Services.GetRequiredService<ICanChannel>();
-            var ctx = host.Services.GetRequiredService<Core.HIL.Contracts.IAssertionContext>();
+            var ctx = host.Services.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>();
 
             // Create and execute a test suite
             var suite = new TestSuite("CliIntegrationSuite",

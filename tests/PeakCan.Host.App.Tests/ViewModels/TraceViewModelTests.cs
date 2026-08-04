@@ -1,5 +1,5 @@
 using FluentAssertions;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Tests.Collections;
 using System.Windows;

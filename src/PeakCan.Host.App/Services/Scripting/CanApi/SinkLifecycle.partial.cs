@@ -19,7 +19,7 @@
 
 using System.Collections.Concurrent;
 using System.Globalization;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.Services.Scripting;
 

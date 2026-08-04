@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.54.0 MINOR: filters LLM-cited evidence IDs to only those
 /// in the input session. Per v3.52.0 hard-boundary #13 (sister of DeepSeek

@@ -2,8 +2,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.ViewModels.Uds.Rows;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.Database;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 

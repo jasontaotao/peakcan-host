@@ -2,10 +2,10 @@ using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Replay;
+namespace PeakCan.HIL.Core.Tests.Replay;
 
 /// <summary>
 /// v3.14.0 MINOR A7 regression: a loop region with Start &gt; End must

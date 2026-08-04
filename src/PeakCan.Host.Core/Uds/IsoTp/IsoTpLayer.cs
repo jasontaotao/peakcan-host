@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.Host.Core.Uds.IsoTp;
+namespace PeakCan.HIL.Core.Uds.IsoTp;
 
 /// <summary>
 /// ISO 15765-2 (ISO-TP) transport layer. Handles segmentation and
@@ -138,36 +138,3 @@ public sealed partial class IsoTpLayer : IDisposable
 
 }
 
-/// <summary>
-/// CAN ID configuration for ISO-TP communication.
-/// </summary>
-public sealed record CanIdConfig
-{
-    /// <summary>CAN ID for request frames (client → ECU).</summary>
-    public uint RequestId { get; init; }
-
-    /// <summary>CAN ID for response frames (ECU → client).</summary>
-    public uint ResponseId { get; init; }
-
-    /// <summary>
-    /// Functional CAN ID for broadcast requests (optional).
-    /// Used for functional addressing (e.g., 0x7DF for OBD-II).
-    /// </summary>
-    public uint? FunctionalId { get; init; }
-
-    /// <summary>
-    /// Whether to use CAN extended frame format (29-bit arbitration ID).
-    /// <c>false</c> (default) = standard frame (11-bit ID, 0x000–0x7FF).
-    /// <c>true</c> = extended frame (29-bit ID, 0x00000000–0x1FFFFFFF).
-    /// Most OEM UDS programming addresses (e.g. 0x714/0x760) use standard frames;
-    /// some ECUs (e.g. J1939, certain OEM extended-addressing schemes) require extended.
-    /// </summary>
-    public bool IsExtendedFrame { get; init; }
-    // === Flow F methods moved to IsoTpLayer/FlowControlFlow.cs (W9 Task 1) ===
-    // === Flow G methods moved to IsoTpLayer/LoggingFlow.cs (W9 Task 2) ===
-    // === Flow E methods + WatchdogHandle class + _rxWatchdog field moved to IsoTpLayer/WatchdogFlow.cs (W9 Task 3) ===
-    // === Flow B methods moved to IsoTpLayer/SendFlow.cs (W9 Task 4) ===
-    // === Flow D methods moved to IsoTpLayer/ReceiveFlow.cs (W9 Task 5) ===
-    // === Flow C methods moved to IsoTpLayer/MultiFrameTransportFlow.cs (W9 Task 6 — LARGEST flow) ===
-    // === Flow A methods moved to IsoTpLayer/LifecycleFlow.cs (W9 Task 7 — LAST extraction) ===
-}

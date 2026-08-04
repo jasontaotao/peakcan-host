@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds.Database;
+namespace PeakCan.HIL.Core.Uds.Database;
 
 /// <summary>
 /// Default file paths and constants for <see cref="RoutineDatabase"/>.

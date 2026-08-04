@@ -16,9 +16,9 @@
 // W31 T1 verbatim re-extracted via `git show main:src/.../ReplayService.cs | sed -n '152,182p;191,209p'`
 // per W20 T2 R1 fabrication LESSON (37th application).
 
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 public sealed partial class ReplayService
 {

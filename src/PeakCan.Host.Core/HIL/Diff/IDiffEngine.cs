@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Diff;
+namespace PeakCan.HIL.Core.HIL.Diff;
 
 /// <summary>
 /// Diff engine interface. Compare two frame sequences at configured granularity.

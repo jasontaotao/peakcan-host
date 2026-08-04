@@ -4,8 +4,8 @@ using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 
@@ -74,8 +74,8 @@ public class SinkWiringServiceTests
         // no-op send callback + default 0x7E0/0x7E8 CAN IDs — the tests below
         // only exercise the router→sink fan-out, not ISO-TP send. The adapter
         // wraps this same singleton layer instance.
-        builder.Services.AddSingleton(new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(
-            new PeakCan.Host.Core.Uds.IsoTp.CanIdConfig
+        builder.Services.AddSingleton(new PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer(
+            new PeakCan.HIL.Core.Uds.IsoTp.CanIdConfig
             {
                 RequestId = 0x7E0,
                 ResponseId = 0x7E8

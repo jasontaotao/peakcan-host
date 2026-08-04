@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 

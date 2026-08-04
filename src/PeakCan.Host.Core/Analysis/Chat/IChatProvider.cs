@@ -1,9 +1,9 @@
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// Chat LLM provider contract: a streaming, multi-round,
 /// tool-calling-capable conversation. Sister of
-/// <see cref="PeakCan.Host.Core.Analysis.ILlmProvider"/> but distinct:
+/// <see cref="PeakCan.HIL.Core.Analysis.ILlmProvider"/> but distinct:
 /// <see cref="ILlmProvider"/> is single-shot (one request -> one JSON
 /// report); <see cref="IChatProvider"/> streams <see cref="ChatUpdate"/>
 /// fragments and accumulates tool calls across rounds.

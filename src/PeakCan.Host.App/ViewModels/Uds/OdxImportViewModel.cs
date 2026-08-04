@@ -2,7 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 

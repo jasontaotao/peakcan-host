@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Lifecycle status of a flashing pipeline run, surfaced through

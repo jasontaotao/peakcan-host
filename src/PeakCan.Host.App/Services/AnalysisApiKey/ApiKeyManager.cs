@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
 namespace PeakCan.Host.App.Services.AnalysisApiKey;
 

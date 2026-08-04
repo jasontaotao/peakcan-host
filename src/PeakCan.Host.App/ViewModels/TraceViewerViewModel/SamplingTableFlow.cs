@@ -20,7 +20,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace PeakCan.Host.App.ViewModels;
 
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 
 public sealed partial class TraceViewerViewModel
 {

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services.Trace;

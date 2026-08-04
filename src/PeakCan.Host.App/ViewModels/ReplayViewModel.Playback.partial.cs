@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 

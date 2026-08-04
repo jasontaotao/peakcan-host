@@ -2,12 +2,12 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 /// <summary>
 /// Unit tests for <see cref="UdsClient"/> covering 3 CRITICAL bugs found in

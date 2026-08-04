@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 public static partial class BlfParser
 {

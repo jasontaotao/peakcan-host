@@ -23,9 +23,9 @@
 // per W20 T2 R1 fabrication LESSON (30th application).
 
 using System.IO;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Path;
 
 namespace PeakCan.Host.App.Services;
 

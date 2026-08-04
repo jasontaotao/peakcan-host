@@ -10,10 +10,10 @@
 // in git; the file itself stays on the developer's Desktop.
 
 using FluentAssertions;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Replay;
+namespace PeakCan.HIL.Core.Tests.Replay;
 
 public class BlfRealVectorReproTests
 {

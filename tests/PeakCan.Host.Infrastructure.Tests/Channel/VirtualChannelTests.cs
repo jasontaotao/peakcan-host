@@ -1,4 +1,4 @@
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.CanChannels;
 
 namespace PeakCan.Host.Infrastructure.Tests.Channel;

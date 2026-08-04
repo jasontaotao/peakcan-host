@@ -1,9 +1,9 @@
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// How a flashing-pipeline step of kind <see cref="FlashStepKind.SecurityAccess"/>
 /// obtains the SendKey payload (the second leg of the 2-phase 0x27 exchange). Maps onto
-/// the two <see cref="global::PeakCan.Host.Core.Uds.UdsClient"/> SecurityAccess overloads:
+/// the two <see cref="global::PeakCan.HIL.Core.Uds.UdsClient"/> SecurityAccess overloads:
 /// <list type="bullet">
 /// <item><see cref="Manual"/> — operator-typed hex bytes; calls the 3-arg
 /// <c>SecurityAccessAsync(level, key, ct)</c> and bypasses any injected

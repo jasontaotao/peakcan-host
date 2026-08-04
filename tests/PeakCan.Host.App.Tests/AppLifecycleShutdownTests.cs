@@ -9,9 +9,9 @@ using PeakCan.Host.App;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
 using PeakCan.Host.App.Tests.Services.Trace;  // v3.7.2 PATCH: InMemoryPrefsStore
 using SerilogLogger = Serilog.ILogger;
 using SerilogNullLogger = Serilog.Core.Logger;
@@ -161,7 +161,7 @@ public class AppLifecycleShutdownTests : IDisposable
         var vm = new TraceViewerViewModel(
             registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         var provider = new RecordingTraceVmProvider(vm);
         var prefs = new InMemoryPrefsStore();

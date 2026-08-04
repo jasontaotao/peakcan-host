@@ -1,7 +1,7 @@
 using System.Windows;
 using ScottPlot;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 

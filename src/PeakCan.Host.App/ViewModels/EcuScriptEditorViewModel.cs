@@ -7,7 +7,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.App.ViewModels;

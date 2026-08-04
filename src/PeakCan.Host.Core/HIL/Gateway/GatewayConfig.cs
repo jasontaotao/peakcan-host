@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Gateway;
+namespace PeakCan.HIL.Core.HIL.Gateway;
 
 /// <summary>
 /// 总线间转发网关配置。描述转发目标通道 + 规则；source 通道由 CLI 模式决定（--hw/--ecu/--matrix/--simulate）。

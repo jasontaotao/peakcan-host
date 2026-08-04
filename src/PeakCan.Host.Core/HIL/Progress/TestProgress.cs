@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL;
+namespace PeakCan.HIL.Core.HIL;
 
 /// <summary>
 /// Progress report emitted during TestSuite execution.

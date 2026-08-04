@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Diff;
+namespace PeakCan.HIL.Core.HIL.Diff;
 
 /// <summary>
 /// Tolerance specification for signal-level diff comparison.

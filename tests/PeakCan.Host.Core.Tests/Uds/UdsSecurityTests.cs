@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Uds;
+using PeakCan.HIL.Core.Uds;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 public sealed class UdsSecurityTests
 {

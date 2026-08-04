@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PeakCan.Host.App"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
-             xmlns:flash="clr-namespace:PeakCan.Host.Core.Uds.FlashPipeline;assembly=PeakCan.Host.Core"
+             xmlns:flash="clr-namespace:PeakCan.HIL.Core.Uds.FlashPipeline;assembly=PeakCan.HIL.Core"
              xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <Application.Resources>
         <!--

@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.Host.Core.Tests.HIL.Fakes;
+namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
 
 /// <summary>
 /// No-op progress reporter for testing.

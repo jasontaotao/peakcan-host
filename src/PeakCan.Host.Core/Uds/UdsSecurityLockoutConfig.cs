@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 /// <summary>
 /// v1.3.0 MINOR Item 1: lockout policy for UDS SecurityAccess (ISO 14229-1

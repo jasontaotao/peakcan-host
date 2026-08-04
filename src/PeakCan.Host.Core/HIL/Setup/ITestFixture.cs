@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.Host.Core.HIL.Setup;
+namespace PeakCan.HIL.Core.HIL.Setup;
 
 /// <summary>
 /// Test fixture. Single interface for both Suite-level and Case-level fixtures,

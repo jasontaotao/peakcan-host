@@ -3,9 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Uds;
+using PeakCan.HIL.Core.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using CoreFlashPipeline = PeakCan.Host.Core.Uds.FlashPipeline;
+using CoreFlashPipeline = PeakCan.HIL.Core.Uds.FlashPipeline;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 
@@ -100,9 +100,9 @@ public sealed partial class UdsViewModel : ObservableObject
 
     private sealed class StubOdxImportService : Services.IOdxImportService
     {
-        public Task<Core.Uds.Odx.OdxImportResult> ImportAsync(
+        public Task<PeakCan.HIL.Core.Uds.Odx.OdxImportResult> ImportAsync(
             string odxPath, CancellationToken ct = default)
-            => Task.FromResult(Core.Uds.Odx.OdxImportResult.Ok(0, 0, 0, System.Array.Empty<string>()));
+            => Task.FromResult(PeakCan.HIL.Core.Uds.Odx.OdxImportResult.Ok(0, 0, 0, System.Array.Empty<string>()));
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.Host.Core.Uds.IsoTp;
+namespace PeakCan.HIL.Core.Uds.IsoTp;
 
 public sealed partial class IsoTpLayer
 {

@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes WaitForSignal steps. Returns Passed when signal matches, Failed on timeout.

@@ -31,23 +31,23 @@ public partial class AppHostBuilder
         // both IPeriodicTimer (RecordService/StatisticsService/TraceService)
         // and ICyclicTimer (CyclicSendService/CyclicDbcSendService). The
         // factory is stateless — only the dispatch shape differs.
-        services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
-                                      PeakCan.Host.Core.Services.CyclicTimerFactory>();
+        services.AddSingleton<PeakCan.HIL.Core.Services.ITimerFactory,
+                                      PeakCan.HIL.Core.Services.CyclicTimerFactory>();
         // Task 18: extracted PEAK SDK probe call into a swappable
         // service so the App assembly has no Peak.Can.Basic dependency
         // (enforced by LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic).
-        services.AddSingleton<PeakCan.Host.Core.IChannelProbe,
+        services.AddSingleton<PeakCan.HIL.Core.IChannelProbe,
                                        PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
 
         // v0.4.0: multi-channel enumerator. Probes PCAN-USB 1–16.
-        services.AddSingleton<PeakCan.Host.Core.IChannelEnumerator,
+        services.AddSingleton<PeakCan.HIL.Core.IChannelEnumerator,
                                        PeakCan.Host.Infrastructure.Peak.PeakChannelEnumerator>();
 
         // Task T3 (H4): the App-layer VM no longer news PeakCanChannel
         // directly; it asks the factory for an ICanChannel. Production DI
         // binds the PEAK implementation; tests inject a fake to drive the
         // connect/disconnect state machine without hardware.
-        services.AddSingleton<PeakCan.Host.Core.IChannelFactory,
+        services.AddSingleton<PeakCan.HIL.Core.IChannelFactory,
                                       PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
 
         // v0.4.0: IPcanReader abstracts the PEAK SDK read calls so

@@ -29,7 +29,7 @@ public partial class AppHostBuilder
         services.AddSingleton<PeakCan.Host.App.Services.MultiFrame.SequenceSendService>(sp =>
             new PeakCan.Host.App.Services.MultiFrame.SequenceSendService(
                 sp.GetRequiredService<PeakCan.Host.App.Services.SendService>(),
-                sp.GetRequiredService<PeakCan.Host.Core.Dbc.DbcEncodeService>(),
+                sp.GetRequiredService<PeakCan.HIL.Core.Dbc.DbcEncodeService>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.DbcService>()));
         // v2.1.2 PATCH: SequenceLibrary persists named sequences to
         // %APPDATA%\PeakCan.Host\sequences.json. Wired into the

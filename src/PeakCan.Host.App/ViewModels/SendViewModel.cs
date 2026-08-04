@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Windows;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 

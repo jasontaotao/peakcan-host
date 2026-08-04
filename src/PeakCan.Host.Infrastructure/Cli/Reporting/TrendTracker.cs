@@ -1,5 +1,5 @@
 using System.Text.Json;
-using PeakCan.Host.Core.HIL.Serialization;
+using PeakCan.HIL.Core.HIL.Serialization;
 
 namespace PeakCan.Host.Infrastructure.Cli.Reporting;
 

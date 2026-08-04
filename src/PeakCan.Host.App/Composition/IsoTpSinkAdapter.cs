@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Composition;

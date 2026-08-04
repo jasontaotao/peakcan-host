@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds.IsoTp;
+namespace PeakCan.HIL.Core.Uds.IsoTp;
 
 /// <summary>
 /// ISO 15765-2 (ISO-TP) frame types for segmented message transport

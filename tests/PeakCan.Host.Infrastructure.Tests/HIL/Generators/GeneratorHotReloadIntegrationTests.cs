@@ -1,6 +1,7 @@
+using PeakCan.HIL.Core.HIL;
 using Microsoft.Extensions.DependencyInjection;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
@@ -15,7 +16,7 @@ namespace PeakCan.Host.Infrastructure.Tests.HIL.Generators;
 public class GeneratorHotReloadIntegrationTests
 {
     private const string PluginSource = """
-        using PeakCan.Host.Core.HIL.Contracts;
+        using PeakCan.HIL.Core.HIL.Contracts;
         public sealed class TestPlugin : IEcuResponseGenerator
         {
             public string Name => "TestGen";
@@ -172,7 +173,7 @@ public class GeneratorHotReloadIntegrationTests
     // --- Inc 8: ALC same-named DLL overwrite (proves non-Assembly.LoadFrom cache) ---
 
     private const string PluginV2Source = """
-        using PeakCan.Host.Core.HIL.Contracts;
+        using PeakCan.HIL.Core.HIL.Contracts;
         public sealed class TestPlugin : IEcuResponseGenerator
         {
             public string Name => "TestGen";

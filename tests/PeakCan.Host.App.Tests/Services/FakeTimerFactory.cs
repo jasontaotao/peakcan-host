@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.Tests.Services;
 

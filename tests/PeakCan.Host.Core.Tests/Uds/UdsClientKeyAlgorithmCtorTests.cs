@@ -1,8 +1,8 @@
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 public class UdsClientKeyAlgorithmCtorTests
 {

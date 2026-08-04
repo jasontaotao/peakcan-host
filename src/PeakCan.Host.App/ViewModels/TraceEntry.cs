@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 

@@ -1,9 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using FluentAssertions;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Analysis;
+namespace PeakCan.HIL.Core.Tests.Analysis;
 
 public class ICredentialStoreTests
 {

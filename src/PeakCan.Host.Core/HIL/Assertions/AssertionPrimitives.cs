@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Assertions;
+namespace PeakCan.HIL.Core.HIL.Assertions;
 
 /// <summary>
 /// Assertion primitives for HIL testing. Instance class with injected IAssertionContext.

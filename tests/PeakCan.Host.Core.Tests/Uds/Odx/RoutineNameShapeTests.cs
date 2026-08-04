@@ -1,9 +1,9 @@
 using System.Xml.Linq;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds.Odx;
+namespace PeakCan.HIL.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// v2.0.7 PATCH Bug-4 regression: SHORT-NAME on DIAG-SERVICE can

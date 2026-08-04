@@ -1,9 +1,9 @@
 using System;
 using FluentAssertions;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Path;
+namespace PeakCan.HIL.Core.Tests.Path;
 
 public class PathNormalizerTests
 {

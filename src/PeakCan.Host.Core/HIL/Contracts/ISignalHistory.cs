@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Contracts;
+namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// Offline signal history (pull model). Used by diff engine.

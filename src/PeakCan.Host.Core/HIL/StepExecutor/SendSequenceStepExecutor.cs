@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Placeholder for SendSequence steps. Not supported in Sprint 1.

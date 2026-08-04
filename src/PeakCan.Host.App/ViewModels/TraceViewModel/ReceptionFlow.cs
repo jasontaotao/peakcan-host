@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Windows;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 

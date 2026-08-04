@@ -2,8 +2,8 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 

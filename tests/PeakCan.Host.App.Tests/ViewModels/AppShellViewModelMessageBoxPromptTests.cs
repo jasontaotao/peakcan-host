@@ -10,14 +10,14 @@ using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Analysis;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.Database;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using PeakCan.Host.App.Services.AnalysisApiKey;
@@ -61,10 +61,10 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
 
     private string Track(string p) { _files.Add(p); return p; }
 
-    /// <summary>Test double for <see cref="Core.IChannelProbe"/>.</summary>
-    private sealed class FakeChannelProbe : Core.IChannelProbe
+    /// <summary>Test double for <see cref="PeakCan.HIL.Core.IChannelProbe"/>.</summary>
+    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
     {
-        public Core.ProbeResult Probe(ushort handle) =>
+        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle) =>
             new(true, $"fake probe ok 0x{handle:X2}");
     }
 
@@ -82,7 +82,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
     /// always returns <paramref name="stubPath"/>. Drives the
     /// <c>OpenSessionCommand</c> down the "user picked a path"
     /// branch.</summary>
-    private sealed class StubFileDialogService : Core.IFileDialogService
+    private sealed class StubFileDialogService : PeakCan.HIL.Core.IFileDialogService
     {
         public string StubPath { get; set; } = string.Empty;
         public string ShowOpenDialog(string filter) => StubPath;
@@ -166,7 +166,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 NullLogger<TraceViewerViewModel>.Instance,
                 NewRealSessionLibrary(sessionLibraryPath),
                 apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -181,7 +181,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
     /// <summary>Test double for <see cref="IChannelFactory"/>
     /// required by <see cref="AppShellViewModel"/> ctor. Never
     /// invoked by the missing-asc prompt tests.</summary>
-    private sealed class FakeChannelFactory : Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public ICanChannel Create(ChannelId id) => new FakeCanChannel(id);
     }

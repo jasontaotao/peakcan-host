@@ -1,6 +1,6 @@
 using NetArchTest.Rules;
 using PeakCan.Host.App.Composition;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.Infrastructure.Tests.Architecture;

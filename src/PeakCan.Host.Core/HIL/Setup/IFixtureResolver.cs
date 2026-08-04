@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Setup;
+namespace PeakCan.HIL.Core.HIL.Setup;
 
 /// <summary>
 /// Resolves fixture key to fixture instance. Decouples Engine from IServiceProvider keyed DI.

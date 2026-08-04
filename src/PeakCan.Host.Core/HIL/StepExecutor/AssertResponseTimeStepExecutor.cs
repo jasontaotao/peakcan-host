@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertResponseTime steps. Sends request frame, measures wall-clock until response frame arrives.

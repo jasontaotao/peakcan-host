@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// Definition of one tool the assistant may call. Serialized into the

@@ -13,7 +13,7 @@ namespace PeakCan.Host.App.Tests.Services.Trace;
 /// five fields stay init-only (record back-compat at construction site).
 /// NOTE: TraceSource lives in PeakCan.Host.App (Services.Trace), not in
 /// Core, so these tests live in the App.Tests project (deviation from the
-/// plan path "PeakCan.Host.Core.Tests/Replay/TraceSourceTests.cs" — see
+/// plan path "PeakCan.HIL.Core.Tests/Replay/TraceSourceTests.cs" — see
 /// implementer report).
 /// </summary>
 public class TraceSourceTests

@@ -1,7 +1,7 @@
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: extracts per-source evidence inside the fault
 /// window. Per hard-boundary #6: reads via IFrameSourceProvider.GetFrames

@@ -7,9 +7,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
 using PeakCan.Host.App.Services;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
@@ -266,25 +266,25 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// 前 4 项对应 CrcParameters.Presets, 最后一项 "Custom".
     /// </summary>
     public IReadOnlyList<string> CrcPresetNames { get; } =
-        [.. Core.Uds.FlashPipeline.CrcParameters.PresetNames, "Custom"];
+        [.. PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.PresetNames, "Custom"];
 
     /// <summary>
     /// AddressingMode values for the per-step ComboBox.
     /// </summary>
-    public IReadOnlyList<Core.Uds.FlashPipeline.AddressingMode> AddressingModes { get; } =
-        Enum.GetValues<Core.Uds.FlashPipeline.AddressingMode>();
+    public IReadOnlyList<PeakCan.HIL.Core.Uds.FlashPipeline.AddressingMode> AddressingModes { get; } =
+        Enum.GetValues<PeakCan.HIL.Core.Uds.FlashPipeline.AddressingMode>();
 
     /// <summary>
     /// CommunicationSubFunction values for the 0x28 step ComboBox.
     /// </summary>
-    public IReadOnlyList<Core.Uds.CommunicationSubFunction> CommunicationSubFunctions { get; } =
-        Enum.GetValues<Core.Uds.CommunicationSubFunction>();
+    public IReadOnlyList<PeakCan.HIL.Core.Uds.CommunicationSubFunction> CommunicationSubFunctions { get; } =
+        Enum.GetValues<PeakCan.HIL.Core.Uds.CommunicationSubFunction>();
 
     /// <summary>
     /// DtcControlSubFunction values for the 0x14 step ComboBox.
     /// </summary>
-    public IReadOnlyList<Core.Uds.DtcControlSubFunction> DtcControlSubFunctions { get; } =
-        Enum.GetValues<Core.Uds.DtcControlSubFunction>();
+    public IReadOnlyList<PeakCan.HIL.Core.Uds.DtcControlSubFunction> DtcControlSubFunctions { get; } =
+        Enum.GetValues<PeakCan.HIL.Core.Uds.DtcControlSubFunction>();
 
     /// <summary>
     /// Kinds the operator can add via the "Add Step" dropdown. Excludes
@@ -880,9 +880,9 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// Issue 3: 根据 SelectedCrcPresetIndex 解析出实际使用的 CrcParameters.
     /// index 0..3 对应 4 个预设; index -1 (Custom) 时使用 Verify.CrcParameters 中的自定义值.
     /// </summary>
-    private Core.Uds.FlashPipeline.CrcParameters ResolveCrcParameters(VerifyParams verify)
+    private PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters ResolveCrcParameters(VerifyParams verify)
     {
-        var presets = Core.Uds.FlashPipeline.CrcParameters.Presets;
+        var presets = PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Presets;
         return verify.SelectedCrcPresetIndex >= 0 && verify.SelectedCrcPresetIndex < presets.Count
             ? presets[verify.SelectedCrcPresetIndex]
             : verify.CrcParameters;  // Custom: use the manually-edited parameters.

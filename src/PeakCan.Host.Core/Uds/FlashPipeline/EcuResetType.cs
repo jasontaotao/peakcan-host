@@ -1,10 +1,10 @@
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Maps 1:1 onto the UDS ECUReset (0x11) sub-function bytes per ISO 14229-1 §11.3.
 /// Used by a flashing-pipeline step of kind <see cref="FlashStepKind.EcuReset"/>; the
 /// PipelineExecutor casts to <c>byte</c> and passes it to
-/// <see cref="global::PeakCan.Host.Core.Uds.UdsClient.EcuResetAsync"/>.
+/// <see cref="global::PeakCan.HIL.Core.Uds.UdsClient.EcuResetAsync"/>.
 /// </summary>
 public enum EcuResetType
 {

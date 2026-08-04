@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR (P0 stub) / P1 PATCH (concrete): LLM provider output.
 /// Summary is the LLM's natural-language summary. AttributedEvidenceIds is

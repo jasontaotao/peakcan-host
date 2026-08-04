@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>
 /// v3.52.0 MINOR: immutable snapshot of the green + blue anchor values at the

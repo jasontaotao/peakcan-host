@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Windows.Data;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 
 namespace PeakCan.Host.App.Composition.Converters;
 

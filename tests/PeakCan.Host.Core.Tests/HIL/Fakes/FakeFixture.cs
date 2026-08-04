@@ -1,8 +1,8 @@
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Setup;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.Host.Core.Tests.HIL.Fakes;
+namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
 
 /// <summary>
 /// Test fixture for testing ITestFixture lifecycle.

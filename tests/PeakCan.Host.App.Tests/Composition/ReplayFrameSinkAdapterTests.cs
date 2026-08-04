@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Composition;

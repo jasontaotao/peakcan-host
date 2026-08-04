@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 using PeakCan.Host.Infrastructure.HIL.Analysis;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Analysis;

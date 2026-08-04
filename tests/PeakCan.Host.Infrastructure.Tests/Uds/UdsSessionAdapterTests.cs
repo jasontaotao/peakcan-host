@@ -1,7 +1,7 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Uds;
 using Xunit;
 

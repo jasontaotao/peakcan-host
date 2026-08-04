@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests;
+namespace PeakCan.HIL.Core.Tests;
 
 /// <summary>
 /// Task 6: verifies that <see cref="DbcParser"/> recognizes multiplexed

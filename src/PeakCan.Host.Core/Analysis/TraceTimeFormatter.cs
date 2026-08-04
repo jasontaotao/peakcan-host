@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>
 /// 统一 trace 时间格式化器。图表 X 轴 LabelFormatter、AI chat system

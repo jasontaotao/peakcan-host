@@ -1,8 +1,8 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using Xunit;
 
 namespace PeakCan.Host.Infrastructure.Tests;

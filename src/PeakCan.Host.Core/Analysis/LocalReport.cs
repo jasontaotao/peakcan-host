@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: the local-only deterministic analysis output.
 /// Per spec D4: Summary MUST explicitly mark "no attribution" so the UI

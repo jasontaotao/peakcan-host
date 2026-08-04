@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIL 测试脚本编写指南 — PeakCan.Host</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #dee2e6;
+    --text: #1a1a2e;
+    --text-secondary: #495057;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --green: #16a34a;
+    --green-light: #dcfce7;
+    --red: #dc2626;
+    --red-light: #fee2e2;
+    --amber: #d97706;
+    --amber-light: #fef3c7;
+    --code-bg: #1e293b;
+    --code-text: #e2e8f0;
+    --radius: 8px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0;
+  }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #f1f5f9;
+    padding: 48px 24px;
+    text-align: center;
+    border-bottom: 4px solid var(--accent);
+  }
+  .hero h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 8px; }
+  .hero p { font-size: 1.05rem; opacity: 0.85; max-width: 640px; margin: 0 auto; }
+
+  /* Layout */
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+
+  /* TOC */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 32px;
+  }
+  .toc h2 { font-size: 1rem; margin-bottom: 12px; color: var(--text-secondary); }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Sections */
+  section { margin-bottom: 40px; }
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .badge {
+    font-size: 0.7rem;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--text);
+  }
+  p { margin-bottom: 12px; color: var(--text-secondary); }
+
+  /* Code blocks */
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin: 12px 0 20px;
+    position: relative;
+  }
+  pre .filename {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 2px 10px;
+    border-radius: 0 var(--radius) 0 var(--radius);
+    font-family: var(--font);
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  /* Keyword highlighting in code */
+  .kw { color: #c678dd; }
+  .str { color: #98c379; }
+  .num { color: #d19a66; }
+  .cm { color: #5c6370; font-style: italic; }
+  .prop { color: #61afef; }
+  .tag { color: #e06c75; }
+
+  /* Step cards */
+  .step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .step-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: box-shadow 0.2s;
+  }
+  .step-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .step-card h4 {
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .step-card .kind-tag {
+    font-size: 0.7rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-family: var(--mono);
+  }
+  .step-card p { font-size: 0.85rem; margin-bottom: 8px; }
+  .step-card .fields {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    background: var(--bg);
+    padding: 6px 10px;
+    border-radius: 4px;
+  }
+  .step-card .fields span { display: block; }
+
+  /* Info boxes */
+  .info-box {
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+  .info-box.tip {
+    background: var(--green-light);
+    border-left: 4px solid var(--green);
+    color: #166534;
+  }
+  .info-box.warn {
+    background: var(--amber-light);
+    border-left: 4px solid var(--amber);
+    color: #92400e;
+  }
+  .info-box.caution {
+    background: var(--red-light);
+    border-left: 4px solid var(--red);
+    color: #991b1b;
+  }
+
+  /* Example tabs */
+  .example-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 0;
+    border-bottom: 2px solid var(--border);
+  }
+  .example-tabs button {
+    padding: 8px 20px;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--bg);
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-radius: var(--radius) var(--radius) 0 0;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+  }
+  .example-tabs button.active {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+    border-bottom: 2px solid var(--surface);
+    margin-bottom: -2px;
+  }
+  .example-tabs button:hover:not(.active) { background: #e9ecef; }
+  .example-content { display: none; }
+  .example-content.active { display: block; }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+    margin-top: 48px;
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🔧 HIL 测试脚本编写指南</h1>
+  <p>PeakCan.Host · 从零开始写一个 UDS/CAN 自动化测试套件</p>
+</div>
+
+<div class="container">
+
+<!-- ===== TOC ===== -->
+<div class="toc">
+  <h2>📖 目录</h2>
+  <ol>
+    <li><a href="#intro">HIL 测试脚本是什么？</a></li>
+    <li><a href="#suite-structure">测试套件结构（JSON）</a></li>
+    <li><a href="#can-id">CAN ID 格式</a></li>
+    <li><a href="#step-types">所有步骤类型详解</a></li>
+    <li><a href="#examples">完整示例</a></li>
+    <li><a href="#modes">四种运行模式</a></li>
+    <li><a href="#run">如何运行</a></li>
+  </ol>
+</div>
+
+<!-- ===== 1. What is HIL ===== -->
+<section id="intro">
+  <h2>1. HIL 测试脚本是什么？</h2>
+  <p>
+    HIL（Hardware-in-the-Loop）测试脚本是一个 <strong>JSON 格式的测试套件</strong>，
+    定义了一系列 CAN 总线上的测试用例：发送帧、等待响应、断言信号值、注入故障等。
+  </p>
+  <p>
+    测试可以运行在四种模式下（详见 <a href="#modes">§6</a>）：
+    <strong>TraceReplay</strong>（回放 ASC/BLF 文件）、<strong>Hardware</strong>（真实 PCAN 硬件）、
+    <strong>VirtualEcu</strong>（虚拟 ECU 模拟器）、<strong>Matrix</strong>（多 ECU 矩阵）。
+  </p>
+  <div class="info-box tip">
+    <strong>💡 一句话：</strong>写一个 JSON 文件，描述"发什么帧、等什么响应、断言什么值"，
+    工具帮你自动跑并出报告。
+  </div>
+</section>
+
+<!-- ===== 2. Suite Structure ===== -->
+<section id="suite-structure">
+  <h2>2. 测试套件结构</h2>
+  <p>一个测试套件 JSON 文件包含以下顶层字段：</p>
+
+  <pre><span class="filename">suite.json</span>
+{
+  <span class="prop">"name"</span>: <span class="str">"MyTestSuite"</span>,                   <span class="cm">// 套件名称</span>
+  <span class="prop">"cases"</span>: [ ... ],                              <span class="cm">// 测试用例列表</span>
+  <span class="prop">"globalCaseFixtureKeys"</span>: [],                    <span class="cm">// 全局 fixture 键</span>
+  <span class="prop">"suiteFixtureKeys"</span>: [],                          <span class="cm">// 套件级 fixture 键</span>
+  <span class="prop">"config"</span>: {                                      <span class="cm">// 执行配置</span>
+    <span class="prop">"failurePolicy"</span>: <span class="str">"ContinueAll"</span>,            <span class="cm">// 失败策略</span>
+    <span class="prop">"continueAfterSetupFailure"</span>: <span class="kw">true</span>
+  },
+  <span class="prop">"timeoutMs"</span>: <span class="num">0</span>                               <span class="cm">// 套件超时(0=不限制)</span>
+}</pre>
+
+  <h3>failurePolicy 可选值</h3>
+  <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:0.9rem;">
+    <tr style="background:var(--bg);border-bottom:2px solid var(--border);">
+      <th style="padding:8px 12px;text-align:left;">值</th>
+      <th style="padding:8px 12px;text-align:left;">行为</th>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:8px 12px;"><code>ContinueAll</code></td>
+      <td style="padding:8px 12px;">失败后继续执行后续步骤和用例（默认）</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:8px 12px;"><code>StopCaseOnFailure</code></td>
+      <td style="padding:8px 12px;">用例内失败后跳过剩余步骤，继续执行下一个用例</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;"><code>StopSuiteOnFailure</code></td>
+      <td style="padding:8px 12px;">用例失败后停止整个套件</td>
+    </tr>
+  </table>
+
+  <h3>TestCase 结构</h3>
+  <pre><span class="filename">单个测试用例</span>
+{
+  <span class="prop">"id"</span>: <span class="str">"case_1"</span>,                    <span class="cm">// 唯一标识</span>
+  <span class="prop">"name"</span>: <span class="str">"TesterPresent_0x3E"</span>,       <span class="cm">// 显示名称</span>
+  <span class="prop">"description"</span>: <span class="str">"Send TesterPresent..."</span>, <span class="cm">// 描述</span>
+  <span class="prop">"preConditions"</span>: <span class="str">"ECU awake"</span>,        <span class="cm">// 前置条件(可选)</span>
+  <span class="prop">"steps"</span>: [ ... ],                       <span class="cm">// 步骤列表</span>
+  <span class="prop">"postConditions"</span>: <span class="str">"ECU still awake"</span>,   <span class="cm">// 后置条件(可选)</span>
+  <span class="prop">"tags"</span>: [<span class="str">"smoke"</span>, <span class="str">"uds"</span>],           <span class="cm">// 标签(可选)</span>
+  <span class="prop">"timeoutMs"</span>: <span class="num">0</span>,                      <span class="cm">// 用例超时(可选)</span>
+  <span class="prop">"caseFixtureKeys"</span>: []                    <span class="cm">// 用例级 fixture(可选)</span>
+}</pre>
+</section>
+
+<!-- ===== 3. CAN ID ===== -->
+<section id="can-id">
+  <h2>3. CAN ID 格式</h2>
+  <p>所有 CAN ID 使用统一的 JSON 对象格式：</p>
+
+  <pre>
+{
+  <span class="prop">"raw"</span>: <span class="num">2016</span>,                    <span class="cm">// 原始 ID 数值（十进制或十六进制）</span>
+  <span class="prop">"format"</span>: <span class="str">"Standard"</span>,           <span class="cm">// "Standard"(11位) 或 "Extended"(29位)</span>
+  <span class="prop">"type"</span>: <span class="str">"Data"</span>                  <span class="cm">// "Data" | "Remote" | "Error" | "Status"</span>
+}</pre>
+
+  <div class="info-box tip">
+    <strong>💡 常用 CAN ID 速查：</strong><br>
+    0x7E0 = 2016（诊断请求，Standard）→ 通常是 Tester 发给 ECU 的请求 ID<br>
+    0x7E8 = 2024（诊断响应，Standard）→ ECU 回复的响应 ID<br>
+    0x18FF60A2 = 419389602（Extended）→ 多 ECU 系统中的特定报文
+  </div>
+</section>
+
+<!-- ===== 4. Step Types ===== -->
+<section id="step-types">
+  <h2>4. 所有步骤类型详解</h2>
+  <p>每个步骤通过 <code>parameters.$kind</code> 字段区分类型。步骤格式：</p>
+  <pre>
+{
+  <span class="prop">"label"</span>: <span class="str">"可选标签"</span>,              <span class="cm">// 可选，显示在结果树中</span>
+  <span class="prop">"parameters"</span>: {
+    <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,           <span class="cm">// 步骤类型，必填</span>
+    <span class="cm">// ... 类型特定字段</span>
+  }
+}</pre>
+
+  <div class="step-grid">
+
+    <div class="step-card">
+      <h4><span>📤</span> SendFrame <span class="kind-tag">sendFrame</span></h4>
+      <p>发送一条 CAN 帧到总线上。</p>
+      <div class="fields">
+        <span><strong>id</strong> — CAN ID 对象</span>
+        <span><strong>data</strong> — 字节数组，如 [2, 62, 0]</span>
+        <span><strong>fd</strong> — 是否 CAN FD（可选）</span>
+        <span><strong>extended</strong> — 是否扩展帧（可选）</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>⏳</span> ExpectFrame <span class="kind-tag">expectFrame</span></h4>
+      <p>等待指定 CAN ID 的帧出现，支持数据掩码匹配。</p>
+      <div class="fields">
+        <span><strong>id</strong> — 期望的 CAN ID</span>
+        <span><strong>dataMask</strong> — 数据匹配掩码（可选，null=只匹配 ID）</span>
+        <span><strong>timeoutMs</strong> — 超时时间</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>📊</span> WaitForSignal <span class="kind-tag">waitForSignal</span></h4>
+      <p>等待 DBC 信号达到期望值（带容差，一直等到满足或超时）。</p>
+      <div class="fields">
+        <span><strong>signalName</strong> — DBC 信号名</span>
+        <span><strong>expected</strong> — 期望值</span>
+        <span><strong>tolerance</strong> — 容差范围</span>
+        <span><strong>timeoutMs</strong> — 超时时间</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>✅</span> AssertSignal <span class="kind-tag">assertSignal</span></h4>
+      <p>立即断言信号值（不等待，直接检查当前值）。</p>
+      <div class="fields">
+        <span><strong>signalName</strong> — DBC 信号名</span>
+        <span><strong>expected</strong> — 期望值</span>
+        <span><strong>tolerance</strong> — 容差范围</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>📏</span> AssertRange <span class="kind-tag">assertRange</span></h4>
+      <p>断言信号值在 [min, max] 范围内。</p>
+      <div class="fields">
+        <span><strong>signalName</strong> — DBC 信号名</span>
+        <span><strong>min</strong> — 最小值</span>
+        <span><strong>max</strong> — 最大值</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>⏱️</span> AssertResponseTime <span class="kind-tag">assertResponseTime</span></h4>
+      <p>断言请求帧到响应帧之间的时间差不超过指定值。</p>
+      <div class="fields">
+        <span><strong>reqId</strong> — 请求帧 CAN ID</span>
+        <span><strong>respId</strong> — 响应帧 CAN ID</span>
+        <span><strong>maxMs</strong> — 最大允许毫秒数</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>⚠️</span> AssertDTC <span class="kind-tag">assertDtc</span></h4>
+      <p>断言 DTC（诊断故障码）存在或不存在。</p>
+      <div class="fields">
+        <span><strong>dtcCode</strong> — DTC 码（可选，null=检查任意 DTC）</span>
+        <span><strong>expectPresent</strong> — true=期望存在，false=期望不存在</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>🚫</span> AssertNRC <span class="kind-tag">assertNrc</span></h4>
+      <p>断言 ECU 返回了指定的否定响应码（NRC）。</p>
+      <div class="fields">
+        <span><strong>serviceId</strong> — 请求的服务 ID</span>
+        <span><strong>expectedNrc</strong> — 期望的 NRC 值</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>⏸️</span> Delay <span class="kind-tag">delay</span></h4>
+      <p>固定延时，等待指定毫秒数。</p>
+      <div class="fields">
+        <span><strong>milliseconds</strong> — 延时毫秒数</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>💬</span> Comment <span class="kind-tag">comment</span></h4>
+      <p>文档注释，不执行，不影响 pass/fail。</p>
+      <div class="fields">
+        <span><strong>text</strong> — 注释文字</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>💥</span> InjectFault <span class="kind-tag">injectFault</span></h4>
+      <p>注入故障条件（丢帧、延迟、数据损坏）。</p>
+      <div class="fields">
+        <span><strong>canId</strong> — 目标 CAN ID</span>
+        <span><strong>faultType</strong> — DropFrame / DelayFrame / CorruptData</span>
+        <span><strong>probability</strong> — 概率 0~1</span>
+        <span><strong>delayMs</strong> — 延迟毫秒数</span>
+        <span><strong>direction</strong> — Send / Receive / Both</span>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span>🧹</span> ClearFault <span class="kind-tag">clearFault</span></h4>
+      <p>清除已注入的故障条件。</p>
+      <div class="fields">
+        <span><strong>faultId</strong> — 故障 ID（null=清除所有）</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="info-box warn">
+    <strong>⚠️ dataMask 的工作方式：</strong><br>
+    <code>dataMask</code> 是字节级别掩码，0 表示该字节不参与匹配，非 0 表示该字节必须匹配。
+    例如期望帧数据为 <code>[0, 0x7E, 0, 0]</code> 且掩码为 <code>[0, 0xFF, 0, 0]</code>，
+    则只检查第 2 个字节是否为 0x7E，其余字节忽略。
+  </div>
+</section>
+
+<!-- ===== 5. Complete Examples ===== -->
+<section id="examples">
+  <h2>5. 完整示例</h2>
+
+  <div class="example-tabs">
+    <button class="active" data-tab="tab1">🔌 UDS 诊断</button>
+    <button data-tab="tab2">🧪 故障注入</button>
+    <button data-tab="tab3">📡 多 ECU 矩阵</button>
+  </div>
+
+  <!-- Tab 1: UDS -->
+  <div class="example-content active" id="tab1">
+    <pre><span class="filename">uds-suite.json</span>
+{
+  <span class="prop">"name"</span>: <span class="str">"UDS_Diagnostic_Suite"</span>,
+  <span class="prop">"cases"</span>: [
+    {
+      <span class="prop">"id"</span>: <span class="str">"tp_3e"</span>,
+      <span class="prop">"name"</span>: <span class="str">"TesterPresent_0x3E"</span>,
+      <span class="prop">"description"</span>: <span class="str">"发送 TesterPresent 请求(0x7E0)，期望收到 0x7E 正响应(0x7E8)"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span>, <span class="prop">"type"</span>: <span class="str">"Data"</span> },
+            <span class="prop">"data"</span>: [<span class="num">2</span>, <span class="num">62</span>, <span class="num">0</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span>, <span class="prop">"type"</span>: <span class="str">"Data"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">126</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        }
+      ],
+      <span class="prop">"tags"</span>: [<span class="str">"smoke"</span>, <span class="str">"uds"</span>]
+    },
+    {
+      <span class="prop">"id"</span>: <span class="str">"rdid_22"</span>,
+      <span class="prop">"name"</span>: <span class="str">"ReadDataByIdentifier_0x22"</span>,
+      <span class="prop">"description"</span>: <span class="str">"读取 DID 0xF190，期望正响应回显 DID"</span>,
+      <span class="prop">"steps"</span>: [
+        { <span class="cm">// 注释步骤：说明要做什么</span>
+          <span class="prop">"label"</span>: <span class="str">"发送 0x22 请求"</span>,
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"comment"</span>,
+            <span class="prop">"text"</span>: <span class="str">"0x22 服务请求: [serviceId=0x22, DID=0xF190]"</span>
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">3</span>, <span class="num">34</span>, <span class="num">241</span>, <span class="num">144</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">98</span>, <span class="num">241</span>, <span class="num">144</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        }
+      ],
+      <span class="prop">"tags"</span>: [<span class="str">"uds"</span>, <span class="str">"diagnostic"</span>]
+    },
+    {
+      <span class="prop">"id"</span>: <span class="str">"rt_22_resp_time"</span>,
+      <span class="prop">"name"</span>: <span class="str">"ResponseTime_0x22"</span>,
+      <span class="prop">"description"</span>: <span class="str">"断言 0x22 请求到响应的延迟不超过 100ms"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">3</span>, <span class="num">34</span>, <span class="num">241</span>, <span class="num">144</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"assertResponseTime"</span>,
+            <span class="prop">"reqId"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"respId"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"maxMs"</span>: <span class="num">100</span>
+          }
+        }
+      ],
+      <span class="prop">"tags"</span>: [<span class="str">"performance"</span>]
+    }
+  ],
+  <span class="prop">"config"</span>: {
+    <span class="prop">"failurePolicy"</span>: <span class="str">"ContinueAll"</span>,
+    <span class="prop">"continueAfterSetupFailure"</span>: <span class="kw">true</span>
+  }
+}</pre>
+  </div>
+
+  <!-- Tab 2: Fault Injection -->
+  <div class="example-content" id="tab2">
+    <pre><span class="filename">fault-injection-suite.json</span>
+{
+  <span class="prop">"name"</span>: <span class="str">"FaultInjection_Suite"</span>,
+  <span class="prop">"cases"</span>: [
+    {
+      <span class="prop">"id"</span>: <span class="str">"fi_drop_frame"</span>,
+      <span class="prop">"name"</span>: <span class="str">"DropFrame_Test"</span>,
+      <span class="prop">"description"</span>: <span class="str">"注入 50% 丢帧故障，验证 ECU 在丢帧场景下的行为"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"label"</span>: <span class="str">"注入丢帧故障"</span>,
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"injectFault"</span>,
+            <span class="prop">"canId"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"faultType"</span>: <span class="str">"DropFrame"</span>,
+            <span class="prop">"probability"</span>: <span class="num">0.5</span>,
+            <span class="prop">"delayMs"</span>: <span class="num">0</span>,
+            <span class="prop">"direction"</span>: <span class="str">"Receive"</span>
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">2</span>, <span class="num">62</span>, <span class="num">0</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">126</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        },
+        {
+          <span class="prop">"label"</span>: <span class="str">"清除故障"</span>,
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"clearFault"</span>
+          }
+        }
+      ],
+      <span class="prop">"tags"</span>: [<span class="str">"fault-injection"</span>, <span class="str">"robustness"</span>]
+    },
+    {
+      <span class="prop">"id"</span>: <span class="str">"fi_corrupt_data"</span>,
+      <span class="prop">"name"</span>: <span class="str">"CorruptData_Test"</span>,
+      <span class="prop">"description"</span>: <span class="str">"注入数据损坏故障，验证 NRC 处理"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"injectFault"</span>,
+            <span class="prop">"canId"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"faultType"</span>: <span class="str">"CorruptData"</span>,
+            <span class="prop">"probability"</span>: <span class="num">1.0</span>,
+            <span class="prop">"delayMs"</span>: <span class="num">0</span>,
+            <span class="prop">"corruptByteIndices"</span>: [<span class="num">1</span>],
+            <span class="prop">"corruptXorMask"</span>: <span class="num">255</span>,
+            <span class="prop">"direction"</span>: <span class="str">"Send"</span>
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">3</span>, <span class="num">34</span>, <span class="num">241</span>, <span class="num">144</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"assertNrc"</span>,
+            <span class="prop">"serviceId"</span>: <span class="num">34</span>,
+            <span class="prop">"expectedNrc"</span>: <span class="num">13</span>  <span class="cm">// 0x0D = GeneralReject</span>
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"clearFault"</span>
+          }
+        }
+      ],
+      <span class="prop">"tags"</span>: [<span class="str">"fault-injection"</span>, <span class="str">"nrc"</span>]
+    }
+  ],
+  <span class="prop">"config"</span>: { <span class="prop">"failurePolicy"</span>: <span class="str">"StopCaseOnFailure"</span> }
+}</pre>
+  </div>
+
+  <!-- Tab 3: Multi-ECU Matrix -->
+  <div class="example-content" id="tab3">
+    <pre><span class="filename">multi-ecu-suite.json</span>
+{
+  <span class="prop">"name"</span>: <span class="str">"MultiEcu_Matrix_Suite"</span>,
+  <span class="prop">"cases"</span>: [
+    {
+      <span class="prop">"id"</span>: <span class="str">"bms_3e"</span>,
+      <span class="prop">"name"</span>: <span class="str">"BMS_TesterPresent"</span>,
+      <span class="prop">"description"</span>: <span class="str">"BMS(0x7E0) TesterPresent → 期望响应(0x7E8)"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">2</span>, <span class="num">62</span>, <span class="num">0</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">126</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        }
+      ]
+    },
+    {
+      <span class="prop">"id"</span>: <span class="str">"mcu_3e"</span>,
+      <span class="prop">"name"</span>: <span class="str">"MCU_TesterPresent"</span>,
+      <span class="prop">"description"</span>: <span class="str">"MCU(0x7E1) TesterPresent → 期望响应(0x7E9)"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2017</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">2</span>, <span class="num">62</span>, <span class="num">0</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2025</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">126</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        }
+      ]
+    },
+    {
+      <span class="prop">"id"</span>: <span class="str">"bms_vin"</span>,
+      <span class="prop">"name"</span>: <span class="str">"BMS_ReadVIN"</span>,
+      <span class="prop">"description"</span>: <span class="str">"从 BMS 读取 VIN(0xF190)"</span>,
+      <span class="prop">"steps"</span>: [
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"sendFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2016</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"data"</span>: [<span class="num">3</span>, <span class="num">34</span>, <span class="num">241</span>, <span class="num">144</span>]
+          }
+        },
+        {
+          <span class="prop">"parameters"</span>: {
+            <span class="prop">"$kind"</span>: <span class="str">"expectFrame"</span>,
+            <span class="prop">"id"</span>: { <span class="prop">"raw"</span>: <span class="num">2024</span>, <span class="prop">"format"</span>: <span class="str">"Standard"</span> },
+            <span class="prop">"dataMask"</span>: [<span class="num">0</span>, <span class="num">98</span>, <span class="num">241</span>, <span class="num">144</span>],
+            <span class="prop">"timeoutMs"</span>: <span class="num">2000</span>
+          }
+        }
+      ]
+    }
+  ],
+  <span class="prop">"config"</span>: { <span class="prop">"failurePolicy"</span>: <span class="str">"ContinueAll"</span> }
+}</pre>
+  </div>
+</section>
+
+<!-- ===== 6. Four Modes ===== -->
+<section id="modes">
+  <h2>6. 四种运行模式</h2>
+  <p>同一个测试套件 JSON 可以在不同模式下运行，取决于测试环境：</p>
+
+  <div class="step-grid">
+    <div class="step-card">
+      <h4><span>📼</span> TraceReplay <span class="kind-tag">回放模式</span></h4>
+      <p>从 ASC/BLF 录制文件中回放 CAN 帧，对历史数据运行测试断言。不需要真实硬件。</p>
+      <div class="fields">
+        <span>需要：<strong>Trace 文件</strong> (.asc/.blf)</span>
+        <span>适用：回归测试、离线分析</span>
+      </div>
+    </div>
+    <div class="step-card">
+      <h4><span>🔌</span> Hardware <span class="kind-tag">硬件模式</span></h4>
+      <p>连接真实 PCAN-USB FD 硬件，在真实 CAN 总线上发送/接收帧。</p>
+      <div class="fields">
+        <span>需要：<strong>Hardware Channel</strong> (USB1..USB16)</span>
+        <span>适用：台架测试、整车测试</span>
+      </div>
+    </div>
+    <div class="step-card">
+      <h4><span>🖥️</span> VirtualEcu <span class="kind-tag">虚拟 ECU</span></h4>
+      <p>用 ECU 脚本 JSON 模拟一个虚拟 ECU，不需要真实硬件即可运行测试。</p>
+      <div class="fields">
+        <span>需要：<strong>ECU 脚本</strong> (.json)</span>
+        <span>适用：开发阶段、CI 流水线</span>
+      </div>
+    </div>
+    <div class="step-card">
+      <h4><span>🧩</span> Matrix <span class="kind-tag">矩阵模式</span></h4>
+      <p>多 ECU 矩阵模式，用矩阵配置 JSON 管理多个 ECU 的交互测试。</p>
+      <div class="fields">
+        <span>需要：<strong>Matrix 配置</strong> (.json)</span>
+        <span>适用：多 ECU 系统集成测试</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 7. How to Run ===== -->
+<section id="run">
+  <h2>7. 如何运行</h2>
+
+  <h3>在 GUI 中运行</h3>
+  <ol style="margin-left:20px;margin-bottom:16px;color:var(--text-secondary);">
+    <li>打开 HIL 面板（工具 → HIL Testing）</li>
+    <li>选择 <strong>Mode</strong>（TraceReplay / Hardware / VirtualEcu / Matrix）</li>
+    <li>选择 <strong>DBC 文件</strong>（解析 CAN 信号名）</li>
+    <li>选择 <strong>测试套件 JSON</strong>（你写的 .json 文件）</li>
+    <li>根据模式填写其他路径（Trace 文件 / Hardware Channel / ECU 脚本 / Matrix 配置）</li>
+    <li>点击 <strong>Run</strong> 执行测试</li>
+    <li>查看 <strong>Results</strong> 标签页的 DataGrid + TreeView 结果</li>
+  </ol>
+
+  <h3>在 CLI 中运行</h3>
+  <pre>peakcan-host hil run \
+  --dbc "path/to/your.dbc" \
+  --suite "path/to/your-suite.json" \
+  --mode TraceReplay \
+  --trace "path/to/trace.asc"</pre>
+
+  <div class="info-box tip">
+    <strong>💡 最佳实践：</strong><br>
+    • 先从 <strong>TraceReplay</strong> 模式开始，用已有的录制文件验证测试脚本逻辑<br>
+    • 用 <strong>VirtualEcu</strong> 模式做 CI 自动化测试，不依赖硬件<br>
+    • 通过后再切换到 <strong>Hardware</strong> 模式做真实硬件验证<br>
+    • 每个用例加 <code>tags</code> 字段便于分类筛选
+  </div>
+
+  <div class="info-box warn">
+    <strong>⚠️ 注意事项：</strong><br>
+    • CAN ID 的 <code>raw</code> 字段使用十进制数值，不是十六进制<br>
+    • 0x7E0 = 2016, 0x7E8 = 2024, 0x18FF60A2 = 419389602<br>
+    • <code>dataMask</code> 中 0 表示该字节不参与匹配
+  </div>
+</section>
+
+</div>
+
+<footer>
+  PeakCan.Host — HIL Test Script Tutorial · 基于 v3.61.0+ 源码自动生成
+</footer>
+
+<script>
+// Tab switching
+document.querySelectorAll('.example-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tabId = btn.dataset.tab;
+    document.querySelectorAll('.example-tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.example-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

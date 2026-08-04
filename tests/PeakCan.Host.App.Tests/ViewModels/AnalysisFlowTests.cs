@@ -4,9 +4,9 @@ using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 
@@ -59,7 +59,7 @@ public class AnalysisFlowTests
             Substitute.For<ILlmProvider>(),
             frameSource,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
     }
 

@@ -1,5 +1,5 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Services;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;

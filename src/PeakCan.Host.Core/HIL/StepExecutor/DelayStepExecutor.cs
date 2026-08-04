@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes Delay steps. Returns Passed after the specified delay.

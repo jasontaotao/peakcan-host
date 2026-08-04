@@ -1,7 +1,7 @@
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.HIL.StepParams;
+namespace PeakCan.HIL.Core.Tests.HIL.StepParams;
 
 public class StepParametersFactoryTests
 {

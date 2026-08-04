@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Tests.Uds.FlashPipeline;
 
 /// <summary>
 /// Phase 1 C4 Task 1.3: <see cref="FirmwareFileParser"/> turns a firmware

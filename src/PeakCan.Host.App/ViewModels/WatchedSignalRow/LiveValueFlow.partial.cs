@@ -53,7 +53,7 @@ public sealed partial class WatchedSignalRow
     // Sister pattern of v3.50 Signal reference: plain property (NOT
     // [ObservableProperty]) because CommunityToolkit.Mvvm source-gen
     // emits partial .g.cs into XAML temp csproj which can't pull
-    // PeakCan.Host.Core.dll. SetProperty inline instead.
+    // PeakCan.HIL.Core.dll. SetProperty inline instead.
 
     private double _blueLatestValue = double.NaN;
     public double BlueLatestValue

@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.FlashPipeline;
-using PeakCan.Host.Core.Uds.IsoTp;
-using PeakCan.Host.Core.Uds.KeyDerivation;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds.KeyDerivation;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Composition;

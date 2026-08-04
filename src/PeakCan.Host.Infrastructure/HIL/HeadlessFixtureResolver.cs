@@ -1,5 +1,5 @@
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.Setup;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Setup;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

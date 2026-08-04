@@ -1,10 +1,10 @@
 using FluentAssertions;
 using NSubstitute;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Analysis;
+namespace PeakCan.HIL.Core.Tests.Analysis;
 
 public class EvidenceExtractorTests
 {

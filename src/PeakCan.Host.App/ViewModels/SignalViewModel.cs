@@ -7,8 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
 using OxyPlot;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 

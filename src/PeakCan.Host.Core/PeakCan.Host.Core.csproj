@@ -11,6 +11,7 @@
          declared centrally in Directory.Packages.props; this just
          references it. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="PeakCan.HIL.Core" />
   </ItemGroup>
 
 </Project>

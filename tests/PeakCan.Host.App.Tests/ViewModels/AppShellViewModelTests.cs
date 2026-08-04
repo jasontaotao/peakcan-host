@@ -12,14 +12,14 @@ using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Analysis;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.Database;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using PeakCan.Host.App.Services.AnalysisApiKey;
@@ -79,13 +79,13 @@ public class AppShellViewModelTests
             NullLogger<TraceSessionLibrary>.Instance);
 
     /// <summary>
-    /// Test double for <see cref="Core.IChannelProbe"/>. Always returns
+    /// Test double for <see cref="PeakCan.HIL.Core.IChannelProbe"/>. Always returns
     /// a successful probe so the <c>CanConnect</c> predicate string
     /// ("USB1 ...") can be set by tests via <c>ChannelList = "..."</c>.
     /// </summary>
-    private sealed class FakeChannelProbe : Core.IChannelProbe
+    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
     {
-        public Core.ProbeResult Probe(ushort handle)
+        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 
@@ -135,7 +135,7 @@ public class AppShellViewModelTests
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -465,7 +465,7 @@ public class AppShellViewModelTests
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -483,12 +483,12 @@ public class AppShellViewModelTests
     }
 
     /// <summary>
-    /// Test double for <see cref="Core.IChannelFactory"/> that hands out
+    /// Test double for <see cref="PeakCan.HIL.Core.IChannelFactory"/> that hands out
     /// hand-rolled <see cref="FakeCanChannel"/> instances so
     /// <see cref="AppShellViewModel.ConnectAsync"/> / <c>DisconnectAsync</c>
     /// can run without PEAK hardware.
     /// </summary>
-    private sealed class FakeChannelFactory : Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public int CreatedCount { get; private set; }
         public FakeCanChannel? LastCreated { get; private set; }
@@ -563,7 +563,7 @@ public class AppShellViewModelTests
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -633,7 +633,7 @@ public class AppShellViewModelTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class ThrowingChannelFactory : Core.IChannelFactory
+    private sealed class ThrowingChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public ThrowingFakeCanChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -702,7 +702,7 @@ public class AppShellViewModelTests
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -868,7 +868,7 @@ public class AppShellViewModelTests
         }
     }
 
-    private sealed class DisposeTrackingChannelFactory : Core.IChannelFactory
+    private sealed class DisposeTrackingChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public DisposeTrackingChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -951,7 +951,7 @@ public class AppShellViewModelTests
         }
     }
 
-    private sealed class FrameReceivedAddThrowingChannelFactory : Core.IChannelFactory
+    private sealed class FrameReceivedAddThrowingChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public FrameReceivedAddThrowingChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -1004,7 +1004,7 @@ public class AppShellViewModelTests
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
                 new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
@@ -1041,7 +1041,7 @@ public class AppShellViewModelTests
     /// Test double for <see cref="IChannelEnumerator"/> that returns
     /// a configurable list of channels.
     /// </summary>
-    private sealed class FakeChannelEnumerator : Core.IChannelEnumerator
+    private sealed class FakeChannelEnumerator : PeakCan.HIL.Core.IChannelEnumerator
     {
         // CA1859: concrete ChannelInfo[] avoids virtual dispatch through
         // IReadOnlyList<T> when callers iterate.
@@ -1063,7 +1063,7 @@ public class AppShellViewModelTests
             .Build();
 
     private static AppShellViewModel NewVmWithEnumerator(
-        Core.IChannelEnumerator enumerator,
+        PeakCan.HIL.Core.IChannelEnumerator enumerator,
         IChannelFactory? factory = null,
         IConfiguration? config = null)
     {
@@ -1105,7 +1105,7 @@ public class AppShellViewModelTests
                 new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
             new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,

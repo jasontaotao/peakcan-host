@@ -28,7 +28,7 @@
 // per W20 T2 R1 fabrication LESSON (44th application).
 
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.Services;
 

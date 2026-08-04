@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Threading;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 

@@ -1,6 +1,6 @@
 using System.Xml.Linq;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.Infrastructure.HIL.Odx;
 

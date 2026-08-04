@@ -11,14 +11,14 @@ using PeakCan.Host.App.Tests.ViewModels;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Analysis;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.Database;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -97,7 +97,7 @@ public class UdsWindowTests
             new TraceViewerViewModel(NSubstitute.Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance,
                 new TraceSessionLibrary(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"uds-traceview-{System.Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                 apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>())),
             new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, recentTemp),
             NSubstitute.Substitute.For<IFileDialogService>(),
@@ -108,13 +108,13 @@ public class UdsWindowTests
     }
 
     /// <summary>
-    /// Hand-rolled <see cref="Core.IChannelFactory"/> stub. The production
+    /// Hand-rolled <see cref="PeakCan.HIL.Core.IChannelFactory"/> stub. The production
     /// <see cref="AppShellViewModelTests"/> class declares the same shape
     /// as <c>private sealed class</c> — not visible here. Mirrored locally
     /// (duplication is the smaller cost vs the visibility surface change
     /// of promoting it to <c>internal</c> just for this PATCH).
     /// </summary>
-    private sealed class FakeChannelFactory : Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
     {
         public ICanChannel Create(ChannelId id) => new FakeCanChannel(id);
     }
@@ -145,14 +145,14 @@ public class UdsWindowTests
     }
 
     /// <summary>
-    /// Hand-rolled <see cref="Core.IChannelProbe"/> stub. Same shape as
+    /// Hand-rolled <see cref="PeakCan.HIL.Core.IChannelProbe"/> stub. Same shape as
     /// the <c>FakeChannelProbe</c> nested in <c>AppShellViewModelTests</c>
     /// (line 82); duplicated locally because the existing one is
     /// <c>private</c>.
     /// </summary>
-    private sealed class FakeChannelProbe : Core.IChannelProbe
+    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
     {
-        public Core.ProbeResult Probe(ushort handle)
+        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 

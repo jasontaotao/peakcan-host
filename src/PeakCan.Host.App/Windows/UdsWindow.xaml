@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
         xmlns:flash="clr-namespace:PeakCan.Host.App.ViewModels.Uds.FlashPipeline"
-        xmlns:core="clr-namespace:PeakCan.Host.Core.Uds.FlashPipeline;assembly=PeakCan.Host.Core"
+        xmlns:core="clr-namespace:PeakCan.HIL.Core.Uds.FlashPipeline;assembly=PeakCan.HIL.Core"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:UdsViewModel}"

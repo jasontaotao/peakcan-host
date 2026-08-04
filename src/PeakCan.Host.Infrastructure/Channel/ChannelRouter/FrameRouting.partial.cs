@@ -20,7 +20,7 @@
 
 using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Infrastructure.Channel;
 

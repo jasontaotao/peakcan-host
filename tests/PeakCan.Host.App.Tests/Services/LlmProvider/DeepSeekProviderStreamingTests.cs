@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 using PeakCan.Host.App.Services.LlmProvider;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
 namespace PeakCan.Host.App.Tests.Services.LlmProvider;
 

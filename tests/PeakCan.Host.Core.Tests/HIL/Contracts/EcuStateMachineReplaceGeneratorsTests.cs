@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.Host.Core.Tests.HIL.Contracts;
+namespace PeakCan.HIL.Core.Tests.HIL.Contracts;
 
 /// <summary>
 /// Phase 7 Unit B: ReplaceGenerators — atomic generator swap for hot-reload.

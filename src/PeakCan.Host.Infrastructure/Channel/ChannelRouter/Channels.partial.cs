@@ -12,7 +12,7 @@
 // per W20 T2 R1 fabrication LESSON (23rd application).
 
 using System.Collections.Immutable;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Infrastructure.Channel;
 

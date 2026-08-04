@@ -1,8 +1,8 @@
 using System.IO;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core.Uds.Database;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.Services;
 

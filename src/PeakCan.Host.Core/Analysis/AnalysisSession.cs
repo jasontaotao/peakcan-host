@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: a single deterministic analysis pass for one
 /// (fault event, anchor snapshot) pair. Per spec D5: NOT persisted to

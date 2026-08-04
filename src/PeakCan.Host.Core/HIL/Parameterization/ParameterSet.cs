@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL;
+namespace PeakCan.HIL.Core.HIL;
 
 /// <summary>
 /// A set of parameter values for expanding a TestCaseTemplate.

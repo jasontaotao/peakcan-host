@@ -9,8 +9,8 @@ using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Sequence;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 

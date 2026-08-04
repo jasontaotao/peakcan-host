@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Services;
 

@@ -1,5 +1,5 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 

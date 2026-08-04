@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// One tool call requested by the assistant in a chat round. DeepSeek

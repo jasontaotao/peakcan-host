@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Tests.Services;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Statistics;
 
 namespace PeakCan.Host.App.Tests.Services;

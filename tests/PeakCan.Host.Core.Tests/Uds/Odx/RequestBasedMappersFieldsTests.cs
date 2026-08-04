@@ -1,8 +1,8 @@
 using System.Xml.Linq;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
-namespace PeakCan.Host.Core.Tests.Uds.Odx;
+namespace PeakCan.HIL.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// v3.49.0 MINOR: T2.1 — REQUEST 路径复合 DID 字段表提取

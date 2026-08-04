@@ -1,4 +1,5 @@
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 using Xunit;
 
@@ -14,11 +15,11 @@ public class OdxToEcuScriptAdapterStateChartTests
 {
     private static readonly string DemoCddPath = System.IO.Path.GetFullPath(
         System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
-            "PeakCan.Host.Core.Tests", "Fixtures", "Odx", "Demo_Cdd.odx-d"));
+            "PeakCan.HIL.Core.Tests", "Fixtures", "Odx", "Demo_Cdd.odx-d"));
 
     private static readonly string CompleteOdxPath = System.IO.Path.GetFullPath(
         System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
-            "PeakCan.Host.Core.Tests", "Fixtures", "Odx", "complete.odx"));
+            "PeakCan.HIL.Core.Tests", "Fixtures", "Odx", "complete.odx"));
 
     [Fact]
     public void Load_DemoCdd_ReturnsInitialStateLocked()

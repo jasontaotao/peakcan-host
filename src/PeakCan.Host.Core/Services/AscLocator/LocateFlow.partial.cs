@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace PeakCan.Host.Core.Services;
+namespace PeakCan.HIL.Core.Services;
 
 /// <summary>W37 god-class refactor (22nd overall): Walk + Recurse
 /// extracted from main. Sister of W34 DbcSendViewModel/SendFlow.partial.cs

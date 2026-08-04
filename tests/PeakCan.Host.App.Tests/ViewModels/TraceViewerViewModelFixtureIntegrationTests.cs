@@ -10,10 +10,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
-using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 using NSubstitute;
 
@@ -75,7 +75,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
             new TraceSessionLibrary(libPath,
                 NullLogger<TraceSessionLibrary>.Instance),
                 apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         vm.MasterSourceId = source.SourceId;
 
@@ -149,7 +149,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         vm.MasterSourceId = source.SourceId;
 
@@ -217,7 +217,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         vm.MasterSourceId = source.SourceId;
 

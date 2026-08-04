@@ -1,7 +1,7 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
-namespace PeakCan.Host.Core.Tests.Analysis;
+namespace PeakCan.HIL.Core.Tests.Analysis;
 
 public class ILlmProviderExtensionsTests
 {

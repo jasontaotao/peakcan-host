@@ -4,9 +4,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;

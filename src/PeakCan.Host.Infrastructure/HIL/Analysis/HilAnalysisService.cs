@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Analysis;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Analysis;
 
 namespace PeakCan.Host.Infrastructure.HIL.Analysis;
 

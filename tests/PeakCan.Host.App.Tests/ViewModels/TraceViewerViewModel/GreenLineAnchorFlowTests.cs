@@ -14,11 +14,11 @@ using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
-using FrameFlags = PeakCan.Host.Core.FrameFlags;
-using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using FrameFlags = PeakCan.HIL.Core.FrameFlags;
+using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels.TraceViewerViewModelFlow;
@@ -42,7 +42,7 @@ public class GreenLineAnchorFlowTests
             NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
     }
 
@@ -68,7 +68,7 @@ public class GreenLineAnchorFlowTests
         foreach (var f in frames)
         {
             xs.Add(f.Timestamp);
-            ys.Add(global::PeakCan.Host.Core.Dbc.SignalDecoder.Decode(f.Data.AsSpan(), signal));
+            ys.Add(global::PeakCan.HIL.Core.Dbc.SignalDecoder.Decode(f.Data.AsSpan(), signal));
         }
         foreach (var (key, color) in charts)
         {

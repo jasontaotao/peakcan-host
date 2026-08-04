@@ -1,8 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.Serialization;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using System.Text.Json;

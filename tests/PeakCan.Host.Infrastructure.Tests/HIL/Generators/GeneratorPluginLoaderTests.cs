@@ -1,5 +1,5 @@
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;

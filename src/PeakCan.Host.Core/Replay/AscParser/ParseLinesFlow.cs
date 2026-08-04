@@ -1,10 +1,10 @@
-// src/PeakCan.Host.Core/Replay/AscParser/ParseLinesFlow.cs — v3.49.0 MINOR (T2 of 3)
+// src/PeakCan.HIL.Core/Replay/AscParser/ParseLinesFlow.cs — v3.49.0 MINOR (T2 of 3)
 // Q3: TryParseDateHeader + LineIsSectionDelimiter delegate 到 AscFormat；
 // 主 for-loop 保留在自己 (拥有 50%-malformed invariant + sort + frames list collection)。
 
 using System.Globalization;
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 public static partial class AscParser
 {

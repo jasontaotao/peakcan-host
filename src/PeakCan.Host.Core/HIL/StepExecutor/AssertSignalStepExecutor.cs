@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertSignal steps. Returns Passed when signal is within tolerance, Failed otherwise.

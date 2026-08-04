@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Serialization;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Serialization;
 using PeakCan.Host.Infrastructure.Channel.Gateway;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
@@ -99,7 +99,7 @@ public static class Program
 
             var engine = host2.Services.GetRequiredService<TestSuiteEngine>();
             var channel2 = host2.Services.GetRequiredService<ICanChannel>();
-            var ctx = host2.Services.GetRequiredService<Core.HIL.Contracts.IAssertionContext>();
+            var ctx = host2.Services.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>();
 
             var suiteJson = await File.ReadAllTextAsync(cli.SuitePath);
             var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, HILJsonOptions.Default);

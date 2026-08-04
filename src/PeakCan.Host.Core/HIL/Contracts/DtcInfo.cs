@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Contracts;
+namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// Parsed DTC entry (ISO 14229-1 §11.3.5).

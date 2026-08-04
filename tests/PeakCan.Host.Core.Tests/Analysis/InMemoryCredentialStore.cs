@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
-namespace PeakCan.Host.Core.Tests.Analysis;
+namespace PeakCan.HIL.Core.Tests.Analysis;
 
 /// <summary>Test-only in-memory ICredentialStore. NOT production code.
 /// Used by interface contract tests + WindowsCredentialManagerStore

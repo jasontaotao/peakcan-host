@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// Streaming notifications emitted by <see cref="IChatProvider.ChatStreamingAsync"/>.

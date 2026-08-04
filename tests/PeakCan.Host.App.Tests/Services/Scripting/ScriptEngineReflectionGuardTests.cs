@@ -2,7 +2,7 @@ using FluentAssertions;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.V8;
 using PeakCan.Host.App.Services.Scripting;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using Xunit;
 using Xunit.Abstractions;
 

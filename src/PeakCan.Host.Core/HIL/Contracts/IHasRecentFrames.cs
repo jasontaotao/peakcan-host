@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Contracts;
+namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// Implemented by assertion contexts that maintain a recent-frames ring buffer.

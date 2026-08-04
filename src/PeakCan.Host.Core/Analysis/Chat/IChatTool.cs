@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Analysis.Chat;
+namespace PeakCan.HIL.Core.Analysis.Chat;
 
 /// <summary>
 /// One executable tool the assistant may call. Registered in DI and

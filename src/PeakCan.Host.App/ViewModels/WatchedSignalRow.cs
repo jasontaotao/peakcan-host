@@ -1,7 +1,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.App.Composition.Converters;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 

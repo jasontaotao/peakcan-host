@@ -5,7 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
-             xmlns:analysis="clr-namespace:PeakCan.Host.Core.Analysis;assembly=PeakCan.Host.Core"
+             xmlns:analysis="clr-namespace:PeakCan.HIL.Core.Analysis;assembly=PeakCan.HIL.Core"
              mc:Ignorable="d">
     <Grid>
         <!-- W40 P2 PATCH: API Key setup region. Permanent at the top of

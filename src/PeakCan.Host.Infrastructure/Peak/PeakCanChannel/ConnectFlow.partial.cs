@@ -31,7 +31,7 @@
 // per W20 T2 R1 fabrication LESSON (46th application).
 
 using Peak.Can.Basic.BackwardCompatibility;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 

@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.HIL;
@@ -13,7 +13,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Bridges a virtual CAN channel to the HIL assertion context.
 /// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
 /// </summary>
-internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IDisposable
+internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
@@ -141,6 +141,9 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
+
+    // IStepVariableStore — 步骤间传值（Phase A）。同 case 内串行执行，无并发写。
+    public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
 
     // IAssertionContext.GetRecentDecodedFrames — tracks decoded frames for race-condition-free WaitForFrame
     private readonly List<DecodedFrame> _decodedRecentFrames = new();

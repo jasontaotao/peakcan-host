@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests;
+namespace PeakCan.HIL.Core.Tests;
 
 /// <summary>
 /// v3.50.6 PATCH: verifies SignalFormatter.ResolveDecimalDigits + FormatValue.

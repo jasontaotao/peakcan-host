@@ -1,6 +1,6 @@
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -35,7 +35,7 @@ public class DbcMessageViewModelTests
                 StartBit: (ushort)i,
                 Length: 8,
                 Order: ByteOrder.LittleEndian,
-                ValueType: PeakCan.Host.Core.Dbc.ValueType.Unsigned,
+                ValueType: PeakCan.HIL.Core.Dbc.ValueType.Unsigned,
                 Factor: 1.0,
                 Offset: 0.0,
                 Min: 0.0,

@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Contracts;
+namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// Decouples HIL executors from the concrete UdsClient / IsoTpLayer dependency chain.

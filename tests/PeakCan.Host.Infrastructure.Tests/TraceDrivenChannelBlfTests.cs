@@ -1,6 +1,6 @@
 using System.Text;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.Tests;

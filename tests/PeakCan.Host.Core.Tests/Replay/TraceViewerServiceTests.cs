@@ -5,14 +5,14 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
 // Note: System.IO.Path is fully qualified below to avoid resolving to
-// PeakCan.Host.Core.Tests.Path (shadowing via sibling test files for
-// PathNormalizer). Same defense-in-depth as PeakCan.Host.Core.Path.
+// PeakCan.HIL.Core.Tests.Path (shadowing via sibling test files for
+// PathNormalizer). Same defense-in-depth as PeakCan.HIL.Core.Path.
 
-namespace PeakCan.Host.Core.Tests.Replay;
+namespace PeakCan.HIL.Core.Tests.Replay;
 
 public class TraceViewerServiceTests
 {

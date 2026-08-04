@@ -22,8 +22,8 @@
 // W32 T1 verbatim re-extracted via `git show main:src/.../DbcApi.cs | sed -n '53,148p'`
 // per W20 T2 R1 fabrication LESSON (39th application).
 
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Services.Scripting;
 

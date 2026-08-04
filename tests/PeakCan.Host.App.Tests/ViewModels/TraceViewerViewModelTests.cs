@@ -8,12 +8,12 @@ using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
-using FrameFlags = PeakCan.Host.Core.FrameFlags;
-using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using FrameFlags = PeakCan.HIL.Core.FrameFlags;
+using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -80,7 +80,7 @@ public class TraceViewerViewModelTests
             MakeFakeLogger(),
             library,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
     // v3.11.4 PATCH: no-args overload that the CanExecute test
@@ -96,7 +96,7 @@ public class TraceViewerViewModelTests
                 Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
                 NullLogger<TraceSessionLibrary>.Instance),
                 apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                     Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
     /// <summary>
@@ -116,7 +116,7 @@ public class TraceViewerViewModelTests
             Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
         return new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
     }
 
@@ -224,7 +224,7 @@ public class TraceViewerViewModelTests
     public void Ctor_Empty_NoSignalsNoCharts()
     {
         var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         sut.Signals.Should().BeEmpty();
         sut.ChartViewModel.Series.Should().BeEmpty();
@@ -242,7 +242,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
         var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         await sut.AddTraceAsync();
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
@@ -259,7 +259,7 @@ public class TraceViewerViewModelTests
         // the multi-trace tests (Play throws in multi-trace mode).
         var svc = MakeFakeRegistry();
         var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var act = () => sut.PlayCommand.Execute(null);
@@ -273,7 +273,7 @@ public class TraceViewerViewModelTests
         // See PlayCommand above — same no-throw-in-default-mode contract.
         var svc = MakeFakeRegistry();
         var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var act = () => sut.PauseCommand.Execute(null);
@@ -292,7 +292,7 @@ public class TraceViewerViewModelTests
         // the multi-trace tests (Stop throws in multi-trace mode).
         var svc = MakeFakeRegistry();
         var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var act = () => sut.StopCommand.Execute(null);
@@ -320,7 +320,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await sut.AddTraceAsync();
@@ -363,7 +363,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         await sut.RebuildSignalsAsync();
 
@@ -401,7 +401,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         await sut.RebuildSignalsAsync();
 
@@ -435,7 +435,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await sut.AddTraceAsync();
@@ -463,7 +463,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");
@@ -501,7 +501,7 @@ public class TraceViewerViewModelTests
         });
         registry.GetService(Arg.Any<string>()).Returns(svc);
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Simulate a FrameEmitted during playback. OnAnyFrameEmitted writes
@@ -531,7 +531,7 @@ public class TraceViewerViewModelTests
         });
         registry.GetService(Arg.Any<string>()).Returns(svc);
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.ScrubberValue = 5.0;
@@ -568,7 +568,7 @@ public class TraceViewerViewModelTests
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
 //         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-//             Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+//             Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
 //             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 // 
 //         // AddToWatch triggers BuildOneChartSeriesForSource via
@@ -607,7 +607,7 @@ public class TraceViewerViewModelTests
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
 //         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-//             Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+//             Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
 //             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
@@ -640,7 +640,7 @@ public class TraceViewerViewModelTests
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
 //         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-//             Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+//             Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
 //             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
@@ -674,7 +674,7 @@ public class TraceViewerViewModelTests
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
 //         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-//             Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+//             Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
 //             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
@@ -705,7 +705,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         // MasterSourceId defaults to first source ("master").
 
@@ -751,7 +751,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Advance scrubber first so OnScrubberValueChanged has a non-default
@@ -787,7 +787,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.SeekTo(1.0e10);
@@ -815,7 +815,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.SeekTo(15.0);
@@ -839,7 +839,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.Speed = 2.5;
@@ -864,7 +864,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.Loop = true;
@@ -891,7 +891,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         sut.Loop = true;
 
@@ -922,7 +922,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         // MasterSourceId defaults to "a"
 
@@ -944,7 +944,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         var original = sut.MasterSourceId;
 
@@ -969,7 +969,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         sut.MasterSourceId.Should().Be("a");
 
@@ -1000,7 +1000,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.HasSources.Should().BeTrue();
@@ -1017,7 +1017,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.HasSources.Should().BeTrue();
@@ -1029,7 +1029,7 @@ public class TraceViewerViewModelTests
         var registry = MakeFakeRegistry();
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.HasSources.Should().BeFalse();
@@ -1055,7 +1055,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         registry.SourcesChanged += Raise.Event<Action>();
@@ -1090,7 +1090,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.SetMasterCommand.Execute("b");
@@ -1125,7 +1125,7 @@ public class TraceViewerViewModelTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         sut.Loop = true;
         // Master is "a" by default; swap to "b".
@@ -1172,7 +1172,7 @@ public class TraceViewerViewModelTests
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         var library = MakeFakeSessionLibrary();
         var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), library, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Seed an arbitrary stale value to verify post-restore override.
@@ -1255,7 +1255,7 @@ public class TraceViewerViewModelTests
         var vm = new TraceViewerViewModel(
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         // Seed a source whose DisplayName intentionally differs from
         // the path's filename (the guard's distinguishing signal).
@@ -1290,7 +1290,7 @@ public class TraceViewerViewModelTests
         var vm2 = new TraceViewerViewModel(
             reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var missing = await vm2.OpenSessionAsync(libPath);
@@ -1317,7 +1317,7 @@ public class TraceViewerViewModelTests
         var vm = new TraceViewerViewModel(
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         AddFakeTraceSource(registry, displayName: "drive_downtown");
         await vm.SaveSessionAsync(libPath);
@@ -1352,7 +1352,7 @@ public class TraceViewerViewModelTests
         var vm2 = new TraceViewerViewModel(
             reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         var missing = await vm2.OpenSessionAsync(libPath);
@@ -1371,7 +1371,7 @@ public class TraceViewerViewModelTests
     // canned SHA-256 hex string per request. Tests inject this to
     // pin BuildSnapshot's "populate contentHash when path exists"
     // contract without touching the disk.
-    private sealed class FakeAscHasher : PeakCan.Host.Core.Services.IAscContentHasher
+    private sealed class FakeAscHasher : PeakCan.HIL.Core.Services.IAscContentHasher
     {
         public List<string> Requests { get; } = new();
         public string Return { get; set; } = "deadbeef" + new string('0', 56);
@@ -1388,7 +1388,7 @@ public class TraceViewerViewModelTests
     // Fake locator that returns a configurable relocated path. Tests
     // inject this to pin ApplySnapshotAsync's "use the relocated path
     // when path is missing AND hash is non-empty" contract.
-    private sealed class FakeAscLocator : PeakCan.Host.Core.Services.IAscLocator
+    private sealed class FakeAscLocator : PeakCan.HIL.Core.Services.IAscLocator
     {
         public string? LocateResult { get; set; }
         public string? LastHash { get; private set; }
@@ -1413,7 +1413,7 @@ public class TraceViewerViewModelTests
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: hasher, locator: null,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         // Source points at a real file under the test temp dir.
         var ascPath = Path.Combine(Path.GetTempPath(), $"v364-{Guid.NewGuid():N}.asc");
@@ -1457,7 +1457,7 @@ public class TraceViewerViewModelTests
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: hasher, locator: null,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
         var missingPath = Path.Combine(
             Path.GetTempPath(), $"v364-missing-{Guid.NewGuid():N}.asc");
@@ -1535,7 +1535,7 @@ public class TraceViewerViewModelTests
             reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: null, locator: locator,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         try
@@ -1602,7 +1602,7 @@ public class TraceViewerViewModelTests
             reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: null, locator: locator,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Act
@@ -1659,7 +1659,7 @@ public class TraceViewerViewModelTests
             reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: null, locator: locator,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Act
@@ -1697,7 +1697,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/missing.asc");
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         // Act — must NOT throw (absorbed into ErrorMessage)
@@ -1728,7 +1728,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/empty.asc");
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await sut.AddTraceAsync();
@@ -1757,7 +1757,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await sut.AddTraceAsync();
@@ -1780,7 +1780,7 @@ public class TraceViewerViewModelTests
     public void AddTraceCommand_CanExecute_ReflectsIsLoading()
     {
         var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         sut.IsLoading = false;
@@ -1812,7 +1812,7 @@ public class TraceViewerViewModelTests
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
         var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog, apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
             Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
 
         await sut.AddTraceAsync();
@@ -2003,7 +2003,7 @@ public class TraceViewerViewModelTests
     [Fact]
     public async Task ApiKeyStatus_ReflectsStoreState()
     {
-        var store = Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>();
+        var store = Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>();
         store.GetAsync(ApiKeyManager.CredentialKey, Arg.Any<CancellationToken>())
             .Returns("sk-existing");
         var manager = new ApiKeyManager(store, Substitute.For<ILogger<ApiKeyManager>>());
@@ -2027,7 +2027,7 @@ public class TraceViewerViewModelTests
     [Fact]
     public async Task SetApiKeyCommand_PersistsToStore()
     {
-        var store = Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>();
+        var store = Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>();
         var manager = new ApiKeyManager(store, Substitute.For<ILogger<ApiKeyManager>>());
 
         var status = await manager.SetAsync("sk-new");

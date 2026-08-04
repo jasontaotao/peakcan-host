@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Generators;
@@ -11,7 +11,7 @@ namespace PeakCan.Host.Infrastructure.Tests.HIL.Generators;
 public class GeneratorPluginManagerTests
 {
     private const string PluginSource = """
-        using PeakCan.Host.Core.HIL.Contracts;
+        using PeakCan.HIL.Core.HIL.Contracts;
         public sealed class TestPlugin : IEcuResponseGenerator
         {
             public string Name => "TestGen";

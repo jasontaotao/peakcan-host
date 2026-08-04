@@ -2,8 +2,8 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.ChatTools;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services.ChatTools;

@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 /// <summary>
 /// UDS timeout management. Configurable P2/P2*/S3/P3* timers.

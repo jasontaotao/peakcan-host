@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Peak.Can.Basic.BackwardCompatibility;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.Peak;

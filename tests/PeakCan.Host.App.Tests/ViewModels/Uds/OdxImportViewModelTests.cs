@@ -1,7 +1,7 @@
 using FluentAssertions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels.Uds;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Uds;
 

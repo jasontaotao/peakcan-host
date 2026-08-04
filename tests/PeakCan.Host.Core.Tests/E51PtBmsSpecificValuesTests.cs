@@ -1,9 +1,9 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
-namespace PeakCan.Host.Core.Tests;
+namespace PeakCan.HIL.Core.Tests;
 
 /// <summary>
 /// Targeted inspection of the E51_PT_CAN-BMS.dbc "problem" content the

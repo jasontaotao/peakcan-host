@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PeakCan.Host.Core.Uds.IsoTp;
+namespace PeakCan.HIL.Core.Uds.IsoTp;
 
 public sealed partial class IsoTpLayer
 {

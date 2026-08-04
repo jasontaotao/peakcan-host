@@ -9,9 +9,9 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.AnalysisApiKey;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Analysis.Chat;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Analysis.Chat;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

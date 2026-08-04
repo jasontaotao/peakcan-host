@@ -2,10 +2,10 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Tests.Services;
 
@@ -46,7 +46,7 @@ public class TraceServiceTests
 
     private static Signal Sig(string name)
         => new(name, StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian,
-               ValueType: PeakCan.Host.Core.Dbc.ValueType.Unsigned, Factor: 1.0, Offset: 0.0,
+               ValueType: PeakCan.HIL.Core.Dbc.ValueType.Unsigned, Factor: 1.0, Offset: 0.0,
                Min: 0, Max: 0, Unit: "", Receivers: Array.Empty<string>());
 
     /// <summary>

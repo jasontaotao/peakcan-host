@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Enumerates the discrete kinds a flashing-pipeline step can be. The flashing

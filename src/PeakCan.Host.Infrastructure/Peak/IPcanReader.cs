@@ -1,5 +1,5 @@
 using Peak.Can.Basic.BackwardCompatibility;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 

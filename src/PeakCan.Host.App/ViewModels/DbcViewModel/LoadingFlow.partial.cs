@@ -1,8 +1,8 @@
 using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -69,7 +69,7 @@ public sealed partial class DbcViewModel
         })).RunOnUi();
     }
 
-    private void OnLoadFailed(PeakCan.Host.Core.Error error)
+    private void OnLoadFailed(PeakCan.HIL.Core.Error error)
     {
         // Same dispatcher marshaling rationale as OnLoaded. Status is
         // bound to the UI; marshal via the same chokepoint.

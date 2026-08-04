@@ -2,7 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 

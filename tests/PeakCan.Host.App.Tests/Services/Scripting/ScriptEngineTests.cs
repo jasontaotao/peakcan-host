@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Scripting;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 

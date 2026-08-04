@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.Input;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 

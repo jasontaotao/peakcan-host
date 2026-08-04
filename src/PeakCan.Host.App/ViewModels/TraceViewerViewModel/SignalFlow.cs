@@ -1,8 +1,8 @@
 using System.Globalization;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 

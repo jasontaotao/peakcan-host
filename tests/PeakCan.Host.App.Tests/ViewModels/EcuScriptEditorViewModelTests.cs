@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.HIL;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -7,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
 

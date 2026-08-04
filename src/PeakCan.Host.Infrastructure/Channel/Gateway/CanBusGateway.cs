@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Gateway;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Gateway;
 
 namespace PeakCan.Host.Infrastructure.Channel.Gateway;
 

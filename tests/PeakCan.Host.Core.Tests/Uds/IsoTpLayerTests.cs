@@ -3,11 +3,11 @@ using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 /// <summary>
 /// Unit tests for <see cref="IsoTpLayer"/> covering the 3 CRITICAL bugs found

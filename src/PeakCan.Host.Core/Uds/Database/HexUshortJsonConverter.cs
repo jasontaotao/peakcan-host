@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace PeakCan.Host.Core.Uds.Database;
+namespace PeakCan.HIL.Core.Uds.Database;
 
 /// <summary>
 /// JSON converter that accepts a UDS 16-bit id in any of these forms:

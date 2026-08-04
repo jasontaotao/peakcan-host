@@ -1,8 +1,8 @@
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Tests.Collections;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -54,7 +54,7 @@ public class SignalViewModelTests
                               string unit = "", bool isMultiplexor = false, bool isMultiplexed = false,
                               ushort? multiplexValue = null)
         => new(name, StartBit: 0, Length: 8, Order: ByteOrder.LittleEndian,
-               ValueType: PeakCan.Host.Core.Dbc.ValueType.Unsigned, Factor: factor, Offset: offset,
+               ValueType: PeakCan.HIL.Core.Dbc.ValueType.Unsigned, Factor: factor, Offset: offset,
                Min: 0, Max: 0, Unit: unit, Receivers: Array.Empty<string>(),
                IsMultiplexor: isMultiplexor, IsMultiplexed: isMultiplexed,
                MultiplexValue: multiplexValue);

@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using PeakCan.Host.App.Services.LlmProvider;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services.LlmProvider;

@@ -2,8 +2,8 @@ using FluentAssertions;
 using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 
@@ -75,7 +75,7 @@ public sealed class SequenceSendServiceDbcTests
 
     private static Signal MakeSignal(string name, byte startBit = 0, byte length = 8) =>
         new Signal(name, startBit, length,
-            ByteOrder.LittleEndian, PeakCan.Host.Core.Dbc.ValueType.Unsigned,
+            ByteOrder.LittleEndian, PeakCan.HIL.Core.Dbc.ValueType.Unsigned,
             Factor: 1.0, Offset: 0.0,
             Min: 0, Max: 100, Unit: "", Receivers: Array.Empty<string>());
 

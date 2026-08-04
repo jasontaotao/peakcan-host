@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// v3.18.0 PATCH (Trace Viewer Enhancements): bundles the result of

@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using PeakCan.Host.App.Services.ChatProvider;
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Analysis.Chat;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.Tests.Services.ChatProvider;
 

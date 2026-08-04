@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// v3.51.0 MINOR: BLF (Vector Binary Logging Format) format single source.

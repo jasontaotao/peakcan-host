@@ -12,9 +12,9 @@
 using System.ComponentModel;
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -166,7 +166,7 @@ public class WatchedSignalRowTextTests
 {
     private static readonly string FixturePath = System.IO.Path.Combine(
         AppContext.BaseDirectory,
-        "..", "..", "..", "..", "PeakCan.Host.Core.Tests", "Dbc", "Fixtures",
+        "..", "..", "..", "..", "PeakCan.HIL.Core.Tests", "Dbc", "Fixtures",
         "sample-with-val.dbc");
 
     private static DbcDocument LoadFixture()

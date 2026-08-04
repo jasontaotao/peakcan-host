@@ -1,6 +1,6 @@
 using System;
 
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: a user-identified fault moment.
 /// CenterTimestampSeconds is in seconds-from-recording-start (matches

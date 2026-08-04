@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>Phase 2: CAN addressing mode. Physical = target one ECU, Functional = broadcast.</summary>
 public enum AddressingMode

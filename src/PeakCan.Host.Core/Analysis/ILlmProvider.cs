@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>v3.52.0 MINOR: LLM provider contract (interface only in P0).
 /// P1 PATCH will add: DeepSeekProvider, AzureOpenAIProvider, LocalOllamaProvider.

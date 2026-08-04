@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core;
+namespace PeakCan.HIL.Core;
 
 /// <summary>
 /// Abstraction over CAN channel construction so the App-layer VM does

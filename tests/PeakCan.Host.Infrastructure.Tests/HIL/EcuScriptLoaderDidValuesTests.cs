@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;

@@ -5,10 +5,10 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.LlmProvider;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.Path;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Path;
+using PeakCan.HIL.Core.Replay;
 using Polly;
 
 namespace PeakCan.Host.App.Composition;
@@ -169,14 +169,14 @@ public partial class AppHostBuilder
         // removed; IFrameSourceProvider now resolves TraceSessionRegistry
         // directly via the concrete registration in ViewModelsBatch2Flow.cs.
         // Single-instance guarantee preserved — no double-allocation.
-        services.AddSingleton<PeakCan.Host.Core.Analysis.EvidenceExtractor>();
-        services.AddSingleton<PeakCan.Host.Core.Analysis.LocalAnalyzer>();
-        services.AddSingleton<PeakCan.Host.Core.Analysis.AnalysisSessionRegistry>();
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.EvidenceExtractor>();
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.LocalAnalyzer>();
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.AnalysisSessionRegistry>();
         // v3.53.1 PATCH P1a: API Key secure storage via Windows Credential Manager
         // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
         // Sprint 17 §3.3: wrap WCM as the primary store in a ChainedCredentialStore so
         // the WPF path also sees file/env credentials (WCM → env var → ~/.hil/credentials).
-        services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore>(sp =>
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.ICredentialStore>(sp =>
         {
             var winStore = new PeakCan.Host.App.Services.CredentialStore.WindowsCredentialManagerStore(
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<
@@ -203,7 +203,7 @@ public partial class AppHostBuilder
             // client. ReadLineWithTimeoutAsync enforces per-line silence.
             // Without this multiplier, a 45s streaming response at 1 token/s
             // would be cancelled at t=30s by HttpClient.TotalTimeout.
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
         })
@@ -213,15 +213,15 @@ public partial class AppHostBuilder
         // DeepSeek is a single endpoint, not a cluster of replicas.
         .AddTransientHttpErrorPolicy(builder => builder
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
-        services.AddSingleton<PeakCan.Host.Core.Analysis.ILlmProvider, DeepSeekProvider>();
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.ILlmProvider, DeepSeekProvider>();
         // Sprint 19 Inc 8: HIL test failure analysis service (headless/CLI sibling).
         // Reuses the Windows Credential Manager store registered above. Polly
         // retry mirrors GetRetryPolicy in HeadlessHostBuilder: transient errors
         // + 429 retried up to 3 times with exponential backoff (1s → 2s → 4s).
-        services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
+        services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
         })
         .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
@@ -232,8 +232,8 @@ public partial class AppHostBuilder
         // Sister of ILlmProvider (single-shot) - distinct interface, same DeepSeek
         // named HttpClient + credential store + options. Tools are NOT DI-registered
         // (VM↔IChatTool cycle); VM builds them lazily in ChatPanelContent.
-        services.AddSingleton<PeakCan.Host.Core.Analysis.Chat.IChatProvider, PeakCan.Host.App.Services.ChatProvider.DeepSeekChatProvider>();
-        services.AddSingleton<PeakCan.Host.Core.Analysis.IFrameSourceProvider>(sp =>
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.Chat.IChatProvider, PeakCan.Host.App.Services.ChatProvider.DeepSeekChatProvider>();
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.IFrameSourceProvider>(sp =>
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
     }
 }

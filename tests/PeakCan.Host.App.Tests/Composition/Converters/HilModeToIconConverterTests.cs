@@ -1,7 +1,7 @@
 using System.Globalization;
 using FluentAssertions;
 using PeakCan.Host.App.Composition.Converters;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Composition.Converters;

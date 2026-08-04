@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds.IsoTp;
 
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 public partial class UdsClient
 {

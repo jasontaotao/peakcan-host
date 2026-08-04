@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli;
 using Xunit;
 

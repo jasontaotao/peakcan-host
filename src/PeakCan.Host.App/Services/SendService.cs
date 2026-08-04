@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;

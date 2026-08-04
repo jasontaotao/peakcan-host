@@ -1,5 +1,5 @@
 // src/PeakCan.Host.App/Services/RecordService/Format.partial.cs — v3.49.0 MINOR (T2 of 3)
-// Q3: 改为委托给 PeakCan.Host.Core.Replay.AscFormat (writer 端单源)。
+// Q3: 改为委托给 PeakCan.HIL.Core.Replay.AscFormat (writer 端单源)。
 // 之前 67 LoC 拥有内联 WriteHeader/WriteFooter/WriteFrame/FormatFlags 4 个方法。
 // 现在 ≈ 30 LoC，只保留 ASC 分支 delegate 给 AscFormat + CSV 分支保持内联 (CSV 用 `|` 分隔符，不同于 ASC 空格分隔)。
 //
@@ -8,8 +8,8 @@
 // 全部已通过 AscFormat 子方法 (FormatFlagsCompact + WriteDataLine) 间接验证。
 
 using System.IO;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.Services;
 

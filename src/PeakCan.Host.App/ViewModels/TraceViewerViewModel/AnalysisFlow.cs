@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
 namespace PeakCan.Host.App.ViewModels;
 

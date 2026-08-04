@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
-using PeakCan.Host.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.FlashPipeline;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 
@@ -139,7 +139,7 @@ public sealed class VerifyParams : INotifyPropertyChanged
     /// Issue: 静态 Segment 解析器委托, 由 VM 在启动时设 (SegmentAtIndex).
     /// 当 SegmentIndex 变更时自动填充 StartAddress / EndAddress / ExpectedChecksum.
     /// </summary>
-    public static Func<int, Core.Uds.FlashPipeline.Segment?>? SegmentResolver { get; set; }
+    public static Func<int, PeakCan.HIL.Core.Uds.FlashPipeline.Segment?>? SegmentResolver { get; set; }
 
     private uint _expectedChecksum;
     public uint ExpectedChecksum
@@ -168,8 +168,8 @@ public sealed class VerifyParams : INotifyPropertyChanged
     private const int CustomSentinel = -1;
 
     /// <summary>Issue 3: CRC 算法参数 (多项式 / 初值 / 终值异或 / 反转).</summary>
-    private Core.Uds.FlashPipeline.CrcParameters _crcParameters = Core.Uds.FlashPipeline.CrcParameters.Crc32;
-    public Core.Uds.FlashPipeline.CrcParameters CrcParameters
+    private PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters _crcParameters = PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Crc32;
+    public PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters CrcParameters
     {
         get => _crcParameters;
         set
@@ -178,7 +178,7 @@ public sealed class VerifyParams : INotifyPropertyChanged
             Raise();
             // If the edited parameters diverge from the currently-selected preset, switch to Custom.
             if (_selectedCrcPresetIndex >= 0
-                && value != Core.Uds.FlashPipeline.CrcParameters.Presets[_selectedCrcPresetIndex])
+                && value != PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Presets[_selectedCrcPresetIndex])
             {
                 _selectedCrcPresetIndex = CustomSentinel;
                 Raise(nameof(SelectedCrcPresetIndex));
@@ -198,11 +198,11 @@ public sealed class VerifyParams : INotifyPropertyChanged
     public int SelectedCrcPresetIndex
     {
         get => _selectedCrcPresetIndex == CustomSentinel
-            ? Core.Uds.FlashPipeline.CrcParameters.Presets.Count  // Custom → last dropdown item
+            ? PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Presets.Count  // Custom → last dropdown item
             : _selectedCrcPresetIndex;
         set
         {
-            int mapped = value >= Core.Uds.FlashPipeline.CrcParameters.Presets.Count
+            int mapped = value >= PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Presets.Count
                 ? CustomSentinel
                 : value;
             if (_selectedCrcPresetIndex == mapped) return;
@@ -210,7 +210,7 @@ public sealed class VerifyParams : INotifyPropertyChanged
             Raise();
             Raise(nameof(IsCrcCustom));
             if (mapped >= 0)
-                CrcParameters = Core.Uds.FlashPipeline.CrcParameters.Presets[mapped];
+                CrcParameters = PeakCan.HIL.Core.Uds.FlashPipeline.CrcParameters.Presets[mapped];
         }
     }
 
@@ -236,13 +236,13 @@ public sealed record DependencyCheckParams
 /// <summary>Phase 2: CommunicationControl (0x28) parameters.</summary>
 public sealed record CommunicationControlParams
 {
-    public Core.Uds.CommunicationSubFunction SubFunction { get; set; } = Core.Uds.CommunicationSubFunction.DisableRxAndTx;
+    public PeakCan.HIL.Core.Uds.CommunicationSubFunction SubFunction { get; set; } = PeakCan.HIL.Core.Uds.CommunicationSubFunction.DisableRxAndTx;
 }
 
 /// <summary>Phase 2: DTCControl (0x14) parameters.</summary>
 public sealed record DtcControlParams
 {
-    public Core.Uds.DtcControlSubFunction SubFunction { get; set; } = Core.Uds.DtcControlSubFunction.ClearDTCInformation;
+    public PeakCan.HIL.Core.Uds.DtcControlSubFunction SubFunction { get; set; } = PeakCan.HIL.Core.Uds.DtcControlSubFunction.ClearDTCInformation;
     public uint DtcGroup { get; set; } = 0x00FFFFFF;  // All DTCs
 }
 
@@ -293,7 +293,7 @@ public sealed partial class FlashStep : ObservableObject
     /// Uses Core.AddressingMode (Core must not reference App).
     /// </summary>
     [ObservableProperty]
-    private Core.Uds.FlashPipeline.AddressingMode _addressingMode = Core.Uds.FlashPipeline.AddressingMode.Physical;
+    private PeakCan.HIL.Core.Uds.FlashPipeline.AddressingMode _addressingMode = PeakCan.HIL.Core.Uds.FlashPipeline.AddressingMode.Physical;
 
     // ---- Phase 2: Grouped parameters per Kind ----
     // Only the group matching Kind is non-null; others stay null (property panel hides them).

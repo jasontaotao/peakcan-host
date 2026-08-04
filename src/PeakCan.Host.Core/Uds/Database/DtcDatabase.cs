@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 
-namespace PeakCan.Host.Core.Uds.Database;
+namespace PeakCan.HIL.Core.Uds.Database;
 
 /// <summary>
 /// In-memory DTC store, populated via ODX import or programmatic

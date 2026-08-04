@@ -1,5 +1,5 @@
-using PeakCan.Host.Core.Dbc;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using PeakCan.HIL.Core.Dbc;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
 namespace PeakCan.Host.App.Tests.Services.ChatTools;
 

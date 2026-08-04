@@ -6,9 +6,9 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 

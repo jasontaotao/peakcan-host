@@ -1,11 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Reflection;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 public class UdsClientSecurityAccessOverloadTests
 {
@@ -149,7 +149,7 @@ public class UdsClientSecurityAccessOverloadTests
         var baseDir = System.IO.Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "..", "..",
-            "src", "PeakCan.Host.Core", "Uds");
+            "src", "PeakCan.HIL.Core", "Uds");
         var candidates = new[] { "UdsClient.cs", "UdsClient/SecurityFlow.cs" };
         string? combined = null;
         foreach (var name in candidates)

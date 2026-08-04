@@ -1,8 +1,8 @@
 using System.Xml.Linq;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds.Odx;
+namespace PeakCan.HIL.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// Sprint 18 Inc 4: OdxStateChartExtractor — extracts STATE-CHART info from an

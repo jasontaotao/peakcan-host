@@ -1,4 +1,4 @@
-// src/PeakCan.Host.Core/Replay/AscFormat.cs — v3.49.0 MINOR (T1 of 3)
+// src/PeakCan.HIL.Core/Replay/AscFormat.cs — v3.49.0 MINOR (T1 of 3)
 // Q3: writer + parser 都依赖的 ASC 格式单源。
 // Waveform: 静态类提供 WriteHeader/WriteFooter/WriteDataLine (writer 端)
 // + TryParseDataLine/TryParseDateHeader/LineIsSectionDelimiter/FormatFlagsCompact (parser 端)。
@@ -18,9 +18,9 @@
 // 保证 round-trip test 通过。
 
 using System.Globalization;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 /// <summary>
 /// ASC (CAN bus trace) 格式单源 — writer 和 parser 共用。

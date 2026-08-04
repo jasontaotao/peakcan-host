@@ -1,5 +1,5 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.HIL;
 
@@ -68,6 +68,6 @@ public class HILAssertionContextConcurrencyTests
     // Minimal IDbcLookup fake for testing
     private sealed class FakeDbcLookup : IDbcLookup
     {
-        public Core.Dbc.Message? FindMessage(uint canId) => null;
+        public PeakCan.HIL.Core.Dbc.Message? FindMessage(uint canId) => null;
     }
 }

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
 namespace PeakCan.Host.Infrastructure.HIL.Analysis;
 

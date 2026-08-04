@@ -6,7 +6,7 @@ using PeakCan.Host.App.Models;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.Channel;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;

@@ -5,9 +5,9 @@ using NSubstitute;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using DbcValueType = PeakCan.Host.Core.Dbc.ValueType;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;

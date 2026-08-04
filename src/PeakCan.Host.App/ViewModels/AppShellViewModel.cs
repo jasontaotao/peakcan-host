@@ -14,7 +14,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.ViewModels;

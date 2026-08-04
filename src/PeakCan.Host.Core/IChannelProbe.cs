@@ -1,6 +1,6 @@
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.Host.Core;
+namespace PeakCan.HIL.Core;
 
 /// <summary>
 /// Result of a hardware-probe call. The probe is a non-destructive

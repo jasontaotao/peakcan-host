@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ScottPlot;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 
 namespace PeakCan.Host.App.Services.Trace;
 

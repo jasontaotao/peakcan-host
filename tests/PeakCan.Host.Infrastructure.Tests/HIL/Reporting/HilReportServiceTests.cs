@@ -1,5 +1,5 @@
 using System.IO;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Xunit;

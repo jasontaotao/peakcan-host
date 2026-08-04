@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
-using PeakCan.Host.Core.Uds.Odx;
+using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.ViewModels.Uds.Rows;
 

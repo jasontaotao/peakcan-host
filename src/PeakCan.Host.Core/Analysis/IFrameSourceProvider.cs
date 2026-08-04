@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 
-namespace PeakCan.Host.Core.Analysis;
+namespace PeakCan.HIL.Core.Analysis;
 
 /// <summary>
 /// v3.52.0 MINOR: Core-side abstraction over a frame source registry.

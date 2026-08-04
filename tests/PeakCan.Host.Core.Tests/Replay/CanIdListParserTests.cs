@@ -1,8 +1,8 @@
 using FluentAssertions;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Replay;
+namespace PeakCan.HIL.Core.Tests.Replay;
 
 /// <summary>
 /// v3.4.4 PATCH: shared CAN-ID allow-list parser tests. Replaces the

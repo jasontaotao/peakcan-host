@@ -333,6 +333,23 @@
       </ol>
     </li>
 
+    <li><a href="#generator-hotreload">Generator 热重载 — 外部插件动态加载</a>
+
+      <ol>
+        <li><a href="#gen-overview">概述</a></li>
+        <li><a href="#gen-usage">使用方式</a></li>
+      </ol>
+    </li>
+
+    <li><a href="#gateway">多总线网关 — 总线间帧转发</a>
+
+      <ol>
+        <li><a href="#gateway-overview">概述</a></li>
+        <li><a href="#gateway-config">网关配置</a></li>
+        <li><a href="#gateway-usage">使用方式</a></li>
+      </ol>
+    </li>
+
     <li><a href="#cli">CLI Runner — 无头自动化测试</a>
 
       <ol>
@@ -760,7 +777,640 @@
 
 <!-- =========================================================== -->
 
-<h2 id="testcase">3. 测试用例模型</h2>
+<h2 id="ui-guide">2a. HIL 面板 UI 操作详解</h2>
+
+<!-- =========================================================== -->
+
+<p>HIL 测试面板是 PeakCan Host 的主要测试操作界面，集成了模式选择、配置加载、用例编辑、执行控制和结果查看等全部功能。以下按操作区域逐一说明。</p>
+
+<blockquote class="warn">
+<strong>功能状态说明：</strong>以下标注 <span class="badge warn">待开发</span> 的功能是手册规划中的 UI 设计，当前版本尚未实现。标注 <span class="badge ok">已实现</span> 的功能已可用。
+</blockquote>
+
+<p><strong>当前实现汇总：</strong>模式选择、路径浏览、ECU JSON 编辑器、运行/停止、进度显示、结果 DataGrid 和 TreeView、LLM 分析文本框 — 已实现。测试用例编辑器、步骤参数编辑器、导出按钮、ODX 导入对话框、凭据管理对话框 — 待开发。</p>
+
+
+
+<h3 id="ui-layout">2a.1 面板布局总览</h3>
+
+<p>HIL 面板从上到下分为 5 个功能区：</p>
+
+<div class="diagram">┌─────────────────────────────────────────────────────────────────────────┐
+│  HIL 测试面板 — 功能区布局                                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ┌─ Zone 1: 模式与通道 ─────────────────────────────────────────────────┐ │
+│  │  [Hardware] [Offline] [VirtualEcu] [Matrix]  │  通道: [USB1 ▾]      │ │
+│  │  或 Trace 路径: [..........................] [浏览...]                │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Zone 2: 配置加载 ───────────────────────────────────────────────────┐ │
+│  │  DBC:  [..........................] [浏览...]                         │ │
+│  │  Suite: [..........................] [浏览...]  [新建] [保存] [另存] │ │
+│  │  ECU:  [..........................] [浏览...]  (VirtualEcu 模式)    │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Zone 3: 执行控制 ───────────────────────────────────────────────────┐ │
+│  │  [▶ Run] [■ Stop] [↺ Reset]  │  状态: ● 4/4 通过  │  ████████░░ 80% │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Zone 4: 用例编辑器 ─────────────────────────────────────────────────┐ │
+│  │  ┌─ 用例列表 ───────┐  ┌─ 步骤编辑 ────────────────────────────────┐ │ │
+│  │  │ ☐ TC-UDS-001    │  │ 步骤 1: [SendFrame ▾] 参数: [编辑...]     │ │ │
+│  │  │ ☐ TC-UDS-002    │  │ 步骤 2: [Delay     ▾] 参数: [编辑...]     │ │ │
+│  │  │ ☐ ...           │  │ 步骤 3: [ExpectFr..▾] 参数: [编辑...]     │ │ │
+│  │  │ [+ 新建] [× 删除]│  │ [↑ 上移] [↓ 下移] [+ 添加步骤] [× 删除]  │ │ │
+│  │  └─────────────────┘  └────────────────────────────────────────────┘ │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Zone 5: 结果与分析（TabControl）─────────────────────────────────────┐ │
+│  │  ┌─ [Results] ──┬─ [HTML Report] ───────────────────────────────────┐ │ │
+│  │  │ ┌─ DataGrid ─┤ │  ┌─ WebView2 ─────────────────────────────────┐ │ │ │
+│  │  │ │ Case│Passed│ │ │  │  （内嵌 HTML 报告）                      │ │ │ │
+│  │  │ │━━━━━┼━━━━━━│ │ │  │                                        │ │ │ │
+│  │  │ │TC-01│ ✅   │ │ │  │  测试套件: UDS Diagnostic Full Flow     │ │ │ │
+│  │  │ │TC-02│ ✅   │ │ │  │  通过率: 4/4 (100%)  耗时: 3.4s        │ │ │ │
+│  │  │ │TC-03│ ❌   │ │ │  │  ┌─ 趋势图 ───────────────────────────┐ │ │ │ │
+│  │  │ └─────┴──────┘ │ │  │  │ ████████░░░░ 80% 通过率           │ │ │ │ │
+│  │  │ ┌─ TreeView ──┐ │ │  │  └──────────────────────────────────┘ │ │ │ │
+│  │  │ │TC-001       │ │ │  │  [Open in Browser]                    │ │ │ │
+│  │  │ │ ├─ Step 1 ✅│ │ │  └──────────────────────────────────────┘ │ │ │
+│  │  │ │ └─ Step 2 ❌│ │ └───────────────────────────────────────────┘ │ │ │
+│  │  │ └─────────────┘ │                                               │ │ │
+│  │  └─────────────────┴───────────────────────────────────────────────┘ │ │
+│  │  状态栏: "All 4 cases passed (100%, 3.4s)"                           │ │
+│  │  ┌─ LLM 分析结果（底部文本框）─────────────────────────────────────────┐ │ │
+│  │  │ 分析：TC-003 失败原因：ExpectFrame 超时，可能原因是...              │ │ │
+│  │  └────────────────────────────────────────────────────────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘</div>
+
+<p>以下逐一说明每个区的具体操作。</p>
+
+
+
+<h3 id="ui-mode">2a.2 模式与通道选择 — 这 4 种模式到底什么意思？ <span class="badge ok">已实现</span></h3>
+
+<p>HIL 面板顶部的模式选择可能让人困惑，但它的逻辑很简单：<strong>选择"谁来当你的 ECU"</strong>。</p>
+
+<div class="diagram">┌─────────────────────────────────────────────────────────────────────────┐
+│  模式 = 选择"被测对象"（DUT = Device Under Test）                          │
+│                                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │  你的测试用例（TestCase）总是做同一件事：                                  │  │
+│  │  → 发送 CAN 帧                                                        │  │
+│  │  → 等待响应                                                           │  │
+│  │  → 断言结果                                                           │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                              │                                              │
+│                              ▼                                              │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ Hardware │  │  Offline     │  │ VirtualEcu   │  │ Matrix           │  │
+│  │          │  │  (Trace)     │  │              │  │                  │  │
+│  │ 真实 ECU │  │ 录制的文件   │  │ 软件模拟 ECU │  │ 多个软件模拟 ECU │  │
+│  │ 在车上   │  │ 之前录的     │  │ 在本机运行   │  │ 同时运行         │  │
+│  └──────────┘  └──────────────┘  └──────────────┘  └──────────────────┘  │
+│        │              │               │                     │              │
+│        ▼              ▼               ▼                     ▼              │
+│  需要 PCAN 硬件   不需要硬件      需要 PCAN 硬件         需要 PCAN 硬件    │
+│  真实 CAN 总线    纯软件回放      虚拟 ECU 在 PC 上      虚拟 ECU 集群     │
+│  真实 ECU 响应    数据来自文件    虚拟 ECU 响应           虚拟 ECU 响应     │
+└─────────────────────────────────────────────────────────────────────────┘</div>
+
+<p><strong>用一个具体例子看区别：</strong></p>
+
+<p>假设你的测试用例是：<code>发送 0x10 03（编程会话请求），然后等待 0x50 03 响应</code></p>
+
+<table>
+  <tr><th>模式</th><th>谁会收到你的请求？</th><th>谁会给你响应？</th><th>需要什么？</th></tr>
+  <tr>
+    <td><strong>Hardware</strong></td>
+    <td>CAN 总线上的<strong>真实 ECU</strong>（通过 PCAN-USB 发送出去）</td>
+    <td>真实 ECU 通过 CAN 总线返回响应</td>
+    <td>PCAN-USB 硬件 + 真实 ECU（已上电）</td>
+  </tr>
+  <tr>
+    <td><strong>Offline (Trace)</strong></td>
+    <td><strong>没人收到</strong>——你的请求被忽略（只读回放）</td>
+    <td>响应来自之前录制的 <code>.asc/.blf</code> 文件</td>
+    <td>只需要一个录制文件，<strong>不需要硬件</strong></td>
+  </tr>
+  <tr>
+    <td><strong>VirtualEcu</strong></td>
+    <td>PCAN-USB 发出去，但接线是<strong>环回</strong>或接在<strong>同一台 PC 的另一个通道</strong>上</td>
+    <td>本机运行的 <strong>ECU 模拟器脚本</strong>（JSON 定义的状态机）自动响应</td>
+    <td>PCAN-USB 硬件 + ECU 脚本 JSON，<strong>不需要真实 ECU</strong></td>
+  </tr>
+  <tr>
+    <td><strong>Matrix</strong></td>
+    <td>同上，但可以同时发给<strong>多个虚拟 ECU</strong></td>
+    <td>多个 ECU 模拟器各自响应，模拟多 ECU 总线环境</td>
+    <td>PCAN-USB + 多个 ECU 脚本 JSON</td>
+  </tr>
+</table>
+
+<p><strong>所以你应该这样选：</strong></p>
+
+<div class="diagram">┌─ 你想做什么？───────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  我要测试车上真实 ECU 的固件 → 选 Hardware                                   │
+│    ├─ 真实 ECU 已上电、PCAN-USB 已连接                                       │
+│    └─ 测试结果 = 真实 ECU 行为                                               │
+│                                                                             │
+│  我没有硬件，但有之前录制的 CAN 数据 → 选 Offline                             │
+│    ├─ 适合：调试测试用例、回归测试、CI（无硬件服务器）                          │
+│    └─ 注意：SendFrame 步骤会失败（只读模式），只能做 ExpectFrame 等断言       │
+│                                                                             │
+│  我要调试测试工具本身，不想连真实 ECU → 选 VirtualEcu                         │
+│    ├─ 适合：开发测试用例、演示、培训                                           │
+│    ├─ 需要一台有 PCAN-USB 的电脑，但不需要车上 ECU                            │
+│    └─ 虚拟 ECU 的行为由 ECU 脚本 JSON 控制                                  │
+│                                                                             │
+│  我要测试多个 ECU 之间的交互 → 选 Matrix                                     │
+│    ├─ 适合：网关测试、多 ECU 协同场景                                         │
+│    └─ 每个 ECU 有自己的脚本，同时在线                                          │
+└─────────────────────────────────────────────────────────────────────────────┘</div>
+
+<p><strong>切换模式后 UI 会变什么：</strong></p>
+
+<table>
+  <tr><th>模式</th><th>通道选择区</th><th>配置区变化</th></tr>
+  <tr>
+    <td><strong>Hardware</strong></td>
+    <td>下拉框：USB1~USB16<br>（PCAN 硬件列表）</td>
+    <td>标准：DBC + Suite 路径</td>
+  </tr>
+  <tr>
+    <td><strong>Offline</strong></td>
+    <td>文件浏览按钮：选择 .asc/.blf<br>（硬件下拉框禁用）</td>
+    <td>标准：DBC + Suite 路径<br>Trace 路径输入框出现</td>
+  </tr>
+  <tr>
+    <td><strong>VirtualEcu</strong></td>
+    <td>下拉框：USB1~USB16</td>
+    <td>额外出现：ECU 脚本路径输入框<br>（加载 .json ECU 脚本）</td>
+  </tr>
+  <tr>
+    <td><strong>Matrix</strong></td>
+    <td>下拉框：USB1~USB16</td>
+    <td>额外出现：Matrix 配置路径输入框<br>（加载多 ECU 矩阵配置）</td>
+  </tr>
+</table>
+
+<p><strong>通道选择操作：</strong></p>
+
+<ol>
+  <li>在"通道"下拉框中，选择已连接的 PCAN 硬件通道（USB1、USB2 等）</li>
+  <li>如果 PCAN 硬件未连接，下拉框为空，提示"未检测到硬件"</li>
+  <li>在 Offline 模式下，点击 Trace 路径旁的 <strong>[浏览...]</strong> 按钮，选择 .asc 或 .blf 文件</li>
+  <li>选中的文件路径显示在文本框中，支持拖拽文件到输入框</li>
+</ol>
+
+<p><strong>Faults 和 Analyze 复选框：</strong></p>
+
+<p>在模式配置行右侧有两个复选框，分别是 <strong>Faults</strong> 和 <strong>Analyze</strong>：</p>
+
+<table>
+  <tr><th>复选框</th><th>绑定的属性</th><th>作用</th></tr>
+  <tr>
+    <td><strong>Faults</strong></td>
+    <td><code>EnableFaultInjection</code></td>
+    <td>
+      <strong>故障注入总开关。</strong>勾选后，运行测试时启用 CAN 帧故障注入。<br>
+      故障注入规则由测试套件或 ECU 脚本定义（Drop/Delay/Corrupt/Duplicate），<br>
+      不勾选时所有帧正常收发，故障规则被忽略。<br>
+      <em>关联功能：§8b 故障注入</em>
+    </td>
+  </tr>
+  <tr>
+    <td><strong>Analyze</strong></td>
+    <td><code>EnableAnalyze</code></td>
+    <td>
+      <strong>LLM 自动分析开关。</strong>勾选后，运行完成后如果有失败用例，<br>
+      自动调用 DeepSeek API 分析失败根因，结果显示在底部文本框。<br>
+      不勾选时不会自动分析，但可以手动点击 <strong>[Analyze]</strong> 按钮触发。<br>
+      <em>关联功能：§8d LLM 分析</em>
+    </td>
+  </tr>
+</table>
+
+<p><strong>简单记：</strong>Faults = 让总线出故障来测试 ECU 容错能力；Analyze = 让 AI 帮你分析为什么测试失败了。</p>
+
+
+
+<h3 id="ui-config">2a.3 DBC 与套件加载 <span class="badge ok">已实现</span> <span class="badge warn">待开发</span></h3>
+
+<p>说明：DBC/Suite 文件浏览已实现；套件新建/保存/另存为、ECU 脚本加载摘要尚未实现。</p>
+
+<p>Zone 2 配置区负责加载测试所需的 DBC 文件和测试套件：</p>
+
+<p><strong>加载 DBC 文件：</strong></p>
+
+<ol>
+  <li>点击 DBC 路径旁的 <strong>[浏览...]</strong> 按钮</li>
+  <li>在文件对话框中，选择 .dbc 文件（支持多选，第一个为主 DBC）</li>
+  <li>加载成功后，DBC 路径显示在文本框中，状态栏提示 "DBC 加载完成：N 条消息，M 个信号"</li>
+  <li>如果 DBC 文件损坏或格式错误，弹出错误对话框，配置区保持之前状态</li>
+  <li>也支持从主窗口 <strong>File ▸ Open DBC...</strong> 加载，HIL 面板会自动同步</li>
+</ol>
+
+<p><strong>加载测试套件：</strong></p>
+
+<ol>
+  <li>点击 Suite 路径旁的 <strong>[浏览...]</strong> 按钮，选择 .json 测试套件文件</li>
+  <li>加载成功后，右侧的用例列表（Zone 4）自动刷新，显示套件中的所有用例</li>
+  <li>点击 <strong>[新建]</strong> 按钮创建空白套件（含一个空用例模板）</li>
+  <li>编辑完成后点击 <strong>[保存]</strong> 或 <strong>[另存为...]</strong> 持久化到磁盘</li>
+  <li>如果当前套件有未保存的修改，标题栏显示 "*" 标记（如 "smoke.json *"）</li>
+</ol>
+
+<p><strong>VirtualEcu 模式下的 ECU 脚本加载：</strong></p>
+
+<ol>
+  <li>切换到 VirtualEcu 模式后，配置区出现 "ECU:" 输入框</li>
+  <li>点击 <strong>[浏览...]</strong> 选择 .json ECU 脚本文件</li>
+  <li>加载成功后，ECU 名称和状态机摘要显示在输入框下方（如 "BMS_Simulator: 8 states, 24 transitions"）</li>
+</ol>
+
+
+
+<h3 id="ui-editor">2a.4 测试用例编辑器 <span class="badge warn">待开发</span></h3>
+
+<p>说明：当前版本尚未实现图形化用例编辑器。测试用例需通过 JSON 文件直接编辑，或通过编码方式创建（见 §3.3）。</p>
+
+<p>Zone 4 是测试用例编辑器，分为左右两个面板：</p>
+
+<p><strong>左侧 — 用例列表：</strong></p>
+
+<ol>
+  <li>显示当前套件中的所有测试用例，每个用例显示 ID 和名称</li>
+  <li>支持多选（Ctrl+点击、Shift+点击）</li>
+  <li>右键点击用例弹出上下文菜单：
+    <ul>
+      <li><strong>编辑</strong> — 在右侧面板打开该用例</li>
+      <li><strong>复制</strong> — 深拷贝当前用例</li>
+      <li><strong>删除</strong> — 删除用例（确认对话框）</li>
+      <li><strong>上移/下移</strong> — 调整用例执行顺序</li>
+      <li><strong>禁用</strong> — 跳过该用例（运行时灰显）</li>
+    </ul>
+  </li>
+  <li>点击 <strong>[+ 新建]</strong> 创建新用例，自动生成 ID（如 "TC-001"）</li>
+  <li>点击 <strong>[× 删除]</strong> 删除选中的用例</li>
+</ol>
+
+<p><strong>右侧 — 用例属性编辑：</strong></p>
+
+<ol>
+  <li>选中左侧用例后，右侧显示该用例的详细属性</li>
+  <li><strong>ID</strong> 文本框 — 唯一标识符（如 "TC-UDS-001"）</li>
+  <li><strong>名称</strong> 文本框 — 人类可读的名称</li>
+  <li><strong>描述</strong> 多行文本框 — 测试目的描述</li>
+  <li><strong>前置条件</strong> 文本框 — 测试前提条件（文档性）</li>
+  <li><strong>后置条件</strong> 文本框 — 测试后清理条件（文档性）</li>
+  <li><strong>超时（ms）</strong> 数字输入框 — 用例超时时间，0 表示不限制</li>
+  <li><strong>标签</strong> 标签输入框 — 输入后按 Enter 添加标签，点击 × 删除</li>
+  <li>所有修改实时保存到内存中，状态栏显示 "已修改"</li>
+</ol>
+
+
+
+<h3 id="ui-step-editor">2a.5 步骤参数编辑器 <span class="badge warn">待开发</span></h3>
+
+<p>说明：当前版本尚未实现图形化步骤编辑器。步骤参数需通过 JSON 或 C# 代码定义。</p>
+
+<p>在用例属性下方，是步骤列表编辑器：</p>
+
+<p><strong>步骤列表：</strong></p>
+
+<ol>
+  <li>按顺序显示当前用例的所有步骤，每行显示：步骤序号 + 步骤类型图标 + 标签 + 参数摘要</li>
+  <li>步骤类型图标颜色编码：
+    <ul>
+      <li><span style="color:#1f77b4">🔵 蓝色</span> — 发送类（SendFrame、SendSequence）</li>
+      <li><span style="color:#d62728">🔴 红色</span> — 断言类（ExpectFrame、AssertSignal、AssertRange、AssertDtc、AssertNrc、AssertResponseTime）</li>
+      <li><span style="color:#1a7f37">🟢 绿色</span> — 等待类（WaitForSignal、Delay）</li>
+      <li><span style="color:#888">⚪ 灰色</span> — 注释类（Comment）</li>
+    </ul>
+  </li>
+  <li>拖拽步骤行左侧的 <strong>⠿</strong> 手柄可调整顺序（拖拽时显示插入位置指示线）</li>
+  <li>点击步骤行右侧的 <strong>[×]</strong> 删除该步骤</li>
+</ol>
+
+<p><strong>添加步骤：</strong></p>
+
+<ol>
+  <li>点击 <strong>[+ 添加步骤]</strong> 按钮，弹出步骤类型选择对话框</li>
+  <li>对话框列出所有 11 种步骤类型，每种显示名称、简要说明和典型参数</li>
+  <li>选择类型后，自动进入参数编辑模式</li>
+  <li>也可以点击步骤列表底部的快捷按钮快速添加常用类型（SendFrame、Delay、ExpectFrame）</li>
+</ol>
+
+<p><strong>编辑步骤参数：</strong></p>
+
+<p>每种步骤类型有不同的参数编辑控件，以下为常见类型的操作示例：</p>
+
+<table>
+  <tr><th>步骤类型</th><th>UI 编辑控件</th><th>操作说明</th></tr>
+  <tr>
+    <td>SendFrame</td>
+    <td>
+      CAN ID: <code>[十六进制输入框]</code><br>
+      数据: <code>[字节数组编辑器]</code><br>
+      扩展帧: <code>[☐]</code> FD: <code>[☐]</code>
+    </td>
+    <td>
+      输入 16 进制 CAN ID（如 7DF）；数据编辑器中每行一个字节，支持 16 进制或 10 进制；勾选 FD 启用 CAN-FD
+    </td>
+  </tr>
+  <tr>
+    <td>SendSequence</td>
+    <td>
+      帧列表: <code>[表格编辑器]</code><br>
+      帧间隔: <code>[数字输入框 ms]</code>
+    </td>
+    <td>
+      表格中每行一帧，列：CAN ID、Data、扩展帧、FD；点击 [+ 添加帧] 新增行；支持从 Excel 粘贴多行
+    </td>
+  </tr>
+  <tr>
+    <td>ExpectFrame</td>
+    <td>
+      期望 ID: <code>[十六进制输入框]</code><br>
+      数据掩码: <code>[字节数组编辑器]</code><br>
+      超时: <code>[数字输入框 ms]</code>
+    </td>
+    <td>
+      数据掩码为空表示不检查数据；输入 10 03 表示匹配以 10 03 开头的响应
+    </td>
+  </tr>
+  <tr>
+    <td>WaitForSignal / AssertSignal / AssertRange</td>
+    <td>
+      信号名: <code>[下拉选择框]</code><br>
+      期望值: <code>[数字输入框]</code><br>
+      容差: <code>[数字输入框]</code>
+    </td>
+    <td>
+      信号名下拉框自动从已加载的 DBC 中读取"Message.Signal"列表，支持输入搜索过滤
+    </td>
+  </tr>
+  <tr>
+    <td>AssertDtc</td>
+    <td>
+      DTC 代码: <code>[十六进制输入框 + 描述文字]</code><br>
+      断言存在: <code>[☑ 存在 / ☐ 不存在]</code>
+    </td>
+    <td>
+      输入 3 字节 DTC 代码（如 050123），下方自动显示对应的 DTC 描述（如 "P0123 油门踏板位置传感器"）
+    </td>
+  </tr>
+  <tr>
+    <td>AssertNrc</td>
+    <td>
+      期望 NRC: <code>[下拉选择框]</code><br>
+      超时: <code>[数字输入框 ms]</code>
+    </td>
+    <td>
+      NRC 下拉框预定义所有 UDS NRC 代码（0x10~0xFF），每项显示 "0xNN — 描述"；选择"无 NRC"对应 null
+    </td>
+  </tr>
+  <tr>
+    <td>AssertResponseTime</td>
+    <td>
+      请求 ID: <code>[十六进制输入框]</code><br>
+      响应 ID: <code>[十六进制输入框]</code><br>
+      最大时间: <code>[数字输入框 ms]</code>
+    </td>
+    <td>
+      输入 CAN ID 后自动检测总线上对应的请求/响应配对
+    </td>
+  </tr>
+  <tr>
+    <td>Delay</td>
+    <td>
+      延迟: <code>[数字输入框 ms]</code>
+    </td>
+    <td>
+      常用快捷按钮: [50ms] [100ms] [500ms] [1s] [2s]
+    </td>
+  </tr>
+  <tr>
+    <td>Comment</td>
+    <td>
+      注释文本: <code>[多行文本框]</code>
+    </td>
+    <td>
+      注释内容不会出现在执行日志中，仅用于步骤列表的说明
+    </td>
+  </tr>
+</table>
+
+
+
+<h3 id="ui-run">2a.6 执行按钮与运行控制 <span class="badge ok">已实现</span></h3>
+
+<p>ECU 编辑器所在行右侧有三个按钮，加上下方进度条上方的 Zone 3 运行控制区：</p>
+
+<p><strong>ECU JSON 编辑器（[Save ECU] 左边的文本框）：</strong></p>
+<ol>
+  <li>这是一个多行文本编辑器，用于直接输入 ECU 模拟器脚本的 JSON 内容</li>
+  <li>ECU 脚本定义虚拟 ECU 的行为：收到什么 UDS 请求、返回什么响应、如何切换状态</li>
+  <li>典型用途：在 VirtualEcu 模式下，不用打开外部编辑器创建 .json 文件，直接在面板里写脚本</li>
+  <li>文本框支持多行输入、自动换行，高度 60px（约 4-5 行 JSON）</li>
+</ol>
+
+<p><strong>[Save ECU] 按钮：</strong></p>
+<ol>
+  <li>将上面文本框中的 JSON 内容保存到 <code>%TEMP%\peakcan_ecu_{guid}.json</code></li>
+  <li>保存后自动设置 <strong>ECU Script Path</strong> 指向该临时文件</li>
+  <li>按钮仅在文本框非空时可用</li>
+  <li>每次保存会清理上一次的临时文件</li>
+  <li>保存后切换到 VirtualEcu 模式，点 <strong>Run</strong> 就能立即用这个脚本跑测试</li>
+</ol>
+
+<p><strong>[Run] 按钮：</strong></p>
+
+<ol>
+  <li>点击 <strong>[▶ Run]</strong> 开始执行当前套件中的所有用例</li>
+  <li>运行中，按钮变为禁用状态，<strong>[■ Stop]</strong> 按钮激活</li>
+  <li>点击 <strong>[■ Stop]</strong> 停止执行（当前正在执行的步骤完成后停止，已完成的用例结果保留）</li>
+  <li>点击 <strong>[↺ Reset]</strong> 清除所有结果，恢复到初始状态</li>
+  <li>运行前自动检查：DBC 是否已加载、套件是否非空、通道是否可用</li>
+  <li>检查不通过时，弹出提示框指出具体问题（如 "请先加载 DBC 文件"）</li>
+  <li>运行完成后，自动生成 HTML 报告并通过 WebView2 展示</li>
+  <li>如果勾选了 <strong>Analyze</strong> 复选框且有失败用例，运行完成后自动触发 LLM 分析</li>
+</ol>
+
+<p><strong>[Analyze] 按钮：</strong></p>
+
+<ol>
+  <li>手动触发 LLM 分析最近一次运行中的失败用例</li>
+  <li>按钮仅在存在失败用例且未运行中时可用</li>
+  <li>与自动分析的区别：自动分析在勾选 <strong>Analyze</strong> 复选框后运行完成时触发；手动分析点击按钮随时触发</li>
+  <li>分析结果显示在面板底部的文本框中</li>
+  <li>API Key 未配置时，文本框显示 "API key not configured"</li>
+</ol>
+
+<p><strong>进度显示：</strong></p>
+
+<ol>
+  <li>进度条实时显示总体完成百分比：<code>已完成用例数 / 总用例数</code></li>
+  <li>进度条颜色：<span style="color:#1a7f37">绿色</span>（全部通过）、<span style="color:#bf8700">黄色</span>（部分失败）、<span style="color:#cf222e">红色</span>（全部失败）</li>
+  <li>进度条下方显示当前正在执行的用例名称和步骤详情</li>
+  <li>状态栏显示：<strong>"正在执行：TC-UDS-003 步骤 3/4：发送 0x14 FF FF FF（清除 DTC）"</strong></li>
+  <li>每个用例执行完成后，状态栏更新为执行结果摘要</li>
+</ol>
+
+<p><strong>运行中状态指示：</strong></p>
+
+<div class="result-grid">
+  <span class="label">进度条</span>  <span class="value">████████░░░░ 50% （2/4 已完成）</span>
+  <span class="label">当前用例</span>  <span class="value">TC-UDS-003 读取并清除 DTC</span>
+  <span class="label">当前步骤</span>  <span class="value">步骤 3/4: 发送 0x14 FF FF FF（清除 DTC）</span>
+  <span class="label">已用时间</span>  <span class="value">2.1s / 预期 60s</span>
+  <span class="label">结果汇总</span>  <span class="value pass">2/2 通过 | 1 进行中</span>
+</div>
+
+
+
+<h3 id="ui-results">2a.7 结果查看与导出 <span class="badge ok">已实现</span></h3>
+
+<p>说明：结果展示分为 <strong>Results</strong>（DataGrid + TreeView 层级详情）和 <strong>HTML Report</strong>（WebView2 内嵌报告）两个 Tab。运行完成后自动生成 HTML 报告并落盘，WebView2 不可用时自动降级为静态 fallback 提示（"Open in Browser" 按钮通过系统浏览器打开）。</p>
+
+<p>Zone 5 的结果选项卡以 DataGrid 展示测试执行结果：</p>
+
+<p><strong>DataGrid 操作：</strong></p>
+
+<ol>
+  <li>每行显示一个测试用例的结果，列包括：<strong>用例名称</strong>、<strong>通过状态</strong>（✅/❌）、<strong>失败原因</strong>、<strong>执行耗时</strong>、<strong>步骤详情</strong></li>
+  <li>点击行左侧的 <strong>▶</strong> 展开查看该用例的每个步骤结果</li>
+  <li>展开后显示步骤列表，每行：步骤序号 + 步骤类型 + 状态（✅/❌/⏭/💬）+ 结果消息 + 耗时</li>
+  <li>点击列标题可排序（如按耗时降序排列）</li>
+  <li>右键点击行弹出菜单：<strong>复制详情</strong>（复制到剪贴板）、<strong>跳转到用例</strong>（在编辑器中选中）</li>
+  <li>失败步骤的"失败原因"列显示为红色文字，鼠标悬停显示完整错误信息</li>
+  <li>DataGrid 底部状态栏汇总：<strong>"All 4 cases passed (100%, 3.4s)"</strong> 或 <strong>"3/4 passed (75%), 1 failed"</strong></li>
+</ol>
+
+<p><strong>HTML 报告（自动生成）：</strong></p>
+
+<ol>
+  <li>每次运行完成后，<strong>自动</strong>生成自包含 HTML 报告并落盘</li>
+  <li>报告目录：<code>%LocalAppData%\PeakCanHost\hil-reports\</code></li>
+  <li>文件名格式：<code>hil-report-{yyyyMMddHHmmssfff}.html</code></li>
+  <li>报告包含：测试结果摘要、逐用例详情、趋势图表（TrendTracker）</li>
+  <li>切换到 <strong>HTML Report</strong> Tab 可直接在 WebView2 中查看报告</li>
+  <li>如果 WebView2 Runtime 未安装，自动降级显示错误提示，<strong>[Open in Browser]</strong> 按钮通过系统浏览器打开</li>
+</ol>
+
+<p><strong>树形步骤详情（TreeView）：</strong></p>
+
+<ol>
+  <li>Results Tab 右侧的 TreeView 显示层级结构：<strong>TestCase → Step → Frame</strong></li>
+  <li>失败步骤展开后显示该步骤周围的 CAN 帧捕获（失败前后各若干帧）</li>
+  <li>每帧显示：CAN ID + 十六进制数据</li>
+</ol>
+
+<p><strong>帧捕获导出（CLI）：</strong></p>
+
+<ol>
+  <li>CLI 模式下使用 <code>--export-frames &lt;dir&gt;</code> 参数，将失败帧捕获导出到指定目录</li>
+  <li>导出格式为 .asc 文件，可导入 Trace Viewer 进一步分析</li>
+  <li>每帧包含：时间戳、CAN ID、数据、方向（发送/接收）</li>
+</ol>
+
+
+
+<h3 id="ui-analyze">2a.8 LLM 分析结果 <span class="badge ok">已实现</span></h3>
+
+<p>LLM 分析结果显示在面板底部（TabControl 下方）的只读文本框中：</p>
+
+<ol>
+  <li>测试运行完成后，勾选 <strong>Analyze</strong> 复选框且存在失败用例时，自动触发 LLM 分析</li>
+  <li>分析进行中，底部文本框显示 <strong>"Analyzing..."</strong></li>
+  <li>分析完成后，显示 DeepSeek API 返回的失败根因分析文本</li>
+  <li>如果 API Key 未配置，文本框显示 <strong>"API key not configured"</strong></li>
+  <li>也可手动点击 <strong>[Analyze]</strong> 按钮重新分析（按钮仅在存在失败用例且未运行中时可用）</li>
+</ol>
+
+<p>API Key 配置方式：</p>
+
+<ul>
+  <li><strong>推荐</strong>：Windows Credential Manager（dpapi 加密）</li>
+  <li><strong>CI 环境</strong>：环境变量 <code>DEEPSEEK_API_KEY</code></li>
+  <li><strong>回退</strong>：<code>~/.hil/credentials.json</code></li>
+</ul>
+
+
+
+<h3 id="ui-odx">2a.9 ODX 导入 UI 操作 <span class="badge warn">待开发</span></h3>
+
+<p>说明：当前版本不支持图形化 ODX 导入。ODX 导入功能仅可通过 CLI 参数 <code>--import-odx</code> 使用。</p>
+
+<p>ODX 导入功能在 <strong>Tools ▸ Import ODX to ECU Script</strong> 菜单中打开：</p>
+
+<ol>
+  <li>点击菜单 <strong>Tools ▸ Import ODX to ECU Script</strong>，打开 ODX 导入对话框</li>
+  <li>对话框包含以下设置：
+    <ul>
+      <li><strong>ODX 文件</strong> — 点击 [浏览...] 选择 .odx 或 .pdx 文件</li>
+      <li><strong>ECU 名称</strong> — 输入生成的 ECU 模拟器名称</li>
+      <li><strong>请求 CAN ID</strong> — ECU 视角的请求 CAN ID（默认 0x7E0）</li>
+      <li><strong>响应 CAN ID</strong> — ECU 视角的响应 CAN ID（默认 0x7E8）</li>
+      <li><strong>输出路径</strong> — 生成的 JSON 文件保存路径</li>
+    </ul>
+  </li>
+  <li>点击 <strong>[导入]</strong> 开始解析 ODX 文件</li>
+  <li>解析进行中，显示进度条和当前解析阶段（"正在解析 DID...", "正在解析 Routine...", "正在解析 STATE-CHART..."）</li>
+  <li>解析完成后，显示摘要信息：
+    <div class="result-grid">
+      <span class="label">ECU 名称</span>  <span class="value">BMS_Simulator</span>
+      <span class="label">DID 读取</span>  <span class="value">12 个</span>
+      <span class="label">Routine</span>  <span class="value">5 个（3 个可停止）</span>
+      <span class="label">SecurityAccess</span>  <span class="value">已配置（Level 1）</span>
+      <span class="label">STATE-CHART</span>  <span class="value">已解析（SECURITY: Locked → seedSent → unlocked）</span>
+      <span class="label">输出文件</span>  <span class="value">bms_simulator.json</span>
+    </div>
+  </li>
+  <li>点击 <strong>[加载到面板]</strong> 直接将生成的 ECU 脚本加载到 HIL 面板的 VirtualEcu 模式</li>
+  <li>点击 <strong>[保存]</strong> 将生成的 JSON 保存到磁盘</li>
+</ol>
+
+<p><strong>从命令行导入同样支持：</strong></p>
+
+<pre><code><span class="filename">CLI 方式</span>peakcan-hil --import-odx ecu_diagnostic.odx \
+            --ecu-name BMS_Simulator \
+            --import-uds-req 0x7E0 \
+            --import-uds-resp 0x7E8</code></pre>
+
+
+
+<h3 id="ui-credential">2a.10 凭据管理 UI <span class="badge warn">待开发</span></h3>
+
+<p>说明：当前版本不支持图形化凭据管理。API Key 需通过环境变量 <code>DEEPSEEK_API_KEY</code> 或 Windows Credential Manager 手动配置。</p>
+
+<p>API Key 等凭据在 <strong>Settings ▸ HIL ▸ Credentials</strong> 中管理：</p>
+
+<ol>
+  <li>点击菜单 <strong>Settings ▸ HIL ▸ Credentials</strong>，打开凭据管理对话框</li>
+  <li>对话框显示当前已配置的凭据列表，每行：<strong>键名</strong> + <strong>状态</strong>（已配置/未配置）+ <strong>来源</strong>（WCM/环境变量/文件）</li>
+  <li>点击 <strong>[添加凭据]</strong> 弹出输入框，输入键名和值</li>
+  <li>值输入框为密码模式（●●●●），支持 <strong>[显示]</strong> 切换可见性</li>
+  <li>点击 <strong>[删除]</strong> 删除选中的凭据</li>
+  <li>点击 <strong>[测试连接]</strong> 验证 API Key 是否有效（发送测试请求到 DeepSeek API）</li>
+  <li>凭据存储优先级（从上到下）：
+    <ol>
+      <li><strong>Windows Credential Manager</strong> — 系统级加密存储（DPAPI），推荐方式</li>
+      <li><strong>环境变量</strong> — 如 <code>DEEPSEEK_API_KEY</code>，适合 CI 环境</li>
+      <li><strong>~/.hil/credentials.json</strong> — 文件回退，明文存储不推荐用于生产</li>
+    </ol>
+  </li>
+  <li>状态栏显示当前生效的凭据来源：<strong>"API Key: 已配置（来源: Windows Credential Manager）"</strong></li>
+</ol>
+
+<blockquote class="warn">
+<strong>安全提醒：</strong>API Key 建议使用 Windows Credential Manager 存储，避免在配置文件或环境变量中明文保存。凭据值永远不会出现在日志或 UI 截图中。
+</blockquote>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="testcase">3. 测试用例模型 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -914,7 +1564,9 @@ var testCase = new TestCase(
 
 <!-- =========================================================== -->
 
-<h2 id="steps">4. 测试步骤详解与示例</h2>
+<h2 id="steps">4. 测试步骤详解与示例 <span class="badge ok">已实现</span></h2>
+
+<p>说明：11 种测试步骤类型的 Core 模型和 StepExecutor 已全部实现（实际代码中还有 <code>ClearFault</code> 和 <code>InjectFault</code> 两种额外步骤类型）。</p>
 
 <!-- =========================================================== -->
 
@@ -1392,7 +2044,7 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
 <!-- =========================================================== -->
 
-<h2 id="suite">5. 测试套件与执行引擎</h2>
+<h2 id="suite">5. 测试套件与执行引擎 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -1742,7 +2394,7 @@ public sealed class UdsConnectionFixture : ITestFixture
 
 <!-- =========================================================== -->
 
-<h2 id="diff">6. DiffEngine — 差异比较引擎</h2>
+<h2 id="diff">6. DiffEngine — 差异比较引擎 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -1874,7 +2526,7 @@ new ToleranceSpec(AbsoluteTolerance: 0, RelativeTolerance: 0.1)</code></pre>
 
 <!-- =========================================================== -->
 
-<h2 id="param">7. 参数化测试与 TestCaseGenerator</h2>
+<h2 id="param">7. 参数化测试与 TestCaseGenerator <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -2064,7 +2716,7 @@ var cases = paramSets.Select(p => TestCaseGenerator.Generate(template, p)).ToLis
 
 <!-- =========================================================== -->
 
-<h2 id="trace-driven">8. TraceDrivenChannel — 基于录制数据的回放测试</h2>
+<h2 id="trace-driven">8. TraceDrivenChannel — 基于录制数据的回放测试 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -2118,9 +2770,11 @@ var result = await runner.RunAsync(suite, ctx, ct);
 
 <strong>注意：</strong>TraceDrivenChannel 是<strong>只读</strong>回放通道。SendFrame 等写入操作在此通道上会返回失败结果。如需写入总线，请使用真实硬件通道。
 
+</blockquote>
+
 <!-- =========================================================== -->
 
-<h2 id="simulator">8a. ECU 独立模拟器 — 无测试套件的仿真模式</h2>
+<h2 id="simulator">8a. ECU 独立模拟器 — 无测试套件的仿真模式 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -2260,7 +2914,9 @@ peakcan-hil --dbc vehicle.dbc \
 
 <!-- =========================================================== -->
 
-<h2 id="fault">8b. 故障注入 — 模拟总线异常</h2>
+<h2 id="fault">8b. 故障注入 — 模拟总线异常 <span class="badge ok">已实现</span></h2>
+
+<p>说明：FaultRule 模型、IFaultInjectionContext 接口、4 种故障类型（Drop/Delay/Corrupt/Duplicate）均已实现。UI 中需勾选 "Faults" 复选框启用。</p>
 
 <!-- =========================================================== -->
 
@@ -2358,7 +3014,9 @@ if (faultCtx is not null)
 
 <!-- =========================================================== -->
 
-<h2 id="odx">8c. ODX 导入 — 从 ODX 自动生成 ECU 脚本</h2>
+<h2 id="odx">8c. ODX 导入 — 从 ODX 自动生成 ECU 脚本 <span class="badge ok">已实现</span> <span class="badge warn">CLI 专用</span></h2>
+
+<p>说明：ODX 解析和 ECU 脚本生成已实现，但仅支持 CLI 模式（<code>--import-odx</code> 参数），图形化导入对话框尚未实现。</p>
 
 <!-- =========================================================== -->
 
@@ -2422,7 +3080,9 @@ peakcan-hil --import-odx ecu_diagnostic.odx \
 
 <!-- =========================================================== -->
 
-<h2 id="llm">8d. LLM 分析 — AI 辅助测试结果分析</h2>
+<h2 id="llm">8d. LLM 分析 — AI 辅助测试结果分析 <span class="badge ok">已实现</span></h2>
+
+<p>说明：HilAnalysisService（DeepSeek API）、HilPromptBuilder、ChainedCredentialStore 均已实现。UI 中勾选 "Analyze" 复选框，运行后自动分析失败用例，结果显示在底部文本框中。</p>
 
 <!-- =========================================================== -->
 
@@ -2499,15 +3159,114 @@ peakcan-hil --dbc vehicle.dbc \
 
 
 
-</blockquote>
+<!-- =========================================================== -->
+
+<h2 id="generator-hotreload">8e. Generator 热重载 — 外部插件动态加载 <span class="badge ok">已实现</span> <span class="badge warn">CLI 专用</span></h2>
+
+<!-- =========================================================== -->
 
 
+
+<h3 id="gen-overview">8e.1 概述</h3>
+
+<p><strong>Generator 热重载</strong>（Phase 7 Unit B）允许在 <code>--simulate</code> 模式下，通过外部插件 DLL 动态加载 <code>IEcuResponseGenerator</code> 实现，无需重启模拟器即可更新 ECU 响应逻辑。</p>
+
+<p>内置生成器（<code>BuiltInGenerators</code>）：</p>
+
+<ul>
+  <li><code>SecurityAccessSeedGenerator</code> — 安全访问种子生成</li>
+  <li><code>SecurityAccessVerifyKeyGenerator</code> — 安全访问密钥验证</li>
+  <li><code>ClearDtcGenerator</code> — 清除 DTC</li>
+  <li><code>DidReadoutGenerator</code> — DID 读取</li>
+  <li><code>DidWriteGenerator</code> — DID 写入</li>
+</ul>
+
+
+
+<h3 id="gen-usage">8e.2 使用方式</h3>
+
+<pre><code><span class="filename">CLI — 启动模拟器并加载外部插件</span>peakcan-hil --dbc vehicle.dbc \
+            --ecu bms_simulator.json \
+            --hw USB1 \
+            --simulate \
+            --generator-dir ./plugins/</code></pre>
+
+<p><strong>热重载机制：</strong></p>
+
+<ol>
+  <li><code>GeneratorPluginManager</code> 使用 <code>FileSystemWatcher</code> 监控插件目录的 <code>*.dll</code> 变化</li>
+  <li>检测到文件创建/修改后，经 300ms 去抖延迟触发重载</li>
+  <li>每个 DLL 加载到独立的 <code>AssemblyLoadContext</code>（collectible），不锁定源文件</li>
+  <li>加载失败（如缺少接口实现）的 DLL 被跳过，不影响正在运行的生成器</li>
+  <li>重载成功后触发 <code>GeneratorsChanged</code> 事件，<code>EcuStateMachine</code> 自动替换生效</li>
+</ol>
 
 
 
 <!-- =========================================================== -->
 
-<h2 id="cli">9. CLI Runner — 无头自动化测试</h2>
+<h2 id="gateway">8f. 多总线网关 — 总线间帧转发 <span class="badge ok">已实现</span> <span class="badge warn">CLI 专用</span></h2>
+
+<!-- =========================================================== -->
+
+
+
+<h3 id="gateway-overview">8f.1 概述</h3>
+
+<p><strong>多总线网关</strong>（Phase 7 Unit D）通过 <code>CanBusGateway</code> 实现两个 CAN 通道之间的帧转发，模拟真实网关 ECU 的行为。支持单向/双向转发、CAN-ID 范围过滤和 ID 映射。</p>
+
+
+
+<h3 id="gateway-config">8f.2 网关配置</h3>
+
+<p>通过 JSON 配置文件定义转发规则：</p>
+
+<pre><code><span class="filename">gateway-config.json</span>{
+  "targetChannel": "USB2",
+  "bidirectional": false,
+  "minCanId": "0x100",
+  "maxCanId": "0x7FF",
+  "mapToCanId": null
+}</code></pre>
+
+<table>
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td><code>targetChannel</code></td><td>目标通道名（如 "USB2"），源通道由 CLI 模式决定</td></tr>
+  <tr><td><code>bidirectional</code></td><td>是否双向转发（默认 false：source→target 单向）</td></tr>
+  <tr><td><code>minCanId</code> / <code>maxCanId</code></td><td>CAN-ID 范围过滤（含边界，null = 不限制）</td></tr>
+  <tr><td><code>mapToCanId</code></td><td>可选 CAN-ID 映射（转发时改写 Id，null = 不映射）</td></tr>
+</table>
+
+
+
+<h3 id="gateway-usage">8f.3 使用方式</h3>
+
+<pre><code><span class="filename">CLI — 启动带网关转发</span># 单向转发：USB1→USB2，过滤 0x100-0x7FF
+peakcan-hil --dbc vehicle.dbc \
+            --suite tests/smoke.json \
+            --hw USB1 \
+            --gateway gateway-config.json
+
+# 在 --simulate 模式下使用网关
+peakcan-hil --dbc vehicle.dbc \
+            --ecu bms_simulator.json \
+            --hw USB1 \
+            --simulate \
+            --gateway gateway-config.json</code></pre>
+
+<p><strong>防回环机制：</strong></p>
+
+<ul>
+  <li>使用"最近转发指纹 + 100ms 时间窗"去重，避免双向转发时帧回环</li>
+  <li>指纹 = (CAN ID, Data Hash, FrameFlags)，不含 Channel/Timestamp</li>
+  <li>转发写失败仅记录日志，不影响主测试流程</li>
+</ul>
+
+
+
+<!-- =========================================================== -->
+
+<h2 id="cli">9. CLI Runner — 无头自动化测试 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -2747,6 +3506,10 @@ peakcan-hil --dbc engine_v3.dbc \
 
   <tr><td><code>--export-frames</code></td><td><code>ExportFramesDir</code></td><td>帧捕获导出目录（Phase 6）</td></tr>
 
+  <tr><td><code>--generator-dir</code></td><td><code>GeneratorDir</code></td><td>外部 Generator 插件 DLL 目录（Phase 7 Unit B）</td></tr>
+
+  <tr><td><code>--gateway</code></td><td><code>GatewayPath</code></td><td>多总线网关配置 JSON 路径（Phase 7 Unit D）</td></tr>
+
 </table>
 
 
@@ -2779,7 +3542,11 @@ peakcan-hil --dbc engine_v3.dbc \
 
     HilMode Mode = HilMode.TraceReplay,
 
-    bool EnableAnalyze = false);</code></pre>
+    bool EnableAnalyze = false,
+
+    // Phase 7 Unit B: 外部 Generator 插件目录
+
+    string? GeneratorDir = null);</code></pre>
 
 
 
@@ -3213,7 +3980,7 @@ var suite = new TestSuite(
 
 <!-- =========================================================== -->
 
-<h2 id="results">11. 测试结果解读</h2>
+<h2 id="results">11. 测试结果解读 <span class="badge ok">已实现</span></h2>
 
 <!-- =========================================================== -->
 
@@ -3439,6 +4206,14 @@ var suite = new TestSuite(
 
   <tr><td><code>PeakCan.Host.Infrastructure.HIL.Analysis</code></td><td>分析实现（HilAnalysisService、ChainedCredentialStore）</td></tr>
 
+  <tr><td><code>PeakCan.Host.Infrastructure.HIL.Generators</code></td><td>Generator 插件（GeneratorPluginManager、BuiltInGenerators）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Infrastructure.HIL.Reporting</code></td><td>HTML 报告（IHilReportService、HilReportService、HilReportResult）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Infrastructure.Channel.Gateway</code></td><td>总线网关（CanBusGateway、GatewayConfig、GatewayConfigLoader）</td></tr>
+
+  <tr><td><code>PeakCan.Host.Core.HIL.Gateway</code></td><td>网关配置模型（GatewayConfig）</td></tr>
+
 </table>
 
 
@@ -3492,6 +4267,16 @@ var suite = new TestSuite(
   <tr><td></td><td><code>Reset()</code></td><td>重置到初始状态</td></tr>
 
   <tr><td><code>EcuSimulatorHost</code></td><td><code>RunAsync(ct)</code></td><td>启动独立模拟器，阻塞直到取消</td></tr>
+
+  <tr><td><code>GeneratorPluginManager</code></td><td><code>Current</code></td><td>当前外部生成器列表</td></tr>
+
+  <tr><td></td><td><code>GeneratorsChanged</code> event</td><td>热重载完成事件</td></tr>
+
+  <tr><td><code>IHilReportService</code></td><td><code>Generate(result)</code></td><td>生成 HTML 报告并落盘</td></tr>
+
+  <tr><td><code>CanBusGateway</code></td><td><code>Start()</code></td><td>启动网关转发（订阅 FrameReceived）</td></tr>
+
+  <tr><td></td><td><code>DisposeAsync()</code></td><td>停止转发并退订</td></tr>
 
 </table>
 

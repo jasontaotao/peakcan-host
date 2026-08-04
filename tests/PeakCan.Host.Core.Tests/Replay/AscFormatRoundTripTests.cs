@@ -1,4 +1,4 @@
-// tests/PeakCan.Host.Core.Tests/Replay/AscFormatRoundTripTests.cs — v3.49.0 MINOR T3
+// tests/PeakCan.HIL.Core.Tests/Replay/AscFormatRoundTripTests.cs — v3.49.0 MINOR T3
 // Q3 round-trip lock: AscFormat.WriteXxx -> 字符串 -> AscParser.ParseAsync ->
 // frame-by-frame 字段严格相等。任何 writer/parser 任一方 regression 都会被这组测试立刻捕获。
 //
@@ -12,11 +12,11 @@
 using System.Globalization;
 using System.Text;
 using FluentAssertions;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Replay;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Replay;
+namespace PeakCan.HIL.Core.Tests.Replay;
 
 public class AscFormatRoundTripTests
 {

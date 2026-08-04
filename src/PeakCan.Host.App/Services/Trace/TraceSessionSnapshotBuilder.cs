@@ -2,7 +2,7 @@ using System.IO;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.Services.Trace;
 

@@ -6,7 +6,7 @@ namespace PeakCan.Host.App.Services.Trace;
 /// <summary>
 /// v3.2.0 MINOR: metadata for a single loaded trace in a multi-trace
 /// overlay session. The registry owns the underlying
-/// <see cref="PeakCan.Host.Core.Replay.ITraceViewerService"/> for
+/// <see cref="PeakCan.HIL.Core.Replay.ITraceViewerService"/> for
 /// each <see cref="TraceSource"/>; consumers should not hold direct
 /// references to the service — go through the registry.
 /// <para>
@@ -71,7 +71,7 @@ public sealed class TraceSource : INotifyPropertyChanged
     /// parsed yet" (default) or "no `date` line in the file" — the
     /// X-axis formatter in TraceChartViewModel falls back to elapsed
     /// time when this is null. Public setter (not internal) so
-    /// `TraceViewerService` in `PeakCan.Host.Core` can write the value
+    /// `TraceViewerService` in `PeakCan.HIL.Core` can write the value
     /// after ASC parse; the only legitimate consumer is the parser
     /// hand-off in Task 6b. The INPC notification fires on every
     /// change so the chart rebinds when a bundle reload sets the

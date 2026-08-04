@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.Uds;
+namespace PeakCan.HIL.Core.Uds;
 
 /// <summary>
 /// Thrown by <see cref="IKeyDerivationAlgorithm"/> implementations that

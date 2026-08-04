@@ -3,16 +3,16 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Polly;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.HIL.Generators;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Assertions;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.Setup;
-using PeakCan.Host.Core.HIL.StepExecutor;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.HIL.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
@@ -82,10 +82,10 @@ public static class HeadlessHostBuilder
         }
 
         // DBC lookup
-        builder.Services.AddSingleton<Core.HIL.Contracts.IDbcLookup>(sp =>
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>(sp =>
         {
             var text = File.ReadAllText(args.DbcPath);
-            var doc = Core.Dbc.DbcParser.Parse(text);
+            var doc = PeakCan.HIL.Core.Dbc.DbcParser.Parse(text);
             if (!doc.IsSuccess)
                 throw new InvalidOperationException($"DBC parse failed for '{args.DbcPath}': {doc.Error?.Message}");
             return new HeadlessDbcLookup(doc.Value!);
@@ -95,10 +95,10 @@ public static class HeadlessHostBuilder
         if (args.HardwareChannel is not null)
         {
             // Hardware mode: PeakCanAssertionContext + ISO-TP bridge + UDS
-            builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
-                var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
+                var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 return new PeakCanAssertionContext(channel, dbc);
             });
             RegisterUdsServices(builder, args);
@@ -106,10 +106,10 @@ public static class HeadlessHostBuilder
         else if (args.EcuScriptPath is not null || args.MatrixPath is not null)
         {
             // Virtual ECU / Matrix mode (Sprint 4/6): HILAssertionContext + UDS + VirtualEcu already registered
-            builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
-                var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
+                var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
                 return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
             });
@@ -118,10 +118,10 @@ public static class HeadlessHostBuilder
         else
         {
             // Trace-replay mode: HILAssertionContext (no UDS — trace is read-only)
-            builder.Services.AddSingleton<Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
-                var dbc = sp.GetRequiredService<Core.HIL.Contracts.IDbcLookup>();
+                var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
                 return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
             });
@@ -134,32 +134,42 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<AssertionPrimitives>();
 
         // Step executors (existing + Phase 3)
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, SendFrameStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, SendSequenceStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertSignalStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertRangeStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, WaitForSignalStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, DelayStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, ExpectFrameStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertResponseTimeStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SendFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SendSequenceStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertRangeStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, WaitForSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, DelayStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ExpectFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertResponseTimeStepExecutor>();
         // Phase 3: fault injection executors
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
+        // Background frames: sender + step executor
+        builder.Services.AddSingleton<BackgroundFrameSender>(sp =>
+        {
+            var channel = sp.GetRequiredService<ICanChannel>();
+            var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<BackgroundFrameSender>>();
+            return new BackgroundFrameSender(channel, logger);
+        });
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, StepExecutor.ModifyBackgroundFrameStepExecutor>();
+        // Phase A: Variables 断言（纯本地读 IStepVariableStore，不依赖 UDS → 所有模式可用，含 trace-replay）
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
 
         // Engine
         builder.Services.AddSingleton<TestSuiteEngine>();
 
         // Sprint 19 Inc 8: LLM failure analysis service with Polly retry.
         // Credential store for headless/CLI runs (env var / ~/.hil/credentials).
-        builder.Services.AddSingleton<PeakCan.Host.Core.Analysis.ICredentialStore,
+        builder.Services.AddSingleton<PeakCan.HIL.Core.Analysis.ICredentialStore,
             PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore>();
         // Phase 7 Unit A: bind Llm:DeepSeek config section (same as WPF AppHostBuilder).
-        builder.Services.Configure<PeakCan.Host.Core.Analysis.DeepSeekOptions>(
+        builder.Services.Configure<PeakCan.HIL.Core.Analysis.DeepSeekOptions>(
             builder.Configuration.GetSection("Llm:DeepSeek"));
-        builder.Services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
+        builder.Services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
-            var opts = sp.GetRequiredService<IOptions<PeakCan.Host.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
         })
         .AddPolicyHandler(GetRetryPolicy());
@@ -217,8 +227,15 @@ public static class HeadlessHostBuilder
             var isoTp = sp.GetRequiredService<IsoTpLayer>();
             return new HilIsoTpBridge(channel, isoTp);
         });
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
-        builder.Services.AddSingleton<Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
+        // Phase A: UDS 结构化步骤 executors（依赖 UdsClient，仅 UDS 模式注册）
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ReadDidStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, WriteDidStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SessionControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearDtcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, RoutineControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SecurityAccessStepExecutor>();
     }
 
     /// <summary>

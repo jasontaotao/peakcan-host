@@ -18,8 +18,8 @@
 // per W20 T2 R1 fabrication LESSON (36th application).
 
 using PeakCan.Host.App.Models;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.Services.MultiFrame;
 

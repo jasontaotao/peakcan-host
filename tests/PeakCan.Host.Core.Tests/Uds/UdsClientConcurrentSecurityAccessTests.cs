@@ -1,11 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 /// <summary>
 /// v1.4.1 PATCH Item 1: tests for atomic concurrent mid-handshake behavior of

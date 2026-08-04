@@ -1,6 +1,6 @@
-using PeakCan.Host.Core.Analysis;
-using PeakCan.Host.Core.Replay;
-using PeakCan.Host.Core.Services;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.Helpers;
 

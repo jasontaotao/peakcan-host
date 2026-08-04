@@ -1,10 +1,10 @@
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.StepExecutor;
-using PeakCan.Host.Core.Tests.HIL.Fakes;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core.Tests.HIL.Fakes;
 
-namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
 
 public class AssertResponseTimeStepExecutorTests
 {
@@ -100,7 +100,7 @@ public class AssertResponseTimeStepExecutorTests
     private sealed class FailingSendContext : IAssertionContext
     {
         public double CurrentTimestamp => 0;
-        public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
+        public System.Collections.Generic.IReadOnlyList<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame>();
         public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame) => null!;
         public double? GetSignalValue(string signalName, int maxAgeMs = 5000) => null;
         public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct) =>

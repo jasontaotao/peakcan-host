@@ -3,7 +3,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Walks the enabled flashing-pipeline steps and dispatches each onto a <see cref="UdsClient"/>

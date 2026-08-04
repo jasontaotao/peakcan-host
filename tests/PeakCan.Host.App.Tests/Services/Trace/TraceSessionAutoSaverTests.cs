@@ -76,7 +76,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         return new TraceViewerViewModel(
             registry, dbc, logger, library, fileDialog: null,
             apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.Host.Core.Analysis.ICredentialStore>(),
+                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
                 Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
     }
 

@@ -1,9 +1,9 @@
 using FluentAssertions;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.HIL;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.Host.Core.Tests.HIL.StepParams;
+namespace PeakCan.HIL.Core.Tests.HIL.StepParams;
 
 public class StepParametersExporterTests
 {

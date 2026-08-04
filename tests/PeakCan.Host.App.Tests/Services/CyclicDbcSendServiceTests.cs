@@ -1,10 +1,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 using Xunit;
-using ValueType = PeakCan.Host.Core.Dbc.ValueType;
+using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
 namespace PeakCan.Host.App.Tests.Services;
 

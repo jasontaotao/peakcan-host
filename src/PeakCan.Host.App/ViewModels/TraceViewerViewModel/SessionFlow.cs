@@ -3,7 +3,7 @@ using ScottPlot;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 

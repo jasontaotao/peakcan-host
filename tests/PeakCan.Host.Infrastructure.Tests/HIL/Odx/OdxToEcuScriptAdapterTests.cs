@@ -1,5 +1,6 @@
+using PeakCan.HIL.Core.HIL;
 using System.Text.Json;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Odx;

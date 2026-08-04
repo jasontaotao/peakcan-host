@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core;
-using PeakCan.Host.Core.Dbc;
-using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -13,7 +13,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Reuses the same thread model as HILAssertionContext.
 /// The only difference: SendFrameAsync delegates to _channel.WriteAsync (real hardware).
 /// </summary>
-internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IDisposable
+internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly IDbcLookup _dbcLookup;
@@ -84,6 +84,9 @@ internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFra
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
+
+    // IStepVariableStore — 步骤间传值（Phase A）。同 case 内串行执行，无并发写。
+    public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
 
     // IAssertionContext.GetRecentDecodedFrames
     private readonly List<DecodedFrame> _decodedRecentFrames = new();

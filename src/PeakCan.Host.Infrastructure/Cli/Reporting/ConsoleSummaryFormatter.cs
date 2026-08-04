@@ -1,5 +1,5 @@
 using System.Text;
-using PeakCan.Host.Core.HIL;
+using PeakCan.HIL.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.Cli.Reporting;
 

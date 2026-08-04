@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.Core.Path;
+using PeakCan.HIL.Core.Path;
 
-namespace PeakCan.Host.Core.Uds.Database;
+namespace PeakCan.HIL.Core.Uds.Database;
 
 /// <summary>
 /// Loads UDS Routine definitions from a user JSON file at

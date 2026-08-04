@@ -1,8 +1,8 @@
-using PeakCan.Host.Core.HIL.Contracts;
-using PeakCan.Host.Core.HIL.Setup;
-using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.HIL.Core.HIL.StepExecutor;
 
-namespace PeakCan.Host.Core.HIL;
+namespace PeakCan.HIL.Core.HIL;
 
 /// <summary>
 /// Test suite execution engine. Orchestrates TestCase execution lifecycle:
@@ -101,6 +101,10 @@ public sealed class TestSuiteEngine
     private async Task<TestCaseResult> ExecuteCaseAsync(
         TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, CancellationToken ct)
     {
+        // 清空步骤间变量，防止上一 case 残留值污染（review M-1）：
+        // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
+        (ctx as IStepVariableStore)?.Variables.Clear();
+
         var stepResults = new List<StepResult>();
         var caseStopwatch = System.Diagnostics.Stopwatch.StartNew();
         string? failureReason = null;

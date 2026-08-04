@@ -1,11 +1,11 @@
 using System;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Path;
-using PeakCan.Host.Core.Uds.Database;
+using PeakCan.HIL.Core.Path;
+using PeakCan.HIL.Core.Uds.Database;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds.Database;
+namespace PeakCan.HIL.Core.Tests.Uds.Database;
 
 public class DidDatabaseTests
 {

@@ -1,8 +1,8 @@
-namespace PeakCan.Host.Core.HIL.Contracts;
+namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// Base exception for all IUdsSession failures. Defined in Core/HIL/Contracts
-/// so executors can catch without referencing Core.Uds.
+/// so executors can catch without referencing PeakCan.HIL.Core.Uds.
 /// </summary>
 public abstract class UdsSessionException : Exception
 {

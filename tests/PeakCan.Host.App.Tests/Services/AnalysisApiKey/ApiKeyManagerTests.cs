@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using PeakCan.Host.App.Services.AnalysisApiKey;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 
 namespace PeakCan.Host.App.Tests.Services.AnalysisApiKey;
 

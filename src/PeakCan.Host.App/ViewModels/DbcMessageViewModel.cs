@@ -1,4 +1,4 @@
-using PeakCan.Host.Core.Dbc;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -58,7 +58,7 @@ public sealed class DbcMessageViewModel
             var unit = string.IsNullOrEmpty(s.Unit) ? "" : $" ({s.Unit})";
             var mux = s.IsMultiplexor ? " [MUX]" : s.IsMultiplexed ? $" [m{s.MultiplexValue}]" : "";
             var comment = string.IsNullOrEmpty(s.Comment) ? "" : $"  // {s.Comment}";
-            signals.Add($"{s.Name}{unit}{mux} : {s.StartBit}|{s.Length}@{(s.Order == ByteOrder.LittleEndian ? '1' : '0')}{(s.ValueType == PeakCan.Host.Core.Dbc.ValueType.Signed ? '-' : '+')}{comment}");
+            signals.Add($"{s.Name}{unit}{mux} : {s.StartBit}|{s.Length}@{(s.Order == ByteOrder.LittleEndian ? '1' : '0')}{(s.ValueType == PeakCan.HIL.Core.Dbc.ValueType.Signed ? '-' : '+')}{comment}");
         }
 
         return new DbcMessageViewModel

@@ -1,10 +1,10 @@
-// src/PeakCan.Host.Core/Replay/AscParser/DataLineParserFlow.cs — v3.49.0 MINOR (T2 of 3)
+// src/PeakCan.HIL.Core/Replay/AscParser/DataLineParserFlow.cs — v3.49.0 MINOR (T2 of 3)
 // Q3: 改为 delegate 到 AscFormat.TryParseDataLine。
 // 之前 171 LoC 拥有内联的全部 1-char single-hex + N*N 2-char hex +
 // 'd'/'l' marker + Vector Rx/Tx + Length/BitCount/ID metadata 终止逻辑。
 // 现在 ≈ 30 LoC。
 
-namespace PeakCan.Host.Core.Replay;
+namespace PeakCan.HIL.Core.Replay;
 
 public static partial class AscParser
 {

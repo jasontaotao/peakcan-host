@@ -1,7 +1,7 @@
 using System.Globalization;
 using IOPath = System.IO.Path;
 
-namespace PeakCan.Host.Core.Uds.FlashPipeline;
+namespace PeakCan.HIL.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// A parsed, in-memory firmware image ready for streaming to the ECU via

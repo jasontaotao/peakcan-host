@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 using FluentAssertions;
-using PeakCan.Host.Core;
+using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
 

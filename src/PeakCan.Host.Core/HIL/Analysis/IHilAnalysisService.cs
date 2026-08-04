@@ -1,4 +1,4 @@
-namespace PeakCan.Host.Core.HIL.Analysis;
+namespace PeakCan.HIL.Core.HIL.Analysis;
 
 /// <summary>
 /// Sprint 14: Interface for LLM-assisted test failure analysis.

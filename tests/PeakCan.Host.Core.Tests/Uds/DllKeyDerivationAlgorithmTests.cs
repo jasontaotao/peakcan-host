@@ -1,10 +1,10 @@
 using System.Runtime.InteropServices;
 using FluentAssertions;
-using PeakCan.Host.Core.Uds;
-using PeakCan.Host.Core.Uds.KeyDerivation;
+using PeakCan.HIL.Core.Uds;
+using PeakCan.HIL.Core.Uds.KeyDerivation;
 using Xunit;
 
-namespace PeakCan.Host.Core.Tests.Uds;
+namespace PeakCan.HIL.Core.Tests.Uds;
 
 /// <summary>
 /// Phase 1 C3: <see cref="DllKeyDerivationAlgorithm"/> wraps an OEM-supplied

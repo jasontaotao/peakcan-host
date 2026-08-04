@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace PeakCan.Host.Core.Uds.IsoTp;
+namespace PeakCan.HIL.Core.Uds.IsoTp;
 
 public sealed partial class IsoTpLayer
 {
@@ -17,7 +17,7 @@ public sealed partial class IsoTpLayer
     // class are private and only used by the 2 watchdog methods below.
     // partial-class visibility makes this transparent to compile + test.
     // _watchdogDisposalDeferredCount stays in main (read by tests via
-    // [InternalsVisibleTo("PeakCan.Host.Core.Tests")]).
+    // [InternalsVisibleTo("PeakCan.HIL.Core.Tests")]).
 
     /// <summary>
     /// v1.2.13 PATCH Item 1: opaque handle so cancel + Dispose can be

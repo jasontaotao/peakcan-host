@@ -1,7 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.CredentialStore;
-using PeakCan.Host.Core.Analysis;
+using PeakCan.HIL.Core.Analysis;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services.CredentialStore;
