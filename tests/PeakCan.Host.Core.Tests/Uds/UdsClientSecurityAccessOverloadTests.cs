@@ -149,7 +149,7 @@ public class UdsClientSecurityAccessOverloadTests
         var baseDir = System.IO.Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "..", "..",
-            "src", "PeakCan.HIL.Core", "Uds");
+            "src", "PeakCan.Host.Core", "Uds");
         var candidates = new[] { "UdsClient.cs", "UdsClient/SecurityFlow.cs" };
         string? combined = null;
         foreach (var name in candidates)

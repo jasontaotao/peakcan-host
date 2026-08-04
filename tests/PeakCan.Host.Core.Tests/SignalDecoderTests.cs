@@ -248,7 +248,7 @@ public class TryDecodeEnumTextTests
 {
     private static readonly string FixturePath = System.IO.Path.Combine(
         AppContext.BaseDirectory,
-        "..", "..", "..", "..", "PeakCan.HIL.Core.Tests", "Dbc", "Fixtures",
+        "..", "..", "..", "..", "PeakCan.Host.Core.Tests", "Dbc", "Fixtures",
         "sample-with-val.dbc");
 
     private static DbcDocument LoadFixture()

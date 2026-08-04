@@ -15,11 +15,11 @@ public class OdxToEcuScriptAdapterStateChartTests
 {
     private static readonly string DemoCddPath = System.IO.Path.GetFullPath(
         System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
-            "PeakCan.HIL.Core.Tests", "Fixtures", "Odx", "Demo_Cdd.odx-d"));
+            "PeakCan.Host.Core.Tests", "Fixtures", "Odx", "Demo_Cdd.odx-d"));
 
     private static readonly string CompleteOdxPath = System.IO.Path.GetFullPath(
         System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
-            "PeakCan.HIL.Core.Tests", "Fixtures", "Odx", "complete.odx"));
+            "PeakCan.Host.Core.Tests", "Fixtures", "Odx", "complete.odx"));
 
     [Fact]
     public void Load_DemoCdd_ReturnsInitialStateLocked()

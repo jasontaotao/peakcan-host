@@ -90,8 +90,9 @@ public class GeneratorPluginLoaderTests
     public void EcuScriptLoader_UsesBuiltInGenerators_NoPrivateMethod()
     {
         // Single source: EcuScriptLoader must not define its own built-in list.
-        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-        var loaderPath = Path.Combine(repoRoot, "src", "PeakCan.Host.Infrastructure", "HIL", "EcuScriptLoader.cs");
+        // hil-core 抽包后 EcuScriptLoader 在 peakcan-hil-core 仓库（workspace sibling）
+        var workspaceRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
+        var loaderPath = Path.Combine(workspaceRoot, "peakcan-hil-core", "src", "PeakCan.HIL.Core", "HIL", "EcuScriptLoader.cs");
         Assert.True(File.Exists(loaderPath), $"EcuScriptLoader.cs not found at {loaderPath}");
         Assert.DoesNotContain("GetBuiltInGenerators", File.ReadAllText(loaderPath));
     }
