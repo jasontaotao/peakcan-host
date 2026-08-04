@@ -155,6 +155,15 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, StepExecutor.ModifyBackgroundFrameStepExecutor>();
         // Phase A: Variables 断言（纯本地读 IStepVariableStore，不依赖 UDS → 所有模式可用，含 trace-replay）
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
+        // Phase B: 帧统计基础设施 + 时序断言（所有模式注册，含 trace-replay；依赖 IFrameStatistics 而非 IAssertionContext）
+        builder.Services.AddSingleton<IFrameStatistics>(sp =>
+        {
+            var channel = sp.GetRequiredService<ICanChannel>();
+            return new FrameStatisticsCollector(channel);
+        });
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertNoFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertFrameCountStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertCycleTimeStepExecutor>();
 
         // Engine
         builder.Services.AddSingleton<TestSuiteEngine>();
