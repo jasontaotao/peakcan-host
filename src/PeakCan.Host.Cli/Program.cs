@@ -175,6 +175,12 @@ public static class Program
                     case "trx":
                         await ResultWriter.WriteTrx(result, cli.OutputPath ?? "hil-report.trx");
                         break;
+                    case "json":
+                        var jsonStr = JsonSerializer.Serialize(result, HILJsonOptions.Default);
+                        var jsonPath = cli.OutputPath ?? $"hil-result-{DateTime.UtcNow:yyyyMMddHHmmss}.json";
+                        await File.WriteAllTextAsync(jsonPath, jsonStr);
+                        Console.WriteLine($"JSON result written to {jsonPath}");
+                        break;
                     case "console":
                     default:
                         Console.WriteLine(ConsoleSummaryFormatter.Format(result));

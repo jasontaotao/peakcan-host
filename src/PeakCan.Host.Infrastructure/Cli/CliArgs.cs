@@ -149,7 +149,7 @@ public static class CliArgsParser
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --output <path>    Output file path (TRX or JUnit XML, or HTML report)");
-        Console.WriteLine("  --format <format>  Output format: console (default), trx, junit, html, html+junit");
+        Console.WriteLine("  --format <format>  Output format: console (default), trx, junit, html, html+junit, json");
         Console.WriteLine("  --export-frames <dir>  Export fault frames as .asc files (independent of format)");
         Console.WriteLine("  --hw <channel>    Hardware channel (USB1..USB16) for real PCAN");
         Console.WriteLine("  --ecu <path>      ECU simulator script JSON path");
