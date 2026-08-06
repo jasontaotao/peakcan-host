@@ -56,5 +56,7 @@ public class HILAssertionContextFaultInjectionTests
     private sealed class FakeDbcLookup : IDbcLookup
     {
         public PeakCan.HIL.Core.Dbc.Message? FindMessage(uint canId) => null;
+        public IEnumerable<PeakCan.HIL.Core.Dbc.Message> GetAllMessages() =>
+            Array.Empty<PeakCan.HIL.Core.Dbc.Message>();
     }
 }

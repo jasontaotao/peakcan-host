@@ -45,6 +45,7 @@ internal sealed class FakeDbcLookup : IDbcLookup
     public void AddMessage(Message msg) => _messages[msg.Id] = msg;
     public Message? FindMessage(uint canId) =>
         _messages.TryGetValue(canId, out var msg) ? msg : null;
+    public IEnumerable<Message> GetAllMessages() => _messages.Values;
 }
 
 /// <summary>
