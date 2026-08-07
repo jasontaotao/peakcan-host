@@ -12,7 +12,6 @@ using PeakCan.HIL.Core.Replay;
 using Xunit;
 using FrameFlags = PeakCan.HIL.Core.FrameFlags;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
-using PeakCan.Host.App.Services.AnalysisApiKey;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -79,8 +78,14 @@ public class TraceViewerViewModelRebuildSignalsTests
         MessagesById: new Dictionary<uint, Message>(),
         ValueTables: new Dictionary<string, ValueTable>());
 
-    private static ReplayFrame Frame(uint id, params byte[] data) =>
-        new(Timestamp: 0.0, Id: id, Dlc: (byte)data.Length,
+    // Timestamp defaults to 0.0 for legacy callers; tests that assert
+    // "last frame wins" (RefreshFrameCounts picks MaxBy(Timestamp)) must
+    // pass strictly increasing timestamps — MaxBy returns the FIRST
+    // element on ties, so all-equal timestamps would decode frame 0.
+    private static ReplayFrame Frame(uint id, params byte[] data) => Frame(id, 0.0, data);
+
+    private static ReplayFrame Frame(uint id, double timestamp, params byte[] data) =>
+        new(Timestamp: timestamp, Id: id, Dlc: (byte)data.Length,
             Data: data, Flags: FrameFlags.None);
 
     [Fact]
@@ -101,9 +106,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // v3.15.0 MINOR: watch list is empty by default (placeholder
@@ -128,9 +131,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         sut.AddToWatch(0x100, "RPM", "");
@@ -154,9 +155,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         sut.AddToWatch(0x100, "RPM", "");
@@ -183,9 +182,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         sut.AddToWatch(0x100, "RPM", "");
@@ -208,15 +205,13 @@ public class TraceViewerViewModelRebuildSignalsTests
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
         {
-            Frame(0x100, 0x10, 0x00),
-            Frame(0x100, 0x20, 0x00),
+            Frame(0x100, 0.0, 0x10, 0x00),
+            Frame(0x100, 1.0, 0x20, 0x00),
         });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         sut.AddToWatch(0x100, "RPM", "");
@@ -230,9 +225,7 @@ public class TraceViewerViewModelRebuildSignalsTests
     {
         var registry = MakeFakeRegistry();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var docWithPath = DocWithTwoMessages() with { SourcePath = "C:/test/foo.dbc" };
         dbc.SetCurrentForTests(docWithPath);
@@ -256,9 +249,7 @@ public class TraceViewerViewModelRebuildSignalsTests
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
 
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
         // No DBC loaded yet — placeholder shows "no DBC and no .asc loaded".
         sut.WatchedSignals.Should().Contain(w => w.IsPlaceholder);
@@ -278,9 +269,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // DBC loaded, no AddToWatch yet → placeholder with add-to-watch hint.
@@ -316,9 +305,7 @@ public class TraceViewerViewModelRebuildSignalsTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-            Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // 1 placeholder before picker batch.
