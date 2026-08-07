@@ -115,12 +115,10 @@ public partial class AppHostBuilder
         // === Flow C: App services extracted to AppHostBuilder/AppServicesFlow.cs (W11 Task 3) ===
         RegisterAppServices(builder.Services);
 
-        // Phase 7 Unit A: bind Llm:DeepSeek config section to DeepSeekOptions.
-        // Replaces the former empty Configure<DeepSeekOptions>(options => {}) in AppServicesFlow.
-        // All three consumers (DeepSeekProvider, DeepSeekChatProvider, HilAnalysisService) read
-        // from this single IOptions<DeepSeekOptions> instance.
-        builder.Services.Configure<PeakCan.HIL.Core.Analysis.DeepSeekOptions>(
-            builder.Configuration.GetSection("Llm:DeepSeek"));
+        // Phase 1 重构: 绑定 Llm 配置到 LlmOptions。
+        // 所有消费者 (OpenAiCompatibleChatProvider, HilAnalysisService) 读此实例。
+        builder.Services.Configure<PeakCan.HIL.Core.Analysis.LlmOptions>(
+            builder.Configuration.GetSection("Llm"));
 
         // === Flow D: ViewModels batch 1 extracted to AppHostBuilder/ViewModelsBatch1Flow.cs (W11 Task 4) ===
         RegisterViewModelsBatch1(builder.Services);

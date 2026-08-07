@@ -8,19 +8,20 @@ using PeakCan.HIL.Core.HIL.Analysis;
 namespace PeakCan.Host.Infrastructure.HIL.Analysis;
 
 /// <summary>
-/// Sprint 14: Calls DeepSeek API to analyze test failures.
-/// Phase 7 Unit A: endpoint and model read from IOptions&lt;DeepSeekOptions&gt;
-/// (injected via AddHttpClient&lt;&gt;); HTTP timeout from TimeoutSeconds × 5.
-/// stream=false (non-streaming); UseStreaming does not affect this service.
+/// Sprint 14: Calls LLM API to analyze test failures.
+/// Phase 1 重构: 不再直接调 HTTP, 改为依赖 <see cref="ILlmClient"/>。
+/// 底层 HTTP 由 hil-core <c>OpenAiCompatibleClient</c> 承担。
 /// </summary>
 public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
 {
+    private const string ApiKeyCredentialKey = "PeakCan/deepseek/default";
+
     private readonly ICredentialStore _credentialStore;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
-    private readonly DeepSeekOptions _options;
+    private readonly LlmOptions _options;
 
-    public HilAnalysisService(HttpClient httpClient, ICredentialStore credentialStore, IOptions<DeepSeekOptions> options)
+    public HilAnalysisService(HttpClient httpClient, ICredentialStore credentialStore, IOptions<LlmOptions> options)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(credentialStore);
@@ -42,46 +43,26 @@ public sealed class HilAnalysisService : IHilAnalysisService, IDisposable
 
     public async Task<AnalysisResult?> AnalyzeAsync(TestSuiteResult result, CancellationToken ct = default)
     {
-        var apiKey = await _credentialStore.GetAsync("deepseek-api-key", ct).ConfigureAwait(false);
+        var apiKey = await _credentialStore.GetAsync(ApiKeyCredentialKey, ct).ConfigureAwait(false);
         if (string.IsNullOrEmpty(apiKey))
             return AnalysisResult.Unavailable("API key not configured");
 
         var prompt = HilPromptBuilder.Build(result);
-        var requestBody = new
+        var messages = new List<LlmMessage>
         {
-            model = _options.Model,
-            messages = new[]
-            {
-                new { role = "system", content = "You are an automotive ECU diagnostic test failure analyst. Analyze the test failure and suggest root causes." },
-                new { role = "user", content = prompt }
-            },
-            stream = false,
-            temperature = 0.3
+            new("system", "You are an automotive ECU diagnostic test failure analyst. Analyze the test failure and suggest root causes."),
+            new("user", prompt),
         };
 
-        var json = JsonSerializer.Serialize(requestBody);
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_options.ApiBase.TrimEnd('/')}/chat/completions")
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-        httpRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        // per-call options: non-streaming, slightly higher temperature for analysis
+        var callOptions = _options with { Temperature = 0.3, ResponseFormat = null };
+
+        var client = new OpenAiCompatibleClient(_httpClient, callOptions, apiKey);
 
         try
         {
-            using var response = await _httpClient.SendAsync(httpRequest, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return AnalysisResult.Unavailable($"HTTP error: {(int)response.StatusCode}");
-            }
-
-            var responseJson = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(responseJson);
-            var root = doc.RootElement;
-            var content = root.GetProperty("choices")[0]
-                              .GetProperty("message")
-                              .GetProperty("content")
-                              .GetString();
-            return AnalysisResult.Success(content ?? "No analysis content");
+            var response = await client.CompleteAsync(messages, callOptions, ct).ConfigureAwait(false);
+            return AnalysisResult.Success(response.Content ?? "No analysis content");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -31,6 +31,12 @@ public sealed partial class TraceViewerViewModel
     /// per send; this list holds user/assistant/tool turns).</summary>
     private readonly List<ChatMessage> _chatHistory = new();
 
+    /// <summary>Chat lifecycle CancellationTokenSource (v3.62-era:
+    /// previously shared with the removed AI Analysis flow). Cancelled on
+    /// VM Dispose so in-flight chat HTTP requests are aborted when the
+    /// window closes.</summary>
+    private CancellationTokenSource? _chatCts;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private string _chatInput = "";
@@ -69,6 +75,8 @@ public sealed partial class TraceViewerViewModel
                 // to `this`. Tests inject fakes via ctor so _chatTools is non-empty.
                 if (_chatTools.Count == 0) _chatTools = BuildChatTools();
                 _chatToolDefs = _chatTools.Select(t => t.Definition).ToList();
+                // ChatSettingsFlow: 加载已保存的多厂商 API Key
+                _ = LoadChatSavedKeysAsync();
                 ChatMessages.CollectionChanged += (_, _) =>
                 {
                     OnPropertyChanged(nameof(HasMessages));
@@ -101,8 +109,8 @@ public sealed partial class TraceViewerViewModel
         var userText = ChatInput.Trim();
         ChatInput = "";
 
-        _analysisCts ??= new CancellationTokenSource();
-        var ct = _analysisCts.Token;
+        _chatCts ??= new CancellationTokenSource();
+        var ct = _chatCts.Token;
         IsChatBusy = true;
         try
         {
@@ -145,6 +153,14 @@ public sealed partial class TraceViewerViewModel
         _chatHistory.Add(new ChatMessage("user", userText, null, null));
         ChatMessages.Add(new ChatMessageViewModel("user", userText));
 
+        // 多厂商: 优先使用设置面板构建的 Provider, 回退到 DI 注入的 _chatProvider
+        var provider = SettingsChatProvider ?? _chatProvider;
+        if (provider is null)
+        {
+            ChatMessages.Add(new ChatMessageViewModel("assistant", "[出错: 聊天 Provider 未配置]"));
+            return;
+        }
+
         for (int round = 0; round < ChatMaxRounds; round++)
         {
             var messages = new List<ChatMessage> { BuildSystemMessage() };
@@ -156,7 +172,7 @@ public sealed partial class TraceViewerViewModel
             var toolCalls = new List<ChatToolCall>();
             var errored = false;
 
-            await foreach (var update in _chatProvider!.ChatStreamingAsync(messages, _chatToolDefs, ct)
+            await foreach (var update in provider.ChatStreamingAsync(messages, _chatToolDefs, ct)
                               .ConfigureAwait(true))
             {
                 switch (update)

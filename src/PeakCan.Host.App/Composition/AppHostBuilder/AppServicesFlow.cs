@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.App.Services.LlmProvider;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
@@ -158,20 +157,6 @@ public partial class AppHostBuilder
                 rateLimitRejectedCountProvider: rejectedCountProvider);
         });
 
-        // v3.52.0 MINOR T9: AI inference analysis pipeline (P0 local-only).
-        // TraceViewerViewModel.AnalysisFlow.cs requires these 5 singletons.
-        // The 5th (IFrameSourceProvider) is registered against the same
-        // TraceSessionRegistry instance that implements ITraceSessionRegistry
-        // — dual-interface in T9 — so the analyzer reads frames via the
-        // Core-side abstraction without taking an App-layer dependency.
-        //
-        // v3.52.1 PATCH T1 D1: concrete-first dual forward. The cast was
-        // removed; IFrameSourceProvider now resolves TraceSessionRegistry
-        // directly via the concrete registration in ViewModelsBatch2Flow.cs.
-        // Single-instance guarantee preserved — no double-allocation.
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.EvidenceExtractor>();
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.LocalAnalyzer>();
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.AnalysisSessionRegistry>();
         // v3.53.1 PATCH P1a: API Key secure storage via Windows Credential Manager
         // (DPAPI-encrypted; NEVER plaintext appsettings.json per v3.52.0 hard-boundary).
         // Sprint 17 §3.3: wrap WCM as the primary store in a ChainedCredentialStore so
@@ -184,56 +169,36 @@ public partial class AppHostBuilder
             return new PeakCan.Host.Infrastructure.HIL.Analysis.ChainedCredentialStore(
                 winStore, new PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore());
         });
-        // W40 P2 PATCH: ApiKeyManager wraps ICredentialStore to expose
-        // configured/not-configured state to the AI Analysis panel without
-        // leaking the key value itself. Singleton so the LastUpdatedAt
-        // timestamp is stable across the WPF session.
-        services.AddSingleton<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>();
-        // v3.54.0 MINOR P1b: DeepSeekProvider is now the default ILlmProvider
-        // impl. NotImplementedLlmProvider kept for explicit fallback (D7).
-        // DeepSeekProvider reads API key from ICredentialStore (v3.53.1 P1a
-        // security foundation) — never from appsettings.json.
-        services.AddHttpClient("DeepSeek", (sp, client) =>
+        // "LlmClient" HttpClient — shared by Chat provider + HIL analysis.
+        services.AddHttpClient("LlmClient", (sp, client) =>
         {
-            // v3.61.0 PATCH BUG-006: read timeout from DeepSeekOptions so
-            // the configured value matches what DeepSeekProvider reports in
-            // error messages. Falls back to 30s default.
-            // v3.61.0 PATCH BUG-3: total timeout = 5x per-line timeout so
-            // long streaming responses (>30s) aren't killed by the http
-            // client. ReadLineWithTimeoutAsync enforces per-line silence.
-            // Without this multiplier, a 45s streaming response at 1 token/s
-            // would be cancelled at t=30s by HttpClient.TotalTimeout.
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
         })
-        // v3.61.0 PATCH OPT-010: Polly retry for transient DeepSeek failures
-        // (429 rate-limit, 5xx server errors, HttpRequestException). 3 retries
-        // with exponential backoff: 1s → 2s → 4s. Jitter not needed here —
-        // DeepSeek is a single endpoint, not a cluster of replicas.
         .AddTransientHttpErrorPolicy(builder => builder
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.ILlmProvider, DeepSeekProvider>();
         // Sprint 19 Inc 8: HIL test failure analysis service (headless/CLI sibling).
-        // Reuses the Windows Credential Manager store registered above. Polly
-        // retry mirrors GetRetryPolicy in HeadlessHostBuilder: transient errors
-        // + 429 retried up to 3 times with exponential backoff (1s → 2s → 4s).
         services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
         })
         .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
             .HandleTransientHttpError()
             .OrResult(r => (int)r.StatusCode == 429)
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
-        // AI Chat (spec 2026-07-25): streaming multi-round tool-calling provider.
-        // Sister of ILlmProvider (single-shot) - distinct interface, same DeepSeek
-        // named HttpClient + credential store + options. Tools are NOT DI-registered
-        // (VM↔IChatTool cycle); VM builds them lazily in ChatPanelContent.
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.Chat.IChatProvider, PeakCan.Host.App.Services.ChatProvider.DeepSeekChatProvider>();
-        services.AddSingleton<PeakCan.HIL.Core.Analysis.IFrameSourceProvider>(sp =>
-            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
+        // AI Chat: OpenAiCompatibleChatProvider, supports multi-vendor.
+        services.AddSingleton<PeakCan.HIL.Core.Analysis.Chat.IChatProvider>(sp =>
+        {
+            var factory = sp.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+            var http = factory.CreateClient("LlmClient");
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
+            var creds = sp.GetRequiredService<PeakCan.HIL.Core.Analysis.ICredentialStore>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.Analysis.Chat.OpenAiCompatibleChatProvider>>();
+            return new PeakCan.HIL.Core.Analysis.Chat.OpenAiCompatibleChatProvider(
+                http, opts, creds, "PeakCan/deepseek/default", logger);
+        });
     }
 }

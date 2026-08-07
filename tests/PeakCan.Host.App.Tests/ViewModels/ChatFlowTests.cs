@@ -6,10 +6,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.App.Services.AnalysisApiKey;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.HIL.Core.Replay;
 
@@ -25,12 +23,9 @@ public class ChatFlowTests
         var sessionLibrary = new TraceSessionLibrary(
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"chatflow-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
-        var apiKeyManager = new ApiKeyManager(
-            Substitute.For<ICredentialStore>(),
-            Substitute.For<ILogger<ApiKeyManager>>());
         return new TraceViewerViewModel(
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
-            chatProvider: provider, chatTools: tools, apiKeyManager: apiKeyManager);
+            chatProvider: provider, chatTools: tools);
     }
 
     [Fact]

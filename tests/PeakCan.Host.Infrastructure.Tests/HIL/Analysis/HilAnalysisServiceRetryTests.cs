@@ -65,8 +65,8 @@ public class HilAnalysisServiceRetryTests
         };
         var httpClient = new HttpClient(policyHandler);
         var store = new SimpleCredentialStore();
-        store.SetAsync("deepseek-api-key", "test-key").GetAwaiter().GetResult();
-        return (new HilAnalysisService(httpClient, store, Options.Create(new DeepSeekOptions())), handler, store);
+        store.SetAsync("PeakCan/deepseek/default", "test-key").GetAwaiter().GetResult();
+        return (new HilAnalysisService(httpClient, store, Options.Create(new LlmOptions { ApiBase = "https://api.deepseek.com", Model = "deepseek-v4-flash" })), handler, store);
     }
 
     private static TestSuiteResult CreateFailedResult()
@@ -166,8 +166,8 @@ public class HilAnalysisServiceRetryTests
         var handler = new CapturingMockHandler(OkResponse());
         var httpClient = new HttpClient(handler);
         var store = new SimpleCredentialStore();
-        await store.SetAsync("deepseek-api-key", "test-key");
-        var options = Options.Create(new DeepSeekOptions
+        await store.SetAsync("PeakCan/deepseek/default", "test-key");
+        var options = Options.Create(new LlmOptions
         {
             ApiBase = "https://custom.api.com",
             Model = "custom-model"
@@ -191,8 +191,8 @@ public class HilAnalysisServiceRetryTests
         var handler = new CapturingMockHandler(OkResponse());
         var httpClient = new HttpClient(handler);
         var store = new SimpleCredentialStore();
-        await store.SetAsync("deepseek-api-key", "test-key");
-        var service = new HilAnalysisService(httpClient, store, Options.Create(new DeepSeekOptions()));
+        await store.SetAsync("PeakCan/deepseek/default", "test-key");
+        var service = new HilAnalysisService(httpClient, store, Options.Create(new LlmOptions { ApiBase = "https://api.deepseek.com", Model = "deepseek-v4-flash" }));
 
         await service.AnalyzeAsync(CreateFailedResult());
 
@@ -207,8 +207,8 @@ public class HilAnalysisServiceRetryTests
         var handler = new CapturingMockHandler(OkResponse());
         var httpClient = new HttpClient(handler);
         var store = new SimpleCredentialStore();
-        await store.SetAsync("deepseek-api-key", "test-key");
-        var options = Options.Create(new DeepSeekOptions
+        await store.SetAsync("PeakCan/deepseek/default", "test-key");
+        var options = Options.Create(new LlmOptions
         {
             ApiBase = "https://api.deepseek.com/"
         });

@@ -64,11 +64,9 @@ public partial class AppHostBuilder
         // binding above was silently discarded — configurability goal unmet.
         //
         // v3.52.1 PATCH T1 D1: concrete-first dual forward. The concrete
-        // TraceSessionRegistry is registered as the singleton anchor; both
-        // ITraceSessionRegistry and (in AppServicesFlow.cs) IFrameSourceProvider
-        // forward to it. Removes the explicit cast at IFrameSourceProvider
-        // registration (was Minor 1 in v3.52.0 final review). All 3 keys
-        // resolve to the same singleton instance — no double-allocation.
+        // TraceSessionRegistry is registered as the singleton anchor;
+        // ITraceSessionRegistry forwards to it. Both keys resolve to the
+        // same singleton instance — no double-allocation.
         services.AddSingleton<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>(sp =>
             new PeakCan.Host.App.Services.Trace.TraceSessionRegistry(
                 sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITracePalette>(),

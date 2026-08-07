@@ -172,13 +172,13 @@ public static class HeadlessHostBuilder
         // Credential store for headless/CLI runs (env var / ~/.hil/credentials).
         builder.Services.AddSingleton<PeakCan.HIL.Core.Analysis.ICredentialStore,
             PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore>();
-        // Phase 7 Unit A: bind Llm:DeepSeek config section (same as WPF AppHostBuilder).
-        builder.Services.Configure<PeakCan.HIL.Core.Analysis.DeepSeekOptions>(
-            builder.Configuration.GetSection("Llm:DeepSeek"));
+        // Phase 1: bind Llm config section (same as WPF AppHostBuilder).
+        builder.Services.Configure<PeakCan.HIL.Core.Analysis.LlmOptions>(
+            builder.Configuration.GetSection("Llm"));
         builder.Services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
-            var opts = sp.GetRequiredService<IOptions<PeakCan.HIL.Core.Analysis.DeepSeekOptions>>().Value;
+            var opts = sp.GetRequiredService<IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
         })
         .AddPolicyHandler(GetRetryPolicy());

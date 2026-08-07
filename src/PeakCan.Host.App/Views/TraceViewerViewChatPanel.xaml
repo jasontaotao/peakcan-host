@@ -4,14 +4,18 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             xmlns:views="clr-namespace:PeakCan.Host.App.Views"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="380"
              d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+        <views:InverseBoolConverter x:Key="InverseBool" />
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -20,6 +24,10 @@
         <!-- Header -->
         <DockPanel Grid.Row="0" Margin="8,8,8,4">
             <TextBlock Text="AI Chat" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button Content="⚙️" DockPanel.Dock="Right" Margin="4,0,0,0"
+                    Command="{Binding ToggleChatSettingsCommand}" Padding="6,2"
+                    ToolTip="API Key 设置"
+                    Background="Transparent" BorderThickness="0" />
             <Button Content="导出" DockPanel.Dock="Right" Margin="4,0,0,0"
                     Command="{Binding ExportChatCommand}" Padding="8,2" />
             <Button Content="清空" DockPanel.Dock="Right" Margin="4,0,0,0"
@@ -30,8 +38,98 @@
                       VerticalAlignment="Center" />
         </DockPanel>
 
+        <!-- Settings panel (多厂商 API Key 管理) -->
+        <Border Grid.Row="1" Margin="8,0,8,4" Padding="8" BorderBrush="#DDD" BorderThickness="1"
+                Background="#FAFAFA" CornerRadius="4"
+                Visibility="{Binding ShowChatSettings, Converter={StaticResource BoolToVis}}">
+            <StackPanel>
+                <TextBlock Text="API Key 设置" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 厂商 -->
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="厂商:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                              ItemsSource="{Binding ChatProviders}"
+                              SelectedItem="{Binding ChatSelectedProvider}"/>
+
+                    <!-- API Key -->
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Key:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <PasswordBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+                                 x:Name="ApiKeyPasswordBox"
+                                 PasswordChanged="ApiKeyPasswordBox_PasswordChanged"/>
+
+                    <!-- 别名 -->
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="别名:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" Margin="0,0,0,4"
+                             Text="{Binding ChatNewKeyAlias}"/>
+
+                    <!-- 模型 -->
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="模型:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <TextBox Grid.Row="3" Grid.Column="1" Margin="0,0,0,4"
+                             Text="{Binding ChatModelInput}"/>
+
+                    <!-- 自定义 API Base (仅自定义厂商) -->
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="API Base:" VerticalAlignment="Center" Margin="0,0,8,4"
+                               Visibility="{Binding IsCustomChatProvider, Converter={StaticResource BoolToVis}}"/>
+                    <TextBox Grid.Row="4" Grid.Column="1" Margin="0,0,0,4"
+                             Text="{Binding ChatCustomApiBase}"
+                             Visibility="{Binding IsCustomChatProvider, Converter={StaticResource BoolToVis}}"/>
+
+                    <!-- 操作按钮 -->
+                    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="测试并保存" Command="{Binding TestAndSaveChatKeyCommand}"
+                                IsEnabled="{Binding IsTestingChatConnection, Converter={StaticResource InverseBool}}"
+                                Padding="12,4" Margin="0,0,8,0"/>
+                        <Button Content="重置配置" Command="{Binding ResetChatConfigCommand}" Padding="8,4"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="{Binding ChatConnectionStatus}" Foreground="#666" FontSize="12"
+                           Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                <!-- 已保存 Key 列表 -->
+                <TextBlock Text="已保存的 Key:" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <ItemsControl ItemsSource="{Binding ChatSavedKeys}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text=" (激活)" Foreground="Green" FontSize="11" VerticalAlignment="Center"
+                                               Visibility="{Binding IsActive, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="切换" Command="{Binding DataContext.SwitchChatKeyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" Padding="6,1" Margin="0,0,4,0"/>
+                                    <Button Content="✕" Command="{Binding DataContext.DeleteChatKeyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" Padding="6,1" Foreground="Red"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
         <!-- Message list -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,0">
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="8,0">
             <Grid>
                 <!-- Empty state welcome -->
                 <StackPanel Visibility="{Binding HasNoMessages, Converter={StaticResource BoolToVis}}"
@@ -132,7 +230,7 @@
         </ScrollViewer>
 
         <!-- Input -->
-        <DockPanel Grid.Row="2" Margin="8,4,8,8">
+        <DockPanel Grid.Row="3" Margin="8,4,8,8">
             <Button Content="发送" DockPanel.Dock="Right" Margin="8,0,0,0"
                     Command="{Binding SendMessageCommand}" Padding="12,4" />
             <TextBox Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"

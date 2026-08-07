@@ -18,14 +18,16 @@ public sealed class SimpleCredentialStore : ICredentialStore
             return Task.FromResult<string?>(val);
 
         // 2. Check environment variable (key-specific: HIL_{KEY_UPPER}_API_KEY)
-        var envVarName = $"HIL {key.ToUpperInvariant().Replace("-", "_")}_API_KEY";
+        // Key format "PeakCan/deepseek/default" -> "HIL_PEAKCAN_DEEPSEEK_DEFAULT_API_KEY"
+        var envVarName = $"HIL_{key.ToUpperInvariant().Replace("/", "_").Replace("-", "_")}_API_KEY";
         var env = Environment.GetEnvironmentVariable(envVarName);
         if (env is not null) return Task.FromResult<string?>(env);
-        // Fallback for the well-known deepseek key
-        if (key == "deepseek-api-key")
+
+        // 2b. Backward compat: old key name "deepseek-api-key" -> HIL_DEEPSEEK_API_KEY
+        if (key == "PeakCan/deepseek/default")
         {
-            var fallback = Environment.GetEnvironmentVariable("HIL_DEEPSEEK_API_KEY");
-            if (fallback is not null) return Task.FromResult<string?>(fallback);
+            var legacyEnv = Environment.GetEnvironmentVariable("HIL_DEEPSEEK_API_KEY");
+            if (legacyEnv is not null) return Task.FromResult<string?>(legacyEnv);
         }
 
         // 3. Check ~/.hil/credentials file
@@ -38,8 +40,15 @@ public sealed class SimpleCredentialStore : ICredentialStore
             {
                 var json = File.ReadAllText(credPath);
                 var creds = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                if (creds is { } c && c.TryGetValue(key, out var fileVal))
-                    return Task.FromResult<string?>(fileVal);
+                if (creds is { } c)
+                {
+                    if (c.TryGetValue(key, out var fileVal))
+                        return Task.FromResult<string?>(fileVal);
+                    // 3b. Backward compat: old key name in credentials file
+                    if (key == "PeakCan/deepseek/default"
+                        && c.TryGetValue("deepseek-api-key", out var legacyVal))
+                        return Task.FromResult<string?>(legacyVal);
+                }
             }
             catch { /* file corrupted or no permission — degrade */ }
         }

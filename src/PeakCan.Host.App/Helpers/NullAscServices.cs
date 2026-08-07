@@ -1,5 +1,3 @@
-using PeakCan.HIL.Core.Analysis;
-using PeakCan.HIL.Core.Replay;
 using PeakCan.HIL.Core.Services;
 
 namespace PeakCan.Host.App.Helpers;
@@ -35,17 +33,3 @@ internal sealed class NullAscLocator : IAscLocator
         => Task.FromResult<string?>(null);
 }
 
-/// <summary>
-/// v3.52.0 MINOR T9: no-op <see cref="IFrameSourceProvider"/> used when
-/// no frame source was injected (legacy 4-arg test sites that don't
-/// exercise the analysis pipeline). Returns an empty frame list so
-/// <c>EvidenceExtractor.Extract</c> short-circuits cleanly if any test
-/// unexpectedly triggers an analysis run. Production DI wires the
-/// <c>TraceSessionRegistry</c> itself (dual-interface in T9).
-/// </summary>
-internal sealed class NullFrameSourceProvider : IFrameSourceProvider
-{
-    public static readonly NullFrameSourceProvider Instance = new();
-    private NullFrameSourceProvider() { }
-    public IReadOnlyList<ReplayFrame> GetFrames(string sourceId) => Array.Empty<ReplayFrame>();
-}

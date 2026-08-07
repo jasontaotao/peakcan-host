@@ -3,22 +3,23 @@ using System.Net.Http;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using NSubstitute;
-using PeakCan.Host.App.Services.ChatProvider;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
 
 namespace PeakCan.Host.App.Tests.Services.ChatProvider;
 
-public class DeepSeekChatProviderTests
+/// <summary>
+/// Phase 1 重构: 测试 hil-core 的 OpenAiCompatibleChatProvider (替代原 DeepSeekChatProvider)。
+/// </summary>
+public class OpenAiCompatibleChatProviderTests
 {
     private static readonly IReadOnlyList<ChatMessage> EmptyMessages =
         new[] { new ChatMessage("user", "hi", null, null) };
     private static readonly IReadOnlyList<ChatToolDefinition> EmptyTools =
         Array.Empty<ChatToolDefinition>();
 
-    private static DeepSeekOptions BuildOptions() => new()
+    private static LlmOptions BuildOptions() => new()
     {
         ApiBase = "https://test.example",
         Model = "deepseek-v4-flash",
@@ -28,22 +29,21 @@ public class DeepSeekChatProviderTests
     /// <summary>Build a provider whose HttpClient is backed by a fake
     /// handler returning a fixed SSE body, and whose credential store
     /// returns a configured key.</summary>
-    private static (DeepSeekChatProvider provider, FakeHandler handler) BuildProvider(
+    private static (OpenAiCompatibleChatProvider provider, FakeHandler handler) BuildProvider(
         HttpStatusCode status, string sseBody, string? apiKey = "test-key")
     {
         var handler = new FakeHandler(status, sseBody);
-        var factory = Substitute.For<IHttpClientFactory>();
-        factory.CreateClient("DeepSeek").Returns(new HttpClient(handler));
         var store = Substitute.For<ICredentialStore>();
-        store.GetAsync("deepseek-api-key", Arg.Any<CancellationToken>())
+        store.GetAsync("PeakCan/deepseek/default", Arg.Any<CancellationToken>())
              .Returns(apiKey);
-        var provider = new DeepSeekChatProvider(
-            factory, store, Options.Create(BuildOptions()), NullLogger<DeepSeekChatProvider>.Instance);
+        var provider = new OpenAiCompatibleChatProvider(
+            new HttpClient(handler), BuildOptions(), store,
+            "PeakCan/deepseek/default", NullLogger<OpenAiCompatibleChatProvider>.Instance);
         return (provider, handler);
     }
 
     private static async Task<List<ChatUpdate>> ConsumeAsync(
-        DeepSeekChatProvider provider, CancellationToken ct = default)
+        OpenAiCompatibleChatProvider provider, CancellationToken ct = default)
     {
         var updates = new List<ChatUpdate>();
         await foreach (var u in provider.ChatStreamingAsync(EmptyMessages, EmptyTools, ct))
@@ -128,7 +128,6 @@ public class DeepSeekChatProviderTests
         private readonly HttpStatusCode _status;
         private readonly string _sseBody;
         public FakeHandler(HttpStatusCode status, string sseBody) { _status = status; _sseBody = sseBody; }
-
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {

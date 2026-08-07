@@ -14,7 +14,7 @@ using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.Replay;
 using Xunit;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
-using PeakCan.Host.App.Services.AnalysisApiKey;
+
 using NSubstitute;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
@@ -73,10 +73,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
             dbcService,
             NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath,
-                NullLogger<TraceSessionLibrary>.Instance),
-                apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                    Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-                    Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+                NullLogger<TraceSessionLibrary>.Instance));
         vm.MasterSourceId = source.SourceId;
 
         // Add a watch row for V2B_AliveCount (cross-source)
@@ -147,10 +144,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
 
         var vm = new TraceViewerViewModel(
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
-            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
-            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance));
         vm.MasterSourceId = source.SourceId;
 
         // Add V2B_HVOnCmd watch row. The TraceViewerViewModel will
@@ -215,10 +209,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
 
         var vm = new TraceViewerViewModel(
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
-            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance),
-            apiKeyManager: new PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager(
-                Substitute.For<PeakCan.HIL.Core.Analysis.ICredentialStore>(),
-                Substitute.For<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager>>()));
+            new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance));
         vm.MasterSourceId = source.SourceId;
 
         // Add 7 V2B_xxx watch rows

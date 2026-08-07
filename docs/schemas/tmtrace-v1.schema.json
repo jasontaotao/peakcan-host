@@ -58,6 +58,18 @@
       "description": "Per-series chart viewport (X-axis range, focus, collapse). Keyed by EffectiveKey = '<SourceId>.<SignalKey>'. Order is producer-chosen.",
       "type": "array",
       "items": { "$ref": "#/$defs/BundleViewportDto" }
+    },
+    "watchedSignals": {
+      "description": "v12 Step 7: persisted watch list rows. Each entry captures a CAN signal (by CAN ID + signal name) that the user added to the watch list. Forward-compat: old bundles without this field deserialize as empty list.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/BundleWatchedSignalDto" },
+      "default": []
+    },
+    "groups": {
+      "description": "v12 Step 7: persisted signal groups. Named groups of signal keys for organization. Forward-compat: old bundles without this field deserialize as empty list.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/BundleGroupDto" },
+      "default": []
     }
   },
   "$defs": {
@@ -235,6 +247,74 @@
           "description": "Optional free-form label.",
           "type": "string",
           "nullable": true
+        }
+      }
+    },
+    "BundleWatchedSignalDto": {
+      "description": "v12 Step 7: one persisted watch list row. Captures a CAN signal (by hex CAN ID + signal name) that the user added to the watch list.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "canIdHex",
+        "signalName"
+      ],
+      "properties": {
+        "canIdHex": {
+          "description": "CAN ID in hex format, e.g. '0x100'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "messageName": {
+          "description": "DBC message name for display.",
+          "type": "string"
+        },
+        "signalName": {
+          "description": "Signal name within the DBC message.",
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "description": "Signal physical unit (e.g. 'rpm', 'V').",
+          "type": "string"
+        },
+        "sourceId": {
+          "description": "SourceId this watch is pinned to, or null for cross-source.",
+          "type": ["string", "null"]
+        },
+        "alias": {
+          "description": "Optional user-assigned alias for the signal.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "BundleGroupDto": {
+      "description": "v12 Step 7: one persisted signal group. A named collection of signal keys for organization on the watch list.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "name",
+        "signalKeys"
+      ],
+      "properties": {
+        "id": {
+          "description": "Unique group identifier (producer-chosen, e.g. GUID).",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "User-visible group name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "description": "Optional free-form notes for the group.",
+          "type": ["string", "null"]
+        },
+        "signalKeys": {
+          "description": "Signal keys belonging to this group. Format: '<CanIdHex>.<SignalName>'.",
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },

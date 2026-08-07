@@ -93,9 +93,9 @@ public class Sprint14Tests
 
         var httpClient = new HttpClient(mockHandler);
         var credentialStore = new SimpleCredentialStore();
-        await credentialStore.SetAsync("deepseek-api-key", "test-key");
+        await credentialStore.SetAsync("PeakCan/deepseek/default", "test-key");
 
-        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new DeepSeekOptions()));
+        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new LlmOptions { ApiBase = "https://api.deepseek.com", Model = "deepseek-v4-flash" }));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -107,7 +107,7 @@ public class Sprint14Tests
     public async Task AnalysisService_MissingApiKey_ReturnsUnavailable()
     {
         var credentialStore = new SimpleCredentialStore();
-        var service = new HilAnalysisService(new HttpClient(), credentialStore, Options.Create(new DeepSeekOptions()));
+        var service = new HilAnalysisService(new HttpClient(), credentialStore, Options.Create(new LlmOptions { ApiBase = "https://api.deepseek.com", Model = "deepseek-v4-flash" }));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -120,9 +120,9 @@ public class Sprint14Tests
         var mockHandler = new MockHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.InternalServerError));
         var httpClient = new HttpClient(mockHandler);
         var credentialStore = new SimpleCredentialStore();
-        await credentialStore.SetAsync("deepseek-api-key", "test-key");
+        await credentialStore.SetAsync("PeakCan/deepseek/default", "test-key");
 
-        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new DeepSeekOptions()));
+        var service = new HilAnalysisService(httpClient, credentialStore, Options.Create(new LlmOptions { ApiBase = "https://api.deepseek.com", Model = "deepseek-v4-flash" }));
         var result = await service.AnalyzeAsync(CreateFailedResult());
 
         Assert.NotNull(result);
@@ -133,9 +133,9 @@ public class Sprint14Tests
     public async Task CredentialStore_SetThenGet_ReturnsValue()
     {
         var store = new SimpleCredentialStore();
-        await store.SetAsync("deepseek-api-key", "my-key");
+        await store.SetAsync("PeakCan/deepseek/default", "my-key");
 
-        var value = await store.GetAsync("deepseek-api-key");
+        var value = await store.GetAsync("PeakCan/deepseek/default");
         Assert.Equal("my-key", value);
     }
 
@@ -146,7 +146,7 @@ public class Sprint14Tests
         try
         {
             var store = new SimpleCredentialStore();
-            var value = await store.GetAsync("deepseek-api-key");
+            var value = await store.GetAsync("PeakCan/deepseek/default");
             Assert.Equal("env-key", value);
         }
         finally

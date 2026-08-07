@@ -14,10 +14,10 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Analysis;
-using ScottPlot;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.Replay;
 using System.Collections.Specialized;
+using ScottPlot;
 using PeakCan.HIL.Core.Services;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.HIL.Core.Analysis.Chat;
@@ -54,51 +54,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private readonly ITraceSessionRegistry _registry;
     private readonly DbcService _dbcService;
     private readonly ILogger<TraceViewerViewModel> _logger;
-    // v3.5.0 MINOR: .tmtrace bundle save/load. Persists the multi-trace
-    // session (sources + per-source filter + global filter + playback
-    // cursor + master + loop + speed + DBC path) as a single JSON
-    // document via atomic tmp+rename.
     private readonly TraceSessionLibrary _sessionLibrary;
-    // v3.5.0 MINOR: file-dialog abstraction so the Save/Open commands
-    // can be unit-tested with a fake (no WPF Application needed).
-    // Production DI wires the WPF impl; tests inject a fake that
-    // returns a canned path or simulates cancellation.
     private readonly IFileDialogService? _fileDialog;
-    // v3.6.4 PATCH: hash-based .asc relocation. Optional — both fields
-    // default to no-op fakes in the legacy single-arg test ctor (the
-    // existing test pattern that doesn't care about hashing). Production
-    // DI wires the real SHA-256 hasher + file-system locator.
     private readonly IAscContentHasher _hasher;
     private readonly IAscLocator _locator;
-    // v3.11.0 MINOR T2 (H7): shared BuildSnapshot logic. Trace +
-    // Replay VMs delegate the scalar envelope to this helper; the
-    // Trace VM still iterates Sources itself (N sources, per-source
-    // color + stroke style + filter) but uses the builder for the
-    // version / schema / savedAt / appVersion envelope.
     private readonly TraceSessionSnapshotBuilder _builder;
-    // v3.52.0 MINOR T9: 5 AI-inference pipeline singletons injected
-    // here (previously stubbed with `= null!` on AnalysisFlow.cs and
-    // test-set via reflection in AnalysisFlowTests). T9 wires DI and
-    // converts them to required ctor params; DI resolves all 5 from
-    // AppServicesFlow registrations. Required (no defaults) so callers
-    // cannot accidentally construct the VM without the analysis stack.
-    private readonly EvidenceExtractor _evidenceExtractor;
-    private readonly LocalAnalyzer _localAnalyzer;
-    private readonly AnalysisSessionRegistry _sessionRegistry;
-    private readonly ILlmProvider _llmProvider;
-    // EvidenceExtractor depends on the Core-side frame source abstraction;
-    // the App-layer TraceSessionRegistry implements IFrameSourceProvider
-    // (dual-interface in T9) so the same DI singleton satisfies both.
-    private readonly IFrameSourceProvider _frameSource;
-    // W40 P2 PATCH: API Key UI manager — wraps ICredentialStore to
-    // expose configured/not-configured state to the AI Analysis panel
-    // without leaking the key value itself. Singleton so the
-    // LastUpdatedAt timestamp is stable across the WPF session.
-    private readonly PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager _apiKeyManager;
-    // v3.61.0 PATCH BUG-004: VM-lifecycle CancellationTokenSource for AI analysis.
-    // Cancelled on Dispose/Reset so in-flight HTTP requests are aborted when the
-    // user closes the window or clears the session.
-    private CancellationTokenSource? _analysisCts;
+    // ChatSettingsFlow: multi-vendor credential store. Read/Set against
+    // arbitrary PeakCan/{provider}/{alias} keys.
+    private readonly ICredentialStore? _credentialStore;
     // v3.62.0 MINOR: progressive chart fill engine (background decode + incremental render)
     private readonly ChartFillEngine _fillEngine = new();
     private readonly Dictionary<string, FillRequest> _activeFillRequests = new();
@@ -122,23 +85,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _activeFillRequests.Remove(signalKey);
     }
 
-    // 锚点线时间差属性已移至 GreenLineAnchorFlow（可访问绿蓝锚点状态）
-    // v3.61.0 PATCH BUG-007: distinct IsAnalyzing flag separate from IsLoading.
-    // IsLoading gates AddTraceCommand (trace loading); IsAnalyzing gates analysis
-    // commands. Streaming panel visibility binds to IsAnalyzing, not IsLoading.
-    private bool _isAnalyzing;
-    public bool IsAnalyzing
-    {
-        get => _isAnalyzing;
-        private set
-        {
-            if (SetProperty(ref _isAnalyzing, value))
-            {
-                RunAnalysisCommand.NotifyCanExecuteChanged();
-                RunAnalysisStreamingCommand.NotifyCanExecuteChanged();
-            }
-        }
-    }
     // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
     // timer thread. Captured at construction; null in test fixtures
     // without an STA SynchronizationContext (direct set is safe there).
@@ -192,7 +138,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddTraceCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveTraceCommand))]
-    [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
     private bool _isLoading;
 
     [ObservableProperty]
@@ -217,34 +162,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// legend strip against this property (one entry per loaded source).</summary>
     public IReadOnlyList<TraceSource> Sources => _registry.Sources;
 
-    /// <summary>v3.52.0 MINOR T10: lazy-loaded UserControl backing the
-    /// AI Analysis tab. The XAML content tree (empty-state hint +
-    /// active-session ScrollViewer + Evidence / Candidates DataGrids)
-    /// is built only on first access — if the user never opens the
-    /// AI Analysis tab the panel is never instantiated and the
-    /// <c>InitializeComponent</c> reflection cost is avoided.
-    /// <para>
-    /// DataContext is set to <c>this</c> so the panel's bindings
-    /// resolve against the owning <see cref="TraceViewerViewModel"/>
-    /// (same instance that owns <c>CurrentAnalysisSession</c>).
-    /// </para>
-    /// </summary>
-    private Views.TraceViewerViewAIPanel? _aiPanelContent;
-    public Views.TraceViewerViewAIPanel? AIPanelContent
-    {
-        get
-        {
-            if (_aiPanelContent is null)
-            {
-                _aiPanelContent = new Views.TraceViewerViewAIPanel
-                {
-                    DataContext = this,
-                };
-            }
-            return _aiPanelContent;
-        }
-    }
-
     // v3.15.0 MINOR: filename-only display of LoadedDbcPath for the
     // toolbar TextBlock. Full path is in the tooltip. Empty when no
     // DBC is loaded (B1 fix).
@@ -264,35 +181,18 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         DbcService dbcService,
         ILogger<TraceViewerViewModel> logger,
         TraceSessionLibrary sessionLibrary,
-        EvidenceExtractor? evidenceExtractor = null,
-        LocalAnalyzer? localAnalyzer = null,
-        AnalysisSessionRegistry? sessionRegistry = null,
-        ILlmProvider? llmProvider = null,
-        IFrameSourceProvider? frameSource = null,
         IFileDialogService? fileDialog = null,
         IAscContentHasher? hasher = null,
         IAscLocator? locator = null,
         TraceSessionSnapshotBuilder? builder = null,
-        PeakCan.Host.App.Services.AnalysisApiKey.ApiKeyManager? apiKeyManager = null,
         IChatProvider? chatProvider = null,
-        IEnumerable<IChatTool>? chatTools = null)
+        IEnumerable<IChatTool>? chatTools = null,
+        ICredentialStore? credentialStore = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionLibrary = sessionLibrary ?? throw new ArgumentNullException(nameof(sessionLibrary));
-        // v3.52.0 MINOR T9: 5 AI-inference params. Appended with nullable
-        // defaults so the 30+ pre-existing test sites (4-arg positional
-        // calls) keep compiling without churn — production DI passes real
-        // instances via the 9-arg factory path. When the caller does NOT
-        // supply a value (legacy test sites + ctor call paths that don't
-        // care about analysis), we lazily instantiate a no-op stub so the
-        // VM stays usable. Production DI always supplies real instances.
-        _evidenceExtractor = evidenceExtractor ?? new EvidenceExtractor();
-        _localAnalyzer = localAnalyzer ?? new LocalAnalyzer();
-        _sessionRegistry = sessionRegistry ?? new AnalysisSessionRegistry();
-        _llmProvider = llmProvider ?? new NotImplementedLlmProvider();
-        _frameSource = frameSource ?? NullFrameSourceProvider.Instance;
         _fileDialog = fileDialog;
         // v3.6.4 PATCH: defaults to a no-op hasher + locator so the
         // legacy ctor signature (without these args) keeps compiling
@@ -305,24 +205,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // compiling. Production DI wires a singleton builder; the
         // default keeps unit-test hermeticity — no DI container required.
         _builder = builder ?? new TraceSessionSnapshotBuilder(_hasher);
-        // W40 P2 PATCH: API Key manager. Nullable default keeps the
-        // legacy ctor signature (without ApiKeyManager arg) compiling
-        // for existing tests; production DI passes a real instance.
-        // T6 follows up with Substitute.For<ApiKeyManager>() at every
-        // existing test callsite.
-        _apiKeyManager = apiKeyManager ?? throw new ArgumentNullException(nameof(apiKeyManager));
+        // ChatSettingsFlow: 多厂商 Key 管理。nullable 保持旧测试构造签名兼容。
+        // 生产 DI 传真实实例；测试中 null 时 ChatSettingsFlow 功能不可用（不崩溃）。
+        _credentialStore = credentialStore ?? null!;
         // AI Chat (Step 4-5): nullable so legacy test ctor calls keep compiling;
         // production DI passes a real IChatProvider + the 6 IChatTool instances.
         _chatProvider = chatProvider;
         _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
         // v3.62.0 MINOR: wire plot resolver for axis sync (View owns the actual Plot objects)
         ChartViewModel.PlotResolver = key => _activePlots.TryGetValue(key, out var p) ? p : null;
-        // v3.61.0 PATCH: probe credential store on startup so the API Key
-        // status shows "已配置" immediately if a key was previously saved.
-        // Fire-and-forget is safe here: CheckAsync uses ConfigureAwait(true)
-        // internally, so the continuation (UpdateApiKeyStatusDisplay) runs
-        // on the captured SynchronizationContext (UI thread).
-        _ = ProbeStoredApiKeyAsync();
         _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace
@@ -449,12 +340,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _blueAnchorTimestampSeconds = double.NaN;
         OnPropertyChanged(nameof(IsBlueLineAnchorActive));
         UpdateAllBlueLines();
-        // v3.61.0 PATCH BUG-004: cancel in-flight analysis on session reset.
-        // Creates fresh CTS for next analysis run.
-        _analysisCts?.Cancel();
-        _analysisCts?.Dispose();
-        _analysisCts = null;
-        CurrentAnalysisSession = null;
     }
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
@@ -527,9 +412,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _dbcService.DbcLoaded -= OnDbcLoaded;
         DetachAllServiceHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
-        // v3.61.0 PATCH BUG-004: cancel in-flight analysis HTTP requests.
-        _analysisCts?.Cancel();
-        _analysisCts?.Dispose();
+        // v3.62.0 BUG-FIX: 取消并释放聊天 CancellationTokenSource, 中止 in-flight HTTP 请求
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        _chatCts = null;
         GC.SuppressFinalize(this);
     }
 }
