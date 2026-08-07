@@ -19,15 +19,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # hil-core 是私有仓库 + 私有 NuGet 源（本地 feed D:\nuget-local），
+      # CI runner 无法直接 restore。Checkout 源码到 workspace sibling
+      # （GeneratorPluginLoaderTests 的 workspace-root 假定），Restore 前
+      # 本地 pack 进 D:\nuget-local（与开发机 feed 路径一致，nuget.config
+      # 无需改动）。token 用 fine-grained PAT（仅 peakcan-hil-core
+      # Contents:read），存于 repo secret HIL_CORE_PAT。
+      - name: Checkout hil-core (private, via PAT)
+        uses: actions/checkout@v4
+        with:
+          repository: jasontaotao/peakcan-hil-core
+          token: ${{ secrets.HIL_CORE_PAT }}
+          path: ../peakcan-hil-core
+
       # Plan §19 specifies .NET 8.0.x but the project is built against
-      # the .NET 10 SDK (verified in Task 1 — `dotnet --list-sdks` on
+      # the .NET 10 SDK (verified in Task 1 �?`dotnet --list-sdks` on
       # the dev box reports only 10.0.300). Bump to 10.0.x so CI
       # matches the local toolchain.
       - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-          include-prerelease: true
+
+      # Pack hil-core from the sibling checkout into the local feed dir
+      # the repo's nuget.config points at. CI runners have no D:\nuget-local
+      # by default; creating it here keeps restore identical to the dev box.
+      - name: Build + pack hil-core into local feed
+        run: |
+          dotnet build ../peakcan-hil-core/PeakCan.HIL.Core.slnx -c Release
+          New-Item -ItemType Directory -Force -Path D:\nuget-local | Out-Null
+          dotnet pack ../peakcan-hil-core/src/PeakCan.HIL.Core/PeakCan.HIL.Core.csproj -c Release -o D:\nuget-local --no-build
 
       - name: Restore
         run: dotnet restore PeakCan.Host.slnx
