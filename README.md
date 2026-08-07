@@ -6,9 +6,10 @@ Windows 专用 WPF 桌面主机，适配 **PEAK PCAN-USB FD / Pro FD** — 通�
 CAN 总线监控工具，支持 DBC 解码、手动发送、实时信号视图
 和 1 Hz 总线统计。
 
-> **状态:** v3.62.0 — 最新发布。支持 AI 聊天工具、UDS 诊断栈、脚本引擎、
-> 多通道录制与回放。**~1228 个单元测试通过**（Core 421 + Infrastructure 84 + App 723）；
-> 5 个跳过；NetArchTest 强制执行 5 条架构规则；每次推送 `main` 自动运行 CI。
+> **状态:** v3.61.0。支持多厂商 AI 聊天（DeepSeek/GLM/Kimi）、UDS 诊断栈、脚本引擎、
+> 多通道录制与回放、HIL 测试执行（`--format json`）、步骤校验框架。
+> **~2300 个单元测试通过**（Core ~796 + Infrastructure ~378 + App ~1128）；
+> 10 个跳过；NetArchTest 强制执行 5 条架构规则；每次推送 `main` 自动运行 CI。
 
 ## 功能特性
 
@@ -26,20 +27,21 @@ CAN 总线监控工具，支持 DBC 解码、手动发送、实时信号视图
   标准帧（11 位）和扩展帧（29 位）。
 - **总线统计** — 1 Hz 帧率 + 总线负载 % 图表；总计数 + 错误帧计数器。
 - **AI 聊天（v3.54.0+）** — 集成 LLM 驱动的聊天助手，支持信号搜索、时序分析、
-  异常检测、分组管理、信号别名等工具。**多厂商支持（v3.62.0+）**：DeepSeek / GLM / Kimi，
-  可在设置面板切换。
-- **AI Copilot（v3.62.0+，peakcan-studio）** — 自然语言生成测试步骤、分析测试失败根因，
-  支持 23 种 step kinds、DBC 数据脱敏、分层上下文管理、对话压缩。
+  异常检测、分组管理、信号别名等工具。**多厂商支持**：DeepSeek / GLM / Kimi / 自定义，
+  可在聊天设置面板切换。
+- **AI Copilot（peakcan-studio）** — 自然语言生成测试步骤、分析测试失败根因，
+  支持 24 种 step kinds、DBC 数据脱敏、分层上下文管理、对话压缩。
 - **UDS 诊断栈（v1.1.0）** — ISO 14229 诊断服务，包括会话控制、ECU 复位、
   DID 读写、安全访问、例程控制、DTC 读取与清除、Flash 编程。
 - **脚本引擎（v1.0.0）** — JavaScript 脚本，支持 `can.*` / `dbc.*` API，
   CodeMirror 6 编辑器，6 个预置示例脚本。
 - **帧录制（v0.5.0）** — 将接收帧录制到 ASC（Vector ASCII）或 CSV 格式。
 - **循环发送（v0.5.0）** — 按配置的间隔周期性发送 CAN 帧。
-- **HIL 测试执行 + `--format json`（v3.62.0+）** — CLI 产出 JSON 格式结果文件，
+- **HIL 测试执行 + `--format json`** — CLI 产出 JSON 格式结果文件，
   供 peakcan-studio Copilot 进行交互式失败分析。
-- **步骤校验框架（v3.62.0+）** — 23 种 step kinds 的 AI 生成步骤校验
-  （CAN ID / 信号名 / DID / 步骤顺序等），校验结果分级（Critical/High/Medium/Low）。
+- **步骤校验框架** — AI 生成步骤的自动校验（13/24 种 step kinds 已覆盖），
+  包括 CAN ID 存在性、信号名匹配、Session 类型、SecurityAccess 顺序、Timeout 范围等，
+  校验结果分级（High/Medium/Low）。
 
 ## HIL 配置器 Studio（独立仓库）
 
