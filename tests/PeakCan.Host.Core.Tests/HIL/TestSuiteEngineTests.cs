@@ -130,4 +130,103 @@ public class TestSuiteEngineTests
         Assert.Equal(1, result.CaseResults[0].TotalSteps); // Excludes Comment
         Assert.Equal(1, result.CaseResults[0].CommentSteps);
     }
+
+    // ── 负测试判定真值表（ExpectedVerdict）──
+    // 场景 1：默认 Any + 步骤 Failed → case Failed（行为不变，负测试不生效）
+
+    [Fact]
+    public async Task ExpectedVerdictAny_StepFails_CaseFails()
+    {
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Any);
+        var suite = new TestSuite("S", new[] { CreateCase(step) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.Equal(1, result.FailedCases);
+        Assert.False(result.AllPassed);
+        var stepResult = result.CaseResults[0].StepResults[0];
+        Assert.Equal(StepStatus.Failed, stepResult.Status);
+        Assert.False(stepResult.WasNegatedTest);
+    }
+
+    // 场景 2：预期 Fail + 实际 Failed → 负测试通过，步骤提升为 Passed（WasNegatedTest=true），case Passed
+
+    [Fact]
+    public async Task ExpectedVerdictFail_StepFails_NegatedTestPasses_CasePasses()
+    {
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var suite = new TestSuite("S", new[] { CreateCase(step) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.Equal(1, result.PassedCases);
+        Assert.True(result.AllPassed);
+        var stepResult = result.CaseResults[0].StepResults[0];
+        // StepResult 是位置 record：WasNegatedTest 参与合成值相等，故按单属性断言（ledger finding #3）
+        Assert.Equal(StepStatus.Passed, stepResult.Status);
+        Assert.True(stepResult.WasNegatedTest);
+        Assert.Contains("failed as expected (negated test)", stepResult.Message);
+    }
+
+    // 场景 3：预期 Fail + 实际 Passed → 负测试未生效（如发错误请求却收到成功响应），强制 Failed，case Failed
+
+    [Fact]
+    public async Task ExpectedVerdictFail_StepPasses_NegatedTestDidNotTakeEffect_CaseFails()
+    {
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var suite = new TestSuite("S", new[] { CreateCase(step) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.Equal(1, result.FailedCases);
+        Assert.False(result.AllPassed);
+        var stepResult = result.CaseResults[0].StepResults[0];
+        Assert.Equal(StepStatus.Failed, stepResult.Status);
+        Assert.False(stepResult.WasNegatedTest);
+        Assert.Contains("expected failure but passed (negated test)", stepResult.Message);
+    }
+
+    // 场景 4：预期 Fail + 实际 Failed + StopCaseOnFailure → 提升后 Passed==true，后续步骤不被跳过
+
+    [Fact]
+    public async Task ExpectedVerdictFail_StepFails_StopCaseOnFailure_DoesNotSkipSubsequentSteps()
+    {
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step2 = TestCaseStep.Create(new CommentStep("should still run"));
+        var suite = new TestSuite("S", new[] { CreateCase(step1, step2) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), default, default);
+
+        Assert.Equal(1, result.PassedCases);
+        Assert.True(result.AllPassed);
+        var stepResults = result.CaseResults[0].StepResults;
+        Assert.Equal(StepStatus.Passed, stepResults[0].Status);
+        Assert.True(stepResults[0].WasNegatedTest);
+        Assert.Equal(StepStatus.Comment, stepResults[1].Status); // NOT Skipped
+    }
 }

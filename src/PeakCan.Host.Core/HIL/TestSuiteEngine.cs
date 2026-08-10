@@ -162,6 +162,30 @@ public sealed class TestSuiteEngine
                     stepResults.Add(result with { StepIndex = i, ElapsedMs = (int)stepSw.ElapsedMilliseconds });
                 }
 
+                // ── 负测试判定（ExpectedVerdict 真值表，两分支都必须实现）──
+
+                // 分支 A：预期 Fail + 实际 Failed → 负测试通过，提升 Status 为 Passed
+                if (step.ExpectedVerdict == ExpectedVerdict.Fail
+                    && stepResults[^1].Status == StepStatus.Failed)
+                {
+                    stepResults[^1] = stepResults[^1] with
+                    {
+                        Status = StepStatus.Passed,
+                        WasNegatedTest = true,
+                        Message = $"Step {i} failed as expected (negated test): {stepResults[^1].Message}",
+                    };
+                }
+                // 分支 B：预期 Fail + 实际 Passed → 负测试未生效（如发错误请求却收到成功响应），
+                // 必须判 Failed —— 否则核心场景"如果没返回 NRC 就是失败"会静默误判为通过
+                else if (step.ExpectedVerdict == ExpectedVerdict.Fail)
+                {
+                    stepResults[^1] = stepResults[^1] with
+                    {
+                        Status = StepStatus.Failed,
+                        Message = $"Step {i} expected failure but passed (negated test): {stepResults[^1].Message}",
+                    };
+                }
+
                 // Capture FramesAroundFailure on step failure
                 if (!stepResults[^1].Passed && stepResults[^1].FramesAroundFailure is null && ctx is IHasRecentFrames hasRecent)
                 {
