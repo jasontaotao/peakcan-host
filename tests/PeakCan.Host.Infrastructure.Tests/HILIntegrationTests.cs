@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
@@ -9,6 +10,7 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
 
@@ -229,6 +231,31 @@ base hex  timestamps absolute
         {
             File.Delete(dbcPath);
             File.Delete(ascPath);
+        }
+    }
+
+    [Fact]
+    public void Di_double_lambda_registers_DbcDocument_and_IDbcLookup()
+    {
+        // Spike 2026-08-10 验证项 3：HeadlessHostBuilder 改为 DbcDocument 工厂单例 +
+        // IDbcLookup 依赖它（两个独立 lambda）。验证 MS DI 容器解析两者均成功、
+        // IDbcLookup 能查到 DbcDocument 里的消息（证明依赖注入正确、无 InvalidOperationException）。
+        var dbcPath = WriteTempDbc(SimpleDBC);
+        try
+        {
+            var args = new CliArgs(dbcPath, "suite.json", TracePath: "trace.asc");
+            using var host = HeadlessHostBuilder.Build(args);
+
+            var doc = host.Services.GetRequiredService<DbcDocument>();
+            doc.Should().NotBeNull();
+            doc.MessagesById.Should().NotBeEmpty();
+
+            var lookup = host.Services.GetRequiredService<IDbcLookup>();
+            lookup.FindMessage(0x100).Should().NotBeNull("IDbcLookup 应从注册的 DbcDocument 中查到消息");
+        }
+        finally
+        {
+            File.Delete(dbcPath);
         }
     }
 }

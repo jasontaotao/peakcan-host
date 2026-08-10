@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.HIL.Reporting;
@@ -13,6 +14,8 @@ public interface IHilReportService
     /// <summary>
     /// Generate the self-contained HTML report for <paramref name="result"/>, persist it to
     /// the report directory, append a trend entry, and return the HTML content + file path.
+    /// When <paramref name="dbc"/> is provided, frames around failures are decoded into
+    /// DBC signal values; otherwise they fall back to raw hex.
     /// </summary>
-    HilReportResult Generate(TestSuiteResult result);
+    HilReportResult Generate(TestSuiteResult result, DbcDocument? dbc = null);
 }

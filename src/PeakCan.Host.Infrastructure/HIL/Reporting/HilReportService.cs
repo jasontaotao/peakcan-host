@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
 
@@ -18,12 +19,12 @@ public sealed class HilReportService : IHilReportService
                             "PeakCanHost", "hil-reports");
     }
 
-    public HilReportResult Generate(TestSuiteResult result)
+    public HilReportResult Generate(TestSuiteResult result, DbcDocument? dbc = null)
     {
         Directory.CreateDirectory(ReportDirectory);
         var trendsPath = Path.Combine(ReportDirectory, "hil-trends.json");
         var trends = TrendTracker.Load(trendsPath);
-        var html = HtmlReportGenerator.GenerateHtml(result, trends);
+        var html = HtmlReportGenerator.GenerateHtml(result, trends, dbc);
         // 单次捕获时间戳：文件名与趋势条目使用同一时刻（R4）。
         var now = DateTime.UtcNow;
         var filePath = Path.Combine(ReportDirectory, $"hil-report-{now:yyyyMMddHHmmssfff}.html");

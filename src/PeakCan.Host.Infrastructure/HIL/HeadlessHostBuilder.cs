@@ -81,15 +81,20 @@ public static class HeadlessHostBuilder
             });
         }
 
-        // DBC lookup
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>(sp =>
+        // DBC: DbcDocument 工厂单例 + IDbcLookup 依赖它（P0 修复 2026-08-10）。
+        // 报告解码需要 DbcDocument.ValueTables（查 VAL_ 枚举文本），但 IDbcLookup 只暴露
+        // FindMessage/GetAllMessages，无 ValueTables —— 故必须把 DbcDocument 本身注册进 DI。
+        // 两个独立 lambda（MS DI 的 provider 构建后集合只读，不能在 lambda 内 AddSingleton）。
+        builder.Services.AddSingleton(sp =>
         {
             var text = File.ReadAllText(args.DbcPath);
             var doc = PeakCan.HIL.Core.Dbc.DbcParser.Parse(text);
             if (!doc.IsSuccess)
                 throw new InvalidOperationException($"DBC parse failed for '{args.DbcPath}': {doc.Error?.Message}");
-            return new HeadlessDbcLookup(doc.Value!);
+            return doc.Value!;
         });
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>(sp =>
+            new HeadlessDbcLookup(sp.GetRequiredService<DbcDocument>()));
 
         // Assertion context + UDS (hardware / virtual-ECU / matrix / trace)
         if (args.HardwareChannel is not null)

@@ -1,3 +1,5 @@
+using PeakCan.HIL.Core.Dbc;
+
 namespace PeakCan.HIL.Core.HIL;
 
 /// <summary>
@@ -10,4 +12,7 @@ public interface IHilRunnerService
         PeakCan.HIL.Core.HIL.HilRunRequest request,
         IProgress<TestProgress>? progress = null,
         CancellationToken ct = default);
+
+    /// <summary>最近一次 RunAsync 实际解析的 DBC 文档；未运行或无 DBC 时为 null。</summary>
+    DbcDocument? LastDbcDocument { get; }
 }

@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Text;
 using System.Web;
 using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
+using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Infrastructure.Cli.Reporting;
 
@@ -14,12 +16,15 @@ public static class HtmlReportGenerator
 {
     private const int MaxFramesInReport = 50;
     private const int MaxTrendEntries = 20;
+    private const int MaxTimelineSignals = 8;
 
     /// <summary>
     /// Generate a complete HTML document string for the given result.
     /// Optionally include a sparkline of historical trends.
+    /// When <paramref name="dbc"/> is provided, frames around failures are
+    /// decoded into DBC signal values; otherwise they fall back to raw hex.
     /// </summary>
-    public static string GenerateHtml(TestSuiteResult result, IReadOnlyList<TrendEntry>? trends = null)
+    public static string GenerateHtml(TestSuiteResult result, IReadOnlyList<TrendEntry>? trends = null, DbcDocument? dbc = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html>");
@@ -46,11 +51,14 @@ public static class HtmlReportGenerator
         // Summary card
         sb.AppendLine(RenderSummaryCard(result));
 
-        // Per-case details
-        sb.AppendLine("<details open><summary>Test Cases</summary>");
+        // 单元 C：搜索 + 状态筛选工具栏（纯前端，JS 驱动）
+        sb.AppendLine(RenderSearchToolbar());
+
+        // Per-case details（默认收起；JS 在 DOMContentLoaded 中展开含失败步骤的 case）
+        sb.AppendLine("<details><summary>Test Cases</summary>");
         foreach (var c in result.CaseResults)
         {
-            sb.AppendLine(RenderCase(c));
+            sb.AppendLine(RenderCase(c, dbc));
         }
         sb.AppendLine("</details>");
 
@@ -81,7 +89,23 @@ public static class HtmlReportGenerator
             """;
     }
 
-    private static string RenderCase(TestCaseResult c)
+    private static string RenderSearchToolbar()
+    {
+        // 单元 C：纯前端搜索 + 状态筛选。data-filter 供 JS 绑定状态切换。
+        return """
+            <div class="toolbar" role="search">
+              <input type="search" id="stepSearch" placeholder="Search steps by label / message…" aria-label="Search steps">
+              <div class="filter-group" role="group" aria-label="Filter by status">
+                <button type="button" class="filter-btn active" data-filter="all" aria-pressed="true">All</button>
+                <button type="button" class="filter-btn" data-filter="pass" aria-pressed="false">Passed</button>
+                <button type="button" class="filter-btn" data-filter="fail" aria-pressed="false">Failed</button>
+                <button type="button" class="filter-btn" data-filter="skipped" aria-pressed="false">Skipped</button>
+              </div>
+            </div>
+            """;
+    }
+
+    private static string RenderCase(TestCaseResult c, DbcDocument? dbc = null)
     {
         var sb = new StringBuilder();
         var statusClass = c.Passed ? "pass" : "fail";
@@ -113,12 +137,24 @@ public static class HtmlReportGenerator
                 _ => "",
             };
 
-            sb.AppendLine($"<tr class=\"{stepClass}\">" +
+            // 负测试步骤：引擎将 Status 提升为 Passed，但语义是"预期失败确实发生"。
+            // 用独立 class negated-pass（黄左边框）区分"预期失败的通过"与"正常通过"。
+            var rowClass = step.WasNegatedTest ? "negated-pass" : stepClass;
+            var statusCell = step.Status.ToString();
+            if (step.WasNegatedTest)
+            {
+                statusCell += " <span class=\"badge negated\" title=\"负测试：预期失败确实发生\">[negated]</span>";
+            }
+
+            // 结构层（单元 C）：data-status 供 JS 状态筛选（值与 CSS class 一致），
+            // step-label/step-message 供 JS 文本搜索。
+            var dataStatus = stepClass;  // pass / fail / skipped / comment
+            sb.AppendLine($"<tr class=\"{rowClass}\" data-status=\"{dataStatus}\">" +
                 $"<td>{step.StepIndex}</td>" +
                 $"<td>{HtmlEncode(step.Kind.ToString())}</td>" +
-                $"<td>{HtmlEncode(step.Label ?? "")}</td>" +
-                $"<td>{step.Status}</td>" +
-                $"<td>{HtmlEncode(step.Message ?? "")}</td>" +
+                $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
+                $"<td>{statusCell}</td>" +
+                $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
                 $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
                 $"<td>{HtmlEncode(step.ExpectedValue ?? "")}</td>" +
                 $"<td>{step.ElapsedMs}</td>" +
@@ -127,9 +163,11 @@ public static class HtmlReportGenerator
             // Inline hex dump for failed steps with frames
             if (step.Status == StepStatus.Failed && step.FramesAroundFailure is { Count: > 0 })
             {
-                sb.AppendLine("<tr><td colspan=\"8\">");
+                sb.AppendLine("<tr class=\"frame-dump-row\"><td colspan=\"8\">");
                 sb.AppendLine("<div class=\"frame-dump\"><strong>Frames around failure:</strong>");
-                sb.AppendLine("<table><thead><tr><th>CAN ID</th><th>Data (hex)</th><th>Timestamp (µs)</th></tr></thead><tbody>");
+                sb.AppendLine("<table><thead><tr>" +
+                    "<th>CAN ID</th><th>Data (hex)</th><th>Timestamp (µs)</th><th>Decoded Signals</th>" +
+                    "</tr></thead><tbody>");
 
                 var count = 0;
                 foreach (var frame in step.FramesAroundFailure)
@@ -143,16 +181,20 @@ public static class HtmlReportGenerator
                         $"<td>{HtmlEncode(idStr)}</td>" +
                         $"<td class=\"mono\">{HtmlEncode(dataHex)}</td>" +
                         $"<td>{frame.Timestamp.TotalMicroseconds}</td>" +
+                        $"<td>{RenderDecodedSignals(frame, dbc)}</td>" +
                         "</tr>");
                     count++;
                 }
 
                 if (step.FramesAroundFailure.Count > MaxFramesInReport)
                 {
-                    sb.AppendLine($"<tr><td colspan=\"3\" class=\"muted\">... {step.FramesAroundFailure.Count - MaxFramesInReport} more frames (capped at {MaxFramesInReport})</td></tr>");
+                    sb.AppendLine($"<tr><td colspan=\"4\" class=\"muted\">... {step.FramesAroundFailure.Count - MaxFramesInReport} more frames (capped at {MaxFramesInReport})</td></tr>");
                 }
 
-                sb.AppendLine("</tbody></table></div>");
+                sb.AppendLine("</tbody></table>");
+                // 单元 D：DBC 可用时，失败帧集下方渲染信号时序图
+                sb.AppendLine(RenderSignalTimeline(step.FramesAroundFailure, dbc));
+                sb.AppendLine("</div>");
                 sb.AppendLine("</td></tr>");
             }
         }
@@ -203,8 +245,183 @@ public static class HtmlReportGenerator
         return sb.ToString();
     }
 
+    private static string RenderDecodedSignals(CanFrame frame, DbcDocument? dbc)
+    {
+        if (dbc is null)
+            return "";
+
+        // 查找 key 用 IDE bit 合并，与 AssertionContext 保持一致
+        // 用全限定名：本地 Infrastructure 版本与外部包 PeakCan.HIL.Core.HIL.DbcLookupKey 同名，避免歧义
+        var lookupKey = PeakCan.Host.Infrastructure.HIL.DbcLookupKey.ToLookupKey(frame.Id.Raw, frame.Id.IsExtended);
+        if (!dbc.MessagesById.TryGetValue(lookupKey, out var msg))
+            return "";
+
+        var decoded = string.Join(", ", msg.Signals.Select(s =>
+        {
+            // P0：信号名/枚举文本必须 HtmlEncode，防 DBC 内容注入 HTML
+            // P1：SignalDecoder.Decode 对 >64bit 信号抛 ArgumentOutOfRangeException，
+            //   加 try/catch 避免单条信号解码失败导致整个报告生成失败
+            try
+            {
+                var val = SignalDecoder.Decode(frame.Data.Span, s);
+                var enumText = s.ValueTableName is not null
+                    ? SignalDecoder.TryDecodeEnumText(s, val, dbc)
+                    : null;
+                var display = enumText ?? val.ToString("G", CultureInfo.InvariantCulture);
+                return $"{HtmlEncode(s.Name)}={HtmlEncode(display)}";
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return $"{HtmlEncode(s.Name)}=ERR";
+            }
+        }));
+        // 每个信号已单独 encode，这里返回原始字符串（调用方外层 <td> 包裹）
+        return decoded;
+    }
+
     private static string HtmlEncode(string s)
         => HttpUtility.HtmlEncode(s);
+
+    /// <summary>
+    /// 单元 D：为失败步骤的 FramesAroundFailure 渲染 SVG 信号时序图。
+    /// Y 轴位置编码信号值（主线），颜色仅作多信号区分辅助（色盲可访问）；
+    /// 每信号配 &lt;title&gt; tooltip 显示精确值。仅覆盖失败前后 ≤50 帧（引擎捕获范围）。
+    /// </summary>
+    private static string RenderSignalTimeline(IReadOnlyList<CanFrame> frames, DbcDocument? dbc)
+    {
+        if (dbc is null || frames.Count == 0)
+            return "";
+
+        // 信号集：帧集内出现的所有 CAN ID 查 MessagesById 得消息，取全部信号，
+        // 按 (消息名, 信号名) 字典序排序（同一信号名跨消息不合并）。
+        var msgIds = new HashSet<uint>();
+        foreach (var f in frames)
+        {
+            var key = PeakCan.Host.Infrastructure.HIL.DbcLookupKey.ToLookupKey(f.Id.Raw, f.Id.IsExtended);
+            if (dbc.MessagesById.ContainsKey(key))
+                msgIds.Add(key);
+        }
+        if (msgIds.Count == 0)
+            return "";
+
+        var entries = new List<(uint MsgId, string MsgName, Signal Sig)>();
+        foreach (var id in msgIds)
+        {
+            var msg = dbc.MessagesById[id];
+            foreach (var s in msg.Signals)
+                entries.Add((id, msg.Name, s));
+        }
+        var ordered = entries
+            .OrderBy(e => e.MsgName, StringComparer.Ordinal)
+            .ThenBy(e => e.Sig.Name, StringComparer.Ordinal)
+            .ToList();
+
+        // L2：零信号消息（帧集内所有消息均无信号）时无图可画，返回空避免空 SVG 占位框。
+        if (ordered.Count == 0)
+            return "";
+
+        // 复杂度 cap：信号 > 8 仅渲染前 8 个（已按字典序），避免 SVG 过大/卡顿。
+        var signals = ordered.Count > MaxTimelineSignals
+            ? ordered.Take(MaxTimelineSignals).ToList()
+            : ordered;
+        var capped = ordered.Count > MaxTimelineSignals;
+
+        const int width = 600;
+        const int height = 200;
+        const int pad = 30;
+
+        // 相对时间（首帧为 0 µs）
+        var t0 = frames[0].Timestamp.TotalMicroseconds;
+        var tMax = frames[^1].Timestamp.TotalMicroseconds - t0;
+        if (tMax < 1) tMax = 1;
+
+        var slot = (height - 2 * pad) / (double)signals.Count;
+        var palette = new[]
+        {
+            "#64ffda", "#ff5252", "#ffd740", "#82b1ff",
+            "#ff8a65", "#b39ddb", "#a5d6a7", "#f48fb1",
+        };
+
+        var sb = new StringBuilder();
+        var header = capped
+            ? $"<div class=\"timeline-note\">showing {signals.Count}/{ordered.Count} signals</div>"
+            : "";
+        sb.AppendLine($"{header}<svg class=\"signal-timeline\" viewBox=\"0 0 {width} {height}\" width=\"100%\" height=\"{height}\" role=\"img\" aria-label=\"Signal timeline\">");
+
+        for (int i = 0; i < signals.Count; i++)
+        {
+            var (entryMsgId, _, sig) = signals[i];
+            var color = palette[i % palette.Length];
+            var yTop = pad + i * slot;
+            var yBot = pad + (i + 1) * slot;
+
+            // 该信号在帧集内的 min/max 独立归一化，避免量级差异互相压扁
+            var values = new List<(int idx, double val, double t)>();
+            for (int fi = 0; fi < frames.Count; fi++)
+            {
+                // H1：只对属于该信号所属消息的帧解码。其它 CAN ID 的帧不含此信号，
+                // 强行解码得到伪值会污染曲线（多 ID 混合捕获下每个信号都会被污染）。
+                var frameKey = PeakCan.Host.Infrastructure.HIL.DbcLookupKey
+                    .ToLookupKey(frames[fi].Id.Raw, frames[fi].Id.IsExtended);
+                if (frameKey != entryMsgId)
+                    continue;  // 跳过 → idx 不连续，天然触发下方断段逻辑
+                try
+                {
+                    var val = SignalDecoder.Decode(frames[fi].Data.Span, sig);
+                    values.Add((fi, val, frames[fi].Timestamp.TotalMicroseconds - t0));
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    // 无法解码的帧点跳过 → 断线不插值
+                }
+            }
+            if (values.Count == 0)
+                continue;
+
+            var vMin = values.Min(v => v.val);
+            var vMax = values.Max(v => v.val);
+            var vRange = vMax - vMin;
+            if (vRange < 0.001) vRange = 1.0;
+
+            double Y(double val) => yBot - (val - vMin) / vRange * (yBot - yTop - 8) - 4;
+            double X(double t) => pad + (width - 2 * pad) * t / tMax;
+
+            sb.AppendLine($"<text x=\"{pad}\" y=\"{yTop - 4}\" font-size=\"10\" fill=\"{color}\">{HtmlEncode(sig.Name)}</text>");
+
+            // 逐段 polyline：连续有效点成段，遇无效帧断开（断线不插值）
+            var segments = new List<List<(int idx, double x, double y, double val, double t)>>();
+            var cur = new List<(int idx, double x, double y, double val, double t)>();
+            foreach (var v in values)
+            {
+                // 只连时间上相邻的帧；间隔 >1 帧则断段
+                if (cur.Count > 0 && v.idx != cur[^1].idx + 1)
+                {
+                    if (cur.Count > 0) segments.Add(cur);
+                    cur = new List<(int, double, double, double, double)>();
+                }
+                cur.Add((v.idx, X(v.t), Y(v.val), v.val, v.t));
+            }
+            if (cur.Count > 0) segments.Add(cur);
+
+            foreach (var seg in segments)
+            {
+                var tooltip = $"{sig.Name}: {string.Join(", ", seg.Select(p => $"{p.val.ToString("G", CultureInfo.InvariantCulture)} @ {p.t:F0}µs"))}";
+                if (seg.Count >= 2)
+                {
+                    var pts = string.Join(" ", seg.Select(p => $"{p.x:F1},{p.y:F1}"));
+                    sb.AppendLine($"<polyline points=\"{pts}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"><title>{HtmlEncode(tooltip)}</title></polyline>");
+                }
+                else
+                {
+                    var p = seg[0];
+                    sb.AppendLine($"<circle cx=\"{p.x:F1}\" cy=\"{p.y:F1}\" r=\"3\" fill=\"{color}\"><title>{HtmlEncode(tooltip)}</title></circle>");
+                }
+            }
+        }
+
+        sb.AppendLine("</svg>");
+        return sb.ToString();
+    }
 
     private static string EmbedCss()
         => """
@@ -299,6 +516,8 @@ public static class HtmlReportGenerator
             tr.fail td { color: var(--fail); }
             tr.skipped td { color: var(--skipped); }
             tr.comment td { color: var(--comment); font-style: italic; }
+            tr.negated-pass td { border-left: 3px solid #ffc107; }
+            .badge.negated { background: rgba(255, 193, 7, 0.15); color: #ffc107; }
             .mono { font-family: "Cascadia Code", "Fira Code", Consolas, monospace; }
             .muted { color: var(--muted); }
             .frame-dump {
@@ -309,8 +528,45 @@ public static class HtmlReportGenerator
               overflow-x: auto;
             }
             .frame-dump table { font-size: 12px; }
+            .timeline-note { font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+            .signal-timeline { margin-top: 6px; background: rgba(0, 0, 0, 0.15); border-radius: 4px; }
             .sparkline { background: var(--surface); border-radius: 8px; padding: 16px; margin: 20px 0; border: 1px solid var(--border); }
             .sparkline h3 { margin: 0 0 8px 0; font-size: 14px; color: var(--muted); }
+            .toolbar {
+              display: flex;
+              gap: 12px;
+              align-items: center;
+              flex-wrap: wrap;
+              background: var(--surface);
+              border: 1px solid var(--border);
+              border-radius: 8px;
+              padding: 12px;
+              margin: 12px 0;
+            }
+            .toolbar input[type="search"] {
+              flex: 1 1 240px;
+              background: var(--bg);
+              border: 1px solid var(--border);
+              border-radius: 6px;
+              color: var(--text);
+              padding: 8px 12px;
+              font-size: 14px;
+              min-width: 200px;
+            }
+            .toolbar input[type="search"]:focus { outline: none; border-color: var(--accent); }
+            .filter-group { display: flex; gap: 6px; }
+            .filter-btn {
+              background: var(--bg);
+              color: var(--muted);
+              border: 1px solid var(--border);
+              border-radius: 6px;
+              padding: 6px 12px;
+              font-size: 13px;
+              cursor: pointer;
+              transition: background 0.15s, color 0.15s, border-color 0.15s;
+            }
+            .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+            .filter-btn.active { background: rgba(100, 255, 218, 0.15); color: var(--accent); border-color: var(--accent); }
             details { margin-top: 16px; }
             details summary { cursor: pointer; font-size: 16px; font-weight: 600; padding: 8px 0; }
             @media (max-width: 768px) {
@@ -321,8 +577,52 @@ public static class HtmlReportGenerator
 
     private static string EmbedJs()
         => """
-            // Toggle all case sections via the parent <details>
             document.addEventListener('DOMContentLoaded', function() {
+              // 单元 C：默认收起时，展开含失败步骤的 case
+              document.querySelectorAll('details').forEach(function(details) {
+                if (details.querySelector('tr[data-status="fail"]')) details.open = true;
+              });
+
+              var search = document.getElementById('stepSearch');
+              var filterButtons = document.querySelectorAll('.filter-btn');
+              var activeFilter = 'all';
+
+              function applyFilters() {
+                // 搜索/筛选是主动操作：展开 details 并恢复被 h3 折叠的 case table，
+                // 确保匹配行可见（折叠的 case/table 内 display 仍为 normal 但用户看不到结果）。
+                document.querySelectorAll('details').forEach(function(d) { d.open = true; });
+                document.querySelectorAll('.case table').forEach(function(t) { t.style.display = ''; });
+                var q = (search.value || '').toLowerCase().trim();
+                document.querySelectorAll('tr[data-status]').forEach(function(tr) {
+                  var status = tr.getAttribute('data-status');
+                  var statusOk = activeFilter === 'all' || status === activeFilter;
+                  var label = tr.querySelector('.step-label');
+                  var message = tr.querySelector('.step-message');
+                  var text = ((label ? label.textContent : '') + ' ' + (message ? message.textContent : '')).toLowerCase();
+                  var searchOk = q === '' || text.indexOf(q) !== -1;
+                  var show = statusOk && searchOk;
+                  tr.style.display = show ? '' : 'none';
+                  // 同步紧随的 frame-dump 行（无 data-status，需显式显隐）
+                  var next = tr.nextElementSibling;
+                  if (next && next.classList.contains('frame-dump-row')) {
+                    next.style.display = show ? '' : 'none';
+                  }
+                });
+              }
+
+              if (search) search.addEventListener('input', applyFilters);
+              filterButtons.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                  activeFilter = btn.getAttribute('data-filter');
+                  filterButtons.forEach(function(b) {
+                    var isActive = b === btn;
+                    b.classList.toggle('active', isActive);
+                    b.setAttribute('aria-pressed', isActive ? 'true' : 'false');  // 无障碍：激活态对读屏可见
+                  });
+                  applyFilters();
+                });
+              });
+
               // Add click-to-expand for individual case headers
               document.querySelectorAll('.case h3').forEach(function(h3) {
                 h3.style.cursor = 'pointer';

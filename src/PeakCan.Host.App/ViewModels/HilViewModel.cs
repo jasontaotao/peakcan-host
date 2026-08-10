@@ -304,9 +304,11 @@ public sealed partial class HilViewModel : ObservableObject
             // Phase 7 Unit C: 生成 HTML 报告。插入点在 StatusMessage 之后、Phase 7 A 的
             // AnalyzeAsync 之前 —— 报告是秒级本地 IO，不被 LLM 调用（最长 ~150s 超时）阻塞。
             // 失败不阻断测试结果展示（ShowReportError=true → UI 显示错误而非崩溃）。
+            // DBC 数据源：取本次运行实际解析的文档（_runner.LastDbcDocument），避免 DbcService.Current
+            // 指向 trace 面板的其它文件导致解码错 DBC；可能为 null（无 DBC），报告回落 hex 显示。
             try
             {
-                var report = _reportService.Generate(result);
+                var report = _reportService.Generate(result, _runner.LastDbcDocument);
                 LatestReportPath = report.FilePath;
                 ShowReportError = false;
                 ReportError = "";

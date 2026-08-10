@@ -18,6 +18,9 @@
 10. **P2** §5 单元 A WPF 接线：修正跨层依赖方向（Infrastructure 不能引用 App 层 `DbcService`）
 11. **P1** 2026-08-10 二次评审修订：§3/§7 更正 `IDbcLookup` 接口描述；废弃 lambda 内 `AddSingleton`（MS DI 构建后集合只读）；修正风险表"CLI 无 --dbc"伪场景（`CliArgsParser.cs:116` 强制 `--dbc`）；§5 补 WPF DBC 数据源一致性方案（`DbcService.Current` 与 `DbcPath` 双数据源）；§5 补单元 C details 默认收起语义、单元 D 信号集选择规则、帧表 thead/colspan 同步；§9 Spike 缩减至 0.25 天（API 已反射验证）
 12. **P0** 2026-08-10 三次修订（二次 review 修复）：§4/§5 WPF DBC 数据源从 `DbcService.Current` 改为 `IHilRunnerService.LastDbcDocument`（避免双重解析 + 解码错 DBC）；§4 新增 `IHilRunnerService.cs` / `HilRunnerService.cs` 变更；§3 补 `IDbcLookup` 反射与 spec 文档差异说明；§5 限定"CLI 强制 --dbc"为正常/simulate 模式（ODX 例外）；§5 统一单元 D 信号排序为 `(消息名, 信号名)` 字典序；§5 修正 `DbcParser.Parse` 签名；§9 Spike 明确"仅验证确认、建类归入单元 A"，单元 A 调为 1.75 天，总工时 4 天
+13. **P0** 2026-08-10 Spike 实测修订：**撤销前置步骤 1（建 `HeadlessDbcLookup` 类）**——反射验证外部包 `PeakCan.HIL.Core` 0.6.4 已含该类（`PeakCan.HIL.Core.HIL.HeadlessDbcLookup`：`ctor(DbcDocument)` + `FindMessage(uint)` + `GetAllMessages()`），源码 `HeadlessHostBuilder.cs:91` + 测试 4 处引用**已能编译**。baseline `dotnet build` 0 错误，无隐藏问题。`DbcParser.Parse` 双重载确认。**前置步骤 2（DI 双 lambda）仍有效**（`DbcDocument` 未注册）。§3 移除"⚠️ 缺失类"行；§7 移除该 P0 risk；§5/§9 相应更新
+14. **2026-08-10 Plan Review 修订（实施后验证，10 条回应）**：① `HeadlessDbcLookup` 类在外部包已含两方法，无需本 plan 实现（Spike 已证）；② §4 路径更正 `IHilRunnerService.cs` 在 `Core/HIL/Contracts/`（非 `Infrastructure/HIL/`）；③ 帧表 thead 与 tbody 均固定 4 列（Decoded Signals 无 DBC 时空列），无错位；④ `rowClass` 已应用到 `<tr class>`；⑤ WPF 接线补完整 try-catch（含 `_runner.LastDbcDocument`）；⑥ `HilRunnerService.RunAsync` 入口重置 `LastDbcDocument = null`（防运行失败残留旧 DBC）；⑦ `IHilReportService.Generate` 是**修改现有方法**加可选参数（非重载），现有调用方零改动；⑧ 单元 C 搜索/筛选交互时展开所有 case（主动操作，结果可见）；⑨ 无 DBC 时帧转储区 Decoded 列空、无 SVG，其余结构不变；⑩ §6 验证补非 HTML 格式回归说明（全量套件已覆盖）
+15. **2026-08-10 code-review agent 修复**（1 HIGH + 4 LOW）：**H1（HIGH，已修复）** SVG 时序图逐帧解码未按信号所属消息过滤——多 CAN ID 混合帧集下每条曲线都被其它消息帧的伪解码值污染。修复：`RenderSignalTimeline` 的 `entries` 携带 `MsgId`，解码循环内按 `DbcLookupKey.ToLookupKey` 过滤帧（不等 `continue`，触发断段）。补回归测试 `HtmlReport_SvgTimeline_FiltersFramesBySignalMessageId`。**L2（已修复）** 零信号消息时 `ordered.Count==0` 返回空，避免 Infinity slot 空 SVG 框。**L3（部分修复）** filter-btn 加 `aria-pressed`（读屏可感知激活态）；SVG 文本等价摘要列为已知限制。**L1/L4（记录接受）** LastDbcDocument 单例可变状态并发风险（现状 IsRunning 守卫缓解）、全通过默认收起 UX 权衡（plan 已记录）
 
 ## 1. 产品定位
 
@@ -52,7 +55,7 @@
 | 帧转储 | `HtmlReportGenerator.cs:128-157` | 内联 `<table>`，capped 50 帧 |
 | DBC DI 注册 | `HeadlessHostBuilder.cs:85-92` | 当前仅注册 `IDbcLookup`（`HeadlessDbcLookup`），`DbcDocument` 未注册 |
 | DBC 服务访问（WPF） | `DbcService.Current` | `DbcDocument?` 属性，null 时 DBC 未加载；**trace 面板状态，报告不用它**（报告用 `_runner.LastDbcDocument`） |
-| ⚠️ 缺失类 | `HeadlessDbcLookup` | 被 `HeadlessHostBuilder` 和测试引用，但**类定义文件不存在** |
+| `HeadlessDbcLookup` | **外部包** `PeakCan.HIL.Core.HIL.HeadlessDbcLookup`（0.6.4） | `ctor(DbcDocument)` + `FindMessage(uint)` + `GetAllMessages()`；**已存在于外部包，无需新建**（Spike 反射验证 2026-08-10） |
 
 ## 4. Files to Change
 
@@ -60,14 +63,13 @@
 
 | File | Action | Change |
 |------|--------|--------|
-| `Infrastructure/HIL/HeadlessDbcLookup.cs` | **CREATE** | **P0 前置**：实现 `IDbcLookup`，构造函数接受 `DbcDocument`（类定义缺失，见 §3 ⚠️） |
 | `Infrastructure/Cli/Reporting/HtmlReportGenerator.cs` | EDIT | `GenerateHtml` 加 `DbcDocument?` 参数；帧渲染时解码信号 |
-| `Infrastructure/HIL/HeadlessHostBuilder.cs` | EDIT | **P0 修复**：改为两个独立 lambda —— `DbcDocument` 工厂单例 + `IDbcLookup` 依赖它（见 §5 单元 A） |
+| `Infrastructure/HIL/HeadlessHostBuilder.cs` | EDIT | **P0 修复**：改为两个独立 lambda —— `DbcDocument` 工厂单例 + `IDbcLookup` 依赖它（见 §5 单元 A；`HeadlessDbcLookup` 类已在外部包 0.6.4，无需新建） |
 | `Host.Cli/Program.cs` | EDIT | 从 DI 拿 `DbcDocument` 传入 `GenerateHtml` |
 | `Infrastructure/HIL/Reporting/HilReportService.cs` | EDIT | `Generate` 加 `DbcDocument?` 可选参数（`= null`，现有调用方不改） |
 | `Infrastructure/HIL/Reporting/IHilReportService.cs` | EDIT | 接口签名追加可选参数（`DbcDocument? = null`） |
-| `Infrastructure/HIL/IHilRunnerService.cs` | EDIT | 新增 `DbcDocument? LastDbcDocument { get; }` —— 暴露运行实际解析的 DBC（见 §5 单元 A） |
-| `Infrastructure/HIL/HilRunnerService.cs` | EDIT | `RunAsync` 内 `HeadlessHostBuilder.Build` 后取 `DbcDocument` 赋给 `LastDbcDocument` |
+| `Core/HIL/Contracts/IHilRunnerService.cs` | EDIT | 新增 `DbcDocument? LastDbcDocument { get; }` —— 暴露运行实际解析的 DBC（见 §5 单元 A；接口在 Core 层，非 Infrastructure） |
+| `Infrastructure/HIL/HilRunnerService.cs` | EDIT | `RunAsync` 入口重置 `LastDbcDocument = null`；`Build` 后取 `DbcDocument` 赋给 `LastDbcDocument` |
 | `App/ViewModels/HilViewModel.cs` | EDIT | 调用 `_reportService.Generate` 时传入 DBC（从 `_runner.LastDbcDocument` 拿，无需注入 `DbcService`） |
 | 测试 | `HtmlReportGeneratorTests.cs` | 加 DBC 解码测试用例（含无 DBC 回落路径） |
 
@@ -96,29 +98,11 @@
 
 ### 单元 A: DBC 信号解码进报告（1.5 天）
 
-**P0 前置步骤 1：创建 `HeadlessDbcLookup` 类**（类定义文件缺失）
+**P0 前置步骤 1：确认 `HeadlessDbcLookup` 来自外部包**（类定义已在外部包，无需新建）
 
-`HeadlessHostBuilder.cs:91` 和测试共 5 处引用 `new HeadlessDbcLookup(doc.Value!)`，但类定义不存在。
-需新建 `Infrastructure/HIL/HeadlessDbcLookup.cs`：
-```csharp
-using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.HIL.Contracts;
-
-namespace PeakCan.Host.Infrastructure.HIL;
-
-/// <summary>
-/// Headless/CLI 模式的 DBC 查找适配器。包装 DbcDocument，实现 IDbcLookup。
-/// 注册到 DI 后供 PeakCanAssertionContext / HILAssertionContext 消费。
-/// </summary>
-internal sealed class HeadlessDbcLookup : IDbcLookup
-{
-    private readonly DbcDocument _doc;
-    public HeadlessDbcLookup(DbcDocument doc) => _doc = doc;
-
-    public Message? FindMessage(uint canId)
-        => _doc.MessagesById.TryGetValue(canId, out var msg) ? msg : null;
-}
-```
+`HeadlessHostBuilder.cs:91` 和测试共 5 处引用 `new HeadlessDbcLookup(doc.Value!)`。
+反射验证 `PeakCan.HIL.Core` 0.6.4：类在 `PeakCan.HIL.Core.HIL` 命名空间，
+`ctor(DbcDocument)` + `FindMessage(uint)` + `GetAllMessages()`，与本地引用完全匹配，**无需新建**（Spike 2026-08-10 确认）。
 
 **签名变更**：
 ```csharp
@@ -233,6 +217,9 @@ public DbcDocument? LastDbcDocument { get; private set; }
 
 public async Task<TestSuiteResult> RunAsync(...)
 {
+    // 每次运行前重置：本次 Build/DBC 解析失败时保持 null（报告回落 hex），
+    // 而不是沿用上一次运行的陈旧 DBC（Review #6）。
+    LastDbcDocument = null;
     using var host = HeadlessHostBuilder.Build(HilRunRequestExtensions.ToCliArgs(request));
     LastDbcDocument = host.Services.GetService<DbcDocument>();  // 我们 P0 修复会注册它
     // ... engine, channel, ctx, sender 等不变 ...
@@ -241,9 +228,19 @@ public async Task<TestSuiteResult> RunAsync(...)
 
 **`HilViewModel` 接线**（`RunAsync` 内，`:309` 附近）：
 ```csharp
-// 替换 var report = _reportService.Generate(result);
-var dbcDoc = _runner.LastDbcDocument;  // 运行实际使用的 DBC，可能 null
-var report = _reportService.Generate(result, dbcDoc);
+// 替换 var report = _reportService.Generate(result); —— 完整 try-catch 块（Review #5）
+try
+{
+    var dbcDoc = _runner.LastDbcDocument;  // 运行实际使用的 DBC，可能 null
+    var report = _reportService.Generate(result, dbcDoc);
+    LatestReportPath = report.FilePath;
+    ShowReportError = false;
+    ReportError = "";
+}
+catch (Exception ex)
+{
+    // 原 catch 分支：失败不阻断测试结果展示（ShowReportError=true）
+}
 ```
 
 > 注：`_runner` 已在构造函数注入（`HilViewModel.cs:19,80`），无需新增依赖。
@@ -284,6 +281,8 @@ tr.negated-pass td { border-left: 3px solid #ffc107; }  /* 黄色左边框区分
 - 搜索框：按 `.step-label` / `.step-message` 文本过滤步骤行（`data-status` 行内匹配）
 - 状态切换按钮：全部/通过/失败/跳过（通过 `data-status` 属性筛选）
 - 自动展开失败 case（配合默认收起，见下方注意）
+- **搜索/筛选交互时展开所有 case**（`details.open = true`）——搜索是主动操作，折叠 case 内的行
+  `display` 仍为 normal，不展开则用户看不到搜索结果（Review #8）
 - 纯前端，不刷新页面
 
 > **注意**：当前 `<tr>` 无 `data-status`、列无 class，JS 写完后选择器找不到元素。
@@ -300,6 +299,10 @@ tr.negated-pass td { border-left: 3px solid #ffc107; }  /* 黄色左边框区分
 因此时序图**仅在失败步骤可用**，全部通过时无图。负测试步骤（Status=Passed）同样无帧数据。
 此限制与 vTESTstudio 的"全程信号轨迹"不同——本实现仅覆盖失败前后 ≤50 帧。
 **实施前确认此限制可接受。**
+
+> **无 DBC 行为（Review #9）**：帧转储区 thead 与 tbody 均固定 4 列（Decoded Signals 列始终存在），
+> 无 DBC 时该列为空单元格；`RenderSignalTimeline` 无 DBC 返回空字符串，**不输出任何 `<svg>`**。
+> 其余帧转储结构（frame-dump div、帧表）不变——无布局错位或留白。
 
 在失败步骤的 `FramesAroundFailure` 区域，内嵌 SVG 时间轴：
 - 水平时间轴，标记每个帧的时间戳（相对时间，首帧为 0 µs）
@@ -331,12 +334,17 @@ dotnet test peakcan-host/tests/PeakCan.Host.Core.Tests/
 dotnet test peakcan-host/tests/PeakCan.Host.Infrastructure.Tests/
 ```
 
+> **非 HTML 格式回归（Review #10）**：`junit` / `trx` / `json` 格式走独立 writer（`JUnitWriter` /
+> `ResultWriter`），不调 `HtmlReportGenerator`，不受签名变更影响。唯一共用点是 CLI 的
+> `html+junit` 分支——它调 `GenerateHtml(result, trends2, dbcDoc2)`，可选参数保证兼容
+> （编译 + 全量测试已覆盖）。上述全量回归即覆盖所有格式路径。
+
 ## 7. Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | DBC 文档在报告生成时不可用（CLI 正常/simulate 模式强制 `--dbc`（`CliArgsParser.cs:116`/`:110-111`）；WPF 侧真风险是 `LastDbcDocument` 为 null — 运行未完成或 DI 注册失败） | 低 | 低 | `DbcDocument?` 可选参数，null 时回落 hex 显示；WPF 数据源见 §5 单元 A（`_runner.LastDbcDocument`） |
-| **P0** `HeadlessDbcLookup` 类定义文件缺失 | 高 | 高 | 实施前创建该类（见 §5 单元 A 前置步骤 1） |
+| **P0** ~~`HeadlessDbcLookup` 类定义文件缺失~~ | **已消除** | 高 | **已完成**：外部包 0.6.4 已含该类（Spike 反射验证），无需新建（见 §5 单元 A 前置步骤 1） |
 | **P0** `DbcDocument` 在 DI 中不可达（`HeadlessHostBuilder` 只注册 `IDbcLookup`） | 高 | 高 | 两个独立 lambda 注册（`DbcDocument` 工厂单例 + `IDbcLookup` 依赖它，见 §5 单元 A 前置步骤 2） |
 | **P0** `SignalDecoder`/`DbcDocument` 的 API 签名与 Plan 假设不符（外部包） | ~~中~~ **已消除** | 高 | **已完成**：反射验证 peakcan.hil.core 0.6.4（`MessagesById`/`ValueTables`/`Decode`/`TryDecodeEnumText`/`IDbcLookup` 两方法），见 §9 Spike 项 1 |
 | ~~lambda 内 AddSingleton~~（废弃） | **确定**（MS DI provider 构建后集合只读） | 中 | 主方案：两个独立 lambda（见 §5 单元 A 前置步骤 2），无需运行时注册 |
@@ -396,11 +404,12 @@ dotnet test peakcan-host/tests/PeakCan.Host.Infrastructure.Tests/
    `DbcDocument.MessagesById: IReadOnlyDictionary<uint,Message>`、`ValueTables: IReadOnlyDictionary<string,ValueTable>`、
    `SignalDecoder.Decode(ReadOnlySpan<byte>,Signal)→double`、`TryDecodeEnumText(Signal,double,DbcDocument)→string`、
    `IDbcLookup` 含 `FindMessage(uint)` + `GetAllMessages()`（spec 文档未覆盖 `GetAllMessages`，以反射为准）。无需再反编译。
-2. 跑 `dotnet build` 确认 baseline：当前 `HeadlessDbcLookup` 缺失（5 处引用无定义），预期编译失败——
-   记录编译错误，确认**仅** `HeadlessDbcLookup` 一个缺失类（无其他隐藏问题）
-3. 实施 §5 单元 A 前置步骤 2 的 DI 双 lambda 注册，跑相关测试验证 MS DI 容器行为（确认不抛 `InvalidOperationException`）
+2. **（已完成，2026-08-10 Spike 实测）** `dotnet build` baseline **0 错误成功**——`HeadlessDbcLookup` 类已存在于外部包 0.6.4
+   （`PeakCan.HIL.Core.HIL.HeadlessDbcLookup`），5 处引用全部编译通过，**无缺失类、无隐藏问题**。
+   `DbcParser.Parse` 双重载确认：`(string, CancellationToken)` / `(string, int, CancellationToken)`。
+3. **（进行中）** 实施 §5 单元 A 前置步骤 2 的 DI 双 lambda 注册，跑相关测试验证 MS DI 容器行为（确认不抛 `InvalidOperationException`）
 
-> Spike 仅做验证确认，不建类。"建 `HeadlessDbcLookup` 类 + 帧解码 + 三处接线"归入单元 A 工时。
+> Spike 仅做验证确认，不建类。"帧解码 + 三处接线"归入单元 A 工时（原"建 `HeadlessDbcLookup` 类"已因外部包既有该类而移除）。
 
 **建议实施顺序**：
 
