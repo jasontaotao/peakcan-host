@@ -235,6 +235,51 @@ public class TestSuiteEngineTests
         Assert.Equal(StepStatus.Comment, stepResults[1].Status); // NOT Skipped
     }
 
+    // 场景 5：预期 Fail + 无对应执行器（配置错误）→ 步骤从未执行，必须保持 Failed，case 失败。
+    // 防止"引擎合成的 No executor 失败"被负测试判定提升为 Passed 造成假绿（review finding）
+
+    [Fact]
+    public async Task ExpectedVerdictFail_NoExecutorForKind_StepStaysFailed_CaseFails()
+    {
+        var engine = CreateEngine(); // 不注册任何执行器
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var suite = new TestSuite("S", new[] { CreateCase(step) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.Equal(1, result.FailedCases);
+        Assert.False(result.AllPassed);
+        var stepResult = result.CaseResults[0].StepResults[0];
+        Assert.Equal(StepStatus.Failed, stepResult.Status);
+        Assert.False(stepResult.WasNegatedTest);
+        Assert.Contains("No executor for kind", stepResult.Message);
+    }
+
+    // 场景 6：预期 Fail + 执行器抛异常（传输层爆炸等）→ 步骤从未执行，保持 Failed，case 失败
+
+    [Fact]
+    public async Task ExpectedVerdictFail_ExecutorThrows_StepStaysFailed_CaseFails()
+    {
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            ExceptionToThrow = new InvalidOperationException("transport boom"),
+        };
+        var engine = CreateEngine(exec);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var suite = new TestSuite("S", new[] { CreateCase(step) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.Equal(1, result.FailedCases);
+        Assert.False(result.AllPassed);
+        var stepResult = result.CaseResults[0].StepResults[0];
+        Assert.Equal(StepStatus.Failed, stepResult.Status);
+        Assert.False(stepResult.WasNegatedTest);
+        Assert.Contains("Executor threw: transport boom", stepResult.Message);
+    }
+
     // ── 引擎端到端：ReadDid → AssertVariable 链（Task 2.10）──
     // 最小内存 CAN 总线（LoopbackBus）等价 Infrastructure 的 VirtualChannel +
     // EcuStateMachine 响应器等价 StatefulVirtualEcu：主机侧 IsoTpLayer/UdsClient

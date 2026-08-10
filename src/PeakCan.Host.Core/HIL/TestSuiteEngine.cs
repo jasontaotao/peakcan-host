@@ -139,6 +139,10 @@ public sealed class TestSuiteEngine
                     continue;
                 }
 
+                // executed 标记步骤是否真正经由执行器产生结果（review finding）：
+                // 引擎合成的失败（No executor 配置错误 / Executor 抛异常）代表步骤从未执行，
+                // 必须保持 Failed 让 case 失败，暴露真实问题；不能被负测试判定提升为 Passed
+                bool executed = false;
                 if (!_executors.TryGetValue(step.Kind, out var executor))
                 {
                     stepResults.Add(new StepResult(i, step.Kind, step.Label, StepStatus.Failed,
@@ -151,6 +155,7 @@ public sealed class TestSuiteEngine
                     try
                     {
                         result = await executor.ExecuteAsync(step, ctx, ct);
+                        executed = true;
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -164,8 +169,10 @@ public sealed class TestSuiteEngine
 
                 // ── 负测试判定（ExpectedVerdict 真值表，两分支都必须实现）──
 
-                // 分支 A：预期 Fail + 实际 Failed → 负测试通过，提升 Status 为 Passed
-                if (step.ExpectedVerdict == ExpectedVerdict.Fail
+                // 分支 A：预期 Fail + 实际 Failed + 步骤真正执行过 → 负测试通过，提升 Status 为 Passed。
+                // 未执行的步骤（No executor / Executor 抛异常）不进入本分支，保持 Failed（executed==false）
+                if (executed
+                    && step.ExpectedVerdict == ExpectedVerdict.Fail
                     && stepResults[^1].Status == StepStatus.Failed)
                 {
                     stepResults[^1] = stepResults[^1] with
