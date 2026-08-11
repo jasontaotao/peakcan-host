@@ -3,7 +3,7 @@
 > Spec date: 2026-08-11
 > Depends: 现有 `HILAssertionContext` / `PeakCanAssertionContext` 帧环形缓冲 + `FrameCaptureExporter`（CLI `--export-frames`）
 > Scope: **WPF HIL 运行，每个 test case 生成一个独立的全量 CAN 报文 `.asc` 文件，流式写入，零额外内存**。CLI 行为不变。
-> Status: DRAFT（多视角评审后待用户确认）
+> Status: APPROVED（2026-08-11 用户确认 4 个决策点：范围=steps 阶段 / 开关默认勾选 / 空文件生成 / 3 个阻塞点防御方案）
 
 ---
 
