@@ -11,9 +11,9 @@ public sealed partial class AppShellViewModel
     // Methods moved verbatim from AppShellViewModel.cs.
     //
     // Cross-flow callers (stay as plain calls via partial-class visibility):
-    //   - OpenSessionAsync -> TraceViewerViewModel.OpenSessionAsync (cross-class)
-    //   - SaveSessionAsync -> TraceViewerViewModel.SaveSessionAsync (cross-class)
-    //   - OpenRecentSessionAsync -> TraceViewerViewModel.OpenSessionAsync (cross-class)
+    //   - OpenSessionAsync -> ITraceSessionService.OpenSessionAsync (v3.x session-state extraction)
+    //   - SaveSessionAsync -> TraceViewerView.DataContext VM (cached window, else prompt)
+    //   - OpenRecentSessionAsync -> ITraceSessionService.OpenSessionAsync (v3.x session-state extraction)
     //   - All 4 -> _recentSessions.Add (DI field, main file)
 
     [RelayCommand]
@@ -30,7 +30,7 @@ public sealed partial class AppShellViewModel
     /// <summary>
     /// v3.6.0 MINOR T3: File ▸ Open Session... menu command. Pops a
     /// file-open dialog (via the WPF-independent <see cref="IFileDialogService"/>),
-    /// loads the chosen bundle through <see cref="TraceViewerViewModel.OpenSessionAsync"/>,
+    /// loads the chosen bundle through <see cref="Services.Trace.ITraceSessionService.OpenSessionAsync"/>,
     /// surfaces any missing <c>.asc</c> recordings via MessageBox, and
     /// records the path in the MRU list. Cancellation returns silently.
     /// </summary>
@@ -40,7 +40,7 @@ public sealed partial class AppShellViewModel
         var path = _fileDialogs.ShowOpenDialog(
             "Trace Viewer session|*.tmtrace;*.TMTRACE|All files|*.*");
         if (string.IsNullOrEmpty(path)) return;
-        var missing = await _traceViewerViewModel.OpenSessionAsync(path)
+        var missing = await _traceSessionService.OpenSessionAsync(path)
             .ConfigureAwait(true);
         if (missing.Count > 0)
         {
@@ -59,11 +59,13 @@ public sealed partial class AppShellViewModel
 
     /// <summary>
     /// v3.6.0 MINOR T3: File ▸ Save Session... menu command. Pops a
-    /// file-save dialog, hands the chosen path to
-    /// <see cref="TraceViewerViewModel.SaveSessionAsync"/>, then records
-    /// it in the MRU list. The Trace Viewer window must be open and
-    /// hold the session state being saved; we do not auto-open it here
+    /// file-save dialog, hands the chosen path to the open Trace Viewer
+    /// window's <see cref="TraceViewerViewModel.SaveSessionAsync"/>, then
+    /// records it in the MRU list. The Trace Viewer window must be open
+    /// and hold the session state being saved; we do not auto-open it here
     /// (matches the toolbar behaviour that the menu is replacing).
+    /// v3.x (会话状态剥离 Task 2): 保存的窗口级状态（scrubber / viewport）仍
+    /// 属于 TraceViewerViewModel，故从缓存窗口拿 VM，而不是走 service。
     /// </summary>
     [RelayCommand]
     private async Task SaveSessionAsync()
@@ -73,7 +75,18 @@ public sealed partial class AppShellViewModel
             ".tmtrace",
             null);
         if (string.IsNullOrEmpty(path)) return;
-        await _traceViewerViewModel.SaveSessionAsync(path)
+        // 窗口未打开时无法取得窗口级会话状态，提示后直接返回（不保存）。
+        var vm = _traceViewerView?.DataContext as TraceViewerViewModel;
+        if (vm is null)
+        {
+            await _messageBoxPrompt.ShowInformationAsync(
+                "Save Session",
+                "请先打开 Trace Viewer 窗口，再保存会话。",
+                Application.Current?.MainWindow)
+                .ConfigureAwait(true);
+            return;
+        }
+        await vm.SaveSessionAsync(path)
             .ConfigureAwait(true);
         _recentSessions.Add(path, "trace");
     }
@@ -83,7 +96,7 @@ public sealed partial class AppShellViewModel
     /// <paramref name="path"/> is the CommandParameter wired through
     /// the <c>DataTemplate</c> in <c>AppShell.xaml</c>. Skips the file
     /// dialog (the path was chosen from the MRU), forwards to
-    /// <see cref="TraceViewerViewModel.OpenSessionAsync"/>, and
+    /// <see cref="Services.Trace.ITraceSessionService.OpenSessionAsync"/>, and
     /// re-records the path so a re-click moves it back to the top of
     /// the list (matching standard MRU UX).
     /// </summary>
@@ -91,7 +104,7 @@ public sealed partial class AppShellViewModel
     private async Task OpenRecentSessionAsync(string? path)
     {
         if (string.IsNullOrEmpty(path)) return;
-        var missing = await _traceViewerViewModel.OpenSessionAsync(path)
+        var missing = await _traceSessionService.OpenSessionAsync(path)
             .ConfigureAwait(true);
         if (missing.Count > 0)
         {

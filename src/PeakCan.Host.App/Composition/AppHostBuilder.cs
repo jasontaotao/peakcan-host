@@ -324,7 +324,12 @@ public partial class AppHostBuilder
             sp.GetRequiredService<RecordViewModel>(),
             sp.GetRequiredService<ReplayViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.ViewModels.MultiFrameSendViewModel>(),
-            sp.GetRequiredService<TraceViewerViewModel>(),
+            // v3.x (会话状态剥离 Task 2): AppShell 不再注入 TraceViewerViewModel，
+            // 改注入 ITraceSessionService（会话命令） + Func 工厂（开窗时懒解析 VM）。
+            // VM 目前仍是 singleton，工厂解析 singleton；Task 3 改 transient 后
+            // 每次开窗都是新实例（会话状态已剥离到 service）。
+            sp.GetRequiredService<PeakCan.Host.App.Services.Trace.ITraceSessionService>(),
+            () => sp.GetRequiredService<TraceViewerViewModel>(),
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.RecentSessionsService>(),
             sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
             // v3.10.0 MINOR T1 (C1): IMessageBoxPrompt seam — replaces

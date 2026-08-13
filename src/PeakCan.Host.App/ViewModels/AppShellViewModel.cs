@@ -103,12 +103,13 @@ public sealed partial class AppShellViewModel : ObservableObject
     // MultiFrameSendWindow on menu click. SendViewModel keeps its own
     // independent window instance — both point at the same singleton VM.
     private readonly MultiFrameSendViewModel _multiFrameSendViewModel;
-    // v3.0 MINOR Task 7: Trace Viewer non-modal window (Pattern A orphan
-    // closure — TraceViewerView + VM + ITraceViewerService were fully
-    // built in Tasks 1-6 but AppShell had no menu route). Shared singleton
-    // VM so the menu, future SendView button, and any other consumer all
-    // bind to the same loaded trace + signal list + chart scrubber state.
-    private readonly TraceViewerViewModel _traceViewerViewModel;
+    // v3.x (会话状态剥离 Task 2): Trace 会话打开/保存命令改走
+    // ITraceSessionService（会话级状态的唯一归属）。Trace Viewer 窗口的
+    // VM 由 _traceViewerFactory 工厂解析——本阶段 TraceViewerViewModel 仍为
+    // singleton，工厂解析 singleton 实例；Task 3 transient 化后工厂每次
+    // 打开窗口都拿到新 VM（会话状态已剥离到 service，窗口关闭即丢弃）。
+    private readonly ITraceSessionService _traceSessionService;
+    private readonly Func<TraceViewerViewModel> _traceViewerFactory;
     // Sprint 3: HIL testing panel VM (transient, created per navigation)
     private readonly HilViewModel _hilViewModel;
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
@@ -270,7 +271,11 @@ public sealed partial class AppShellViewModel : ObservableObject
         RecordViewModel recordingPanel,
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
-        TraceViewerViewModel traceViewerViewModel,
+        // v3.x (会话状态剥离 Task 2): Trace 会话打开走 ITraceSessionService
+        // （不再直接持有 TraceViewerViewModel）；开窗由 Func 工厂解析 VM，
+        // 为 Task 3 的 transient 化铺路。
+        ITraceSessionService traceSessionService,
+        Func<TraceViewerViewModel> traceViewerFactory,
         RecentSessionsService recentSessions,
         IFileDialogService fileDialogs,
         // v3.10.0 MINOR T1 (C1): required ctor arg so the 2
@@ -301,14 +306,10 @@ public sealed partial class AppShellViewModel : ObservableObject
         _recordingPanel = recordingPanel ?? throw new ArgumentNullException(nameof(recordingPanel));
         _replayViewModel = replayViewModel ?? throw new ArgumentNullException(nameof(replayViewModel));
         _multiFrameSendViewModel = multiFrameSendViewModel ?? throw new ArgumentNullException(nameof(multiFrameSendViewModel));
-        // v3.0 MINOR Task 7: Trace Viewer non-modal window. Required ctor
-        // argument (no default) so DI always wires it — backwards-
-        // compatible test fixtures that build the VM without DI will
-        // receive a Compile Error on missing arg, exactly the behaviour
-        // we want for the v3.0 surface addition. Existing test sites
-        // were updated to construct with a stub ITraceViewerService +
-        // null DbcService substitute.
-        _traceViewerViewModel = traceViewerViewModel ?? throw new ArgumentNullException(nameof(traceViewerViewModel));
+        // v3.x (会话状态剥离 Task 2): service 为必填（DI 总是注入）；
+        // 工厂必填，窗口打开时才调用（测试传 lazy lambda 即可）。
+        _traceSessionService = traceSessionService ?? throw new ArgumentNullException(nameof(traceSessionService));
+        _traceViewerFactory = traceViewerFactory ?? throw new ArgumentNullException(nameof(traceViewerFactory));
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));

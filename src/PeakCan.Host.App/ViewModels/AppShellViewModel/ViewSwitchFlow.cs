@@ -14,7 +14,7 @@ public sealed partial class AppShellViewModel
     // Cross-flow callers (stay as plain calls via partial-class visibility):
     //   - All 9 Show* methods -> ViewSwitcher.Show/ShowWindow (helper, Composition namespace)
     //   - All 9 Show* methods -> CurrentView property (Flow A adjacent)
-    //   - ShowTraceViewer -> _traceViewerViewModel.Reset() (cross-class)
+    //   - ShowTraceViewer -> _traceViewerFactory() (v3.x session-state extraction)
     //   - ShowTraceViewer -> Application.Current?.MainWindow (WPF dispatcher)
     //
     // [RelayCommand] attributes MUST travel with their methods.
@@ -204,18 +204,14 @@ public sealed partial class AppShellViewModel
         // stay here because they need Application.Current.MainWindow,
         // which only resolves inside App.OnStartup's STA context.
         ViewSwitcher.ShowWindow(
-            factory: () => new TraceViewerView(_traceViewerViewModel),
+            factory: () => new TraceViewerView(_traceViewerFactory()),
             cache: ref _traceViewerView);
         if (_traceViewerView is null) return; // defensive — cache cannot be null after ShowWindow
 
-        // v3.13.0 PATCH F2: hook the window's Closed event to clear
-        // the singleton VM's mutable UI state on close. The VM is
-        // shared with OpenSessionAsync / SaveSessionAsync (File menu),
-        // so we cannot swap it per open — instead we reset its
-        // observable state when the user closes the Trace Viewer
-        // window. ViewSwitcher subscribes its OWN Closed handler to
-        // null the cache; both fire (order doesn't matter).
-        _traceViewerView.Closed += (_, _) => _traceViewerViewModel.Reset();
+        // v3.x (会话状态剥离 Task 2): 原 v3.13.0 PATCH F2 的 Closed → Reset()
+        // 订阅已删除——会话级状态已移入 ITraceSessionService（窗口关闭不丢失），
+        // 窗口级状态随窗口实例一起销毁（VM 将在 Task 3 改 transient）。窗口缓存
+        // 的 null 重置仍由 ViewSwitcher.ShowWindow 自带的 Closed 处理器负责。
 
         // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
         // main window cascade-closes the Trace Viewer. Without

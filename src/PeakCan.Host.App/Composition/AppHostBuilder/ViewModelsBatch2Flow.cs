@@ -74,6 +74,12 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<ReplayOptions>()));
         services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionRegistry>(sp =>
             sp.GetRequiredService<PeakCan.Host.App.Services.Trace.TraceSessionRegistry>());
+        // v3.x (会话状态剥离 Task 2): Trace 会话级状态（watch 列表 / 分组 /
+        // master / 全局过滤）+ 打开会话的唯一归属。Singleton——AppShellViewModel
+        // 与 TraceViewerViewModel（Task 3 透传）共享同一会话状态。VM 的
+        // transient 化在 Task 3 做，本 task 只注册 service。
+        services.AddSingleton<PeakCan.Host.App.Services.Trace.ITraceSessionService,
+            PeakCan.Host.App.Services.Trace.TraceSessionService>();
         // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.

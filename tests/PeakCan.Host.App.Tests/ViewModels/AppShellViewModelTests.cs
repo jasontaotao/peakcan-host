@@ -133,7 +133,8 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                Substitute.For<ITraceSessionService>(),
+                () => Substitute.For<TraceViewerViewModel>(),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     recentTemp),
@@ -461,7 +462,8 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                Substitute.For<ITraceSessionService>(),
+                () => Substitute.For<TraceViewerViewModel>(),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -557,7 +559,8 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                Substitute.For<ITraceSessionService>(),
+                () => Substitute.For<TraceViewerViewModel>(),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -694,7 +697,8 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                Substitute.For<ITraceSessionService>(),
+                () => Substitute.For<TraceViewerViewModel>(),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -994,7 +998,8 @@ public class AppShellViewModelTests
                     new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                     new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
                 new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-                new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+                Substitute.For<ITraceSessionService>(),
+                () => Substitute.For<TraceViewerViewModel>(),
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
@@ -1093,7 +1098,8 @@ public class AppShellViewModelTests
                 new TraceSessionLibrary(Path.Combine(Path.GetTempPath(), $"tmtrace-{Guid.NewGuid():N}.tmtrace"), NullLogger<TraceSessionLibrary>.Instance),
                 new RecentSessionsService(NullLogger<RecentSessionsService>.Instance, Path.Combine(Path.GetTempPath(), $"recent-{Guid.NewGuid():N}.json"))),
             new MultiFrameSendViewModel(new SequenceSendService(new SendService(NullLogger<SendService>.Instance))),
-            new TraceViewerViewModel(Substitute.For<ITraceSessionRegistry>(), new FakeDbcService(), NullLogger<TraceViewerViewModel>.Instance, NewFakeSessionLibrary()),
+            Substitute.For<ITraceSessionService>(),
+            () => Substitute.For<TraceViewerViewModel>(),
             new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                 NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                 System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"recent-{System.Guid.NewGuid():N}.json")),
