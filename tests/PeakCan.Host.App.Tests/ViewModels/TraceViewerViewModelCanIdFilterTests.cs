@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -44,6 +45,16 @@ public class TraceViewerViewModelCanIdFilterTests
         => new TraceSessionLibrary(
             Path.Combine(Path.GetTempPath(), $"tmtrace-vm-filter-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
+
+    // v3.x (会话状态剥离 Task 3): ITraceSessionService 替身——配置非空集合，否则
+    // VM ctor 对 WatchedSignals.CollectionChanged 的订阅会 NRE。
+    private static ITraceSessionService MakeFakeSession()
+    {
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+        return session;
+    }
 
     private static DbcDocument DocWithTwoMessages() => new(
         Version: "",
@@ -98,7 +109,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");
@@ -135,7 +146,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");
@@ -173,7 +184,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");
@@ -205,7 +216,7 @@ public class TraceViewerViewModelCanIdFilterTests
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await sut.RebuildSignalsAsync();
         sut.AddToWatch(0x100, "RPM", "");

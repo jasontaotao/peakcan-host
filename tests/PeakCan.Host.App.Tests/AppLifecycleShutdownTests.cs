@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -157,8 +158,13 @@ public class AppLifecycleShutdownTests : IDisposable
             new("src1", "shutdown-test", @"C:/rec.asc", Colors.Red, new LineStyle()),
         });
         var dbc = Substitute.For<DbcService>(Substitute.For<Microsoft.Extensions.Logging.ILogger<DbcService>>());
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
         var vm = new TraceViewerViewModel(
-            registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null);
+            session, registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null);
         var provider = new RecordingTraceVmProvider(vm);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();

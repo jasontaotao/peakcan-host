@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Services.Trace;
@@ -12,10 +13,12 @@ namespace PeakCan.Host.App.Services.Trace;
 /// loop）留在 TraceViewerViewModel，本接口只暴露会话持久化边界。
 /// <para>
 /// 注册为 singleton（Task 2 起由 AppShellViewModel / TraceViewerViewModel
-/// 消费）。当前无生产消费者——只建服务、不接线（Task 1 范围）。
+/// 消费；Task 3 起 VM 经 <see cref="PropertyChanged"/> 透传会话级状态变更）。
+/// 继承 <see cref="INotifyPropertyChanged"/>，使 MasterSourceId /
+/// GlobalCanIdFilter 的变更可被 VM 订阅转发。
 /// </para>
 /// </summary>
-public interface ITraceSessionService
+public interface ITraceSessionService : INotifyPropertyChanged
 {
     /// <summary>watch 列表行（占位行由 BuildSnapshot 过滤，不进 bundle）。</summary>
     ObservableCollection<WatchedSignalRow> WatchedSignals { get; }

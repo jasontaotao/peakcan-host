@@ -16,7 +16,13 @@ public partial class TraceViewerView : Window
     {
         InitializeComponent();
         // v3.62.0: 窗口关闭时取消所有 OnCompleted 订阅
-        Closed += (_, _) => UnsubscribeAllCompletedHandlers();
+        // v3.x (会话状态剥离 Task 3): VM 已 transient——窗口关闭即释放 VM（Dispose
+        // 反注册对 singleton 的订阅），否则每次开/关窗口都会泄漏一个 VM。
+        Closed += (_, _) =>
+        {
+            UnsubscribeAllCompletedHandlers();
+            if (DataContext is IDisposable d) d.Dispose();
+        };
     }
 
     /// <summary>v3.62.0: 取消所有 OnCompleted 订阅（防止内存泄漏）。</summary>

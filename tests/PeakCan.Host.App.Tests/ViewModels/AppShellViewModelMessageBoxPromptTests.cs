@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using FluentAssertions;
@@ -411,7 +412,12 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 var shell = MakeVm(prompt, dialog, session);
 
                 // 真实窗口 VM（sealed，不可替身）+ 真实窗口，塞进缓存字段。
+                // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+                // WatchedSignals.CollectionChanged 的订阅会 NRE。
+                session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+                session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
                 var windowVm = new TraceViewerViewModel(
+                    session,
                     Substitute.For<ITraceSessionRegistry>(),
                     new FakeDbcService(),
                     NullLogger<TraceViewerViewModel>.Instance,

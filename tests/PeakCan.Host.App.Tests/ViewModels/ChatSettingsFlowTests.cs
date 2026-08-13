@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -19,6 +20,11 @@ public class ChatSettingsFlowTests
 {
     private static TraceViewerViewModel BuildVm(ICredentialStore? credentialStore = null)
     {
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = NSubstitute.Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
         var registry = NSubstitute.Substitute.For<ITraceSessionRegistry>();
         registry.Sources.Returns(Array.Empty<TraceSource>());
         var dbcService = NSubstitute.Substitute.For<DbcService>(
@@ -27,7 +33,7 @@ public class ChatSettingsFlowTests
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"chatsettings-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
         return new TraceViewerViewModel(
-            registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
+            session, registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
             credentialStore: credentialStore);
     }
 

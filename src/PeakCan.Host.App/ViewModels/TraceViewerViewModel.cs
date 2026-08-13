@@ -52,6 +52,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // === Flow D methods moved to TraceViewerViewModel/WatchFlow.cs (W3 Task 5) ===
     // === Flow E methods moved to TraceViewerViewModel/SessionFlow.cs (W3 Task 6) ===
     private readonly ITraceSessionRegistry _registry;
+    // v3.x (会话状态剥离 Task 3): session 级状态（watch 列表 / 分组 / master /
+    // 全局过滤）的唯一归属。VM 保留同名属性转发，Dispose 反注册其 INPC 订阅。
+    private readonly ITraceSessionService _session;
     private readonly DbcService _dbcService;
     private readonly ILogger<TraceViewerViewModel> _logger;
     private readonly TraceSessionLibrary _sessionLibrary;
@@ -108,8 +111,14 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double _totalDuration;
 
-    [ObservableProperty]
-    private string _masterSourceId = "";
+    // v3.x (会话状态剥离 Task 3): MasterSourceId 转发到 ITraceSessionService。
+    // service 是 session 级状态唯一归属；VM 保留同名属性，INPC 由
+    // OnSessionPropertyChanged 透传（去掉 [ObservableProperty] + 私有字段）。
+    public string MasterSourceId
+    {
+        get => _session.MasterSourceId ?? "";
+        set => _session.MasterSourceId = value;
+    }
 
     // v3.3.0 MINOR: global loop toggle; propagates to master only (non-masters
     // use Loop=false — see OnRegistrySourcesChanged + master PlaybackEnded hook).
@@ -124,8 +133,21 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // case-insensitive). Empty = no filter. Parsed in RebuildSignalsAsync
     // and applied to both the global frame bucketing loop and the per-source
     // chart-series loop.
-    [ObservableProperty]
-    private string _canIdFilter = "";
+    // v3.x (会话状态剥离 Task 3): CanIdFilter 转发到 ITraceSessionService 的
+    // GlobalCanIdFilter（去掉 [ObservableProperty]，INPC 由 service 经
+    // OnSessionPropertyChanged 透传）。setter 保留同步重建 hook（原
+    // [ObservableProperty] 的 OnCanIdFilterChanged → RebuildSignalsCore）——
+    // 否则过滤器变更不会刷新各 watch 行的 FrameCount。
+    public string CanIdFilter
+    {
+        get => _session.GlobalCanIdFilter;
+        set
+        {
+            if (_session.GlobalCanIdFilter == value) return;
+            _session.GlobalCanIdFilter = value;
+            OnCanIdFilterChanged(value);
+        }
+    }
 
     // v3.9.1 PATCH Bug #2: IsLoading + ErrorMessage + StatusMessage.
     // IsLoading gates AddTraceCommand CanExecute (mirrors
@@ -154,7 +176,13 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     /// legacy collection for back-compat until the v3.14.3 tests
     /// are migrated. New XAML binds to <see cref="WatchedSignals"/>
     /// instead.</summary>
-    public ObservableCollection<WatchedSignalRow> WatchedSignals { get; } = new();
+    // v3.x (会话状态剥离 Task 3): get-only 转发到 service。ObservableCollection
+    // 引用不变，内容变更由集合自身通知（VM 的 CollectionChanged 订阅照常工作）。
+    public ObservableCollection<WatchedSignalRow> WatchedSignals => _session.WatchedSignals;
+
+    // v3.x (会话状态剥离 Task 3): 信号分组同样转发到 service（原本在
+    // ChatToolContextFlow.cs 声明，现与 WatchedSignals 一起归 service 所有）。
+    public ObservableCollection<WatchedSignalGroup> SignalGroups => _session.SignalGroups;
 
     public TraceChartViewModel ChartViewModel { get; } = new();
 
@@ -177,6 +205,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     public DbcDocument? GetDbcForPicker() => _dbcService.Current;
 
     public TraceViewerViewModel(
+        ITraceSessionService session,
         ITraceSessionRegistry registry,
         DbcService dbcService,
         ILogger<TraceViewerViewModel> logger,
@@ -189,6 +218,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         IEnumerable<IChatTool>? chatTools = null,
         ICredentialStore? credentialStore = null)
     {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _dbcService = dbcService ?? throw new ArgumentNullException(nameof(dbcService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -234,11 +264,15 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         OnRegistrySourcesChanged();
         // v3.49.0 MINOR Q1: hook WatchedSignals collection mutation so the
         // Sampling Table right-edge panel stays in sync.
-        WatchedSignals.CollectionChanged += (_, _) => RefreshSamplingTable();
+        WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSamplingTable;
         // v3.50.0 MINOR Q1 redesign: pre-resolve DbcSignal reference per
         // watched row so RefreshAtAnchor (T2) can decode raw bits at the
         // anchor timestamp without an extra DBC scan on the UI thread.
         WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSignalCache;
+        // v3.x (会话状态剥离 Task 3): 订阅 service 的 INPC，把 MasterSourceId /
+        // GlobalCanIdFilter 变更透传到 VM 同名属性（具名 handler，Dispose 反注册，
+        // 避免 singleton service 强引用 VM）。
+        _session.PropertyChanged += OnSessionPropertyChanged;
     }
 
     private readonly Dictionary<string, PeakCan.HIL.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
@@ -265,82 +299,30 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         }
     }
 
+    // v3.49.0 MINOR Q1: 替代原匿名 lambda 的具名 handler——WatchedSignals 变更时
+    // 刷新右侧 Sampling Table。具名以便 Dispose 反注册（匿名 lambda 无法 -=）。
+    private void OnWatchedSignalsCollectionChangedForSamplingTable(object? sender, NotifyCollectionChangedEventArgs e)
+        => RefreshSamplingTable();
 
+    // v3.x (会话状态剥离 Task 3): service 的 MasterSourceId / GlobalCanIdFilter
+    // 变更透传到 VM 同名属性（XAML 绑定目标仍是 VM 属性）。重建 hook 由
+    // CanIdFilter setter 直接触发（见上），此处只转发 INPC，避免生产环境
+    // service 同步抛事件 + setter 再重建导致的双重重建。
+    private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ITraceSessionService.MasterSourceId))
+            OnPropertyChanged(nameof(MasterSourceId));
+        else if (e.PropertyName == nameof(ITraceSessionService.GlobalCanIdFilter))
+            OnPropertyChanged(nameof(CanIdFilter));
+    }
 
     /// <summary>
-    /// v3.13.0 PATCH F2: clear all mutable UI state when the Trace Viewer
-    /// window closes. Prevents the "close + reopen shows stale state / NRE"
-    /// bug because the singleton VM (shared with AppShell OpenSession/
-    /// SaveSession menu commands) accumulates state across opens. Called
-    /// from AppShellViewModel.ShowTraceViewer's Closed handler.
-    /// <para>
-    /// Strategy: snapshot the current sourceIds, then unload each via the
-    /// registry (the only contract surface that drops sources + cascades
-    /// INPC). <see cref="Signals"/> + <see cref="ChartViewModel.Series"/>
-    /// are dropped in turn. Per-source state lives on each TraceSource
-    /// and is reclaimed when the source is unloaded.
-    /// </para>
-    /// <para>
-    /// Does NOT clear <see cref="LoadedDbcPath"/> — that's restored from the
-    /// loaded .tmtrace bundle on next OpenSession and is not "open-window
-    /// state" in the same sense. Does NOT unsubscribe from
-    /// <c>_registry.SourcesChanged</c> / <c>_dbcService.PropertyChanged</c>
-    /// — those are VM-lifetime subscriptions, not window-lifetime.
-    /// </para>
+    /// v3.x (会话状态剥离 Task 3): 原 [ObservableProperty] _canIdFilter 生成的
+    /// 分部方法 hook 定义。属性转发到 service 后改由 <see cref="CanIdFilter"/>
+    /// setter 调用（不再由生成的 setter 触发），实现仍在 SignalFlow.cs
+    /// （RebuildSignalsCore）。
     /// </summary>
-    public void Reset()
-    {
-        // Snapshot sourceIds before unloading — _registry.Sources shrinks
-        // as we unload, so iterating the live list would mutate-while-
-        // iterate. The registry allows this safely, but copying is clearer.
-        var sourceIds = _registry.Sources.Select(s => s.SourceId).ToList();
-        foreach (var sourceId in sourceIds)
-        {
-            // UnloadAsync is fire-and-forget by contract (returns a Task
-            // but we have no continuation). Capturing the task and not
-            // awaiting keeps Reset() synchronous, matching the WPF Closed
-            // handler's fire-and-forget nature.
-            _ = _registry.UnloadAsync(sourceId);
-        }
-        Signals.Clear();
-        ChartViewModel.Series.Clear();
-        ScrubberValue = 0;
-        Speed = 1.0;
-        Loop = false;
-        MasterSourceId = "";
-        CanIdFilter = "";
-        ErrorMessage = null;
-        StatusMessage = "Status: ready";
-        IsLoading = false;
-
-        // v3.50.1 PATCH: singleton VM is reused across Trace Viewer
-        // close+reopen cycles (ViewSwitcher caches the window, AppShell
-        // hands the same VM back via DI). The pre-v3.50.1 Reset only
-        // cleared the v3.0 MINOR-era fields above; v3.15.0+ collections
-        // (WatchedSignals), v3.50 caches (_signalByKey + anchor state),
-        // and v3.49 right-edge panel state (SamplingRows) survived
-        // close+reopen — leaving the watch list visually empty
-        // (DataGrid bound to a populated ObservableCollection with no
-        // INPC diff signal after the window's visual tree is rebuilt,
-        // the Generator doesn't re-materialize rows for the cached VM)
-        // or with stale DbcSignal refs pointing at the previous DBC.
-        // Clear every mutable UI collection + cache before the window
-        // teardown returns to the caller.
-        WatchedSignals.Clear();
-        _signalByKey.Clear();
-        _anchorTimestampSeconds = double.NaN;
-        OnPropertyChanged(nameof(IsGreenLineAnchorActive));
-        // UpdateAllGreenLines is idempotent and removes every existing
-        // green-anchor LineAnnotation; with _anchorTimestampSeconds =
-        // NaN the IsGreenLineAnchorActive gate skips adding a new one,
-        // so this is effectively a "drop all green lines" pass.
-        UpdateAllGreenLines();
-        SamplingRows.Clear();
-        // v3.50.2 PATCH T2: clear blue anchor too. Sister of green.
-        _blueAnchorTimestampSeconds = double.NaN;
-        OnPropertyChanged(nameof(IsBlueLineAnchorActive));
-        UpdateAllBlueLines();
-    }
+    partial void OnCanIdFilterChanged(string value);
 
     /// <summary>v3.2.0 MINOR: XAML binding source for the legend strip's
     /// <c>Visibility</c>. True when at least one trace is loaded.</summary>
@@ -410,6 +392,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // v3.14.0 MINOR A4: cancel the DbcLoaded subscription. Matches
         // the += in the ctor.
         _dbcService.DbcLoaded -= OnDbcLoaded;
+        // v3.x (会话状态剥离 Task 3): VM 变 transient，必须反注册对 singleton
+        // 对象（_session / WatchedSignals 集合）的订阅，否则 singleton 强引用
+        // VM handler 导致 VM 泄漏。
+        WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSamplingTable;
+        WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSignalCache;
+        _session.PropertyChanged -= OnSessionPropertyChanged;
         DetachAllServiceHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
         // v3.62.0 BUG-FIX: 取消并释放聊天 CancellationTokenSource, 中止 in-flight HTTP 请求

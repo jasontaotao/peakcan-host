@@ -1,26 +1,20 @@
 using System.IO;
-using ScottPlot;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services.Trace;
-using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // Flow E: Session save/load + bundled restore (v3.5.0 MINOR + later patches).
-    // Methods moved verbatim from TraceViewerViewModel.cs.
+    // Flow E: Session save (v3.5.0 MINOR + later patches). Session load +
+    // snapshot restore moved to ITraceSessionService (会话状态剥离 Task 1/3);
+    // the VM keeps a thin OpenSessionAsync forwarder so TraceSessionAutoSaver
+    // (transitional call site, refactored in Task 4) keeps compiling.
     //
     // Cross-flow references (stay as plain calls via partial-class visibility):
-    //   - ApplySnapshotAsync → RebuildSignalsCore (Flow C, in SignalFlow.cs)
-    //                          → ChartViewModel.ApplyViewports (TraceChartViewModel member)
-    //                          → _registry.LoadAsync / UnloadAsync (Flow A dependency)
-    //                          → LogRelocated / LogSourceMissing / LogBundleDbcLoadFailedInline
-    //                            (Flow A log helpers — partial-class visible)
     //   - BuildSnapshotAsync → _builder.BuildAsync (TraceSessionSnapshotBuilder)
     //                          → _hasher.ComputeAsync (ITraceContentHasher)
-    //   - ApplySnapshotAsync → _dbcService.LoadAsync (DbcService)
 
     /// <summary>
     /// v3.5.0 MINOR: save the current Trace Viewer session to a
@@ -39,21 +33,18 @@ public sealed partial class TraceViewerViewModel
 
     /// <summary>
     /// v3.5.0 MINOR: load a Trace Viewer session from a <c>.tmtrace</c>
-    /// bundle. The caller (View) handles the open-file dialog and the
-    /// missing-ascs MessageBox UX — the VM returns the list of paths
-    /// that could not be resolved (e.g. an .asc that was moved/deleted
-    /// since the bundle was saved) so the View can surface them.
-    /// Restores playback to a paused/stopped cursor — never auto-resumes.
+    /// bundle. v3.x (会话状态剥离 Task 3): 实际加载/恢复逻辑已迁至
+    /// <see cref="ITraceSessionService"/>——本方法是薄转发，保留 VM 公开签名
+    /// 以便 <c>TraceSessionAutoSaver</c> 过渡期调用点编译（Task 4 改为直连 service）。
     /// </summary>
     /// <returns>List of source .asc paths that did NOT resolve on load.
     /// Empty when the bundle had no sources or when every source
     /// resolved cleanly.</returns>
-    public async Task<IReadOnlyList<string>> OpenSessionAsync(string? path)
+    public Task<IReadOnlyList<string>> OpenSessionAsync(string? path)
     {
-        if (string.IsNullOrEmpty(path)) return Array.Empty<string>();
-        var dto = await Task.Run(() => _sessionLibrary.Load(path)).ConfigureAwait(true);
-        if (dto is null) return Array.Empty<string>();
-        return await ApplySnapshotAsync(dto).ConfigureAwait(true);
+        if (string.IsNullOrEmpty(path))
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        return _session.OpenSessionAsync(path);
     }
 
     /// <summary>
@@ -62,8 +53,8 @@ public sealed partial class TraceViewerViewModel
     /// effects. Path-reference only for .asc recordings; playback state
     /// is captured verbatim (master, loop, speed, scrubber) and the
     /// DBC path is recorded (the DBC service is not re-loaded — the
-    /// caller will reload it as part of <see cref="ApplySnapshotAsync"/>
-    /// once the sources are loaded).
+    /// caller reloads it as part of session restore once the sources
+    /// are loaded).
     /// <para>
     /// v3.6.0 MINOR T2: access changed from <c>private</c> to
     /// <c>public</c> so <see cref="TraceSessionAutoSaver"/> can snapshot
@@ -175,178 +166,4 @@ public sealed partial class TraceViewerViewModel
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
     private static partial void LogHashFailed(ILogger logger, Exception ex, string path);
-
-    /// <summary>
-    /// v3.5.0 MINOR: restore a saved session. Loads each .asc via the
-    /// registry, applies playback state (always to a paused cursor —
-    /// never auto-resumes), then restores chart viewports AFTER
-    /// <see cref="RebuildSignalsCore"/> populates the Series collection
-    /// (otherwise the per-axis writes would land on stale or empty
-    /// PlotModels and <see cref="TraceChartViewModel.SyncYAxes"/> would
-    /// overwrite them).
-    /// </summary>
-    private async Task<IReadOnlyList<string>> ApplySnapshotAsync(TraceSessionBundleDto dto)
-    {
-        var missing = new List<string>();
-        // Unload any currently-loaded sources so the session is exactly
-        // what the bundle describes. UnloadAsync is async but the inner
-        // work is synchronous; we await to keep ordering deterministic.
-        foreach (var src in Sources.ToList())
-        {
-            await _registry.UnloadAsync(src.SourceId).ConfigureAwait(true);
-        }
-        // Map sourceId → DisplayName so we can re-stamp after load.
-        var nameBySourceId = dto.Sources.ToDictionary(s => s.SourceId, s => s.DisplayName, StringComparer.Ordinal);
-        var pathBySourceId = dto.Sources.ToDictionary(s => s.SourceId, s => s.Path, StringComparer.Ordinal);
-        // 1. Reload the .asc files via the registry. Missing → recorded
-        //    in the returned list; do NOT throw (user-friendly).
-        foreach (var bs in dto.Sources)
-        {
-            // v3.6.4 PATCH: when the recorded path is missing AND the
-            // bundle carries a contentHash, ask the locator for a
-            // relocated copy before giving up. The relocated path is
-            // used for the registry load; if the locator also fails,
-            // we fall through to the existing missing-path reporting.
-            var loadPath = bs.Path;
-            if (!string.IsNullOrEmpty(bs.Path) &&
-                !File.Exists(bs.Path) &&
-                !string.IsNullOrEmpty(bs.ContentHash))
-            {
-                var relocated = await _locator.LocateAsync(bs.ContentHash).ConfigureAwait(true);
-                if (!string.IsNullOrEmpty(relocated) && File.Exists(relocated))
-                {
-                    LogRelocated(_logger, bs.Path, relocated);
-                    loadPath = relocated;
-                }
-            }
-            try
-            {
-                var loaded = await _registry.LoadAsync(loadPath).ConfigureAwait(true);
-                // v3.6.0 MINOR T1.B: restore DisplayName and color from
-                // the bundle, replacing the v3.5.0 "path-reference only"
-                // comment. The registry's LoadAsync stamps a default
-                // DisplayName (filename) and palette color; both are
-                // overwritten when the bundle supplies values. For
-                // bundle entries where color was left at default ARGB =
-                // (0,0,0,0), the property set is skipped so the
-                // registry's palette color survives (forward-compat with
-                // hand-edited v1 bundles that pre-date color capture).
-                loaded.CanIdFilter = bs.CanIdFilter;
-                var filenameOnly = Path.GetFileNameWithoutExtension(bs.Path);
-                if (!string.IsNullOrEmpty(bs.DisplayName) &&
-                    bs.DisplayName != filenameOnly)
-                {
-                    loaded.DisplayName = bs.DisplayName;
-                }
-                if (!(bs.ColorA == 0 && bs.ColorR == 0 &&
-                      bs.ColorG == 0 && bs.ColorB == 0))
-                {
-                    loaded.Color = new Color(
-                        bs.ColorR, bs.ColorG, bs.ColorB, bs.ColorA);
-                }
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-            {
-                LogSourceMissing(_logger, bs.Path, ex);
-                missing.Add(bs.Path);
-            }
-            catch (ReplayException ex)
-            {
-                LogSourceMissing(_logger, bs.Path, ex);
-                missing.Add(bs.Path);
-            }
-        }
-        // 2. Apply DBC path if present. Best-effort — missing DBC is
-        //    acceptable (user can reload manually).
-        if (!string.IsNullOrEmpty(dto.DbcPath) && File.Exists(dto.DbcPath))
-        {
-            try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(true); }
-            catch (FileNotFoundException) { /* bundle references a deleted DBC — acceptable */ }
-            catch (Exception ex)
-            {
-                // v3.9.2 PATCH L1: was a bare catch{ } swallowing all failures.
-                // Log the DBC load failure so the operator can diagnose a
-                // malformed-vendor-DBC without losing visibility. StatusMessage
-                // surfaces it on the toolbar; the source still loads (the
-                // bundle is path-reference only, so a missing/bad DBC is
-                // not fatal — the user can reload manually).
-                // v3.13.0 PATCH F3: renamed helper (was LogBundleDbcLoadFailed).
-                // LoadDbcAsync's deletion made the old name misleading; this
-                // arm is now the only caller.
-                LogBundleDbcLoadFailedInline(_logger, dto.DbcPath, ex);
-                StatusMessage = $"DBC load failed: {ex.Message}";
-            }
-            LoadedDbcPath = dto.DbcPath;
-        }
-        else
-        {
-            LoadedDbcPath = dto.DbcPath ?? "";
-        }
-        // 3. Apply global filter + playback transport. Always to a
-        //    paused cursor — never auto-resume on app restart.
-        CanIdFilter = dto.GlobalCanIdFilter ?? "";
-        Loop = dto.Playback?.Loop ?? false;
-        Speed = dto.Playback?.Speed ?? 1.0;
-        ScrubberValue = 0.0;
-        if (dto.Playback is { } pb && !string.IsNullOrEmpty(pb.MasterSourceId))
-        {
-            // The new SourceId from registry.LoadAsync != bundle's pre-recorded
-            // id. Map via display name — same alpha-order as the registry
-            // adds them, and the bundle's order matches.
-            var newMaster = Sources.FirstOrDefault(s =>
-                string.Equals(s.DisplayName, nameBySourceId.GetValueOrDefault(pb.MasterSourceId, ""), StringComparison.Ordinal));
-            if (newMaster is not null)
-            {
-                MasterSourceId = newMaster.SourceId;
-                _masterService = _registry.GetService(newMaster.SourceId);
-                TotalDuration = _masterService?.TotalDuration ?? 0.0;
-                ChartViewModel.SetTotalDuration(TotalDuration);
-                // Seek to saved scrubber position (paused).
-                if (_masterService is not null && pb.ScrubberValue > 0)
-                {
-                    _masterService.Seek(pb.ScrubberValue);
-                    ScrubberValue = pb.ScrubberValue;
-                }
-            }
-        }
-        // 4. Rebuild signals + chart with the new source set, then apply
-        //    viewports AFTER SyncYAxes has run so the X-axis writes stick.
-        RebuildSignalsCore();
-        // v3.5.1 PATCH (review M2): explicit assignment removes the
-        // implicit dependency on _registry.LoadAsync firing
-        // OnRegistrySourcesChanged synchronously inside ApplySnapshotAsync.
-        // If the registry were ever to dispatch SourcesChanged
-        // asynchronously, the property would still be correct here.
-        LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";
-        ChartViewModel.ApplyViewports(dto.Viewports);
-        // v12 Step 7: restore watch list + groups. Forward-compat: old
-        // bundles without these fields deserialize as empty lists.
-        WatchedSignals.Clear();
-        if (dto.WatchedSignals is not null)
-        {
-            foreach (var w in dto.WatchedSignals)
-            {
-                var row = new WatchedSignalRow(
-                    w.CanIdHex, w.MessageName, w.SignalName, w.Unit, w.SourceId);
-                if (!string.IsNullOrEmpty(w.Alias))
-                    row.Alias = w.Alias;
-                WatchedSignals.Add(row);
-            }
-        }
-        SignalGroups.Clear();
-        if (dto.Groups is not null)
-        {
-            foreach (var g in dto.Groups)
-            {
-                SignalGroups.Add(new WatchedSignalGroup(
-                    g.Id, g.Name, g.Notes, g.SignalKeys));
-            }
-        }
-        // Re-compute anchor values for restored watch list rows.
-        if (WatchedSignals.Count > 0 && !double.IsNaN(_anchorTimestampSeconds))
-            RefreshAtAnchor(_anchorTimestampSeconds);
-        if (WatchedSignals.Count > 0 && !double.IsNaN(_blueAnchorTimestampSeconds))
-            RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
-        return missing;
-    }
 }

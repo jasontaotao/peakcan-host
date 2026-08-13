@@ -378,19 +378,19 @@ public class AppHostBuilderTests
     }
 
     [Fact]
-    public void Build_Registers_TraceViewerViewModel_As_Singleton()
+    public void Build_Registers_TraceViewerViewModel_As_Transient()
     {
-        // Task 7: TraceViewerViewModel is a singleton so AppShellViewModel
-        // (also a singleton) constructs with the same instance, preserving
-        // the loaded trace + signal list + chart scrubber position across
-        // menu round-trips. Matches the ReplayViewModel precedent.
+        // v3.x (会话状态剥离 Task 3): TraceViewerViewModel 改为 transient（窗口级
+        // 生命周期）。会话级状态已由 singleton ITraceSessionService 承载，VM 只转发
+        // 属性——每次解析都是新实例（窗口关闭即释放，不再跨 reopen 复用）。
         var builder = new AppHostBuilder();
         using var host = builder.Build();
 
         host.Services.GetService<TraceViewerViewModel>().Should().NotBeNull();
-        host.Services.GetService<TraceViewerViewModel>()
-            .Should().BeSameAs(host.Services.GetService<TraceViewerViewModel>(),
-                "TraceViewerViewModel is registered as singleton");
+        var first = host.Services.GetService<TraceViewerViewModel>();
+        var second = host.Services.GetService<TraceViewerViewModel>();
+        first.Should().NotBeSameAs(second,
+            "TraceViewerViewModel is registered as transient — each resolve returns a fresh window-scoped VM");
 
         // TraceViewerView is intentionally NOT DI-registered — WPF Window
         // ctor requires STA, and AppShellViewModel owns the lazy cached

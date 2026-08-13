@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
 using FluentAssertions;
@@ -32,6 +33,16 @@ public class TraceViewerViewModelTests
 
     private static ILogger<TraceViewerViewModel> MakeFakeLogger()
         => Substitute.For<ILogger<TraceViewerViewModel>>();
+
+    // v3.x (会话状态剥离 Task 3): ITraceSessionService 替身——配置非空集合，否则
+    // VM ctor 对 WatchedSignals.CollectionChanged 的订阅会 NRE（替身默认返回 null）。
+    private static ITraceSessionService MakeFakeSession()
+    {
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+        return session;
+    }
 
     // v3.5.0 MINOR: real TraceSessionLibrary against a per-test temp
     // path. Tests that exercise Save/Open use the public ctor's
@@ -73,7 +84,7 @@ public class TraceViewerViewModelTests
     // the bundle round-trip tests. Exists so T1 tests don't need to know
     // which constructor argument is the IFileDialogService.
     private static TraceViewerViewModel NewVm(TraceSessionLibrary library)
-        => new TraceViewerViewModel(
+        => new TraceViewerViewModel(MakeFakeSession(),
             MakeFakeRegistry(),
             MakeFakeDbcService(),
             MakeFakeLogger(),
@@ -84,7 +95,7 @@ public class TraceViewerViewModelTests
     // depends on. Delegates to the real TraceSessionLibrary ctor with a
     // per-test temp path (mirrors AppShellViewModelTests.NewFakeSessionLibrary).
     private static TraceViewerViewModel NewVm()
-        => new TraceViewerViewModel(
+        => new TraceViewerViewModel(MakeFakeSession(),
             MakeFakeRegistry(),
             MakeFakeDbcService(),
             MakeFakeLogger(),
@@ -108,7 +119,7 @@ public class TraceViewerViewModelTests
         var sessionLibrary = new TraceSessionLibrary(
             Path.Combine(Path.GetTempPath(), $"tmtrace-vm-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
-        return new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, fileDialog: dialog);
+        return new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, logger, sessionLibrary, fileDialog: dialog);
     }
 
     // Seed the fake registry with one source having the requested
@@ -220,7 +231,7 @@ public class TraceViewerViewModelTests
     [Fact]
     public void Ctor_Empty_NoSignalsNoCharts()
     {
-        var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Signals.Should().BeEmpty();
         sut.ChartViewModel.Series.Should().BeEmpty();
     }
@@ -236,7 +247,7 @@ public class TraceViewerViewModelTests
         var svc = MakeFakeRegistry();
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
         await sut.AddTraceAsync();
         await svc.Received(1).LoadAsync("C:/fake.asc", Arg.Any<CancellationToken>());
     }
@@ -251,7 +262,7 @@ public class TraceViewerViewModelTests
         // default mode" — playback delegation is verified indirectly via
         // the multi-trace tests (Play throws in multi-trace mode).
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.PlayCommand.Execute(null);
 
@@ -263,7 +274,7 @@ public class TraceViewerViewModelTests
     {
         // See PlayCommand above — same no-throw-in-default-mode contract.
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.PauseCommand.Execute(null);
 
@@ -280,7 +291,7 @@ public class TraceViewerViewModelTests
         // default mode" — playback delegation is verified indirectly via
         // the multi-trace tests (Stop throws in multi-trace mode).
         var svc = MakeFakeRegistry();
-        var sut = new TraceViewerViewModel(svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         var act = () => sut.StopCommand.Execute(null);
 
@@ -306,7 +317,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -347,7 +358,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // v3.16.9.3 PATCH: drive AddToWatch first (v3.15.0 opt-in contract),
@@ -383,7 +394,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmAndTemp());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // v3.16.9.3 PATCH: AddToWatch twice (once per signal) for the same
@@ -415,7 +426,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/fake.asc");
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -441,7 +452,7 @@ public class TraceViewerViewModelTests
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
-        var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         await sut.RebuildSignalsAsync();
 
         // v3.16.9.3 PATCH: drive AddToWatch first.
@@ -476,7 +487,7 @@ public class TraceViewerViewModelTests
             new("guid-1", "fake", "C:/fake.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService(Arg.Any<string>()).Returns(svc);
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Simulate a FrameEmitted during playback. OnAnyFrameEmitted writes
         // ScrubberValue = master.CurrentTimestamp. Without the guard, this
@@ -504,7 +515,7 @@ public class TraceViewerViewModelTests
             new("guid-1", "fake", "C:/fake.asc", Colors.Blue, new LineStyle()),
         });
         registry.GetService(Arg.Any<string>()).Returns(svc);
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.ScrubberValue = 5.0;
 
@@ -539,7 +550,7 @@ public class TraceViewerViewModelTests
 //         });
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
-//         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+//         var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 // 
 //         // AddToWatch triggers BuildOneChartSeriesForSource via
 //         // PlotSignalFromTableRow (line 1073). This is the v3.15.0+ user
@@ -576,7 +587,7 @@ public class TraceViewerViewModelTests
 //         });
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
-//         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+//         var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
 //         sut.ChartViewModel.Series.Should().HaveCount(1);
@@ -607,7 +618,7 @@ public class TraceViewerViewModelTests
 //         });
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
-//         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+//         var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
 //         sut.ChartViewModel.Series.Should().HaveCount(1);
@@ -639,7 +650,7 @@ public class TraceViewerViewModelTests
 //         });
 //         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
 //         dbc.SetCurrentForTests(DocWithRpmSignal());
-//         var sut = new TraceViewerViewModel(svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+//         var sut = new TraceViewerViewModel(MakeFakeSession(),svc, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 //         sut.AddToWatch(0x100, "RPM", "");
 // 
 //         sut.ChartViewModel.Series.Should().HaveCount(1);
@@ -668,7 +679,7 @@ public class TraceViewerViewModelTests
         registry.GetService("slave").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         // MasterSourceId defaults to first source ("master").
 
         sut.SeekTo(18.0);
@@ -712,7 +723,7 @@ public class TraceViewerViewModelTests
         registry.GetService("a").Returns(svcMaster);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Advance scrubber first so OnScrubberValueChanged has a non-default
         // baseline. The negative SeekTo(-5.0) then flips ScrubberValue to a
@@ -746,7 +757,7 @@ public class TraceViewerViewModelTests
         registry.GetService("a").Returns(svcMaster);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.SeekTo(1.0e10);
 
@@ -772,7 +783,7 @@ public class TraceViewerViewModelTests
         registry.GetService("a").Returns(svcMaster);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.SeekTo(15.0);
 
@@ -794,7 +805,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.Speed = 2.5;
 
@@ -817,7 +828,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.Loop = true;
 
@@ -842,7 +853,7 @@ public class TraceViewerViewModelTests
         registry.GetService("slave").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Loop = true;
 
         // Raise master's PlaybackEnded (no error → normal EOF, not sink fail)
@@ -871,7 +882,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         // MasterSourceId defaults to "a"
 
         sut.SetMasterCommand.Execute("b");
@@ -891,7 +902,7 @@ public class TraceViewerViewModelTests
         registry.GetService("a").Returns(svcA);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         var original = sut.MasterSourceId;
 
         sut.SetMasterCommand.Execute("nonexistent");
@@ -914,7 +925,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.MasterSourceId.Should().Be("a");
 
         // Simulate user removing source "a" (the master)
@@ -943,7 +954,7 @@ public class TraceViewerViewModelTests
             new("a", "A", "C:/a.asc", Colors.Blue, new LineStyle()),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeTrue();
     }
@@ -958,7 +969,7 @@ public class TraceViewerViewModelTests
             new("b", "B", "C:/b.asc", Colors.Orange, new LineStyle()),
         });
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeTrue();
     }
@@ -968,7 +979,7 @@ public class TraceViewerViewModelTests
     {
         var registry = MakeFakeRegistry();
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.HasSources.Should().BeFalse();
     }
@@ -992,7 +1003,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         registry.SourcesChanged += Raise.Event<Action>();
 
@@ -1025,7 +1036,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.SetMasterCommand.Execute("b");
 
@@ -1058,7 +1069,7 @@ public class TraceViewerViewModelTests
         registry.GetService("b").Returns(svcB);
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, dbc, MakeFakeLogger(), MakeFakeSessionLibrary());
         sut.Loop = true;
         // Master is "a" by default; swap to "b".
         sut.SetMasterCommand.Execute("b");
@@ -1073,76 +1084,42 @@ public class TraceViewerViewModelTests
         svcA.DidNotReceiveWithAnyArgs().Seek(default);
     }
 
-    // ===== v3.5.1 PATCH (review M2): LoadedTracePath ordering =====
+    // v3.x (会话状态剥离 Task 3): OpenSessionAsync 的 VM 状态恢复用例删除——
+    // 打开会话逻辑已迁至 ITraceSessionService（unload/load、missing 收集、
+    // DisplayName/Color 重盖印、watch/groups 恢复均在 service，由
+    // TraceSessionServiceTests 覆盖）。VM 只保留薄转发（见
+    // OpenSessionAsync_ForwardsToSessionService）。
 
+    /// <summary>v3.x (会话状态剥离 Task 3): VM.OpenSessionAsync 是到
+    /// ITraceSessionService 的薄转发——非空 path 原样转发给 service。</summary>
     [Fact]
-    public async Task OpenSessionAsync_RestoresLoadedTracePath_To_FirstSource_Path()
+    public async Task OpenSessionAsync_ForwardsToSessionService()
     {
-        // v3.5.1 PATCH (review M2): the property must be set explicitly
-        // inside ApplySnapshotAsync after RebuildSignalsCore, not left
-        // to OnRegistrySourcesChanged firing inside LoadAsync. Seed the
-        // registry with two sources, save a snapshot with the same
-        // paths, modify LoadedTracePath to a stale value, then call
-        // OpenSessionAsync and assert the property is restored to the
-        // first source's path.
-        const string path1 = "C:/path/to/s1.asc";
-        const string path2 = "C:/path/to/s2.asc";
-        var loadedSources = new List<TraceSource>
-        {
-            new("aaa", "s1", path1, Colors.Blue, new LineStyle()),
-            new("bbb", "s2", path2, Colors.Orange, new LineStyle()),
-        };
-        var registry = Substitute.For<ITraceSessionRegistry>();
-        registry.Sources.Returns(loadedSources);
-        // ApplySnapshotAsync calls registry.LoadAsync in a loop; return
-        // the matching entry per path so Sources.Count > 0 after restore.
-        registry.LoadAsync(path1, Arg.Any<CancellationToken>())
-            .Returns(loadedSources[0]);
-        registry.LoadAsync(path2, Arg.Any<CancellationToken>())
-            .Returns(loadedSources[1]);
+        var session = MakeFakeSession();
+        session.OpenSessionAsync(Arg.Any<string>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>(new List<string>()));
+        var sut = new TraceViewerViewModel(
+            session, MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
-        var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
-        var library = MakeFakeSessionLibrary();
-        var sut = new TraceViewerViewModel(registry, dbc, MakeFakeLogger(), library);
+        var missing = await sut.OpenSessionAsync("C:/bundle.tmtrace");
 
-        // Seed an arbitrary stale value to verify post-restore override.
-        sut.LoadedTracePath = "stale/path.asc";
-        sut.LoadedTracePath.Should().Be("stale/path.asc");
+        missing.Should().BeEmpty();
+        await session.Received(1).OpenSessionAsync("C:/bundle.tmtrace");
+    }
 
-        // Persist a snapshot that the test will re-load.
-        var snapshot = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = "3.5.0",
-            Sources = new List<BundleSourceDto>
-            {
-                new() { SourceId = "aaa", DisplayName = "s1", Path = path1 },
-                new() { SourceId = "bbb", DisplayName = "s2", Path = path2 },
-            },
-        };
-        var filePath = Path.Combine(
-            Path.GetTempPath(),
-            $"tmtrace-vm-m2-{Guid.NewGuid():N}.tmtrace");
-        try
-        {
-            library.Save(snapshot, filePath);
+    /// <summary>v3.x (会话状态剥离 Task 3): 空/空串 path 直接返回空列表，不转发
+    /// 给 service（保留旧签名对 null 的容忍）。</summary>
+    [Fact]
+    public async Task OpenSessionAsync_EmptyPath_DoesNotForward()
+    {
+        var session = MakeFakeSession();
+        var sut = new TraceViewerViewModel(
+            session, MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
-            // Act: this triggers ApplySnapshotAsync → our new
-            // LoadedTracePath = Sources[0].Path line.
-            await sut.OpenSessionAsync(filePath);
+        var missing = await sut.OpenSessionAsync(null);
 
-            // Assert: explicit assignment wins regardless of whether
-            // OnRegistrySourcesChanged fires synchronously inside
-            // registry.LoadAsync.
-            sut.LoadedTracePath.Should().Be(path1,
-                "the v3.5.1 explicit assignment must set LoadedTracePath to the first source's path");
-        }
-        finally
-        {
-            if (File.Exists(filePath)) File.Delete(filePath);
-        }
+        missing.Should().BeEmpty();
+        await session.DidNotReceive().OpenSessionAsync(Arg.Any<string>());
     }
 
     // ===== v3.6.0 MINOR T1.A: AppVersion stamped from assembly metadata =====
@@ -1168,120 +1145,10 @@ public class TraceViewerViewModelTests
         try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
     }
 
-    // ===== v3.6.0 MINOR T1.B: restore Color + DisplayName on reload =====
-
-    [Fact]
-    public async Task ApplySnapshotAsync_RestoresColorAndDisplayName()
-    {
-        // v3.6.0 MINOR T1.B: when a bundle carries a non-default ARGB
-        // color and a custom DisplayName (one that DIFFERS from the
-        // path's filename), both must survive the save → fresh-VM
-        // reload round-trip.
-        const byte R = 0x12, G = 0x34, B = 0x56;
-        const string DisplayName = "highway_cruise";
-        const string Path = "C:/recordings/2026-01-15_drive.asc";
-        var library = NewTestLibrary(out var libPath);
-        var registry = MakeFakeRegistry();
-        var vm = new TraceViewerViewModel(
-            registry, MakeFakeDbcService(), MakeFakeLogger(), library);
-        // Seed a source whose DisplayName intentionally differs from
-        // the path's filename (the guard's distinguishing signal).
-        var source = new TraceSource(
-            Guid.NewGuid().ToString("N"),
-            DisplayName, Path,
-            new Color(R, G, B, 255), new LineStyle());
-        registry.Sources.Returns(new List<TraceSource> { source });
-        registry.SourcesChanged += Raise.Event<Action>();
-        await vm.SaveSessionAsync(libPath);
-
-        // Reload through a fresh VM whose registry returns a fresh
-        // TraceSource (palette defaults) on LoadAsync AND mutates
-        // Sources to simulate the registry's bookkeeping.
-        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
-        var loadedSources = new List<TraceSource>();
-        reloadRegistry.Sources.Returns(loadedSources);
-        reloadRegistry.GetService(Arg.Any<string>())
-            .Returns(MakeFakeService());
-        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                // Mimic the production registry: stamp filename as
-                // DisplayName + palette color. Restore logic must
-                // overwrite both with bundle values.
-                var src = new TraceSource(
-                    "fresh-id", "2026-01-15_drive", Path,
-                    Colors.Blue, new LineStyle());
-                loadedSources.Add(src);
-                return src;
-            });
-        var vm2 = new TraceViewerViewModel(
-            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library);
-
-        var missing = await vm2.OpenSessionAsync(libPath);
-        missing.Should().BeEmpty();
-
-        var restored = vm2.Sources.Single();
-        restored.DisplayName.Should().Be(DisplayName);
-        restored.Color.R.Should().Be(R);
-        restored.Color.G.Should().Be(G);
-        restored.Color.B.Should().Be(B);
-
-        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
-    }
-
-    [Fact]
-    public async Task ApplySnapshotAsync_V1BundleWithoutColor_FallsBackToPalette()
-    {
-        // v3.6.0 MINOR T1.B: bundles whose ARGB bytes are all 0 must
-        // leave the registry's palette color untouched. Without this
-        // guard, a fully-transparent black source would render with
-        // zero alpha in the chart strip.
-        var library = NewTestLibrary(out var libPath);
-        var registry = MakeFakeRegistry();
-        var vm = new TraceViewerViewModel(
-            registry, MakeFakeDbcService(), MakeFakeLogger(), library);
-        AddFakeTraceSource(registry, displayName: "drive_downtown");
-        await vm.SaveSessionAsync(libPath);
-
-        // Hand-craft a v1 bundle with all-zero color bytes — simulates
-        // a hand-edited or imported bundle where the color field is
-        // not populated.
-        var dto = library.Load(libPath)!;
-        dto.Sources[0].ColorA = 0;
-        dto.Sources[0].ColorR = 0;
-        dto.Sources[0].ColorG = 0;
-        dto.Sources[0].ColorB = 0;
-        library.Save(dto, libPath);
-
-        // Reload via fresh VM — registry's stub returns a source with
-        // a non-zero palette color (Colors.Orange) and seeds
-        // Sources so the VM can see it.
-        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
-        var loadedSources = new List<TraceSource>();
-        reloadRegistry.Sources.Returns(loadedSources);
-        reloadRegistry.GetService(Arg.Any<string>())
-            .Returns(MakeFakeService());
-        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                var src = new TraceSource(
-                    "fresh-id", "drive_downtown.asc", "drive_downtown.asc",
-                    Colors.Orange, new LineStyle());
-                loadedSources.Add(src);
-                return src;
-            });
-        var vm2 = new TraceViewerViewModel(
-            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library);
-
-        var missing = await vm2.OpenSessionAsync(libPath);
-        missing.Should().BeEmpty();
-
-        var restored = vm2.Sources.Single();
-        restored.Color.A.Should().NotBe(0,
-            "a bundle with all-zero ARGB must NOT overwrite the registry's palette color");
-
-        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
-    }
+    // v3.x (会话状态剥离 Task 3): ApplySnapshotAsync 已删除（功能迁至
+    // ITraceSessionService.OpenSessionAsync）。原 ApplySnapshotAsync_RestoresColorAndDisplayName /
+    // _V1BundleWithoutColor_FallsBackToPalette 用例由 TraceSessionServiceTests 覆盖
+    // （OpenSessionAsync_CollectsMissingPaths_AndReStampsLoadedSource 等）。
 
     // ===== v3.6.4 PATCH: hash-based .asc relocation =====
 
@@ -1303,20 +1170,6 @@ public class TraceViewerViewModelTests
         }
     }
 
-    // Fake locator that returns a configurable relocated path. Tests
-    // inject this to pin ApplySnapshotAsync's "use the relocated path
-    // when path is missing AND hash is non-empty" contract.
-    private sealed class FakeAscLocator : PeakCan.HIL.Core.Services.IAscLocator
-    {
-        public string? LocateResult { get; set; }
-        public string? LastHash { get; private set; }
-        public Task<string?> LocateAsync(string contentHash, CancellationToken ct = default)
-        {
-            LastHash = contentHash;
-            return Task.FromResult(LocateResult);
-        }
-    }
-
     [Fact]
     public void BuildSnapshot_PopulatesContentHash_WhenSourceFileExists()
     {
@@ -1327,7 +1180,7 @@ public class TraceViewerViewModelTests
         var hasher = new FakeAscHasher { Return = fakeHash };
         var library = NewTestLibrary(out var libPath);
         var registry = MakeFakeRegistry();
-        var vm = new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(MakeFakeSession(),
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: hasher, locator: null);
         // Source points at a real file under the test temp dir.
@@ -1368,7 +1221,7 @@ public class TraceViewerViewModelTests
         var hasher = new FakeAscHasher();
         var library = NewTestLibrary(out var libPath);
         var registry = MakeFakeRegistry();
-        var vm = new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(MakeFakeSession(),
             registry, MakeFakeDbcService(), MakeFakeLogger(), library,
             fileDialog: null, hasher: hasher, locator: null);
         var missingPath = Path.Combine(
@@ -1391,190 +1244,11 @@ public class TraceViewerViewModelTests
         try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
     }
 
-    [Fact]
-    public async Task ApplySnapshotAsync_HashHit_ReloadsFromRelocatedPath()
-    {
-        // Arrange — saved bundle has a stale path + a contentHash.
-        // The registry's LoadAsync stub records the path argument; we
-        // assert that the relocated path (returned by the locator)
-        // was passed, not the stale path. The relocated path must
-        // exist on disk for the VM to use it (File.Exists gate).
-        const string StalePath = "C:/old/location/drive.asc";
-        var relocatedPath = Path.Combine(Path.GetTempPath(), $"v364-reloc-{Guid.NewGuid():N}.asc");
-        File.WriteAllText(relocatedPath, "relocated synthetic asc content");
-        var locator = new FakeAscLocator { LocateResult = relocatedPath };
-        var library = NewTestLibrary(out var libPath);
-        var bundle = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = "3.6.4",
-            Sources = new List<BundleSourceDto>
-            {
-                new()
-                {
-                    SourceId = "guid-1",
-                    DisplayName = "drive",
-                    Path = StalePath,
-                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
-                    StrokeStyle = "Solid",
-                    CanIdFilter = "",
-                    ContentHash = "abcdef" + new string('0', 58),
-                },
-            },
-        };
-        library.Save(bundle, libPath);
-
-        // Registry returns a fresh source on LoadAsync, mirroring the
-        // production behavior. We capture the requested path.
-        string? loadedPath = null;
-        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
-        var loadedSources = new List<TraceSource>();
-        reloadRegistry.Sources.Returns(loadedSources);
-        reloadRegistry.GetService(Arg.Any<string>())
-            .Returns(MakeFakeService());
-        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                loadedPath = _.ArgAt<string>(0);
-                var src = new TraceSource(
-                    "fresh-id", "drive", loadedPath ?? StalePath, Colors.Blue, new LineStyle());
-                loadedSources.Add(src);
-                return src;
-            });
-        var vm = new TraceViewerViewModel(
-            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
-            fileDialog: null, hasher: null, locator: locator);
-
-        try
-        {
-            // Act
-            var missing = await vm.OpenSessionAsync(libPath);
-
-            // Assert
-            missing.Should().BeEmpty(
-                "the relocated path counts as a successful load — it must not appear in missing");
-            loadedPath.Should().Be(relocatedPath,
-                "the VM must call LoadAsync with the relocated path returned by the locator");
-            locator.LastHash.Should().Be(bundle.Sources[0].ContentHash);
-        }
-        finally
-        {
-            if (File.Exists(relocatedPath)) File.Delete(relocatedPath);
-            try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
-        }
-    }
-
-    [Fact]
-    public async Task ApplySnapshotAsync_HashMiss_ReportsStalePathInMissing()
-    {
-        // Arrange — saved bundle has a stale path + contentHash, but
-        // the locator returns null (no match in the search dirs).
-        // The VM must fall through to the existing path-only
-        // resolution: LoadAsync(stalePath) is invoked, the registry
-        // throws FileNotFoundException (because the file is gone),
-        // and the VM adds bs.Path to the missing list.
-        const string StalePath = "C:/old/location/drive.asc";
-        var locator = new FakeAscLocator { LocateResult = null };
-        var library = NewTestLibrary(out var libPath);
-        var bundle = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = "3.6.4",
-            Sources = new List<BundleSourceDto>
-            {
-                new()
-                {
-                    SourceId = "guid-1",
-                    DisplayName = "drive",
-                    Path = StalePath,
-                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
-                    StrokeStyle = "Solid",
-                    CanIdFilter = "",
-                    ContentHash = "123456" + new string('0', 58),
-                },
-            },
-        };
-        library.Save(bundle, libPath);
-
-        // Registry throws FileNotFoundException for the stale path —
-        // matches production behavior when the .asc is gone.
-        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
-        reloadRegistry.Sources.Returns(new List<TraceSource>());
-        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns<Task<TraceSource>>(_ =>
-                throw new FileNotFoundException("synthetic missing-file", _.ArgAt<string>(0)));
-        var vm = new TraceViewerViewModel(
-            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
-            fileDialog: null, hasher: null, locator: locator);
-
-        // Act
-        var missing = await vm.OpenSessionAsync(libPath);
-
-        // Assert
-        missing.Should().ContainSingle()
-            .Which.Should().Be(StalePath,
-                "when the hash lookup fails the VM must surface the original stale path in the missing list");
-
-        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
-    }
-
-    [Fact]
-    public async Task ApplySnapshotAsync_NoContentHash_ExistingPathOnlyBehavior()
-    {
-        // Arrange — saved bundle has a stale path but NO contentHash
-        // (the v3.6.0-v3.6.3 case). The VM must NOT call the locator
-        // and must surface the stale path in the missing list —
-        // identical behavior to v3.6.3.
-        const string StalePath = "C:/old/location/drive.asc";
-        var locator = new FakeAscLocator { LocateResult = "C:/somewhere/else.asc" };
-        var library = NewTestLibrary(out var libPath);
-        var bundle = new TraceSessionBundleDto
-        {
-            Version = 1,
-            Schema = TraceSessionLibrary.CurrentSchema,
-            SavedAt = DateTimeOffset.UtcNow,
-            AppVersion = "3.6.3",
-            Sources = new List<BundleSourceDto>
-            {
-                new()
-                {
-                    SourceId = "guid-1",
-                    DisplayName = "drive",
-                    Path = StalePath,
-                    ColorA = 255, ColorR = 1, ColorG = 2, ColorB = 3,
-                    StrokeStyle = "Solid",
-                    CanIdFilter = "",
-                    ContentHash = "",   // empty — v3.6.3-era bundle
-                },
-            },
-        };
-        library.Save(bundle, libPath);
-
-        // Registry throws FileNotFoundException for the stale path —
-        // matches production behavior when the .asc is gone.
-        var reloadRegistry = Substitute.For<ITraceSessionRegistry>();
-        reloadRegistry.Sources.Returns(new List<TraceSource>());
-        reloadRegistry.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns<Task<TraceSource>>(_ =>
-                throw new FileNotFoundException("synthetic missing-file", _.ArgAt<string>(0)));
-        var vm = new TraceViewerViewModel(
-            reloadRegistry, MakeFakeDbcService(), MakeFakeLogger(), library,
-            fileDialog: null, hasher: null, locator: locator);
-
-        // Act
-        var missing = await vm.OpenSessionAsync(libPath);
-
-        // Assert
-        missing.Should().ContainSingle().Which.Should().Be(StalePath);
-        locator.LastHash.Should().BeNull(
-            "the locator must NOT be invoked when the bundle has no contentHash");
-
-        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { }
-    }
+    // v3.x (会话状态剥离 Task 3): 原 ApplySnapshotAsync_HashHit_ReloadsFromRelocatedPath /
+    // _HashMiss_ReportsStalePathInMissing / _NoContentHash_ExistingPathOnlyBehavior 删除——
+    // locator 按哈希重定位逻辑已迁至 ITraceSessionService.OpenSessionAsync，由
+    // TraceSessionServiceTests.OpenSessionAsync_LocatorRelocatesMissingAsc_ByContentHash 覆盖。
+    // (FakeAscLocator 随之删除)
 
     // ---------- v3.9.1 PATCH: IsLoading + ErrorMessage + StatusMessage UX surface ----------
 
@@ -1599,7 +1273,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/missing.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         // Act — must NOT throw (absorbed into ErrorMessage)
         await sut.AddTraceAsync();
@@ -1628,7 +1302,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/empty.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1655,7 +1329,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1676,7 +1350,7 @@ public class TraceViewerViewModelTests
     [Fact]
     public void AddTraceCommand_CanExecute_ReflectsIsLoading()
     {
-        var sut = new TraceViewerViewModel(MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
+        var sut = new TraceViewerViewModel(MakeFakeSession(),MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
 
         sut.IsLoading = false;
         sut.AddTraceCommand.CanExecute(null).Should().BeTrue(
@@ -1706,7 +1380,7 @@ public class TraceViewerViewModelTests
         // v3.11.4 PATCH: AddTraceAsync parameterless; dialog drives the path.
         var dialog = Substitute.For<IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/whatever.asc");
-        var sut = new TraceViewerViewModel(registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var sut = new TraceViewerViewModel(MakeFakeSession(),registry, MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await sut.AddTraceAsync();
 
@@ -1827,59 +1501,8 @@ public class TraceViewerViewModelTests
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
 
-    // === v3.50.1 PATCH: Reset() now clears every v3.15.0+ mutable
-    //     collection + cache so a Trace Viewer close+reopen cycle on
-    //     the singleton VM doesn't leave the watch list visually empty
-    //     (rows surviving in WatchedSignals but the cached window's
-    //     DataGrid ItemContainerGenerator doesn't re-materialize them
-    //     because the underlying ObservableCollection emitted no
-    //     Reset INPC during the window teardown). ===
-
-    [Fact]
-    public void Reset_Clears_WatchedSignals_Collection()
-    {
-        var vm = NewVm();
-        // Pre-populate watch list with a real row (not the placeholder).
-        var row = new WatchedSignalRow(
-            canIdHex: "0x100",
-            messageName: "Msg",
-            signalName: "Sig",
-            unit: "kmh",
-            sourceId: null);
-        vm.WatchedSignals.Add(row);
-        vm.WatchedSignals.Should().HaveCount(1);
-
-        vm.Reset();
-
-        vm.WatchedSignals.Should().BeEmpty(
-            "Reset must drop user watches so a close+reopen cycle starts from a clean watch list, not the cached VM's stale rows");
-    }
-
-    [Fact]
-    public void Reset_Resets_Anchor_To_NaN_And_IsGreenLineAnchorActive_False()
-    {
-        var vm = NewVm();
-        // Set an anchor (non-NaN), verify it's active.
-        vm.RefreshAtAnchor(5.25);
-        vm.IsGreenLineAnchorActive.Should().BeTrue();
-
-        vm.Reset();
-
-        vm.IsGreenLineAnchorActive.Should().BeFalse(
-            "Reset must clear the anchor timestamp so reopened window has no green line drawn");
-    }
-
-    [Fact]
-    public void Reset_Clears_SamplingRows()
-    {
-        var vm = NewVm();
-        vm.SamplingRows.Add(new SamplingTableRow("0x100", "Msg", "Sig", "kmh", "42.0"));
-        vm.SamplingRows.Should().HaveCount(1);
-
-        vm.Reset();
-
-        vm.SamplingRows.Should().BeEmpty(
-            "Reset must clear the v3.49 right-edge Sampling Table rows alongside WatchedSignals");
-    }
+    // v3.x (会话状态剥离 Task 3): Reset() 已删除——VM 改 transient 后窗口关闭即
+    // 释放实例，无需手工清理窗口级状态。原 Reset_Clears_WatchedSignals_Collection /
+    // Reset_Resets_Anchor_To_NaN / Reset_Clears_SamplingRows 用例随之删除。
 }
 

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Input;
@@ -17,6 +18,11 @@ public class ChatFlowTests
 {
     private static TraceViewerViewModel BuildVm(IChatProvider? provider, params IChatTool[] tools)
     {
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
         var registry = Substitute.For<ITraceSessionRegistry>();
         registry.Sources.Returns(Array.Empty<TraceSource>());
         var dbcService = Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
@@ -24,7 +30,7 @@ public class ChatFlowTests
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"chatflow-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
         return new TraceViewerViewModel(
-            registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
+            session, registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
             chatProvider: provider, chatTools: tools);
     }
 

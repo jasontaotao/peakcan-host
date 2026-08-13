@@ -21,9 +21,8 @@ namespace PeakCan.Host.App.ViewModels;
 /// </remarks>
 public sealed partial class TraceViewerViewModel
 {
-    /// <summary>v12: signal groups for organizing diagnostic findings.
-    /// Bound to UI (Expander list). Mutated via IChatToolContext methods.</summary>
-    public ObservableCollection<WatchedSignalGroup> SignalGroups { get; } = new();
+    // v3.x (会话状态剥离 Task 3): SignalGroups 已转发到 _session.SignalGroups
+    // （声明在主文件 TraceViewerViewModel.cs），此处不再重复声明。
 
     double IChatToolContext.AnchorTimestampSeconds => _anchorTimestampSeconds;
     double IChatToolContext.BlueAnchorTimestampSeconds => _blueAnchorTimestampSeconds;

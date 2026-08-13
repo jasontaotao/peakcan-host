@@ -309,6 +309,65 @@ public sealed class TraceSessionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenSessionAsync_RestoresWatchedSignalsAndGroups_FromBundle()
+    {
+        // arrange：bundle 携带 watch 列表 + 分组。service 是这两个集合的 owner，
+        // OpenSessionAsync 必须恢复它们（ledger Minor #2——原 VM.ApplySnapshotAsync
+        // 的恢复逻辑迁到 service，否则会话打开后 watch list/groups 静默丢失）。
+        var realPath = NewTempFile("traceA.asc");
+        File.WriteAllText(realPath, "frames");
+        var (library, bundlePath) = NewLibrary();
+
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(new List<TraceSource>());
+        registry.LoadAsync(realPath).Returns(MakeSource("s1", "traceA", realPath));
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "old1", DisplayName = "traceA", Path = realPath },
+            },
+            Playback = null,
+            WatchedSignals = new List<BundleWatchedSignalDto>
+            {
+                new()
+                {
+                    CanIdHex = "0x100", MessageName = "MsgA", SignalName = "SigA",
+                    Unit = "rpm", SourceId = "s1", Alias = "转速",
+                },
+            },
+            Groups = new List<BundleGroupDto>
+            {
+                new() { Id = "g1", Name = "组A", Notes = "notes", SignalKeys = SampleGroupSignalKeys.ToList() },
+            },
+        });
+
+        var sut = MakeService(registry, library);
+
+        // act
+        var missing = await sut.OpenSessionAsync(bundlePath);
+
+        // assert
+        missing.Should().BeEmpty();
+        sut.WatchedSignals.Should().ContainSingle("bundle 的 watch 列表必须恢复到 service");
+        var row = sut.WatchedSignals[0];
+        row.CanIdHex.Should().Be("0x100");
+        row.MessageName.Should().Be("MsgA");
+        row.SignalName.Should().Be("SigA");
+        row.Unit.Should().Be("rpm");
+        row.SourceId.Should().Be("s1");
+        row.Alias.Should().Be("转速", "bundle 的 Alias 非空时必须恢复");
+        sut.SignalGroups.Should().ContainSingle("bundle 的分组必须恢复到 service");
+        sut.SignalGroups[0].Id.Should().Be("g1");
+        sut.SignalGroups[0].Name.Should().Be("组A");
+        sut.SignalGroups[0].Notes.Should().Be("notes");
+        sut.SignalGroups[0].SignalKeys.Should().BeEquivalentTo(SampleGroupSignalKeys);
+    }
+
+    [Fact]
     public async Task BuildSnapshot_IncludesSessionState()
     {
         // arrange

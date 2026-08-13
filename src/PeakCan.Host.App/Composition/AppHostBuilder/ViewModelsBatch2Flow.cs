@@ -83,7 +83,12 @@ public partial class AppHostBuilder
         // TraceViewerViewModel requires ILogger<T> + DbcService + ITraceSessionRegistry.
         // DbcService is registered above (singleton, AddSingleton with factory);
         // the logger is auto-wired by Microsoft.Extensions.Hosting.
-        services.AddSingleton<TraceViewerViewModel>();
+        // v3.x (会话状态剥离 Task 3): TraceViewerViewModel 改为 transient（窗口级
+        // 生命周期）。会话级状态已由 ITraceSessionService（singleton）承载，VM 只
+        // 转发属性——窗口关闭时 VM 由 TraceViewerView.Closed dispose 释放，重开窗口
+        // 由 DI 工厂新建实例。窗口级状态（scrubber / chart / 聊天 / 锚点）随窗口
+        // 销毁，不再依赖 Reset() 手工清理。
+        services.AddTransient<TraceViewerViewModel>();
         // v3.5.0 MINOR: persists Trace Viewer multi-trace sessions to .tmtrace
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
         // OpenSessionAsync commands.

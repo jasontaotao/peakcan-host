@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using FluentAssertions;
@@ -192,7 +193,14 @@ public sealed class EventSubscriptionLeakTests : IDisposable
         var registry = Substitute.For<ITraceSessionRegistry>();
         registry.Sources.Returns(new List<TraceSource>());
 
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+
         var vm = new TraceViewerViewModel(
+            session,
             registry,
             dbc,
             NullLogger<TraceViewerViewModel>.Instance,

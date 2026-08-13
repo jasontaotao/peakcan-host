@@ -7,6 +7,7 @@
 // ScottPlot (Plot + VerticalLine). SeedChart creates a real ScottPlot
 // Plot, registers it via RegisterPlot, and assertions read back
 // VerticalLine plottables from the registered Plot.
+using System.Collections.ObjectModel;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -29,6 +30,11 @@ public class GreenLineAnchorFlowTests
     /// TraceViewerViewModelTests.</summary>
     private static TraceViewerViewModel NewVm(out ITraceSessionRegistry registry, out DbcService dbcService)
     {
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
         registry = Substitute.For<ITraceSessionRegistry>();
         registry.Sources.Returns(new List<TraceSource>());
         dbcService = Substitute.For<DbcService>(NullLogger<DbcService>.Instance);
@@ -36,6 +42,7 @@ public class GreenLineAnchorFlowTests
             System.IO.Path.GetTempPath(),
             $"tmtrace-anchor-{Guid.NewGuid():N}.tmtrace");
         return new TraceViewerViewModel(
+            session,
             registry,
             dbcService,
             NullLogger<TraceViewerViewModel>.Instance,

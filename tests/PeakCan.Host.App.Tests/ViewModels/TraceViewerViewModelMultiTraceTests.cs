@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -35,7 +36,7 @@ public class TraceViewerViewModelMultiTraceTests
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Adding a source should raise PropertyChanged on Sources (or fire
         // the SourcesChanged event through the VM). Verify the VM exposed
@@ -59,7 +60,7 @@ public class TraceViewerViewModelMultiTraceTests
         // the test wants the registry to receive.
         var dialog = Substitute.For<PeakCan.HIL.Core.IFileDialogService>();
         dialog.ShowOpenDialog(Arg.Any<string>()).Returns("C:/b.asc");
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
+        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary(), fileDialog: dialog);
 
         await vm.AddTraceAsync();
 
@@ -71,7 +72,7 @@ public class TraceViewerViewModelMultiTraceTests
     {
         var registry = MakeRegistry();
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         await vm.RemoveTraceAsync("guid-target");
 
@@ -89,7 +90,7 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", Colors.Orange, new LineStyle()),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         // Pre-load the per-source services onto the fake registry (in production
         // the real registry hands them out via LoadAsync). The VM's
@@ -118,7 +119,7 @@ public class TraceViewerViewModelMultiTraceTests
             new("guid-2", "traceB", "C:/b.asc", Colors.Orange, new LineStyle()),
         });
         var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
+        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
 
         vm.MasterSourceId.Should().Be("guid-1");
     }
@@ -137,4 +138,14 @@ public class TraceViewerViewModelMultiTraceTests
 
     private static DbcService MakeFakeDbcService()
         => Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
+
+    // v3.x (会话状态剥离 Task 3): ITraceSessionService 替身——配置非空集合，否则
+    // VM ctor 对 WatchedSignals.CollectionChanged 的订阅会 NRE。
+    private static ITraceSessionService MakeFakeSession()
+    {
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+        return session;
+    }
 }

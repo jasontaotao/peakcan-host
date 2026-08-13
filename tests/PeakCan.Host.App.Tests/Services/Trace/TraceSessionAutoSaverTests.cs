@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using FluentAssertions;
@@ -70,10 +71,15 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         ITraceSessionRegistry registry,
         TraceSessionLibrary library)
     {
+        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
+        // WatchedSignals.CollectionChanged 的订阅会 NRE。
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
         var dbc = Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
         var logger = NullLogger<TraceViewerViewModel>.Instance;
         return new TraceViewerViewModel(
-            registry, dbc, logger, library, fileDialog: null);
+            session, registry, dbc, logger, library, fileDialog: null);
     }
 
     private static TraceSessionLibrary MakeLib(string path) =>

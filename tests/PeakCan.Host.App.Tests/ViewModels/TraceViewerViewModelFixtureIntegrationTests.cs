@@ -4,6 +4,7 @@
 // User reported: Latest = last-frame values regardless of green anchor X.
 // Root cause TBD; this test reproduces the production data path.
 
+using System.Collections.ObjectModel;
 using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,6 +24,16 @@ public class TraceViewerViewModelFixtureIntegrationTests
 {
     private static readonly string FixtureDir = Path.Combine(
         AppContext.BaseDirectory, "Fixtures", "Can");
+
+    // v3.x (会话状态剥离 Task 3): ITraceSessionService 替身——配置非空集合，否则
+    // VM ctor 对 WatchedSignals.CollectionChanged 的订阅会 NRE。
+    private static ITraceSessionService MakeFakeSession()
+    {
+        var session = Substitute.For<ITraceSessionService>();
+        session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+        session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+        return session;
+    }
 
     [Fact]
     public async Task GreenAnchor_DecodesRealV2BSignals_AtAnchorTime()
@@ -68,7 +79,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         dbcService.SetCurrentForTests(dbc);
 
-        var vm = new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(MakeFakeSession(),
             registry,
             dbcService,
             NullLogger<TraceViewerViewModel>.Instance,
@@ -142,7 +153,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         dbcService.SetCurrentForTests(dbc);
 
-        var vm = new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(MakeFakeSession(),
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance));
         vm.MasterSourceId = source.SourceId;
@@ -207,7 +218,7 @@ public class TraceViewerViewModelFixtureIntegrationTests
         var dbcService = new DbcService(NullLogger<DbcService>.Instance);
         dbcService.SetCurrentForTests(dbc);
 
-        var vm = new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(MakeFakeSession(),
             registry, dbcService, NullLogger<TraceViewerViewModel>.Instance,
             new TraceSessionLibrary(libPath, NullLogger<TraceSessionLibrary>.Instance));
         vm.MasterSourceId = source.SourceId;

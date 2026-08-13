@@ -199,6 +199,32 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
                 string.Equals(s.DisplayName, nameBySourceId.GetValueOrDefault(pb.MasterSourceId, ""), StringComparison.Ordinal));
             if (newMaster is not null) MasterSourceId = newMaster.SourceId;
         }
+
+        // v3.x (会话状态剥离 Task 3, ledger Minor #2): 恢复 watch 列表 + 分组。
+        // 原本在 VM.ApplySnapshotAsync (SessionFlow.cs:323-344) 恢复；本 task 删掉
+        // ApplySnapshotAsync 后移到此处——service 是这两个集合的 owner，否则会话打开后
+        // watch list/groups 静默丢失。anchor 重算 (RefreshAtAnchor) 是窗口级，留在 VM。
+        WatchedSignals.Clear();
+        if (dto.WatchedSignals is not null)
+        {
+            foreach (var w in dto.WatchedSignals)
+            {
+                var row = new WatchedSignalRow(
+                    w.CanIdHex, w.MessageName, w.SignalName, w.Unit, w.SourceId);
+                if (!string.IsNullOrEmpty(w.Alias))
+                    row.Alias = w.Alias;
+                WatchedSignals.Add(row);
+            }
+        }
+        SignalGroups.Clear();
+        if (dto.Groups is not null)
+        {
+            foreach (var g in dto.Groups)
+            {
+                SignalGroups.Add(new WatchedSignalGroup(
+                    g.Id, g.Name, g.Notes, g.SignalKeys));
+            }
+        }
         return missing;
     }
 
