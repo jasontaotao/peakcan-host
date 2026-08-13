@@ -6,6 +6,10 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
+    // 全局 CAN-ID 过滤器（Clear 按钮）+ 逐源 filter INPC 响应。
+    // TraceSource 只把 CanIdFilter 暴露为 INPC——过滤器变更需同步刷新
+    // 帧计数并移除孤儿 chart series。
+
     // v3.4.2 PATCH: XAML "Clear" button binding. Empty string → parser
     // returns null → unfiltered rebuild.
     [RelayCommand]
@@ -33,26 +37,5 @@ public sealed partial class TraceViewerViewModel
         RefreshFrameCounts();
         RemoveOrphanChartSeries();
         ChartViewModel.SyncYAxes();
-    }
-
-
-    private void RebindMasterFromRegistry()
-    {
-        // Pure master-resolution step -- caller (OnRegistrySourcesChanged)
-        // owns the per-source INPC detach/attach. Keeping this method
-        // idempotent avoids re-binding when invoked after a SourcesChanged
-        // event.
-        if (_registry.Sources.Count == 0)
-        {
-            _masterService = null;
-            MasterSourceId = "";
-            return;
-        }
-        // Master invariant: prefer current MasterSourceId if still in Sources;
-        // else fall back to Sources[0] (deterministic default).
-        var newMaster = _registry.Sources.FirstOrDefault(
-            s => s.SourceId == MasterSourceId) ?? _registry.Sources[0];
-        MasterSourceId = newMaster.SourceId;
-        _masterService = _allServices.TryGetValue(newMaster.SourceId, out var svc) ? svc : null;
     }
 }

@@ -181,6 +181,40 @@ public sealed partial class TraceViewerViewModel
         _ = RebuildSignalsAsync();
     }
 
+    private void RebindMasterFromRegistry()
+    {
+        // Master 解析：优先保留当前 MasterSourceId（仍在 Sources 中时），
+        // 否则回退 Sources[0]。幂等——OnRegistrySourcesChanged 调用。
+        if (_registry.Sources.Count == 0)
+        {
+            _masterService = null;
+            MasterSourceId = "";
+            return;
+        }
+        // Master invariant: prefer current MasterSourceId if still in Sources;
+        // else fall back to Sources[0] (deterministic default).
+        var newMaster = _registry.Sources.FirstOrDefault(
+            s => s.SourceId == MasterSourceId) ?? _registry.Sources[0];
+        MasterSourceId = newMaster.SourceId;
+        _masterService = _allServices.TryGetValue(newMaster.SourceId, out var svc) ? svc : null;
+    }
+
+    /// <summary>
+    /// v3.x (独立 review I-1, Important #1): 会话恢复（<c>SessionRestored</c>）时
+    /// 核对 <see cref="MasterSourceId"/> 解析出的 service 与当前 <c>_masterService</c>
+    /// 是否一致，不一致则重绑 service 引用 + TotalDuration（与 <see cref="SetMaster"/>
+    /// 核心一致）。不重建信号表——恢复会话不改变当前视图。
+    /// </summary>
+    private void RebindMasterServiceIfChanged()
+    {
+        if (string.IsNullOrEmpty(MasterSourceId)) return;
+        var desired = _allServices.TryGetValue(MasterSourceId, out var svc) ? svc : null;
+        if (ReferenceEquals(desired, _masterService)) return;
+        _masterService = desired;
+        TotalDuration = _masterService?.TotalDuration ?? 0.0;
+        ChartViewModel.SetTotalDuration(TotalDuration);
+    }
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
     private static partial void LogLoadFailed(ILogger logger, Exception ex, string path);
 

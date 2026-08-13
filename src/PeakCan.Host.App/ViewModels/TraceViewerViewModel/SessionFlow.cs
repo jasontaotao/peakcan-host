@@ -163,25 +163,6 @@ public sealed partial class TraceViewerViewModel
             RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
     }
 
-    /// <summary>
-    /// v3.x (独立 review I-1, Important #1): 开窗时 <c>OpenSessionAsync</c> 恢复
-    /// master 只设置 service 的 <see cref="MasterSourceId"/>（经 OnSessionPropertyChanged
-    /// 透传 INPC），VM 的 <c>_masterService</c> 不随之重绑。bundle master ≠ Sources[0]
-    /// 时 UI 显示 master=B 但 seek/采样表仍驱动 source A。SessionRestored 在恢复流程
-    /// 收尾触发——此处核对 service 的 master 与当前 <c>_masterService</c> 指向的
-    /// service 是否一致，不一致则重绑 service 引用 + TotalDuration（与
-    /// <see cref="SetMaster"/> 核心一致）。不重建信号表——恢复会话不改变当前视图。
-    /// </summary>
-    private void RebindMasterServiceIfChanged()
-    {
-        if (string.IsNullOrEmpty(MasterSourceId)) return;
-        var desired = _allServices.TryGetValue(MasterSourceId, out var svc) ? svc : null;
-        if (ReferenceEquals(desired, _masterService)) return;
-        _masterService = desired;
-        TotalDuration = _masterService?.TotalDuration ?? 0.0;
-        ChartViewModel.SetTotalDuration(TotalDuration);
-    }
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
     private static partial void LogHashFailed(ILogger logger, Exception ex, string path);
 }
