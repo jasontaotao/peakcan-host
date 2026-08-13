@@ -1,13 +1,12 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
-using ScottPlot;
 using PeakCan.Host.App;
-using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
@@ -30,8 +29,8 @@ namespace PeakCan.Host.App.Tests;
 /// <see cref="App.RunShutdownAsync"/> lets us drive the seam with
 /// a fake <see cref="IHost"/> that records <c>StopAsync</c> call
 /// time + a real <see cref="TraceSessionAutoSaver"/> whose
-/// <see cref="ITraceViewerViewModelProvider"/> records when the
-/// pre-flush runs.
+/// <see cref="ITraceSessionService"/> records when the pre-flush
+/// runs (v3.x 会话状态剥离 Task 4: 快照经 service.BuildSnapshot 捕获)。
 /// <para>
 /// v3.7.0 MINOR Chunk 3: extended to also pin the Replay auto-save
 /// ordering — Replay runs AFTER Trace but BEFORE host stop.
@@ -47,7 +46,7 @@ namespace PeakCan.Host.App.Tests;
 /// </para>
 /// <para>
 /// All tests are deterministic (no <c>Task.Delay</c>, no wall
-/// clock). The fake provider returns a small but valid VM so
+/// clock). The fake service returns a small but valid snapshot so
 /// <see cref="TraceSessionAutoSaver.TrySaveAutoSnapshotAsync"/>
 /// reaches the actual save path on a per-test temp file.
 /// </para>
@@ -113,23 +112,49 @@ public class AppLifecycleShutdownTests : IDisposable
 
     /// <summary>
     /// Records the wall-clock time of the most recent
-    /// <see cref="GetCurrent"/> call so a test can assert the
-    /// auto-save-before-host-stop ordering invariant.
+    /// <see cref="ITraceSessionService.BuildSnapshot"/> call so a test
+    /// can assert the auto-save-before-host-stop ordering invariant.
+    /// Wraps a real <see cref="ITraceSessionService"/> substitute and
+    /// forwards every member.
     /// </summary>
-    private sealed class RecordingTraceVmProvider : ITraceViewerViewModelProvider
+    private sealed class RecordingTraceSessionService : ITraceSessionService
     {
-        public DateTimeOffset? ResolvedAt { get; private set; }
-        private readonly TraceViewerViewModel _vm;
-        public RecordingTraceVmProvider(TraceViewerViewModel vm) => _vm = vm;
-        public TraceViewerViewModel? GetCurrent()
+        public DateTimeOffset? SnapshotAt { get; private set; }
+        private readonly ITraceSessionService _inner;
+        public RecordingTraceSessionService(ITraceSessionService inner) => _inner = inner;
+
+        public ObservableCollection<WatchedSignalRow> WatchedSignals => _inner.WatchedSignals;
+        public ObservableCollection<WatchedSignalGroup> SignalGroups => _inner.SignalGroups;
+        public string? MasterSourceId
         {
-            ResolvedAt = DateTimeOffset.UtcNow;
-            return _vm;
+            get => _inner.MasterSourceId;
+            set => _inner.MasterSourceId = value;
+        }
+        public string GlobalCanIdFilter
+        {
+            get => _inner.GlobalCanIdFilter;
+            set => _inner.GlobalCanIdFilter = value;
+        }
+        public bool HasContent => _inner.HasContent;
+
+        public TraceSessionBundleDto BuildSnapshot()
+        {
+            SnapshotAt = DateTimeOffset.UtcNow;
+            return _inner.BuildSnapshot();
+        }
+
+        public Task<IReadOnlyList<string>> OpenSessionAsync(string path) =>
+            _inner.OpenSessionAsync(path);
+
+        public event PropertyChangedEventHandler? PropertyChanged
+        {
+            add => _inner.PropertyChanged += value;
+            remove => _inner.PropertyChanged -= value;
         }
     }
 
     /// <summary>
-    /// v3.7.0 MINOR Chunk 3: mirror of <see cref="RecordingTraceVmProvider"/>
+    /// v3.7.0 MINOR Chunk 3: mirror of <see cref="RecordingTraceSessionService"/>
     /// for the Replay tab.
     /// </summary>
     private sealed class RecordingReplayVmProvider : IReplayViewModelProvider
@@ -146,32 +171,30 @@ public class AppLifecycleShutdownTests : IDisposable
 
     /// <summary>
     /// Builds a real <see cref="TraceSessionAutoSaver"/> wired to a
-    /// recording provider so the test can observe when the
-    /// pre-flush resolved the VM.
+    /// recording <see cref="ITraceSessionService"/> so the test can
+    /// observe when the pre-flush captured the snapshot.
     /// </summary>
-    private (TraceSessionAutoSaver Saver, RecordingTraceVmProvider Provider) MakeTraceSaver(string path)
+    private (TraceSessionAutoSaver Saver, RecordingTraceSessionService Session) MakeTraceSaver(string path)
     {
         var library = new TraceSessionLibrary(path, NullLogger<TraceSessionLibrary>.Instance);
-        var registry = Substitute.For<ITraceSessionRegistry>();
-        registry.Sources.Returns(new List<TraceSource>
-        {
-            new("src1", "shutdown-test", @"C:/rec.asc", Colors.Red, new LineStyle()),
-        });
-        var dbc = Substitute.For<DbcService>(Substitute.For<Microsoft.Extensions.Logging.ILogger<DbcService>>());
-        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
-        // WatchedSignals.CollectionChanged 的订阅会 NRE。
         var session = Substitute.For<ITraceSessionService>();
         session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
         session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
-        var vm = new TraceViewerViewModel(
-            session, registry, dbc, NullLogger<TraceViewerViewModel>.Instance, library, fileDialog: null);
-        var provider = new RecordingTraceVmProvider(vm);
+        session.HasContent.Returns(true);
+        session.BuildSnapshot().Returns(new TraceSessionBundleDto
+        {
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "src1", DisplayName = "shutdown-test", Path = @"C:/rec.asc" },
+            },
+        });
+        var recording = new RecordingTraceSessionService(session);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
         return (new TraceSessionAutoSaver(
-            provider, library, prefs, prompt,
+            recording, library, prefs, prompt,
             NullLogger<TraceSessionAutoSaver>.Instance, path),
-            provider);
+            recording);
     }
 
     /// <summary>
@@ -210,7 +233,7 @@ public class AppLifecycleShutdownTests : IDisposable
     {
         // arrange
         var tracePath = NewAutoSavePath();
-        var (traceSaver, traceProvider) = MakeTraceSaver(tracePath);
+        var (traceSaver, traceSession) = MakeTraceSaver(tracePath);
         var host = new FakeHost
         {
             Services = new ServiceCollection().BuildServiceProvider(),
@@ -227,13 +250,13 @@ public class AppLifecycleShutdownTests : IDisposable
             SerilogNullLogger.None);
 
         // assert
-        traceProvider.ResolvedAt.Should().NotBeNull(
-            "the auto-save resolver must run so the VM is captured before the host is stopped");
+        traceSession.SnapshotAt.Should().NotBeNull(
+            "the auto-save resolver must run so the snapshot is captured before the host is stopped");
         host.StopAsyncCalledAt.Should().NotBeNull(
             "StopAsync must be invoked exactly once during shutdown");
-        traceProvider.ResolvedAt!.Value.Should().BeOnOrBefore(host.StopAsyncCalledAt!.Value,
+        traceSession.SnapshotAt!.Value.Should().BeOnOrBefore(host.StopAsyncCalledAt!.Value,
             "the auto-save pre-flush must run BEFORE StopAsync — " +
-            "otherwise the service provider is disposed and GetService returns null");
+            "otherwise the session would never be captured");
         host.StopCallCount.Should().Be(1);
         host.LastStopToken.CanBeCanceled.Should().BeTrue("the stop CTS must be cancellable so the timeout can fire");
     }
@@ -354,7 +377,7 @@ public class AppLifecycleShutdownTests : IDisposable
         // BEFORE host stop; Trace runs first.
         var tracePath = NewAutoSavePath();
         var replayPath = NewAutoSavePath();
-        var (traceSaver, traceProvider) = MakeTraceSaver(tracePath);
+        var (traceSaver, traceSession) = MakeTraceSaver(tracePath);
         var (replaySaver, replayProvider) = MakeReplaySaver(replayPath);
         var host = new FakeHost
         {
@@ -372,9 +395,9 @@ public class AppLifecycleShutdownTests : IDisposable
             SerilogNullLogger.None);
 
         // assert
-        traceProvider.ResolvedAt.Should().NotBeNull();
+        traceSession.SnapshotAt.Should().NotBeNull();
         replayProvider.ResolvedAt.Should().NotBeNull();
-        traceProvider.ResolvedAt!.Value.Should().BeOnOrBefore(replayProvider.ResolvedAt!.Value,
+        traceSession.SnapshotAt!.Value.Should().BeOnOrBefore(replayProvider.ResolvedAt!.Value,
             "Trace auto-save must run before Replay auto-save");
         replayProvider.ResolvedAt!.Value.Should().BeOnOrBefore(host.StopAsyncCalledAt!.Value,
             "Replay auto-save must run BEFORE host stop");
@@ -426,7 +449,7 @@ public class AppLifecycleShutdownTests : IDisposable
         // arrange — Replay resolver returns null (not registered). Trace
         // must still run. Host must still be stopped.
         var tracePath = NewAutoSavePath();
-        var (traceSaver, traceProvider) = MakeTraceSaver(tracePath);
+        var (traceSaver, traceSession) = MakeTraceSaver(tracePath);
         var host = new FakeHost
         {
             Services = new ServiceCollection().BuildServiceProvider(),
@@ -443,7 +466,7 @@ public class AppLifecycleShutdownTests : IDisposable
             SerilogNullLogger.None);
 
         // assert
-        traceProvider.ResolvedAt.Should().NotBeNull("Trace must still run when Replay is null");
+        traceSession.SnapshotAt.Should().NotBeNull("Trace must still run when Replay is null");
         host.StopCallCount.Should().Be(1);
     }
 }

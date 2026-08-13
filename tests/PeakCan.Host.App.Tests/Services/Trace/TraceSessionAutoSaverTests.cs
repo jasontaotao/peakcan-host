@@ -2,11 +2,9 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using ScottPlot;
-using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
@@ -18,7 +16,7 @@ namespace PeakCan.Host.App.Tests.Services.Trace;
 /// <see cref="TraceSessionAutoSaver"/>:
 /// <list type="number">
 /// <item>happy-path save writes to the auto-save location;</item>
-/// <item>empty VM short-circuits with <c>false</c> (no write);</item>
+/// <item>empty session short-circuits with <c>false</c> (no write);</item>
 /// <item>missing file → <see cref="AutoLoadResult.None"/>;</item>
 /// <item>round-trip loads the same DTO that was written;</item>
 /// <item>"No" persists the <see cref="AutoSavePrefs.NeverRestore"/>
@@ -26,6 +24,8 @@ namespace PeakCan.Host.App.Tests.Services.Trace;
 /// <item>a subsequent call when <c>NeverRestore=true</c> suppresses
 /// the prompt entirely.</item>
 /// </list>
+/// v3.x (会话状态剥离 Task 4): auto-saver 改直连 <see cref="ITraceSessionService"/>，
+/// 测试替身换成 service 替身（断言 BuildSnapshot / OpenSessionAsync 被调）。
 /// Each test uses a per-test temp directory under
 /// <see cref="Path.GetTempPath"/> so parallel test execution is safe.
 /// </summary>
@@ -56,30 +56,40 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
 
     private string Track(string p) { _files.Add(p); return p; }
 
-    // Minimal fake registry: empty source list by default; tests that
-    // need a populated VM use WithFakeSource below.
-    private static ITraceSessionRegistry MakeRegistryWith(TraceSource? src)
+    // v3.x (会话状态剥离 Task 4): 构造 ITraceSessionService 替身。HasContent 由
+    // src 是否为空决定；BuildSnapshot 返回含该 src 的 bundle（DisplayName / Path /
+    // 颜色字节与真实序列化形状一致，供 round-trip 断言）。
+    private static ITraceSessionService MakeSessionWith(TraceSource? src)
     {
-        var registry = Substitute.For<ITraceSessionRegistry>();
-        registry.Sources.Returns(src is null
-            ? new List<TraceSource>()
-            : new List<TraceSource> { src });
-        return registry;
-    }
-
-    private static TraceViewerViewModel MakeVm(
-        ITraceSessionRegistry registry,
-        TraceSessionLibrary library)
-    {
-        // v3.x (会话状态剥离 Task 3): 配置非空集合，否则 VM ctor 对
-        // WatchedSignals.CollectionChanged 的订阅会 NRE。
         var session = Substitute.For<ITraceSessionService>();
         session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
         session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
-        var dbc = Substitute.For<DbcService>(Substitute.For<ILogger<DbcService>>());
-        var logger = NullLogger<TraceViewerViewModel>.Instance;
-        return new TraceViewerViewModel(
-            session, registry, dbc, logger, library, fileDialog: null);
+        if (src is null)
+        {
+            session.HasContent.Returns(false);
+        }
+        else
+        {
+            session.HasContent.Returns(true);
+            session.BuildSnapshot().Returns(new TraceSessionBundleDto
+            {
+                Sources = new List<BundleSourceDto>
+                {
+                    new()
+                    {
+                        SourceId = src.SourceId,
+                        DisplayName = src.DisplayName,
+                        Path = src.Path,
+                        ColorA = src.Color.A,
+                        ColorR = src.Color.R,
+                        ColorG = src.Color.G,
+                        ColorB = src.Color.B,
+                        StrokeStyle = src.StrokeStyle.ToString() ?? "",
+                    },
+                },
+            });
+        }
+        return session;
     }
 
     private static TraceSessionLibrary MakeLib(string path) =>
@@ -87,16 +97,13 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
 
     private static TraceSessionAutoSaver MakeSaver(
         string autoSavePath,
-        ITraceSessionRegistry registry,
+        ITraceSessionService session,
         IAutoSavePrefsStore prefs,
         IMessageBoxPrompt prompt)
     {
         var library = MakeLib(autoSavePath);
-        var vm = MakeVm(registry, library);
-        var provider = Substitute.For<ITraceViewerViewModelProvider>();
-        provider.GetCurrent().Returns(vm);
         return new TraceSessionAutoSaver(
-            provider, library, prefs, prompt,
+            session, library, prefs, prompt,
             NullLogger<TraceSessionAutoSaver>.Instance,
             autoSavePath);
     }
@@ -111,10 +118,10 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         // Arrange
         var path = NewAutoSavePath();
         var src = new TraceSource("src1", "highway", @"C:/r.asc", Colors.Red, new LineStyle());
-        var registry = MakeRegistryWith(src);
+        var session = MakeSessionWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
-        var sut = MakeSaver(path, registry, prefs, prompt);
+        var sut = MakeSaver(path, session, prefs, prompt);
 
         // Act
         var wrote = await sut.TrySaveAutoSnapshotAsync(CancellationToken.None);
@@ -126,17 +133,19 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         loaded.Should().NotBeNull();
         loaded!.Sources.Should().HaveCount(1);
         loaded.Sources[0].DisplayName.Should().Be("highway");
+        // v3.x Task 4: 快照直接取自 service。
+        session.Received(1).BuildSnapshot();
     }
 
     [Fact]
     public async Task TrySaveAutoSnapshotAsync_WithNoSources_ReturnsFalse()
     {
-        // Arrange — empty registry (zero sources).
+        // Arrange — empty service (no content).
         var path = NewAutoSavePath();
-        var registry = MakeRegistryWith(src: null);
+        var session = MakeSessionWith(src: null);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
-        var sut = MakeSaver(path, registry, prefs, prompt);
+        var sut = MakeSaver(path, session, prefs, prompt);
 
         // Act
         var wrote = await sut.TrySaveAutoSnapshotAsync(CancellationToken.None);
@@ -144,6 +153,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         // Assert
         wrote.Should().BeFalse("an empty session has nothing worth persisting");
         File.Exists(path).Should().BeFalse("we must NOT create a zero-source file");
+        session.DidNotReceive().BuildSnapshot();
     }
 
     [Fact]
@@ -151,10 +161,10 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
     {
         // Arrange — path does not exist on disk.
         var path = NewAutoSavePath();
-        var registry = MakeRegistryWith(src: null);
+        var session = MakeSessionWith(src: null);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
-        var sut = MakeSaver(path, registry, prefs, prompt);
+        var sut = MakeSaver(path, session, prefs, prompt);
 
         // Act
         var result = await sut.TryLoadAutoSnapshotAsync(CancellationToken.None);
@@ -166,17 +176,17 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
     }
 
     [Fact]
-    public async Task TryLoadAutoSnapshotAsync_RoundTripsDtoFromVm()
+    public async Task TryLoadAutoSnapshotAsync_RoundTripsDtoFromService()
     {
         // Arrange — write a bundle via the saver, then load it back.
         var path = NewAutoSavePath();
         var src = new TraceSource(
             "srcA", "drive_downtown", @"C:/rec.asc",
             new Color(0x12, 0x34, 0x56, 255), new LineStyle());
-        var registry = MakeRegistryWith(src);
+        var session = MakeSessionWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
-        var sut = MakeSaver(path, registry, prefs, prompt);
+        var sut = MakeSaver(path, session, prefs, prompt);
         (await sut.TrySaveAutoSnapshotAsync(CancellationToken.None)).Should().BeTrue();
 
         // Act
@@ -194,6 +204,7 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         loadedSource.ColorR.Should().Be(0x12);
         loadedSource.ColorG.Should().Be(0x34);
         loadedSource.ColorB.Should().Be(0x56);
+        session.Received(1).BuildSnapshot();
     }
 
     [Fact]
@@ -202,20 +213,17 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         // Arrange — bundle exists; user answers No.
         var path = NewAutoSavePath();
         var src = new TraceSource("src1", "trip", @"C:/t.asc", Colors.Green, new LineStyle());
-        var registry = MakeRegistryWith(src);
+        var session = MakeSessionWith(src);
         var prefs = new InMemoryPrefsStore();
         var prompt = Substitute.For<IMessageBoxPrompt>();
         prompt.ShowAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>())
             .Returns(MessageBoxResult.No);
-        var sut = MakeSaver(path, registry, prefs, prompt);
-        // Need a real VM with the bundle on disk for Apply to load it.
+        var sut = MakeSaver(path, session, prefs, prompt);
+        // 先落盘一个 bundle，Apply 才能加载它。
         (await sut.TrySaveAutoSnapshotAsync(CancellationToken.None)).Should().BeTrue();
-        var vm = registry.Sources.Count > 0
-            ? MakeVm(registry, MakeLib(path))
-            : throw new InvalidOperationException();
 
         // Act
-        var outcome = await sut.ApplyAutoSnapshotAsync(vm, CancellationToken.None);
+        var outcome = await sut.ApplyAutoSnapshotAsync(session, CancellationToken.None);
 
         // Assert
         outcome.Applied.Should().BeFalse();
@@ -232,17 +240,16 @@ public sealed class TraceSessionAutoSaverTests : IDisposable
         // exists, but the prompt must be suppressed.
         var path = NewAutoSavePath();
         var src = new TraceSource("src1", "trip", @"C:/t.asc", Colors.Green, new LineStyle());
-        var registry = MakeRegistryWith(src);
+        var session = MakeSessionWith(src);
         var prefs = new InMemoryPrefsStore { Current = new AutoSavePrefs(NeverRestore: true) };
         var prompt = Substitute.For<IMessageBoxPrompt>();
         prompt.ShowAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>())
             .Returns(MessageBoxResult.Yes);
-        var sut = MakeSaver(path, registry, prefs, prompt);
+        var sut = MakeSaver(path, session, prefs, prompt);
         (await sut.TrySaveAutoSnapshotAsync(CancellationToken.None)).Should().BeTrue();
-        var vm = MakeVm(registry, MakeLib(path));
 
         // Act
-        var outcome = await sut.ApplyAutoSnapshotAsync(vm, CancellationToken.None);
+        var outcome = await sut.ApplyAutoSnapshotAsync(session, CancellationToken.None);
 
         // Assert
         outcome.Applied.Should().BeFalse();

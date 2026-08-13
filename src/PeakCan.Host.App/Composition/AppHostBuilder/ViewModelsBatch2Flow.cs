@@ -122,9 +122,6 @@ public partial class AppHostBuilder
         // their session back across app restarts without manual Save.
         services.AddSingleton<
             PeakCan.Host.App.Services.Trace.TraceSessionAutoSaver>();
-        services.AddSingleton<
-            PeakCan.Host.App.Services.Trace.ITraceViewerViewModelProvider,
-            PeakCan.Host.App.Services.Trace.ServiceProviderTraceViewerViewModelProvider>();
         // v3.7.0 MINOR Chunk 3: Replay auto-save + restore-prompt. Shares
         // the same IAutoSavePrefsStore / IMessageBoxPrompt singletons as
         // Trace (one opt-out flag for both tabs).

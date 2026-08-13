@@ -1,8 +1,6 @@
 using System.IO;
 using System.Windows;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Services.Trace;
 
@@ -45,42 +43,6 @@ public enum RestoreAnswer
 public sealed record RestoreOutcome(bool Applied, bool PromptShown, RestoreAnswer Answer);
 
 /// <summary>
-/// v3.6.0 MINOR T2: thin seam so the auto-saver doesn't depend on
-/// <see cref="IServiceProvider"/> directly. The default implementation
-/// (<see cref="ServiceProviderTraceViewerViewModelProvider"/>) resolves
-/// the singleton <see cref="TraceViewerViewModel"/> on demand; tests
-/// inject a fake that returns a stub VM.
-/// </summary>
-public interface ITraceViewerViewModelProvider
-{
-    /// <summary>Return the live <see cref="TraceViewerViewModel"/>, or
-    /// <c>null</c> if the DI container has been disposed (e.g. during
-    /// <c>App.OnExit</c> teardown).</summary>
-    TraceViewerViewModel? GetCurrent();
-}
-
-/// <summary>
-/// v3.6.0 MINOR T2: DI-backed <see cref="ITraceViewerViewModelProvider"/>.
-/// Singleton — owns no state.
-/// </summary>
-public sealed class ServiceProviderTraceViewerViewModelProvider : ITraceViewerViewModelProvider
-{
-    private readonly IServiceProvider _services;
-    public ServiceProviderTraceViewerViewModelProvider(IServiceProvider services)
-    {
-        _services = services ?? throw new ArgumentNullException(nameof(services));
-    }
-
-    public TraceViewerViewModel? GetCurrent()
-    {
-        // GetService (not GetRequiredService) so a disposed container
-        // returns null rather than throwing — the auto-saver treats
-        // null as a no-op early-out.
-        return _services.GetService<TraceViewerViewModel>();
-    }
-}
-
-/// <summary>
 /// v3.6.0 MINOR T2: owner-bound modal prompt abstraction. The default
 /// WPF implementation (<see cref="WpfMessageBoxPrompt"/>) dispatches
 /// to the WPF STA thread; tests inject a fake that returns a canned
@@ -113,30 +75,35 @@ public interface IMessageBoxPrompt
 /// <summary>
 /// v3.10.0 MINOR T2 (C3): Trace-specific thin subclass of
 /// <see cref="SessionAutoSaver{TVm}"/>. Owns only the config that
-/// differentiates Trace from Replay (provider, "has content" check,
-/// restore prompt title, auto-save path). All orchestration lives in
-/// the base class.
+/// differentiates Trace from Replay (session service, "has content"
+/// check, restore prompt title, auto-save path). All orchestration
+/// lives in the base class.
+/// <para>
+/// v3.x (会话状态剥离 Task 4): 改为直连 <see cref="ITraceSessionService"/>
+/// （原 VM provider 已删除）。TraceViewerViewModel 已 transient，auto-save
+/// 不再经 provider 拿 VM，直接对 singleton service 取快照 / 恢复会话。
+/// </para>
 /// </summary>
-public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<TraceViewerViewModel>
+public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<ITraceSessionService>
 {
-    private readonly ITraceViewerViewModelProvider _vmProvider;
+    private readonly ITraceSessionService _session;
 
     /// <summary>Production ctor: defaults the auto-save path to
     /// <c>%APPDATA%/PeakCan.Host/trace-session-auto.tmtrace</c>.</summary>
     public TraceSessionAutoSaver(
-        ITraceViewerViewModelProvider vmProvider,
+        ITraceSessionService session,
         TraceSessionLibrary library,
         IAutoSavePrefsStore prefs,
         IMessageBoxPrompt prompt,
         ILogger<TraceSessionAutoSaver> logger)
         : base(library, prefs, prompt, logger, DefaultPath())
     {
-        _vmProvider = vmProvider ?? throw new ArgumentNullException(nameof(vmProvider));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
     }
 
     /// <summary>Test ctor with explicit path.</summary>
     public TraceSessionAutoSaver(
-        ITraceViewerViewModelProvider vmProvider,
+        ITraceSessionService session,
         TraceSessionLibrary library,
         IAutoSavePrefsStore prefs,
         IMessageBoxPrompt prompt,
@@ -144,28 +111,27 @@ public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<TraceViewer
         string autoSavePath)
         : base(library, prefs, prompt, logger, autoSavePath)
     {
-        _vmProvider = vmProvider ?? throw new ArgumentNullException(nameof(vmProvider));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
     }
 
-    protected override TraceViewerViewModel? GetActiveVm() => _vmProvider.GetCurrent();
+    // v3.x (会话状态剥离 Task 4): service 直接注入并持有（singleton），
+    // 容器 dispose 后仍可安全取快照——不再依赖 provider 的 GetService 语义。
+    protected override ITraceSessionService? GetActiveVm() => _session;
 
-    protected override bool HasContentToSave(TraceViewerViewModel vm) =>
-        vm.Sources.Count > 0;
+    protected override bool HasContentToSave(ITraceSessionService session) =>
+        session.HasContent;
 
     /// <summary>
-    /// v3.11.0 MINOR T2 (H7): delegate to the VM's async BuildSnapshot
-    /// entry point. The sync shim <c>vm.BuildSnapshot()</c> would also
-    /// work but goes through the same <c>GetAwaiter().GetResult()</c>
-    /// path — calling the async form here keeps the call site explicit
-    /// about its sync-over-async dependency (T3 will refactor the
-    /// auto-saver's TrySaveAutoSnapshotAsync to await the call properly).
+    /// v3.x (会话状态剥离 Task 4): 快照改由 <see cref="ITraceSessionService"/>
+    /// 生成（VM transient 后，原经 <c>vm.BuildSnapshotAsync()</c> 的转发已随
+    /// VM provider 一并删除）。
     /// </summary>
-    protected override TraceSessionBundleDto BuildSnapshot(TraceViewerViewModel vm) =>
-        vm.BuildSnapshotAsync().GetAwaiter().GetResult();
+    protected override TraceSessionBundleDto BuildSnapshot(ITraceSessionService session) =>
+        session.BuildSnapshot();
 
     protected override Task<IReadOnlyList<string>> ApplySnapshotToVmAsync(
-        TraceViewerViewModel vm, string sourceFile) =>
-        vm.OpenSessionAsync(sourceFile);
+        ITraceSessionService session, string sourceFile) =>
+        session.OpenSessionAsync(sourceFile);
 
     protected override string RestorePromptTitle =>
         "Restore previous trace session?";
@@ -195,7 +161,7 @@ public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<TraceViewer
     protected override void OnApplyFailed(Exception ex) =>
         LogApplyFailed(Logger, ex);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Auto-save skipped: no live TraceViewerViewModel")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Auto-save skipped: no live trace session service")]
     private static partial void LogNoVm(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Auto-saved {SourcesCount} sources to {Path}")]

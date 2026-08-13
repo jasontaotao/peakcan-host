@@ -115,10 +115,12 @@ public partial class App : Application
         {
             DataContext = Services.GetRequiredService<AppShellViewModel>(),
         };
-        // v3.6.0 MINOR T2: resolve the auto-saver + VM up front so the
-        // post-Show dispatcher block can chain the restore prompt.
+        // v3.6.0 MINOR T2: resolve the auto-saver + session service up
+        // front so the post-Show dispatcher block can chain the restore
+        // prompt. v3.x (会话状态剥离 Task 4): auto-restore 改拿
+        // ITraceSessionService —— VM 已 transient，不再作为恢复目标。
         var autoSaver = Services.GetRequiredService<TraceSessionAutoSaver>();
-        var traceVm = Services.GetRequiredService<TraceViewerViewModel>();
+        var traceSession = Services.GetRequiredService<ITraceSessionService>();
         // v3.7.0 MINOR Chunk 3: chain a second restore prompt for the
         // Replay tab. Each prompt is independent — user can say Yes to
         // one and No to the other. Worst case: 2 MessageBoxes in a row
@@ -137,7 +139,7 @@ public partial class App : Application
             shell.Show();
             try
             {
-                await autoSaver.ApplyAutoSnapshotAsync(traceVm, CancellationToken.None)
+                await autoSaver.ApplyAutoSnapshotAsync(traceSession, CancellationToken.None)
                     .ConfigureAwait(true);
             }
             catch (Exception ex)

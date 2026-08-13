@@ -1087,40 +1087,9 @@ public class TraceViewerViewModelTests
     // v3.x (会话状态剥离 Task 3): OpenSessionAsync 的 VM 状态恢复用例删除——
     // 打开会话逻辑已迁至 ITraceSessionService（unload/load、missing 收集、
     // DisplayName/Color 重盖印、watch/groups 恢复均在 service，由
-    // TraceSessionServiceTests 覆盖）。VM 只保留薄转发（见
-    // OpenSessionAsync_ForwardsToSessionService）。
-
-    /// <summary>v3.x (会话状态剥离 Task 3): VM.OpenSessionAsync 是到
-    /// ITraceSessionService 的薄转发——非空 path 原样转发给 service。</summary>
-    [Fact]
-    public async Task OpenSessionAsync_ForwardsToSessionService()
-    {
-        var session = MakeFakeSession();
-        session.OpenSessionAsync(Arg.Any<string>())
-            .Returns(Task.FromResult<IReadOnlyList<string>>(new List<string>()));
-        var sut = new TraceViewerViewModel(
-            session, MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        var missing = await sut.OpenSessionAsync("C:/bundle.tmtrace");
-
-        missing.Should().BeEmpty();
-        await session.Received(1).OpenSessionAsync("C:/bundle.tmtrace");
-    }
-
-    /// <summary>v3.x (会话状态剥离 Task 3): 空/空串 path 直接返回空列表，不转发
-    /// 给 service（保留旧签名对 null 的容忍）。</summary>
-    [Fact]
-    public async Task OpenSessionAsync_EmptyPath_DoesNotForward()
-    {
-        var session = MakeFakeSession();
-        var sut = new TraceViewerViewModel(
-            session, MakeFakeRegistry(), MakeFakeDbcService(), MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        var missing = await sut.OpenSessionAsync(null);
-
-        missing.Should().BeEmpty();
-        await session.DidNotReceive().OpenSessionAsync(Arg.Any<string>());
-    }
+    // TraceSessionServiceTests 覆盖）。
+    // v3.x Task 4: VM 的 OpenSessionAsync 薄转发已删除（TraceSessionAutoSaver
+    // 改直连 service），原转发用例随之下线——会话恢复入口只在 service 层。
 
     // ===== v3.6.0 MINOR T1.A: AppVersion stamped from assembly metadata =====
 

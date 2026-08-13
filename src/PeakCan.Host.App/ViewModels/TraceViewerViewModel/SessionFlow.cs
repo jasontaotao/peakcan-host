@@ -9,8 +9,8 @@ public sealed partial class TraceViewerViewModel
 {
     // Flow E: Session save (v3.5.0 MINOR + later patches). Session load +
     // snapshot restore moved to ITraceSessionService (会话状态剥离 Task 1/3);
-    // the VM keeps a thin OpenSessionAsync forwarder so TraceSessionAutoSaver
-    // (transitional call site, refactored in Task 4) keeps compiling.
+    // v3.x Task 4: 原 OpenSessionAsync 薄转发已删除——TraceSessionAutoSaver
+    // 已改直连 service，VM 不再保留会话恢复入口。
     //
     // Cross-flow references (stay as plain calls via partial-class visibility):
     //   - BuildSnapshotAsync → _builder.BuildAsync (TraceSessionSnapshotBuilder)
@@ -29,22 +29,6 @@ public sealed partial class TraceViewerViewModel
         if (string.IsNullOrEmpty(path)) return;
         var snapshot = BuildSnapshot();
         await Task.Run(() => _sessionLibrary.Save(snapshot, path)).ConfigureAwait(true);
-    }
-
-    /// <summary>
-    /// v3.5.0 MINOR: load a Trace Viewer session from a <c>.tmtrace</c>
-    /// bundle. v3.x (会话状态剥离 Task 3): 实际加载/恢复逻辑已迁至
-    /// <see cref="ITraceSessionService"/>——本方法是薄转发，保留 VM 公开签名
-    /// 以便 <c>TraceSessionAutoSaver</c> 过渡期调用点编译（Task 4 改为直连 service）。
-    /// </summary>
-    /// <returns>List of source .asc paths that did NOT resolve on load.
-    /// Empty when the bundle had no sources or when every source
-    /// resolved cleanly.</returns>
-    public Task<IReadOnlyList<string>> OpenSessionAsync(string? path)
-    {
-        if (string.IsNullOrEmpty(path))
-            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
-        return _session.OpenSessionAsync(path);
     }
 
     /// <summary>
