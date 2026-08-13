@@ -45,6 +45,14 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
     [ObservableProperty]
     private string _globalCanIdFilter = "";
 
+    /// <summary>
+    /// v3.x (会话状态剥离 Task 5 final, Important #2): OpenSessionAsync
+    /// 恢复完 watch 列表 + 分组后触发。在调用方 SynchronizationContext 上
+    /// 触发（OpenSessionAsync 全程 ConfigureAwait(true) 保证），供开着的
+    /// VM 补刷 FrameCount / 锚点。
+    /// </summary>
+    public event Action? SessionRestored;
+
     /// <inheritdoc />
     public bool HasContent => _registry.Sources.Count > 0;
 
@@ -131,13 +139,18 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
     /// <inheritdoc />
     public async Task<IReadOnlyList<string>> OpenSessionAsync(string path)
     {
-        var dto = await Task.Run(() => _library.Load(path)).ConfigureAwait(false);
+        // v3.x (会话状态剥离 Task 5 final, Critical #1): 全程 ConfigureAwait(true)，
+        // 镜像 TraceSessionRegistry.LoadAsync 的内部契约与旧 VM.ApplySnapshotAsync。
+        // registry 的 SourcesChanged 在调用者线程同步触发 → VM.OnRegistrySourcesChanged
+        // 改 WPF 绑定集合（ChartViewModel.Series），且下方 WatchedSignals / SignalGroups
+        // 恢复也改绑定集合——逃出 UI SynchronizationContext 会抛 NotSupportedException。
+        var dto = await Task.Run(() => _library.Load(path)).ConfigureAwait(true);
         if (dto is null) return Array.Empty<string>();
 
         // 先卸载当前所有 source，使会话与 bundle 描述完全一致（保持卸载顺序确定）。
         var missing = new List<string>();
         foreach (var src in _registry.Sources.ToList())
-            await _registry.UnloadAsync(src.SourceId).ConfigureAwait(false);
+            await _registry.UnloadAsync(src.SourceId).ConfigureAwait(true);
 
         // sourceId → DisplayName 映射，用于 load 后重新盖印 DisplayName / 反查 master。
         var nameBySourceId = dto.Sources.ToDictionary(s => s.SourceId, s => s.DisplayName, StringComparer.Ordinal);
@@ -148,7 +161,7 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             var loadPath = bs.Path;
             if (!string.IsNullOrEmpty(bs.Path) && !File.Exists(bs.Path) && !string.IsNullOrEmpty(bs.ContentHash))
             {
-                var relocated = await _locator.LocateAsync(bs.ContentHash).ConfigureAwait(false);
+                var relocated = await _locator.LocateAsync(bs.ContentHash).ConfigureAwait(true);
                 if (!string.IsNullOrEmpty(relocated) && File.Exists(relocated))
                 {
                     LogRelocated(_logger, bs.Path, relocated);
@@ -157,7 +170,7 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             }
             try
             {
-                var loaded = await _registry.LoadAsync(loadPath).ConfigureAwait(false);
+                var loaded = await _registry.LoadAsync(loadPath).ConfigureAwait(true);
                 // v3.6.0 MINOR T1.B: 从 bundle 恢复 per-source 过滤器 / DisplayName / 颜色。
                 loaded.CanIdFilter = bs.CanIdFilter;
                 if (!string.IsNullOrEmpty(bs.DisplayName) &&
@@ -182,7 +195,7 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
         // DBC 路径尽力恢复——缺失可接受（用户可手动重新加载）。
         if (!string.IsNullOrEmpty(dto.DbcPath) && File.Exists(dto.DbcPath))
         {
-            try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(false); }
+            try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(true); }
             catch (FileNotFoundException) { /* bundle 引用已删除的 DBC —— 可接受，不记日志 */ }
             catch (Exception ex)
             {
@@ -225,6 +238,11 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
                     g.Id, g.Name, g.Notes, g.SignalKeys));
             }
         }
+        // v3.x (会话状态剥离 Task 5 final, Important #2): watch/groups 恢复完成后
+        // 通知开着的窗口——最后一次 SourcesChanged 驱动的 RefreshFrameCounts 发生在
+        // 恢复之前，VM 必须补刷 FrameCount 与锚点（原 ApplySnapshotAsync 结尾的
+        // RefreshAtAnchor 模式）。UI 线程触发（ConfigureAwait(true) 保证）。
+        SessionRestored?.Invoke();
         return missing;
     }
 

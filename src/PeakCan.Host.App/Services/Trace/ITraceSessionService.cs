@@ -49,4 +49,15 @@ public interface ITraceSessionService : INotifyPropertyChanged
 
     /// <summary>True when the registry currently holds at least one source.</summary>
     bool HasContent { get; }
+
+    /// <summary>
+    /// Fired (on the caller's SynchronizationContext) after
+    /// <see cref="OpenSessionAsync"/> has finished restoring the watch
+    /// list + signal groups. Window-level consumers (a live
+    /// TraceViewerViewModel) subscribe to re-run FrameCount / anchor
+    /// refreshes against the just-restored rows — the watch list restore
+    /// happens after the registry's last <c>SourcesChanged</c>-driven
+    /// refresh, so without this event an open window sees stale rows.
+    /// </summary>
+    event Action? SessionRestored;
 }

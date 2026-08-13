@@ -26,10 +26,10 @@ public partial class AppHostBuilder
         // see docs/superpowers/specs/2026-07-03-trace-viewer-design.md).
         // ITraceViewerService follows the IReplayService precedent — singleton
         // so the ReplayTimeline + loaded ASC state is shared across consumers.
-        // TraceViewerViewModel is a singleton so AppShellViewModel (also a
-        // singleton) constructs with the same instance, preserving the
-        // loaded trace + signal list + chart scrubber position across menu
-        // round-trips. TraceViewerView itself is NOT registered with DI: WPF
+        // TraceViewerViewModel is transient (v3.x 会话状态剥离 Task 3): session
+        // state moved to the singleton ITraceSessionService, so each window open
+        // resolves a fresh instance while sources / watch list / filters survive
+        // via the service. TraceViewerView itself is NOT registered with DI: WPF
         // Window ctor requires STA, and the AppShell shell already owns a
         // cached lazy field (_traceViewerView) matching the ShowReplayCommand
         // precedent — see AppShellViewModel.ShowTraceViewer for the resolve

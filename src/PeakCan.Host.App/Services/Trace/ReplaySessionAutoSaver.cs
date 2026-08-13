@@ -122,8 +122,7 @@ public sealed partial class ReplaySessionAutoSaver : SessionAutoSaver<ReplayView
 
 /// <summary>
 /// v3.7.0 MINOR Chunk 3: thin seam so the Replay auto-saver doesn't
-/// depend on <see cref="IServiceProvider"/> directly. Mirror of
-/// <see cref="ITraceViewerViewModelProvider"/>.
+/// depend on <see cref="IServiceProvider"/> directly.
 /// </summary>
 public interface IReplayViewModelProvider
 {

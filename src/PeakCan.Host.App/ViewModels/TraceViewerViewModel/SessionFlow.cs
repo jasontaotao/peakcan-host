@@ -148,6 +148,23 @@ public sealed partial class TraceViewerViewModel
         return dto;
     }
 
+    /// <summary>
+    /// v3.x (会话状态剥离 Task 5 final, Important #2): service 的 OpenSessionAsync
+    /// 恢复完 watch 列表 + 分组后触发 <see cref="ITraceSessionService.SessionRestored"/>。
+    /// VM 的 WatchedSignals 与 service 是同一集合，但恢复发生在最后一次 SourcesChanged
+    /// 驱动的 RefreshFrameCounts 之后——这里补刷 FrameCount 与锚点值，否则新恢复的行
+    /// 显示空值/旧值（原 ApplySnapshotAsync 结尾的 RefreshAtAnchor 模式）。事件在
+    /// UI 线程触发（service 全程 ConfigureAwait(true)），可直接触碰绑定集合。
+    /// </summary>
+    private void OnSessionRestored()
+    {
+        if (_dbcService.Current is not null) RefreshFrameCounts();
+        if (!double.IsNaN(_anchorTimestampSeconds))
+            RefreshAtAnchor(_anchorTimestampSeconds);
+        if (!double.IsNaN(_blueAnchorTimestampSeconds))
+            RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
     private static partial void LogHashFailed(ILogger logger, Exception ex, string path);
 }

@@ -105,9 +105,9 @@ public sealed partial class AppShellViewModel : ObservableObject
     private readonly MultiFrameSendViewModel _multiFrameSendViewModel;
     // v3.x (会话状态剥离 Task 2): Trace 会话打开/保存命令改走
     // ITraceSessionService（会话级状态的唯一归属）。Trace Viewer 窗口的
-    // VM 由 _traceViewerFactory 工厂解析——本阶段 TraceViewerViewModel 仍为
-    // singleton，工厂解析 singleton 实例；Task 3 transient 化后工厂每次
-    // 打开窗口都拿到新 VM（会话状态已剥离到 service，窗口关闭即丢弃）。
+    // VM 由 _traceViewerFactory 工厂解析——v3.x Task 5 final: VM 已 transient
+    // （Task 3 完成），工厂每次打开窗口都拿到新 VM（会话状态已剥离到 singleton
+    // service，窗口关闭即丢弃窗口级状态）。
     private readonly ITraceSessionService _traceSessionService;
     private readonly Func<TraceViewerViewModel> _traceViewerFactory;
     // Sprint 3: HIL testing panel VM (transient, created per navigation)
@@ -272,8 +272,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         ReplayViewModel replayViewModel,
         MultiFrameSendViewModel multiFrameSendViewModel,
         // v3.x (会话状态剥离 Task 2): Trace 会话打开走 ITraceSessionService
-        // （不再直接持有 TraceViewerViewModel）；开窗由 Func 工厂解析 VM，
-        // 为 Task 3 的 transient 化铺路。
+        // （不再直接持有 TraceViewerViewModel）；开窗由 Func 工厂解析 VM。
+        // v3.x Task 5 final: VM 已 transient，工厂每次开窗解析新实例。
         ITraceSessionService traceSessionService,
         Func<TraceViewerViewModel> traceViewerFactory,
         RecentSessionsService recentSessions,

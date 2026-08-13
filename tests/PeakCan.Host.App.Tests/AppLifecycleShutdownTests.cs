@@ -146,6 +146,12 @@ public class AppLifecycleShutdownTests : IDisposable
         public Task<IReadOnlyList<string>> OpenSessionAsync(string path) =>
             _inner.OpenSessionAsync(path);
 
+        public event Action? SessionRestored
+        {
+            add => _inner.SessionRestored += value;
+            remove => _inner.SessionRestored -= value;
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged
         {
             add => _inner.PropertyChanged += value;

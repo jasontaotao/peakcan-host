@@ -273,6 +273,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // GlobalCanIdFilter 变更透传到 VM 同名属性（具名 handler，Dispose 反注册，
         // 避免 singleton service 强引用 VM）。
         _session.PropertyChanged += OnSessionPropertyChanged;
+        // v3.x (会话状态剥离 Task 5 final, Important #2): 订阅 SessionRestored——
+        // OpenSessionAsync 恢复完 watch 列表/分组后触发，VM 据此补刷 FrameCount 与
+        // 锚点（否则开着的窗口看到恢复前/空的列表）。具名 handler，Dispose 反注册。
+        _session.SessionRestored += OnSessionRestored;
     }
 
     private readonly Dictionary<string, PeakCan.HIL.Core.Dbc.Signal?> _signalByKey = new(StringComparer.Ordinal);
@@ -398,6 +402,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSamplingTable;
         WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSignalCache;
         _session.PropertyChanged -= OnSessionPropertyChanged;
+        _session.SessionRestored -= OnSessionRestored;
         DetachAllServiceHandlers();
         // v3.4.3 PATCH (Task 3 review round 1, Important #1): VM 变 transient 后
         // 必须同时反注册对 registry source 的 per-source INPC 订阅。OnRegistrySourcesChanged

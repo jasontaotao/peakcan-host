@@ -45,10 +45,11 @@
                  behavior change). -->
             <!-- v3.6.0 MINOR T3: Save/Open .tmtrace session buttons moved to
                  the AppShell File menu (Open Session... / Save Session... +
-                 Open Recent submenu). The toolbar buttons are removed; the
-                 underlying TraceViewerViewModel.SaveSessionAsync /
-                 OpenSessionAsync methods remain public and are now called
-                 from AppShellViewModel via DI. -->
+                 Open Recent submenu). The toolbar buttons are removed.
+                 v3.x (会话状态剥离 Task 4): session Open 改走
+                 ITraceSessionService（AppShell 命令 + TraceSessionAutoSaver
+                 直连 service）；VM 的 OpenSessionAsync 已删除，只保留
+                 SaveSessionAsync（快照采集仍以 VM 为窗口级来源）。 -->
             <Separator />
 
             <!-- v3.3.0 MINOR: master picker (the "clock source") -->

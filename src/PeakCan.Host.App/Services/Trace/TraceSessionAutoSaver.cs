@@ -151,7 +151,9 @@ public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<ITraceSessi
     // they can override the base virtual hooks across inheritance.
     // They forward to [LoggerMessage] source-gen partials declared at
     // the bottom of this file.
-    protected override void OnNoVm() => LogNoVm(Logger);
+    // v3.x (会话状态剥离 Task 5 final, Minor #6): OnNoVm 已删——GetActiveVm 返回
+    // 注入的 non-null service，base TrySaveAutoSnapshotAsync 的 vm is null 分支
+    // 不可达（Replay 子类仍需 OnNoVm，此处不复写 base 默认 hook）。
     protected override void OnSaved(string path, int sourcesCount) =>
         LogSaved(Logger, path, sourcesCount);
     protected override void OnSaveFailed(Exception ex, string path) =>
@@ -160,9 +162,6 @@ public sealed partial class TraceSessionAutoSaver : SessionAutoSaver<ITraceSessi
         LogMissing(Logger, path, count);
     protected override void OnApplyFailed(Exception ex) =>
         LogApplyFailed(Logger, ex);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Auto-save skipped: no live trace session service")]
-    private static partial void LogNoVm(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Auto-saved {SourcesCount} sources to {Path}")]
     private static partial void LogSaved(ILogger logger, string path, int sourcesCount);

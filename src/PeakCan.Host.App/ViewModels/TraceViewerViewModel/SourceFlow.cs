@@ -196,27 +196,9 @@ public sealed partial class TraceViewerViewModel
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
     private static partial void LogLoadFailed(ILogger logger, Exception ex, string path);
 
-    // v3.5.0 MINOR: bundle-load could not resolve one of the recorded .asc
-    // paths (file moved, deleted, or on a currently-unmounted drive). The
-    // caller (View) surfaces the missing paths via a MessageBox so the user
-    // can decide whether to remap or proceed without.
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
-    private static partial void LogSourceMissing(ILogger logger, string path, Exception ex);
-
-    // v3.6.4 PATCH: hash-based relocation recovered a missing .asc.
-    [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
-    private static partial void LogRelocated(ILogger logger, string oldPath, string newPath);
-
-    // v3.9.2 PATCH L1: source-gen'd log helper for the bundle DBC load
-    // fallback catch (was bare catch { } before).
-    // v3.13.0 PATCH F3: renamed from LogBundleDbcLoadFailed → LogBundleDbcLoadFailedInline
-    // (signature unchanged). The LoadDbcAsync public method was removed
-    // (toolbar "Load DBC…" button had no UI feedback because LoadedDbcPath
-    // was never bound in TraceViewerView.xaml). The bundle-load catch arm
-    // at the former line 678 is the LAST remaining caller; DbcView tab is
-    // now the single entry point for ad-hoc DBC loading.
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle DBC load failed for {Path}")]
-    private static partial void LogBundleDbcLoadFailedInline(ILogger logger, string path, Exception ex);
+    // v3.x (会话状态剥离 Task 5 final, Minor #4): LogSourceMissing / LogRelocated /
+    // LogBundleDbcLoadFailedInline 已随 ApplySnapshotAsync 迁到 TraceSessionService
+    // （service 有自己的副本），VM 再无调用者，此处删除。
 
     /// <summary>
     /// v3.2.0 MINOR: react to <see cref="ITraceSessionRegistry.SourcesChanged"/>

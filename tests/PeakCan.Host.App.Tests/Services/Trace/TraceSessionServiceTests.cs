@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -365,6 +366,136 @@ public sealed class TraceSessionServiceTests : IDisposable
         sut.SignalGroups[0].Name.Should().Be("组A");
         sut.SignalGroups[0].Notes.Should().Be("notes");
         sut.SignalGroups[0].SignalKeys.Should().BeEquivalentTo(SampleGroupSignalKeys);
+    }
+
+    /// <summary>
+    /// v3.x (会话状态剥离 Task 5 final, Important #2): 钉住 SessionRestored 事件
+    /// ——OpenSessionAsync 恢复完 watch 列表 + 分组后必须恰好触发一次。窗口开着时
+    /// VM 靠它补刷 FrameCount / 锚点（恢复发生在最后一次 SourcesChanged 驱动的
+    /// RefreshFrameCounts 之后）。
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_RaisesSessionRestored_AfterWatchRestore()
+    {
+        // arrange
+        var realPath = NewTempFile("traceA.asc");
+        File.WriteAllText(realPath, "frames");
+        var (library, bundlePath) = NewLibrary();
+
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(new List<TraceSource>());
+        registry.LoadAsync(realPath).Returns(MakeSource("s1", "traceA", realPath));
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "old1", DisplayName = "traceA", Path = realPath },
+            },
+            Playback = null,
+            WatchedSignals = new List<BundleWatchedSignalDto>
+            {
+                new() { CanIdHex = "0x100", MessageName = "MsgA", SignalName = "SigA" },
+            },
+        });
+
+        var sut = MakeService(registry, library);
+        var raised = 0;
+        sut.SessionRestored += () => raised++;
+
+        // act
+        var missing = await sut.OpenSessionAsync(bundlePath);
+
+        // assert
+        missing.Should().BeEmpty();
+        raised.Should().Be(1, "恢复完 watch/分组后必须触发 SessionRestored");
+    }
+
+    /// <summary>
+    /// v3.x (会话状态剥离 Task 5 final, Critical #1): 钉住 OpenSessionAsync 的
+    /// UI-thread 契约——全程 ConfigureAwait(true)，首个 Task.Run 之后的续延必须经
+    /// 调用方 SynchronizationContext 调度。unload/load 循环与 watch/分组恢复都依赖
+    /// 这点：registry 的 SourcesChanged 在调用者线程同步触发 VM 的绑定集合修改，
+    /// 逃出 UI context 会抛 NotSupportedException。
+    /// <para>
+    /// 用 recording context 记录 Post（并立即执行回调避免死锁）。测试自身在调用
+    /// service 完成同步启动（到达首个 await、捕获 context）后立即恢复原 context
+    /// 再 await——测试自己的续延不经过被测 context，Post 计数只反映 service 内部
+    /// 续延。契约破坏（改回 ConfigureAwait(false)）时续延直接在线程池跑、Post
+    /// 计数为 0，测试失败。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_ContinuationsReturnToCallingSynchronizationContext()
+    {
+        // arrange
+        var realPath = NewTempFile("traceA.asc");
+        File.WriteAllText(realPath, "frames");
+        var (library, bundlePath) = NewLibrary();
+
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(new List<TraceSource>());
+        registry.LoadAsync(realPath).Returns(MakeSource("s1", "traceA", realPath));
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "old1", DisplayName = "traceA", Path = realPath },
+            },
+            Playback = null,
+            WatchedSignals = new List<BundleWatchedSignalDto>
+            {
+                new() { CanIdHex = "0x100", MessageName = "MsgA", SignalName = "SigA" },
+            },
+        });
+
+        var sut = MakeService(registry, library);
+        var ctx = new RecordingSynchronizationContext();
+        var original = SynchronizationContext.Current;
+
+        // act——service 同步启动到首个 await 时捕获 ctx；随后立即恢复原 context，
+        // 使测试自身的 await 续延不经过被测 context（避免污染 Post 计数）。
+        Task<IReadOnlyList<string>> openTask;
+        SynchronizationContext.SetSynchronizationContext(ctx);
+        try
+        {
+            openTask = sut.OpenSessionAsync(bundlePath);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(original);
+        }
+        var missing = await openTask;
+
+        // assert
+        missing.Should().BeEmpty();
+        ctx.PostCount.Should().BeGreaterThan(0,
+            "OpenSessionAsync 全程 ConfigureAwait(true) → 首个 Task.Run 之后的续延经调用方 context 调度");
+        sut.WatchedSignals.Should().ContainSingle(
+            "watch 列表恢复发生在 context 往返之后，仍被正确应用");
+    }
+
+    /// <summary>
+    /// 记录 <see cref="SynchronizationContext.Post"/> 调用并立即同步执行回调
+    /// （避免测试死锁）。PostCount &gt; 0 即证明 ConfigureAwait(true) 的续延经
+    /// 调用方 context 调度；ConfigureAwait(false) 时续延直接在线程池跑，Post
+    /// 不会被调用。
+    /// </summary>
+    private sealed class RecordingSynchronizationContext : SynchronizationContext
+    {
+        private int _postCount;
+        public int PostCount => _postCount;
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            Interlocked.Increment(ref _postCount);
+            d(state);
+        }
     }
 
     [Fact]
