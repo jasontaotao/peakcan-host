@@ -89,7 +89,11 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             {
                 try { hash = _hasher.ComputeAsync(src.Path, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
-                { hash = ""; }
+                {
+                    // 哈希失败（文件被锁 / ACL）→ 保留 contentHash=""，路径解析仍可兜底。
+                    LogHashFailed(_logger, ex, src.Path);
+                    hash = "";
+                }
             }
             dto.Sources.Add(new BundleSourceDto
             {
@@ -146,7 +150,10 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             {
                 var relocated = await _locator.LocateAsync(bs.ContentHash).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(relocated) && File.Exists(relocated))
+                {
+                    LogRelocated(_logger, bs.Path, relocated);
                     loadPath = relocated;
+                }
             }
             try
             {
@@ -160,8 +167,14 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
                 if (!(bs.ColorA == 0 && bs.ColorR == 0 && bs.ColorG == 0 && bs.ColorB == 0))
                     loaded.Color = new Color(bs.ColorR, bs.ColorG, bs.ColorB, bs.ColorA);
             }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or ReplayException)
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
+                LogSourceMissing(_logger, bs.Path, ex);
+                missing.Add(bs.Path);
+            }
+            catch (ReplayException ex)
+            {
+                LogSourceMissing(_logger, bs.Path, ex);
                 missing.Add(bs.Path);
             }
         }
@@ -170,7 +183,12 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
         if (!string.IsNullOrEmpty(dto.DbcPath) && File.Exists(dto.DbcPath))
         {
             try { await _dbcService.LoadAsync(dto.DbcPath).ConfigureAwait(false); }
-            catch { /* best-effort, log */ }
+            catch (FileNotFoundException) { /* bundle 引用已删除的 DBC —— 可接受，不记日志 */ }
+            catch (Exception ex)
+            {
+                // 非"文件缺失"类失败记日志。service 不设 StatusMessage —— 那是 VM 的 UI 状态，不属于 service。
+                LogBundleDbcLoadFailedInline(_logger, dto.DbcPath, ex);
+            }
         }
 
         GlobalCanIdFilter = dto.GlobalCanIdFilter ?? "";
@@ -183,4 +201,16 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
         }
         return missing;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
+    private static partial void LogHashFailed(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle source missing or unreadable: {Path}")]
+    private static partial void LogSourceMissing(ILogger logger, string path, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Bundle source relocated via content hash: {OldPath} -> {NewPath}")]
+    private static partial void LogRelocated(ILogger logger, string oldPath, string newPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Bundle DBC load failed for {Path}")]
+    private static partial void LogBundleDbcLoadFailedInline(ILogger logger, string path, Exception ex);
 }

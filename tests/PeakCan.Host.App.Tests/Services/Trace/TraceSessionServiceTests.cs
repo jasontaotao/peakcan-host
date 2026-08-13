@@ -254,6 +254,44 @@ public sealed class TraceSessionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenSessionAsync_ReloadsDbc_WhenBundleCarriesExistingPath()
+    {
+        // arrange：bundle 携带存在的 DBC 路径 → dbcService.LoadAsync 被调用且收到该 path
+        var realPath = NewTempFile("traceA.asc");
+        File.WriteAllText(realPath, "frames");
+        var dbcPath = NewTempFile("vehicle.dbc");
+        File.WriteAllText(dbcPath, "BO_ 100 MSG: 8 SG_ Sig : 0|8@1+ (1,0) [0|0] \"\" 0");
+        var (library, bundlePath) = NewLibrary();
+
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(new List<TraceSource>());
+        registry.LoadAsync(realPath).Returns(MakeSource("s1", "traceA", realPath));
+
+        var dbcService = Substitute.For<DbcService>(NullLogger<DbcService>.Instance);
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            DbcPath = dbcPath,
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "old1", DisplayName = "traceA", Path = realPath },
+            },
+            Playback = null,
+        });
+
+        var sut = MakeService(registry, library, dbcService: dbcService);
+
+        // act
+        var missing = await sut.OpenSessionAsync(bundlePath);
+
+        // assert
+        missing.Should().BeEmpty();
+        await dbcService.Received(1).LoadAsync(dbcPath, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task OpenSessionAsync_UnreadableBundle_ReturnsEmpty()
     {
         // arrange：.tmtrace 文件不存在 → library.Load 返回 null → 空列表、不触 registry
