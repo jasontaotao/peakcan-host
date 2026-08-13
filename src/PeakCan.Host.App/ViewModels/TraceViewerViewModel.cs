@@ -399,6 +399,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSignalCache;
         _session.PropertyChanged -= OnSessionPropertyChanged;
         DetachAllServiceHandlers();
+        // v3.4.3 PATCH (Task 3 review round 1, Important #1): VM 变 transient 后
+        // 必须同时反注册对 registry source 的 per-source INPC 订阅。OnRegistrySourcesChanged
+        // 会对每个 TraceSource 订阅 src.PropertyChanged += OnAnySourcePropertyChanged；
+        // TraceSource 由 singleton registry 持有——不反注册则 singleton 强引用已释放
+        // VM 的 handler，每次关窗重开泄漏一个 VM（正是本类 doc comment 警告的失败模式）。
+        DetachAllSourcePropertyHandlers();
         _registry.SourcesChanged -= OnRegistrySourcesChanged;
         // v3.62.0 BUG-FIX: 取消并释放聊天 CancellationTokenSource, 中止 in-flight HTTP 请求
         _chatCts?.Cancel();
