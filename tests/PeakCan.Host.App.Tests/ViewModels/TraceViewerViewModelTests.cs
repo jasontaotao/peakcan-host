@@ -738,6 +738,26 @@ public class TraceViewerViewModelTests
         try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
     }
 
+    [Fact]
+    public void BuildSnapshot_WritesDefaultPlaybackEnvelope_AndNoViewports()
+    {
+        // 播放已废除：Trace 的 BundlePlaybackDto 信封只写默认值，
+        // viewports（chart 缩放/平移，窗口级状态）不再持久化（I-2 决策）。
+        var library = NewTestLibrary(out var libPath);
+        var vm = NewVm(library);
+
+        var dto = vm.BuildSnapshot();
+
+        dto.Playback.Should().NotBeNull();
+        dto.Playback!.MasterSourceId.Should().BeNullOrEmpty();
+        dto.Playback.Loop.Should().BeFalse();
+        dto.Playback.Speed.Should().Be(1.0);
+        dto.Playback.ScrubberValue.Should().Be(0.0);
+        dto.Viewports.Should().BeEmpty();
+
+        try { if (File.Exists(libPath)) File.Delete(libPath); } catch { /* best effort */ }
+    }
+
     // v3.x (会话状态剥离 Task 3): ApplySnapshotAsync 已删除（功能迁至
     // ITraceSessionService.OpenSessionAsync）。原 ApplySnapshotAsync_RestoresColorAndDisplayName /
     // _V1BundleWithoutColor_FallsBackToPalette 用例由 TraceSessionServiceTests 覆盖
