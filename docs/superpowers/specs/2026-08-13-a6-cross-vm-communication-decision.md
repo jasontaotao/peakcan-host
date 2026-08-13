@@ -2,7 +2,7 @@
 topic: a6-cross-vm-communication
 created: 2026-08-13
 status: approved
-covers: 跨 VM 通信架构决策（不引入消息总线）+ 死字段清理
+covers: 跨 VM 通信架构决策（不引入消息总线）
 related: docs/superpowers/specs/2026-08-13-scripting-cycle-and-trace-session-state-design.md
 ---
 
@@ -10,7 +10,7 @@ related: docs/superpowers/specs/2026-08-13-scripting-cycle-and-trace-session-sta
 
 ## 1. 背景与问题
 
-原设计把 A6 定为「引入消息总线 / `WeakReferenceMessenger`」，前提是跨 VM 通信耦合紧密、需要事件总线解耦。本文档记录 A6 的探索结论与最终决策：**该前提不成立，消息总线不引入**；仅清理探索中发现的死字段（唯一的表面兄弟 VM 耦合）。
+原设计把 A6 定为「引入消息总线 / `WeakReferenceMessenger`」，前提是跨 VM 通信耦合紧密、需要事件总线解耦。本文档记录 A6 的探索结论与最终决策：**该前提不成立，消息总线不引入**。A6 以决策记录收尾，无代码改动。
 
 ## 2. 探索证据（跨 VM 耦合全景）
 
@@ -19,37 +19,31 @@ related: docs/superpowers/specs/2026-08-13-scripting-cycle-and-trace-session-sta
 | 耦合 | 状态 | 结论 |
 |---|---|---|
 | `AppShellViewModel` ctor 持有 13 个子 VM + 8 个服务 | 中枢（hub）模式 | shell 的正当职责（菜单/标签/状态编排），MVVM 标准结构，**不是**需要消息总线解耦的耦合 |
-| `DbcViewModel._signals`（`DbcViewModel.cs:48`） | **死字段**——仅声明 + ctor 赋值（`DbcViewModel.cs:91`），任何方法体均未使用 | 唯一的表面兄弟 VM 引用，实为遗留 |
+| `DbcViewModel → SignalViewModel`（`_signals`，`DbcViewModel.cs:48` + `DbcViewModel/LoadingFlow.partial.cs:62-64`） | 活跃 1:1 有向耦合：DBC 加载时 `_signals.Reset()` 清信号表 + `_signals.SetDbcService(_svc)` 接线 | 通过 ctor 注入 + `DbcService.DbcLoaded` 事件实现，是合法的有向依赖，**不需要**消息总线 |
 | TraceViewer / Replay / 其余 VM | ctor 只依赖服务，不依赖任何兄弟 VM | 已解耦 ✅ |
-| DBC→Signal 传播 | `DbcService.DbcLoaded` 事件（`DbcViewModel` 订阅）+ `SignalViewModel.SetDbcService(dbc)` 注入读 `_dbc.Current` | 已事件/服务解耦 ✅ |
+| DBC→TraceViewer 传播 | `DbcService.DbcLoaded` 事件（TraceViewerViewModel 订阅，`TraceViewerViewModel.cs:230`） | 已服务事件解耦 ✅ |
 | MRU 同步 | `RecentSessionsService.PropertyChanged`（AppShell / Replay 订阅） | 已服务事件解耦 ✅ |
 | Trace 源变化 | `ITraceSessionRegistry.SourcesChanged`（TraceViewerViewModel 订阅） | 已服务事件解耦 ✅ |
 | ECU 编辑器请求 | `HilViewModel.OpenEcuEditorRequested` → AppShell 处理 | 已 .NET 事件解耦 ✅ |
 
+> **探索方法注记**：初期判断 `DbcViewModel._signals` 为死字段是基于一次未递归进 `DbcViewModel/` 子目录 partial 的 grep——`LoadingFlow.partial.cs:62-64` 的活跃使用证实它是承载耦合。教训：判断"死代码"必须覆盖全部 partial 文件（用仓库级 grep，而非目录级 glob）。
+
 ## 3. 决策
 
 1. **不引入 `WeakReferenceMessenger` / 消息总线。** 现有通信方式（中枢 + 共享服务事件 + .NET 事件）已是消息总线的社区推荐替代方案（优先用服务事件而非全局 messenger）。引入总线会新增 30-50 个调用点改动 + 测试负担，而耦合度零变化——AppShell 仍需持有子 VM 才能暴露标签/命令。违背「简洁、不折腾无收益」原则。
-2. **A6 正式收尾为非目标。** 若未来出现真实跨 VM 通信痛点（如两个非 AppShell VM 间出现强耦合），接线缝已清晰：共享 singleton 服务的强类型事件（沿用 `DbcService.DbcLoaded` 模式），或仅在该点局部采用 messenger。
-3. **清理死字段 `DbcViewModel._signals`**（`DbcViewModel.cs:48/87/91` + 构造调用点）——0 行为变更，消除唯一的表面兄弟耦合。
-
-## 4. 变更清单（死字段清理）
-
-- `DbcViewModel.cs`：删除字段 `_signals`（48）、ctor 参数 `SignalViewModel signals`（87）、赋值（91）。
-- 构造调用点：`AppHostBuilder` 的 `DbcViewModel` 注册 + `DbcViewModelTests` 的 ctor 调用——移除 `SignalViewModel` 实参。
+2. **A6 正式收尾为非目标（决策记录）。** 若未来出现真实跨 VM 通信痛点（如两个非 AppShell VM 间出现非 1:1 的广播需求），接线缝已清晰：共享 singleton 服务的强类型事件（沿用 `DbcService.DbcLoaded` 模式），或仅在该点局部采用 messenger。
 
 ## 5. 测试策略
 
-- 0 行为变更，现有测试全绿即验证。`DbcViewModelTests` 若因 ctor 签名变更需去掉 `SignalViewModel` 实参。
-- `dotnet build` + 全量 App 测试。
+无代码改动，现有测试不受影响。
 
 ## 6. 非目标
 
 - 不改 AppShell 的 hub 结构（13 个 ctor 参数是 shell 编排所需，DI 可自动装配；参数多属 ergonomics，非耦合问题）。
 - 不改任何现有事件订阅模式（服务事件 / .NET 事件都是健康解耦）。
+- 不清理 `DbcViewModel._signals`——它是活跃承载耦合，非死代码。
 - 不新增消息基础设施。
 
 ## 7. 实施顺序
 
-1. spec 提交（本文件）。
-2. 删 `DbcViewModel._signals` + 更新调用点。
-3. 构建 + 全量测试 + 提交。
+1. spec 提交（本文件）。无后续代码任务。
