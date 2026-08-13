@@ -23,7 +23,7 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// engine state.
 /// </para>
 /// </summary>
-public sealed partial class ScriptEngine : IDisposable
+public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
 {
     /// <summary>Default script execution timeout (60 seconds).</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
@@ -31,7 +31,8 @@ public sealed partial class ScriptEngine : IDisposable
     private readonly ILogger<ScriptEngine> _logger;
     private readonly CanApi? _canApi;
     private readonly DbcApi? _dbcApi;
-    private readonly ScriptUtilities? _utilities;
+    // 循环依赖破环：ScriptUtilities 延迟解析，避免 ctor 直接持有对方实例。
+    private readonly Lazy<ScriptUtilities>? _utilities;
     private readonly ScriptEngineOptions _options;
 
     private V8ScriptEngine? _engine;
@@ -66,7 +67,9 @@ public sealed partial class ScriptEngine : IDisposable
         CanApi? canApi,
         DbcApi? dbcApi,
         ScriptUtilities? utilities)
-        : this(logger, canApi, dbcApi, utilities, ScriptEngineOptions.Default)
+        : this(logger, canApi, dbcApi,
+               utilities is null ? null : new Lazy<ScriptUtilities>(() => utilities),
+               ScriptEngineOptions.Default)
     {
     }
 
@@ -86,7 +89,7 @@ public sealed partial class ScriptEngine : IDisposable
         ILogger<ScriptEngine> logger,
         CanApi? canApi,
         DbcApi? dbcApi,
-        ScriptUtilities? utilities,
+        Lazy<ScriptUtilities>? utilities,
         ScriptEngineOptions options)
     {
         ArgumentNullException.ThrowIfNull(logger);

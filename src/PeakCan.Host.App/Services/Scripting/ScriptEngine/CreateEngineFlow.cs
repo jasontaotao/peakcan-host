@@ -92,12 +92,13 @@ public sealed partial class ScriptEngine
         // Inject utility functions (if available).
         if (_utilities is not null)
         {
-            engine.AddHostObject("log", (Action<string>)((msg) => _utilities.Log(msg)));
-            engine.AddHostObject("warn", (Action<string>)((msg) => _utilities.Warn(msg)));
-            engine.AddHostObject("error", (Action<string>)((msg) => _utilities.Error(msg)));
-            engine.AddHostObject("delay", (Func<int, Task>)((ms) => _utilities.Delay(ms, ct)));
-            engine.AddHostObject("hex", (Func<int, string?>?)((v) => _utilities.Hex(v)));
-            engine.AddHostObject("toHex", (Func<byte[]?, string?>?)((b) => _utilities.ToHex(b)));
+            var utils = _utilities.Value;  // 延迟解析，打破 ctor 循环
+            engine.AddHostObject("log", (Action<string>)((msg) => utils.Log(msg)));
+            engine.AddHostObject("warn", (Action<string>)((msg) => utils.Warn(msg)));
+            engine.AddHostObject("error", (Action<string>)((msg) => utils.Error(msg)));
+            engine.AddHostObject("delay", (Func<int, Task>)((ms) => utils.Delay(ms, ct)));
+            engine.AddHostObject("hex", (Func<int, string?>?)((v) => utils.Hex(v)));
+            engine.AddHostObject("toHex", (Func<byte[]?, string?>?)((b) => utils.ToHex(b)));
         }
 
         return engine;

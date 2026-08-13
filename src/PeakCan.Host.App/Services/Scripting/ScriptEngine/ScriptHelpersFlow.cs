@@ -10,9 +10,10 @@ public sealed partial class ScriptEngine
     // field ownership per W14 D2.
 
     /// <summary>
-    /// Emit an output line to subscribers.
+    /// Emit an output line to subscribers. Public as an
+    /// <see cref="IScriptOutputSink"/> implementation member.
     /// </summary>
-    internal void EmitOutput(ScriptOutputLine line)
+    public void EmitOutput(ScriptOutputLine line)
     {
         OutputReceived?.Invoke(line);
     }
