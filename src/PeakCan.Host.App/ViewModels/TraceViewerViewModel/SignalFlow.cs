@@ -8,14 +8,7 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // Flow C: Signal table + filter (v3.15.0 MINOR + earlier patches).
-    // Methods moved verbatim from TraceViewerViewModel.cs.
-    //
-    // Cross-flow callers (must be Flow[X]_<Verb> with internal visibility
-    // after Tasks 3+5+6 land):
-    //   - Flow A: FlowA_OnRegistrySourcesChanged calls RefreshFrameCounts (here)
-    //   - Flow D: AddToWatch + FinalizePickerAdds call RefreshFrameCounts
-    //   - Flow E: FlowE_ApplySnapshotAsync calls RebuildSignalsCore
+    // 信号表重建与帧计数（Signal table rebuild + frame counts）。
 
     // v3.4.2 PATCH: filter changes trigger a synchronous rebuild via the
     // extracted core. Property change notifications fire on the UI thread,

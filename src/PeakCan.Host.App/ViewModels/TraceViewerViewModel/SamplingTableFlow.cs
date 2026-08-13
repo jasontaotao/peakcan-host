@@ -1,14 +1,14 @@
 // TraceViewerViewModel/SamplingTableFlow.cs — v3.49.0 MINOR T5
 // Q1: 10th partial on TraceViewerViewModel. SamplingRows 是
-// ObservableCollection<SamplingTableRow>，master CurrentTimestamp 变化时 debounce
-// 50ms 刷新一次。
+// ObservableCollection<SamplingTableRow>，由 WatchedSignals CollectionChanged
+// 触发（RefreshSamplingTable）；master CurrentTimestamp 变化不触发（debounce 未接线）。
 //
 // 实现选择 (v3.49.0 范围内最简实现):
 //   - 信号值解码简化为 f.Data[0] / 256.0 (一个字节的比例值)，不调 IDbcDecoder。
 //   - 不按 source split: 用 ITraceViewerService.LoadedFrames 单源 (当前
 //     ITraceViewerService 只暴露一个 frame source — per-source API 是
 //     ITraceSessionRegistry.GetFrames 的未来 PATCH follow-up)。
-//   - debounce 用 Task.Delay(50) + CancellationToken 而不是 DispatcherTimer。
+//   - debounce 未接线（v3.49.0 范围内 RefreshSamplingTable 只由 CollectionChanged 触发）。
 //
 // W23 LESSON: ITraceViewerService.LoadedFrames 返回 IReadOnlyList<ReplayFrame>
 // (已验证 L26); WatchedSignalRow.Unit / CanIdHex / SignalName 属性可访问;

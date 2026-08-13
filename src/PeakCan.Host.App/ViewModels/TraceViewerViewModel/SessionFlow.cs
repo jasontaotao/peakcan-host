@@ -7,7 +7,7 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // Flow E: Session save (v3.5.0 MINOR + later patches). Session load +
+    // Session save (v3.5.0 MINOR + later patches). Session load +
     // snapshot restore moved to ITraceSessionService (会话状态剥离 Task 1/3);
     // v3.x Task 4: 原 OpenSessionAsync 薄转发已删除——TraceSessionAutoSaver
     // 已改直连 service，VM 不再保留会话恢复入口。

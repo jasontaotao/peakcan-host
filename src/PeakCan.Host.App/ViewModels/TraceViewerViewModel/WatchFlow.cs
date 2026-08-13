@@ -6,7 +6,7 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // Flow D: Watch list + chart plotting (v3.15.0 MINOR + earlier patches).
+    // Watch list + chart plotting (v3.15.0 MINOR + earlier patches).
     // Methods moved verbatim from TraceViewerViewModel.cs.
     //
     // Cross-flow references (all stay as plain calls via partial-class visibility):

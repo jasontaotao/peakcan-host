@@ -9,7 +9,7 @@ namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewerViewModel
 {
-    // Flow A: Source management (registry add/remove + master swap + DBC load).
+    // Source management (registry add/remove + master swap + DBC load).
     // Methods moved verbatim from TraceViewerViewModel.cs.
     //
     // Cross-flow callers (all stay as plain calls because partial-class
@@ -17,7 +17,7 @@ public sealed partial class TraceViewerViewModel
     //   - SetMaster (Flow A) → RebuildSignalsAsync (Flow C) + master re-bind
     //   - OnRegistrySourcesChanged (Flow A) → RefreshFrameCounts (Flow C)
     //                            → RemoveOrphanChartSeries (Flow A, intra-flow)
-    //                            → RebindMasterFromRegistry (PlaybackFlow)
+    //                            → RebindMasterFromRegistry (Flow A, intra-flow)
     //   - OnDbcLoaded (Flow A) → RebuildSignalsCore (Flow C)
     //   - AddTraceAsync (Flow A) → _registry.LoadAsync (registry, Flow A own dependency)
 
