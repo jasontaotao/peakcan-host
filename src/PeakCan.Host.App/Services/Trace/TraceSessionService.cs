@@ -205,8 +205,15 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
         }
 
         GlobalCanIdFilter = dto.GlobalCanIdFilter ?? "";
+        // 打开的空 bundle（无 sources 或全部 load 失败）→ 清空 master，避免旧
+        // MasterSourceId 残留，被 BuildSnapshot 写进 auto-save bundle
+        // （独立 review I-4）。
+        if (_registry.Sources.Count == 0)
+        {
+            MasterSourceId = null;
+        }
         // bundle 里的 SourceId 是录制时的 id；load 后 SourceId 变化，按 DisplayName 反查新 id。
-        if (dto.Playback is { } pb && !string.IsNullOrEmpty(pb.MasterSourceId))
+        else if (dto.Playback is { } pb && !string.IsNullOrEmpty(pb.MasterSourceId))
         {
             var newMaster = _registry.Sources.FirstOrDefault(s =>
                 string.Equals(s.DisplayName, nameBySourceId.GetValueOrDefault(pb.MasterSourceId, ""), StringComparison.Ordinal));

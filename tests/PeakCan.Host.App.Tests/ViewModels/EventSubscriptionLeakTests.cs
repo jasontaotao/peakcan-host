@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using FluentAssertions;
@@ -230,5 +231,123 @@ public sealed class EventSubscriptionLeakTests : IDisposable
                     "Post-Dispose the singleton must not hold a delegate targeting the disposed VM");
             }
         }
+    }
+
+    // ============================================================
+    // I-3 — TraceViewerViewModel disposes ITraceSessionService
+    // PropertyChanged / SessionRestored / WatchedSignals.CollectionChanged
+    // subscriptions (会话状态剥离 Task 3/5 新增的泄漏防线回归测试)。
+    // ============================================================
+
+    [Fact]
+    public void TraceViewerViewModel_Dispose_CancelsSessionServiceSubscriptions()
+    {
+        // 真实 TraceSessionService（DI-singleton 形状）+ 真实 VM：替身的事件背板不可
+        // 检视（NSubstitute 不暴露 invocation list），泄漏断言必须用真实对象。若
+        // Dispose 缺反注册，singleton service 会强引用 VM handler，每次关窗重开泄漏
+        // 一个 VM（与 A4 的 DbcLoaded 同一失败模式）。
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(new List<TraceSource>());
+        var session = MakeRealSessionService(registry, NewLibrary(_libraryPath));
+
+        var vm = new TraceViewerViewModel(
+            session,
+            registry,
+            Substitute.For<DbcService>(NullLogger<DbcService>.Instance),
+            NullLogger<TraceViewerViewModel>.Instance,
+            NewLibrary(_libraryPath));
+
+        vm.Dispose();
+
+        // Post-Dispose: service 的 PropertyChanged / SessionRestored / WatchedSignals
+        // 的 CollectionChanged 委托里都不能再引用已释放的 VM。
+        AssertNoSubscriberTargets(session, vm, "PropertyChanged");
+        AssertNoSubscriberTargets(session, vm, "SessionRestored");
+        AssertNoCollectionChangedTargets(session.WatchedSignals, vm);
+    }
+
+    private static TraceSessionService MakeRealSessionService(
+        ITraceSessionRegistry registry, TraceSessionLibrary library)
+    {
+        var hasher = Substitute.For<IAscContentHasher>();
+        return new TraceSessionService(
+            registry,
+            library,
+            Substitute.For<DbcService>(NullLogger<DbcService>.Instance),
+            Substitute.For<IAscLocator>(),
+            hasher,
+            new TraceSessionSnapshotBuilder(hasher),
+            NullLogger<TraceSessionService>.Instance);
+    }
+
+    /// <summary>
+    /// 反射读取事件 owner 的 field-like 事件后台字段，断言其 invocation list 里
+    /// 没有任何 delegate 的 Target 指向已释放的 VM。field-like 事件（如
+    /// ObservableObject.PropertyChanged / TraceSessionService.SessionRestored）的后台
+    /// 字段名与事件同名；沿类型层级向上查找（PropertyChanged 声明在基类）。
+    /// </summary>
+    private static void AssertNoSubscriberTargets(object eventOwner, object vm, string fieldName)
+    {
+        var field = FindFieldInHierarchy(eventOwner.GetType(), fieldName)
+            ?? throw new InvalidOperationException(
+                $"{eventOwner.GetType().Name}.{fieldName} backing field not found");
+        var del = field.GetValue(eventOwner) as Delegate;
+        if (del is null) return;
+        foreach (var sub in del.GetInvocationList())
+        {
+            sub.Target.Should().NotBeSameAs(
+                vm,
+                $"Post-Dispose {eventOwner.GetType().Name}.{fieldName} must not hold a delegate targeting the disposed VM");
+        }
+    }
+
+    /// <summary>
+    /// ObservableCollection&lt;T&gt; 的 CollectionChanged 用自定义 add/remove 访问器，
+    /// 后台字段是私有字段（.NET 里为 CollectionChangedEventHandler，声明在基类）——按
+    /// 类型沿层级查找私有实例字段最稳，不依赖内部字段名。断言其 invocation list 里
+    /// 没有任何 delegate 的 Target 指向已释放的 VM。
+    /// </summary>
+    private static void AssertNoCollectionChangedTargets(
+        ObservableCollection<WatchedSignalRow> collection, object vm)
+    {
+        var field = FindFieldInHierarchyByType(
+            typeof(ObservableCollection<WatchedSignalRow>),
+            f => typeof(NotifyCollectionChangedEventHandler).IsAssignableFrom(f.FieldType))
+            ?? throw new InvalidOperationException(
+                "ObservableCollection<T>.CollectionChanged backing field not found");
+        var del = field.GetValue(collection) as Delegate;
+        if (del is null) return;
+        foreach (var sub in del.GetInvocationList())
+        {
+            sub.Target.Should().NotBeSameAs(
+                vm,
+                "Post-Dispose the collection must not hold a delegate targeting the disposed VM");
+        }
+    }
+
+    /// <summary>沿类型层级查找指定名称的私有实例字段。</summary>
+    private static System.Reflection.FieldInfo? FindFieldInHierarchy(Type type, string name)
+    {
+        for (var t = type; t is not null; t = t.BaseType!)
+        {
+            var field = t.GetField(
+                name,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (field is not null) return field;
+        }
+        return null;
+    }
+
+    /// <summary>沿类型层级查找满足谓词的私有实例字段。</summary>
+    private static System.Reflection.FieldInfo? FindFieldInHierarchyByType(Type type, Func<System.Reflection.FieldInfo, bool> predicate)
+    {
+        for (var t = type; t is not null; t = t.BaseType!)
+        {
+            var field = t
+                .GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .FirstOrDefault(predicate);
+            if (field is not null) return field;
+        }
+        return null;
     }
 }

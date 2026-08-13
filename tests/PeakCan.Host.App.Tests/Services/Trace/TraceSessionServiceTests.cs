@@ -7,6 +7,7 @@ using ScottPlot;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.HIL.Core.Replay;
 using PeakCan.HIL.Core.Services;
 using Xunit;
 
@@ -414,6 +415,104 @@ public sealed class TraceSessionServiceTests : IDisposable
     }
 
     /// <summary>
+    /// v3.x (独立 review I-4): 打开空 bundle（无 sources）后必须清空残留的
+    /// MasterSourceId——否则旧 id 被 BuildSnapshot 写进 auto-save bundle。
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_EmptyBundle_ClearsStaleMasterSourceId()
+    {
+        // arrange：registry 先有一个 source（OpenSessionAsync 会卸载它），service 残留旧 master。
+        var realPath = NewTempFile("traceA.asc");
+        File.WriteAllText(realPath, "frames");
+        var (library, bundlePath) = NewLibrary();
+
+        var current = new List<TraceSource> { MakeSource("existing", "traceA", realPath) };
+        var registry = Substitute.For<ITraceSessionRegistry>();
+        registry.Sources.Returns(_ => current);   // 动态：unload 后反映空列表
+        registry.UnloadAsync("existing").Returns(_ =>
+        {
+            current.RemoveAll(s => s.SourceId == "existing");
+            return Task.CompletedTask;
+        });
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            Sources = new List<BundleSourceDto>(),   // 空 bundle
+            Playback = new BundlePlaybackDto { MasterSourceId = "ghostId" },
+        });
+
+        var sut = MakeService(registry, library);
+        sut.MasterSourceId = "oldId";   // 残留旧 master
+
+        // act
+        var missing = await sut.OpenSessionAsync(bundlePath);
+
+        // assert
+        missing.Should().BeEmpty();
+        sut.MasterSourceId.Should().BeNull("空 bundle 打开后必须清空残留的 MasterSourceId");
+    }
+
+    /// <summary>
+    /// v3.x (独立 review I-1, Important #1): 窗口开着时打开 bundle master = 第二个
+    /// source，VM 的 _masterService 必须经 SessionRestored 重绑到恢复的 master。
+    /// service 恢复 master 只改 service.MasterSourceId；VM 不重绑则 UI 显示 master=B
+    /// 但播放/seek 仍驱动 source A。
+    /// </summary>
+    [Fact]
+    public async Task OpenSessionAsync_RestoredNonFirstMaster_RebindsOpenWindowMasterService()
+    {
+        // arrange：两个 source 的 bundle，master 是第二个（录制 id oldIdB → 反查 newId2）。
+        var realPathA = NewTempFile("traceA.asc");
+        var realPathB = NewTempFile("traceB.asc");
+        File.WriteAllText(realPathA, "frames");
+        File.WriteAllText(realPathB, "frames");
+        var (library, bundlePath) = NewLibrary();
+
+        var svcA = Substitute.For<ITraceViewerService>();
+        svcA.TotalDuration.Returns(10.0);
+        var svcB = Substitute.For<ITraceViewerService>();
+        svcB.TotalDuration.Returns(20.0);
+        var registry = new SimulatedRegistry(id => id == "newId1" ? svcA : svcB);
+
+        library.Save(new TraceSessionBundleDto
+        {
+            Version = 1,
+            Schema = "tmtrace/v1",
+            Sources = new List<BundleSourceDto>
+            {
+                new() { SourceId = "oldIdA", DisplayName = "traceA", Path = realPathA },
+                new() { SourceId = "oldIdB", DisplayName = "traceB", Path = realPathB },
+            },
+            Playback = new BundlePlaybackDto { MasterSourceId = "oldIdB" },
+        });
+
+        var dbcService = Substitute.For<DbcService>(NullLogger<DbcService>.Instance);
+        var sut = MakeService(registry, library, dbcService: dbcService);
+
+        // 已开窗 VM（transient）：订阅真实 service 的 SessionRestored。
+        var vm = new TraceViewerViewModel(
+            sut, registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, library);
+
+        // act：service 恢复会话 → 窗口还开着 → VM 应重绑 master
+        var missing = await sut.OpenSessionAsync(bundlePath);
+
+        // assert
+        missing.Should().BeEmpty();
+        vm.MasterSourceId.Should().Be("newId2", "bundle master=第二个 source → 反查到 newId2");
+        var masterField = typeof(TraceViewerViewModel).GetField(
+            "_masterService",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("TraceViewerViewModel._masterService field not found");
+        masterField.GetValue(vm).Should().BeSameAs(svcB,
+            "VM 的 _masterService 必须重绑到恢复的 master（source B），否则播放/seek 仍驱动 source A");
+        vm.TotalDuration.Should().Be(20.0, "TotalDuration 跟随重绑后的 master service");
+
+        vm.Dispose();
+    }
+
+    /// <summary>
     /// v3.x (会话状态剥离 Task 5 final, Critical #1): 钉住 OpenSessionAsync 的
     /// UI-thread 契约——全程 ConfigureAwait(true)，首个 Task.Run 之后的续延必须经
     /// 调用方 SynchronizationContext 调度。unload/load 循环与 watch/分组恢复都依赖
@@ -587,5 +686,53 @@ public sealed class TraceSessionServiceTests : IDisposable
         registry.Sources.Returns(new List<TraceSource> { MakeSource("s1", "traceA", realPath) });
 
         sut.HasContent.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// I-1 回归测试用假 registry：镜像 <see cref="TraceSessionRegistry"/> 的行为——
+    /// load 追加 source + service 并触发 <see cref="SourcesChanged"/>，unload 移除。
+    /// 服务实例由构造传入的 factory 按 SourceId 提供（测试据此给两个 source 不同
+    /// TotalDuration，便于断言 master 重绑后指向哪一个）。
+    /// </summary>
+    private sealed class SimulatedRegistry : ITraceSessionRegistry
+    {
+        private readonly List<TraceSource> _sources = new();
+        private readonly Dictionary<string, ITraceViewerService> _services = new(StringComparer.Ordinal);
+        private readonly Func<string, ITraceViewerService> _serviceFactory;
+
+        public SimulatedRegistry(Func<string, ITraceViewerService> serviceFactory) =>
+            _serviceFactory = serviceFactory;
+
+        public IReadOnlyList<TraceSource> Sources => _sources;
+
+        public event Action? SourcesChanged;
+
+        public Task<TraceSource> LoadAsync(string path, CancellationToken ct = default)
+        {
+            var id = $"newId{_sources.Count + 1}";
+            var src = new TraceSource(
+                id,
+                System.IO.Path.GetFileNameWithoutExtension(path),
+                path,
+                new Color(0, 0, 0, 255),
+                new LineStyle());
+            _services[id] = _serviceFactory(id);
+            _sources.Add(src);
+            SourcesChanged?.Invoke();
+            return Task.FromResult(src);
+        }
+
+        public Task UnloadAsync(string sourceId)
+        {
+            _sources.RemoveAll(s => s.SourceId == sourceId);
+            _services.Remove(sourceId);
+            SourcesChanged?.Invoke();
+            return Task.CompletedTask;
+        }
+
+        public IReadOnlyList<ReplayFrame> GetFrames(string sourceId) => Array.Empty<ReplayFrame>();
+
+        public ITraceViewerService? GetService(string sourceId) =>
+            _services.TryGetValue(sourceId, out var svc) ? svc : null;
     }
 }

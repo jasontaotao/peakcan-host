@@ -158,11 +158,36 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     private void OnSessionRestored()
     {
+        RebindMasterServiceIfChanged();
         if (_dbcService.Current is not null) RefreshFrameCounts();
         if (!double.IsNaN(_anchorTimestampSeconds))
             RefreshAtAnchor(_anchorTimestampSeconds);
         if (!double.IsNaN(_blueAnchorTimestampSeconds))
             RefreshAtAnchorBlue(_blueAnchorTimestampSeconds);
+    }
+
+    /// <summary>
+    /// v3.x (独立 review I-1, Important #1): 开窗时 <c>OpenSessionAsync</c> 恢复
+    /// master 只设置 service 的 <see cref="MasterSourceId"/>（经 OnSessionPropertyChanged
+    /// 透传 INPC），VM 的 <c>_masterService</c> 不随之重绑。bundle master ≠ Sources[0]
+    /// 时 UI 显示 master=B 但播放/seek 仍驱动 source A。SessionRestored 在恢复流程
+    /// 收尾触发——此处核对 service 的 master 与当前 <c>_masterService</c> 指向的
+    /// service 是否一致，不一致则执行与 <see cref="SetMaster"/> 核心相同的重绑
+    /// （换 service + TotalDuration + 重挂事件 handlers + loop/speed 传播）。不重建
+    /// 信号表、不恢复播放——恢复会话不改变用户当前播放状态。
+    /// </summary>
+    private void RebindMasterServiceIfChanged()
+    {
+        if (string.IsNullOrEmpty(MasterSourceId)) return;
+        var desired = _allServices.TryGetValue(MasterSourceId, out var svc) ? svc : null;
+        if (ReferenceEquals(desired, _masterService)) return;
+        _masterService = desired;
+        TotalDuration = _masterService?.TotalDuration ?? 0.0;
+        ChartViewModel.SetTotalDuration(TotalDuration);
+        DetachAllServiceHandlers();
+        AttachAllServiceHandlers();
+        PropagateLoopToAllServices();
+        PropagateSpeedToAllServices();
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
