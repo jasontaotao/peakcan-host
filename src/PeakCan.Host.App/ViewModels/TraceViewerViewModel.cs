@@ -32,17 +32,10 @@ namespace PeakCan.Host.App.ViewModels;
 /// overlay) instead of a single <see cref="ITraceViewerService"/>. The
 /// single-trace workflow (1 source) is a degenerate case of the registry —
 /// <see cref="Sources"/>.Count == 1 — and behaves identically to v3.0/3.1.x.
-/// <para>
-/// <b>Cursor propagation (single-trace mode):</b> identical to v3.0 —
-/// the master source's <see cref="ITraceViewerService.FrameEmitted"/> fires
-/// on the timeline's timer thread; we Post the cursor advance to the captured
-/// <see cref="SynchronizationContext"/> for UI marshaling.
-/// </para>
 /// </summary>
 public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable, IChatToolContext
 {
     // === Flow A methods moved to TraceViewerViewModel/SourceFlow.cs (W3 Task 3) ===
-    // === Flow B methods moved to TraceViewerViewModel/TransportFlow.cs (W3 Task 4) ===
     // === Flow D methods moved to TraceViewerViewModel/WatchFlow.cs (W3 Task 5) ===
     // === Flow E methods moved to TraceViewerViewModel/SessionFlow.cs (W3 Task 6) ===
     private readonly ITraceSessionRegistry _registry;
@@ -353,7 +346,7 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     // === Flow H methods moved to TraceViewerViewModel/ChartSeriesFlow.cs (W20 Task 2) ===
 
     /// <summary>
-    /// Unsubscribe from the registry + master service and stop playback.
+    /// Unsubscribe from the registry + master service.
     /// Safe to call multiple times — <c>_disposed</c> guards re-entry.
     /// <para>
     /// v3.14.0 MINOR A4: cancel the v3.13.2 PATCH F5 DbcLoaded

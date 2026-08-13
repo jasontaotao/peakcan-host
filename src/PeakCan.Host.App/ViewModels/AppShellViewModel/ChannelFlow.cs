@@ -148,8 +148,7 @@ public sealed partial class AppShellViewModel
                 // driver unload / hardware faults surface on the UI status
                 // bar. Event fires on the SDK read thread; the handler must
                 // marshal to the UI thread itself (we use the captured sync
-                // context — same pattern as the Trace Viewer frame pump:
-                // marshal back onto the UI thread via the captured sync context).
+                // context to marshal back onto the UI thread).
                 channel.ReadLoopError += OnReadLoopError;
                 // Set IsConnected=true BEFORE publishing the channel to
                 // SendService so that any binding observer sees "connected"

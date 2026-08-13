@@ -57,7 +57,7 @@ public sealed partial class TraceChartViewModel : ObservableObject
 
     // === Flow D methods moved to TraceChartViewModel/FocusCollapseFlow.cs (W8 Task 1) ===
     // === Flow C methods moved to TraceChartViewModel/StatisticsFlow.cs (W8 Task 2) ===
-    // === Flow B methods + throttling state moved to TraceChartViewModel/PlaybackFlow.cs (W8 Task 3) ===
+    // === Flow B methods moved to TraceChartViewModel/PlaybackFlow.cs (W8 Task 3) ===
     // === Flow E methods moved to TraceChartViewModel/AxisSyncFlow.cs (W8 Task 4) ===
     // === Flow F methods moved to TraceChartViewModel/ViewportFlow.cs (W8 Task 5) ===
     // === Flow A methods moved to TraceChartViewModel/SeriesManagementFlow.cs (W8 Task 6) ===
