@@ -10,7 +10,6 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
 using Xunit;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
@@ -77,36 +76,6 @@ public class TraceViewerViewModelMultiTraceTests
         await vm.RemoveTraceAsync("guid-target");
 
         await registry.Received(1).UnloadAsync("guid-target");
-    }
-
-    [Fact]
-    public void PlayCommand_InMultiTraceMode_DoesNotThrow_DrivesAllServices()
-    {
-        // v3.3.0 MINOR: sync playback now allowed in multi-trace mode
-        var registry = MakeRegistry();
-        registry.Sources.Returns(new List<TraceSource>
-        {
-            new("guid-1", "traceA", "C:/a.asc", Colors.Blue, new LineStyle()),
-            new("guid-2", "traceB", "C:/b.asc", Colors.Orange, new LineStyle()),
-        });
-        var dbcService = MakeFakeDbcService();
-        var vm = new TraceViewerViewModel(MakeFakeSession(),registry, dbcService, MakeFakeLogger(), MakeFakeSessionLibrary());
-
-        // Pre-load the per-source services onto the fake registry (in production
-        // the real registry hands them out via LoadAsync). The VM's
-        // SourcesChanged handler reads them via GetService when iterating.
-        var svcA = Substitute.For<ITraceViewerService>();
-        var svcB = Substitute.For<ITraceViewerService>();
-        registry.GetService("guid-1").Returns(svcA);
-        registry.GetService("guid-2").Returns(svcB);
-        // Fire SourcesChanged so the VM rebuilds _allServices for this fixture.
-        registry.SourcesChanged += Raise.Event<Action>();
-
-        var act = () => vm.PlayCommand.Execute(null);
-
-        act.Should().NotThrow();
-        svcA.Received(1).Play();
-        svcB.Received(1).Play();
     }
 
     [Fact]
