@@ -4,14 +4,13 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
-             xmlns:views="clr-namespace:PeakCan.Host.App.Views"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="380"
              d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
-        <views:InverseBoolConverter x:Key="InverseBool" />
+        <conv:InverseBooleanConverter x:Key="InverseBool" />
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
