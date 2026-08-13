@@ -101,7 +101,7 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
                 DisplayName = src.DisplayName,
                 Path = src.Path,
                 ColorA = src.Color.A, ColorR = src.Color.R, ColorG = src.Color.G, ColorB = src.Color.B,
-                StrokeStyle = src.StrokeStyle.ToString(),
+                StrokeStyle = src.StrokeStyle.ToString()!,
                 CanIdFilter = src.CanIdFilter ?? "",
                 ContentHash = hash,
             });
