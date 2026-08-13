@@ -62,7 +62,8 @@ public sealed partial class TraceViewerViewModel
     // TraceSource 只把 CanIdFilter 暴露为 INPC——过滤器变更需同步刷新
     // 帧计数并移除孤儿 chart series。
 
-    // v3.4.2 PATCH: XAML "Clear" 按钮绑定。空串 → parser 返回 null → 无过滤重建。
+    // v3.4.2 PATCH: XAML "Clear" button binding. Empty string → parser
+    // returns null → unfiltered rebuild.
     [RelayCommand]
     private void ClearCanIdFilter() => CanIdFilter = "";
 
