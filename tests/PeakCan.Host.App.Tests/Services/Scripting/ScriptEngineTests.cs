@@ -249,7 +249,7 @@ public sealed class ScriptEngineTests : IDisposable
     public void ScriptEngine_Implements_IScriptOutputSink()
     {
         // Act — 4-arg back-compat ctor 仍可用（末参 null → null Lazy）
-        var engine = new ScriptEngine(_logger, null, null, null);
+        using var engine = new ScriptEngine(_logger, null, null, null);
 
         // Assert — engine 可作为 IScriptOutputSink 使用
         IScriptOutputSink sink = engine;

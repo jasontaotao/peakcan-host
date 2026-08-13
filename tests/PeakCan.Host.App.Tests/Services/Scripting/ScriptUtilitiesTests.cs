@@ -44,12 +44,11 @@ public sealed class ScriptUtilitiesTests
             l => l.Level == ScriptOutputLevel.Error && l.Message == "boom"));
     }
 
-    // 过渡期 back-compat ctor：AppHostBuilder 目前以
-    // new ScriptUtilities(logger, engine) 构造（DI 改 Lazy 前），走
-    // ScriptEngine → ScriptEngineSink 适配器 → OutputReceived 的实时路径。
-    // 该路径是生产实际使用路径，锁定其行为，防适配器回归。
+    // ScriptEngine 实现 IScriptOutputSink：ScriptUtilities 把输出交给
+    // engine（作为 sink），engine 再把它们路由到 OutputReceived 事件。
+    // 该路径是生产实际使用路径，锁定其行为。
     [Fact]
-    public void LegacyEngineCtor_RoutesOutput_ThroughEngine()
+    public void ScriptEngine_AsSink_RoutesOutput_ThroughEngine()
     {
         var engine = new ScriptEngine(
             Substitute.For<ILogger<ScriptEngine>>(), null, null, null);

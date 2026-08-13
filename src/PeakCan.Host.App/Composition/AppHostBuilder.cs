@@ -156,6 +156,7 @@ public partial class AppHostBuilder
                 sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>(),
                 new Lazy<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(
                     () => sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptUtilities>()),
+                // v1.7.0 MINOR Item 1: V8 isolate resource caps.
                 sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>()));
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.CanApi>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.DbcApi>();
