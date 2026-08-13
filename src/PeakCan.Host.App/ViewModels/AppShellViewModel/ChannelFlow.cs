@@ -148,7 +148,8 @@ public sealed partial class AppShellViewModel
                 // driver unload / hardware faults surface on the UI status
                 // bar. Event fires on the SDK read thread; the handler must
                 // marshal to the UI thread itself (we use the captured sync
-                // context — same pattern as TraceViewerViewModel.OnAnyFrameEmitted).
+                // context — same pattern as the Trace Viewer frame pump:
+                // marshal back onto the UI thread via the captured sync context).
                 channel.ReadLoopError += OnReadLoopError;
                 // Set IsConnected=true BEFORE publishing the channel to
                 // SendService so that any binding observer sees "connected"
@@ -260,8 +261,7 @@ public sealed partial class AppShellViewModel
     /// Fires on the SDK read thread; we marshal to the UI thread by setting
     /// <see cref="StatusMessage"/> via the [ObservableProperty] source-gen
     /// setter (which raises PropertyChanged on the captured sync context —
-    /// or directly if no sync context, matching the same pattern as
-    /// <see cref="TraceViewerViewModel.OnAnyFrameEmitted"/>).
+    /// or directly if no sync context).
     /// <para>
     /// The handler does NOT auto-disconnect — bus-off is often transient
     /// (PCANBasic automatically re-enters ERROR_ACTIVE after the bus

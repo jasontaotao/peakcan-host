@@ -14,11 +14,10 @@ public sealed partial class TraceViewerViewModel
     //
     // Cross-flow callers (all stay as plain calls because partial-class
     // visibility makes private members visible across files):
-    //   - SetMaster (Flow A) → DetachAllServiceHandlers / AttachAllServiceHandlers (Flow F)
+    //   - SetMaster (Flow A) → RebuildSignalsAsync (Flow C) + master re-bind
     //   - OnRegistrySourcesChanged (Flow A) → RefreshFrameCounts (Flow C)
     //                            → RemoveOrphanChartSeries (Flow A, intra-flow)
-    //                            → AttachAllServiceHandlers / DetachAllServiceHandlers (Flow F)
-    //                            → RebindMasterFromRegistry (stays in main file)
+    //                            → RebindMasterFromRegistry (PlaybackFlow)
     //   - OnDbcLoaded (Flow A) → RebuildSignalsCore (Flow C)
     //   - AddTraceAsync (Flow A) → _registry.LoadAsync (registry, Flow A own dependency)
 
@@ -163,34 +162,23 @@ public sealed partial class TraceViewerViewModel
     private bool CanAddTrace() => !IsLoading;
 
     /// <summary>
-    /// v3.3.0 MINOR: switch the master source mid-session. Stops playback,
-    /// swaps the master, restarts if was playing. If the new sourceId is
-    /// not in <see cref="_allServices"/> the call is a no-op. After the
-    /// swap the previous master's <c>PlaybackEnded</c> handler is detached
-    /// and the new master's is attached (via the standard attach/detach
-    /// lifecycle) so the loop rewind anchor follows the active master.
+    /// v3.3.0 MINOR: switch the master source mid-session. If the new
+    /// sourceId is not in <see cref="_allServices"/> the call is a no-op.
+    /// After the swap, TotalDuration + chart duration are re-bound to the
+    /// new master so the timeline and anchors follow the active master.
     /// </summary>
     [RelayCommand]
     public void SetMaster(string sourceId)
     {
         if (sourceId == MasterSourceId) return;
         if (!_allServices.TryGetValue(sourceId, out var newMaster)) return;
-        var wasPlaying = _masterService?.State == ReplayState.Playing;
-        Stop();   // resets all services to t=0
         MasterSourceId = sourceId;
         _masterService = newMaster;
         TotalDuration = _masterService.TotalDuration;
         ChartViewModel.SetTotalDuration(TotalDuration);
-        // Reattach event handlers — the previous master had FrameEmitted +
-        // PlaybackEnded subscribed; the new master needs the same hooks.
-        DetachAllServiceHandlers();
-        AttachAllServiceHandlers();
-        PropagateLoopToAllServices();
-        PropagateSpeedToAllServices();
         // Master swap can change which signal rows have data (different
         // frame set); rebuild off-thread to avoid blocking the UI.
         _ = RebuildSignalsAsync();
-        if (wasPlaying) Play();
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to load trace: {Path}")]
@@ -204,8 +192,8 @@ public sealed partial class TraceViewerViewModel
     /// v3.2.0 MINOR: react to <see cref="ITraceSessionRegistry.SourcesChanged"/>
     /// — re-pin master to first source, update TotalDuration + ChartViewModel
     /// duration, refresh LoadedTracePath (legacy binding). v3.3.0 MINOR:
-    /// attach FrameEmitted + master PlaybackEnded handlers and propagate
-    /// Loop/Speed to every newly registered service.
+    /// rebuild the per-source service registry and subscribe per-source INPC
+    /// (filter) changes.
     /// <para>
     /// v3.14.1 PATCH: also call <see cref="RebuildSignalsCore"/> at the
     /// end so loading a new .asc via <c>AddTraceAsync</c> re-decodes the
@@ -216,7 +204,6 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     private void OnRegistrySourcesChanged()
     {
-        DetachAllServiceHandlers();
         DetachAllSourcePropertyHandlers();   // v3.4.3 PATCH
         _allServices.Clear();
         foreach (var src in _registry.Sources)
@@ -238,9 +225,6 @@ public sealed partial class TraceViewerViewModel
             }
         }
         RebindMasterFromRegistry();
-        AttachAllServiceHandlers();
-        PropagateLoopToAllServices();
-        PropagateSpeedToAllServices();
         OnPropertyChanged(nameof(Sources));
         OnPropertyChanged(nameof(HasSources));
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";

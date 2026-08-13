@@ -33,12 +33,6 @@ namespace PeakCan.Host.App.ViewModels;
 /// single-trace workflow (1 source) is a degenerate case of the registry —
 /// <see cref="Sources"/>.Count == 1 — and behaves identically to v3.0/3.1.x.
 /// <para>
-/// v3.3.0 MINOR: sync playback across N traces. Playback commands
-/// (<see cref="PlayCommand"/>, <see cref="PauseCommand"/>, <see cref="StopCommand"/>,
-/// <see cref="SeekToCommand"/>) iterate the per-source services in
-/// <see cref="_allServices"/>; proportional seek math lands in Task 2.
-/// </para>
-/// <para>
 /// <b>Cursor propagation (single-trace mode):</b> identical to v3.0 —
 /// the master source's <see cref="ITraceViewerService.FrameEmitted"/> fires
 /// on the timeline's timer thread; we Post the cursor advance to the captured
@@ -88,13 +82,9 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _activeFillRequests.Remove(signalKey);
     }
 
-    // Mirrors ReplayViewModel: FrameEmitted fires on the timeline's
-    // timer thread. Captured at construction; null in test fixtures
-    // without an STA SynchronizationContext (direct set is safe there).
-    private readonly SynchronizationContext? _syncContext;
     private ITraceViewerService? _masterService;   // current master source's service (rebound on SourcesChanged)
     // v3.3.0 MINOR: registry of all N per-source services, keyed by SourceId.
-    // Rebuilt on SourcesChanged. Play/Pause/Stop/Seek iterate this dict.
+    // Rebuilt on SourcesChanged.
     private readonly Dictionary<string, ITraceViewerService> _allServices =
         new(StringComparer.Ordinal);
     private bool _disposed;
@@ -104,9 +94,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _loadedDbcPath = "";
-
-    [ObservableProperty]
-    private double _scrubberValue;
 
     [ObservableProperty]
     private double _totalDuration;
@@ -119,15 +106,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         get => _session.MasterSourceId ?? "";
         set => _session.MasterSourceId = value;
     }
-
-    // v3.3.0 MINOR: global loop toggle; propagates to master only (non-masters
-    // use Loop=false — see OnRegistrySourcesChanged + master PlaybackEnded hook).
-    [ObservableProperty]
-    private bool _loop = false;
-
-    // v3.3.0 MINOR: global speed multiplier; propagated to every service.
-    [ObservableProperty]
-    private double _speed = 1.0;
 
     // v3.4.2 PATCH: comma-separated CAN ID allow-list (decimal or 0x-hex,
     // case-insensitive). Empty = no filter. Parsed in RebuildSignalsAsync
@@ -244,7 +222,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
         // v3.62.0 MINOR: wire plot resolver for axis sync (View owns the actual Plot objects)
         ChartViewModel.PlotResolver = key => _activePlots.TryGetValue(key, out var p) ? p : null;
-        _syncContext = SynchronizationContext.Current;
         _registry.SourcesChanged += OnRegistrySourcesChanged;
         // v3.13.2 PATCH F5: subscribe to DbcService.DbcLoaded so the Trace
         // Viewer auto-rebuilds Signals + chart subplots when a DBC is loaded
@@ -403,7 +380,6 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSignalCache;
         _session.PropertyChanged -= OnSessionPropertyChanged;
         _session.SessionRestored -= OnSessionRestored;
-        DetachAllServiceHandlers();
         // v3.4.3 PATCH (Task 3 review round 1, Important #1): VM 变 transient 后
         // 必须同时反注册对 registry source 的 per-source INPC 订阅。OnRegistrySourcesChanged
         // 会对每个 TraceSource 订阅 src.PropertyChanged += OnAnySourcePropertyChanged；

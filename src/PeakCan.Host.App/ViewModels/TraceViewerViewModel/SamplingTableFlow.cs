@@ -1,7 +1,7 @@
 // TraceViewerViewModel/SamplingTableFlow.cs — v3.49.0 MINOR T5
 // Q1: 10th partial on TraceViewerViewModel. SamplingRows 是
-// ObservableCollection<SamplingTableRow>，ScrubberValue 变化时 debounce 50ms
-// 刷新一次。
+// ObservableCollection<SamplingTableRow>，master CurrentTimestamp 变化时 debounce
+// 50ms 刷新一次。
 //
 // 实现选择 (v3.49.0 范围内最简实现):
 //   - 信号值解码简化为 f.Data[0] / 256.0 (一个字节的比例值)，不调 IDbcDecoder。
@@ -29,8 +29,7 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty]
     private ObservableCollection<SamplingTableRow> samplingRows = new();
 
-    // Deprecated debounce helper retained as a no-op scaffold for v3.50.0
-    // follow-up (the future ScrubberValue-driven refresh hook will call this).
+    // Deprecated debounce helper retained as a no-op scaffold (unused).
     private CancellationTokenSource? _samplingRefreshCts;
 
     /// <summary>
@@ -50,11 +49,9 @@ public sealed partial class TraceViewerViewModel
     }
 
     /// <summary>
-    /// Public API: 强制立即刷新 SamplingRows。YAGNI 阶段 (v3.49.0) 只在
-    /// <see cref="WatchedSignals"/> CollectionChanged 时调用 — ScrubberValue
-    /// 自动跟触发留作 v3.50.0 (需在 TransportFlow.OnScrubberValueChanged
-    /// 末尾追加一行 RefreshSamplingTable() 调用, 与其已有的 SeekAll
-    /// 链式触发解耦)。
+    /// Public API: 强制立即刷新 SamplingRows。当前只在
+    /// <see cref="WatchedSignals"/> CollectionChanged 时调用；采样锚点取
+    /// master service 的 CurrentTimestamp（播放已废除）。
     /// </summary>
     public void RefreshSamplingTable()
     {
@@ -72,7 +69,7 @@ public sealed partial class TraceViewerViewModel
             return;
         }
 
-        var targetTs = ScrubberValue;
+        var targetTs = _masterService.CurrentTimestamp;
         int idx = BinarySearchLatestAtOrBefore(frames, targetTs);
 
         var rows = new List<SamplingTableRow>(capacity: WatchedSignals.Count);

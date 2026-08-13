@@ -34,9 +34,9 @@ public sealed partial class TraceViewerViewModel
     /// <summary>
     /// v3.5.0 MINOR: collect the current session state into a
     /// <see cref="TraceSessionBundleDto"/>. Pure — no I/O, no side
-    /// effects. Path-reference only for .asc recordings; playback state
-    /// is captured verbatim (master, loop, speed, scrubber) and the
-    /// DBC path is recorded (the DBC service is not re-loaded — the
+    /// effects. Path-reference only for .asc recordings; playback
+    /// scalars are written with window-level defaults (播放已废除) and
+    /// the DBC path is recorded (the DBC service is not re-loaded — the
     /// caller reloads it as part of session restore once the sources
     /// are loaded).
     /// <para>
@@ -67,9 +67,9 @@ public sealed partial class TraceViewerViewModel
     {
         var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
             LoadedFilePath: null,    // Trace iterates N sources — the builder's single-source path is unused
-            CurrentTimestamp: ScrubberValue,
-            Speed: Speed,
-            Loop: Loop,
+            CurrentTimestamp: 0.0,   // 播放已废除 → 窗口级默认
+            Speed: 1.0,              // 播放已废除 → 窗口级默认
+            Loop: false,             // 播放已废除 → 窗口级默认
             StartTimestamp: 0.0,
             EndTimestamp: 0.0,
             CanIdFilterText: CanIdFilter ?? "",
@@ -118,13 +118,10 @@ public sealed partial class TraceViewerViewModel
         dto.Playback = new BundlePlaybackDto
         {
             MasterSourceId = MasterSourceId ?? "",
-            Loop = Loop,
-            Speed = Speed,
-            ScrubberValue = ScrubberValue,
-            StartTimestamp = null,
-            EndTimestamp = null,
+            Loop = false, Speed = 1.0, ScrubberValue = 0.0,
+            StartTimestamp = null, EndTimestamp = null,
         };
-        dto.Viewports = new List<BundleViewportDto>(ChartViewModel.CaptureViewports());
+        dto.Viewports = new List<BundleViewportDto>();
         // v12 Step 7: persist watch list + groups.
         dto.WatchedSignals = WatchedSignals
             .Where(r => !r.IsPlaceholder)
@@ -170,11 +167,10 @@ public sealed partial class TraceViewerViewModel
     /// v3.x (独立 review I-1, Important #1): 开窗时 <c>OpenSessionAsync</c> 恢复
     /// master 只设置 service 的 <see cref="MasterSourceId"/>（经 OnSessionPropertyChanged
     /// 透传 INPC），VM 的 <c>_masterService</c> 不随之重绑。bundle master ≠ Sources[0]
-    /// 时 UI 显示 master=B 但播放/seek 仍驱动 source A。SessionRestored 在恢复流程
+    /// 时 UI 显示 master=B 但 seek/采样表仍驱动 source A。SessionRestored 在恢复流程
     /// 收尾触发——此处核对 service 的 master 与当前 <c>_masterService</c> 指向的
-    /// service 是否一致，不一致则执行与 <see cref="SetMaster"/> 核心相同的重绑
-    /// （换 service + TotalDuration + 重挂事件 handlers + loop/speed 传播）。不重建
-    /// 信号表、不恢复播放——恢复会话不改变用户当前播放状态。
+    /// service 是否一致，不一致则重绑 service 引用 + TotalDuration（与
+    /// <see cref="SetMaster"/> 核心一致）。不重建信号表——恢复会话不改变当前视图。
     /// </summary>
     private void RebindMasterServiceIfChanged()
     {
@@ -184,10 +180,6 @@ public sealed partial class TraceViewerViewModel
         _masterService = desired;
         TotalDuration = _masterService?.TotalDuration ?? 0.0;
         ChartViewModel.SetTotalDuration(TotalDuration);
-        DetachAllServiceHandlers();
-        AttachAllServiceHandlers();
-        PropagateLoopToAllServices();
-        PropagateSpeedToAllServices();
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
