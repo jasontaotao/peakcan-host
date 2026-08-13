@@ -16,6 +16,71 @@
 - 提交信息 conventional commits，不加 Co-Authored-By。
 - 本 Phase 只处理 Trace 侧；`ReplayViewModel` / `ReplaySessionAutoSaver` 保持 singleton 不动（记录为后续项）。
 
+## 执行者须知（本计划自包含，无需任何外部文档）
+
+### 核心决策（先读懂再动手）
+
+`TraceViewerViewModel` 被做成进程级单例，导致它同时背两类状态：
+
+- **会话级状态**（关了窗口也须保留）：master 通道、全局 CAN 过滤、watch list、signal 分组。
+- **窗口级状态**（关了就该丢）：播放进度、图表缩放、聊天、锚点线。
+
+本计划把 4 组会话级状态搬到新的 singleton `ITraceSessionService`，让 VM 改 transient、删 `Reset()`。
+
+**核心手法 = 属性转发**：VM 保留同名属性 `WatchedSignals` / `SignalGroups` / `MasterSourceId` / `CanIdFilter`，但 get/set 转发到 service。这样 VM 内部 40+ 处对这些属性的读写**一行都不用改**，只改属性定义本身（见 Task 3）。
+
+### 改前必读文件 + 当前代码精确位置
+
+| 字段/方法 | 当前位置 | 现状 |
+|---|---|---|
+| `_masterSourceId`（`[ObservableProperty]`） | `ViewModels/TraceViewerViewModel.cs:112` | `private string _masterSourceId = "";` |
+| `_canIdFilter`（`[ObservableProperty]`） | `ViewModels/TraceViewerViewModel.cs:128` | `private string _canIdFilter = "";` |
+| `Signals`（`TraceSignalRow`） | `ViewModels/TraceViewerViewModel.cs:149` | legacy 集合，**不迁移** |
+| `WatchedSignals`（`WatchedSignalRow`） | `ViewModels/TraceViewerViewModel.cs:157` | `public ObservableCollection<WatchedSignalRow> WatchedSignals { get; } = new();` |
+| `SignalGroups`（`WatchedSignalGroup`） | `ViewModels/TraceViewerViewModel/ChatToolContextFlow.cs:26` | `public ObservableCollection<WatchedSignalGroup> SignalGroups { get; } = new();`（注意在 ChatToolContextFlow.cs，不在主文件） |
+| `Reset()` | `TraceViewerViewModel.cs:291-343` | 待删除 |
+| `Dispose()` | `TraceViewerViewModel.cs:406-420` | 待扩展（补集合订阅反注册） |
+| ctor 末段集合订阅 | `TraceViewerViewModel.cs:237、241` | `WatchedSignals.CollectionChanged += ...`（匿名 lambda + 方法组） |
+| `OpenSessionAsync` / `ApplySnapshotAsync` | `ViewModels/TraceViewerViewModel/SessionFlow.cs:51-57、188-351` | 待迁到 service |
+| `SaveSessionAsync` / `BuildSnapshotAsync` | `SessionFlow.cs:33-38、91-174` | **留在 VM** |
+| `AppShellViewModel` ctor | `AppShellViewModel.cs:254-286`，第 19 参 line 273 | `TraceViewerViewModel traceViewerViewModel` |
+| AppShell 3 命令 | `AppShellViewModel/SessionFlow.cs:43、76、94` | 调 `_traceViewerViewModel.OpenSessionAsync/SaveSessionAsync` |
+| `ShowTraceViewer` | `AppShellViewModel/ViewSwitchFlow.cs:187-256` | `new TraceViewerView(_traceViewerViewModel)` line 207；`Closed += ... Reset()` line 218 |
+| AppShellViewModel 工厂 | `Composition/AppHostBuilder.cs:327-356`，line 344 | `sp.GetRequiredService<TraceViewerViewModel>()` |
+| VM 注册 | `Composition/AppHostBuilder/ViewModelsBatch2Flow.cs:80` | `AddSingleton<TraceViewerViewModel>()` |
+| Trace autosaver | `Services/Trace/TraceSessionAutoSaver.cs:120` | `class TraceSessionAutoSaver : SessionAutoSaver<TraceViewerViewModel>` |
+| provider 定义 | `Services/Trace/TraceSessionAutoSaver.cs:54-81` | `ITraceViewerViewModelProvider` / `ServiceProviderTraceViewerViewModelProvider` |
+| auto-restore | `App.xaml.cs:121、140` | `GetRequiredService<TraceViewerViewModel>()` + `ApplyAutoSnapshotAsync(traceVm, ...)` |
+
+### 硬约束（违反即失败）
+
+- **Save 留 VM，Open 迁 service**：`SaveSessionAsync` / `BuildSnapshotAsync` 读 scrubber/viewports/chart（窗口级状态），**不迁**。只有 `OpenSessionAsync` / `ApplySnapshotAsync` 的会话数据部分迁到 service。
+- **Replay 侧不动**：`ReplayViewModel` / `ReplaySessionAutoSaver` / `IReplayViewModelProvider` 保持原样。
+- **不能丢日志**：迁移 `ApplySnapshotAsync` 时，保留 `LogRelocated` / `LogSourceMissing` / `LogBundleDbcLoadFailedInline` 的日志语义（这些 `[LoggerMessage]` partial 在 `SourceFlow.cs:196-219`）。迁移后若这些 helper 在 VM 里无人调用，把它们移到 service（连同 `[LoggerMessage]` partial）或保留在 VM——**两条路二选一，不要静默删除日志**。
+- **NetArchTest 边界**：App 层不得引用 PEAK SDK。新 `TraceSessionService` 只依赖 `ITraceSessionRegistry` / `TraceSessionLibrary` / `DbcService` / `IAscLocator` / `IAscContentHasher`，均为 App/Core 已有抽象。
+- 每个 Task 结束时 `dotnet build PeakCan.Host.slnx -c Debug` 必须通过。
+
+### 测试改动模式（通用，Task 2/3/4 都适用）
+
+测试栈：xUnit + NSubstitute + FluentAssertions。以下模式覆盖绝大多数测试改动：
+
+1. **`TraceViewerViewModel` 测试构造**：新 ctor 第 1 个 required 参数是 `ITraceSessionService session`。现有 `new TraceViewerViewModel(registry, dbcService, logger, sessionLibrary, ...)` 全部改成 `new TraceViewerViewModel(Substitute.For<ITraceSessionService>(), registry, dbcService, logger, sessionLibrary, ...)`。对 `vm.WatchedSignals` / `vm.MasterSourceId` / `vm.CanIdFilter` / `vm.SignalGroups` 的断言，改为先给替身设置返回值再断言替身：
+   ```csharp
+   var session = Substitute.For<ITraceSessionService>();
+   session.WatchedSignals.Returns(new ObservableCollection<WatchedSignalRow>());
+   session.SignalGroups.Returns(new ObservableCollection<WatchedSignalGroup>());
+   var vm = new TraceViewerViewModel(session, registry, dbc, logger, library, ...);
+   // 之后断言 session.Received(1).MasterSourceId = ... 或操作 session.WatchedSignals
+   ```
+
+2. **删除 `Reset()` 测试**：`grep -rn "\.Reset()" tests/PeakCan.Host.App.Tests`，删除所有断言 Reset 行为的用例（方法已删，测试必然编译失败）。
+
+3. **`OpenSessionAsync` 测试迁移**：`grep -rn "OpenSessionAsync" tests/PeakCan.Host.App.Tests/ViewModels/TraceViewerViewModelTests.cs`——这些用例要么删掉（功能由 `TraceSessionServiceTests` 覆盖），要么改为断言 `session.Received(1).OpenSessionAsync(path)`。
+
+4. **`AppShellViewModel` 测试构造**：现有 `new AppShellViewModel(...)` 约 20 个参数。把原来的 `traceViewerViewModel` 实参位置换成 `Substitute.For<ITraceSessionService>()`，紧随其后加 `() => Substitute.For<TraceViewerViewModel>()`（`Func<TraceViewerViewModel>` 工厂）。Open/OpenRecent 命令断言改为 `session.Received(1).OpenSessionAsync(path)`；Save 命令断言改为「窗口 DataContext 为 VM 时调 `vm.SaveSessionAsync`，无窗口时不调」。
+
+5. **逐 task 验证**：每改完一个测试文件，跑 `dotnet test tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj --filter "FullyQualifiedName~<类名>"`。全量验证在 Task 5 做 `dotnet test PeakCan.Host.slnx -c Debug`。
+
 ---
 
 ### Task 1: 新建 `ITraceSessionService` + `TraceSessionService`
@@ -49,7 +114,67 @@ public interface ITraceSessionService
 - 4 组状态：`WatchedSignals` / `SignalGroups` 是 `ObservableCollection`（get-only）；`MasterSourceId` / `GlobalCanIdFilter` 用 `[ObservableProperty]` 生成 INPC。
 - 依赖 `ITraceSessionRegistry _registry`、`TraceSessionLibrary _library`、`DbcService _dbcService`、`IAscLocator _locator`、`IAscContentHasher _hasher`、`ILogger<TraceSessionService> _logger`。
 - `HasContent => _registry.Sources.Count > 0`。
-- `BuildSnapshot()`：从 `_registry.Sources` + `_dbcService.Current` + `MasterSourceId`/`GlobalCanIdFilter` + `WatchedSignals`/`SignalGroups` 组装 `TraceSessionBundleDto`（纯会话数据，不含 scrubber/viewports——这两个是窗口级，auto-save 场景跳过）。复用 `TraceSessionSnapshotBuilder` 构建 scalar envelope。
+- `BuildSnapshot()`：完整实现如下（照搬 `SessionFlow.cs:91-174` 的字段填充，替换窗口级字段为默认值）。类型 `TraceSessionSnapshotBuilder.Scaffold` / `BundleSourceDto` / `BundlePlaybackDto` / `BundleWatchedSignalDto` / `BundleGroupDto` 均已存在，字段名与下面代码一致：
+
+```csharp
+public TraceSessionBundleDto BuildSnapshot()
+{
+    var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
+        LoadedFilePath: null,
+        CurrentTimestamp: 0.0,     // 窗口级 → 默认
+        Speed: 1.0,                // 窗口级 → 默认
+        Loop: false,               // 窗口级 → 默认
+        StartTimestamp: 0.0,
+        EndTimestamp: 0.0,
+        CanIdFilterText: GlobalCanIdFilter,
+        DbcPath: _dbcService.Current?.SourcePath ?? "");
+    var dto = _builder.BuildAsync(scaffold, CancellationToken.None).GetAwaiter().GetResult();
+
+    dto.Sources = new List<BundleSourceDto>(_registry.Sources.Count);
+    foreach (var src in _registry.Sources)
+    {
+        var hash = "";
+        if (!string.IsNullOrEmpty(src.Path) && File.Exists(src.Path))
+        {
+            try { hash = _hasher.ComputeAsync(src.Path, CancellationToken.None).GetAwaiter().GetResult(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
+            { hash = ""; }
+        }
+        dto.Sources.Add(new BundleSourceDto
+        {
+            SourceId = src.SourceId,
+            DisplayName = src.DisplayName,
+            Path = src.Path,
+            ColorA = src.Color.A, ColorR = src.Color.R, ColorG = src.Color.G, ColorB = src.Color.B,
+            StrokeStyle = src.StrokeStyle.ToString(),
+            CanIdFilter = src.CanIdFilter ?? "",
+            ContentHash = hash,
+        });
+    }
+    dto.Playback = new BundlePlaybackDto
+    {
+        MasterSourceId = MasterSourceId ?? "",
+        Loop = false, Speed = 1.0, ScrubberValue = 0.0,
+        StartTimestamp = null, EndTimestamp = null,
+    };
+    dto.Viewports = new List<BundleViewportDto>();   // 窗口级 → 空列表
+    dto.WatchedSignals = WatchedSignals
+        .Where(r => !r.IsPlaceholder)
+        .Select(r => new BundleWatchedSignalDto
+        {
+            CanIdHex = r.CanIdHex, MessageName = r.MessageName, SignalName = r.SignalName,
+            Unit = r.Unit, SourceId = r.SourceId, Alias = r.Alias,
+        }).ToList();
+    dto.Groups = SignalGroups
+        .Select(g => new BundleGroupDto
+        {
+            Id = g.Id, Name = g.Name, Notes = g.Notes, SignalKeys = g.SignalKeys.ToList(),
+        }).ToList();
+    return dto;
+}
+```
+
+（`_builder` 是 `TraceSessionSnapshotBuilder`，在 ctor 注入。）
 
 **`OpenSessionAsync` 迁移**：把 `TraceViewerViewModel.ApplySnapshotAsync`（`SessionFlow.cs:188-351`）的**会话数据部分**搬进来：
 
@@ -197,19 +322,58 @@ public string CanIdFilter
 }
 ```
 
-2. **ctor**（`TraceViewerViewModel.cs:179-242`）：注入 `ITraceSessionService session`，字段 `_session`。在 ctor 末尾订阅 service INPC 转发：
+2. **ctor**（`TraceViewerViewModel.cs:179-242`）：注入 `ITraceSessionService session`，字段 `_session`。在 ctor 末尾用**具名方法**订阅 service INPC 转发（具名以便 Dispose 反注册，不能用匿名 lambda）：
 
 ```csharp
-_session.PropertyChanged += (_, e) =>
+_session.PropertyChanged += OnSessionPropertyChanged;
+```
+
+新增具名 handler（放主文件任意位置）：
+
+```csharp
+private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
 {
     if (e.PropertyName == nameof(ITraceSessionService.MasterSourceId))
         OnPropertyChanged(nameof(MasterSourceId));
     else if (e.PropertyName == nameof(ITraceSessionService.GlobalCanIdFilter))
         OnPropertyChanged(nameof(CanIdFilter));
-};
+}
 ```
 
-3. **删除 `Reset()`**（`TraceViewerViewModel.cs:291-343`）。`Dispose()` 保留并补充：取消 service 集合的 `CollectionChanged` 订阅（现状 `WatchedSignals.CollectionChanged += ...` 在 ctor line 237/241 是匿名/方法组，需改成具名 handler 以便 Dispose 反订阅）、取消 service INPC 订阅。
+3. **删除 `Reset()`**（`TraceViewerViewModel.cs:291-343`）。`Dispose()` 保留并扩展——VM 变 transient 后，**必须反注册所有对 singleton 对象（`_dbcService` / `_session` / `WatchedSignals` 集合）的订阅**，否则 singleton 强引用 VM handler 导致 VM 泄漏。
+
+   (a) ctor 里 `WatchedSignals.CollectionChanged` 的两处订阅（现状 line 237 匿名 lambda、line 241 方法组）：把 line 237 的匿名 lambda 改成具名方法，才能反注册：
+
+   ```csharp
+   // ctor 里替换 line 237 的匿名 lambda
+   WatchedSignals.CollectionChanged += OnWatchedSignalsCollectionChangedForSamplingTable;
+
+   // 新增具名方法（替代原匿名 lambda，逻辑不变）
+   private void OnWatchedSignalsCollectionChangedForSamplingTable(object? sender, NotifyCollectionChangedEventArgs e)
+       => RefreshSamplingTable();
+   ```
+
+   （line 241 的 `OnWatchedSignalsCollectionChangedForSignalCache` 已是具名方法，不用改。）
+
+   (b) `Dispose()` 里补 3 行反注册（现状已有 `_dbcService.DbcLoaded -= OnDbcLoaded` / `DetachAllServiceHandlers()` / `_registry.SourcesChanged -=` / `_chatCts` 清理）：
+
+   ```csharp
+   public void Dispose()
+   {
+       if (_disposed) return;
+       _disposed = true;
+       _dbcService.DbcLoaded -= OnDbcLoaded;
+       WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSamplingTable;   // 新增
+       WatchedSignals.CollectionChanged -= OnWatchedSignalsCollectionChangedForSignalCache;     // 新增
+       _session.PropertyChanged -= OnSessionPropertyChanged;                                    // 新增
+       DetachAllServiceHandlers();
+       _registry.SourcesChanged -= OnRegistrySourcesChanged;
+       _chatCts?.Cancel();
+       _chatCts?.Dispose();
+       _chatCts = null;
+       GC.SuppressFinalize(this);
+   }
+   ```
 
 4. **SessionFlow**：删除 `OpenSessionAsync`（line 51-57）与 `ApplySnapshotAsync`（line 188-351）。`SaveSessionAsync`（line 33-38）与 `BuildSnapshotAsync`（line 91-174）保留——它们读 `WatchedSignals`/`SignalGroups`（现转发 service）与 VM 窗口级状态（`ScrubberValue`/`ChartViewModel`）。
 

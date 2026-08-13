@@ -108,6 +108,8 @@ public interface ITraceSessionService
     string? MasterSourceId { get; set; }    // INPC（从 VM 的 _masterSourceId 迁入）
     string GlobalCanIdFilter { get; set; }  // INPC（从 VM 的 _canIdFilter 迁入）
     Task<IReadOnlyList<string>> OpenSessionAsync(string path);  // 从 VM 的 SessionFlow 迁入
+    TraceSessionBundleDto BuildSnapshot();   // 供 auto-saver（纯会话数据，无 scrubber/viewports）
+    bool HasContent { get; }                 // _registry.Sources.Count > 0
 }
 ```
 

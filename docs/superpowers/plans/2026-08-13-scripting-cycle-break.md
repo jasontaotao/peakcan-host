@@ -15,6 +15,30 @@
 - 生产代码注释：面向用户/业务逻辑用中文，技术 API/接口用英文。
 - 提交信息用 conventional commits（`refactor:` / `test:` / `chore:`），不加 Co-Authored-By（全局已禁用 attribution）。
 
+## 执行者须知（本计划自包含，无需任何外部文档）
+
+执行前先读这 4 个文件，对照下方"当前代码"定位要改的位置：
+
+1. `src/PeakCan.Host.App/Services/Scripting/ScriptEngine.cs`
+   - 当前类声明（line 26）：`public sealed partial class ScriptEngine : IDisposable`
+   - 当前 4-arg ctor（line 64-71）：`public ScriptEngine(ILogger<ScriptEngine> logger, CanApi? canApi, DbcApi? dbcApi, ScriptUtilities? utilities)`
+   - 当前 5-arg internal ctor（line 85-102）：第 4 参是 `ScriptUtilities? utilities`
+   - 当前字段（line 34）：`private readonly ScriptUtilities? _utilities;`
+   - 当前 `OutputReceived` 事件（line 51）：`public event Action<ScriptOutputLine>? OutputReceived;`
+2. `src/PeakCan.Host.App/Services/Scripting/ScriptUtilities.cs`
+   - 当前字段（line 18）：`private readonly ScriptEngine _engine;`
+   - 当前 ctor（line 20-29）：`public ScriptUtilities(ILogger<ScriptUtilities> logger, ScriptEngine engine)`
+   - 当前 3 处 `_engine.EmitOutput(...)`：line 38 / 48 / 58
+3. `src/PeakCan.Host.App/Services/Scripting/ScriptEngine/ScriptHelpersFlow.cs` —— 当前 `internal void EmitOutput(ScriptOutputLine line)`（line 15）
+4. `src/PeakCan.Host.App/Services/Scripting/ScriptEngine/CreateEngineFlow.cs` —— 当前 `if (_utilities is not null) { engine.AddHostObject("log", ... _utilities.Log(msg) ...); ... }`（line 93-101）
+
+**硬约束（违反即失败）：**
+
+- `ScriptOutputLine` / `ScriptOutputLevel` / `ScriptResult` / `ScriptErrorType` **已定义在 `ScriptEngine.cs` 里**（同 namespace `PeakCan.Host.App.Services.Scripting`）。新接口直接用它们，**不要重复定义**。
+- 现有测试里 13+ 处 `new ScriptEngine(logger, null, null, null)` 和 `new ScriptEngine(logger, null, null, null, options)` **必须保持编译通过、零改动**。靠保留 4-arg back-compat ctor 实现，不要动这些测试。
+- `ScriptConsole`（`ScriptConsole.cs`）是 `static` 类，`CurrentEngine` 是 `internal static ScriptEngine?`，由 `ScriptEngine` 自己赋值（`CreateEngineFlow.cs:47`、`ExecutionLifecycleFlow.cs:152/269`）。**本计划不改 `ScriptConsole`，不要碰它**——它不参与 DI 循环。
+- `CanApi` / `DbcApi` **不依赖** ScriptEngine/ScriptUtilities（已确认），不要在它们身上加任何东西。
+
 ---
 
 ### Task 1: 新建 `IScriptOutputSink` 接口 + `ScriptUtilities` 依赖接口
