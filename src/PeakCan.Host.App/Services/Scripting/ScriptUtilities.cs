@@ -30,18 +30,6 @@ public sealed partial class ScriptUtilities
         _sink = sink;
     }
 
-    // 过渡期 back-compat 构造器：AppHostBuilder 在 Task 3 改为 Lazy DI 注入前，
-    // 仍以 new ScriptUtilities(logger, engine) 构造（scripting-cycle-break 计划）。
-    // 此处把 ScriptEngine 适配为 IScriptOutputSink，避免新 ctor 签名破坏既有
-    // DI 注册的编译。等 ScriptEngine 实现 IScriptOutputSink + DI 改 Lazy 后删除。
-    public ScriptUtilities(
-        ILogger<ScriptUtilities> logger,
-        ScriptEngine engine)
-        : this(logger, new ScriptEngineSink(engine))
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-    }
-
     /// <summary>
     /// Log an informational message (visible in the script output panel).
     /// </summary>
@@ -126,21 +114,4 @@ public sealed partial class ScriptUtilities
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Script error: {Message}")]
     private static partial void LogScriptError(ILogger logger, string message);
-
-    /// <summary>
-    /// 过渡期适配器：把旧 ctor 的 <see cref="ScriptEngine"/> 桥接到新的
-    /// <see cref="IScriptOutputSink"/> 抽象。AppHostBuilder 改用 Lazy DI
-    /// （scripting-cycle-break Task 3）后随过渡 ctor 一起删除。
-    /// </summary>
-    private sealed class ScriptEngineSink : IScriptOutputSink
-    {
-        private readonly ScriptEngine _engine;
-
-        public ScriptEngineSink(ScriptEngine engine)
-        {
-            _engine = engine;
-        }
-
-        public void EmitOutput(ScriptOutputLine line) => _engine.EmitOutput(line);
-    }
 }

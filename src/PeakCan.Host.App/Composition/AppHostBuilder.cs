@@ -146,41 +146,23 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
-        // v1.0.0: Scripting engine.
-        // ScriptEngine has a circular dependency with ScriptUtilities (ScriptEngine
-        // needs ScriptUtilities for logging, ScriptUtilities needs ScriptEngine for
-        // output routing). Break the cycle by registering ScriptEngine first with a
-        // factory that lazily resolves ScriptUtilities.
+        // v1.0.0: Scripting engine. ScriptEngine → ScriptUtilities 是单向依赖
+        // (CreateEngineFlow 暴露 log/warn/error 给 JS)；反向通过 Lazy<ScriptUtilities>
+        // 延迟解析，从 ctor 层面打破循环，替代旧的反射 field 注入。
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptEngine>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptEngine>>();
-            var canApi = sp.GetService<PeakCan.Host.App.Services.Scripting.CanApi>();
-            var dbcApi = sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>();
-            // v1.7.0 MINOR Item 1: V8 isolate resource caps.
-            var scriptEngineOptions = sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>();
-            // ScriptUtilities will be resolved lazily to break the cycle.
-            PeakCan.Host.App.Services.Scripting.ScriptUtilities? utilities = null;
-            var engine = new PeakCan.Host.App.Services.Scripting.ScriptEngine(
-                logger, canApi, dbcApi, null, scriptEngineOptions);
-            // Now create ScriptUtilities with the engine reference.
-            utilities = new PeakCan.Host.App.Services.Scripting.ScriptUtilities(
-                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptUtilities>>(),
-                engine);
-            // Update the engine's utilities field via reflection.
-            var field = typeof(PeakCan.Host.App.Services.Scripting.ScriptEngine)
-                .GetField("_utilities", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            field?.SetValue(engine, utilities);
-            return engine;
-        });
+            new PeakCan.Host.App.Services.Scripting.ScriptEngine(
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptEngine>>(),
+                sp.GetService<PeakCan.Host.App.Services.Scripting.CanApi>(),
+                sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>(),
+                new Lazy<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(
+                    () => sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptUtilities>()),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>()));
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.CanApi>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.DbcApi>();
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(sp =>
-        {
-            var engine = sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngine>();
-            return new PeakCan.Host.App.Services.Scripting.ScriptUtilities(
-                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptUtilities>>(),
-                engine);
-        });
+        // IScriptOutputSink forward 到 ScriptEngine（单一实现）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.IScriptOutputSink>(sp =>
+            sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngine>());
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>();
 
         // v1.1.0: UDS diagnostic stack.
         builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.UdsTimer>();
