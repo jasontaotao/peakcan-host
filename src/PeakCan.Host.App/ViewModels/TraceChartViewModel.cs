@@ -1,6 +1,5 @@
 using ScottPlot;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -22,7 +21,6 @@ public sealed partial class TraceChartViewModel : ObservableObject
     // v3.2.0 moved palette assignment to ITracePalette, neither is read.
     // v3.3.0 release notes deferred this extraction; v3.3.1 PATCH closes it.
 
-    private double _playbackCursorX;
     private double _totalDuration;
     private double _chartAreaHeight = 800.0;
 
@@ -32,11 +30,6 @@ public sealed partial class TraceChartViewModel : ObservableObject
     private const double CollapsedSubplotHeight = 24.0;
 
     public ObservableCollection<TraceChartSeries> Series { get; } = new();
-    public double PlaybackCursorX
-    {
-        get => _playbackCursorX;
-        set => SetProperty(ref _playbackCursorX, value);
-    }
     public double TotalDuration
     {
         get => _totalDuration;
