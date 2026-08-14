@@ -1,4 +1,7 @@
+using System.IO;
 using System.Reflection;
+using System.Windows;
+using System.Windows.Markup;
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.Views;
@@ -87,27 +90,92 @@ public class ScriptViewTests
     }
 
     /// <summary>
-    /// Run the body on a dedicated STA thread. ScriptView's
-    /// <c>InitializeComponent</c> reads XAML resources that require
-    /// STA on Windows; xunit's default MTA worker thread will fail
-    /// otherwise. Same pattern as AppHostBuilderTests.RunSta.
+    /// Load the production token dictionary (<c>Themes/Colors.xaml</c>). Task 5
+    /// (P2-5) tokenized ScriptView, which now resolves
+    /// <c>{StaticResource TextSecondary/ConsoleBg/...}</c> from Application-level
+    /// merged resources — a bare <c>new ScriptView()</c> in a resource-less test
+    /// context cannot see them and throws XamlParseException. Path convention is
+    /// identical to <c>ColorTokensTests</c> (5 levels up from
+    /// <c>AppContext.BaseDirectory</c> to the repo root).
+    /// </summary>
+    private static ResourceDictionary LoadTokenDictionary()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src", "PeakCan.Host.App", "Themes", "Colors.xaml");
+        var xaml = File.ReadAllText(Path.GetFullPath(path));
+        return (ResourceDictionary)XamlReader.Parse(xaml);
+    }
+
+    /// <summary>
+    /// Run the body on a dedicated STA thread with a live WPF Application whose
+    /// resources include the production Colors.xaml token dictionary.
+    /// ScriptView's <c>InitializeComponent</c> resolves <c>{StaticResource}</c>
+    /// tokens at parse time; without the merged dictionary the tokenized XAML
+    /// throws. A real Application is required (only one may exist per
+    /// AppDomain), so it is created inside the STA body and the leaked static
+    /// singleton is cleaned around the thread — the same pattern as
+    /// MultiFrameSendWindowReopenRegressionTests.
     /// </summary>
     private static void RunSta(Action body)
     {
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
         {
-            body();
+            RunWithAppResources(body);
             return;
         }
         Exception? captured = null;
         var thread = new Thread(() =>
         {
-            try { body(); }
+            try { RunWithAppResources(body); }
             catch (Exception ex) { captured = ex; }
         });
         thread.SetApartmentState(ApartmentState.STA);
+        // The STA body creates a real WPF Application whose static singleton
+        // survives Shutdown() + thread exit — a leak that has caused real
+        // parallel-suite flakes (see Collections/LeakedApplicationReset.cs).
+        LeakedApplicationReset.CleanupLeakedApplication();
         thread.Start();
         thread.Join();
+        LeakedApplicationReset.CleanupLeakedApplication();
         if (captured is not null) throw captured;
+    }
+
+    /// <summary>
+    /// WPF allows only one Application per AppDomain; the constructor guard is
+    /// the static <c>_appCreatedInThisAppDomain</c> flag (not
+    /// <c>_appInstance</c>), and it survives <c>Shutdown()</c>. Reset both
+    /// before creating our Application so each STA body can create its own —
+    /// same pattern as
+    /// <c>AppShellViewModelMessageBoxPromptTests.ResetAppDomainApplicationGuard</c>.
+    /// </summary>
+    private static void ResetAppDomainApplicationGuard()
+    {
+        LeakedApplicationReset.CleanupLeakedApplication();
+        typeof(Application).GetField("_appCreatedInThisAppDomain",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?.SetValue(null, false);
+    }
+
+    /// <summary>
+    /// Create a fresh Application on the current (STA) thread, merge the
+    /// production Colors.xaml token dictionary, run the body, then shut the
+    /// Application down. The leaked static singleton is cleaned around the
+    /// thread by <see cref="RunSta"/>.
+    /// </summary>
+    private static void RunWithAppResources(Action body)
+    {
+        ResetAppDomainApplicationGuard();
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        app.Resources.MergedDictionaries.Add(LoadTokenDictionary());
+        try
+        {
+            body();
+        }
+        finally
+        {
+            app.Shutdown();
+        }
     }
 }

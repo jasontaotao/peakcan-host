@@ -39,12 +39,24 @@ public static class LeakedApplicationReset
     public static void CleanupLeakedApplication()
     {
         var app = Application.Current;
-        if (app is null) return;
-        try { app.Shutdown(); } catch { /* dispatcher may already be shutting down */ }
+        if (app is not null)
+        {
+            try { app.Shutdown(); } catch { /* dispatcher may already be shutting down */ }
+        }
         // _appInstance is the static backing field for
         // Application.Current (the property has no public setter).
         typeof(Application).GetField("_appInstance",
             BindingFlags.NonPublic | BindingFlags.Static)
             ?.SetValue(null, null);
+        // WPF's Application ctor guard is the _appCreatedInThisAppDomain
+        // flag, NOT _appInstance — it survives Shutdown() and would make a
+        // later `new Application()` in the same AppDomain throw "cannot
+        // create more than one System.Windows.Application instance". Reset it
+        // too, or the first app-creating test in a run silently breaks every
+        // later one (real parallel-suite flake, see
+        // MultiFrameSendWindowReopenRegressionTests + ScriptViewTests).
+        typeof(Application).GetField("_appCreatedInThisAppDomain",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?.SetValue(null, false);
     }
 }

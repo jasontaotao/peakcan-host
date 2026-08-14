@@ -192,7 +192,7 @@
                          Border(WebView2) 填满 Grid，fallback TextBlock 覆盖其上（默认 ZIndex 更高）。不能把
                          TextBlock 放 Grid 外当 last-child（DockPanel LastChildFill 会坍缩 WebView2）。 -->
                     <Grid>
-                        <Border BorderBrush="{StaticResource TextSecondary}" BorderThickness="1" CornerRadius="4">
+                        <Border BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="4">
                             <wv2:WebView2 x:Name="ReportWebView" />
                         </Border>
                         <!-- T4/MEDIUM-1/2: fallback 可见性由 code-behind UpdateReportPanel 管理（Text 绑
