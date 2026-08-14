@@ -33,7 +33,7 @@
                   VirtualizingPanel.ScrollUnit="Pixel"
                   ScrollViewer.CanContentScroll="True"
                   RowHeight="20"
-                  AlternatingRowBackground="#F8F8F8"
+                  AlternatingRowBackground="{StaticResource RowAlternate}"
                   RowDetailsVisibilityMode="VisibleWhenSelected">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" />
@@ -45,7 +45,7 @@
                      when non-null/empty; uses the NullToVisibilityConverter
                      registered in App.xaml. Displayed in gray italic. -->
                 <DataGridTextColumn Header="注释" Binding="{Binding Comment}"
-                                    Width="*" Foreground="Gray"
+                                    Width="*" Foreground="{StaticResource TextSecondary}"
                                     FontStyle="Italic" />
             </DataGrid.Columns>
             <DataGrid.RowDetailsTemplate>

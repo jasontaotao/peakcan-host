@@ -54,9 +54,9 @@
                              the rejects are expected behavior under
                              a tight cap, not a bug. -->
                         <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="3"
-                                Background="#FFF8E1" BorderBrush="#D4A72C" BorderThickness="1"
+                                Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                                 Visibility="{Binding RateLimitRejectedVisibility}">
-                            <TextBlock VerticalAlignment="Center" Foreground="#7D4E00" FontSize="12">
+                            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
                                 <Run Text="rate limit rejected: " />
                                 <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                             </TextBlock>
@@ -161,15 +161,15 @@
                     </DataGrid>
                     <StackPanel Orientation="Horizontal">
                         <Button Content="发送" Command="{Binding SendCommand}" Width="80" />
-                        <TextBlock Text="{Binding ErrorMessage}" Foreground="Red"
+                        <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource Error}"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                         <!-- v3.0.9 PATCH: mirror of DbcSendViewModel.RateLimitRejectedCount.
                              Same yellow chip pattern as the v3.0.8 SendViewModel chip
                              (above in this view). Hidden when count = 0. -->
                         <Border Margin="8,0,0,0" Padding="6,2" CornerRadius="3"
-                                Background="#FFF8E1" BorderBrush="#D4A72C" BorderThickness="1"
+                                Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                                 Visibility="{Binding RateLimitRejectedVisibility}">
-                            <TextBlock VerticalAlignment="Center" Foreground="#7D4E00" FontSize="12">
+                            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
                                 <Run Text="rate limit rejected: " />
                                 <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                             </TextBlock>

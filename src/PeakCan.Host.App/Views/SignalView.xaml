@@ -51,7 +51,7 @@
                       VirtualizingPanel.ScrollUnit="Pixel"
                       ScrollViewer.CanContentScroll="True"
                       RowHeight="20"
-                      AlternatingRowBackground="#F8F8F8"
+                      AlternatingRowBackground="{StaticResource RowAlternate}"
                       CellEditEnding="OnCellEditEnding">
                 <DataGrid.Columns>
                     <!-- v1.2.7: was DataGridCheckBoxColumn, but
@@ -91,7 +91,7 @@
             <GridSplitter Grid.Row="1" Height="5"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Center"
-                          Background="#CCCCCC"
+                          Background="{StaticResource BorderSubtle}"
                           Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}" />
 
             <!-- OxyPlot signal chart (hidden when no chart VM) -->
@@ -112,8 +112,8 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="3"
-                            Padding="6,3" Margin="0,0,6,4" Background="#F8F8F8">
+                    <Border BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="3"
+                            Padding="6,3" Margin="0,0,6,4" Background="{StaticResource SurfaceSubtle}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
                             <TextBlock Text="  min=" />

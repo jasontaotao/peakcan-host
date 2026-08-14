@@ -17,9 +17,9 @@
             <TextBlock Text=" 帧已过滤" VerticalAlignment="Center" />
             <TextBlock Text="  总数: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
             <TextBlock Text="{Binding TotalFrameCount}" VerticalAlignment="Center" />
-            <TextBlock Text=" (上限: " VerticalAlignment="Center" Margin="4,0,0,0" Foreground="#6e7781" />
-            <TextBlock Text="{Binding MaxRows}" VerticalAlignment="Center" Foreground="#6e7781" />
-            <TextBlock Text=" 行)" VerticalAlignment="Center" Foreground="#6e7781" />
+            <TextBlock Text=" (上限: " VerticalAlignment="Center" Margin="4,0,0,0" Foreground="{StaticResource TextSecondary}" />
+            <TextBlock Text="{Binding MaxRows}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
+            <TextBlock Text=" 行)" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
         </StackPanel>
         <!-- v0.9.2: highlight bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,4">
@@ -40,18 +40,18 @@
               ScrollViewer.CanContentScroll="True"
               ScrollViewer.ScrollChanged="OnScrollChanged"
               RowHeight="20"
-              AlternatingRowBackground="#F8F8F8">
+              AlternatingRowBackground="{StaticResource RowAlternate}">
         <DataGrid.RowStyle>
             <Style TargetType="DataGridRow">
                 <Style.Triggers>
                     <DataTrigger Binding="{Binding IsError}" Value="True">
-                        <Setter Property="Background" Value="#FFCDD2" />
+                        <Setter Property="Background" Value="{StaticResource FrameBgError}" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsFd}" Value="True">
-                        <Setter Property="Background" Value="#E3F2FD" />
+                        <Setter Property="Background" Value="{StaticResource FrameBgFd}" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
-                        <Setter Property="Background" Value="#FFFDE7" />
+                        <Setter Property="Background" Value="{StaticResource FrameBgHighlight}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
