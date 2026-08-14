@@ -405,6 +405,10 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 app.Resources["BoolToVis"] = new BooleanToVisibilityConverter();
                 app.Resources["ColorToBrush"] = new ColorToBrushConverter();
+                // P2-4d: TraceViewerView resolves {StaticResource} color tokens
+                // (TextSecondary/Accent/Error/Border/...) at parse time; merge the
+                // production Colors.xaml so a bare test Application can render it.
+                LeakedApplicationReset.MergeTokenResources(app);
 
                 var session = Substitute.For<ITraceSessionService>();
                 var prompt = Substitute.For<IMessageBoxPrompt>();

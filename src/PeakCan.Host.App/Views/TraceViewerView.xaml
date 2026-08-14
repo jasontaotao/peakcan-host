@@ -5,6 +5,7 @@
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
         xmlns:trace="clr-namespace:PeakCan.Host.App.Services.Trace"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+        xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -159,10 +160,13 @@
                                 <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Width="80" Margin="6,0,0,0" Padding="2,0" VerticalAlignment="Center"
                                          ToolTip="Per-source filter (decimal or 0x-hex CAN IDs, comma-separated). Empty = inherit global." />
-                                <Button Content="✕" Margin="6,0,0,0" Padding="4,0"
+                                <Button Margin="6,0,0,0" Padding="4,0"
                                         Command="{Binding DataContext.RemoveTraceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding SourceId}"
-                                        ToolTip="Unload this trace" />
+                                        ToolTip="Unload this trace">
+                                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Dismiss}"
+                                               FontFamily="Segoe Fluent Icons" />
+                                </Button>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -313,10 +317,13 @@
                                 <DataGridTemplateColumn Header="" Width="28">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Button Content="✕" Padding="2,0"
+                                            <Button Padding="2,0"
                                                     ToolTip="Remove this watch entry"
                                                     Command="{Binding DataContext.RemoveFromWatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}" />
+                                                    CommandParameter="{Binding}">
+                                                <TextBlock Text="{x:Static icons:FluentIconGlyphs.Dismiss}"
+                                                           FontFamily="Segoe Fluent Icons" />
+                                            </Button>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
