@@ -60,7 +60,8 @@
             <ToolBar>
                 <!-- P1-3: 硬件连接配置收敛 —— 探测/通道/波特率/CAN FD 控件移入
                      连接设置面板（⚙ 打开，descriptor 驱动）。工具栏只留入口 + 状态。 -->
-                <Button Command="{Binding OpenConnectionSettingsCommand}" Padding="6,2">
+                <Button Command="{Binding OpenConnectionSettingsCommand}" Padding="6,2"
+                        AutomationProperties.Name="设备设置">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{x:Static icons:FluentIconGlyphs.Settings}"
                                    FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
@@ -80,7 +81,7 @@
                                 <Setter.Value>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            <ContentPresenter x:Name="Content" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                               Margin="{TemplateBinding Padding}" />
                                         </Border>
                                         <ControlTemplate.Triggers>
@@ -90,8 +91,13 @@
                                             <Trigger Property="IsPressed" Value="True">
                                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentPressed}" />
                                             </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource TextOnAccent}" />
+                                                <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
+                                            </Trigger>
                                             <Trigger Property="IsEnabled" Value="False">
                                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource TextDisabled}" />
+                                                <Setter TargetName="Content" Property="TextElement.Foreground" Value="{StaticResource TextDisabled}" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -104,7 +110,8 @@
                 <Separator />
                 <ToggleButton IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
                               Padding="6,2"
-                              ToolTip="显示/隐藏录制面板 (Ctrl+R)">
+                              ToolTip="显示/隐藏录制面板 (Ctrl+R)"
+                              AutomationProperties.Name="录制">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{x:Static icons:FluentIconGlyphs.Record}"
                                    FontFamily="Segoe Fluent Icons" Foreground="{StaticResource Error}" Margin="0,0,4,0" />
@@ -151,7 +158,7 @@
                     <DataTemplate><ContentControl Content="{Binding View}" /></DataTemplate>
                 </TabControl.ContentTemplate>
             </TabControl>
-            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{StaticResource BorderSubtle}" />
             <TabControl Grid.Column="2" ItemsSource="{Binding RightTabs}"
                         SelectedIndex="{Binding SelectedRightTabIndex}">
                 <TabControl.ItemTemplate>
