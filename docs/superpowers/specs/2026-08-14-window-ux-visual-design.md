@@ -7,7 +7,7 @@
 
 给 PeakCan.Host 建立**统一的浅色工程视觉体系**，三件事：
 
-1. **语义令牌**：把散落在 15 个 XAML 的硬编码色（hex + 命名色）抽到 `Themes/Colors.xaml`（语义命名 SolidColorBrush），全应用替换，消灭裸 hex。
+1. **语义令牌**：把散落在 16 个 XAML 的硬编码色（hex + 命名色）抽到 `Themes/Colors.xaml`（语义命名 SolidColorBrush），全应用替换，消灭裸 hex。
 2. **图标**：工具栏/菜单/窗口/HIL 模式图标从 emoji 换成 Windows 11 自带 **Segoe Fluent Icons** 单色字形（颜色跟随文本/主题）。
 3. **布局持久化**：AppShell 的 splitter 位置 / 右栏宽 / 主右 tab 选中项持久化到 `%APPDATA%/PeakCan.Host/layout.json`，重启还原。
 
@@ -24,7 +24,7 @@
 ## 3. 现状（已验证）
 
 - `App.xaml` 仅注册 converter，**无任何颜色/样式字典**；无 `Themes/` 目录。
-- 硬编码色散落 **15 个 XAML**（含 P1-2 新增的 `ConnectionSettingsWindow`），**hex 与命名色（`Gray`/`Red`/`Green`/`Blue`/`White`/`Transparent` 等）混杂**。主要 hex：`#1E1E1E` ×5 = 4 处用途（脚本编辑器底[保留]/脚本输出面板底/UDS 输出日志底/MultiFrame RowDetails 底）、`#F8F8F8/#FAFAFA/#F4F4F4/#F0F0F0/#EEEEEE`（表头/次级底）、`#CCCCCC`（边框）、`#FFF8E1/#D4A72C/#7D4E00`（限流 chip）、`#1A7F37`（已连接绿）、`#D62728`（错误红）、`#1565C0/#0066CC`（信息蓝）、`#6e7781`（灰文字）、`#D4D4D4`（深色底上的浅字）。
+- 硬编码色散落 **16 个 XAML**（含 P1-2 新增的 `ConnectionSettingsWindow` 与 `RecordView`），**hex 与命名色（`Gray`/`Red`/`Green`/`Blue`/`White`/`DarkGreen`/`DarkRed`/`Transparent` 等）混杂**；含 **3 位缩写 hex**（`#CCC`/`#DDD`/`#444`/`#666`）。主要 hex：`#1E1E1E` ×5 = 4 处用途（脚本编辑器底[保留]/脚本输出面板底/UDS 输出日志底/MultiFrame RowDetails 底）、`#F8F8F8/#FAFAFA/#F4F4F4/#F0F0F0/#EEEEEE`（表头/次级底）、`#CCCCCC/#CCC`（边框）、`#DDD`（分隔）、`#444`（MultiFrame 深色边框）、`#666`（ChatPanel 灰文字）、`#FFF8E1/#D4A72C/#7D4E00`（限流 chip）、`#1A7F37`（已连接绿）、`#D62728`（错误红）、`#1565C0/#0066CC`（信息蓝）、`#6e7781`（灰文字）、`#D4D4D4`（深色底上的浅字）。
 - **帧状态行底色（要令牌化，不是数据色）**：TraceView 用 `DataTrigger` 按帧属性给行上背景色——`IsError → #FFCDD2`、`IsFd → #E3F2FD`、`IsHighlighted → #FFFDE7`。
 - **真正保留的数据色**：TraceViewerView 的**图表锚点/系列色**（命名色 `Blue`/`Green`/`Red`/`White`，比较锚点 + 图例）与 ChatPanel 的**消息类型 chip 色**（`#DCF8C6` 等）——这些是数据驱动，不入令牌表。
 - emoji 图标分布：`✕ ×6`、`● ×5`、`→ ×4`、`▶ ×4`、`▼ ×4`、`🔍 ×4`、`⚙ ×3`、`⏹ ×3`、`💾 ×3`、`📂 ×2`、`▲ ×2`、`🔗 ×2`、`◀ ⏸ 🤖 ⚡ ✨ ←` 各 1；HIL 模式图标在 `HilModeToIconConverter.cs`（C# 返回 emoji 字符串 `📼🔌💻🔗❓`）。
@@ -38,7 +38,7 @@
 
 ### D2 语义令牌（Colors.xaml）
 
-只允许语义名（`CanvasBg`/`Surface`/`TextPrimary`/`Accent`…），XAML 禁止裸 hex/命名色。15 个 XAML 的硬编码色按 §7 映射表机械替换。命名分组：`表面/边框/文本/强调/状态/控制台`。
+只允许语义名（`CanvasBg`/`Surface`/`TextPrimary`/`Accent`…），XAML 禁止裸 hex/命名色。16 个 XAML 的硬编码色按 §7 映射表机械替换。命名分组：`表面/边框/文本/强调/状态/控制台`。
 
 ### D3 图标 = Segoe Fluent Icons 单色字形
 
@@ -124,6 +124,11 @@
 |---|---|---|
 | #F8F8F8 / #FAFAFA / #F4F4F4 / #F0F0F0 / #EEEEEE | 表格斑马/表头/次级底（Signal/Trace/Dbc/ChatPanel 等） | `RowAlternate` / `SurfaceSubtle` |
 | #CCCCCC | 边框/splitter/统计卡边（Signal/MultiFrame/EcuScriptEditor） | `Border` / `BorderSubtle` |
+| #CCC（缩写） | 边框/分隔/splitter（TraceViewerView/MultiFrame/UdsWindow）；MultiFrame RowDetails 内文字 | `Border` / `BorderSubtle` / `TextSecondary` |
+| #DDD | 分隔/边框（TraceViewerView/ChatPanel） | `BorderSubtle` |
+| #444 | MultiFrame RowDetails 深色边框 | `Border` |
+| #666 | ChatPanel 连接状态文字 | `TextSecondary` |
+| `DarkGreen` | 状态文字（SendView/RecordView） | `Ok` |
 | #1E1E1E（输出面板底）+ #D4D4D4（浅字） | ScriptView 输出 / UdsWindow 输出日志 | `ConsoleBg` / `ConsoleFg` |
 | #1E1E1E（WebView2 编辑器底） | ScriptView 编辑器 | **保留**（D4） |
 | #1E1E1E（RowDetails 表单面板底）+ #444 边 | MultiFrame 行详情 | `SurfaceSubtle` / `Border` |
@@ -148,7 +153,7 @@
 - **P2-1 令牌字典**：建 `Themes/Colors.xaml`（§5 全表），`App.xaml` 合并进 `Application.Resources`；新增令牌存在性测试（每个视图引用的 `{StaticResource}` 令牌都定义于 Colors.xaml）。
 - **P2-2 图标**：Segoe Fluent Icons 字形解析表（`GlyphTypeface` 解析码点）+ 映射测试（映射表完整性、码点可解析）；HIL 模式转换器改返回 codepoint。
 - **P2-3 AppShell 镀铬**：菜单/工具栏/状态栏/tab/双 TabControl/splitter 换令牌（含按钮 `Accent`、`AccentHover`/`Pressed`、连接态 `Ok`、录制 `Error`）。
-- **P2-4 视图换令牌**：按 §7 映射替换 §3 所列 15 个含硬编码色的 XAML（Trace/Dbc/Send/Signal/Script/Replay/Hil + TraceViewerView/ChatPanel + 窗口 Uds/MultiFrame/EcuScriptEditor/DbcTreePicker/ConnectionSettings）。
+- **P2-4 视图换令牌**：按 §7 映射替换 §3 所列 16 个含硬编码色的 XAML（Trace/Dbc/Send/Signal/Script/Replay/Hil/Record + TraceViewerView/ChatPanel + 窗口 Uds/MultiFrame/EcuScriptEditor/DbcTreePicker/ConnectionSettings）。
 - **P2-5 浅色控制台**：ScriptView 输出面板 → `ConsoleBg/ConsoleFg/ConsoleAccent` + 语义色输出（Ok/Error）。
 - **P2-6 布局持久化**：`LayoutStateStore`（schema `layout/v1`：splitter 列宽/右栏宽/`SelectedMainTabIndex`/`SelectedRightTabIndex`；原子写 + 损坏容错 + `MaxLoadFileBytes`）+ `AppShellViewModel` 暴露属性 + AppShell 启动恢复/关闭保存；单测（round-trip/原子/容错，镜像 `WindowStateStoreTests`）+ AppShell 布局恢复 STA 测试。
 
@@ -156,7 +161,7 @@
 
 ## 9. 验收标准
 
-- [ ] 15 个 XAML 无裸 hex/命名色（§5 保留的数据色除外）；全部引用 Colors.xaml 语义令牌
+- [ ] 16 个 XAML 无裸 hex/命名色（§5 保留的数据色除外）；全部引用 Colors.xaml 语义令牌
 - [ ] 界面仍为浅色工程观感，主窗口/表格/状态芯片/语义色整体协调（对照 mockup）
 - [ ] 工具栏/菜单/HIL 模式图标为单色 Fluent 字形，随主题着色
 - [ ] 输出面板为浅色控制台；WebView2 脚本编辑器保持深色
