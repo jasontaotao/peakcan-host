@@ -13,85 +13,30 @@ public sealed partial class AppShellViewModel
     // Methods moved verbatim from AppShellViewModel.cs.
     //
     // Cross-flow callers (stay as plain calls via partial-class visibility):
-    //   - All 9 Show* methods -> ViewSwitcher.Show/ShowWindow (helper, Composition namespace)
-    //   - All 9 Show* methods -> CurrentView property (Flow A adjacent)
+    //   - Tab Show* methods -> Selected{Main,Right}TabIndex (P1-5 dual TabControl)
+    //   - Window Show* methods -> WindowHostService.Show (P0-3)
     //   - ShowTraceViewer -> _traceViewerFactory() (v3.x session-state extraction)
     //   - ShowTraceViewer -> Application.Current?.MainWindow (WPF dispatcher)
     //
     // [RelayCommand] attributes MUST travel with their methods.
 
     [RelayCommand]
-    private void ShowTrace()
-    {
-        // v3.11.1 PATCH M3: extract the lazy-view-create / cache-resume
-        // pattern into ViewSwitcher.Show. The original inline body
-        // (4 lines including the first-show default-tab comment) is now
-        // a single helper call. Show preserves the DataContext bind +
-        // first-show CurrentView=null fallback behaviour (helper just
-        // calls setCurrent).
-        ViewSwitcher.Show(
-            factory: () => new TraceView { DataContext = _traceViewModel },
-            cache: ref _traceView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowTrace));
-    }
+    private void ShowTrace() => SelectedMainTabIndex = 0;
 
     [RelayCommand]
-    private void ShowDbc() => CurrentView = GetOrCreateDbcView();
+    private void ShowDbc() => SelectedMainTabIndex = 1;
 
     [RelayCommand]
-    private void ShowSend()
-    {
-        // v3.11.1 PATCH M3: see ShowTrace — same ViewSwitcher extraction.
-        ViewSwitcher.Show(
-            factory: () => new SendView { DataContext = _sendViewModel },
-            cache: ref _sendView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowSend));
-    }
+    private void ShowSend() => SelectedRightTabIndex = 0;
 
     [RelayCommand]
-    private void ShowSignals()
-    {
-        // Task 16: Signal tab (DBC-decoded live signals). v3.11.1 PATCH M3:
-        // extracted into ViewSwitcher — same lazy-create / cache-resume
-        // behaviour, DataContext bind at first-show, DataGrid
-        // virtualization state preserved across menu round-trips.
-        ViewSwitcher.Show(
-            factory: () => new SignalView { DataContext = _signalViewModel },
-            cache: ref _signalView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowSignals));
-    }
+    private void ShowSignals() => SelectedRightTabIndex = 1;
 
     [RelayCommand]
-    private void ShowStats()
-    {
-        // Task 17: Stats tab (1 Hz OxyPlot charts). v3.11.1 PATCH M3:
-        // extracted into ViewSwitcher — same lazy-create / cache-resume
-        // behaviour. The StatsView hosts an OxyPlot.PlotView bound to
-        // StatsViewModel.PlotModel; the StatisticsService pushes snapshots
-        // at 1 Hz on its own thread and the VM marshals to the UI
-        // dispatcher.
-        ViewSwitcher.Show(
-            factory: () => new StatsView { DataContext = _statsViewModel },
-            cache: ref _statsView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowStats));
-    }
+    private void ShowStats() => SelectedRightTabIndex = 2;
 
     [RelayCommand]
-    private void ShowScript()
-    {
-        // v1.0.0: Script tab (JavaScript automation). v3.11.1 PATCH M3:
-        // extracted into ViewSwitcher. The ScriptView hosts a WebView2
-        // with CodeMirror 6 editor and an output panel.
-        ViewSwitcher.Show(
-            factory: () => new ScriptView { DataContext = _scriptViewModel },
-            cache: ref _scriptView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowScript));
-    }
+    private void ShowScript() => SelectedMainTabIndex = 2;
 
     [RelayCommand]
     private void ShowUds()
@@ -128,21 +73,7 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowReplay()
-    {
-        // v2.1.4 PATCH: Replay tab (closes the v1.4.0 MINOR orphan).
-        // v3.11.1 PATCH M3: extracted into ViewSwitcher. The tab was
-        // fully built (ReplayView + ReplayViewModel + IReplayService +
-        // tests) but AppShell had no ShowReplayCommand and AppHostBuilder
-        // had no ReplayViewModel DI registration, so the tab was
-        // unreachable. ViewSwitcher.Show preserves the same lazy-create
-        // + cache-resume behaviour.
-        ViewSwitcher.Show(
-            factory: () => new ReplayView { DataContext = _replayViewModel },
-            cache: ref _replayView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowReplay));
-    }
+    private void ShowReplay() => SelectedMainTabIndex = 3;
 
     [RelayCommand]
     private void OpenMultiFrame()
@@ -248,6 +179,4 @@ public sealed partial class AppShellViewModel
     }
 
     private void OnOpenEcuEditorRequested() => ShowEcuScriptEditorCommand.Execute(null);
-
-    private DbcView GetOrCreateDbcView() => _dbcView ??= new DbcView { DataContext = _dbcViewModel };
 }

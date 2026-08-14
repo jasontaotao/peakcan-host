@@ -29,7 +29,8 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <TextBlock Text="Data (hex):" Width="80" VerticalAlignment="Center" />
-                        <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" Width="300" />
+                        <!-- P1-5: 右侧常驻面板窄栏（~300px）——数据输入自适应栏宽 -->
+                        <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" MinWidth="160" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Button Content="Send" Command="{Binding SendCommand}" Width="80" />

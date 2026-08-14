@@ -384,6 +384,21 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         {
             _persistedHandleOnStartup = h;
         }
+
+        // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
+        MainTabs = new[]
+        {
+            new TabSpec("追踪", () => new TraceView { DataContext = _traceViewModel }),
+            new TabSpec("DBC", () => new DbcView { DataContext = _dbcViewModel }),
+            new TabSpec("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
+            new TabSpec("回放", () => new ReplayView { DataContext = _replayViewModel }),
+        };
+        RightTabs = new[]
+        {
+            new TabSpec("发送", () => new SendView { DataContext = _sendViewModel }),
+            new TabSpec("信号", () => new SignalView { DataContext = _signalViewModel }),
+            new TabSpec("统计", () => new StatsView { DataContext = _statsViewModel }),
+        };
     }
 
     /// <summary>The window-lifecycle host backing the ShowUds /
@@ -437,6 +452,18 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // docked panel inside the AppShell window. No more single-view
     // routing; no more Trace Viewer entanglement.
     public RecordViewModel RecordingPanel => _recordingPanel;
+
+    // --- P1-5: 主内容区 = 双 TabControl（主区域 + 右侧常驻实时面板）---
+    // TabSpec 懒创建（首次访问 View 才 new UserControl），TabControl 的
+    // ContentTemplate 只在选中 tab 时实例化 → 启动只建 Trace。
+    [ObservableProperty]
+    private int _selectedMainTabIndex;
+
+    [ObservableProperty]
+    private int _selectedRightTabIndex;
+
+    public IReadOnlyList<TabSpec> MainTabs { get; }
+    public IReadOnlyList<TabSpec> RightTabs { get; }
 
     [ObservableProperty]
     private bool _isRecordingPanelOpen;

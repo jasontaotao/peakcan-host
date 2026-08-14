@@ -237,118 +237,82 @@ public class AppShellViewModelTests
     }
 
     [Fact]
-    public void ShowTraceCommand_Sets_CurrentView_To_TraceView()
+    public void ShowTraceCommand_Selects_MainTab0()
     {
+        // P1-5: Show* 命令改为选中对应 tab（SelectedIndex），不再设置 CurrentView。
+        var vm = NewVm();
+        vm.ShowTraceCommand.Execute(null);
+        vm.SelectedMainTabIndex.Should().Be(0);
+    }
+
+    [Fact]
+    public void ShowDbcCommand_Selects_MainTab1()
+    {
+        var vm = NewVm();
+        vm.ShowDbcCommand.Execute(null);
+        vm.SelectedMainTabIndex.Should().Be(1);
+    }
+
+    [Fact]
+    public void ShowSendCommand_Selects_RightTab0()
+    {
+        var vm = NewVm();
+        vm.ShowSendCommand.Execute(null);
+        vm.SelectedRightTabIndex.Should().Be(0);
+    }
+
+    [Fact]
+    public void ShowSignalsCommand_Selects_RightTab1()
+    {
+        var vm = NewVm();
+        vm.ShowSignalsCommand.Execute(null);
+        vm.SelectedRightTabIndex.Should().Be(1);
+    }
+
+    [Fact]
+    public void ShowSignalsCommand_Reuses_Cached_View_Instance()
+    {
+        // P1-5: tab 视图由 TabSpec 缓存，复用同一实例（DataGrid 虚拟化状态/WebView2 不重建）。
         RunSta(() =>
         {
             var vm = NewVm();
-            vm.ShowDbcCommand.Execute(null);   // switch to DBC (lazy)
-            vm.ShowTraceCommand.Execute(null); // back to trace (lazy)
-            vm.CurrentView.Should().BeOfType<TraceView>();
+            var first = vm.RightTabs[1].View;
+            var second = vm.RightTabs[1].View;
+            second.Should().BeSameAs(first,
+                "P1-5: SignalView must be cached across tab round-trips");
         });
     }
 
     [Fact]
-    public void ShowDbcCommand_Sets_CurrentView_To_DbcView()
+    public void ShowStatsCommand_Selects_RightTab2()
     {
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.ShowDbcCommand.Execute(null);
-            vm.CurrentView.Should().BeOfType<DbcView>();
-        });
+        var vm = NewVm();
+        vm.ShowStatsCommand.Execute(null);
+        vm.SelectedRightTabIndex.Should().Be(2);
     }
 
     [Fact]
-    public void ShowSendCommand_Sets_CurrentView_To_SendView()
-    {
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.ShowSendCommand.Execute(null);
-            vm.CurrentView.Should().BeOfType<SendView>();
-        });
-    }
-
-    [Fact]
-    public void ShowSignalsCommand_Sets_CurrentView_To_SignalView()
-    {
-        // Task 16: the Signal tab joins the existing Trace / DBC / Send
-        // tabs. Mirror the ShowSendCommand test: lazy view instantiation
-        // on first show.
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.ShowSignalsCommand.Execute(null);
-            vm.CurrentView.Should().BeOfType<SignalView>();
-        });
-    }
-
-    [Fact]
-    public void ShowSignalsCommand_Reuses_Cached_SignalView_Instance()
-    {
-        // Caching the view preserves DataGrid virtualization state across
-        // menu switches. A second Show call must return the same instance.
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.ShowSignalsCommand.Execute(null);
-            var first = vm.CurrentView;
-            vm.ShowTraceCommand.Execute(null);
-            vm.ShowSignalsCommand.Execute(null);
-            vm.CurrentView.Should().BeSameAs(first,
-                "second Show should return the cached SignalView instance");
-        });
-    }
-
-    [Fact]
-    public void ShowStatsCommand_Sets_CurrentView_To_StatsView()
-    {
-        // Task 17: the Stats tab joins Trace / DBC / Send / Signals.
-        // Lazy view instantiation on first show — same pattern as the
-        // other tabs. StatsView hosts an OxyPlot.PlotView bound to
-        // StatsViewModel.PlotModel.
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.ShowStatsCommand.Execute(null);
-            vm.CurrentView.Should().BeOfType<StatsView>();
-        });
-    }
-
-    [Fact]
-    public void ShowStatsCommand_Reuses_Cached_StatsView_Instance()
+    public void ShowStatsCommand_Reuses_Cached_View_Instance()
     {
         // The OxyPlot PlotView holds internal state (axis ranges,
-        // tracker overlays) that should survive a menu round-trip
-        // to another tab. Caching the StatsView instance preserves
-        // it. Same pattern as the other Show* tests.
+        // tracker overlays) that should survive a menu round-trip.
         RunSta(() =>
         {
             var vm = NewVm();
-            vm.ShowStatsCommand.Execute(null);
-            var first = vm.CurrentView;
-            vm.ShowTraceCommand.Execute(null);
-            vm.ShowStatsCommand.Execute(null);
-            vm.CurrentView.Should().BeSameAs(first,
-                "second Show should return the cached StatsView instance");
+            var first = vm.RightTabs[2].View;
+            var second = vm.RightTabs[2].View;
+            second.Should().BeSameAs(first,
+                "P1-5: StatsView must be cached across tab round-trips");
         });
     }
 
     [Fact]
-    public void OpenDbcCommand_Now_Switches_To_DbcView()
+    public void OpenDbcCommand_Selects_MainTab1()
     {
-        // The Open DBC menu item (File ▸ Open DBC...) is the user-facing
-        // entry point. Per Task 15 it now navigates to the DBC tab
-        // rather than stubbing a status message. The actual file open
-        // happens inside DbcViewModel.OpenAsync via the per-view Open
-        // button.
-        RunSta(() =>
-        {
-            var vm = NewVm();
-            vm.OpenDbcCommand.Execute(null);
-            vm.CurrentView.Should().BeOfType<DbcView>();
-        });
+        // The Open DBC menu item navigates to the DBC tab.
+        var vm = NewVm();
+        vm.OpenDbcCommand.Execute(null);
+        vm.SelectedMainTabIndex.Should().Be(1);
     }
 
     [Fact]
@@ -1362,6 +1326,44 @@ public class AppShellViewModelTests
         var shell = NewVm();
         shell.OpenMultiFrameCommand.Should().NotBeNull();
         shell.OpenMultiFrameCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    // --- P1-5: dual TabControl tabs + lazy view caching ---
+
+    [Fact]
+    public void MainTabs_RightTabs_ExposeExpectedHeaders()
+    {
+        var vm = NewVm();
+        vm.MainTabs.Should().HaveCount(4);
+        vm.MainTabs[0].Header.Should().Be("追踪");
+        vm.MainTabs[1].Header.Should().Be("DBC");
+        vm.MainTabs[2].Header.Should().Be("脚本");
+        vm.MainTabs[3].Header.Should().Be("回放");
+        vm.RightTabs.Should().HaveCount(3);
+        vm.RightTabs[0].Header.Should().Be("发送");
+        vm.RightTabs[1].Header.Should().Be("信号");
+        vm.RightTabs[2].Header.Should().Be("统计");
+    }
+
+    [Fact]
+    public void ShowScriptCommand_SelectsMainTab2()
+    {
+        var vm = NewVm();
+        vm.ShowScriptCommand.Execute(null);
+        vm.SelectedMainTabIndex.Should().Be(2);
+    }
+
+    [Fact]
+    public void TabSpec_View_IsLazyCreated_AndCached()
+    {
+        // Lazy factory runs once; the same instance is reused on re-access
+        // (the P1-5 tab-cache contract — DataGrid/WebView2 state survives).
+        var created = 0;
+        var spec = new TabSpec("测试", () => { created++; return new object(); });
+        var first = spec.View;
+        var second = spec.View;
+        first.Should().BeSameAs(second);
+        created.Should().Be(1);
     }
 
     // --- v3.0 MINOR: ShowTraceViewer routing (Task 7) ---

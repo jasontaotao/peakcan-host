@@ -92,6 +92,34 @@
                   IsExpanded="{Binding IsRecordingPanelOpen}">
             <views:RecordView DataContext="{Binding RecordingPanel}" />
         </Expander>
-        <ContentControl Content="{Binding CurrentView}" />
+        <!-- P1-5: 主内容区 = 主区域 TabControl（追踪/DBC/脚本/回放）+
+             右侧常驻实时面板 TabControl（发送/信号/统计）。ContentTemplate 惰性，
+             只有选中 tab 才实例化视图（TabSpec 懒工厂）。 -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" MinWidth="400" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="300" MinWidth="220" />
+            </Grid.ColumnDefinitions>
+            <TabControl Grid.Column="0" ItemsSource="{Binding MainTabs}"
+                        SelectedIndex="{Binding SelectedMainTabIndex}">
+                <TabControl.ItemTemplate>
+                    <DataTemplate><TextBlock Text="{Binding Header}" Margin="6,2" /></DataTemplate>
+                </TabControl.ItemTemplate>
+                <TabControl.ContentTemplate>
+                    <DataTemplate><ContentControl Content="{Binding View}" /></DataTemplate>
+                </TabControl.ContentTemplate>
+            </TabControl>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
+            <TabControl Grid.Column="2" ItemsSource="{Binding RightTabs}"
+                        SelectedIndex="{Binding SelectedRightTabIndex}">
+                <TabControl.ItemTemplate>
+                    <DataTemplate><TextBlock Text="{Binding Header}" Margin="6,2" /></DataTemplate>
+                </TabControl.ItemTemplate>
+                <TabControl.ContentTemplate>
+                    <DataTemplate><ContentControl Content="{Binding View}" /></DataTemplate>
+                </TabControl.ContentTemplate>
+            </TabControl>
+        </Grid>
     </DockPanel>
 </Window>
