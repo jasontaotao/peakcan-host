@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PeakCan.Host — Phase 2 视觉 mockup（浅色工程风 · 令牌统一）</title>
+<style>
+  :root {
+    /* ---- 语义令牌（Colors.xaml 将使用的值） ---- */
+    --canvas-bg: #F3F4F6;
+    --surface: #FFFFFF;
+    --surface-subtle: #F7F8FA;
+    --row-alt: #F7F8FA;
+    --row-hover: #EDF2F9;
+    --row-selected: #DCECFB;
+    --border: #D4D9DF;
+    --border-subtle: #E4E8EC;
+    --divider: #E9EDF1;
+    --text-primary: #1B1F24;
+    --text-secondary: #5A6470;
+    --text-disabled: #9AA3AE;
+    --text-on-accent: #FFFFFF;
+    --accent: #0B5CAD;
+    --accent-hover: #094B8F;
+    --accent-pressed: #073D75;
+    --ok: #1A7F37;
+    --ok-bg: #E6F4EA;
+    --warn: #8A5B00;
+    --warn-bg: #FFF6E0;
+    --warn-border: #E3B64B;
+    --error: #D62728;
+    --error-bg: #FDEBEC;
+    --info: #0B5CAD;
+    --console-bg: #FBFBFC;
+    --console-fg: #24292F;
+    --console-accent: #0550AE;
+    --font-mono: Consolas, "Cascadia Mono", monospace;
+    --font-ui: "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-ui); background: #E8EAEE; color: var(--text-primary); padding: 32px; }
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 28px; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 30px 0 12px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+  .section-title::before { content: ""; width: 4px; height: 16px; background: var(--accent); border-radius: 2px; }
+
+  /* ---- 调色板 ---- */
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .swatch { background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .swatch .chip { height: 46px; border-bottom: 1px solid var(--border-subtle); }
+  .swatch .meta { padding: 8px 10px; }
+  .swatch .meta .name { font-size: 12px; font-weight: 600; }
+  .swatch .meta .hex { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+  .swatch .meta .usage { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .group-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; margin: 18px 0 8px; }
+
+  /* ---- 主窗口 mockup ---- */
+  .shell { background: var(--canvas-bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 28px rgba(20,30,50,.12); }
+  .titlebar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 7px 14px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 18px; }
+  .titlebar b { color: var(--text-primary); font-weight: 600; }
+  .menubar { background: var(--surface); border-bottom: 1px solid var(--divider); padding: 5px 12px; font-size: 12.5px; display: flex; gap: 18px; color: var(--text-primary); }
+  .toolbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--border); background: var(--surface); border-radius: 5px; padding: 4px 10px; font-size: 12px; font-family: var(--font-ui); color: var(--text-primary); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .btn:hover { background: var(--row-hover); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+  .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn:active { background: var(--accent-pressed); }
+  .btn .glyph { font-size: 12px; }
+  .sep { width: 1px; height: 20px; background: var(--border-subtle); margin: 0 4px; }
+  .channel { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); background: var(--surface-subtle); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 3px 8px; }
+  .rec-toggle { border: 1px solid var(--border); border-radius: 5px; padding: 4px 10px; font-size: 12px; background: var(--surface); display: inline-flex; align-items: center; gap: 6px; }
+  .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--error); }
+
+  .conn-state { font-size: 12px; font-weight: 600; color: var(--ok); margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+  .conn-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+
+  .body { display: flex; }
+  .main-area { flex: 1; min-width: 0; background: var(--surface); }
+  .right-panel { width: 290px; border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; }
+  .splitter { width: 5px; background: var(--canvas-bg); cursor: col-resize; }
+
+  .tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 8px; gap: 2px; }
+  .tab { padding: 7px 14px; font-size: 12.5px; color: var(--text-secondary); border-bottom: 2px solid transparent; cursor: pointer; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab:hover { color: var(--text-primary); }
+
+  .trace-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .trace-table th { text-align: left; font-weight: 600; color: var(--text-secondary); background: var(--surface-subtle); border-bottom: 1px solid var(--border); padding: 6px 10px; font-size: 11.5px; position: sticky; top: 0; }
+  .trace-table td { padding: 5px 10px; border-bottom: 1px solid var(--divider); font-family: var(--font-mono); }
+  .trace-table tbody tr:nth-child(even) { background: var(--row-alt); }
+  .trace-table tbody tr:hover { background: var(--row-hover); }
+  .trace-table tbody tr.selected { background: var(--row-selected); box-shadow: inset 3px 0 0 var(--accent); }
+  .hex-data { color: var(--console-fg); }
+  .fd-badge { font-size: 10px; font-weight: 700; color: var(--info); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
+  .rtr-badge { font-size: 10px; font-weight: 700; color: var(--warn); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
+
+  .right-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 6px; gap: 2px; }
+  .right-tab { padding: 7px 12px; font-size: 12px; color: var(--text-secondary); border-bottom: 2px solid transparent; cursor: pointer; }
+  .right-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .send-form { padding: 12px; display: grid; gap: 9px; }
+  .send-form label { font-size: 11px; color: var(--text-secondary); }
+  .send-field { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 8px; }
+  .send-field input { border: 1px solid var(--border); border-radius: 4px; padding: 4px 7px; font-family: var(--font-mono); font-size: 12px; }
+  .send-row { display: flex; gap: 6px; align-items: center; }
+  .send-row .btn { flex: 1; justify-content: center; }
+
+  .statusbar { display: flex; gap: 18px; background: var(--surface); border-top: 1px solid var(--border); padding: 5px 12px; font-size: 11.5px; color: var(--text-secondary); }
+
+  /* 状态芯片 */
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 12px; padding: 2px 9px; font-size: 11px; font-weight: 600; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-border); }
+  .chip.err { background: var(--error-bg); color: var(--error); }
+
+  /* 浅色控制台 */
+  .console { background: var(--console-bg); border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--console-fg); padding: 10px 12px; line-height: 1.55; }
+  .console .c-accent { color: var(--console-accent); }
+  .console .c-dim { color: var(--text-disabled); }
+  .console .c-ok { color: var(--ok); }
+  .console .c-err { color: var(--error); }
+
+  .note { background: var(--surface-subtle); border: 1px dashed var(--border); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--text-secondary); margin-top: 14px; line-height: 1.6; }
+  .note b { color: var(--text-primary); }
+  .foot { margin-top: 24px; font-size: 11px; color: var(--text-disabled); text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>PeakCan.Host · Phase 2 视觉 mockup</h1>
+  <div class="sub">浅色工程风 · 令牌统一 · 强调色 #0B5CAD · 输出面板浅色控制台</div>
+
+  <!-- ============ 调色板 ============ -->
+  <div class="section-title">语义调色板（Colors.xaml 令牌）</div>
+
+  <div class="group-label">表面 / 层级</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--canvas-bg)"></div><div class="meta"><div class="name">CanvasBg</div><div class="hex">#F3F4F6</div><div class="usage">窗口/工作区底色</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface)"></div><div class="meta"><div class="name">Surface</div><div class="hex">#FFFFFF</div><div class="usage">面板/卡片/表格底</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface-subtle)"></div><div class="meta"><div class="name">SurfaceSubtle</div><div class="hex">#F7F8FA</div><div class="usage">表头/次级底</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--row-alt)"></div><div class="meta"><div class="name">RowAlternate</div><div class="hex">#F7F8FA</div><div class="usage">表格斑马行</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--row-hover)"></div><div class="meta"><div class="name">RowHover</div><div class="hex">#EDF2F9</div><div class="usage">行悬停（蓝调）</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--row-selected)"></div><div class="meta"><div class="name">RowSelected</div><div class="hex">#DCECFB</div><div class="usage">行选中（强调色调）</div></div></div>
+  </div>
+
+  <div class="group-label">边框 / 分隔</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--border)"></div><div class="meta"><div class="name">Border</div><div class="hex">#D4D9DF</div><div class="usage">控件/面板边框</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--border-subtle)"></div><div class="meta"><div class="name">BorderSubtle</div><div class="hex">#E4E8EC</div><div class="usage">输入框/轻边框</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--divider)"></div><div class="meta"><div class="name">Divider</div><div class="hex">#E9EDF1</div><div class="usage">表格行分隔线</div></div></div>
+  </div>
+
+  <div class="group-label">文本</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--text-primary)"></div><div class="meta"><div class="name">TextPrimary</div><div class="hex">#1B1F24</div><div class="usage">主文本</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--text-secondary)"></div><div class="meta"><div class="name">TextSecondary</div><div class="hex">#5A6470</div><div class="usage">次要/表头/说明</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--text-disabled)"></div><div class="meta"><div class="name">TextDisabled</div><div class="hex">#9AA3AE</div><div class="usage">禁用态</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--text-on-accent)"></div><div class="meta"><div class="name">TextOnAccent</div><div class="hex">#FFFFFF</div><div class="usage">强调底上的文字</div></div></div>
+  </div>
+
+  <div class="group-label">强调色 Accent（选中 / 按钮 / 链接 / 信息）</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--accent)"></div><div class="meta"><div class="name">Accent</div><div class="hex">#0B5CAD</div><div class="usage">选中 tab/按钮/链接</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--accent-hover)"></div><div class="meta"><div class="name">AccentHover</div><div class="hex">#094B8F</div><div class="usage">悬停</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--accent-pressed)"></div><div class="meta"><div class="name">AccentPressed</div><div class="hex">#073D75</div><div class="usage">按下</div></div></div>
+  </div>
+
+  <div class="group-label">语义状态</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--ok)"></div><div class="meta"><div class="name">Ok</div><div class="hex">#1A7F37</div><div class="usage">已连接/成功</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--warn-bg);border-bottom:1px solid var(--warn-border)"></div><div class="meta"><div class="name">Warn</div><div class="hex">bg #FFF6E0 / text #8A5B00</div><div class="usage">限流/警告</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--error)"></div><div class="meta"><div class="name">Error</div><div class="hex">#D62728</div><div class="usage">错误/停止</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--console-bg);border-bottom:1px solid var(--border)"></div><div class="meta"><div class="name">Console</div><div class="hex">bg #FBFBFC / fg #24292F</div><div class="usage">浅色输出控制台</div></div></div>
+  </div>
+
+  <div class="group-label">排版令牌</div>
+  <div class="palette">
+    <div class="swatch"><div class="chip" style="background:var(--surface);display:flex;align-items:center;padding:0 10px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)">0x1A2 0xFF DEADBEEF</div><div class="meta"><div class="name">FontMono</div><div class="hex">Consolas 12</div><div class="usage">ID / hex / DLC / 时间列</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--surface);display:flex;align-items:center;padding:0 10px;font-size:12px;color:var(--text-primary)">Segoe UI 12</div><div class="meta"><div class="name">FontUI</div><div class="hex">Segoe UI 12/13</div><div class="usage">界面正文</div></div></div>
+  </div>
+
+  <!-- ============ 主窗口 ============ -->
+  <div class="section-title">主窗口（令牌应用示意）</div>
+  <div class="shell">
+    <div class="titlebar"><span><b>PeakCan.Host</b> — 追踪</span><span style="margin-left:auto">浅色工程主题</span></div>
+    <div class="menubar">
+      <span>文件(F)</span><span>视图(V)</span><span>窗口(W)</span><span>帮助(H)</span>
+    </div>
+    <div class="toolbar">
+      <button class="btn"><span class="glyph">⚙</span>设备设置</button>
+      <span class="sep"></span>
+      <span class="channel">PCAN-USB FD · Ch0 · 500k · FD</span>
+      <span class="sep"></span>
+      <button class="btn btn-primary"><span class="glyph">⇢</span>连接</button>
+      <button class="btn">断开</button>
+      <span class="sep"></span>
+      <span class="rec-toggle"><span class="rec-dot"></span>录制</span>
+      <span class="sep"></span>
+      <span class="conn-state">已连接</span>
+    </div>
+    <div class="body">
+      <div class="main-area">
+        <div class="tabs">
+          <div class="tab active">追踪</div>
+          <div class="tab">DBC</div>
+          <div class="tab">脚本</div>
+          <div class="tab">回放</div>
+        </div>
+        <table class="trace-table">
+          <thead><tr><th>时间</th><th>ID</th><th>DLC</th><th>数据</th><th>标志</th></tr></thead>
+          <tbody>
+            <tr><td>12:00:01.234</td><td style="color:var(--info)">0x18F00100</td><td>8</td><td class="hex-data">02 10 03 00 00 00 00 00</td><td><span class="fd-badge">FD</span></td></tr>
+            <tr><td>12:00:01.250</td><td>0x7E0</td><td>8</td><td class="hex-data">03 22 F1 90 00 00 00 00</td><td></td></tr>
+            <tr class="selected"><td>12:00:01.266</td><td>0x7E8</td><td>8</td><td class="hex-data">06 62 F1 90 4B 00 01 80</td><td></td></tr>
+            <tr><td>12:00:01.300</td><td>0x1A2</td><td>8</td><td class="hex-data">00 00 00 00 00 00 00 00</td><td><span class="rtr-badge">RTR</span></td></tr>
+            <tr><td>12:00:01.310</td><td style="color:var(--info)">0x18FEF100</td><td>8</td><td class="hex-data">01 00 00 00 00 00 00 00</td><td><span class="fd-badge">FD</span></td></tr>
+            <tr><td>12:00:01.333</td><td>0x321</td><td>8</td><td class="hex-data">DE AD BE EF 00 00 00 00</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="splitter"></div>
+      <div class="right-panel">
+        <div class="right-tabs">
+          <div class="right-tab active">发送</div>
+          <div class="right-tab">信号</div>
+          <div class="right-tab">统计</div>
+        </div>
+        <div class="send-form">
+          <div class="send-field"><label>ID</label><input value="0x1A2" style="width:60px"></div>
+          <div class="send-field"><label>数据</label><input value="DE AD BE EF 00 00 00 00"></div>
+          <div class="send-row">
+            <button class="btn btn-primary">发送</button>
+            <button class="btn">周期发送</button>
+            <button class="btn">批量发送…</button>
+          </div>
+          <div class="send-row">
+            <span class="chip warn">限流拒绝 3</span>
+            <span style="font-size:11px;color:var(--text-secondary)">已发送 128</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <span>就绪</span>
+      <span style="margin-left:auto">P0-4 · 窗口: <span class="chip ok">已连接</span></span>
+    </div>
+  </div>
+
+  <div class="section-title">浅色输出控制台（脚本视图底部）</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden">
+    <div style="padding:6px 12px;font-size:11.5px;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border)">输出</div>
+    <div class="console">
+      <div><span class="c-dim">[12:00:01]</span> <span class="c-accent">发送</span> 0x1A2 8 bytes</div>
+      <div><span class="c-dim">[12:00:01]</span> <span class="c-ok">通过</span> 周期发送完成 (3 帧 × 1 迭代)</div>
+      <div><span class="c-dim">[12:00:01]</span> <span class="c-err">错误</span> 0x7E8 响应超时</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>说明：</b>工具栏/菜单图标将替换为 <b>Segoe Fluent Icons 字形</b>（单色、随主题色），本 mockup 用文字符号占位。
+    脚本编辑器（WebView2）保持深色不变，仅输出面板改浅色。splitter / 右栏宽 / tab 选中项将持久化（LayoutStateStore）。
+    <b>未改观感的清单：</b>网格布局 / 间距 / 字体大小层级保持不变——本轮只统一颜色体系。
+  </div>
+  <div class="foot">PeakCan.Host · Phase 2 视觉方向 mockup · 2026-08-14</div>
+</div>
+</body>
+</html>
