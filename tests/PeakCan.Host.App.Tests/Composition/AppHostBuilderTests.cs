@@ -19,6 +19,7 @@ using PeakCan.HIL.Core.Replay;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
+using PeakCan.Host.App.Tests.Collections;
 
 namespace PeakCan.Host.App.Tests.Composition;
 
@@ -27,6 +28,7 @@ namespace PeakCan.Host.App.Tests.Composition;
 /// with the right services registered as singletons. These tests are pure
 /// DI: they don't touch WPF windows, the SDK, or Serilog file sinks.
 /// </summary>
+[Collection(WpfAppTestCollection.Name)]
 public class AppHostBuilderTests
 {
     [Fact]
@@ -108,18 +110,22 @@ public class AppHostBuilderTests
     {
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
         {
-            return body();
+            return LeakedApplicationReset.RunWithTokenResources(body);
         }
         T result = default!;
         var ex = (Exception?)null;
         var thread = new Thread(() =>
         {
-            try { result = body(); }
+            try { result = LeakedApplicationReset.RunWithTokenResources(body); }
             catch (Exception e) { ex = e; }
         });
         thread.SetApartmentState(ApartmentState.STA);
+        // The STA body creates a WPF Application whose static singleton
+        // survives Shutdown() + thread exit — clean around the thread.
+        LeakedApplicationReset.CleanupLeakedApplication();
         thread.Start();
         thread.Join();
+        LeakedApplicationReset.CleanupLeakedApplication();
         if (ex is not null) throw ex;
         return result;
     }

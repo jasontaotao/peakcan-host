@@ -1,5 +1,8 @@
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Markup;
 
 namespace PeakCan.Host.App.Tests.Collections;
 
@@ -58,5 +61,77 @@ public static class LeakedApplicationReset
         typeof(Application).GetField("_appCreatedInThisAppDomain",
             BindingFlags.NonPublic | BindingFlags.Static)
             ?.SetValue(null, false);
+    }
+
+    /// <summary>
+    /// Merge the production Colors.xaml token dictionary into
+    /// <paramref name="app"/> (idempotent — skipped when a token key is
+    /// already present). Tests that construct tokenized views/windows
+    /// (<c>{StaticResource TextSecondary/RowAlternate/Accent/...}</c>)
+    /// without the real App.xaml must call this before constructing.
+    /// </summary>
+    public static void MergeTokenResources(Application app)
+    {
+        var merged = app.Resources.MergedDictionaries;
+        if (!merged.Any(rd => rd.Contains("TextSecondary")))
+        {
+            merged.Add(LoadTokenDictionary());
+        }
+    }
+
+    /// <summary>
+    /// Run <paramref name="body"/> on the CURRENT thread with a fresh WPF
+    /// Application whose resources include the production Colors.xaml token
+    /// dictionary, then shut the Application down. Must run on an STA thread
+    /// (the Application binds to that thread's dispatcher). Cleans any leaked
+    /// Application first so <c>new Application()</c> cannot trip the
+    /// AppDomain creation guard.
+    /// </summary>
+    public static void RunWithTokenResources(Action body)
+    {
+        CleanupLeakedApplication();
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        MergeTokenResources(app);
+        try
+        {
+            body();
+        }
+        finally
+        {
+            app.Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// Value-returning variant of <see cref="RunWithTokenResources(Action)"/>.
+    /// </summary>
+    public static T RunWithTokenResources<T>(Func<T> body)
+    {
+        CleanupLeakedApplication();
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        MergeTokenResources(app);
+        try
+        {
+            return body();
+        }
+        finally
+        {
+            app.Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// Load the production token dictionary (<c>Themes/Colors.xaml</c>) via
+    /// <c>XamlReader</c> — no Application dependency. Path convention matches
+    /// <c>ColorTokensTests</c> (5 levels up from <c>AppContext.BaseDirectory</c>).
+    /// </summary>
+    private static ResourceDictionary LoadTokenDictionary()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src", "PeakCan.Host.App", "Themes", "Colors.xaml");
+        var xaml = File.ReadAllText(Path.GetFullPath(path));
+        return (ResourceDictionary)XamlReader.Parse(xaml);
     }
 }

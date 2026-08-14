@@ -153,23 +153,31 @@ public class AppShellViewModelTests
     /// to MTA, which throws on every <c>FrameworkElement</c> ctor. Same
     /// pattern as <c>AppHostBuilderTests.RunSta</c>. Join uses a 30 s
     /// timeout so a stuck dispatcher never freezes the test runner.
+    /// Tokenized views (SignalView etc.) resolve
+    /// <c>{StaticResource}</c> from a fresh Application with the production
+    /// Colors.xaml merged, created on the STA thread via
+    /// <see cref="LeakedApplicationReset.RunWithTokenResources(Action)"/>.
     /// </summary>
     private static void RunSta(Action body)
     {
         if (System.Threading.Thread.CurrentThread.GetApartmentState() == System.Threading.ApartmentState.STA)
         {
-            body();
+            LeakedApplicationReset.RunWithTokenResources(body);
             return;
         }
         Exception? caught = null;
         var thread = new System.Threading.Thread(() =>
         {
-            try { body(); }
+            try { LeakedApplicationReset.RunWithTokenResources(body); }
             catch (Exception ex) { caught = ex; }
         });
         thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        // The STA body creates a WPF Application whose static singleton
+        // survives Shutdown() + thread exit — clean around the thread.
+        LeakedApplicationReset.CleanupLeakedApplication();
         thread.Start();
         thread.Join(TimeSpan.FromSeconds(30));
+        LeakedApplicationReset.CleanupLeakedApplication();
         if (thread.IsAlive)
         {
             throw new TimeoutException("STA thread did not complete within 30 s — likely a WPF dispatcher deadlock");

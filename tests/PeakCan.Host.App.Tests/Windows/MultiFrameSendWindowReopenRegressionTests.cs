@@ -77,6 +77,10 @@ public class MultiFrameSendWindowReopenRegressionTests
             try
             {
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                // P2-3/P2-5: AppShell.xaml resolves {StaticResource} tokens
+                // (Accent/CanvasBg/...) at parse time; merge the production
+                // Colors.xaml so a bare test Application can render it.
+                LeakedApplicationReset.MergeTokenResources(app);
                 var shell = new AppShell { DataContext = new ShellShim(host), WindowStateStore = store };
                 app.MainWindow = shell;
                 shell.Show();
