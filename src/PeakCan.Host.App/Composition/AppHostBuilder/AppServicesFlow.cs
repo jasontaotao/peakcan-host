@@ -7,8 +7,10 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.Devices;
 using PeakCan.HIL.Core.Path;
 using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Infrastructure.Peak;
 using Polly;
 
 namespace PeakCan.Host.App.Composition;
@@ -30,6 +32,8 @@ public partial class AppHostBuilder
         services.AddSingleton<WindowStateStore>();
         services.AddSingleton<WindowHostService>(sp =>
             new WindowHostService(sp.GetRequiredService<WindowStateStore>()));
+        // P1-1: device providers — one per supported CAN-box family (PEAK today).
+        services.AddSingleton<ICanDeviceProvider, PeakCanDeviceProvider>();
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
         // so its OnError path is observable in Release builds (Debug.WriteLine
         // was previously stripped). Production DI resolves the logger from

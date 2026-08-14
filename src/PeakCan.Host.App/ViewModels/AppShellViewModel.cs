@@ -16,7 +16,9 @@ using PeakCan.Host.App.Views;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Devices;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -51,15 +53,25 @@ namespace PeakCan.Host.App.ViewModels;
 /// context, not from the source generator.
 /// </para>
 /// </summary>
-public sealed partial class AppShellViewModel : ObservableObject
+public sealed partial class AppShellViewModel : ObservableObject, IConnectSettingsSink
 {
     /// <summary>
-    /// PEAK PCAN-USB FD first channel handle. Mirrors
-    /// <see cref="Composition.AppHostBuilder.PcanUsbFdFirstHandle"/>; kept
-    /// here as a local constant so the VM does not pull in App composition
-    /// for a single number.
+    /// P1-4: default channel handle — the first enumerated channel, else the
+    /// first device provider's default, else the PEAK first handle. Replaces
+    /// the previously hard-coded 0x51 so non-PEAK boxes supply their own.
     /// </summary>
-    private const ushort PcanUsbFdFirstHandle = 0x51;
+    private ushort DefaultHandle
+    {
+        get
+        {
+            if (AvailableChannels.Count > 0)
+            {
+                return AvailableChannels[0].Handle;
+            }
+            return _deviceProviders.FirstOrDefault()?.EnumerateDevices().FirstOrDefault()?.DefaultHandle
+                ?? PeakCanDeviceProvider.PcanUsbFdFirstHandle;
+        }
+    }
 
     /// <summary>窗口标题，含版本号（从 AssemblyInformationalVersion 读取）。</summary>
     public string WindowTitle { get; } = $"PeakCan Host v{Assembly.GetExecutingAssembly()
@@ -155,6 +167,7 @@ public sealed partial class AppShellViewModel : ObservableObject
     // Multi-frame / HIL) are cached by WindowHostService (DI singleton) — no
     // per-VM window cache fields remain.
     private readonly WindowHostService _windowHost;
+    private readonly IEnumerable<ICanDeviceProvider> _deviceProviders;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -288,6 +301,9 @@ public sealed partial class AppShellViewModel : ObservableObject
         EcuScriptEditorViewModel ecuScriptEditorViewModel,
         IChannelEnumerator? channelEnumerator = null,
         IConfiguration? configuration = null,
+        // P1-2: connection-settings device providers (optional — tests build
+        // the shell without them; production DI injects all providers).
+        IEnumerable<ICanDeviceProvider>? deviceProviders = null,
         // P0-3: window-lifecycle host. DI wires the singleton; the null
         // fallback keeps existing test ctor sites compiling (each test VM
         // then gets its own isolated host instance).
@@ -348,6 +364,8 @@ public sealed partial class AppShellViewModel : ObservableObject
         // P0-3: window lifecycle host (DI singleton in production; isolated
         // per-instance in tests via the null fallback).
         _windowHost = windowHost ?? new WindowHostService();
+        // P1-2: device providers for the connection-settings panel.
+        _deviceProviders = deviceProviders ?? Array.Empty<ICanDeviceProvider>();
         // v1.5.0 MINOR: persist SelectedHandle across app restarts.
         // Configuration is optional for backwards compatibility with
         // existing test fixtures that build the VM without DI. The
@@ -372,6 +390,43 @@ public sealed partial class AppShellViewModel : ObservableObject
     /// ShowTraceViewer / ShowHil / OpenMultiFrame commands. Public for the
     /// Window-menu binding; also visible to App.Tests.</summary>
     public WindowHostService WindowHost => _windowHost;
+
+    // --- P1-2: connection-settings sink (panel writes back through this) ---
+
+    void IConnectSettingsSink.ProbeChannels()
+    {
+        if (AvailableChannels.Count == 0 && EnumerateChannelsCommand.CanExecute(null))
+        {
+            EnumerateChannelsCommand.Execute(null);
+        }
+    }
+
+    void IConnectSettingsSink.ApplyConnection(ChannelInfo? channel, BaudRate baudRate, bool isFd)
+    {
+        SelectedChannel = channel;
+        SelectedBaudRate = baudRate;
+        IsFd = isFd;
+    }
+
+    void IConnectSettingsSink.Connect()
+    {
+        if (ConnectCommand.CanExecute(null))
+        {
+            ConnectCommand.Execute(null);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenConnectionSettings()
+    {
+        var vm = new ConnectionSettingsViewModel(_deviceProviders, this);
+        var win = new ConnectionSettingsWindow { DataContext = vm };
+        if (Application.Current?.MainWindow is { } owner && owner != win)
+        {
+            win.Owner = owner;
+        }
+        win.ShowDialog();
+    }
 
     // === v3.50.1 PATCH-A: Recording panel public location ===
     // Recording was a Trace Viewer Expander in v3.49 Q2 (conflated

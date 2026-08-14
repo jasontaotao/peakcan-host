@@ -97,25 +97,25 @@ public sealed partial class AppShellViewModel
                 SelectedChannel = null;
                 ChannelList = "No PEAK hardware detected";
                 StatusMessage = "No channels found";
-                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                LogProbeThrew(_logger, DefaultHandle,
                     new InvalidOperationException("No channels found"));
             }
         }
         else
         {
             // Legacy single-channel path (tests without IChannelEnumerator).
-            var result = _channelProbe.Probe(PcanUsbFdFirstHandle);
+            var result = _channelProbe.Probe(DefaultHandle);
             if (result.Ok)
             {
                 ChannelList = $"USB1 ({SelectedBaudRate.Name})";
                 StatusMessage = result.Message;
-                LogProbeOk(_logger, PcanUsbFdFirstHandle);
+                LogProbeOk(_logger, DefaultHandle);
             }
             else
             {
                 ChannelList = $"No PEAK hardware detected: {result.Message}";
                 StatusMessage = result.Message;
-                LogProbeThrew(_logger, PcanUsbFdFirstHandle,
+                LogProbeThrew(_logger, DefaultHandle,
                     new InvalidOperationException(result.Message));
             }
         }
@@ -133,7 +133,7 @@ public sealed partial class AppShellViewModel
     private async Task ConnectAsync()
     {
         // v0.4.0: use SelectedChannel handle when available.
-        var handle = SelectedChannel?.Handle ?? PcanUsbFdFirstHandle;
+        var handle = SelectedChannel?.Handle ?? DefaultHandle;
         ConnectionState = "Connecting...";
         StatusMessage = $"Connecting to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
         var channel = _channelFactory.Create(new ChannelId(handle));
@@ -225,7 +225,7 @@ public sealed partial class AppShellViewModel
             IsConnected = false;
             ConnectionState = "Disconnected";
             StatusMessage = "Disconnected";
-            LogDisconnectOk(_logger, PcanUsbFdFirstHandle);
+            LogDisconnectOk(_logger, DefaultHandle);
         }
         catch (Exception ex)
         {
@@ -245,7 +245,7 @@ public sealed partial class AppShellViewModel
             IsConnected = false;
             ConnectionState = "Disconnected";
             StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
-            LogDisconnectThrew(_logger, PcanUsbFdFirstHandle, ex);
+            LogDisconnectThrew(_logger, DefaultHandle, ex);
         }
         finally
         {

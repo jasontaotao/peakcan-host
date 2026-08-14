@@ -342,6 +342,8 @@ public partial class AppHostBuilder
             sp.GetRequiredService<ViewModels.EcuScriptEditorViewModel>(),
             sp.GetService<PeakCan.HIL.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>(),
+            // P1-2: all device providers for the connection-settings panel.
+            deviceProviders: sp.GetServices<PeakCan.HIL.Core.Devices.ICanDeviceProvider>(),
             // P0-3: shared secondary-window host (DI singleton).
             windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
 
