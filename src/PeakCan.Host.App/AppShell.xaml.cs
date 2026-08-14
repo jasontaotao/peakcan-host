@@ -30,6 +30,11 @@ public partial class AppShell : Window
     /// main shell's window-geometry persistence.</summary>
     public WindowStateStore? WindowStateStore { get; set; }
 
+    /// <summary>P2-6: injected at startup by AppHostBuilder — persists the
+    /// AppShell layout (right-panel width + main/right tab selection) to
+    /// <c>%APPDATA%/PeakCan.Host/layout.json</c>.</summary>
+    public LayoutStateStore? LayoutStateStore { get; set; }
+
     public AppShell()
     {
         InitializeComponent();
@@ -46,6 +51,10 @@ public partial class AppShell : Window
         {
             WindowHostService.ApplyStoredState(this, WindowKey.AppShell, WindowStateStore);
         }
+        // P2-6: restore persisted layout (right-panel width + tab selection)
+        // before the default tab renders. No-op without a LayoutStateStore or
+        // a real AppShellViewModel DataContext.
+        RestoreLayout();
         if (DataContext is AppShellViewModel shell)
         {
             shell.ShowTraceCommand.Execute(null);
@@ -57,6 +66,45 @@ public partial class AppShell : Window
         if (WindowStateStore is not null)
         {
             WindowHostService.SaveState(this, WindowKey.AppShell, WindowStateStore);
+        }
+        // P2-6: persist the current layout before the window closes.
+        SaveLayout();
+    }
+
+    /// <summary>P2-6: apply the persisted layout (right-panel width + tab
+    /// selection) onto the shell. Silent no-op when the store is null, the
+    /// DataContext is not a real <see cref="AppShellViewModel"/>, or no
+    /// state has been saved yet.</summary>
+    private void RestoreLayout()
+    {
+        if (LayoutStateStore is null || DataContext is not AppShellViewModel shell) return;
+        var s = LayoutStateStore.Get();
+        if (s is null) return;
+        if (s.RightPanelWidth > 0) RightPanelColumn.Width = new GridLength(s.RightPanelWidth);
+        shell.SelectedMainTabIndex = s.SelectedMainTabIndex;
+        shell.SelectedRightTabIndex = s.SelectedRightTabIndex;
+    }
+
+    /// <summary>P2-6: capture the current layout and persist it. Silent
+    /// no-op when the store is null or the DataContext is not a real
+    /// <see cref="AppShellViewModel"/>.</summary>
+    private void SaveLayout()
+    {
+        if (LayoutStateStore is null || DataContext is not AppShellViewModel shell) return;
+        LayoutStateStore.Set(new LayoutStateDto(
+            RightPanelColumn.Width.Value, shell.SelectedMainTabIndex, shell.SelectedRightTabIndex));
+    }
+
+    /// <summary>P2-6 测试挂钩：从测试代码注入布局（真实操作由用户拖
+    /// splitter / 切 tab 完成，本方法让 STA 测试直接驱动保存路径）。
+    /// Visible to PeakCan.Host.App.Tests via InternalsVisibleTo.</summary>
+    internal void TestSetLayout(double rightPanelWidth, int mainTab, int rightTab)
+    {
+        RightPanelColumn.Width = new GridLength(rightPanelWidth);
+        if (DataContext is AppShellViewModel shell)
+        {
+            shell.SelectedMainTabIndex = mainTab;
+            shell.SelectedRightTabIndex = rightTab;
         }
     }
 

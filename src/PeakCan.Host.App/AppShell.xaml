@@ -147,7 +147,9 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="3*" MinWidth="400" />
                 <ColumnDefinition Width="5" />
-                <ColumnDefinition Width="300" MinWidth="220" />
+                <!-- P2-6: named so AppShell.SaveLayout/RestoreLayout can read/write
+                     the splitter position (RightPanelColumn.Width). -->
+                <ColumnDefinition x:Name="RightPanelColumn" Width="300" MinWidth="220" />
             </Grid.ColumnDefinitions>
             <TabControl Grid.Column="0" ItemsSource="{Binding MainTabs}"
                         SelectedIndex="{Binding SelectedMainTabIndex}">
