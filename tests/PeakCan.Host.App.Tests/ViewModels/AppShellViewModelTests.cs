@@ -183,7 +183,8 @@ public class AppShellViewModelTests
         var vm = NewVm();
         vm.ConnectionState.Should().Be("Disconnected");
         vm.IsConnected.Should().BeFalse();
-        vm.StatusMessage.Should().Be("Ready");
+        // P0-6: 状态栏初始文案中文化。
+        vm.StatusMessage.Should().Be("就绪");
     }
 
     [Fact]

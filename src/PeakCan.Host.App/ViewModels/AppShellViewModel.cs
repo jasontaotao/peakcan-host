@@ -181,8 +181,11 @@ public sealed partial class AppShellViewModel : ObservableObject
     private ChannelInfo? _selectedChannel;
 
     [ObservableProperty]
-    private string _statusMessage = "Ready";
+    private string _statusMessage = "就绪";
 
+    // P0-6 范围注：ConnectionState 的动态值（ConnectAsync/DisconnectAsync 里的
+    // "Connected to ..." 等）仍为英文，留 Phase 1.6 统一中文化 —— 故初始值
+    // 也保留 "Disconnected" 避免「初始中文、操作后英文」的不一致。
     [ObservableProperty]
     private string _connectionState = "Disconnected";
 
@@ -365,10 +368,10 @@ public sealed partial class AppShellViewModel : ObservableObject
         }
     }
 
-    /// <summary>P0-3 test seam: the window-lifecycle host backing the
-    /// ShowUds / ShowTraceViewer / ShowHil / OpenMultiFrame commands.
-    /// Visible to App.Tests via InternalsVisibleTo.</summary>
-    internal WindowHostService WindowHost => _windowHost;
+    /// <summary>The window-lifecycle host backing the ShowUds /
+    /// ShowTraceViewer / ShowHil / OpenMultiFrame commands. Public for the
+    /// Window-menu binding; also visible to App.Tests.</summary>
+    public WindowHostService WindowHost => _windowHost;
 
     // === v3.50.1 PATCH-A: Recording panel public location ===
     // Recording was a Trace Viewer Expander in v3.49 Q2 (conflated

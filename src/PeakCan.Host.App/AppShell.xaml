@@ -9,12 +9,12 @@
         Title="{Binding WindowTitle}" Height="720" Width="1280">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_File">
-                <MenuItem Header="Open DBC..." Command="{Binding OpenDbcCommand}" />
+            <MenuItem Header="文件(_F)">
+                <MenuItem Header="打开 DBC(_D)..." Command="{Binding OpenDbcCommand}" />
                 <Separator />
-                <MenuItem Header="Open _Session..." Command="{Binding OpenSessionCommand}" InputGestureText="Ctrl+O" />
-                <MenuItem Header="_Save Session..." Command="{Binding SaveSessionCommand}" InputGestureText="Ctrl+S" />
-                <MenuItem Header="Open _Recent" ItemsSource="{Binding RecentSessionEntries}">
+                <MenuItem Header="打开会话(_O)..." Command="{Binding OpenSessionCommand}" InputGestureText="Ctrl+O" />
+                <MenuItem Header="保存会话(_S)..." Command="{Binding SaveSessionCommand}" InputGestureText="Ctrl+S" />
+                <MenuItem Header="最近打开(_R)" ItemsSource="{Binding RecentSessionEntries}">
                     <MenuItem.ItemTemplate>
                         <DataTemplate>
                             <MenuItem Header="{Binding Label}"
@@ -24,30 +24,42 @@
                         </DataTemplate>
                     </MenuItem.ItemTemplate>
                 </MenuItem>
-                <MenuItem Header="_Clear Recent" Command="{Binding ClearRecentSessionsCommand}" />
+                <MenuItem Header="清空最近(_C)" Command="{Binding ClearRecentSessionsCommand}" />
                 <Separator />
-                <MenuItem Header="Exit" Click="OnExit" />
+                <MenuItem Header="退出(_X)" Click="OnExit" />
             </MenuItem>
-            <MenuItem Header="_View">
-                <MenuItem Header="Trace" Command="{Binding ShowTraceCommand}" />
+            <MenuItem Header="视图(_V)">
+                <MenuItem Header="追踪(_T)" Command="{Binding ShowTraceCommand}" />
                 <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" />
-                <MenuItem Header="Send" Command="{Binding ShowSendCommand}" />
-                <MenuItem Header="Signals" Command="{Binding ShowSignalsCommand}" />
-                <MenuItem Header="Stats" Command="{Binding ShowStatsCommand}" />
-                <MenuItem Header="Script" Command="{Binding ShowScriptCommand}" />
-                <MenuItem Header="UDS" Command="{Binding ShowUdsCommand}" />
-                <MenuItem Header="HIL" Command="{Binding ShowHilCommand}" />
-                <MenuItem Header="Replay" Command="{Binding ShowReplayCommand}" />
-                <MenuItem Header="Trace Viewer…" Command="{Binding ShowTraceViewerCommand}" />
-                <MenuItem Header="ECU Script Editor" Command="{Binding ShowEcuScriptEditorCommand}" />
-                <MenuItem Header="Multi-frame..." Command="{Binding OpenMultiFrameCommand}" />
+                <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" />
+                <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" />
+                <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" />
+                <MenuItem Header="脚本(_C)" Command="{Binding ShowScriptCommand}" />
+                <MenuItem Header="UDS 诊断(_U)" Command="{Binding ShowUdsCommand}" />
+                <MenuItem Header="HIL 测试(_I)" Command="{Binding ShowHilCommand}" />
+                <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" />
+                <MenuItem Header="追踪查看器(_V)…" Command="{Binding ShowTraceViewerCommand}" />
+                <MenuItem Header="ECU 脚本编辑器(_E)" Command="{Binding ShowEcuScriptEditorCommand}" />
+                <MenuItem Header="批量发送(_M)..." Command="{Binding OpenMultiFrameCommand}" />
+            </MenuItem>
+            <!-- P0-4: Window 菜单 —— 列出已打开的二级窗口，点击唤回/打开。
+                 ItemsSource 绑 WindowHostService.OpenWindows（WindowEntry），
+                 每项 Header=DisplayName + Checked=IsActive + Command=ActivateCommand。 -->
+            <MenuItem Header="窗口(_W)" ItemsSource="{Binding WindowHost.OpenWindows}">
+                <MenuItem.ItemContainerStyle>
+                    <Style TargetType="MenuItem">
+                        <Setter Property="Header" Value="{Binding DisplayName}" />
+                        <Setter Property="IsChecked" Value="{Binding IsActive}" />
+                        <Setter Property="Command" Value="{Binding ActivateCommand}" />
+                    </Style>
+                </MenuItem.ItemContainerStyle>
             </MenuItem>
         </Menu>
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
                 <Separator />
-                <Button Content="Probe" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
+                <Button Content="探测" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
                 <!-- v0.4.0: channel selector (visible after probe) -->
                 <ComboBox ItemsSource="{Binding AvailableChannels}"
                           SelectedItem="{Binding SelectedChannel}"
@@ -63,8 +75,8 @@
                           IsEnabled="{Binding IsDisconnected}"
                           Width="120" VerticalAlignment="Center" />
                 <Separator />
-                <Button Content="Connect" Command="{Binding ConnectCommand}" Padding="6,2" />
-                <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Padding="6,2" />
+                <Button Content="连接" Command="{Binding ConnectCommand}" Padding="6,2" />
+                <Button Content="断开" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />
                 <!-- v3.50.1 PATCH-A: Recording moved to a public AppShell
                      toolbar location. Replaces v3.49 Q2's Trace Viewer
@@ -72,10 +84,10 @@
                      v3.50.1 first-draft tab. Permanent button + docked
                      panel below the content area — accessible from every
                      tab without leaving the active surface. -->
-                <ToggleButton Content="● Record"
+                <ToggleButton Content="● 录制"
                               IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
                               Padding="6,2"
-                              ToolTip="Show / hide the Recording panel (Ctrl+R)" />
+                              ToolTip="显示/隐藏录制面板 (Ctrl+R)" />
                 <Separator />
                 <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" />
             </ToolBar>
@@ -94,7 +106,7 @@
              always present (collapsed = 0 vertical space); visibility
              and height collapse automatically. -->
         <Expander DockPanel.Dock="Bottom"
-                  Header="Recording"
+                  Header="录制"
                   IsExpanded="{Binding IsRecordingPanelOpen}">
             <views:RecordView DataContext="{Binding RecordingPanel}" />
         </Expander>
