@@ -36,7 +36,7 @@
                  the toolbar; full path in tooltip. B1 fix for the
                  "LoadedDbcPath always empty" bug. -->
             <TextBlock VerticalAlignment="Center" Margin="8,0,4,0"
-                       Foreground="Gray"
+                       Foreground="{StaticResource TextSecondary}"
                        Text="{Binding LoadedDbcPathDisplay}"
                        ToolTip="{Binding LoadedDbcPath}" />
             <!-- v3.13.0 PATCH F3: removed "Load DBC…" toolbar button. DbcView
@@ -113,7 +113,7 @@
              swatch (the source's palette color), the display name, and an
              ✕ button to unload the source via RemoveTraceCommand. Hidden
              when no sources are loaded. -->
-        <Border DockPanel.Dock="Top" Background="#F4F4F4" Padding="6,4"
+        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceSubtle}" Padding="6,4"
                 Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}">
             <ItemsControl ItemsSource="{Binding Sources}">
                 <ItemsControl.ItemsPanel>
@@ -123,7 +123,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type trace:TraceSource}">
-                        <Border Background="White" BorderBrush="#CCC" BorderThickness="1"
+                        <Border Background="White" BorderBrush="{StaticResource Border}" BorderThickness="1"
                                 CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
                             <StackPanel Orientation="Horizontal">
                                 <!-- v3.11.7 PATCH: v3.11.6 PATCH shipped a MultiBinding
@@ -173,14 +173,14 @@
         <!-- Status bar -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Vertical" Margin="4">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{Binding StatusMessage}" Foreground="Gray" />
+                <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondary}" />
                 <!-- v3.62.0: 绿蓝锚点时间差（ms） -->
-                <TextBlock Text="{Binding AnchorDeltaText}" Foreground="#0066CC"
+                <TextBlock Text="{Binding AnchorDeltaText}" Foreground="{StaticResource Accent}"
                            FontWeight="SemiBold" Margin="16,0,0,0" />
             </StackPanel>
             <!-- v3.9.1 PATCH Bug #2: bind to VM's ErrorMessage (parse failure
                  detail). Red text, bold to distinguish from status line. -->
-            <TextBlock Text="{Binding ErrorMessage}" Foreground="#D62728"
+            <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource Error}"
                        FontWeight="SemiBold" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -209,7 +209,7 @@
                 <ItemsControl ItemsSource="{Binding ChartViewModel.Series}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
+                            <Border BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1" Padding="0,4">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="8,0">
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
@@ -246,7 +246,7 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#CCC" />
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{StaticResource BorderSubtle}" />
 
             <!-- Right: side panel with Watch List + Sampling Table tabs.
                  v3.50.4 PATCH: was two separate right-side panels
@@ -257,7 +257,7 @@
                  below ~1000px. TabControl keeps both panels docked on
                  the right, scrollbars always reachable via window's
                  right edge. -->
-            <Border Grid.Column="2" BorderBrush="#DDD" BorderThickness="1,0,0,0">
+            <Border Grid.Column="2" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,0,0">
                 <TabControl>
                     <!-- Tab 1: Watch List (v3.15.0 MINOR source of truth).
                          Always visible regardless of window size. -->

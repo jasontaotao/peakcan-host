@@ -5,6 +5,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="380"
              d:DataContext="{d:DesignInstance Type=vm:TraceViewerViewModel}">
@@ -23,10 +24,13 @@
         <!-- Header -->
         <DockPanel Grid.Row="0" Margin="8,8,8,4">
             <TextBlock Text="AI Chat" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <Button Content="⚙️" DockPanel.Dock="Right" Margin="4,0,0,0"
+            <Button DockPanel.Dock="Right" Margin="4,0,0,0"
                     Command="{Binding ToggleChatSettingsCommand}" Padding="6,2"
                     ToolTip="API Key 设置"
-                    Background="Transparent" BorderThickness="0" />
+                    Background="Transparent" BorderThickness="0">
+                <TextBlock Text="{x:Static icons:FluentIconGlyphs.Settings}"
+                           FontFamily="Segoe Fluent Icons" />
+            </Button>
             <Button Content="导出" DockPanel.Dock="Right" Margin="4,0,0,0"
                     Command="{Binding ExportChatCommand}" Padding="8,2" />
             <Button Content="清空" DockPanel.Dock="Right" Margin="4,0,0,0"
@@ -38,8 +42,8 @@
         </DockPanel>
 
         <!-- Settings panel (多厂商 API Key 管理) -->
-        <Border Grid.Row="1" Margin="8,0,8,4" Padding="8" BorderBrush="#DDD" BorderThickness="1"
-                Background="#FAFAFA" CornerRadius="4"
+        <Border Grid.Row="1" Margin="8,0,8,4" Padding="8" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                Background="{StaticResource SurfaceSubtle}" CornerRadius="4"
                 Visibility="{Binding ShowChatSettings, Converter={StaticResource BoolToVis}}">
             <StackPanel>
                 <TextBlock Text="API Key 设置" FontWeight="SemiBold" Margin="0,0,0,6" />
@@ -95,7 +99,7 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Text="{Binding ChatConnectionStatus}" Foreground="#666" FontSize="12"
+                <TextBlock Text="{Binding ChatConnectionStatus}" Foreground="{StaticResource TextSecondary}" FontSize="12"
                            Margin="0,4,0,0" TextWrapping="Wrap"/>
 
                 <!-- 已保存 Key 列表 -->
@@ -117,8 +121,11 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button Content="切换" Command="{Binding DataContext.SwitchChatKeyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}" Padding="6,1" Margin="0,0,4,0"/>
-                                    <Button Content="✕" Command="{Binding DataContext.DeleteChatKeyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}" Padding="6,1" Foreground="Red"/>
+                                    <Button Command="{Binding DataContext.DeleteChatKeyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" Padding="6,1" Foreground="Red">
+                                        <TextBlock Text="{x:Static icons:FluentIconGlyphs.Dismiss}"
+                                                   FontFamily="Segoe Fluent Icons" />
+                                    </Button>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
@@ -133,30 +140,47 @@
                 <!-- Empty state welcome -->
                 <StackPanel Visibility="{Binding HasNoMessages, Converter={StaticResource BoolToVis}}"
                             VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="🤖 欢迎使用 AI 诊断助手"
-                               FontSize="16" FontWeight="SemiBold"
-                               TextAlignment="Center" Margin="0,0,0,16" />
+                    <TextBlock FontSize="16" FontWeight="SemiBold"
+                               TextAlignment="Center" Margin="0,0,0,16">
+                        <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Bot}"/>
+                        <Run Text=" 欢迎使用 AI 诊断助手"/>
+                    </TextBlock>
                     <TextBlock Text="试试这些问题："
-                               FontSize="13" Foreground="Gray"
+                               FontSize="13" Foreground="{StaticResource TextSecondary}"
                                TextAlignment="Center" Margin="0,0,0,12" />
-                    <Button Content="🔍 帮我分析这个 trace"
-                            Command="{Binding SendSuggestionCommand}"
+                    <Button Command="{Binding SendSuggestionCommand}"
                             CommandParameter="帮我分析这个 trace"
                             Padding="16,8" Margin="0,0,0,6"
                             HorizontalAlignment="Stretch"
-                            ToolTip="分析当前 trace 中的所有信号，查找异常" />
-                    <Button Content="🔍 搜索欠压相关信号"
-                            Command="{Binding SendSuggestionCommand}"
+                            ToolTip="分析当前 trace 中的所有信号，查找异常">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{x:Static icons:FluentIconGlyphs.Search}"
+                                       FontFamily="Segoe Fluent Icons" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="帮我分析这个 trace" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding SendSuggestionCommand}"
                             CommandParameter="搜索欠压相关信号，看看有没有电压异常"
                             Padding="16,8" Margin="0,0,0,6"
                             HorizontalAlignment="Stretch"
-                            ToolTip="搜索 DBC 中与欠压/电压/故障相关的信号" />
-                    <Button Content="🔍 看看有没有异常信号"
-                            Command="{Binding SendSuggestionCommand}"
+                            ToolTip="搜索 DBC 中与欠压/电压/故障相关的信号">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{x:Static icons:FluentIconGlyphs.Search}"
+                                       FontFamily="Segoe Fluent Icons" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="搜索欠压相关信号" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding SendSuggestionCommand}"
                             CommandParameter="扫描当前 trace 中的异常信号"
                             Padding="16,8" Margin="0,0,0,6"
                             HorizontalAlignment="Stretch"
-                            ToolTip="自动扫描整个 trace 找出行为异常的信号" />
+                            ToolTip="自动扫描整个 trace 找出行为异常的信号">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{x:Static icons:FluentIconGlyphs.Search}"
+                                       FontFamily="Segoe Fluent Icons" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="看看有没有异常信号" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <ItemsControl ItemsSource="{Binding ChatMessages}"
@@ -182,7 +206,7 @@
 
                             <!-- assistant bubble: left-aligned -->
                             <Border HorizontalAlignment="Left"
-                                    Background="#EEEEEE" CornerRadius="8" Padding="8,5"
+                                    Background="{StaticResource SurfaceSubtle}" CornerRadius="8" Padding="8,5"
                                     MaxWidth="300"
                                     Visibility="{Binding IsAssistant, Converter={StaticResource BoolToVis}}">
                                 <StackPanel>
@@ -190,15 +214,21 @@
                                              IsReadOnly="True" IsTabStop="False"
                                              Background="Transparent" BorderThickness="0"
                                              Padding="0" />
-                                    <TextBlock Text="⚡" FontSize="11"
+                                    <TextBlock FontFamily="Segoe Fluent Icons" FontSize="11"
+                                               Text="{x:Static icons:FluentIconGlyphs.Lightning}"
                                                Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVis}}" />
                                 </StackPanel>
                             </Border>
 
                             <!-- tool log: collapsible -->
                             <Expander Visibility="{Binding IsToolLog, Converter={StaticResource BoolToVis}}"
-                                      Header="{Binding Tools.Count, StringFormat='🔍 执行了 {0} 个工具 ▼'}"
-                                      Margin="0,2" BorderThickness="0" Background="#FAFAFA">
+                                      Margin="0,2" BorderThickness="0" Background="{StaticResource SurfaceSubtle}">
+                                <Expander.Header>
+                                    <TextBlock>
+                                        <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Search}"/>
+                                        <Run Text="{Binding Tools.Count, StringFormat=' 执行了 {0} 个工具 ▼'}"/>
+                                    </TextBlock>
+                                </Expander.Header>
                                 <ItemsControl ItemsSource="{Binding Tools}">
                                     <ItemsControl.ItemContainerStyle>
                                         <Style TargetType="ContentPresenter">
@@ -209,10 +239,10 @@
                                         <DataTemplate>
                                             <StackPanel Margin="0,2">
                                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                                           Foreground="#1565C0" />
+                                                           Foreground="{StaticResource Accent}" />
                                                 <TextBox Text="{Binding Result}" TextWrapping="Wrap"
                                                          FontFamily="Consolas, Courier New, monospace"
-                                                         FontSize="11" Foreground="Gray"
+                                                         FontSize="11" Foreground="{StaticResource TextSecondary}"
                                                          IsReadOnly="True" IsTabStop="False"
                                                          Background="Transparent" BorderThickness="0"
                                                          Padding="0" />
