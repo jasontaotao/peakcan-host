@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PeakCan.Host.App"
         xmlns:views="clr-namespace:PeakCan.Host.App.Views"
+        xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Height="720" Width="1280">
     <DockPanel>
@@ -59,19 +60,59 @@
             <ToolBar>
                 <!-- P1-3: 硬件连接配置收敛 —— 探测/通道/波特率/CAN FD 控件移入
                      连接设置面板（⚙ 打开，descriptor 驱动）。工具栏只留入口 + 状态。 -->
-                <Button Content="⚙ 设备设置" Command="{Binding OpenConnectionSettingsCommand}" Padding="6,2" />
+                <Button Command="{Binding OpenConnectionSettingsCommand}" Padding="6,2">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{x:Static icons:FluentIconGlyphs.Settings}"
+                                   FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                        <TextBlock Text="设备设置" />
+                    </StackPanel>
+                </Button>
                 <Separator />
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
                 <Separator />
-                <Button Content="连接" Command="{Binding ConnectCommand}" Padding="6,2" />
+                <Button Content="连接" Command="{Binding ConnectCommand}" Padding="6,2">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="{StaticResource Accent}" />
+                            <Setter Property="Foreground" Value="{StaticResource TextOnAccent}" />
+                            <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                              Margin="{TemplateBinding Padding}" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}" />
+                                            </Trigger>
+                                            <Trigger Property="IsPressed" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentPressed}" />
+                                            </Trigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource TextDisabled}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Content="断开" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />
-                <ToggleButton Content="● 录制"
-                              IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
+                <ToggleButton IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
                               Padding="6,2"
-                              ToolTip="显示/隐藏录制面板 (Ctrl+R)" />
+                              ToolTip="显示/隐藏录制面板 (Ctrl+R)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{x:Static icons:FluentIconGlyphs.Record}"
+                                   FontFamily="Segoe Fluent Icons" Foreground="{StaticResource Error}" Margin="0,0,4,0" />
+                        <TextBlock Text="录制" />
+                    </StackPanel>
+                </ToggleButton>
                 <Separator />
-                <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" Foreground="#1A7F37" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" Foreground="{StaticResource Ok}" FontWeight="SemiBold" />
             </ToolBar>
         </ToolBarTray>
         <StatusBar DockPanel.Dock="Bottom">
