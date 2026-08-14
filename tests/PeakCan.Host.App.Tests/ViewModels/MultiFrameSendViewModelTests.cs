@@ -108,6 +108,18 @@ public sealed class MultiFrameSendViewModelTests
     }
 
     [Fact]
+    public void Setting_IsConcurrent_Directly_Updates_IsSequential_Mirror()
+    {
+        // LibraryFlow.cs:50 sets IsConcurrent directly when loading a saved
+        // sequence; the mirror must follow so the Sequential radio re-syncs.
+        var vm = NewVm(out _, out _);
+        vm.IsConcurrent = false;  // e.g. load a Sequential saved sequence
+        vm.IsSequential.Should().BeTrue();
+        vm.IsConcurrent = true;
+        vm.IsSequential.Should().BeFalse();
+    }
+
+    [Fact]
     public void AddRowCommand_AppendsNewRow_AndSelectsIt()
     {
         var vm = NewVm(out _, out _);

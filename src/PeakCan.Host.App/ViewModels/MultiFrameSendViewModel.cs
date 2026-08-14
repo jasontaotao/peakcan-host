@@ -82,6 +82,9 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     /// 经反向转换器双向绑定同一源属性时，Group 的 SetCurrentValue 会把对方
     /// ConvertBack 结果写回源，形成无限振荡导致 StackOverflow（修复前 XAML 的
     /// Sequential 用 InverseBool 绑 IsConcurrent，正是重开窗口时崩溃的根因）。
+    /// <para><b>setter 只接受 true</b>：false 是设计上忽略的（组互斥回写），
+    /// 调用方要"切到 Concurrent"请直接设 <see cref="IsConcurrent"/>，不要
+    /// 用 <c>IsSequential = false</c>。</para>
     /// </summary>
     public bool IsSequential
     {

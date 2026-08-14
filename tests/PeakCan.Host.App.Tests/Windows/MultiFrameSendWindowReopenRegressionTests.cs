@@ -112,8 +112,14 @@ public class MultiFrameSendWindowReopenRegressionTests
             }
         });
         t.SetApartmentState(ApartmentState.STA);
+        // LeakedApplicationReset must run around the STA body: this test creates
+        // a real WPF Application, whose static singleton survives Shutdown() and
+        // thread exit — a leak that has caused real parallel-suite flakes (see
+        // Collections/LeakedApplicationReset.cs and ConverterSmokeTests).
+        LeakedApplicationReset.CleanupLeakedApplication();
         t.Start();
         t.Join(TimeSpan.FromSeconds(60));
+        LeakedApplicationReset.CleanupLeakedApplication();
         if (t.IsAlive)
         {
             throw new TimeoutException("STA thread did not complete — dispatcher deadlock or StackOverflow");
