@@ -63,7 +63,7 @@
 
         <!-- CodeMirror Editor -->
         <Grid Grid.Row="1" Margin="4">
-            <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+            <Border BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="4">
                 <wv2:WebView2 x:Name="EditorWebView"
                               CoreWebView2InitializationCompleted="EditorWebView_CoreWebView2InitializationCompleted" />
             </Border>
@@ -112,7 +112,7 @@
             </DockPanel>
 
             <Border Grid.Row="1"
-                    BorderBrush="Gray" BorderThickness="1" CornerRadius="4"
+                    BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="4"
                     Background="{StaticResource ConsoleBg}">
                 <ListBox ItemsSource="{Binding OutputLines}"
                          Background="Transparent"
