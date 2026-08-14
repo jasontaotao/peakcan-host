@@ -96,7 +96,7 @@
                                                 <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
                                             </Trigger>
                                             <Trigger Property="IsEnabled" Value="False">
-                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource TextDisabled}" />
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource CanvasBg}" />
                                                 <Setter TargetName="Content" Property="TextElement.Foreground" Value="{StaticResource TextDisabled}" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
