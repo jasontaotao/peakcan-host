@@ -11,6 +11,7 @@ using NSubstitute;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
@@ -102,8 +103,17 @@ public class AppHostBuilderTests
         // using a private thread; the alternative is a separate test
         // fixture. For the MVP we wrap the resolution in an STA thread
         // so the test stays a plain [Fact].
+        // P2-6 review r1: the DI factory must inject BOTH persistence stores
+        // (WindowStateStore P0-5 + LayoutStateStore P2-6). A regression that
+        // bypasses the factory (e.g. `new AppShell { DataContext = ... }` in
+        // App.OnStartup) leaves both null in production and silently kills
+        // restore-on-startup — this assertion pins the wiring.
         var appShell = RunSta(() => new AppHostBuilder().Build().Services.GetService<AppShell>());
         appShell.Should().NotBeNull();
+        appShell!.WindowStateStore.Should().NotBeNull(
+            "AppShell must receive WindowStateStore from the DI factory (P0-5)");
+        appShell.LayoutStateStore.Should().NotBeNull(
+            "AppShell must receive LayoutStateStore from the DI factory (P2-6)");
     }
 
     private static T RunSta<T>(Func<T> body)

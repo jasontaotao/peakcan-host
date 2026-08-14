@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.IO;
-using System.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -119,8 +118,9 @@ public partial class AppHostBuilder
 
         // P2-6: AppShell 布局持久化 store（右栏宽 + 主右 tab 选中项）。镜像
         // WindowStateStore 的单例接线（AppServicesFlow.cs 的
-        // AddSingleton<WindowStateStore>）。实际注入到 AppShell 构造处见
-        // Build() 末尾 RegisterWindowAndHostedServices 之后的工厂重注册。
+        // AddSingleton<WindowStateStore>）。注入到 AppShell 构造处在
+        // WindowAndHostedServicesFlow.cs 的 AppShell 工厂（App.OnStartup 经
+        // DI 解析 AppShell，两个 store 都会注入；LoadAsync 也在工厂里 fire-and-forget）。
         builder.Services.AddSingleton<LayoutStateStore>();
 
         // Phase 1 重构: 绑定 Llm 配置到 LlmOptions。
@@ -360,25 +360,6 @@ public partial class AppHostBuilder
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);
-
-        // P2-6: AppShell 布局持久化接线。WindowAndHostedServicesFlow.cs 的
-        // 原始 AppShell 工厂先于 LayoutStateStore 存在（P0-5 时只有 WindowStateStore）。
-        // 这里重注册工厂（MS DI 单次解析取最后一次注册 —— AppHostBuilderTests
-        // 的 GetService<AppShell> 走此工厂），把 LayoutStateStore 镜像 WindowStateStore
-        // 的方式注入，并在构造时 fire-and-forget 载入上次保存的布局。
-        // LayoutStateStore.LoadAsync 是同步 body（返回已完成 Task），调用即同步
-        // 填好 _state —— OnSourceInitialized → RestoreLayout() 一定能读到。
-        builder.Services.AddSingleton<AppShell>(sp =>
-        {
-            var layoutStore = sp.GetRequiredService<LayoutStateStore>();
-            _ = layoutStore.LoadAsync(CancellationToken.None);
-            return new AppShell
-            {
-                DataContext = sp.GetRequiredService<AppShellViewModel>(),
-                WindowStateStore = sp.GetRequiredService<WindowStateStore>(),
-                LayoutStateStore = layoutStore,
-            };
-        });
 
         return builder.Build();
     }

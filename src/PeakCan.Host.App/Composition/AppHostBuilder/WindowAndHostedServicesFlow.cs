@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
@@ -21,11 +22,30 @@ public partial class AppHostBuilder
         // factory that the host resolves on demand; production callers must
         // resolve AppShell from the STA thread (App.OnStartup qualifies).
         // The factory wires the VM via DataContext so XAML bindings resolve.
-        services.AddSingleton<AppShell>(sp => new AppShell
+        //
+        // P2-6 review r1: this factory is the SINGLE AppShell registration —
+        // App.OnStartup resolves AppShell through it (not `new AppShell`),
+        // so both persistence stores are injected in production.
+        services.AddSingleton<AppShell>(sp =>
         {
-            DataContext = sp.GetRequiredService<AppShellViewModel>(),
-            // P0-5: window-geometry persistence for the main shell.
-            WindowStateStore = sp.GetRequiredService<WindowStateStore>()
+            var windowStateStore = sp.GetRequiredService<WindowStateStore>();
+            var layoutStore = sp.GetRequiredService<LayoutStateStore>();
+            // P0-5/P2-6: fire-and-forget load of persisted geometry + layout.
+            // Both LoadAsync methods have a synchronous body (they read the
+            // file and return a completed Task), so _state is populated
+            // before the shell's SourceInitialized → ApplyStoredState /
+            // RestoreLayout runs. Fires once per host because AppShell and
+            // both stores are singletons.
+            _ = windowStateStore.LoadAsync(CancellationToken.None);
+            _ = layoutStore.LoadAsync(CancellationToken.None);
+            return new AppShell
+            {
+                DataContext = sp.GetRequiredService<AppShellViewModel>(),
+                // P0-5: window-geometry persistence for the main shell.
+                WindowStateStore = windowStateStore,
+                // P2-6: layout persistence (right-panel width + tab selection).
+                LayoutStateStore = layoutStore,
+            };
         });
 
         // Task 13: hosted service that wires the App-layer sinks

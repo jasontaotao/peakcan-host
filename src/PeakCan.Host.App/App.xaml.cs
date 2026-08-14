@@ -111,10 +111,14 @@ public partial class App : Application
         // must Dispatcher.Invoke Show to guarantee the window is created
         // on the WPF STA thread. Without this, Show() would throw on
         // .NET 10: "The calling thread must be STA".
-        var shell = new AppShell
-        {
-            DataContext = Services.GetRequiredService<AppShellViewModel>(),
-        };
+        //
+        // P2-6 review r1: resolve AppShell through the DI factory
+        // (WindowAndHostedServicesFlow) instead of `new AppShell { DataContext
+        // = ... }`. The factory injects WindowStateStore (P0-5, previously
+        // latent — always null here) and LayoutStateStore (P2-6), and fires
+        // their LoadAsync once at startup. DataContext comes from the factory
+        // (resolved AppShellViewModel), so XAML bindings still resolve.
+        var shell = Services.GetRequiredService<AppShell>();
         // v3.6.0 MINOR T2: resolve the auto-saver + session service up
         // front so the post-Show dispatcher block can chain the restore
         // prompt. v3.x (会话状态剥离 Task 4): auto-restore 改拿

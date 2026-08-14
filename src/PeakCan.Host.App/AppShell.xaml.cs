@@ -51,14 +51,15 @@ public partial class AppShell : Window
         {
             WindowHostService.ApplyStoredState(this, WindowKey.AppShell, WindowStateStore);
         }
-        // P2-6: restore persisted layout (right-panel width + tab selection)
-        // before the default tab renders. No-op without a LayoutStateStore or
-        // a real AppShellViewModel DataContext.
-        RestoreLayout();
         if (DataContext is AppShellViewModel shell)
         {
             shell.ShowTraceCommand.Execute(null);
         }
+        // P2-6 review r1: restore the persisted layout AFTER ShowTrace so the
+        // saved main-tab selection wins over the default Trace landing tab.
+        // First run (no saved layout) RestoreLayout no-ops → still lands on
+        // Trace. No-op without a LayoutStateStore or a real AppShellViewModel.
+        RestoreLayout();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -80,7 +81,11 @@ public partial class AppShell : Window
         if (LayoutStateStore is null || DataContext is not AppShellViewModel shell) return;
         var s = LayoutStateStore.Get();
         if (s is null) return;
-        if (s.RightPanelWidth > 0) RightPanelColumn.Width = new GridLength(s.RightPanelWidth);
+        // P2-6 review r1 (LOW-3): guard against a malformed layout.json
+        // ("Infinity") — GridLength throws on non-finite values. Only restore
+        // finite, positive widths.
+        if (s.RightPanelWidth > 0 && double.IsFinite(s.RightPanelWidth))
+            RightPanelColumn.Width = new GridLength(s.RightPanelWidth);
         shell.SelectedMainTabIndex = s.SelectedMainTabIndex;
         shell.SelectedRightTabIndex = s.SelectedRightTabIndex;
     }

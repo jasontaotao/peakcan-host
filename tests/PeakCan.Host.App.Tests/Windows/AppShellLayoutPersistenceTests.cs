@@ -217,8 +217,7 @@ public class AppShellLayoutPersistenceTests
         store.Get()!.SelectedRightTabIndex.Should().Be(1);
 
         // 第二次生命周期（重开）：同一 store 构造新 shell → OnSourceInitialized →
-        // RestoreLayout 把右栏宽 + 右 tab 选回（主 tab 随后被 ShowTraceCommand 重置
-        // 为 0 —— 启动落点是 Trace，这是既有行为）。
+        // RestoreLayout（在 ShowTrace 之后执行）把右栏宽 + 主/右 tab 全部恢复。
         RunSta(() =>
         {
             var shell = new AppShell
@@ -234,6 +233,8 @@ public class AppShellLayoutPersistenceTests
             shell.RightPanelColumn.Width.Value.Should().BeApproximately(420.0, 0.01,
                 "RestoreLayout 必须把右栏宽恢复为上次保存的值");
             var vm = (AppShellViewModel)shell.DataContext!;
+            vm.SelectedMainTabIndex.Should().Be(2,
+                "RestoreLayout 在 ShowTrace 之后执行 —— 保存的主区域 tab 必须胜出");
             vm.SelectedRightTabIndex.Should().Be(1,
                 "RestoreLayout 必须恢复右侧常驻面板的选中 tab");
             shell.Close();
