@@ -9,6 +9,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Composition.Converters;
@@ -423,9 +424,9 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
                     NullLogger<TraceViewerViewModel>.Instance,
                     NewFakeSessionLibrary());
                 var win = new TraceViewerView(windowVm);
-                typeof(AppShellViewModel)
-                    .GetField("_traceViewerView", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-                    .SetValue(shell, win);
+                // P0-3: 窗口经 WindowHostService 缓存（SaveSessionAsync 从
+                // GetCached(WindowKey.TraceViewer).DataContext 取 VM）。
+                shell.WindowHost.Show(WindowKey.TraceViewer, () => win);
 
                 var saveTask = shell.SaveSessionCommand.ExecuteAsync(null);
                 var frame = new System.Windows.Threading.DispatcherFrame();

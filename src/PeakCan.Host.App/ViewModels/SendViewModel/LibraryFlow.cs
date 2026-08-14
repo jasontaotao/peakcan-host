@@ -3,6 +3,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Windows;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -124,12 +125,8 @@ public sealed partial class SendViewModel
     private static partial void LogDeleteFromLibraryFailed(ILogger logger, Exception ex, string name);
 
     // v2.1.0 MINOR: open the multi-frame send window (non-modal).
-    // The window is lazy-created on first call: WPF Window construction
-    // requires an STA thread + a live Application, so we can't
-    // resolve a Window from DI at container-build time. The VM is
-    // DI-resolved (singleton) but the Window itself is owned by
-    // SendViewModel and kept alive for the SendView's lifetime.
-    private MultiFrameSendWindow? _openMultiFrameWindow;
+    // P0-3: window lifecycle + cache moved to WindowHostService (DI
+    // singleton shared with the AppShell View menu) — no per-VM field.
 
     [RelayCommand]
     private void OpenMultiFrameSend()
@@ -139,22 +136,27 @@ public sealed partial class SendViewModel
             Status = "Multi-frame window unavailable";
             return;
         }
-        if (_openMultiFrameWindow is { } existing && existing.IsVisible)
+        // P0-3: 与 AppShell 的 View 菜单共享同一 WindowHostService 单例缓存
+        // —— 两个入口打开的是同一窗口（此前各自缓存可并存两个实例）。
+        var win = _windowHost.Show(WindowKey.MultiFrame, () => new MultiFrameSendWindow(_multiFrameVm));
+        if (win is null)
         {
-            if (existing.WindowState == WindowState.Minimized)
-                existing.WindowState = WindowState.Normal;
-            existing.Activate();
+            Status = "Multi-frame window unavailable";
             return;
         }
-        _openMultiFrameWindow = new MultiFrameSendWindow(_multiFrameVm);
-        if (Application.Current?.MainWindow is { } owner && owner != _openMultiFrameWindow)
-            _openMultiFrameWindow.Owner = owner;
-        // v3.9.2 PATCH L3: mirror the v3.9.1 PATCH B1 fix
-        // (AppShellViewModel._traceViewerView.Closed reset) so the next
-        // OpenMultiFrameSend click takes the fresh-window path instead
-        // of stomp-and-leak on a closed instance.
-        _openMultiFrameWindow.Closed += (_, _) => _openMultiFrameWindow = null;
-        _openMultiFrameWindow.Show();
+        if (!win.IsVisible)
+        {
+            win.Show();
+        }
+        else if (win.WindowState == WindowState.Minimized)
+        {
+            win.WindowState = WindowState.Normal;
+            win.Activate();
+        }
+        else
+        {
+            win.Activate();
+        }
         Status = "Multi-frame send window opened";
     }
 }

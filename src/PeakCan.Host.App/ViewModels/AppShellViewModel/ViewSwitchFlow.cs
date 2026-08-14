@@ -1,6 +1,7 @@
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Composition;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Windows;
 
@@ -110,24 +111,19 @@ public sealed partial class AppShellViewModel
         // - Closing the window clears the cache so the next Show opens fresh.
         // - Closing AppShell cascade-closes the UDS window via the Owner
         //   assignment below (mirrors ShowTraceViewer at line 681).
-        ViewSwitcher.ShowWindow(
-            factory: () => new UdsWindow { DataContext = _udsViewModel },
-            cache: ref _udsWindow);
-        if (_udsWindow is null) return; // defensive — cache cannot be null after ShowWindow
+        var win = _windowHost.Show(WindowKey.Uds, () => new UdsWindow { DataContext = _udsViewModel });
+        if (win is null) return; // factory produced an already-closed window
 
-        if (Application.Current?.MainWindow is { } owner && owner != _udsWindow)
-            _udsWindow.Owner = owner;
-
-        if (!_udsWindow.IsVisible)
+        if (!win.IsVisible)
         {
-            _udsWindow.Show();
+            win.Show();
         }
         else
         {
             // Already shown — bring to the foreground instead of re-activating
             // (which on Windows flashes the taskbar icon for an already-visible
             // window and looks like a bug). Same precedent as ShowTraceViewer.
-            _udsWindow.Activate();
+            win.Activate();
         }
     }
 
@@ -166,21 +162,30 @@ public sealed partial class AppShellViewModel
         // factory invocation is correct. If a future PATCH wants to
         // cache the window, swap to ViewSwitcher.ShowWindow with a
         // nullable cache field (matches the Trace Viewer precedent).
-        var win = new MultiFrameSendWindow(_multiFrameSendViewModel);
-        if (Application.Current?.MainWindow is { } owner && owner != win)
-            win.Owner = owner;
-        win.Show();
+        // P0-3: 统一走 WindowHostService —— AppShell 与 SendView 两个入口现在
+        // 共享同一单例缓存（此前 AppShell 每次新建、SendView 缓存，可并存两个窗口）。
+        var win = _windowHost.Show(WindowKey.MultiFrame, () => new MultiFrameSendWindow(_multiFrameSendViewModel));
+        if (win is null) return;
+
+        if (!win.IsVisible)
+            win.Show();
+        else
+            win.Activate();
     }
 
     [RelayCommand]
     private void ShowHil()
     {
         // Sprint 3: HIL testing panel (offline trace-replay + hardware-in-the-loop)
-        ViewSwitcher.Show(
-            factory: () => new HilView { DataContext = _hilViewModel },
-            cache: ref _hilView,
-            setCurrent: v => CurrentView = v,
-            menuName: nameof(ShowHil));
+        // P0-3: HIL 迁独立窗口 —— 测试执行时需与主窗口 Trace 并排观察数据链路
+        // 层通讯（user 2026-08-14 判定）。HilWindow 承载原 HilView。
+        var win = _windowHost.Show(WindowKey.Hil, () => new HilWindow { DataContext = _hilViewModel });
+        if (win is null) return;
+
+        if (!win.IsVisible)
+            win.Show();
+        else
+            win.Activate();
     }
 
     [RelayCommand]
@@ -203,51 +208,22 @@ public sealed partial class AppShellViewModel
         // Closed subscription is gone. Owner assignment + Show/Activate
         // stay here because they need Application.Current.MainWindow,
         // which only resolves inside App.OnStartup's STA context.
-        ViewSwitcher.ShowWindow(
-            factory: () => new TraceViewerView(_traceViewerFactory()),
-            cache: ref _traceViewerView);
-        if (_traceViewerView is null) return; // defensive — cache cannot be null after ShowWindow
+        // P0-3: 生命周期统一走 WindowHostService（缓存/Closed 重置/Owner/IsAlive
+        // 均内置于 service.Show，含 v3.16.6 死窗口防御）。会话级状态在
+        // ITraceSessionService，窗口级状态随窗口实例。
+        var win = _windowHost.Show(WindowKey.TraceViewer, () => new TraceViewerView(_traceViewerFactory()));
+        if (win is null) return; // factory produced an already-closed window
 
-        // v3.x (会话状态剥离 Task 2): 原 v3.13.0 PATCH F2 的 Closed → Reset()
-        // 订阅已删除——会话级状态已移入 ITraceSessionService（窗口关闭不丢失），
-        // 窗口级状态随窗口实例一起销毁（VM 将在 Task 3 改 transient）。窗口缓存
-        // 的 null 重置仍由 ViewSwitcher.ShowWindow 自带的 Closed 处理器负责。
-
-        // v3.9.1 PATCH Bug #1: set Owner = AppShell so closing the
-        // main window cascade-closes the Trace Viewer. Without
-        // Owner, Trace Viewer is an owner-less top-level Window;
-        // WPF's default ShutdownMode=OnLastWindowClose keeps the
-        // dispatcher running while Trace Viewer is visible, so the
-        // user sees Trace Viewer survive AppShell close. Mirrors
-        // OpenMultiFrame and SendViewModel's OpenMultiFrameSend
-        // (SendViewModel.cs:522-525) — both already set Owner.
-        // Application.Current.MainWindow is assigned to AppShell in
-        // App.OnStartup.
-        if (Application.Current?.MainWindow is { } owner && owner != _traceViewerView)
-            _traceViewerView.Owner = owner;
-
-        // v3.16.6 PATCH BUGFIX (defense-in-depth): WPF does not expose
-        // a public IsClosed bool on Window; the "still alive" check is
-        // membership in Application.Current.Windows. A closed window
-        // has been removed from the collection. If we somehow hold a
-        // closed reference here, drop it and let the next click rebuild.
-        if (Application.Current?.Windows.Cast<Window>()
-                .Any(w => ReferenceEquals(w, _traceViewerView)) != true)
+        if (!win.IsVisible)
         {
-            _traceViewerView = null;
-            return;
-        }
-
-        if (!_traceViewerView.IsVisible)
-        {
-            _traceViewerView.Show();
+            win.Show();
         }
         else
         {
             // Already shown — bring to the foreground instead of
             // re-activating (which on Windows flashes the taskbar
             // icon for an already-visible window and looks like a bug).
-            _traceViewerView.Activate();
+            win.Activate();
         }
     }
 
@@ -256,24 +232,19 @@ public sealed partial class AppShellViewModel
     [RelayCommand]
     private void ShowEcuScriptEditor()
     {
-        ViewSwitcher.ShowWindow(
-            factory: () =>
-            {
-                var win = new EcuScriptEditorWindow(_ecuScriptEditorViewModel);
-                _ecuScriptEditorViewModel.LoadInitialPath(_hilViewModel.EcuScriptPath);
-                win.Closed += (_, _) => _ecuScriptEditorViewModel.Reset();
-                return win;
-            },
-            cache: ref _ecuScriptEditorWindow);
-        if (_ecuScriptEditorWindow is null) return;
+        var win = _windowHost.Show(WindowKey.EcuScriptEditor, () =>
+        {
+            var w = new EcuScriptEditorWindow(_ecuScriptEditorViewModel);
+            _ecuScriptEditorViewModel.LoadInitialPath(_hilViewModel.EcuScriptPath);
+            w.Closed += (_, _) => _ecuScriptEditorViewModel.Reset();
+            return w;
+        });
+        if (win is null) return;
 
-        if (Application.Current?.MainWindow is { } owner && owner != _ecuScriptEditorWindow)
-            _ecuScriptEditorWindow.Owner = owner;
-
-        if (!_ecuScriptEditorWindow.IsVisible)
-            _ecuScriptEditorWindow.Show();
+        if (!win.IsVisible)
+            win.Show();
         else
-            _ecuScriptEditorWindow.Activate();
+            win.Activate();
     }
 
     private void OnOpenEcuEditorRequested() => ShowEcuScriptEditorCommand.Execute(null);

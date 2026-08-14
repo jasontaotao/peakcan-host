@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Replay;
@@ -169,7 +170,10 @@ public partial class AppHostBuilder
                 sp.GetService<SendFrameLibrary>(),
                 dbcSend: sp.GetRequiredService<DbcSendViewModel>(),
                 multiFrameVm: sp.GetRequiredService<MultiFrameSendViewModel>(),
-                rateLimitRejectedCountProvider: rejectedCountProvider);
+                rateLimitRejectedCountProvider: rejectedCountProvider,
+                // P0-3: shared secondary-window host (DI singleton — same
+                // instance as AppShellViewModel so Multi-frame is one window).
+                windowHost: sp.GetRequiredService<WindowHostService>());
         });
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown (same rationale as RecordViewModel).

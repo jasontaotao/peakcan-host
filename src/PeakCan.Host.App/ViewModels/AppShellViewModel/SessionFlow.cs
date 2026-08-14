@@ -1,6 +1,7 @@
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -76,7 +77,7 @@ public sealed partial class AppShellViewModel
             null);
         if (string.IsNullOrEmpty(path)) return;
         // 窗口未打开时无法取得窗口级会话状态，提示后直接返回（不保存）。
-        var vm = _traceViewerView?.DataContext as TraceViewerViewModel;
+        var vm = _windowHost.GetCached(WindowKey.TraceViewer)?.DataContext as TraceViewerViewModel;
         if (vm is null)
         {
             await _messageBoxPrompt.ShowInformationAsync(

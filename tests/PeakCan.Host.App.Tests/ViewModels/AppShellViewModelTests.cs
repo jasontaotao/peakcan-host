@@ -1412,26 +1412,16 @@ public class AppShellViewModelTests
 // code review (AppShellViewModel.cs:625-635 mirror of OpenMultiFrame
 // line 606-609 pattern).
 [Fact]
-    public void ShowTraceViewerCommand_CreatesTraceViewerView_AndAssignsOwnerWhenMainWindowSet()
+    public void ShowTraceViewerCommand_RoutesThrough_WindowHostService()
     {
-        // Reflection-only smoke test: verify the
-        // <c>_traceViewerView</c> backing field exists on
-        // <see cref="AppShellViewModel"/>. The actual lazy-window
-        // instantiation + Owner assignment is verified by:
-        //   1. Static review of AppShellViewModel.cs:625-647 (mirror of
-        //      OpenMultiFrame pattern at line 606-609 + Closed reset).
-        //   2. Manual smoke (Step 8 of the v3.9.1 PATCH plan).
-        // Driving the command from a unit test requires constructing a
-        // WPF Application + seeding the four App.xaml converters
-        // (NullToVisibilityConverter / BoolToVis / OxyColorToBrush /
-        // MasterRadio). That races with the WpfAppTestCollection's
-        // shared Application singleton and is deferred to a STA-bound
-        // ViewModel-render test (out of scope for this PATCH chain).
-        var field = typeof(AppShellViewModel).GetField(
-            "_traceViewerView",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        field.Should().NotBeNull("_traceViewerView backing field must exist on AppShellViewModel");
-        field!.FieldType.Should().Be<TraceViewerView>(
-            "v3.9.1 PATCH B1: _traceViewerView must hold a TraceViewerView (not a base Window)");
+        // P0-3: 二级窗口生命周期统一由 WindowHostService 承担（缓存 / Owner /
+        // Closed 重置 / IsAlive 防御，含原 v3.9.1 Owner + v3.16.6 死窗口修复）。
+        // 命令接线由 ShowTraceViewerCommand_Is_Not_Null_And_Can_Execute 覆盖；
+        // 窗口缓存/Owner 行为由 WindowHostServiceTests 单测 + P0-5 手动 smoke 覆盖。
+        var shell = NewVm();
+        shell.WindowHost.Should().NotBeNull(
+            "P0-3: AppShellViewModel must expose the WindowHostService seam");
+        shell.ShowTraceViewerCommand.Should().NotBeNull();
+        shell.ShowTraceViewerCommand.CanExecute(null).Should().BeTrue();
     }
 }

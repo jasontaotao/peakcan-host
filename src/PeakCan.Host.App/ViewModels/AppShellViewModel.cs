@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
@@ -149,16 +150,11 @@ public sealed partial class AppShellViewModel : ObservableObject
     private SignalView? _signalView;
     private StatsView? _statsView;
     private ScriptView? _scriptView;
-    private UdsWindow? _udsWindow;
     private ReplayView? _replayView;
-    private HilView? _hilView;
-    // v3.0 MINOR Task 7: TraceViewerView is a non-modal Window (not a
-    // tab in the MainArea ContentControl), so it lives outside the
-    // WPF View cache. Lazy + Closed-reset pattern mirrors the
-    // OpenMultiFrame window precedent (each menu click reopens the
-    // cached window without spawning a fresh one).
-    private TraceViewerView? _traceViewerView;
-    private EcuScriptEditorWindow? _ecuScriptEditorWindow;
+    // P0-3: the 5 secondary windows (Trace Viewer / UDS / ECU Script Editor /
+    // Multi-frame / HIL) are cached by WindowHostService (DI singleton) — no
+    // per-VM window cache fields remain.
+    private readonly WindowHostService _windowHost;
 
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
@@ -288,7 +284,11 @@ public sealed partial class AppShellViewModel : ObservableObject
         HilViewModel hilViewModel,
         EcuScriptEditorViewModel ecuScriptEditorViewModel,
         IChannelEnumerator? channelEnumerator = null,
-        IConfiguration? configuration = null)
+        IConfiguration? configuration = null,
+        // P0-3: window-lifecycle host. DI wires the singleton; the null
+        // fallback keeps existing test ctor sites compiling (each test VM
+        // then gets its own isolated host instance).
+        WindowHostService? windowHost = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -342,6 +342,9 @@ public sealed partial class AppShellViewModel : ObservableObject
         // v0.4.0: optional multi-channel enumerator. When null, the
         // single-channel probe path (IChannelProbe) is used instead.
         _channelEnumerator = channelEnumerator;
+        // P0-3: window lifecycle host (DI singleton in production; isolated
+        // per-instance in tests via the null fallback).
+        _windowHost = windowHost ?? new WindowHostService();
         // v1.5.0 MINOR: persist SelectedHandle across app restarts.
         // Configuration is optional for backwards compatibility with
         // existing test fixtures that build the VM without DI. The
@@ -361,6 +364,11 @@ public sealed partial class AppShellViewModel : ObservableObject
             _persistedHandleOnStartup = h;
         }
     }
+
+    /// <summary>P0-3 test seam: the window-lifecycle host backing the
+    /// ShowUds / ShowTraceViewer / ShowHil / OpenMultiFrame commands.
+    /// Visible to App.Tests via InternalsVisibleTo.</summary>
+    internal WindowHostService WindowHost => _windowHost;
 
     // === v3.50.1 PATCH-A: Recording panel public location ===
     // Recording was a Trace Viewer Expander in v3.49 Q2 (conflated

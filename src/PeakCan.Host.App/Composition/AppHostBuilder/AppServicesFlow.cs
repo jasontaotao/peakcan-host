@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
@@ -23,6 +24,10 @@ public partial class AppHostBuilder
     /// </summary>
     private void RegisterAppServices(IServiceCollection services)
     {
+        // P0-2/P0-3: secondary-window lifecycle host — DI singleton so
+        // AppShellViewModel + SendViewModel share one cache (Multi-frame
+        // opens a single window from either entry).
+        services.AddSingleton<WindowHostService>();
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
         // so its OnError path is observable in Release builds (Debug.WriteLine
         // was previously stripped). Production DI resolves the logger from

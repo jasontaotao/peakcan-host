@@ -6,6 +6,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.Tests.ViewModels;
 using PeakCan.Host.App.ViewModels;
@@ -188,19 +189,15 @@ public class UdsWindowTests
             var vm = NewVm();
             vm.ShowUdsCommand.Execute(null);
 
-            var first = (UdsWindow?)typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var first = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
             first.Should().NotBeNull(
-                "first ShowUdsCommand must populate the _udsWindow cache via ViewSwitcher.ShowWindow");
+                "first ShowUdsCommand must cache a UdsWindow via WindowHostService");
 
             vm.ShowUdsCommand.Execute(null);
 
-            var second = (UdsWindow?)typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var second = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
             second.Should().BeSameAs(first,
-                "second ShowUdsCommand must reuse the cached UdsWindow — matches ViewSwitcher.ShowWindow contract");
+                "second ShowUdsCommand must reuse the cached UdsWindow — WindowHostService contract");
 
             // v3.11.3 PATCH: UdsWindow is no longer the in-place CurrentView
             // — it lives in its own Window. CurrentView must remain null
@@ -230,9 +227,7 @@ public class UdsWindowTests
                 "fresh singletons are reusable — establishes the baseline we must preserve");
 
             vm.ShowUdsCommand.Execute(null);
-            var first = (UdsWindow?)typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var first = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
             first.Should().NotBeNull();
 
             first!.OnWindowUnloaded();
@@ -254,22 +249,16 @@ public class UdsWindowTests
         {
             var vm = NewVm();
             vm.ShowUdsCommand.Execute(null);
-            var first = (UdsWindow?)typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var first = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
             first.Should().NotBeNull();
             first!.OnWindowUnloaded();
 
-            // Mirrors a real close, where ViewSwitcher's Closed handler nulls the cache so
-            // the next Show rebuilds — exercises the rebuild path (new window, same VM).
-            typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(vm, null);
+            // Mirrors a real close: WindowHostService's Closed handler clears the
+            // cache, so the next Show rebuilds (new window, same singleton VM).
+            first.Close();
 
             vm.ShowUdsCommand.Execute(null);
-            var second = (UdsWindow?)typeof(AppShellViewModel)
-                .GetField("_udsWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var second = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
             second.Should().NotBeSameAs(first, "a close clears the cache so the next Show rebuilds");
             vm.UdsViewModelField().Flash.StartCommand.CanExecute(null).Should().BeTrue(
                 "the reopened window binds the SAME reusable singleton — Flash must be startable");

@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
 
@@ -131,7 +132,11 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     // Instead we lazy-create the window in OpenMultiFrameSend.
     private readonly MultiFrameSendViewModel? _multiFrameVm;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null, Func<long>? rateLimitRejectedCountProvider = null)
+    // P0-3: window-lifecycle host (DI singleton in production; per-test
+    // fallback new instance).
+    private readonly WindowHostService _windowHost;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null, Func<long>? rateLimitRejectedCountProvider = null, WindowHostService? windowHost = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -145,6 +150,8 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         // Multi-frame VM may be null in unit tests that pre-date
         // v2.1.0; production DI always provides it.
         _multiFrameVm = multiFrameVm;
+        // P0-3: window host (DI singleton in production; isolated per-test).
+        _windowHost = windowHost ?? new WindowHostService();
         // A4 orphan PATCH: rate-limit reject counter provider. Null in
         // test scenarios that pre-date the rate-limit decorator, or in
         // production when the decorator is disabled (MaxFramesPerSecond=0

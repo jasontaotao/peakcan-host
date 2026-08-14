@@ -341,7 +341,9 @@ public partial class AppHostBuilder
             sp.GetRequiredService<ViewModels.HilViewModel>(),
             sp.GetRequiredService<ViewModels.EcuScriptEditorViewModel>(),
             sp.GetService<PeakCan.HIL.Core.IChannelEnumerator>(),
-            sp.GetRequiredService<IConfiguration>()));
+            sp.GetRequiredService<IConfiguration>(),
+            // P0-3: shared secondary-window host (DI singleton).
+            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
 
         // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
         RegisterViewModelsBatch2(builder.Services);
