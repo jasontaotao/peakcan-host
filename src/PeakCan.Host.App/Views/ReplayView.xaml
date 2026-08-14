@@ -6,6 +6,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
              mc:Ignorable="d">
     <!--
         v3.8.0 MINOR chunk 3: InputBindings for frame stepping. The
@@ -104,10 +105,16 @@
                     ToolTip="Previous frame (Left arrow)"
                     IsEnabled="{Binding PrevFrameCommand.CanExecute, Mode=OneWay}"
                     Padding="6,2"/>
-            <Button Content="▶|" Command="{Binding NextFrameCommand}" Margin="0,0,5,0"
+            <Button Command="{Binding NextFrameCommand}" Margin="0,0,5,0"
                     ToolTip="Next frame (Right arrow)"
                     IsEnabled="{Binding NextFrameCommand.CanExecute, Mode=OneWay}"
-                    Padding="6,2"/>
+                    Padding="6,2">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Play}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,3,0" />
+                    <TextBlock Text="|" />
+                </StackPanel>
+            </Button>
             <Separator Margin="8,0,8,0"/>
             <Button Content="+ Bookmark" Command="{Binding AddBookmarkCommand}" Margin="0,0,5,0"
                     ToolTip="Add bookmark at cursor (Ctrl+B)"
@@ -178,7 +185,7 @@
                      VerticalAlignment="Center"
                      ToolTip="Comma-separated. Supports 0x prefix hex (e.g. 0x100) and decimal (e.g. 256). Empty = all pass."/>
             <TextBlock Text="{Binding CanIdFilterError}"
-                       Foreground="Red"
+                       Foreground="{StaticResource Error}"
                        VerticalAlignment="Center"
                        Margin="4,0,0,0"
                        TextWrapping="Wrap"/>
@@ -205,7 +212,7 @@
                      VerticalAlignment="Center"
                      ToolTip="Inclusive upper bound on emitted frames' timestamp (seconds from recording start). Empty = unbounded above."/>
             <TextBlock Text="{Binding RangeFilterError}"
-                       Foreground="Red"
+                       Foreground="{StaticResource Error}"
                        VerticalAlignment="Center"
                        Margin="12,0,0,0"
                        TextWrapping="Wrap"/>
@@ -213,7 +220,7 @@
 
         <TextBlock Grid.Row="5"
                    Text="{Binding ErrorMessage}"
-                   Foreground="Red"
+                   Foreground="{StaticResource Error}"
                    Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
         <!-- v3.8.0 MINOR chunk 9: Bookmarks + Loop Regions panels.

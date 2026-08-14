@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
 
@@ -16,28 +17,48 @@
 
         <!-- Toolbar -->
         <ToolBar Grid.Row="0" Margin="4">
-            <Button Content="▶ 运行"
-                    Command="{Binding RunCommand}"
+            <Button Command="{Binding RunCommand}"
                     ToolTip="Run the script (Ctrl+Enter)"
-                    Padding="8,4" />
-            <Button Content="⏹ 停止"
-                    Command="{Binding StopCommand}"
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Play}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="运行" />
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding StopCommand}"
                     ToolTip="Stop the running script"
-                    Padding="8,4" />
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Stop}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="停止" />
+                </StackPanel>
+            </Button>
             <Separator />
-            <Button Content="📂 打开"
-                    Command="{Binding OpenCommand}"
+            <Button Command="{Binding OpenCommand}"
                     ToolTip="Open a script file"
-                    Padding="8,4" />
-            <Button Content="💾 保存"
-                    Command="{Binding SaveCommand}"
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.OpenFolder}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="打开" />
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding SaveCommand}"
                     ToolTip="Save the current script"
-                    Padding="8,4" />
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="保存" />
+                </StackPanel>
+            </Button>
             <Separator />
             <TextBlock Text="{Binding StatusText}"
                        VerticalAlignment="Center"
                        Margin="8,0"
-                       Foreground="Gray" />
+                       Foreground="{StaticResource TextSecondary}" />
         </ToolBar>
 
         <!-- CodeMirror Editor -->
@@ -54,7 +75,7 @@
                  is a clean bool comparison (WPF DataTrigger cannot match
                  non-null on a string without a converter). -->
             <TextBlock Text="{Binding EditorError}"
-                       Foreground="DarkRed"
+                       Foreground="{StaticResource Error}"
                        Padding="12"
                        TextWrapping="Wrap"
                        VerticalAlignment="Center"
@@ -92,11 +113,11 @@
 
             <Border Grid.Row="1"
                     BorderBrush="Gray" BorderThickness="1" CornerRadius="4"
-                    Background="#1E1E1E">
+                    Background="{StaticResource ConsoleBg}">
                 <ListBox ItemsSource="{Binding OutputLines}"
                          Background="Transparent"
-                         Foreground="#D4D4D4"
-                         FontFamily="Consolas"
+                         Foreground="{StaticResource ConsoleFg}"
+                         FontFamily="{StaticResource FontMono}"
                          FontSize="12"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"

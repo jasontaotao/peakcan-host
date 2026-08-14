@@ -13,7 +13,7 @@
         </ObjectDataProvider>
         <!-- Browse 字段空态占位符样式 -->
         <Style x:Key="HintTextStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="Gray" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
             <Setter Property="FontStyle" Value="Italic" />
             <Setter Property="IsHitTestVisible" Value="False" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -34,7 +34,8 @@
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding Converter={StaticResource HilModeIcon}}" Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding Converter={StaticResource HilModeIcon}}" Margin="0,0,6,0"
+                                       FontFamily="Segoe Fluent Icons" />
                             <TextBlock Text="{Binding}" VerticalAlignment="Center" />
                         </StackPanel>
                     </DataTemplate>
@@ -42,7 +43,8 @@
             </ComboBox>
             <TextBlock Text="{Binding SelectedMode, Converter={StaticResource HilModeIcon}}"
                        ToolTip="{Binding SelectedMode, Converter={StaticResource HilModeDesc}}"
-                       VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16" />
+                       VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16"
+                       FontFamily="Segoe Fluent Icons" />
             <Grid Width="180" Margin="0,0,4,0">
                 <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" IsReadOnly="True" />
                 <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
@@ -181,7 +183,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                         <TextBlock Text="{Binding LatestReportPath}" VerticalAlignment="Center"
-                                   Foreground="Gray" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
                                    MaxWidth="280" />
                         <Button Content="Open in Browser" Command="{Binding OpenReportCommand}"
                                 HorizontalAlignment="Right" Padding="8,2" />
@@ -190,14 +192,14 @@
                          Border(WebView2) 填满 Grid，fallback TextBlock 覆盖其上（默认 ZIndex 更高）。不能把
                          TextBlock 放 Grid 外当 last-child（DockPanel LastChildFill 会坍缩 WebView2）。 -->
                     <Grid>
-                        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+                        <Border BorderBrush="{StaticResource TextSecondary}" BorderThickness="1" CornerRadius="4">
                             <wv2:WebView2 x:Name="ReportWebView" />
                         </Border>
                         <!-- T4/MEDIUM-1/2: fallback 可见性由 code-behind UpdateReportPanel 管理（Text 绑
                              ReportError，初始 Collapsed）。不在 XAML 用 DataTrigger —— WebView2 是 HWND
                              控件，报告失败时需 Collapse WebView2 才能让 fallback 文字可见（WPF airspace）；
                              WebView2 init 错误是视图本地状态，VM 重置 ShowReportError 不影响它。 -->
-                        <TextBlock x:Name="ReportFallbackText" Text="{Binding ReportError}" Foreground="DarkRed"
+                        <TextBlock x:Name="ReportFallbackText" Text="{Binding ReportError}" Foreground="{StaticResource Error}"
                                    Padding="12" TextWrapping="Wrap" VerticalAlignment="Center" HorizontalAlignment="Center"
                                    Visibility="Collapsed" />
                     </Grid>
