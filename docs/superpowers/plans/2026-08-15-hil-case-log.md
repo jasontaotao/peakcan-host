@@ -196,7 +196,7 @@ public class AscFileFormatTests
             FrameFlags.None, ChannelId.None, new Timestamp(1000000));
         var sb = new StringBuilder();
         AscFileFormat.WriteFrameLine(sb, frame, 0.0);
-        Assert.Equal("   0.000000 1  0x123        x       Rx d 3 01 02 03\n", sb.ToString());
+        Assert.Equal("   0.000000 1  0x123      x       Rx d 3 01 02 03\n", sb.ToString());
     }
 
     [Fact]
@@ -301,7 +301,7 @@ public async Task FrameExporter_BytesMatchAscFileFormat_GoldenLine()
     {
         await FrameCaptureExporter.ExportAsync(result, dir);
         var content = await File.ReadAllTextAsync(Directory.GetFiles(dir, "*.asc")[0]);
-        Assert.Contains("   0.000000 1  0x123        x       Rx d 3 01 02 03", content);
+        Assert.Contains("   0.000000 1  0x123      x       Rx d 3 01 02 03", content);
     }
     finally
     {
@@ -392,8 +392,8 @@ public class AscFrameSinkTests
             sink.Write(F(2000000, 0x03, 0x04));
         }
         var content = new System.Text.UTF8Encoding(true).GetString(ms.ToArray());
-        Assert.Contains("   0.000000 1  0x123        x       Rx d 2 01 02", content);
-        Assert.Contains("   1.000000 1  0x123        x       Rx d 2 03 04", content);
+        Assert.Contains("   0.000000 1  0x123      x       Rx d 2 01 02", content);
+        Assert.Contains("   1.000000 1  0x123      x       Rx d 2 03 04", content);
     }
 
     [Fact]
