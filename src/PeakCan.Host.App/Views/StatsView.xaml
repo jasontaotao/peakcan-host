@@ -9,9 +9,9 @@
              mc:Ignorable="d">
     <DockPanel Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Total frames: " FontWeight="SemiBold" />
+            <TextBlock Text="总帧数: " FontWeight="SemiBold" />
             <TextBlock Text="{Binding TotalFrames}" Margin="0,0,24,0" />
-            <TextBlock Text="Error frames: " FontWeight="SemiBold" />
+            <TextBlock Text="错误帧: " FontWeight="SemiBold" />
             <TextBlock Text="{Binding ErrorFrames}" />
         </StackPanel>
         <oxy:PlotView Model="{Binding PlotModel}" />

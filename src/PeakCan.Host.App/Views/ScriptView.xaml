@@ -16,20 +16,20 @@
 
         <!-- Toolbar -->
         <ToolBar Grid.Row="0" Margin="4">
-            <Button Content="▶ Run"
+            <Button Content="▶ 运行"
                     Command="{Binding RunCommand}"
                     ToolTip="Run the script (Ctrl+Enter)"
                     Padding="8,4" />
-            <Button Content="⏹ Stop"
+            <Button Content="⏹ 停止"
                     Command="{Binding StopCommand}"
                     ToolTip="Stop the running script"
                     Padding="8,4" />
             <Separator />
-            <Button Content="📂 Open"
+            <Button Content="📂 打开"
                     Command="{Binding OpenCommand}"
                     ToolTip="Open a script file"
                     Padding="8,4" />
-            <Button Content="💾 Save"
+            <Button Content="💾 保存"
                     Command="{Binding SaveCommand}"
                     ToolTip="Save the current script"
                     Padding="8,4" />
@@ -81,10 +81,10 @@
             </Grid.RowDefinitions>
 
             <DockPanel Grid.Row="0" Margin="0,0,0,4">
-                <TextBlock Text="Output"
+                <TextBlock Text="输出"
                            FontWeight="Bold"
                            VerticalAlignment="Center" />
-                <Button Content="Clear"
+                <Button Content="清空"
                         Command="{Binding ClearOutputCommand}"
                         HorizontalAlignment="Right"
                         Padding="8,2" />

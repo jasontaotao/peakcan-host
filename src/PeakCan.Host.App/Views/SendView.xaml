@@ -13,12 +13,12 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="8" Orientation="Vertical">
             <!-- Single-shot section -->
-            <GroupBox Header="Send frame" Padding="6">
+            <GroupBox Header="发送帧" Padding="6">
                 <StackPanel Orientation="Vertical">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <TextBlock Text="ID (hex):" Width="80" VerticalAlignment="Center" />
                         <TextBox Text="{Binding IdText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
-                        <CheckBox Content="Extended" IsChecked="{Binding IsExtended}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        <CheckBox Content="扩展" IsChecked="{Binding IsExtended}" Margin="8,0,0,0" VerticalAlignment="Center" />
                         <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}" Margin="8,0,0,0" VerticalAlignment="Center" />
                         <CheckBox Content="RTR" IsChecked="{Binding IsRtr}" Margin="8,0,0,0" VerticalAlignment="Center"
                                   IsEnabled="{Binding IsFd, Converter={StaticResource InverseBool}}" />
@@ -33,13 +33,13 @@
                         <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" MinWidth="160" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
+                        <Button Content="发送" Command="{Binding SendCommand}" Width="80" />
                         <!-- v2.1.0 MINOR: open the multi-frame send
                              window for composing + dispatching a list
                              of frames in concurrent or sequential mode.
                              Non-modal so the operator can keep using
                              SendView while monitoring Trace / DBC. -->
-                        <Button Content="Multi-frame send…"
+                        <Button Content="批量发送…"
                                 Command="{Binding OpenMultiFrameSendCommand}"
                                 Margin="8,0,0,0" Padding="8,2" />
                         <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="DarkGreen" />
@@ -66,16 +66,16 @@
             </GroupBox>
 
             <!-- Cyclic section -->
-            <Expander x:Name="CyclicExpander" Header="Cyclic send" Margin="0,8,0,0" IsExpanded="False">
+            <Expander x:Name="CyclicExpander" Header="循环发送" Margin="0,8,0,0" IsExpanded="False">
                 <StackPanel Orientation="Vertical" Margin="6">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Interval (ms):" Width="100" VerticalAlignment="Center" />
+                        <TextBlock Text="间隔 (ms):" Width="100" VerticalAlignment="Center" />
                         <TextBox Text="{Binding CyclicIntervalText, UpdateSourceTrigger=PropertyChanged}" Width="80" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Start cyclic" Command="{Binding StartCyclicCommand}" Margin="0,0,8,0"
+                        <Button Content="开始循环" Command="{Binding StartCyclicCommand}" Margin="0,0,8,0"
                                 IsEnabled="{Binding IsCyclicRunning, Converter={StaticResource InverseBool}}" />
-                        <Button Content="Stop" Command="{Binding StopCyclicCommand}"
+                        <Button Content="停止" Command="{Binding StopCyclicCommand}"
                                 IsEnabled="{Binding IsCyclicRunning}" />
                         <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
                             <Run Text="{Binding CyclicSuccessCount, Mode=OneWay}" />
@@ -88,15 +88,15 @@
             </Expander>
 
             <!-- Library section -->
-            <Expander x:Name="LibraryExpander" Header="Frame library" Margin="0,4,0,0" IsExpanded="False">
+            <Expander x:Name="LibraryExpander" Header="帧库" Margin="0,4,0,0" IsExpanded="False">
                 <StackPanel Orientation="Vertical" Margin="6">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Name:" Width="50" VerticalAlignment="Center" />
+                        <TextBlock Text="名称:" Width="50" VerticalAlignment="Center" />
                         <TextBox x:Name="NewFrameNameBox" Width="150" />
-                        <Button Content="Save current" Command="{Binding SaveCurrentToLibraryCommand}"
+                        <Button Content="保存当前" Command="{Binding SaveCurrentToLibraryCommand}"
                                 CommandParameter="{Binding ElementName=NewFrameNameBox, Path=Text}"
                                 Margin="8,0,0,0" />
-                        <Button Content="Refresh" Command="{Binding RefreshLibraryCommand}" Margin="8,0,0,0" />
+                        <Button Content="刷新" Command="{Binding RefreshLibraryCommand}" Margin="8,0,0,0" />
                     </StackPanel>
                     <DataGrid ItemsSource="{Binding Library}" AutoGenerateColumns="False" IsReadOnly="True"
                               MaxHeight="200" SelectedItem="{Binding SelectedLibraryFrame}">
@@ -108,10 +108,10 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal">
-                                            <Button Content="Load" Width="50" Margin="0,0,4,0"
+                                            <Button Content="加载" Width="50" Margin="0,0,4,0"
                                                     Command="{Binding DataContext.LoadFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}" />
-                                            <Button Content="Delete" Width="50"
+                                            <Button Content="删除" Width="50"
                                                     Command="{Binding DataContext.DeleteFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}" />
                                         </StackPanel>
@@ -141,11 +141,11 @@
                 symmetry.
                 </para>
             -->
-            <Expander x:Name="DbcModeExpander" Header="DBC mode" Margin="0,4,0,0" IsExpanded="False">
+            <Expander x:Name="DbcModeExpander" Header="DBC 模式" Margin="0,4,0,0" IsExpanded="False">
                 <StackPanel Orientation="Vertical" Margin="6"
                             DataContext="{Binding DbcSend}">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Message:" Width="80" VerticalAlignment="Center" />
+                        <TextBlock Text="消息:" Width="80" VerticalAlignment="Center" />
                         <ComboBox ItemsSource="{Binding DbcMessages}"
                                   SelectedItem="{Binding SelectedDbcMessage, Mode=TwoWay}"
                                   DisplayMemberPath="Name" Width="200" />
@@ -154,13 +154,13 @@
                               AutoGenerateColumns="False"
                               MaxHeight="200" Margin="0,0,0,4">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Signal" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
-                            <DataGridTextColumn Header="Type" Binding="{Binding ValueType}" IsReadOnly="True" Width="80" />
-                            <DataGridTextColumn Header="Value" Binding="{Binding Value, Mode=TwoWay, TargetNullValue=''}" Width="100" />
+                            <DataGridTextColumn Header="信号" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
+                            <DataGridTextColumn Header="类型" Binding="{Binding ValueType}" IsReadOnly="True" Width="80" />
+                            <DataGridTextColumn Header="值" Binding="{Binding Value, Mode=TwoWay, TargetNullValue=''}" Width="100" />
                         </DataGrid.Columns>
                     </DataGrid>
                     <StackPanel Orientation="Horizontal">
-                        <Button Content="Send" Command="{Binding SendCommand}" Width="80" />
+                        <Button Content="发送" Command="{Binding SendCommand}" Width="80" />
                         <TextBlock Text="{Binding ErrorMessage}" Foreground="Red"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                         <!-- v3.0.9 PATCH: mirror of DbcSendViewModel.RateLimitRejectedCount.
@@ -178,13 +178,13 @@
                     <!-- v1.5.1 PATCH Item 2: periodic DBC send UI. -->
                     <StackPanel x:Name="DbcCyclicSubPanel" Orientation="Vertical" Margin="0,8,0,0">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBlock Text="Cyclic interval (ms):" Width="140" VerticalAlignment="Center" />
+                            <TextBlock Text="循环间隔 (ms):" Width="140" VerticalAlignment="Center" />
                             <TextBox Text="{Binding DbcCyclicIntervalText, UpdateSourceTrigger=PropertyChanged}" Width="80" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal">
-                            <Button Content="Start cyclic" Command="{Binding StartDbcCyclicCommand}" Width="100"
+                            <Button Content="开始循环" Command="{Binding StartDbcCyclicCommand}" Width="100"
                                     IsEnabled="{Binding IsDbcCyclicRunning, Converter={StaticResource InverseBool}}" />
-                            <Button Content="Stop" Command="{Binding StopDbcCyclicCommand}" Width="60"
+                            <Button Content="停止" Command="{Binding StopDbcCyclicCommand}" Width="60"
                                     IsEnabled="{Binding IsDbcCyclicRunning}" />
                             <TextBlock VerticalAlignment="Center" Margin="12,0,0,0">
                                 <Run Text="{Binding DbcCyclicSuccessCount, Mode=OneWay}" />

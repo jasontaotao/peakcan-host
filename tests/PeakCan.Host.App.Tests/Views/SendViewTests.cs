@@ -33,7 +33,7 @@ public class SendViewTests
     {
         var xaml = ReadXaml();
         Assert.Contains("x:Name=\"CyclicExpander\"", xaml);
-        Assert.Contains("Header=\"Cyclic send\"", xaml);
+        Assert.Contains("Header=\"循环发送\"", xaml);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class SendViewTests
     {
         var xaml = ReadXaml();
         Assert.Contains("x:Name=\"LibraryExpander\"", xaml);
-        Assert.Contains("Header=\"Frame library\"", xaml);
+        Assert.Contains("Header=\"帧库\"", xaml);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class SendViewTests
         // Guards against silent removal of any of: single-shot GroupBox,
         // cyclic Expander, library Expander.
         var xaml = ReadXaml();
-        Assert.Contains("Header=\"Send frame\"", xaml);
+        Assert.Contains("Header=\"发送帧\"", xaml);
         Assert.Contains("x:Name=\"CyclicExpander\"", xaml);
         Assert.Contains("x:Name=\"LibraryExpander\"", xaml);
     }

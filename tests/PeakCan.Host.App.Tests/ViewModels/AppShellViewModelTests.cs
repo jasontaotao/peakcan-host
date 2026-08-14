@@ -181,7 +181,7 @@ public class AppShellViewModelTests
     public void Default_State_Is_Disconnected_With_Ready_Status()
     {
         var vm = NewVm();
-        vm.ConnectionState.Should().Be("Disconnected");
+        vm.ConnectionState.Should().Be("已断开");
         vm.IsConnected.Should().BeFalse();
         // P0-6: 状态栏初始文案中文化。
         vm.StatusMessage.Should().Be("就绪");
@@ -350,7 +350,7 @@ public class AppShellViewModelTests
         // manually on a workstation with a PCAN-USB FD plugged in.
         var vm = NewVm();
         vm.EnumerateChannelsCommand.Execute(null);
-        vm.ChannelList.Should().Contain("No PEAK hardware detected");
+        vm.ChannelList.Should().Contain("未检测到 PEAK 硬件");
     }
 
     [Fact(Skip = "Requires PEAK USB hardware (PCAN-USB FD on handle 0x51).")]
@@ -852,7 +852,7 @@ public class AppShellViewModelTests
         // The catch block ran (ConnectException status), and the channel
         // was disposed rather than leaked.
         vm.IsConnected.Should().BeFalse();
-        vm.ConnectionState.Should().Be("Disconnected");
+        vm.ConnectionState.Should().Be("已断开");
         vm.StatusMessage.Should().Contain("Connect exception");
         factory.LastCreated!.WasDisposed.Should().BeTrue(
             "M1 fix: catch block must dispose the channel after ConnectAsync throws");
@@ -1110,7 +1110,7 @@ public class AppShellViewModelTests
 
         vm.AvailableChannels.Should().BeEmpty();
         vm.SelectedChannel.Should().BeNull();
-        vm.ChannelList.Should().Contain("No PEAK hardware detected");
+        vm.ChannelList.Should().Contain("未检测到 PEAK 硬件");
     }
 
     [Fact]

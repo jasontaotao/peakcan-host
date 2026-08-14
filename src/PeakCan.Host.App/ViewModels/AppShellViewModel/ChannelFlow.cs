@@ -89,14 +89,14 @@ public sealed partial class AppShellViewModel
                 }
                 SelectedChannel = match ?? channels[0];
                 ChannelList = $"{SelectedChannel.Name} ({SelectedBaudRate.Name})";
-                StatusMessage = $"Detected {channels.Count} channel(s)";
+                StatusMessage = $"检测到 {channels.Count} 个通道";
                 LogProbeOk(_logger, SelectedChannel.Handle);
             }
             else
             {
                 SelectedChannel = null;
-                ChannelList = "No PEAK hardware detected";
-                StatusMessage = "No channels found";
+                ChannelList = "未检测到 PEAK 硬件";
+                StatusMessage = "未找到通道";
                 LogProbeThrew(_logger, DefaultHandle,
                     new InvalidOperationException("No channels found"));
             }
@@ -113,7 +113,7 @@ public sealed partial class AppShellViewModel
             }
             else
             {
-                ChannelList = $"No PEAK hardware detected: {result.Message}";
+                ChannelList = $"未检测到 PEAK 硬件: {result.Message}";
                 StatusMessage = result.Message;
                 LogProbeThrew(_logger, DefaultHandle,
                     new InvalidOperationException(result.Message));
@@ -134,8 +134,8 @@ public sealed partial class AppShellViewModel
     {
         // v0.4.0: use SelectedChannel handle when available.
         var handle = SelectedChannel?.Handle ?? DefaultHandle;
-        ConnectionState = "Connecting...";
-        StatusMessage = $"Connecting to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+        ConnectionState = "连接中...";
+        StatusMessage = $"正在连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
         var channel = _channelFactory.Create(new ChannelId(handle));
         try
         {
@@ -158,14 +158,14 @@ public sealed partial class AppShellViewModel
                 // PropertyChanged in order; this ordering keeps the
                 // Send button's CanExecute (when wired) consistent.
                 IsConnected = true;
-                ConnectionState = $"Connected to {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
-                StatusMessage = "Connected";
+                ConnectionState = $"已连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+                StatusMessage = "已连接";
                 _sendService.ActiveChannel = channel;
                 LogConnectOk(_logger, handle);
             }
             else
             {
-                ConnectionState = "Disconnected";
+                ConnectionState = "已断开";
                 _sendService.ActiveChannel = null;
                 var err = result.Error!;
                 StatusMessage = $"Connect failed: {err.Code} {err.Message}";
@@ -179,7 +179,7 @@ public sealed partial class AppShellViewModel
         }
         catch (Exception ex)
         {
-            ConnectionState = "Disconnected";
+            ConnectionState = "已断开";
             StatusMessage = $"Connect exception: {ex.GetType().Name}";
             LogConnectThrew(_logger, handle, ex);
             // v3.8.8 PATCH F1: also unregister the channel from the
@@ -208,8 +208,8 @@ public sealed partial class AppShellViewModel
     private async Task DisconnectAsync()
     {
         if (!IsConnected || _activeChannel is null) return;
-        StatusMessage = $"Disconnecting from {SelectedBaudRate.Name}";
-        ConnectionState = "Disconnecting...";
+        StatusMessage = $"正在断开 {SelectedBaudRate.Name}";
+        ConnectionState = "断开中...";
         try
         {
             await _activeChannel.DisconnectAsync().ConfigureAwait(true);
@@ -223,8 +223,8 @@ public sealed partial class AppShellViewModel
             _activeChannel.ReadLoopError -= OnReadLoopError;
             _sendService.ActiveChannel = null;
             IsConnected = false;
-            ConnectionState = "Disconnected";
-            StatusMessage = "Disconnected";
+            ConnectionState = "已断开";
+            StatusMessage = "已断开";
             LogDisconnectOk(_logger, DefaultHandle);
         }
         catch (Exception ex)
@@ -243,7 +243,7 @@ public sealed partial class AppShellViewModel
             _router.UnregisterChannel(_activeChannel);
             _sendService.ActiveChannel = null;
             IsConnected = false;
-            ConnectionState = "Disconnected";
+            ConnectionState = "已断开";
             StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
             LogDisconnectThrew(_logger, DefaultHandle, ex);
         }

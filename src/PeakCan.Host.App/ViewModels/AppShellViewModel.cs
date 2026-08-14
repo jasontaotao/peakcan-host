@@ -196,11 +196,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     [ObservableProperty]
     private string _statusMessage = "就绪";
 
-    // P0-6 范围注：ConnectionState 的动态值（ConnectAsync/DisconnectAsync 里的
-    // "Connected to ..." 等）仍为英文，留 Phase 1.6 统一中文化 —— 故初始值
-    // 也保留 "Disconnected" 避免「初始中文、操作后英文」的不一致。
     [ObservableProperty]
-    private string _connectionState = "Disconnected";
+    private string _connectionState = "已断开";
 
     /// <summary>
     /// True after a successful Connect until a future Disconnect (v1.1).

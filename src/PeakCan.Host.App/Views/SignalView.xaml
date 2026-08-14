@@ -14,22 +14,22 @@
         <!-- Chart toolbar (visible when chart VM is available) -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,0"
                     Visibility="{Binding HasChart, Converter={StaticResource BoolToVisConverter}}">
-            <Button Content="Plot All" Command="{Binding PlotAllCommand}"
+            <Button Content="全部绘图" Command="{Binding PlotAllCommand}"
                     Padding="8,2" Margin="0,0,4,0" />
-            <Button Content="Plot None" Command="{Binding PlotNoneCommand}"
+            <Button Content="取消绘图" Command="{Binding PlotNoneCommand}"
                     Padding="8,2" Margin="0,0,16,0" />
-            <Button Content="Export CSV" Command="{Binding ExportChartCsvCommand}"
+            <Button Content="导出 CSV" Command="{Binding ExportChartCsvCommand}"
                     Padding="8,2" Margin="0,0,8,0" />
-            <TextBlock Text="Charted: " FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="已绘图: " FontWeight="SemiBold" VerticalAlignment="Center" />
             <TextBlock Text="{Binding ChartStatistics.Count}" VerticalAlignment="Center" Margin="0,0,16,0" />
         </StackPanel>
 
         <!-- Signal search bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
-            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="0,0,4,0" />
             <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" VerticalAlignment="Center" />
             <TextBlock Text="{Binding FilteredSignals.Count}" VerticalAlignment="Center" Margin="8,0,0,0" />
-            <TextBlock Text=" shown" VerticalAlignment="Center" />
+            <TextBlock Text=" 条显示" VerticalAlignment="Center" />
         </StackPanel>
 
         <Grid>
@@ -78,12 +78,12 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
-                    <DataGridTextColumn Header="Message"   Binding="{Binding Message}"   Width="160" />
-                    <DataGridTextColumn Header="Signal"    Binding="{Binding Signal}"    Width="160" />
-                    <DataGridTextColumn Header="Raw"       Binding="{Binding Raw}"       Width="100" />
-                    <DataGridTextColumn Header="Physical"  Binding="{Binding Physical}"  Width="100" />
-                    <DataGridTextColumn Header="Value"     Binding="{Binding ValueTableName}" Width="120" />
-                    <DataGridTextColumn Header="Unit"      Binding="{Binding Unit}"      Width="*" />
+                    <DataGridTextColumn Header="消息"   Binding="{Binding Message}"   Width="160" />
+                    <DataGridTextColumn Header="信号"    Binding="{Binding Signal}"    Width="160" />
+                    <DataGridTextColumn Header="原始"       Binding="{Binding Raw}"       Width="100" />
+                    <DataGridTextColumn Header="物理值"  Binding="{Binding Physical}"  Width="100" />
+                    <DataGridTextColumn Header="值表"     Binding="{Binding ValueTableName}" Width="120" />
+                    <DataGridTextColumn Header="单位"      Binding="{Binding Unit}"      Width="*" />
                 </DataGrid.Columns>
             </DataGrid>
 
