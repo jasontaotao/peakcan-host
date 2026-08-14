@@ -35,7 +35,7 @@
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,4,0,0">
             <TextBlock x:Name="SelectedCountText" VerticalAlignment="Center"
-                       Margin="0,0,16,0" Foreground="Gray" />
+                       Margin="0,0,16,0" Foreground="{StaticResource TextSecondary}" />
             <Button Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"
                     Click="OnOkClick" />
             <Button Content="Cancel" Width="80" IsCancel="True" />
@@ -72,7 +72,7 @@
                         <TextBlock Text="{Binding SignalName}" Margin="4,0,0,0"
                                    Visibility="{Binding IsSignal, Converter={StaticResource BoolToVis}}" />
                         <TextBlock Text="{Binding Unit, StringFormat=' [{0}]'}"
-                                   Foreground="Gray"
+                                   Foreground="{StaticResource TextSecondary}"
                                    Visibility="{Binding IsSignal, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
                 </HierarchicalDataTemplate>

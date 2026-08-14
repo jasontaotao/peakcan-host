@@ -12,7 +12,7 @@
     <StackPanel Margin="18">
         <TextBlock Text="连接设置" FontWeight="Bold" FontSize="15" Margin="0,0,0,14" />
         <TextBlock Text="参数由所选设备自动提供——换 CAN 盒时此面板自动变成对应参数。"
-                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12" />
+                   Foreground="{StaticResource TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12" />
 
         <!-- 设备类型 -->
         <Grid Margin="0,0,0,10">
@@ -54,7 +54,7 @@
         </Grid>
 
         <TextBlock Text="标准帧 / 扩展帧是每帧属性，发送时选择，不在此配置。"
-                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,16" />
+                   Foreground="{StaticResource TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,16" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="应用并连接" Command="{Binding ApplyAndConnectCommand}"

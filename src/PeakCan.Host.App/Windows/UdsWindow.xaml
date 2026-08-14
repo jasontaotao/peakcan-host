@@ -7,6 +7,7 @@
         xmlns:flash="clr-namespace:PeakCan.Host.App.ViewModels.Uds.FlashPipeline"
         xmlns:core="clr-namespace:PeakCan.HIL.Core.Uds.FlashPipeline;assembly=PeakCan.HIL.Core"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+        xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:UdsViewModel}"
         Title="UDS Diagnostics"
@@ -21,7 +22,7 @@
 
     <DockPanel>
         <!-- Top: Session header strip -->
-        <Border DockPanel.Dock="Top" Padding="8" Background="#F0F0F0">
+        <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}">
             <StackPanel Orientation="Horizontal">
                 <Button Content="Default"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
                 <Button Content="Extended"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
@@ -49,12 +50,12 @@
         </Border>
 
         <!-- Bottom: Output Log -->
-        <Border DockPanel.Dock="Bottom" Padding="8" Background="#1E1E1E">
+        <Border DockPanel.Dock="Bottom" Padding="8" Background="{StaticResource ConsoleBg}">
             <DockPanel>
                 <Button DockPanel.Dock="Top" Content="Clear" HorizontalAlignment="Right"
                         Command="{Binding ClearOutputCommand}" Margin="0,0,0,4"/>
                 <RichTextBox x:Name="LogBox" IsReadOnly="True" IsDocumentEnabled="True"
-                             Background="#1E1E1E" Foreground="#D4D4D4"
+                             Background="{StaticResource ConsoleBg}" Foreground="{StaticResource ConsoleFg}"
                              FontFamily="Consolas" FontSize="12"
                              VerticalScrollBarVisibility="Auto">
                     <FlowDocument PageWidth="2400">
@@ -106,7 +107,7 @@
                                         <TextBlock Grid.Column="1" Text="{Binding PhysicalValue}"
                                                    FontFamily="Consolas" TextWrapping="Wrap" Margin="4,0,0,0"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Unit}"
-                                                   Foreground="Gray" Margin="4,0,0,0"/>
+                                                   Foreground="{StaticResource TextSecondary}" Margin="4,0,0,0"/>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -237,7 +238,7 @@
                                             Command="{Binding Flash.RemoveFlashDriverCommand}"
                                             ToolTip="Remove flash driver"/>
                                 </StackPanel>
-                                <Border Height="80" BorderBrush="#CCC" BorderThickness="1" Padding="4">
+                                <Border Height="80" BorderBrush="{StaticResource Border}" BorderThickness="1" Padding="4">
                                     <TextBlock Text="{Binding Flash.CurrentProfile.FlashDriver.Path, TargetNullValue='(no driver loaded)'}"
                                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                 </Border>
@@ -288,10 +289,13 @@
                         <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="8,0,0,0">
                                 <!-- Empty-state hint when no step is selected -->
-                                <TextBlock Text="← 从左侧选择一个步骤以查看其配置"
-                                           Visibility="{Binding Flash.SelectedStep, Converter={StaticResource InverseNullToVisibilityConverter}}"
-                                           Foreground="Gray" FontStyle="Italic" Margin="0,20,0,0"
-                                           TextWrapping="Wrap"/>
+                                <TextBlock Visibility="{Binding Flash.SelectedStep, Converter={StaticResource InverseNullToVisibilityConverter}}"
+                                           Foreground="{StaticResource TextSecondary}" FontStyle="Italic" Margin="0,20,0,0"
+                                           TextWrapping="Wrap">
+                                    <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal"
+                                         Text="{x:Static icons:FluentIconGlyphs.ChevronLeft}"/>
+                                    <Run Text=" 从左侧选择一个步骤以查看其配置"/>
+                                </TextBlock>
 
                                 <!-- Property content: only visible when a step IS selected -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep, Converter={StaticResource NullToVisibilityConverter}}">
@@ -342,8 +346,11 @@
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Level:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="🔗 ODX" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
-                                                   Visibility="{Binding Flash.SelectedStep.IsSecurityLevelFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="2" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
+                                                   Visibility="{Binding Flash.SelectedStep.IsSecurityLevelFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
+                                            <Run Text=" ODX"/>
+                                        </TextBlock>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.SecurityAccessModes}"
@@ -358,8 +365,11 @@
                                         </DockPanel>
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Seed Length:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.SeedLength, TargetNullValue='auto', UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="4" Grid.Column="2" Text="🔗 ODX" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
-                                                   Visibility="{Binding Flash.SelectedStep.IsSeedLengthFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="2" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
+                                                   Visibility="{Binding Flash.SelectedStep.IsSeedLengthFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
+                                            <Run Text=" ODX"/>
+                                        </TextBlock>
                                     </Grid>
                                 </StackPanel>
 
@@ -586,7 +596,7 @@
                                 <!-- FlashDriverDownload properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.FlashDriverDownload, Converter={StaticResource NullToVisibilityConverter}}">
                                     <TextBlock Text="FlashDriverDownload" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                    <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="Gray" TextWrapping="Wrap"/>
+                                    <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"/>
                                     <StackPanel Margin="0,8,0,0"
                                                 Visibility="{Binding Flash.FlashDriverSegmentCount, Converter={StaticResource NonZeroToVisibilityConverter}}">
                                         <TextBlock Text="Driver Segments:" FontWeight="SemiBold" Margin="0,0,0,4"/>
@@ -607,7 +617,7 @@
 
                                 <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->
                                 <TextBlock Text="(No configurable properties for this step kind)"
-                                           Foreground="Gray" FontStyle="Italic" Margin="0,8,0,0">
+                                           Foreground="{StaticResource TextSecondary}" FontStyle="Italic" Margin="0,8,0,0">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Collapsed"/>

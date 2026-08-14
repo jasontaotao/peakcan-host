@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
         xmlns:m="clr-namespace:PeakCan.Host.App.Models"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+        xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MultiFrameSendViewModel}"
         Title="Multi-frame send"
@@ -58,14 +59,14 @@
                  grid: message picker + signal values. -->
             <DataGrid.RowDetailsTemplate>
                 <DataTemplate>
-                    <Border Padding="8" Background="#1E1E1E" BorderBrush="#444" BorderThickness="0,1,0,0">
+                    <Border Padding="8" Background="{StaticResource SurfaceSubtle}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
                         <StackPanel Visibility="{Binding RowKind, Converter={StaticResource KindEquals}, ConverterParameter=Dbc}">
-                            <TextBlock Text="DBC message" Foreground="#CCC" Margin="0,0,0,4"/>
+                            <TextBlock Text="DBC message" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding DataContext.AvailableDbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
                                       SelectedItem="{Binding DbcMessageName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                       DisplayMemberPath="Name"
                                       Width="200" HorizontalAlignment="Left" Margin="0,0,0,8"/>
-                            <TextBlock Text="Signal values" Foreground="#CCC" Margin="0,4,0,4"/>
+                            <TextBlock Text="Signal values" Foreground="{StaticResource TextSecondary}" Margin="0,4,0,4"/>
                             <DataGrid ItemsSource="{Binding DbcSignalValues}"
                                       AutoGenerateColumns="False"
                                       CanUserAddRows="True" CanUserDeleteRows="True"
@@ -105,19 +106,25 @@
                 <TextBox Text="{Binding SaveNameText, UpdateSourceTrigger=PropertyChanged}"
                          Width="120" VerticalAlignment="Center" Margin="0,0,4,0"
                          ToolTip="Name for the saved sequence"/>
-                <Button Content="💾 Save current" Command="{Binding SaveCurrentCommand}"
-                        Padding="8,3" Margin="0,0,4,0"/>
+                <Button Command="{Binding SaveCurrentCommand}"
+                        Padding="8,3" Margin="0,0,4,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"
+                                   FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                        <TextBlock Text="Save current" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"
-                       DockPanel.Dock="Right" Margin="8,0,0,0" Foreground="Gray"/>
+                       DockPanel.Dock="Right" Margin="8,0,0,0" Foreground="{StaticResource TextSecondary}"/>
             <!-- v3.0.9 PATCH: mirror of MultiFrameSendViewModel.RateLimitRejectedCount.
                  Same yellow chip pattern as v3.0.8 SendViewModel + v3.0.9 DbcSendViewModel
                  chips. Hidden when count = 0. Multi-frame is the highest-throughput caller,
                  so this chip is most likely to be non-zero during tight MaxFramesPerSecond caps. -->
             <Border DockPanel.Dock="Right" Margin="8,0,0,0" Padding="6,2" CornerRadius="3"
-                    Background="#FFF8E1" BorderBrush="#D4A72C" BorderThickness="1"
+                    Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                     Visibility="{Binding RateLimitRejectedVisibility}">
-                <TextBlock VerticalAlignment="Center" Foreground="#7D4E00" FontSize="12">
+                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
                     <Run Text="rate limit rejected: " />
                     <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                 </TextBlock>
