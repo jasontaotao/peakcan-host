@@ -8,7 +8,7 @@ namespace PeakCan.Host.App.Tests.Themes;
 
 /// <summary>
 /// §9 验收强制：16 个 XAML 无裸 hex/命名色（§5 保留的数据色除外）。
-/// 扫描前剥离 XML 注释。hex 覆盖 3/6/8 位；命名色覆盖 Dark*/Light* 变体。
+/// 扫描前剥离 XML 注释。hex 覆盖 3/6/8 位；命名色覆盖 WPF Colors 全集。
 /// </summary>
 public class NoRawColorGuardTests
 {
@@ -37,8 +37,15 @@ public class NoRawColorGuardTests
     };
 
     private static readonly Regex HexRe = new(@"#[0-9A-Fa-f]{3,8}\b");
+
+    // 枚举 WPF Colors 静态类的全部命名色（约 140 个），替代硬编码列表：
+    // 覆盖 Crimson / LightGreen / Maroon 等全部命名色，抗回归且随框架演进。
+    private static readonly string[] AllNamedColors =
+        typeof(System.Windows.Media.Colors).GetProperties()
+            .Select(p => p.Name).ToArray();
     private static readonly Regex NamedRe = new(
-        @"\b(Black|White|Gray|DarkGray|LightGray|DarkRed|Red|DarkGreen|Green|DarkBlue|Blue|LightBlue|DarkOrange|Orange|Yellow|Purple|Pink|Brown|Cyan|Magenta|Silver|DimGray|SlateGray|Teal|Navy|Indigo|Violet)\b");
+        @"\b(" + string.Join("|", AllNamedColors.OrderByDescending(n => n.Length)) + @")\b",
+        RegexOptions.IgnoreCase);
 
     private static string StripComments(string xaml) =>
         Regex.Replace(xaml, @"<!--.*?-->", string.Empty, RegexOptions.Singleline);
@@ -57,10 +64,12 @@ public class NoRawColorGuardTests
             var allowNamed = Allow.FirstOrDefault(a => a.file == file).named ?? Array.Empty<string>();
 
             var badHex = HexRe.Matches(text)
-                .Select(m => m.Value).Where(h => !allowHex.Contains(h)).ToList();
+                .Select(m => m.Value)
+                .Where(h => !allowHex.Contains(h, StringComparer.OrdinalIgnoreCase)).ToList();
             var badNamed = NamedRe.Matches(text)
-                .Select(m => m.Value).Where(n => !allowNamed.Contains(n))
-                .Where(n => n != "Transparent").ToList();
+                .Select(m => m.Value)
+                .Where(n => !allowNamed.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .Where(n => !n.Equals("Transparent", StringComparison.OrdinalIgnoreCase)).ToList();
 
             badHex.Should().BeEmpty($"{file} 不得有裸 hex（用 Colors.xaml 令牌）");
             badNamed.Should().BeEmpty($"{file} 不得有裸命名色（用 Colors.xaml 令牌）");
