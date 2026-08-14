@@ -43,7 +43,7 @@
                 <DataGridTextColumn Header="信号数" Binding="{Binding SignalCount}" Width="80" />
                 <!-- v3.61.0: DBC CM_ comment for the message. Only shows
                      when non-null/empty; uses the NullToVisibilityConverter
-                     registered in App.xaml. Displayed in gray italic. -->
+                     registered in App.xaml. Displayed in TextSecondary italic. -->
                 <DataGridTextColumn Header="注释" Binding="{Binding Comment}"
                                     Width="*" Foreground="{StaticResource TextSecondary}"
                                     FontStyle="Italic" />
