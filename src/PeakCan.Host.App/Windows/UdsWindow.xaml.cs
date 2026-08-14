@@ -19,8 +19,12 @@ namespace PeakCan.Host.App.Windows;
 /// </summary>
 public partial class UdsWindow : Window
 {
-    private static readonly SolidColorBrush WarnBrush  = Freeze(new(Color.FromRgb(0xDC, 0xDC, 0xAA)));
-    private static readonly SolidColorBrush ErrorBrush = Freeze(new(Color.FromRgb(0xF4, 0x87, 0x71)));
+    // Level colors mirror the Colors.xaml semantic tokens used on light
+    // surfaces: WarnText #8A5B00 / Error #D62728 (the old #DCDCAA/#F48771
+    // were tuned for the pre-token dark console and are near-invisible on
+    // the light ConsoleBg #FBFBFC).
+    private static readonly SolidColorBrush WarnBrush  = Freeze(new(Color.FromRgb(0x8A, 0x5B, 0x00)));
+    private static readonly SolidColorBrush ErrorBrush = Freeze(new(Color.FromRgb(0xD6, 0x27, 0x28)));
 
     private static SolidColorBrush Freeze(SolidColorBrush brush)
     {

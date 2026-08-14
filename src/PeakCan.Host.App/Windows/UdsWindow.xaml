@@ -346,7 +346,7 @@
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Level:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="0" Grid.Column="2" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
+                                        <TextBlock Grid.Row="0" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSecurityLevelFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
                                             <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
                                             <Run Text=" ODX"/>
@@ -365,7 +365,7 @@
                                         </DockPanel>
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Seed Length:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.SeedLength, TargetNullValue='auto', UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="4" Grid.Column="2" Foreground="SteelBlue" VerticalAlignment="Center" Margin="4,0,0,0"
+                                        <TextBlock Grid.Row="4" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSeedLengthFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
                                             <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
                                             <Run Text=" ODX"/>
