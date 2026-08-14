@@ -1,5 +1,7 @@
+using System.IO;
 using System.Windows;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.Ui;
 using Xunit;
 
@@ -19,8 +21,30 @@ namespace PeakCan.Host.App.Tests.Services.Ui;
 /// helper runs the body on one. No Application is created (tests run
 /// Application-less, so Owner/IsAlive branches fall through defensively).
 /// </summary>
-public sealed class WindowHostServiceTests
+public sealed class WindowHostServiceTests : IDisposable
 {
+    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), $"winhost-{Guid.NewGuid():N}");
+    private readonly List<string> _files = new();
+
+    public WindowHostServiceTests()
+    {
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            foreach (var f in _files)
+                if (File.Exists(f)) File.Delete(f);
+            if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
+        }
+        catch { /* best effort */ }
+    }
+
+    private string TempPath() => Track(Path.Combine(_tempDir, $"state-{Guid.NewGuid():N}.json"));
+    private string Track(string p) { _files.Add(p); return p; }
+
     private static void RunSta(Action body)
     {
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
@@ -130,6 +154,85 @@ public sealed class WindowHostServiceTests
             entry.IsActive.Should().BeTrue();
             host.SetActive(WindowKey.TraceViewer, false);
             entry.IsActive.Should().BeFalse();
+        });
+    }
+
+    // ---------- P0-5: geometry persistence (ApplyStoredState / SaveState) ----------
+
+    [Fact]
+    public void ApplyStoredState_RestoresGeometry_WhenStoreHasEntry()
+    {
+        RunSta(() =>
+        {
+            var store = new WindowStateStore(NullLogger<WindowStateStore>.Instance, TempPath());
+            store.Set(WindowKey.Uds, new WindowStateDto(50, 60, 1100, 700, "Normal"));
+            var win = new Window();
+
+            WindowHostService.ApplyStoredState(win, WindowKey.Uds, store);
+
+            win.Width.Should().Be(1100);
+            win.Height.Should().Be(700);
+            win.WindowState.Should().Be(WindowState.Normal);
+        });
+    }
+
+    [Fact]
+    public void ApplyStoredState_NoEntry_LeavesWindowUntouched()
+    {
+        RunSta(() =>
+        {
+            var store = new WindowStateStore(NullLogger<WindowStateStore>.Instance, TempPath());
+            var win = new Window { Width = 500, Height = 400 };
+
+            WindowHostService.ApplyStoredState(win, WindowKey.Hil, store);
+
+            win.Width.Should().Be(500);
+            win.Height.Should().Be(400);
+        });
+    }
+
+    [Fact]
+    public void Close_SavesGeometry_WhenStoreWired()
+    {
+        RunSta(() =>
+        {
+            var store = new WindowStateStore(NullLogger<WindowStateStore>.Instance, TempPath());
+            var host = new WindowHostService(store);
+            var win = host.Show(WindowKey.Uds, () => new Window())!;
+            win.Width = 900;
+            win.Height = 640;
+            win.Left = 20;
+            win.Top = 30;
+
+            win.Close();
+
+            var state = store.Get(WindowKey.Uds);
+            state.Should().NotBeNull("closing a cached window must persist its geometry");
+            state!.Width.Should().Be(900);
+            state.Height.Should().Be(640);
+        });
+    }
+
+    [Fact]
+    public void SaveState_ThenApplyStoredState_RoundTrips()
+    {
+        RunSta(() =>
+        {
+            var store = new WindowStateStore(NullLogger<WindowStateStore>.Instance, TempPath());
+            var win1 = new Window
+            {
+                Width = 800, Height = 600, Left = 100, Top = 200,
+                WindowState = WindowState.Maximized,
+            };
+
+            WindowHostService.SaveState(win1, WindowKey.Hil, store);
+
+            var win2 = new Window();
+            WindowHostService.ApplyStoredState(win2, WindowKey.Hil, store);
+
+            win2.Width.Should().Be(800);
+            win2.Height.Should().Be(600);
+            win2.WindowState.Should().Be(WindowState.Maximized);
         });
     }
 }

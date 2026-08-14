@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Composition;
@@ -22,7 +23,9 @@ public partial class AppHostBuilder
         // The factory wires the VM via DataContext so XAML bindings resolve.
         services.AddSingleton<AppShell>(sp => new AppShell
         {
-            DataContext = sp.GetRequiredService<AppShellViewModel>()
+            DataContext = sp.GetRequiredService<AppShellViewModel>(),
+            // P0-5: window-geometry persistence for the main shell.
+            WindowStateStore = sp.GetRequiredService<WindowStateStore>()
         });
 
         // Task 13: hosted service that wires the App-layer sinks

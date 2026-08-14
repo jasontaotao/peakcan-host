@@ -25,6 +25,15 @@ public sealed partial class WindowHostService
     private readonly Dictionary<WindowKey, Window> _cache = new();
     private readonly Dictionary<WindowKey, WindowEntry> _entries = new();
     private readonly ObservableCollection<WindowEntry> _openWindows = new();
+    private readonly WindowStateStore? _stateStore;
+
+    /// <summary>DI ctor. <paramref name="stateStore"/> is optional so unit
+    /// tests build the host without persistence; production always wires it
+    /// (geometry restore on Show + save on Closed for secondary windows).</summary>
+    public WindowHostService(WindowStateStore? stateStore = null)
+    {
+        _stateStore = stateStore;
+    }
 
     /// <summary>Live registry of open secondary windows, bound by the
     /// Window menu. Mutations happen on the UI thread.</summary>
@@ -58,6 +67,10 @@ public sealed partial class WindowHostService
 
         win.Closed += (_, _) =>
         {
+            if (_stateStore is not null)
+            {
+                SaveState(win, key, _stateStore);
+            }
             _cache.Remove(key);
             if (_entries.Remove(key, out var removed))
             {
@@ -66,6 +79,12 @@ public sealed partial class WindowHostService
         };
         win.Activated += (_, _) => SetActive(key, true);
         win.Deactivated += (_, _) => SetActive(key, false);
+
+        // P0-5: restore persisted geometry before the window is shown.
+        if (_stateStore is not null)
+        {
+            ApplyStoredState(win, key, _stateStore);
+        }
 
         // No IsAlive check on a freshly-built window — a brand-new window is
         // not yet in Application.Windows, so a Contains() check would reject
@@ -96,6 +115,49 @@ public sealed partial class WindowHostService
             }
             win.Activate();
         }
+    }
+
+    /// <summary>P0-5: apply persisted geometry to <paramref name="win"/>,
+    /// clamped to the virtual screen (multi-monitor unplug safety). Used by
+    /// <see cref="Show"/> for secondary windows and by AppShell at startup.
+    /// No-op when the store has no entry for <paramref name="key"/>.</summary>
+    public static void ApplyStoredState(Window win, WindowKey key, WindowStateStore store)
+    {
+        var state = store.Get(key);
+        if (state is null) return;
+        if (state.Width > 0 && state.Height > 0)
+        {
+            win.Width = state.Width;
+            win.Height = state.Height;
+        }
+        win.Left = state.Left;
+        win.Top = state.Top;
+        if (Enum.TryParse<WindowState>(state.State, ignoreCase: true, out var ws)
+            && ws != WindowState.Minimized)
+        {
+            win.WindowState = ws;
+        }
+        ClampToVirtualScreen(win);
+    }
+
+    /// <summary>P0-5: capture <paramref name="win"/>'s current geometry and
+    /// persist it under <paramref name="key"/>.</summary>
+    public static void SaveState(Window win, WindowKey key, WindowStateStore store) =>
+        store.Set(key, new WindowStateDto(
+            win.Left, win.Top, win.Width, win.Height, win.WindowState.ToString()));
+
+    private static void ClampToVirtualScreen(Window win)
+    {
+        var vsLeft = SystemParameters.VirtualScreenLeft;
+        var vsTop = SystemParameters.VirtualScreenTop;
+        var vsWidth = SystemParameters.VirtualScreenWidth;
+        var vsHeight = SystemParameters.VirtualScreenHeight;
+        var maxLeft = vsLeft + vsWidth - Math.Min(win.Width, vsWidth);
+        var maxTop = vsTop + vsHeight - Math.Min(win.Height, vsHeight);
+        if (win.Left < vsLeft || win.Left > maxLeft)
+            win.Left = Math.Clamp(win.Left, vsLeft, Math.Max(vsLeft, maxLeft));
+        if (win.Top < vsTop || win.Top > maxTop)
+            win.Top = Math.Clamp(win.Top, vsTop, Math.Max(vsTop, maxTop));
     }
 
     /// <summary>Test seam + cross-flow access (e.g. SaveSessionAsync reads the

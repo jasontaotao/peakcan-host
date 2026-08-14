@@ -27,7 +27,9 @@ public partial class AppHostBuilder
         // P0-2/P0-3: secondary-window lifecycle host — DI singleton so
         // AppShellViewModel + SendViewModel share one cache (Multi-frame
         // opens a single window from either entry).
-        services.AddSingleton<WindowHostService>();
+        services.AddSingleton<WindowStateStore>();
+        services.AddSingleton<WindowHostService>(sp =>
+            new WindowHostService(sp.GetRequiredService<WindowStateStore>()));
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
         // so its OnError path is observable in Release builds (Debug.WriteLine
         // was previously stripped). Production DI resolves the logger from
