@@ -71,7 +71,28 @@ public sealed partial class MultiFrameSendViewModel : ObservableObject, IDisposa
     [NotifyCanExecuteChangedFor(nameof(ClearRowsCommand))]
     private bool _isRunning;
 
-    [ObservableProperty] private bool _isConcurrent = true;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSequential))]
+    private bool _isConcurrent = true;
+
+    /// <summary>
+    /// "Sequential" 单选按钮的镜像属性，与 <see cref="IsConcurrent"/> 互斥。
+    /// 用户勾选 Sequential（value=true）时置 <see cref="IsConcurrent"/> = false；
+    /// 被 RadioButton 组互斥机制回写的 false 则直接忽略——否则两个单选按钮
+    /// 经反向转换器双向绑定同一源属性时，Group 的 SetCurrentValue 会把对方
+    /// ConvertBack 结果写回源，形成无限振荡导致 StackOverflow（修复前 XAML 的
+    /// Sequential 用 InverseBool 绑 IsConcurrent，正是重开窗口时崩溃的根因）。
+    /// </summary>
+    public bool IsSequential
+    {
+        get => !IsConcurrent;
+        set
+        {
+            if (value)
+                IsConcurrent = false;
+        }
+    }
+
     [ObservableProperty] private int  _delayMs;
     [ObservableProperty] private int  _iterations = 1;
 

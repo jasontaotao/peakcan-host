@@ -14,7 +14,6 @@
         ShowInTaskbar="True"
         Topmost="False">
     <Window.Resources>
-        <conv:InverseBooleanConverter x:Key="InverseBool" />
         <!-- v2.1.1 PATCH: visibility converter for "kind == X" bindings -->
         <conv:KindEqualsConverter x:Key="KindEquals" />
     </Window.Resources>
@@ -141,7 +140,7 @@
             <RadioButton Grid.Column="1" Content="Concurrent" GroupName="Mode"
                          IsChecked="{Binding IsConcurrent}" VerticalAlignment="Center" Margin="0,0,12,0"/>
             <RadioButton Grid.Column="2" Content="Sequential" GroupName="Mode"
-                         IsChecked="{Binding IsConcurrent, Converter={StaticResource InverseBool}}"
+                         IsChecked="{Binding IsSequential}"
                          VerticalAlignment="Center" Margin="0,0,12,0"/>
 
             <TextBlock Grid.Column="3" Text="Delay (ms):" VerticalAlignment="Center" Margin="0,0,4,0"/>

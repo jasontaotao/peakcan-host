@@ -61,6 +61,52 @@ public sealed class MultiFrameSendViewModelTests
         vm.Rows[0].DataHex.Should().Be("DEADBEEF");
     }
 
+    // v2.x BUGFIX (批量发送重开 StackOverflow): the Sequential radio must
+    // bind to its own IsSequential mirror, not an InverseBool(IsConcurrent)
+    // TwoWay binding — the latter lets the RadioButton group's SetCurrentValue
+    // round-trip ConvertBack into the shared source and oscillate forever.
+    // These tests pin the mutual-exclusion contract that replaces the converter.
+
+    [Fact]
+    public void IsSequential_Defaults_Mirror_IsConcurrent()
+    {
+        var vm = NewVm(out _, out _);
+        vm.IsConcurrent.Should().BeTrue();
+        vm.IsSequential.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Checking_IsSequential_Clears_IsConcurrent()
+    {
+        var vm = NewVm(out _, out _);
+        vm.IsSequential = true;
+        vm.IsConcurrent.Should().BeFalse();
+        vm.IsSequential.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Checking_IsConcurrent_Clears_IsSequential()
+    {
+        var vm = NewVm(out _, out _);
+        vm.IsSequential = true;
+        vm.IsConcurrent = true;
+        vm.IsSequential.Should().BeFalse();
+        vm.IsConcurrent.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Group_Uncheck_WriteBack_Of_False_Is_Ignored_Not_Flipping_Back()
+    {
+        // Mirrors RadioButton.UpdateRadioButtonGroup pushing false into the
+        // unchecked radio's TwoWay binding: set_IsSequential(false) must be a
+        // no-op (it cannot re-set IsConcurrent=true and start the oscillation).
+        var vm = NewVm(out _, out _);
+        vm.IsSequential = true;   // user picks Sequential -> IsConcurrent=false
+        vm.IsSequential = false;  // group uncheck write-back
+        vm.IsConcurrent.Should().BeFalse("a false write-back must be ignored, not flip back");
+        vm.IsSequential.Should().BeTrue("IsSequential is the mirror of IsConcurrent, which is still false");
+    }
+
     [Fact]
     public void AddRowCommand_AppendsNewRow_AndSelectsIt()
     {
