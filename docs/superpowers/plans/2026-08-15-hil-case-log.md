@@ -61,7 +61,13 @@ public class HilFrameSinkContractTests
     }
 
     [Fact]
-    public void Sink_Write_RecordsFrame() => Assert.Equal(1, new RecordingSink().PipeWrite());
+    public void Sink_Write_RecordsFrame()
+    {
+        using var sink = new RecordingSink();
+        sink.Write(new CanFrame(new CanId(1, FrameFormat.Standard), ReadOnlyMemory<byte>.Empty,
+            FrameFlags.None, ChannelId.None, new Timestamp(0)));
+        Assert.Equal(1, sink.Written);
+    }
 
     [Fact]
     public void HasSink_SetAndDrain_Work()
@@ -92,15 +98,7 @@ public class HilFrameSinkContractTests
         public IHilFrameSink? Create(string caseName, int caseIndex) => null;
     }
 }
-
-internal static class SinkWriteExtensions
-{
-    public static int PipeWrite(this IHilFrameSink sink)
-    {
-        using (sink) { sink.Write(new CanFrame(new CanId(1, FrameFormat.Standard), ReadOnlyMemory<byte>.Empty, FrameFlags.None, ChannelId.None, new Timestamp(0))); }
-        return sink.Written;
-    }
-}
+```
 ```
 
 - [ ] **Step 2: 运行确认失败**
