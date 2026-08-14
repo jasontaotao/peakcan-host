@@ -57,39 +57,21 @@
         </Menu>
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
+                <!-- P1-3: 硬件连接配置收敛 —— 探测/通道/波特率/CAN FD 控件移入
+                     连接设置面板（⚙ 打开，descriptor 驱动）。工具栏只留入口 + 状态。 -->
+                <Button Content="⚙ 设备设置" Command="{Binding OpenConnectionSettingsCommand}" Padding="6,2" />
+                <Separator />
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
-                <Separator />
-                <Button Content="探测" Command="{Binding EnumerateChannelsCommand}" Padding="6,2" />
-                <!-- v0.4.0: channel selector (visible after probe) -->
-                <ComboBox ItemsSource="{Binding AvailableChannels}"
-                          SelectedItem="{Binding SelectedChannel}"
-                          DisplayMemberPath="Name"
-                          IsEnabled="{Binding IsDisconnected}"
-                          Width="140" VerticalAlignment="Center" />
-                <Separator />
-                <CheckBox Content="CAN FD" IsChecked="{Binding IsFd}"
-                          IsEnabled="{Binding IsDisconnected}" VerticalAlignment="Center" />
-                <ComboBox ItemsSource="{Binding AvailableBaudRates}"
-                          SelectedItem="{Binding SelectedBaudRate}"
-                          DisplayMemberPath="Name"
-                          IsEnabled="{Binding IsDisconnected}"
-                          Width="120" VerticalAlignment="Center" />
                 <Separator />
                 <Button Content="连接" Command="{Binding ConnectCommand}" Padding="6,2" />
                 <Button Content="断开" Command="{Binding DisconnectCommand}" Padding="6,2" />
                 <Separator />
-                <!-- v3.50.1 PATCH-A: Recording moved to a public AppShell
-                     toolbar location. Replaces v3.49 Q2's Trace Viewer
-                     Expander (conflated playback with capture) and the
-                     v3.50.1 first-draft tab. Permanent button + docked
-                     panel below the content area — accessible from every
-                     tab without leaving the active surface. -->
                 <ToggleButton Content="● 录制"
                               IsChecked="{Binding IsRecordingPanelOpen, Mode=TwoWay}"
                               Padding="6,2"
                               ToolTip="显示/隐藏录制面板 (Ctrl+R)" />
                 <Separator />
-                <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" />
+                <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" Foreground="#1A7F37" FontWeight="SemiBold" />
             </ToolBar>
         </ToolBarTray>
         <StatusBar DockPanel.Dock="Bottom">
