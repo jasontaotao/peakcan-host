@@ -13,7 +13,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Bridges a virtual CAN channel to the HIL assertion context.
 /// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
 /// </summary>
-internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IDisposable
+internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
@@ -142,6 +142,24 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
 
+    // --- IHasFrameSink ---
+    // 跨线程：sink 由引擎线程 SetFrameSink 挂载/摘除，consumer 线程读；用 Volatile 保证可见性。
+    private IHilFrameSink? _frameSink;
+
+    public void SetFrameSink(IHilFrameSink? sink)
+        => Volatile.Write(ref _frameSink, sink);
+
+    public async Task WaitForFrameDrainAsync(CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(500);
+        try
+        {
+            while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(10, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { /* 取消时放弃排空，文件仍合法 */ }
+    }
+
     // IStepVariableStore — 步骤间传值（Phase A）。同 case 内串行执行，无并发写。
     public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
 
@@ -196,6 +214,9 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
                 ct.ThrowIfCancellationRequested();
 
                 _recentFrames.Add(frame);
+
+                // 所有帧都写 sink（无论 DBC 解码是否成功），G1 约束
+                Volatile.Read(ref _frameSink)?.Write(frame);
 
                 var key = ToDbcLookupKey(frame.Id.Raw, frame.Id.IsExtended);
                 var message = _dbcLookup.FindMessage(key);
