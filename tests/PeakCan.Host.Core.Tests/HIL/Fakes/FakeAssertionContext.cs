@@ -6,7 +6,7 @@ namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
 /// Hand-rolled fake IAssertionContext for unit testing.
 /// Supports pushing decoded frames to trigger callbacks.
 /// </summary>
-internal sealed class FakeAssertionContext : IAssertionContext
+internal sealed class FakeAssertionContext : IAssertionContext, IHasFrameSink
 {
     private readonly List<Action<DecodedFrame>> _subscribers = new();
     private readonly Dictionary<string, double> _signalValues = new();
@@ -15,6 +15,16 @@ internal sealed class FakeAssertionContext : IAssertionContext
     public IReadOnlyList<CanFrame> SentFrames => _sentFrames;
     public double CurrentTimestamp { get; set; }
     public System.Collections.Generic.IReadOnlyList<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame>();
+
+    // IHasFrameSink: 记录挂载/排空调用，供 sink 生命周期测试断言
+    public IHilFrameSink? ActiveSink { get; private set; }
+    public int DrainCalls { get; private set; }
+    public void SetFrameSink(IHilFrameSink? sink) => ActiveSink = sink;
+    public Task WaitForFrameDrainAsync(CancellationToken ct = default)
+    {
+        DrainCalls++;
+        return Task.CompletedTask;
+    }
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame)
     {

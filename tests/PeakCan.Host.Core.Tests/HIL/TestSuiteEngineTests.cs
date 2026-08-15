@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using PeakCan.HIL.Core.Tests.HIL.Fakes;
 using PeakCan.HIL.Core.Uds;
@@ -15,6 +16,8 @@ public class TestSuiteEngineTests
     private static TestSuiteEngine CreateEngine(params IStepExecutor[] executors)
     {
         var fixtureResolver = new FakeFixtureResolver();
+        // Task 6: 注册 setup 抛异常的 fixture，供 MakeSuiteWithFailingFixture 使用（其余测试不用该 key）
+        fixtureResolver.Register("boom", new FailingFixture());
         return new TestSuiteEngine(fixtureResolver, executors);
     }
 
@@ -22,6 +25,60 @@ public class TestSuiteEngineTests
         Id: "case_1", Name: "Test Case", Description: "",
         PreConditions: null, Steps: steps, PostConditions: null,
         Tags: Array.Empty<string>(), TimeoutMs: 0, CaseFixtureKeys: null);
+
+    // ── Task 6: per-case frame sink 生命周期（P6/P3）──
+
+    private static TestSuite MakeSuite(params string[] caseNames)
+    {
+        var cases = caseNames.Select(name => new TestCase(
+            Id: $"case_{name}", Name: name, Description: "",
+            PreConditions: null, Steps: new[] { TestCaseStep.Create(new CommentStep("doc")) },
+            PostConditions: null, Tags: Array.Empty<string>(), TimeoutMs: 0, CaseFixtureKeys: null));
+        return new TestSuite("S", cases.ToArray(),
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+    }
+
+    /// <summary>Setup 抛异常的 case fixture：验证 setup 失败时不创建 sink（P6）。</summary>
+    private sealed class FailingFixture : ITestFixture
+    {
+        public Task SetupAsync(IAssertionContext ctx, CancellationToken ct)
+            => throw new InvalidOperationException("fixture boom");
+        public Task TeardownAsync(IAssertionContext ctx, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private static TestSuite MakeSuiteWithFailingFixture()
+    {
+        var failingCase = new TestCase(
+            Id: "case_boom", Name: "Boom", Description: "",
+            PreConditions: null, Steps: new[] { TestCaseStep.Create(new CommentStep("doc")) },
+            PostConditions: null, Tags: Array.Empty<string>(), TimeoutMs: 0,
+            CaseFixtureKeys: BoomFixtureKeys);
+        return new TestSuite("S", new[] { failingCase },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+    }
+
+    /// <summary>static readonly 而非常量数组字面量（CA1861）。</summary>
+    private static readonly string[] BoomFixtureKeys = new[] { "boom" };
+
+    private sealed class RecordingFactory : IHilFrameSinkFactory
+    {
+        public List<(string Name, int Index)> Creates { get; } = new();
+        public List<RecordingSink> Created { get; } = new();
+        public IHilFrameSink? Create(string caseName, int caseIndex)
+        {
+            Creates.Add((caseName, caseIndex));
+            var s = new RecordingSink();
+            Created.Add(s);
+            return s;
+        }
+    }
+
+    private sealed class RecordingSink : IHilFrameSink
+    {
+        public bool Disposed { get; private set; }
+        public void Write(PeakCan.HIL.Core.CanFrame frame) { }
+        public void Dispose() => Disposed = true;
+    }
 
     [Fact]
     public async Task EmptySuite_Returns_TotalCasesZero_AllPassedFalse()
@@ -410,5 +467,49 @@ public class TestSuiteEngineTests
             Assert.Contains("matches", steps[1].Message);
         }
         finally { bus.Dispose(); }
+    }
+
+    // ── Task 6: per-case frame sink 生命周期（P6/P3/T3）──
+
+    [Fact]
+    public async Task ExecuteAsync_MountsSinkPerCase_DisposesEach()
+    {
+        var engine = CreateEngine();
+        var ctx = new FakeAssertionContext();
+        var factory = new RecordingFactory();
+        var suite = MakeSuite("A", "B");
+
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+
+        Assert.Equal(2, factory.Creates.Count);
+        Assert.All(factory.Created, s => Assert.True(s.Disposed));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SetupFailure_DoesNotCreateSink()
+    {
+        var engine = CreateEngine();
+        var ctx = new FakeAssertionContext();
+        var factory = new RecordingFactory();
+        var suite = MakeSuiteWithFailingFixture();
+
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+
+        Assert.Empty(factory.Creates);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DrainBeforeDetach_OrderFixed()
+    {
+        var engine = CreateEngine();
+        var ctx = new FakeAssertionContext();
+        var factory = new RecordingFactory();
+        var suite = MakeSuite("A");
+
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+
+        Assert.Equal(1, ctx.DrainCalls);              // drain 被调用
+        Assert.Null(ctx.ActiveSink);                  // detach 后无残留
+        Assert.True(factory.Created[0].Disposed);     // Dispose 最后
     }
 }
