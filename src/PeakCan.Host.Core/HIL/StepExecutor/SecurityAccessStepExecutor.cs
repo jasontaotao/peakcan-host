@@ -18,10 +18,20 @@ internal sealed class SecurityAccessStepExecutor : IStepExecutor
         var p = (SecurityAccessStep)step.Parameters;
         try
         {
+            if (p.SeedOnly)
+            {
+                // SeedOnly：仅 fetch seed，不发 key（不解锁 ECU），供 invalid-key 负测试前置。
+                var seed = await _uds.RequestSeedAsync(p.Level, ct);
+                if (ctx is IStepVariableStore store)
+                    store.Variables["security_seed"] = seed;
+                return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
+                    $"SecurityAccess level {p.Level} seed fetched ({seed.Length} bytes)", null, null, 0);
+            }
+
             // 完整 seed/key 握手（内部 ComputeKey 由注入的 IKeyDerivationAlgorithm 提供）
             await _uds.SecurityAccessAsync(p.Level, ct);
-            if (ctx is IStepVariableStore store)
-                store.Variables["security_level"] = new[] { p.Level };   // byte[] 统一，供 AssertDidValue 断言
+            if (ctx is IStepVariableStore store2)
+                store2.Variables["security_level"] = new[] { p.Level };   // byte[] 统一，供 AssertDidValue 断言
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 $"SecurityAccess level {p.Level} authenticated", null, null, 0);
         }

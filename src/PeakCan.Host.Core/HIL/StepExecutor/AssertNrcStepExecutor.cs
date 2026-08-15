@@ -17,7 +17,7 @@ internal sealed class AssertNrcStepExecutor : IStepExecutor
         var p = (AssertNrcStep)step.Parameters;
         try
         {
-            await _uds.SendRequestAsync(p.ServiceId, null, ct);
+            await _uds.SendRequestAsync(p.ServiceId, p.Data, ct);
             // Positive response (no exception) → we expected NRC → fail
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Expected NRC 0x{p.ExpectedNrc:X2} but got positive response for service 0x{p.ServiceId:X2}",

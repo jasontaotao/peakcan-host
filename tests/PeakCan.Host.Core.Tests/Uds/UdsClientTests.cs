@@ -522,6 +522,64 @@ public sealed class UdsClientTests
 
         sent.Should().HaveCount(3, "SendKey leg emits one frame per attempt");
     }
+
+    // ========================================================================
+    // ODX Phase 0 (Task 0.2): IOControlAsync (0x2F) + RequestSeedAsync (0x27).
+    // Wire-format tests drive a RecordingUdsClient that captures the FULL
+    // request (SID + data) passed to SendRequestAsync and returns a canned
+    // response.
+    // ========================================================================
+
+    /// <summary>
+    /// Minimal recording double: ctor takes the canned response bytes;
+    /// <see cref="LastRequest"/> captures the full request (SID + data) seen
+    /// by <see cref="SendRequestAsync"/>.
+    /// </summary>
+    private sealed class RecordingUdsClient : UdsClient
+    {
+        public byte[]? LastRequest { get; private set; }
+
+        private readonly byte[] _response;
+
+        public RecordingUdsClient(byte[] response) : base(
+            new IsoTpLayer(new CanIdConfig { RequestId = ReqId, ResponseId = RespId }, _ => { }),
+            new UdsTimer())
+        {
+            _response = response;
+        }
+
+        public override Task<byte[]> SendRequestAsync(
+            byte serviceId, byte[]? data = null, CancellationToken ct = default)
+        {
+            LastRequest = data is null
+                ? new[] { serviceId }
+                : new[] { serviceId }.Concat(data).ToArray();
+            return Task.FromResult(_response);
+        }
+    }
+
+    [Fact]
+    public async Task IOControlAsync_Builds_DidMaskParamLayout()
+    {
+        var uds = new RecordingUdsClient(new byte[] { 0xF1, 0x91, 0xFF, 0x00 });
+
+        await uds.IOControlAsync(did: 0xF191, controlType: 0x03,
+            controlParam: new byte[] { 0xAB }, ct: default);
+
+        uds.LastRequest.Should().BeEquivalentTo(new byte[] { 0x2F, 0xF1, 0x91, 0xFF, 0xAB });
+        //                    ↑ SID    ↑ didHi  ↑ didLo ↑ mask ↑ controlParam
+    }
+
+    [Fact]
+    public async Task RequestSeedAsync_Sends_OddLevelSubfunction()
+    {
+        var uds = new RecordingUdsClient(new byte[] { 0x27, 0xDE, 0xAD });
+
+        var seed = await uds.RequestSeedAsync(0x01, default);
+
+        uds.LastRequest.Should().BeEquivalentTo(new byte[] { 0x27, 0x01 });
+        seed.Should().BeEquivalentTo(new byte[] { 0xDE, 0xAD });   // subfunction 已剥离
+    }
 }
 
 /// <summary>

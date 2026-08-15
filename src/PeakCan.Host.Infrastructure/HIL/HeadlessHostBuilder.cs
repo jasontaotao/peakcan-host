@@ -252,6 +252,10 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearDtcStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, RoutineControlStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SecurityAccessStepExecutor>();
+        // ODX Phase 0 (Task 0.2): ECUReset / CommunicationControl / IOControl executors
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ECUResetStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, CommunicationControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, IOControlStepExecutor>();
     }
 
     /// <summary>

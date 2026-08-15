@@ -146,4 +146,24 @@ public partial class UdsClient
         // UdsSecurityLockedException - see <remarks> above.
         return await SecurityAccessAsync(requestLevel, key, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// RequestSeed (0x27, odd subfunction) — 仅请求 seed，不发 key（不解锁 ECU）。
+    /// 供 SecurityAccessStep.SeedOnly 与 invalid-key 负测试前置。
+    /// </summary>
+    /// <param name="level">Security level sub-function byte (0x01, 0x03, ...).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Seed bytes (response with the subfunction byte stripped).</returns>
+    /// <remarks>
+    /// ODX Phase 0 (Task 0.2): deliberately does NOT call
+    /// <see cref="SecurityAccessAsync(byte, CancellationToken)"/> so no key is computed
+    /// and no lockout state is touched — the ECU stays locked. Marked <c>virtual</c>
+    /// per the established virtual-seam policy.
+    /// </remarks>
+    public virtual async Task<byte[]> RequestSeedAsync(byte level, CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync(0x27, new[] { level }, ct).ConfigureAwait(false);
+        // Response: [subfunction, seed...] — 剥离 subfunction 返回 seed
+        return response.Length >= 2 ? response[1..] : Array.Empty<byte>();
+    }
 }

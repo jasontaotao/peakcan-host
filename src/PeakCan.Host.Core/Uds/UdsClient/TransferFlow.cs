@@ -196,4 +196,37 @@ public partial class UdsClient
     {
         await SendRequestAsync(0x37, null, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// IOControl (0x2F) — physical addressing, waits for positive response.
+    /// Data 参数是 controlParam only；executor 内部 prepend [didHi, didLo, mask]。
+    /// </summary>
+    /// <param name="did">Data Identifier (2 bytes, big-endian).</param>
+    /// <param name="controlType">Control type (0x00 returnControlToECU, 0x01 resetToDefault,
+    /// 0x02 freezeCurrentState, 0x03 shortTermAdjustment).</param>
+    /// <param name="controlParam">Optional control parameter bytes (excluded from the DID header).</param>
+    /// <param name="controlEnableMask">Control enable mask (default 0xFF = all bits enabled).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Response bytes after the [didHi, didLo, mask] header (controlStatus onwards);
+    /// empty when the response is shorter than the 3-byte header.</returns>
+    /// <remarks>
+    /// ODX Phase 0 (Task 0.2): marked <c>virtual</c> per the established virtual-seam policy
+    /// (see <see cref="SendRequestAsync"/> / <see cref="RequestDownloadAsync"/>) so test doubles
+    /// can intercept wire emit without subclassing the transport.
+    /// </remarks>
+    public virtual async Task<byte[]> IOControlAsync(
+        ushort did, byte controlType, byte[]? controlParam = null,
+        byte controlEnableMask = 0xFF, CancellationToken ct = default)
+    {
+        var requestData = new byte[3 + (controlParam?.Length ?? 0)];
+        requestData[0] = (byte)(did >> 8);
+        requestData[1] = (byte)(did & 0xFF);
+        requestData[2] = controlEnableMask;
+        if (controlParam is not null)
+            Array.Copy(controlParam, 0, requestData, 3, controlParam.Length);
+
+        var response = await SendRequestAsync(0x2F, requestData, ct).ConfigureAwait(false);
+        // Response: [didHi, didLo, mask, controlStatus..., controlParam...] — 返回 controlStatus 起
+        return response.Length >= 3 ? response[3..] : Array.Empty<byte>();
+    }
 }
