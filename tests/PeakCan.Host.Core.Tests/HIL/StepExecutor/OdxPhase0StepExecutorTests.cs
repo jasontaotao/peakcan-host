@@ -24,13 +24,16 @@ public class OdxPhase0StepExecutorTests
     {
         public byte? LastSid;
         public byte[]? LastData;
-        public UdsException? NextException;
+        public Exception? NextException;
 
         public Task<IReadOnlyList<DtcInfo>> ReadDtcInformation(byte statusMask, CancellationToken ct)
             => throw new NotSupportedException("执行器只用 SendRequestAsync");
 
         public Task SendRequestAsync(byte serviceId, byte[]? data = null, CancellationToken ct = default)
         {
+            // 先记录再抛，这样 NRC 分支测试也能断言 payload 已送达。
+            LastSid = serviceId;
+            LastData = data;
             if (NextException is not null)
             {
                 var e = NextException;
@@ -38,8 +41,6 @@ public class OdxPhase0StepExecutorTests
                 throw e;
             }
 
-            LastSid = serviceId;
-            LastData = data;
             return Task.CompletedTask;
         }
     }
@@ -50,6 +51,7 @@ public class OdxPhase0StepExecutorTests
         public byte[]? LastData;
         public readonly List<(byte SID, byte[]? Data)> Calls = new();
         public byte[] SeedResponse = new byte[] { 0x01, 0xDE, 0xAD };
+        public bool ThrowOnTesterPresent;
 
         public SpyUdsClient() : base(
             new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { }),
@@ -63,6 +65,8 @@ public class OdxPhase0StepExecutorTests
             Calls.Add((serviceId, data));
             LastSid = serviceId;
             LastData = data;
+            if (serviceId == 0x3E && ThrowOnTesterPresent)
+                throw new UdsException("ECU did not respond to TesterPresent after reset");
             return Task.FromResult(serviceId == 0x27 ? SeedResponse : new byte[] { 0x40 });
         }
     }
@@ -116,12 +120,16 @@ public class OdxPhase0StepExecutorTests
         var uds = new SpyUdsClient();
         var ex = new SecurityAccessStepExecutor(uds);
         var step = TestCaseStep.Create(new SecurityAccessStep(0x01, SeedOnly: true));
+        var ctx = new DummyContext();
 
-        var result = await ex.ExecuteAsync(step, new DummyContext(), default);
+        var result = await ex.ExecuteAsync(step, ctx, default);
 
         result.Passed.Should().BeTrue();
         uds.LastSid.Should().Be(0x27);
         uds.LastData.Should().BeEquivalentTo(new byte[] { 0x01 });   // seed request，非 key-verify
+        ((byte[])ctx.Variables["security_seed"]).Should().BeEquivalentTo(
+            new byte[] { 0xDE, 0xAD },
+            "seed 响应 [0x01, 0xDE, 0xAD] 剥离 subfunction 后应存入变量 store");
     }
 
     [Fact]
@@ -166,5 +174,38 @@ public class OdxPhase0StepExecutorTests
         result.Passed.Should().BeTrue();
         uds.LastSid.Should().Be(0x2F);
         uds.LastData.Should().BeEquivalentTo(new byte[] { 0xF1, 0x91, 0xFF, 0xAB });
+    }
+
+    [Fact]
+    public async Task AssertNrc_ExpectedNrc_Passes()
+    {
+        var uds = new SpySession { NextException = new UdsNrcException(0x22, 0x33) };
+        var ex = new AssertNrcStepExecutor(uds);
+        var step = TestCaseStep.Create(new AssertNrcStep(0x22, 0x33, new byte[] { 0xF1, 0x90 }));
+
+        var result = await ex.ExecuteAsync(step, new DummyContext(), default);
+
+        result.Passed.Should().BeTrue();                 // NRC 0x33 匹配期望 → pass
+        result.Status.Should().Be(StepStatus.Passed);
+        uds.LastSid.Should().Be(0x22);
+        uds.LastData.Should().BeEquivalentTo(new byte[] { 0xF1, 0x90 },
+            "NRC 分支也必须把 Data payload 送到 SendRequestAsync");
+    }
+
+    [Fact]
+    public async Task ECUReset_NoReconnect_ReturnsFailed()
+    {
+        var uds = new SpyUdsClient { ThrowOnTesterPresent = true };
+        var ex = new ECUResetStepExecutor(uds, reconnectTimeoutMs: 50);
+        var step = TestCaseStep.Create(new ECUResetStep(0x01));
+
+        var result = await ex.ExecuteAsync(step, new DummyContext(), default);
+
+        result.Passed.Should().BeFalse();
+        result.Status.Should().Be(StepStatus.Failed);
+        result.Message.Should().Contain("did not reconnect",
+            "reset 被确认但 TesterPresent 在超时窗口内无响应 → 必须报 Failed，而非静默 Pass");
+        uds.Calls.Should().Contain(c => c.SID == 0x11, "reset leg 必须先发出");
+        uds.Calls.Should().Contain(c => c.SID == 0x3E, "reconnect poll 应尝试 TesterPresent");
     }
 }
