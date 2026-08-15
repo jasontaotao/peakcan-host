@@ -79,4 +79,29 @@ public class FrameCaptureExporterTests
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
+
+    [Fact]
+    public async Task FrameExporter_BytesMatchAscFileFormat_GoldenLine()
+    {
+        var dir = GetTempDir();
+        var frame = new CanFrame(
+            new CanId(0x123, FrameFormat.Standard),
+            new ReadOnlyMemory<byte>(new byte[] { 0x01, 0x02, 0x03 }),
+            FrameFlags.None, ChannelId.None, new Timestamp(1000000));
+        var step = new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "fail", null, null, 0, new[] { frame });
+        var caseResult = new TestCaseResult("Fail_Case", "Fail_Case", false, "fail", 10, 1, 0, 1, 0, 0, new[] { step });
+        var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
+
+        try
+        {
+            await FrameCaptureExporter.ExportAsync(result, dir);
+            var content = await File.ReadAllTextAsync(Directory.GetFiles(dir, "*.asc")[0]);
+            Assert.Contains("    0.000000 1  0x123       x       Rx d 3 01 02 03", content);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
 }

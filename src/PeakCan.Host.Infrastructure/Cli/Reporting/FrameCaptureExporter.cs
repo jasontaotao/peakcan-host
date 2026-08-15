@@ -1,7 +1,7 @@
-using System.Globalization;
 using System.Text;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
+using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Infrastructure.Cli.Reporting;
 
@@ -40,7 +40,7 @@ public static class FrameCaptureExporter
 
             if (frames.Count == 0) continue;
 
-            var fileName = SanitizeFileName(c.TestCaseName) + ".asc";
+            var fileName = AscFileFormat.SanitizeFileName(c.TestCaseName) + ".asc";
             var filePath = Path.Combine(directory, fileName);
             await WriteAscFileAsync(filePath, frames, ct).ConfigureAwait(false);
         }
@@ -53,13 +53,8 @@ public static class FrameCaptureExporter
     {
         var sb = new StringBuilder();
 
-        // Header
-        sb.AppendLine($"date Fri Jan 01 00:00:00.000 {DateTime.Now:yyyy}");
-        sb.AppendLine("base hex  timestamps absolute");
-        sb.AppendLine("internal events logged");
-        sb.AppendLine("// version 8.5.0");
+        AscFileFormat.WriteHeader(sb);
 
-        // Frames
         double timestampOffsetUs = 0;
         if (frames.Count > 0)
             timestampOffsetUs = frames[0].Timestamp.TotalMicroseconds;
@@ -69,34 +64,9 @@ public static class FrameCaptureExporter
             ct.ThrowIfCancellationRequested();
 
             var elapsedUs = frame.Timestamp.TotalMicroseconds - timestampOffsetUs;
-            var seconds = elapsedUs / 1_000_000.0;
-
-            // Format:   0.000000 1  18FEF100x       Rx d 8 01 02 03 04 05 06 07 08
-            var idStr = frame.Id.IsExtended
-                ? $"0x{frame.Id.Raw:X8}"
-                : $"0x{frame.Id.Raw:X3}";
-
-            var dlc = frame.Data.Length;
-            var dataHex = BitConverter.ToString(frame.Data.Span.ToArray()).Replace("-", " ");
-
-            sb.AppendLine(
-                $"{seconds,12:F6} 1  {idStr,-12}x       Rx d {dlc} {dataHex}");
+            AscFileFormat.WriteFrameLine(sb, frame, elapsedUs);
         }
 
         await File.WriteAllTextAsync(path, sb.ToString(), Encoding.UTF8, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Replace invalid filename characters with underscore.
-    /// </summary>
-    private static string SanitizeFileName(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(name.Length);
-        foreach (var ch in name)
-        {
-            sb.Append(invalid.Contains(ch) ? '_' : ch);
-        }
-        return sb.ToString();
     }
 }
