@@ -144,6 +144,8 @@ public class PeakCanAssertionContextTests
 
         // loop 存活：goodFrame 到达 sink
         Assert.Contains(sink.Frames, f => f.Id.Raw == goodFrame.Id.Raw);
+        // G1 承诺（所有帧都写 sink）：解码失败的坏帧也必须到达 sink（sink 写入先于 decode）
+        Assert.Contains(sink.Frames, f => f.Id.Raw == 0x200);
     }
 
     [Fact]
