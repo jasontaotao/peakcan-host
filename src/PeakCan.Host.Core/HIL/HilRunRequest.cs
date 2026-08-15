@@ -18,4 +18,7 @@ public sealed record HilRunRequest(
     // Phase 7 Unit B: external generator plugin directory
     string? GeneratorDir = null,
     // Test case selection: null = run all; non-empty = run only matching case names
-    IReadOnlyList<string>? SelectedCaseNames = null);
+    IReadOnlyList<string>? SelectedCaseNames = null,
+    // 2026-08-15: WPF 每 case 全量报文 log
+    bool CaptureCaseLogs = false,
+    string? CaseLogDirectory = null);

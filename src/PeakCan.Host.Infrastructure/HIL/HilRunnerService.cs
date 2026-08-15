@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
@@ -11,8 +12,21 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// </summary>
 public sealed class HilRunnerService : IHilRunnerService
 {
+    private readonly ILogger<HilRunnerService> _logger;
+
+    public HilRunnerService(ILogger<HilRunnerService> logger) => _logger = logger;
+
     /// <inheritdoc/>
     public DbcDocument? LastDbcDocument { get; private set; }
+
+    /// <inheritdoc/>
+    public string? LastCaseLogDirectory { get; private set; }
+
+    /// <summary>解析 case-log 目录：request 覆盖值 或 默认 %LocalAppData%\PeakCanHost\hil-reports\case-logs\。internal 便于测试。</summary>
+    internal static string ResolveCaseLogDirectory(HilRunRequest request)
+        => request.CaseLogDirectory
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "PeakCanHost", "hil-reports", "case-logs");
 
     public async Task<TestSuiteResult> RunAsync(
         HilRunRequest request,
@@ -22,6 +36,8 @@ public sealed class HilRunnerService : IHilRunnerService
         // 每次运行前重置，避免上一次运行的 DBC 残留：若本次 Build()/DBC 解析失败，
         // LastDbcDocument 保持 null，报告回落 hex，而不是沿用上次的陈旧文档。
         LastDbcDocument = null;
+        // 同样每次 run 重置：只有本次 CaptureCaseLogs 成功才重新赋值。
+        LastCaseLogDirectory = null;
 
         using var host = HeadlessHostBuilder.Build(HilRunRequestExtensions.ToCliArgs(request));
 
@@ -49,7 +65,26 @@ public sealed class HilRunnerService : IHilRunnerService
 
         try
         {
-            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct);
+            // 每 case 全量报文 log: 建目录 + 构造 factory（P4 降级）
+            IHilFrameSinkFactory? sinkFactory = null;
+            if (request.CaptureCaseLogs)
+            {
+                var dir = ResolveCaseLogDirectory(request);
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    var runTimestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+                    sinkFactory = new AscFrameSinkFactory(dir, runTimestamp);
+                    LastCaseLogDirectory = dir;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Case log directory unavailable, capture disabled: {Dir}", dir);
+                    sinkFactory = null;
+                }
+            }
+
+            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory);
         }
         finally
         {
