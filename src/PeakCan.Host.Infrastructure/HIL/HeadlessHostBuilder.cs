@@ -104,7 +104,8 @@ public static class HeadlessHostBuilder
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
-                return new PeakCanAssertionContext(channel, dbc);
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
+                return new PeakCanAssertionContext(channel, dbc, logger);
             });
             RegisterUdsServices(builder, args);
         }

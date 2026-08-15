@@ -106,6 +106,46 @@ public class PeakCanAssertionContextTests
         Assert.True(true);
     }
 
+    private sealed class RecordingSink : IHilFrameSink
+    {
+        public List<CanFrame> Frames { get; } = new();
+        public void Write(CanFrame f) => Frames.Add(f);
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task ConsumerLoop_DecodeException_DoesNotKillLoop_SinkStillReceives()
+    {
+        // Arrange: DBC 含一个 bitLength=65 的信号（SignalDecoder.Decode 抛 ArgumentOutOfRangeException），
+        // 以及一个正常 8-bit 信号的消息。
+        var channel = new FakeCanChannel();
+        var dbc = new FakeDbcLookup();
+        dbc.AddMessage(CreateMessage(0x200, "BadMsg",
+            CreateSignal("BadSignal", 0, 65, ByteOrder.LittleEndian, DbcValueType.Unsigned)));
+        dbc.AddMessage(CreateMessage(0x123, "GoodMsg",
+            CreateSignal("GoodSignal", 0, 8, ByteOrder.LittleEndian, DbcValueType.Unsigned)));
+
+        using var ctx = new PeakCanAssertionContext(channel, dbc);
+        var sink = new RecordingSink();
+        ctx.SetFrameSink(sink);
+        // 预热：确保 consumer 线程已启动，避免 drain 在 500ms 上限内 consumer 尚未开跑
+        Thread.Sleep(20);
+
+        // 先灌一帧解码必失败的帧（0x200 / 65-bit），再灌一帧正常帧（0x123 / 8-bit）
+        channel.SimulateFrame(new CanFrame(new CanId(0x200, FrameFormat.Standard),
+            new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+            FrameFlags.None, new ChannelId(1), new Timestamp(0)));
+        var goodFrame = new CanFrame(new CanId(0x123, FrameFormat.Standard),
+            new byte[] { 0x64, 0, 0, 0, 0, 0, 0, 0 },
+            FrameFlags.None, new ChannelId(1), new Timestamp(1));
+        channel.SimulateFrame(goodFrame);
+
+        await ctx.WaitForFrameDrainAsync(default);
+
+        // loop 存活：goodFrame 到达 sink
+        Assert.Contains(sink.Frames, f => f.Id.Raw == goodFrame.Id.Raw);
+    }
+
     [Fact]
     public void GetRecentFrames_ReturnsBuffer()
     {

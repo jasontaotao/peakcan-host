@@ -13,10 +13,11 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Reuses the same thread model as HILAssertionContext.
 /// The only difference: SendFrameAsync delegates to _channel.WriteAsync (real hardware).
 /// </summary>
-internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IDisposable
+internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable
 {
     private readonly ICanChannel _channel;
     private readonly IDbcLookup _dbcLookup;
+    private readonly ILogger? _logger;
     private readonly Channel<CanFrame> _frameChannel;
     private readonly CancellationTokenSource _consumerCts = new();
     private readonly Task _consumerTask;
@@ -26,10 +27,11 @@ internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFra
     private ImmutableList<Action<DecodedFrame>> _subscribers = ImmutableList<Action<DecodedFrame>>.Empty;
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
 
-    public PeakCanAssertionContext(ICanChannel channel, IDbcLookup dbcLookup)
+    public PeakCanAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
+        _logger = logger;
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
             new BoundedChannelOptions(10000)
             {
@@ -84,6 +86,24 @@ internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFra
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
+
+    // --- IHasFrameSink ---
+    // 跨线程：sink 由引擎线程 SetFrameSink 挂载/摘除，consumer 线程读；用 Volatile 保证可见性。
+    private IHilFrameSink? _frameSink;
+
+    public void SetFrameSink(IHilFrameSink? sink)
+        => Volatile.Write(ref _frameSink, sink);
+
+    public async Task WaitForFrameDrainAsync(CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(500);
+        try
+        {
+            while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(10, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { /* 取消时放弃排空，文件仍合法 */ }
+    }
 
     // IStepVariableStore — 步骤间传值（Phase A）。同 case 内串行执行，无并发写。
     public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
@@ -140,19 +160,39 @@ internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFra
 
                 _recentFrames.Add(frame);
 
+                // 所有帧都写 sink（无论 DBC 解码是否成功），G1 约束
+                Volatile.Read(ref _frameSink)?.Write(frame);
+
                 var key = DbcLookupKey.ToLookupKey(frame.Id.Raw, frame.Id.IsExtended);
                 var message = _dbcLookup.FindMessage(key);
 
                 DecodedFrame decoded;
+                // FIND-001 fix: use frame.Timestamp instead of _currentTimestamp.
+                // _currentTimestamp is written by OnFrame (producer) and can be overwritten
+                // before the consumer processes this frame, causing signal cache to store
+                // incorrect timestamps.
+                var frameTimestampUs = frame.Timestamp.TotalMicroseconds;
+
                 if (message is not null)
                 {
                     var signals = new Dictionary<string, double>();
                     foreach (var signal in message.Signals)
                     {
                         var signalName = $"{message.Name}.{signal.Name}";
-                        var value = SignalDecoder.Decode(frame.Data.Span, signal);
-                        signals[signalName] = value;
-                        _signalCache[signalName] = (value, _currentTimestamp);
+                        try
+                        {
+                            // FIND-004 fix: protect against decode exceptions (e.g.,
+                            // ArgumentOutOfRangeException for signal.Length > 64).
+                            var value = SignalDecoder.Decode(frame.Data.Span, signal);
+                            signals[signalName] = value;
+                            _signalCache[signalName] = (value, frameTimestampUs);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log and skip this signal — don't kill the consumer loop.
+                            _logger?.LogWarning(ex, "Failed to decode signal {Signal} in message {Message}",
+                                signal.Name, message.Name);
+                        }
                     }
                     decoded = new DecodedFrame(frame, signals);
                 }
