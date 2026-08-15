@@ -41,6 +41,8 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+            <CheckBox Content="记录每 case 报文 (.asc)" IsChecked="{Binding CaptureCaseLogs}"
+                      VerticalAlignment="Center" Margin="16,0,0,0" />
             <TextBlock Text="{Binding SelectedMode, Converter={StaticResource HilModeIcon}}"
                        ToolTip="{Binding SelectedMode, Converter={StaticResource HilModeDesc}}"
                        VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16"

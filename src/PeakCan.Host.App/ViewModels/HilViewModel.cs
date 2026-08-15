@@ -28,6 +28,7 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _ecuScriptPath = "";
     [ObservableProperty] private string _matrixPath = "";
     [ObservableProperty] private bool _enableFaultInjection = false;
+    [ObservableProperty] private bool _captureCaseLogs = true; // 2026-08-15: 每 case 记录全量报文 (.asc)
     [ObservableProperty] private bool _isRunning = false;
     [ObservableProperty] private double _progressPercent = 0;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -285,7 +286,8 @@ public sealed partial class HilViewModel : ObservableObject
                 EnableAnalyze: EnableAnalyze,
                 SelectedCaseNames: AvailableCases.Count > 0
                     ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
-                    : null);
+                    : null,
+                CaptureCaseLogs: CaptureCaseLogs);
 
             var result = await _runner.RunAsync(request, progress, default);
 
@@ -300,6 +302,10 @@ public sealed partial class HilViewModel : ObservableObject
             StatusMessage = result.AllPassed
                 ? $"All {result.TotalCases} cases passed"
                 : $"{result.FailedCases}/{result.TotalCases} cases failed";
+
+            // 2026-08-15: 每 case 报文 log 成功时在状态栏提示实际写入目录（case-log P11）。
+            if (CaptureCaseLogs && _runner.LastCaseLogDirectory is { } caseLogDir)
+                StatusMessage += $" — case logs: {caseLogDir}";
 
             // Phase 7 Unit C: 生成 HTML 报告。插入点在 StatusMessage 之后、Phase 7 A 的
             // AnalyzeAsync 之前 —— 报告是秒级本地 IO，不被 LLM 调用（最长 ~150s 超时）阻塞。

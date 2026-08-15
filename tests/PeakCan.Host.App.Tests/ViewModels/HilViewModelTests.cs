@@ -223,4 +223,55 @@ public sealed class HilViewModelTests
 
         Assert.False(vm.RunCommand.CanExecute(null));
     }
+
+    // --- Case-log capture (Task 10: P1/P11) ---
+
+    [Fact]
+    public void CaptureCaseLogs_DefaultsTrue()
+    {
+        var vm = CreateViewModel();
+        Assert.True(vm.CaptureCaseLogs);
+    }
+
+    [Fact]
+    public async Task RunAsync_PassesCaptureCaseLogs_WhenChecked()
+    {
+        var runner = Substitute.For<IHilRunnerService>();
+        HilRunRequest? lastRequest = null;
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => lastRequest = r), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(AllPassedResult()));
+
+        var vm = CreateViewModel(runner);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+        vm.CaptureCaseLogs = true;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.NotNull(lastRequest);
+        Assert.True(lastRequest!.CaptureCaseLogs);
+    }
+
+    [Fact]
+    public async Task RunAsync_StatusMessage_AppendsCaseLogDir()
+    {
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(AllPassedResult()));
+        runner.LastCaseLogDirectory.Returns(@"C:\logs\case-logs");
+
+        var vm = CreateViewModel(runner);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+        vm.CaptureCaseLogs = true;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Contains("case logs", vm.StatusMessage);
+        Assert.Contains(@"C:\logs\case-logs", vm.StatusMessage);
+    }
 }
