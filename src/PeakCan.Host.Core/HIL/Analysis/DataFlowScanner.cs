@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -8,17 +9,24 @@ namespace PeakCan.HIL.Core.HIL.Analysis;
 
 /// <summary>
 /// 整树数据流扫描器（§5.8 ①-⑥ 树遍历规则）。
-/// 递归走 case 树，维护"已写入变量集"+ IndexVar 作用域栈 + 嵌套深度。
+/// 递归走 case 树，维护"已写入变量集"(definite 必然写入 / conditional 可能写入) +
+/// IndexVar 作用域栈 + 嵌套深度。
 /// </summary>
 /// <remarks>
 /// 规则职责：
-/// - ①：while 守卫引用必然 undefined（首次写入在循环体内、无前置 writer、未用 isUndefined() 逃生）→ Critical。
-/// - ②：did.0xXXXX 引用必然 undefined（case 内无前置 writer）→ Critical。
+/// - ①：while 守卫引用必然 undefined（无前置 writer、未用 isUndefined() 逃生）→ Critical。
+/// - ①′：while 守卫引用可能 undefined（writer 在条件分支内）→ High。
+/// - ②/②′：did.0xXXXX 引用必然/可能 undefined → Critical/High。
 /// - ③：signal.* 不在已加载 DBC（DBC 未加载时跳过）→ Critical。
 /// - ⑤c：嵌套深度 &gt; 10 → Medium。
 /// - ⑥：AssignStep.Assign 与作用域内任一 IndexVar 同名 → Critical。
-/// writer：ReadDid（默认键 did_0x{Did:X4} 或自定义 OutputVar）、AssignStep.Assign、RoutineControl/IOControl.OutputVar。
+/// writer：ReadDid（默认键 did_0x{Did:X4} 或自定义 OutputVar）、AssignStep.Assign、
+/// RoutineControl/IOControl.OutputVar。
 /// 逃生舱：守卫含 isUndefined(x) 时，① 不升级 Critical。
+/// 数据流模型：
+/// - definite：顺序流必然写入（顶层 + 当前作用域内顺序 writer）。
+/// - conditional：容器 body 内 writer 导出（分支/循环可能不执行）。
+/// 守卫/did 引用检查：definite→OK；conditional→High(①′/②′)；都不在→Critical(①/②)。
 /// 在每个节点同时回调 per-kind validator 做局部直接检查（语法/④/⑤a/⑤b）。
 /// </remarks>
 internal sealed class DataFlowScanner
@@ -44,10 +52,22 @@ internal sealed class DataFlowScanner
     public IReadOnlyList<ValidationIssue> ScanCase(TestCase testCase)
     {
         var issues = new List<ValidationIssue>();
-        var definite = new HashSet<string>();
-        var indexScope = new Stack<HashSet<string>>();
-        WalkSteps(testCase.Steps, depth: 0, pathPrefix: null, definite, indexScope, issues);
+        var state = new ScanState();
+        WalkSteps(testCase.Steps, depth: 0, pathPrefix: null, state, issues);
         return issues;
+    }
+
+    /// <summary>数据流状态：definite（必然写入）+ conditional（可能写入）+ IndexVar 作用域栈。</summary>
+    private sealed class ScanState
+    {
+        /// <summary>当前作用域内顺序流必然写入的变量键。</summary>
+        public HashSet<string> Definite = new();
+
+        /// <summary>条件分支/循环 body 内写入的变量键（可能不执行）。</summary>
+        public HashSet<string> Conditional = new();
+
+        /// <summary>IndexVar 作用域栈（Loop/Repeat 压栈，Assign 检查遮蔽）。</summary>
+        public Stack<HashSet<string>> IndexScope = new();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -58,25 +78,20 @@ internal sealed class DataFlowScanner
         IReadOnlyList<TestCaseStep> steps,
         int depth,
         string? pathPrefix,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
+        ScanState state,
         List<ValidationIssue> issues)
     {
         for (int i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
             string path = pathPrefix is null ? i.ToString() : $"{pathPrefix}.{i}";
-            WalkStep(step, depth, path, definite, indexScope, issues);
+            WalkStep(step, depth, path, state, issues);
         }
     }
 
     private void WalkStep(
-        TestCaseStep step,
-        int depth,
-        string path,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
-        List<ValidationIssue> issues)
+        TestCaseStep step, int depth, string path,
+        ScanState state, List<ValidationIssue> issues)
     {
         // 1. per-kind validator 局部直接检查（语法/④/⑤a/⑤b）
         if (_validators.TryGetValue(step.Kind, out var validator))
@@ -98,19 +113,21 @@ internal sealed class DataFlowScanner
         switch (step.Kind)
         {
             case TestCaseStepKind.Assign:
-                HandleAssign(step, path, definite, indexScope, issues);
+                HandleAssign(step, path, state, issues);
                 break;
             case TestCaseStepKind.If:
-                HandleIf(step, depth, path, definite, indexScope, issues);
+                HandleIf(step, depth, path, state, issues);
                 break;
             case TestCaseStepKind.Repeat:
-                HandleRepeat(step, depth, path, definite, indexScope, issues);
+                HandleRepeat(step, depth, path, state, issues);
                 break;
             case TestCaseStepKind.Loop:
-                HandleLoop(step, depth, path, definite, indexScope, issues);
+                HandleLoop(step, depth, path, state, issues);
                 break;
             default:
-                HandleLeafWriter(step, definite);
+                // 非容器叶步骤：无控制流递归，仅收集 writer（ReadDid/RoutineControl/IOControl）。
+                // 新增带 writer 的叶步骤需在 HandleLeafWriter 添加 case。
+                HandleLeafWriter(step, state);
                 break;
         }
     }
@@ -120,15 +137,12 @@ internal sealed class DataFlowScanner
     // ─────────────────────────────────────────────────────────────
 
     private void HandleAssign(
-        TestCaseStep step, string path,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
-        List<ValidationIssue> issues)
+        TestCaseStep step, string path, ScanState state, List<ValidationIssue> issues)
     {
         var a = (AssignStep)step.Parameters;
 
         // ⑥ Assign 与作用域内任一 IndexVar 同名 → Critical（写入被 loop 绑定遮蔽）
-        foreach (var frame in indexScope)
+        foreach (var frame in state.IndexScope)
         {
             if (frame.Contains(a.Assign))
             {
@@ -140,123 +154,137 @@ internal sealed class DataFlowScanner
             }
         }
 
-        // writer: Assign 名加入已写入集
-        definite.Add(a.Assign);
+        // writer: Assign 名加入当前作用域 definite
+        state.Definite.Add(a.Assign);
 
         // ②③ Expression 内 did/signal 引用检查
-        CheckDidAndSignalRefs(a.Expression, path, step.Label, definite, issues);
+        CheckDidAndSignalRefs(a.Expression, path, step.Label, state, issues);
     }
 
     private void HandleIf(
-        TestCaseStep step, int depth, string path,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
-        List<ValidationIssue> issues)
+        TestCaseStep step, int depth, string path, ScanState state, List<ValidationIssue> issues)
     {
         var ifP = (IfStep)step.Parameters;
 
         // ②③ Condition 内 did/signal 引用检查
-        CheckDidAndSignalRefs(ifP.Condition, path, step.Label, definite, issues);
+        CheckDidAndSignalRefs(ifP.Condition, path, step.Label, state, issues);
 
-        // 递归 Body / ElseBody（depth+1，body 内 writer 加入 definite）
+        // 递归 Body / ElseBody：body 内 writer 导出为 conditional（分支可能不执行）
         if (ifP.Body is not null)
-            WalkSteps(ifP.Body, depth + 1, path, definite, indexScope, issues);
+            WalkBodyConditional(ifP.Body, depth, path, state, issues);
         if (ifP.ElseBody is not null)
-            WalkSteps(ifP.ElseBody, depth + 1, path, definite, indexScope, issues);
+            WalkBodyConditional(ifP.ElseBody, depth, path, state, issues);
     }
 
     private void HandleRepeat(
-        TestCaseStep step, int depth, string path,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
-        List<ValidationIssue> issues)
+        TestCaseStep step, int depth, string path, ScanState state, List<ValidationIssue> issues)
     {
         var rp = (RepeatStep)step.Parameters;
 
         // IndexVar 作用域压栈（规则 ⑥）
-        bool pushed = PushIndexVar(indexScope, rp.IndexVar);
+        bool pushed = PushIndexVar(state.IndexScope, rp.IndexVar);
         try
         {
             if (rp.Mode == RepeatMode.While)
             {
-                // ① while 守卫变量引用检查 + ②③ did/signal 引用
-                CheckWhileGuard(rp.Condition ?? "false", path, step.Label, definite, issues);
+                // ①/①′ while 守卫变量引用检查 + ②③ did/signal 引用
+                // 守卫先于 body 求值，故此时 body writer 尚未加入（正确反映首迭代）
+                CheckWhileGuard(rp.Condition ?? "false", path, step.Label, state, issues);
             }
             else // Fixed
             {
                 // ②③ Count 表达式引用检查
-                CheckDidAndSignalRefs(rp.Count ?? "1", path, step.Label, definite, issues);
+                CheckDidAndSignalRefs(rp.Count ?? "1", path, step.Label, state, issues);
             }
 
-            // 递归 Body（depth+1）
+            // 递归 Body：循环可能 0 次 → body writer 导出 conditional
             if (rp.Body is not null)
-                WalkSteps(rp.Body, depth + 1, path, definite, indexScope, issues);
+                WalkBodyConditional(rp.Body, depth, path, state, issues);
         }
         finally
         {
-            if (pushed) indexScope.Pop();
+            if (pushed) state.IndexScope.Pop();
         }
     }
 
     private void HandleLoop(
-        TestCaseStep step, int depth, string path,
-        HashSet<string> definite,
-        Stack<HashSet<string>> indexScope,
-        List<ValidationIssue> issues)
+        TestCaseStep step, int depth, string path, ScanState state, List<ValidationIssue> issues)
     {
         var lp = (LoopStep)step.Parameters;
 
         // ②③ From/To/Step 表达式引用检查
-        CheckDidAndSignalRefs(lp.From, path, step.Label, definite, issues);
-        CheckDidAndSignalRefs(lp.To, path, step.Label, definite, issues);
-        CheckDidAndSignalRefs(lp.Step, path, step.Label, definite, issues);
+        CheckDidAndSignalRefs(lp.From, path, step.Label, state, issues);
+        CheckDidAndSignalRefs(lp.To, path, step.Label, state, issues);
+        CheckDidAndSignalRefs(lp.Step, path, step.Label, state, issues);
 
         // IndexVar 作用域压栈（规则 ⑥）
-        bool pushed = PushIndexVar(indexScope, lp.IndexVar);
+        bool pushed = PushIndexVar(state.IndexScope, lp.IndexVar);
         try
         {
             if (lp.Body is not null)
-                WalkSteps(lp.Body, depth + 1, path, definite, indexScope, issues);
+                WalkBodyConditional(lp.Body, depth, path, state, issues);
         }
         finally
         {
-            if (pushed) indexScope.Pop();
+            if (pushed) state.IndexScope.Pop();
         }
     }
 
+    /// <summary>
+    /// 容器 body 递归遍历：用 definite 的 copy 遍历（body 内顺序 writer 对 body 内后续是 definite），
+    /// body 结束后把新增 writer（非父 definite）导出为 conditional（分支/循环可能不执行）。
+    /// </summary>
+    private void WalkBodyConditional(
+        IReadOnlyList<TestCaseStep> body, int depth, string path,
+        ScanState state, List<ValidationIssue> issues)
+    {
+        var bodyState = new ScanState
+        {
+            Definite = new HashSet<string>(state.Definite), // 继承父 definite，body 内局部累加
+            Conditional = state.Conditional,               // 全局 conditional 共享
+            IndexScope = state.IndexScope,                 // 作用域栈共享（body 内 Loop/Repeat 压弹平衡）
+        };
+        WalkSteps(body, depth + 1, path, bodyState, issues);
+        // 导出：body 内新增 writer（不在父 definite）→ conditional
+        foreach (var w in bodyState.Definite)
+            if (!state.Definite.Contains(w)) state.Conditional.Add(w);
+    }
+
     /// <summary>叶步骤 writer 收集：ReadDid/RoutineControl/IOControl 的 OutputVar。</summary>
-    private static void HandleLeafWriter(TestCaseStep step, HashSet<string> definite)
+    private static void HandleLeafWriter(TestCaseStep step, ScanState state)
     {
         switch (step.Parameters)
         {
             case ReadDidStep r:
-                definite.Add(r.OutputVar ?? DidVariableKey.Format(r.Did));
+                // ReadDid 总会写入：自定义 OutputVar 或默认键 did_0x{Did:X4}
+                state.Definite.Add(r.OutputVar ?? DidVariableKey.Format(r.Did));
                 break;
             case RoutineControlStep rc when rc.OutputVar is not null:
-                definite.Add(rc.OutputVar);
+                state.Definite.Add(rc.OutputVar);
                 break;
             case IOControlStep io when io.OutputVar is not null:
-                definite.Add(io.OutputVar);
+                state.Definite.Add(io.OutputVar);
                 break;
+            // 其他叶步骤（SendFrame/AssertSignal/...）无变量 writer，显式跳过
         }
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  规则 ① while 守卫 + ②③ did/signal 引用检查
+    //  规则 ①/①′ while 守卫 + ②/②′ did 引用 + ③ signal 检查
     // ─────────────────────────────────────────────────────────────
 
-    /// <summary>① while 守卫变量引用检查（必然 undefined → Critical）+ ②③ did/signal。</summary>
+    /// <summary>①/①′ while 守卫变量引用检查 + ②③ did/signal 引用。</summary>
     private void CheckWhileGuard(
         string condition, string path, string? label,
-        HashSet<string> definite, List<ValidationIssue> issues)
+        ScanState state, List<ValidationIssue> issues)
     {
         var parse = _evaluator.Parse(condition);
         if (parse.IsError) return; // 语法错误已由 RepeatValidator 报
 
         // ②③ did/signal 引用
-        CheckDidAndSignalRefsAst(parse.Ast, path, label, definite, issues);
+        CheckDidAndSignalRefsAst(parse.Ast, path, label, state, issues);
 
-        // ① while 守卫变量引用：收集 isUndefined 逃生 name，再收集普通 VariableRef
+        // ①/①′ while 守卫变量引用：收集 isUndefined 逃生 name，再收集普通 VariableRef
         var escapeNames = new HashSet<string>();
         CollectEscapeNames(parse.Ast, escapeNames);
 
@@ -265,38 +293,59 @@ internal sealed class DataFlowScanner
 
         foreach (var name in varRefs)
         {
-            if (escapeNames.Contains(name)) continue;   // isUndefined 逃生
-            if (definite.Contains(name)) continue;        // 前置 writer 存在
-            // ① Critical — 守卫引用必然 undefined（首迭代，无前置 writer）
-            issues.Add(new ValidationIssue(
-                ValidationSeverity.Critical, "①", "While guard undefined reference",
-                $"while guard references variable '{name}' which is undefined on first iteration " +
-                $"(no preceding writer; use isUndefined() escape hatch or add AssignStep before loop, §5.8 ①)",
-                path, label));
+            if (escapeNames.Contains(name)) continue;    // isUndefined 逃生
+            if (state.Definite.Contains(name)) continue;  // 必然已写入
+            if (state.Conditional.Contains(name))
+            {
+                // ①′ High — 可能 undefined（writer 在条件分支/循环体内，可能不执行）
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.High, "①′", "While guard possibly undefined reference",
+                    $"while guard references variable '{name}' which may be undefined " +
+                    $"(writer in conditional branch/loop body, §5.8 ①′)",
+                    path, label));
+            }
+            else
+            {
+                // ① Critical — 必然 undefined（首迭代，无前置 writer）
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Critical, "①", "While guard undefined reference",
+                    $"while guard references variable '{name}' which is undefined on first iteration " +
+                    $"(no preceding writer; use isUndefined() escape hatch or add AssignStep before loop, §5.8 ①)",
+                    path, label));
+            }
         }
     }
 
-    /// <summary>②③ 解析表达式并检查 did/signal 引用悬空。</summary>
+    /// <summary>②②′③ 解析表达式并检查 did/signal 引用悬空。</summary>
     private void CheckDidAndSignalRefs(
         string expr, string path, string? label,
-        HashSet<string> definite, List<ValidationIssue> issues)
+        ScanState state, List<ValidationIssue> issues)
     {
         var parse = _evaluator.Parse(expr);
         if (parse.IsError) return; // 语法错误由 per-kind validator 报
-        CheckDidAndSignalRefsAst(parse.Ast, path, label, definite, issues);
+        CheckDidAndSignalRefsAst(parse.Ast, path, label, state, issues);
     }
 
-    /// <summary>②③ 直接对 AST 检查 did/signal 引用悬空。</summary>
+    /// <summary>②②′③ 直接对 AST 检查 did/signal 引用悬空。</summary>
     private void CheckDidAndSignalRefsAst(
         AstNode? ast, string path, string? label,
-        HashSet<string> definite, List<ValidationIssue> issues)
+        ScanState state, List<ValidationIssue> issues)
     {
-        // ② did.0xXXXX 引用必然 undefined（无前置 writer）
+        // ②/②′ did.0xXXXX 引用必然/可能 undefined
         var didPaths = new List<string>();
         CollectSourceRefs(ast, SourceRefKind.Did, didPaths);
         foreach (var didPath in didPaths)
         {
-            if (TryParseDidKey(didPath, out var key) && !definite.Contains(key))
+            if (!TryParseDidKey(didPath, out var key)) continue;
+            if (state.Definite.Contains(key)) continue;
+            if (state.Conditional.Contains(key))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.High, "②′", "Did reference possibly undefined",
+                    $"did.{didPath} reference may be undefined (writer in conditional branch/loop body, §5.8 ②′)",
+                    path, label));
+            }
+            else
             {
                 issues.Add(new ValidationIssue(
                     ValidationSeverity.Critical, "②", "Did reference undefined",
@@ -324,74 +373,73 @@ internal sealed class DataFlowScanner
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  AST 遍历辅助
+    //  AST 遍历辅助（exhaustive，新增 AstNode 子类会 fail-fast）
     // ─────────────────────────────────────────────────────────────
 
-    /// <summary>收集 isUndefined(x) 调用中的变量名（逃生舱识别）。</summary>
-    private static void CollectEscapeNames(AstNode? node, HashSet<string> escape)
+    /// <summary>
+    /// 递归访问 AST 所有节点（含自身）。exhaustive switch：已知叶子 break，
+    /// 未知类型 throw（fail-fast，防止未来新增带子节点的 AstNode 静默丢子树）。
+    /// </summary>
+    private static void VisitDescendants(AstNode? node, Action<AstNode> visit)
     {
+        if (node is null) return;
+        visit(node);
         switch (node)
         {
-            case FunctionCall f when f.Name == "isUndefined":
-                foreach (var arg in f.Arguments)
-                    if (arg is VariableRef v) escape.Add(v.Name);
-                break;
-            case FunctionCall f:
-                foreach (var arg in f.Arguments) CollectEscapeNames(arg, escape);
+            case BinaryOp b:
+                VisitDescendants(b.Left, visit);
+                VisitDescendants(b.Right, visit);
                 break;
             case UnaryOp u:
-                CollectEscapeNames(u.Operand, escape);
+                VisitDescendants(u.Operand, visit);
                 break;
-            case BinaryOp b:
-                CollectEscapeNames(b.Left, escape);
-                CollectEscapeNames(b.Right, escape);
+            case FunctionCall f:
+                for (int i = 0; i < f.Arguments.Count; i++)
+                    VisitDescendants(f.Arguments[i], visit);
                 break;
-            // literals / VariableRef / SourceRef: no escape children
+            case NumberLiteral:
+            case HexLiteral:
+            case BoolLiteral:
+            case StringLiteral:
+            case BytesLiteral:
+            case VariableRef:
+            case SourceRef:
+                break; // 叶子/无子节点
+            default:
+                throw new InvalidOperationException(
+                    $"Unhandled AstNode type '{node.GetType().Name}'; add case to VisitDescendants");
         }
+    }
+
+    /// <summary>收集 isUndefined(x) 调用中的变量名（逃生舱识别）。</summary>
+    private static void CollectEscapeNames(AstNode? ast, HashSet<string> escape)
+    {
+        VisitDescendants(ast, n =>
+        {
+            if (n is FunctionCall { Name: "isUndefined" } f)
+            {
+                foreach (var arg in f.Arguments)
+                    if (arg is VariableRef v) escape.Add(v.Name);
+            }
+        });
     }
 
     /// <summary>收集所有 VariableRef 名（含 isUndefined 参数内，检查时按逃生集跳过）。</summary>
-    private static void CollectVariableRefs(AstNode? node, HashSet<string> refs)
+    private static void CollectVariableRefs(AstNode? ast, HashSet<string> refs)
     {
-        switch (node)
+        VisitDescendants(ast, n =>
         {
-            case VariableRef v:
-                refs.Add(v.Name);
-                break;
-            case FunctionCall f:
-                foreach (var arg in f.Arguments) CollectVariableRefs(arg, refs);
-                break;
-            case UnaryOp u:
-                CollectVariableRefs(u.Operand, refs);
-                break;
-            case BinaryOp b:
-                CollectVariableRefs(b.Left, refs);
-                CollectVariableRefs(b.Right, refs);
-                break;
-        }
+            if (n is VariableRef v) refs.Add(v.Name);
+        });
     }
 
     /// <summary>收集指定 kind 的 SourceRef.Path（did/signal）。</summary>
-    private static void CollectSourceRefs(AstNode? node, SourceRefKind kind, List<string> paths)
+    private static void CollectSourceRefs(AstNode? ast, SourceRefKind kind, List<string> paths)
     {
-        switch (node)
+        VisitDescendants(ast, n =>
         {
-            case SourceRef s when s.Kind == kind:
-                paths.Add(s.Path);
-                break;
-            case SourceRef:
-                break; // 其他 kind 跳过
-            case FunctionCall f:
-                foreach (var arg in f.Arguments) CollectSourceRefs(arg, kind, paths);
-                break;
-            case UnaryOp u:
-                CollectSourceRefs(u.Operand, kind, paths);
-                break;
-            case BinaryOp b:
-                CollectSourceRefs(b.Left, kind, paths);
-                CollectSourceRefs(b.Right, kind, paths);
-                break;
-        }
+            if (n is SourceRef s && s.Kind == kind) paths.Add(s.Path);
+        });
     }
 
     /// <summary>did.0xXXXX 的 Path → 变量键 did_0x{X4}（DidVariableKey.Format）。</summary>

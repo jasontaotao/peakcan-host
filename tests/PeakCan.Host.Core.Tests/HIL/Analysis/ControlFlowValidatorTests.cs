@@ -249,4 +249,71 @@ public class ControlFlowValidatorTests
         // Assert: 干净 suite 无任何 issue
         issues.Should().BeEmpty("clean suite with valid control flow has no issues");
     }
+
+    // ── ⑤a Loop.Step 为 hex 字面量 0 → Critical（HexLiteral 覆盖） ──
+
+    [Fact]
+    public void Loop_StepHexLiteralZero_ReportsCritical_5a()
+    {
+        // Arrange: Loop Step="0x0"（hex 字面量 0，≤0）
+        var body = new[] { TestCaseStep.Create(new CommentStep("x")) };
+        var loop = new LoopStep("1", "10", "0x0", body);
+        var suite = BuildSuite(TestCaseStep.Create(loop));
+
+        // Act
+        var issues = _registry.Validate(suite);
+
+        // Assert: ⑤a Critical — Hex literal 0 <= 0
+        issues.Should().Contain(
+            i => i.RuleId == "⑤a" && i.Severity == ValidationSeverity.Critical,
+            "Loop Step=0x0 (hex literal 0) <= 0 (§5.8 ⑤a)");
+    }
+
+    // ── ①′ while 守卫引用 If 分支内 writer → High（可能 undefined） ──
+
+    [Fact]
+    public void WhileGuard_ReferenceWrittenInIfBody_ReportsHigh_1Prime()
+    {
+        // Arrange: If body assign x（条件 writer）→ 后续 Repeat While(x>0) 守卫引用 x
+        var ifBody = new[] { TestCaseStep.Create(new AssignStep("x", "1")) };
+        var ifStep = new IfStep("true", ifBody, null);
+        var repeat = new RepeatStep(RepeatMode.While, null, "${x}", Array.Empty<TestCaseStep>(), 100);
+        var steps = new[]
+        {
+            TestCaseStep.Create(ifStep),
+            TestCaseStep.Create(repeat),
+        };
+        var suite = BuildSuite(steps);
+
+        // Act
+        var issues = _registry.Validate(suite);
+
+        // Assert: ①′ High — 守卫引用可能 undefined（writer 在 If 分支内，可能不执行）
+        issues.Should().Contain(
+            i => i.RuleId == "①′" && i.Severity == ValidationSeverity.High,
+            "while guard references 'x' written only in If body (may be undefined, §5.8 ①′)");
+    }
+
+    // ── ⑥ 嵌套 IndexVar 遮蔽外层 → Critical ──
+
+    [Fact]
+    public void AssignStep_ShadowsOuterIndexVarInNestedLoop_ReportsCritical_6()
+    {
+        // Arrange: 外层 Loop(i) > 内层 Loop(j) > body Assign(i) — i 是外层 IndexVar
+        var innerBody = new[]
+        {
+            TestCaseStep.Create(new AssignStep("i", "0")),
+        };
+        var innerLoop = new LoopStep("1", "3", "1", innerBody, IndexVar: "j");
+        var outerLoop = new LoopStep("1", "3", "1", new[] { TestCaseStep.Create(innerLoop) }, IndexVar: "i");
+        var suite = BuildSuite(TestCaseStep.Create(outerLoop));
+
+        // Act
+        var issues = _registry.Validate(suite);
+
+        // Assert: ⑥ Critical — Assign "i" 遮蔽外层 IndexVar "i"（嵌套作用域）
+        issues.Should().Contain(
+            i => i.RuleId == "⑥" && i.Severity == ValidationSeverity.Critical,
+            "AssignStep.Assign 'i' shadows outer loop IndexVar 'i' (§5.8 ⑥ nested scope)");
+    }
 }

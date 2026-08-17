@@ -41,14 +41,23 @@ public sealed class LoopValidator : IStepValidator
             }
         }
 
-        // ⑤a：Step 为常量且 ≤0 → Critical（仅静态可判定的常量字面量）
+        // ⑤a：Step 为常量且 ≤0 → Critical（仅静态可判定的常量字面量；含 hex 字面量）
         var stepParse = context.Evaluator.Parse(lp.Step);
-        if (!stepParse.IsError && stepParse.Ast is NumberLiteral num && num.Value <= 0)
+        if (!stepParse.IsError)
         {
-            issues.Add(new ValidationIssue(
-                ValidationSeverity.Critical, "⑤a", "Loop Step <= 0",
-                $"Loop Step={num.Value} (must be > 0, §5.8 ⑤a)",
-                context.StepPath, context.StepLabel));
+            double? stepConst = stepParse.Ast switch
+            {
+                NumberLiteral n => n.Value,
+                HexLiteral h => h.Value,
+                _ => null, // 非常量（含变量）→ 静态无法判定，运行期兜底
+            };
+            if (stepConst is <= 0)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Critical, "⑤a", "Loop Step <= 0",
+                    $"Loop Step={lp.Step} (must be > 0, §5.8 ⑤a)",
+                    context.StepPath, context.StepLabel));
+            }
         }
 
         return issues;
