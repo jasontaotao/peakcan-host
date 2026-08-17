@@ -1,0 +1,77 @@
+[
+  {
+    "StepIndex": 0,
+    "Status": "Comment",
+    "Message": "Comment: doc",
+    "FrameCount": 0,
+    "FrameIds": [],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 1,
+    "Status": "Passed",
+    "Message": "sig pass",
+    "FrameCount": 0,
+    "FrameIds": [],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 2,
+    "Status": "Failed",
+    "Message": "sig fail",
+    "FrameCount": 2,
+    "FrameIds": [
+      257,
+      258
+    ],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 3,
+    "Status": "Passed",
+    "Message": "Step 3 failed as expected (negated test): sig negated fail",
+    "FrameCount": 0,
+    "FrameIds": [],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 4,
+    "Status": "Failed",
+    "Message": "Step 4 expected failure but passed (negated test): sig negated pass",
+    "FrameCount": 2,
+    "FrameIds": [
+      257,
+      258
+    ],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 5,
+    "Status": "Failed",
+    "Message": "No executor for kind Delay",
+    "FrameCount": 2,
+    "FrameIds": [
+      257,
+      258
+    ],
+    "Path": null,
+    "Iteration": null
+  },
+  {
+    "StepIndex": 6,
+    "Status": "Failed",
+    "Message": "Executor threw: boom",
+    "FrameCount": 2,
+    "FrameIds": [
+      257,
+      258
+    ],
+    "Path": null,
+    "Iteration": null
+  }
+]

@@ -84,7 +84,17 @@ public sealed class HilRunnerService : IHilRunnerService
                 }
             }
 
-            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory);
+            // B2-R1：注入帧统计 collector，使表达式 frameCount/frameSeen/elapsedMs 可用。
+            // 构造需 ICanChannel（已从 DI 拿 channel）；finally 负责 Dispose（退订 FrameReceived）。
+            var frameStats = new FrameStatisticsCollector(channel);
+            try
+            {
+                return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+            }
+            finally
+            {
+                frameStats.Dispose();
+            }
         }
         finally
         {
