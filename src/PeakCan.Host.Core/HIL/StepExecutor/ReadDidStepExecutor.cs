@@ -1,4 +1,5 @@
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Uds;
 using PeakCan.HIL.Core.Uds;
 
 namespace PeakCan.HIL.Core.HIL.StepExecutor;
@@ -21,7 +22,7 @@ internal sealed class ReadDidStepExecutor : IStepExecutor
         {
             // UDS 超时由 UdsTimer（P2/P2*）管理，不传 timeoutMs；取消经 ct
             var data = await _uds.ReadDataByIdentifierAsync(p.Did, ct);
-            var key = p.OutputVar ?? $"did_0x{p.Did:X4}";
+            var key = p.OutputVar ?? DidVariableKey.Format(p.Did);
             if (ctx is IStepVariableStore store)
                 store.Variables[key] = data;
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
