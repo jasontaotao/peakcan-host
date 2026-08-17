@@ -183,6 +183,29 @@ public class TestSuiteEngineInterpreterTests
         PreConditions: null, Steps: steps, PostConditions: null,
         Tags: Array.Empty<string>(), TimeoutMs: 0, CaseFixtureKeys: null);
 
+    // ── suite 级参数注入（fix 验证）：ExecuteAsync 应把 suite.Parameters 注入
+    //    StepScope.SuiteParams 层，使 ${suite_param} 经 Resolve 命中。
+    //    修复前 ExecuteCaseAsync suiteParams=null → ${turnMs}→Undefined（假通过）。──
+
+    [Fact]
+    public async Task SuiteParameters_InjectedIntoScope_AssignResolvesSuiteParam()
+    {
+        var engine = CreateEngine();
+        var assignStep = TestCaseStep.Create(new AssignStep("x", "${turnMs}"));
+        var suiteParams = new Dictionary<string, ParameterValue> { ["turnMs"] = new(ParameterKind.Number, 200.0) };
+        var suite = new TestSuite("S", new[] { CreateCase(assignStep) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0,
+            Parameters: suiteParams);
+        var ctx = new StoreBackedAssertionContext();
+
+        var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default);
+
+        var assignResult = result.CaseResults[0].StepResults[0];
+        assignResult.Status.Should().Be(StepStatus.Passed);
+        assignResult.ActualValue.Should().Contain("200", "turnMs should resolve to suite param, not Undefined");
+        ctx.Variables["x"].Should().Be(200.0);
+    }
+
     // ── 控制流用例（重构前红：引擎返回 No executor for kind If/Repeat/Loop/Assign；
     //    重构后绿：ExecuteStepListAsync 递归解释）──
 

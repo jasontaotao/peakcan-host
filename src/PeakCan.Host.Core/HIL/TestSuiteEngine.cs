@@ -78,7 +78,7 @@ public sealed class TestSuiteEngine
             foreach (var caseModel in suite.Cases)
             {
                 linkedCt.ThrowIfCancellationRequested();
-                var caseResult = await ExecuteCaseAsync(caseModel, ctx, config, linkedCt, caseIndex, sinkFactory, frameStats);
+                var caseResult = await ExecuteCaseAsync(caseModel, ctx, config, linkedCt, caseIndex, sinkFactory, frameStats, suite.Parameters);
                 caseResults.Add(caseResult);
 
                 progress?.Report(new TestProgress(caseIndex + 1, suite.Cases.Count, caseModel.Name));
@@ -112,7 +112,8 @@ public sealed class TestSuiteEngine
 
     private async Task<TestCaseResult> ExecuteCaseAsync(
         TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, CancellationToken ct,
-        int caseIndex, Contracts.IHilFrameSinkFactory? sinkFactory, IFrameStatistics? frameStats)
+        int caseIndex, Contracts.IHilFrameSinkFactory? sinkFactory, IFrameStatistics? frameStats,
+        IReadOnlyDictionary<string, ParameterValue>? suiteParams)
     {
         // 清空步骤间变量，防止上一 case 拋留值污染（review M-1）：
         // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
@@ -159,7 +160,7 @@ public sealed class TestSuiteEngine
                 // 非控制流 suite 不用表达式，无影响）。
                 var scope = StepScopeFactory.Create(
                     ctx, ctx as IStepVariableStore, frameStats, caseStart,
-                    suiteParams: null, caseParams: testCase.Parameters);
+                    suiteParams: suiteParams, caseParams: testCase.Parameters);
 
                 // v11 H1：单解释器路径。非控制流 suite 递归退化为扁平循环（顶层步骤列表，无嵌套 body）。
                 await ExecuteStepListAsync(
@@ -300,7 +301,7 @@ public sealed class TestSuiteEngine
                 // Assign 失败 + StopCase → 跳过剩余兄弟
                 if (!assignResult.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
                 {
-                    RecordStopCaseSkip(steps, i + 1, stepIndex, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                    RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
                     if (failure.Reason is null) failure.Reason = $"Step {stepIndex} failed: {assignResult.Message}";
                     break;
                 }
@@ -345,7 +346,7 @@ public sealed class TestSuiteEngine
                 // 容器失败 + StopCase → 跳过剩余兄弟
                 if (!ifContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
                 {
-                    RecordStopCaseSkip(steps, i + 1, stepIndex, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                    RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
                     if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {ifContainer.Message}";
                     break;
                 }
@@ -419,7 +420,7 @@ public sealed class TestSuiteEngine
 
                 if (!repeatContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
                 {
-                    RecordStopCaseSkip(steps, i + 1, stepIndex, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                    RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
                     if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {repeatContainer.Message}";
                     break;
                 }
@@ -483,7 +484,7 @@ public sealed class TestSuiteEngine
 
                 if (!loopContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
                 {
-                    RecordStopCaseSkip(steps, i + 1, stepIndex, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                    RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
                     if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {loopContainer.Message}";
                     break;
                 }
@@ -501,7 +502,7 @@ public sealed class TestSuiteEngine
             if (!result.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
             {
                 if (failure.Reason is null) failure.Reason = $"Step {stepIndex} failed: {result.Message}";
-                RecordStopCaseSkip(steps, i + 1, stepIndex, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
                 break;
             }
         }
@@ -664,7 +665,7 @@ public sealed class TestSuiteEngine
     /// </summary>
     private static void RecordStopCaseSkip(
         IReadOnlyList<TestCaseStep> steps, int fromIndex,
-        int containerStepIndex, string? pathPrefix, int? containerStepIndexParam,
+        string? pathPrefix, int? containerStepIndexParam,
         int? iteration, List<StepResult> stepResults, CancellationToken ct)
     {
         for (int j = fromIndex; j < steps.Count; j++)
