@@ -449,6 +449,177 @@ public class TestSuiteEngineInterpreterTests
         container.Message.Should().Contain("MaxIterations");
     }
 
+    // ── B.3: StopCase If-body 传播 (§6.5 M2) + 容器聚合 StepResult ──
+
+    [Fact]
+    public async Task StopCaseOnFailure_IfBodyLeafFail_ContinuesIfSiblings()
+    {
+        // M2 核心: If body 内叶失败 + StopCase → 跳过 body 剩余, If 之后同级步骤仍执行（不上跳）
+        var exec = new ScriptedStepExecutor(TestCaseStepKind.AssertSignal,
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "body fail", null, null, 0),
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after ran", null, null, 0));
+        var engine = CreateEngine(exec);
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));   // call 0 → Failed
+        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));  // skipped in body
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)); // call 1 → Passed
+        var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { failStep, skipStep }, null));
+        var suite = new TestSuite("S", new[] { CreateCase(ifStep, afterStep) },
+            Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), null, default);
+
+        var steps = result.CaseResults[0].StepResults;
+        // body[0] failStep → Failed (Path "0.0")
+        steps.Should().Contain(s => s.Status == StepStatus.Failed && s.Path == "0.0");
+        // body[1] skipStep → Skipped (Path "0.1", StopCase skipped body remaining)
+        steps.Should().Contain(s => s.Status == StepStatus.Skipped && s.Path == "0.1");
+        // afterStep → Passed, NOT Skipped — M2: If body failure does not skip If siblings
+        steps.Should().Contain(s => s.Status == StepStatus.Passed && s.Message == "after ran");
+        // Case failed (a step failed inside body)
+        result.CaseResults[0].Passed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task StopCaseOnFailure_NegatedTestInIfBody_NoStopCase()
+    {
+        // 负测试叶 (ExpectedVerdict=Fail + 实际 Failed→Passed) 在 If body 内 → 不触发 StopCase（body 剩余继续）
+        var exec = new ScriptedStepExecutor(TestCaseStepKind.AssertSignal,
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "expected fail", null, null, 0),
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after body", null, null, 0));
+        var engine = CreateEngine(exec);
+        var negTestStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var afterBodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { negTestStep, afterBodyStep }, null));
+        var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
+            Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), null, default);
+
+        var steps = result.CaseResults[0].StepResults;
+        // negTestStep: promoted to Passed (WasNegatedTest=true)
+        var negResult = steps.First(s => s.Path == "0.0");
+        negResult.Status.Should().Be(StepStatus.Passed);
+        negResult.WasNegatedTest.Should().BeTrue();
+        // afterBodyStep: executed (not skipped) — negated test promoted to Passed, no StopCase
+        var afterResult = steps.First(s => s.Path == "0.1");
+        afterResult.Status.Should().Be(StepStatus.Passed);
+        afterResult.Message.Should().Be("after body");
+        // Case passed (negated test promoted, afterBody passed)
+        result.CaseResults[0].Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task StopCaseOnFailure_TopLevelLeafFail_SkipsSubsequentIf()
+    {
+        // 回归确认 B.2: 顶层叶失败 + StopCase → 跳过顶层剩余（含 If 之后）
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { bodyStep }, null));
+        var suite = new TestSuite("S", new[] { CreateCase(failStep, ifStep) },
+            Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), null, default);
+
+        var steps = result.CaseResults[0].StepResults;
+        steps[0].Status.Should().Be(StepStatus.Failed);
+        // If step skipped (top-level sibling of failed leaf)
+        steps[1].Status.Should().Be(StepStatus.Skipped);
+        steps[1].Kind.Should().Be(TestCaseStepKind.If);
+        // Body not executed (If was skipped)
+        exec.ExecuteCallCount.Should().Be(1, "only failStep executed; If was skipped");
+    }
+
+    [Fact]
+    public async Task Container_IfAggregatedMessage_NByMPassed()
+    {
+        // 容器 StepResult 聚合消息格式 "if: N/M steps passed"
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        var body1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var body2 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var body3 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { body1, body2, body3 }, null));
+        var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(), new TestSuiteConfig(), null, default);
+
+        var container = result.CaseResults[0].StepResults[0];
+        container.Status.Should().Be(StepStatus.Passed);
+        container.Message.Should().Be("if: 3/3 steps passed");
+    }
+
+    [Fact]
+    public async Task StopCaseOnFailure_IfConditionError_SkipsSubsequentSiblings()
+    {
+        // 容器自身失败 (condition error) → 顶层 StopCase 跳 If 之后（容器自身失败该跳）
+        var exec = new FakeStepExecutor(TestCaseStepKind.AssertSignal)
+        {
+            Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
+        };
+        var engine = CreateEngine(exec);
+        // "1 + 1" → non-bool → condition error → container own failure
+        var ifStep = TestCaseStep.Create(new IfStep("1 + 1",
+            new[] { TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)) }, null));
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var suite = new TestSuite("S", new[] { CreateCase(ifStep, afterStep) },
+            Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), null, default);
+
+        var steps = result.CaseResults[0].StepResults;
+        // If container: Failed (condition error)
+        steps[0].Status.Should().Be(StepStatus.Failed);
+        steps[0].Message.Should().Contain("condition error");
+        // Body NOT executed
+        exec.ExecuteCallCount.Should().Be(0, "condition error means body was never reached");
+        // afterStep: Skipped (container own failure → top-level StopCase triggers)
+        steps[1].Status.Should().Be(StepStatus.Skipped);
+    }
+
+    [Fact]
+    public async Task StopCaseOnFailure_RepeatBodyLeafFail_ContinuesRepeatSiblings()
+    {
+        // Repeat body 内失败同理: body 子失败传播 → Repeat 之后同级继续（不上跳）
+        var exec = new ScriptedStepExecutor(TestCaseStepKind.AssertSignal,
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "body fail", null, null, 0),
+            new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after ran", null, null, 0));
+        var engine = CreateEngine(exec);
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));   // call 0 → Failed
+        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));  // skipped in body
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)); // call 1 → Passed
+        var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "1", Condition: null,
+            Body: new[] { failStep, skipStep }, MaxIterations: 100));
+        var suite = new TestSuite("S", new[] { CreateCase(repeatStep, afterStep) },
+            Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
+
+        var result = await engine.ExecuteAsync(suite, new StoreBackedAssertionContext(),
+            new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), null, default);
+
+        var steps = result.CaseResults[0].StepResults;
+        // afterStep → Passed, NOT Skipped — Repeat body failure does not skip Repeat siblings
+        steps.Should().Contain(s => s.Status == StepStatus.Passed && s.Message == "after ran");
+        // Case failed (body step failed)
+        result.CaseResults[0].Passed.Should().BeFalse();
+    }
+
     // ── Fakes ──
 
     /// <summary>脚本化 executor：按调用序号返回预设结果；ThrowOnCallIndex 命中时抛异常。</summary>

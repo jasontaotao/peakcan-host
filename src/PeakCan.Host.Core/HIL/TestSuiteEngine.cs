@@ -316,10 +316,15 @@ public sealed class TestSuiteEngine
 
                 StepResult ifContainer;
                 int childrenStart = stepResults.Count;
+                // §6.5 M2：区分容器自身失败 vs body 子失败传播。
+                // 容器自身失败（condition error / non-bool / parse error）→ 顶层 StopCase 该跳；
+                // body 子失败传播（容器 Failed 因子步骤 Failed）→ 顶层 StopCase 不跳（If 之后继续）。
+                bool containerOwnFailure = false;
 
                 if (!condOk)
                 {
-                    // 条件求值错误（非 undefined 单引用）→ 容器 Failed
+                    // 条件求值错误（非 undefined 单引用）→ 容器自身失败
+                    containerOwnFailure = true;
                     ifContainer = new StepResult(stepIndex, step.Kind, step.Label, StepStatus.Failed,
                         $"if condition error: {condError}", null, null, 0)
                     { Path = recordedPath, Iteration = iteration };
@@ -343,11 +348,13 @@ public sealed class TestSuiteEngine
                     stepResults.Insert(childrenStart, ifContainer);
                 }
 
-                // 容器失败 + StopCase → 跳过剩余兄弟
-                if (!ifContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
+                // 容器失败 + StopCase：
+                // - containerOwnFailure（condition error）→ 跳过剩余兄弟（容器自身失败该跳）
+                // - body 子失败传播 → 不跳过（§6.5 M2：If body 内失败 → If 之后继续，不上跳）
+                if (!ifContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure && containerOwnFailure)
                 {
                     RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
-                    if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {ifContainer.Message}";
+                    if (failure.Reason is null) failure.Reason = $"Step {stepIndex} failed: {ifContainer.Message}";
                     break;
                 }
                 continue;
@@ -418,10 +425,13 @@ public sealed class TestSuiteEngine
                     error: repeatError);
                 stepResults.Insert(childrenStart, repeatContainer);
 
-                if (!repeatContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
+                // §6.5 M2：区分容器自身失败（repeatError≠null：count error / MaxIterations / guard undefined）
+                // vs body 子失败传播。容器自身失败 → 顶层 StopCase 该跳；body 子失败传播 → 不跳。
+                bool repeatOwnFailure = repeatError is not null;
+                if (!repeatContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure && repeatOwnFailure)
                 {
                     RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
-                    if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {repeatContainer.Message}";
+                    if (failure.Reason is null) failure.Reason = $"Step {stepIndex} failed: {repeatContainer.Message}";
                     break;
                 }
                 continue;
@@ -482,10 +492,13 @@ public sealed class TestSuiteEngine
                     error: loopError);
                 stepResults.Insert(childrenStart, loopContainer);
 
-                if (!loopContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
+                // §6.5 M2：区分容器自身失败（loopError≠null：from/to/step error / non-numeric / step≤0 / 硬上限）
+                // vs body 子失败传播。容器自身失败 → 顶层 StopCase 该跳；body 子失败传播 → 不跳。
+                bool loopOwnFailure = loopError is not null;
+                if (!loopContainer.Passed && config.FailurePolicy == FailurePolicy.StopCaseOnFailure && loopOwnFailure)
                 {
                     RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
-                    if (failure.Reason is null) failure.Reason =$"Step {stepIndex} failed: {loopContainer.Message}";
+                    if (failure.Reason is null) failure.Reason = $"Step {stepIndex} failed: {loopContainer.Message}";
                     break;
                 }
                 continue;
