@@ -75,7 +75,7 @@ public class FramesAroundFailureTests
             new[]
             {
                 new TestCase("case_1", "Failing Case", "", null,
-                    new[] { TestCaseStep.Create(new AssertSignalStep("Sig", 100.0, 5.0)) },
+                    new[] { TestCaseStep.Create(new AssertSignalStep("Sig", "100.0", "5.0")) },
                     null, Array.Empty<string>())
             },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig());
@@ -104,7 +104,7 @@ public class FramesAroundFailureTests
             new[]
             {
                 new TestCase("case_1", "Passing Case", "", null,
-                    new[] { TestCaseStep.Create(new AssertSignalStep("Sig", 100.0, 5.0)) },
+                    new[] { TestCaseStep.Create(new AssertSignalStep("Sig", "100.0", "5.0")) },
                     null, Array.Empty<string>())
             },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig());

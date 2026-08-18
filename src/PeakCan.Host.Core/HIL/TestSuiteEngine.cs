@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Expressions;
 using PeakCan.HIL.Core.HIL.Setup;
@@ -367,7 +369,15 @@ public sealed class TestSuiteEngine
                 int childrenStart = stepResults.Count;
                 string? repeatError = null;
 
-                if (rp.Mode == RepeatMode.Fixed)
+                // B.5: MaxIterations 改为 string，提前 parse 一次供 Fixed 和 While 分支共用
+                int maxIter;
+                if (!int.TryParse(rp.MaxIterations, NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out maxIter))
+                    repeatError = $"Repeat MaxIterations invalid: '{rp.MaxIterations}'";
+                else if (maxIter <= 0)
+                    repeatError = $"Repeat MaxIterations must be > 0 (got {maxIter})";
+
+                if (repeatError is null && rp.Mode == RepeatMode.Fixed)
                 {
                     int count = 1;
                     var cEval = _evaluator.Evaluate(rp.Count ?? "1", scope);
@@ -376,10 +386,8 @@ public sealed class TestSuiteEngine
 
                     if (repeatError is null)
                     {
-                        if (rp.MaxIterations <= 0)
-                            repeatError = $"Repeat MaxIterations must be > 0 (got {rp.MaxIterations})";
-                        else if (count > rp.MaxIterations)
-                            repeatError = $"Repeat exceeded MaxIterations {rp.MaxIterations} (requested {count})";
+                        if (count > maxIter)
+                            repeatError = $"Repeat exceeded MaxIterations {maxIter} (requested {count})";
                         else
                         {
                             for (int k = 0; k < count; k++)
@@ -398,7 +406,7 @@ public sealed class TestSuiteEngine
                 else // While
                 {
                     int k = 0;
-                    while (k < rp.MaxIterations)
+                    while (k < maxIter)
                     {
                         ct.ThrowIfCancellationRequested();
                         var iterScope = WithIndexVar(scope, rp.IndexVar, ExpressionValue.FromLong(k));
@@ -416,8 +424,8 @@ public sealed class TestSuiteEngine
                         scope = RefreshScope(scope, ctx);
                         k++;
                     }
-                    if (repeatError is null && k >= rp.MaxIterations && rp.MaxIterations > 0)
-                        repeatError = $"Repeat while did not converge within MaxIterations {rp.MaxIterations}";
+                    if (repeatError is null && k >= maxIter && maxIter > 0)
+                        repeatError = $"Repeat while did not converge within MaxIterations {maxIter}";
                 }
 
                 var repeatContainer = BuildContainerResult(stepIndex, step.Kind, step.Label,
@@ -503,6 +511,24 @@ public sealed class TestSuiteEngine
                 }
                 continue;
             }
+
+            // ── B.5: ${name} 插值 ──
+            // 叶步骤执行前，resolve 参数中的 ${name} → 替换为实际值字符串。
+            // 引擎层统一处理，executor 只需 parse 字符串到目标类型。
+            var (interpStep, interpError) = TryInterpolateStep(step, scope);
+            if (interpError is not null)
+            {
+                stepResults.Add(new StepResult(stepIndex, step.Kind, step.Label,
+                    StepStatus.Failed, $"Interpolation error: {interpError}", null, null, 0));
+                if (config.FailurePolicy == FailurePolicy.StopCaseOnFailure)
+                {
+                    if (failure.Reason is null) failure.Reason = $"Step {stepIndex} interpolation failed: {interpError}";
+                    RecordStopCaseSkip(steps, i + 1, pathPrefix, containerStepIndex, iteration, stepResults, ct);
+                    break;
+                }
+                continue;
+            }
+            step = interpStep;
 
             // ── 叶步骤（executor 分派）── 逐字保留原 for 循环体（executed/负测试两分支/帧捕获）
             var result = await ExecuteLeafAsync(step, ctx, ct, stepIndex, recordedPath, iteration);
@@ -729,6 +755,87 @@ public sealed class TestSuiteEngine
         { result = (int)v.AsDouble; return true; }
         result = 0; return false;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    //  B.5: ${name} 插值（叶步骤执行前）
+    // ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// B.5: 检查 step 参数是否含 ${name} 插值表达式，若有则 resolve 并返回新 step。
+    /// 无插值时原样返回（fast path）。resolve 失败时返回 Error（StepResult Failed）。
+    /// </summary>
+    private (TestCaseStep Step, string? Error) TryInterpolateStep(TestCaseStep step, StepScope scope)
+    {
+        // Fast path: export to dict, check if any string value contains ${
+        var dict = StepParametersExporter.FromParameters(step.Parameters);
+        bool hasInterpolation = false;
+        foreach (var kvp in dict)
+        {
+            if (kvp.Value is string s && s.Contains("${"))
+            { hasInterpolation = true; break; }
+        }
+        if (!hasInterpolation) return (step, null);
+
+        // Resolve ${name} in all string values
+        var resolved = new Dictionary<string, object>(dict);
+        foreach (var key in resolved.Keys.ToArray())
+        {
+            if (resolved[key] is string s && s.Contains("${"))
+            {
+                var (ok, resolvedStr, error) = InterpolateString(s, scope);
+                if (!ok) return (step, error);
+                resolved[key] = resolvedStr;
+            }
+        }
+
+        // Re-create StepParameters from resolved dict
+        var newParams = StepParametersFactory.Create(step.Kind, resolved);
+        return (TestCaseStep.Create(newParams, step.Label, step.ExpectedVerdict), null);
+    }
+
+    /// <summary>
+    /// 解析字符串中的 ${expr} 模式，用 scope 求值后替换。
+    /// expr 走 ExpressionEvaluator（支持 param./did./signal./var 引用 + 运算）。
+    /// </summary>
+    private (bool Ok, string Value, string? Error) InterpolateString(string s, StepScope scope)
+    {
+        var result = new StringBuilder(s.Length + 16);
+        int i = 0;
+        while (i < s.Length)
+        {
+            if (i + 1 < s.Length && s[i] == '$' && s[i + 1] == '{')
+            {
+                int end = s.IndexOf('}', i + 2);
+                if (end < 0) return (false, s, $"unmatched ${{ in: {s}");
+                var expr = s[(i + 2)..end];
+                var eval = _evaluator.Evaluate(expr, scope);
+                if (!eval.IsSuccess)
+                    return (false, s, $"'${{{expr}}}' → {eval.Error.Message}");
+                var val = eval.Value;
+                if (val.Kind == ExpressionValue.ValueKind.Undefined)
+                    return (false, s, $"'${{{expr}}}' resolved to undefined — initialize variable or check param name");
+                result.Append(ToInterpolationString(val));
+                i = end + 1;
+            }
+            else
+            {
+                result.Append(s[i]);
+                i++;
+            }
+        }
+        return (true, result.ToString(), null);
+    }
+
+    /// <summary>ExpressionValue → 可被 executor parse 的字符串（InvariantCulture）。</summary>
+    private static string ToInterpolationString(ExpressionValue v) => v.Kind switch
+    {
+        ExpressionValue.ValueKind.Double => v.AsDouble.ToString(CultureInfo.InvariantCulture),
+        ExpressionValue.ValueKind.Long => v.AsLong.ToString(CultureInfo.InvariantCulture),
+        ExpressionValue.ValueKind.Bool => v.AsBool ? "true" : "false",
+        ExpressionValue.ValueKind.String => v.AsString,
+        ExpressionValue.ValueKind.Bytes => Convert.ToHexString(v.AsBytes),
+        _ => throw new InvalidOperationException("Cannot interpolate undefined value"),
+    };
 
     /// <summary>从 IStepVariableStore 重建 scope.Variables 快照，使 ${name} 读到 Assign/ReadDid 的最新写入（§7 读穿透）。</summary>
     private static StepScope RefreshScope(StepScope scope, Contracts.IAssertionContext ctx)

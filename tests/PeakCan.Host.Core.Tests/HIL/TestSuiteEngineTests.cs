@@ -130,7 +130,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -148,7 +148,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var step2 = TestCaseStep.Create(new CommentStep("should skip"));
         var suite = new TestSuite("S", new[] { CreateCase(step1, step2) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
@@ -182,7 +182,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var step2 = TestCaseStep.Create(new CommentStep("doc"));
         var suite = new TestSuite("S", new[] { CreateCase(step1, step2) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -204,7 +204,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Any);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Any);
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -227,7 +227,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -252,7 +252,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -276,7 +276,7 @@ public class TestSuiteEngineTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
         var step2 = TestCaseStep.Create(new CommentStep("should still run"));
         var suite = new TestSuite("S", new[] { CreateCase(step1, step2) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
@@ -299,7 +299,7 @@ public class TestSuiteEngineTests
     public async Task ExpectedVerdictFail_NoExecutorForKind_StepStaysFailed_CaseFails()
     {
         var engine = CreateEngine(); // 不注册任何执行器
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -323,7 +323,7 @@ public class TestSuiteEngineTests
             ExceptionToThrow = new InvalidOperationException("transport boom"),
         };
         var engine = CreateEngine(exec);
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
         var suite = new TestSuite("S", new[] { CreateCase(step) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -449,7 +449,7 @@ public class TestSuiteEngineTests
             var engine = CreateEngine(new ReadDidStepExecutor(uds), new AssertVariableStepExecutor());
             var step1 = TestCaseStep.Create(new ReadDidStep(0xF190));
             var step2 = TestCaseStep.Create(new AssertVariableStep(
-                "did_0xF190", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: 200));
+                "did_0xF190", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: "200"));
             var suite = new TestSuite("E2E", new[] { CreateCase(step1, step2) },
                 Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 

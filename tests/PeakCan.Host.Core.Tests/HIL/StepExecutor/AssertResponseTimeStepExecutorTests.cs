@@ -11,14 +11,14 @@ public class AssertResponseTimeStepExecutorTests
     private readonly FakeAssertionContext _ctx = new();
     private readonly AssertResponseTimeStepExecutor _executor = new();
 
-    private static TestCaseStep CreateStep(CanId reqId, CanId respId, int maxMs) =>
+    private static TestCaseStep CreateStep(CanId reqId, CanId respId, string maxMs) =>
         TestCaseStep.Create(new AssertResponseTimeStep(reqId, respId, maxMs));
 
     [Fact]
     public async Task ExecuteAsync_FastResponse_Passes()
     {
         // Arrange
-        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), 100);
+        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), "100");
         var task = _executor.ExecuteAsync(step, _ctx, default);
 
         // Act: fire response frame after a short delay
@@ -36,7 +36,7 @@ public class AssertResponseTimeStepExecutorTests
     public async Task ExecuteAsync_SlowResponse_Fails()
     {
         // Arrange
-        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), 20);
+        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), "20");
         var task = _executor.ExecuteAsync(step, _ctx, default);
 
         // Act: fire response after timeout
@@ -53,7 +53,7 @@ public class AssertResponseTimeStepExecutorTests
     public async Task ExecuteAsync_NoResponse_Timeout()
     {
         // Arrange - no frame will be fired
-        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), 50);
+        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), "50");
 
         // Act
         var result = await _executor.ExecuteAsync(step, _ctx, default);
@@ -68,7 +68,7 @@ public class AssertResponseTimeStepExecutorTests
     {
         // Arrange - context that fails on SendFrameAsync
         var failCtx = new FailingSendContext();
-        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), 100);
+        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), "100");
 
         // Act
         var result = await _executor.ExecuteAsync(step, failCtx, default);
@@ -83,7 +83,7 @@ public class AssertResponseTimeStepExecutorTests
     {
         // Arrange
         using var cts = new CancellationTokenSource();
-        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), 5000);
+        var step = CreateStep(new CanId(0x7DF, FrameFormat.Standard), new CanId(0x7E8, FrameFormat.Standard), "5000");
         var task = _executor.ExecuteAsync(step, _ctx, cts.Token);
 
         // Act

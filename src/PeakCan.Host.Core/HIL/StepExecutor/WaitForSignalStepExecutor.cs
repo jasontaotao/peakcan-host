@@ -1,7 +1,10 @@
+using System.Globalization;
+
 namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes WaitForSignal steps. Returns Passed when signal matches, Failed on timeout.
+/// B.5: Expected/Tolerance/TimeoutMs are now string (supports ${name} interpolation).
 /// </summary>
 internal sealed class WaitForSignalStepExecutor : IStepExecutor
 {
@@ -13,8 +16,10 @@ internal sealed class WaitForSignalStepExecutor : IStepExecutor
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, Contracts.IAssertionContext ctx, CancellationToken ct)
     {
         var p = (WaitForSignalStep)step.Parameters;
-        // BUG-001 fix: pass timeoutMs so the step doesn't hang forever
-        var result = await _primitives.WaitForSignalAsync(p.SignalName, p.Expected, p.Tolerance, p.TimeoutMs, ct);
+        var expected = double.Parse(p.Expected, CultureInfo.InvariantCulture);
+        var tolerance = double.Parse(p.Tolerance, CultureInfo.InvariantCulture);
+        var timeoutMs = int.Parse(p.TimeoutMs, CultureInfo.InvariantCulture);
+        var result = await _primitives.WaitForSignalAsync(p.SignalName, expected, tolerance, timeoutMs, ct);
 
         return new StepResult(0, step.Kind, step.Label,
             result.Passed ? StepStatus.Passed : StepStatus.Failed,

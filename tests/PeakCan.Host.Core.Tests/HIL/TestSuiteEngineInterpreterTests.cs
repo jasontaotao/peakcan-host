@@ -160,12 +160,12 @@ public class TestSuiteEngineInterpreterTests
     private static TestSuite MakeGoldenSuiteCase()
     {
         var step0 = TestCaseStep.Create(new CommentStep("doc"));
-        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var step2 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var step3 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
-        var step4 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
-        var step5 = TestCaseStep.Create(new DelayStep(50));          // 无 executor → No executor for kind Delay
-        var step6 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)); // 抛异常
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var step2 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var step3 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
+        var step4 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
+        var step5 = TestCaseStep.Create(new DelayStep("50"));          // 无 executor → No executor for kind Delay
+        var step6 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0")); // 抛异常
         return new TestSuite("GoldenBaseline", new[] { CreateCase(step0, step1, step2, step3, step4, step5, step6) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
     }
@@ -217,7 +217,7 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "body ran", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { bodyStep }, null));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -238,8 +238,8 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "else ran", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var elseStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var elseStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 2", new[] { bodyStep }, new[] { elseStep }));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -261,7 +261,7 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "else ran", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var elseStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var elseStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         // 单引用 undefined → falsy + warning（§5.5）
         var ifStep = TestCaseStep.Create(new IfStep("${missing}", Array.Empty<TestCaseStep>(), new[] { elseStep }));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
@@ -283,8 +283,8 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "iter", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "3", Condition: null, Body: new[] { bodyStep }, MaxIterations: 100));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "3", Condition: null, Body: new[] { bodyStep }, MaxIterations: "100"));
         var suite = new TestSuite("S", new[] { CreateCase(repeatStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -310,9 +310,9 @@ public class TestSuiteEngineInterpreterTests
         var engine = CreateEngine(exec);
         // body: Assign(i = ${i} + 1) 让 ${i} 自增；初始 i=0（由前置 Assign 提供）
         var assignStep = TestCaseStep.Create(new AssignStep("i", "${i} + 1"));
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var repeatStep = TestCaseStep.Create(new RepeatStep(
-            RepeatMode.While, Count: null, Condition: "${i} < 3", Body: new[] { assignStep, bodyStep }, MaxIterations: 100));
+            RepeatMode.While, Count: null, Condition: "${i} < 3", Body: new[] { assignStep, bodyStep }, MaxIterations: "100"));
         var initStep = TestCaseStep.Create(new AssignStep("i", "0"));
         var suite = new TestSuite("S", new[] { CreateCase(initStep, repeatStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -333,7 +333,7 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "loop body", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var loopStep = TestCaseStep.Create(new LoopStep(From: "1", To: "3", Step: "1", Body: new[] { bodyStep }, IndexVar: "v"));
         var suite = new TestSuite("S", new[] { CreateCase(loopStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -354,7 +354,7 @@ public class TestSuiteEngineInterpreterTests
         };
         var engine = CreateEngine(exec);
         var assignStep = TestCaseStep.Create(new AssignStep("x", "42"));
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("${x} > 10", new[] { bodyStep }, null));
         var suite = new TestSuite("S", new[] { CreateCase(assignStep, ifStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -378,10 +378,10 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "leaf", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var body0 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var body1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var body0 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var body1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { body0, body1 }, null));
-        var topLeaf = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var topLeaf = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep, topLeaf) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -414,7 +414,7 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var step2 = TestCaseStep.Create(new CommentStep("should skip"));
         var suite = new TestSuite("S", new[] { CreateCase(step1, step2) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
@@ -435,9 +435,9 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "iter", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         // Fixed 请求 5 次，MaxIterations=2 → 超 MaxIterations → 容器 Failed
-        var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "5", Condition: null, Body: new[] { bodyStep }, MaxIterations: 2));
+        var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "5", Condition: null, Body: new[] { bodyStep }, MaxIterations: "2"));
         var suite = new TestSuite("S", new[] { CreateCase(repeatStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 
@@ -459,9 +459,9 @@ public class TestSuiteEngineInterpreterTests
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "body fail", null, null, 0),
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after ran", null, null, 0));
         var engine = CreateEngine(exec);
-        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));   // call 0 → Failed
-        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));  // skipped in body
-        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)); // call 1 → Passed
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));   // call 0 → Failed
+        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));  // skipped in body
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0")); // call 1 → Passed
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { failStep, skipStep }, null));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep, afterStep) },
             Array.Empty<string>(), Array.Empty<string>(),
@@ -489,8 +489,8 @@ public class TestSuiteEngineInterpreterTests
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "expected fail", null, null, 0),
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after body", null, null, 0));
         var engine = CreateEngine(exec);
-        var negTestStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0), expectedVerdict: ExpectedVerdict.Fail);
-        var afterBodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var negTestStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"), expectedVerdict: ExpectedVerdict.Fail);
+        var afterBodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { negTestStep, afterBodyStep }, null));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
             Array.Empty<string>(), Array.Empty<string>(),
@@ -521,8 +521,8 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "fail", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var bodyStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { bodyStep }, null));
         var suite = new TestSuite("S", new[] { CreateCase(failStep, ifStep) },
             Array.Empty<string>(), Array.Empty<string>(),
@@ -549,9 +549,9 @@ public class TestSuiteEngineInterpreterTests
             Result = new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "ok", null, null, 0),
         };
         var engine = CreateEngine(exec);
-        var body1 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var body2 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
-        var body3 = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var body1 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var body2 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
+        var body3 = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { body1, body2, body3 }, null));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep) },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
@@ -574,8 +574,8 @@ public class TestSuiteEngineInterpreterTests
         var engine = CreateEngine(exec);
         // "1 + 1" → non-bool → condition error → container own failure
         var ifStep = TestCaseStep.Create(new IfStep("1 + 1",
-            new[] { TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)) }, null));
-        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+            new[] { TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0")) }, null));
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
         var suite = new TestSuite("S", new[] { CreateCase(ifStep, afterStep) },
             Array.Empty<string>(), Array.Empty<string>(),
             new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);
@@ -601,11 +601,11 @@ public class TestSuiteEngineInterpreterTests
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Failed, "body fail", null, null, 0),
             new StepResult(0, TestCaseStepKind.AssertSignal, null, StepStatus.Passed, "after ran", null, null, 0));
         var engine = CreateEngine(exec);
-        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));   // call 0 → Failed
-        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));  // skipped in body
-        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0)); // call 1 → Passed
+        var failStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));   // call 0 → Failed
+        var skipStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));  // skipped in body
+        var afterStep = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0")); // call 1 → Passed
         var repeatStep = TestCaseStep.Create(new RepeatStep(RepeatMode.Fixed, Count: "1", Condition: null,
-            Body: new[] { failStep, skipStep }, MaxIterations: 100));
+            Body: new[] { failStep, skipStep }, MaxIterations: "100"));
         var suite = new TestSuite("S", new[] { CreateCase(repeatStep, afterStep) },
             Array.Empty<string>(), Array.Empty<string>(),
             new TestSuiteConfig(FailurePolicy.StopCaseOnFailure), 0);

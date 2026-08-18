@@ -1,3 +1,4 @@
+using System.Globalization;
 using PeakCan.HIL.Core.HIL.Contracts;
 
 namespace PeakCan.HIL.Core.HIL.StepExecutor;
@@ -5,6 +6,7 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// <summary>
 /// Executes InjectFault steps. Adds a fault rule to the channel via IFaultInjectionContext.
 /// Supports Send, Receive, and Both directions.
+/// B.5: Probability/DelayMs are now string (supports ${name} interpolation).
 /// </summary>
 public sealed class InjectFaultStepExecutor : IStepExecutor
 {
@@ -17,12 +19,14 @@ public sealed class InjectFaultStepExecutor : IStepExecutor
                 "Context does not support fault injection", null, null, 0));
 
         var p = (InjectFaultStep)step.Parameters;
+        var probability = double.Parse(p.Probability, CultureInfo.InvariantCulture);
+        var delayMs = int.Parse(p.DelayMs, CultureInfo.InvariantCulture);
         var rule = new FaultRule
         {
             Type = p.FaultType,
             TargetCanId = p.CanId.Raw == 0 ? null : p.CanId.Raw,
-            Probability = p.Probability,
-            DelayMs = p.DelayMs,
+            Probability = probability,
+            DelayMs = delayMs,
             CorruptByteIndices = p.CorruptByteIndices,
             CorruptXorMask = p.CorruptXorMask,
         };

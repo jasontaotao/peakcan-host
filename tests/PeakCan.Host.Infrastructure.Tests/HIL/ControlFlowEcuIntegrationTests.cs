@@ -86,7 +86,7 @@ public class ControlFlowEcuIntegrationTests
             var assignStep = TestCaseStep.Create(new AssignStep("flag", "1"));
             var repeatStep = TestCaseStep.Create(new RepeatStep(
                 RepeatMode.Fixed, Count: "2", Condition: null,
-                Body: new[] { assignStep }, MaxIterations: 100));
+                Body: new[] { assignStep }, MaxIterations: "100"));
             var ifStep = TestCaseStep.Create(new IfStep("1 == 1", new[] { readDidStep, repeatStep }, null));
             var suite = new TestSuite(
                 "ControlFlowE2E",

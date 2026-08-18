@@ -31,8 +31,10 @@ public sealed class RepeatValidator : IStepValidator
                 context.StepPath, context.StepLabel));
         }
 
-        // ⑤b：MaxIterations 越界 → Critical
-        if (rp.MaxIterations < 1 || rp.MaxIterations > MaxIterationsUpperBound)
+        // ⑤b：MaxIterations 越界 → Critical（B.5: MaxIterations 改为 string，需先 parse）
+        if (int.TryParse(rp.MaxIterations, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var maxIterVal)
+            && (maxIterVal < 1 || maxIterVal > MaxIterationsUpperBound))
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Critical, "⑤b", "MaxIterations out of bounds",

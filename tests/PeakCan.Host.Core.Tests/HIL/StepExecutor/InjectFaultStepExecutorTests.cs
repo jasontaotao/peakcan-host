@@ -16,8 +16,8 @@ public class InjectFaultStepExecutorTests
         var step = TestCaseStep.Create(new InjectFaultStep(
             CanId: new CanId(0x123, FrameFormat.Standard),
             FaultType: FaultType.Drop,
-            Probability: 1.0,
-            DelayMs: 0,
+            Probability: "1.0",
+            DelayMs: "0",
             CorruptByteIndices: null,
             CorruptXorMask: 0xFF,
             FaultId: null));
@@ -37,8 +37,8 @@ public class InjectFaultStepExecutorTests
         var step = TestCaseStep.Create(new InjectFaultStep(
             CanId: new CanId(0x123, FrameFormat.Standard),
             FaultType: FaultType.Drop,
-            Probability: 1.0,
-            DelayMs: 0,
+            Probability: "1.0",
+            DelayMs: "0",
             CorruptByteIndices: null,
             CorruptXorMask: 0xFF,
             FaultId: null));
@@ -57,8 +57,8 @@ public class InjectFaultStepExecutorTests
         var step = TestCaseStep.Create(new InjectFaultStep(
             CanId: new CanId(0, FrameFormat.Standard),
             FaultType: FaultType.Delay,
-            Probability: 0,
-            DelayMs: 100,
+            Probability: "1.0",
+            DelayMs: "0",
             CorruptByteIndices: null,
             CorruptXorMask: 0,
             FaultId: "fault1"));

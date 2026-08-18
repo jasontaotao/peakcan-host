@@ -33,7 +33,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -50,7 +50,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedHexBytes: new byte[] { 0xAA, 0xCC }, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedHexBytes: new byte[] { 0xAA, 0xCC }, TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -67,7 +67,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var2", ExpectedNumeric: 1.5, Tolerance: 0.1, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var2", ExpectedNumeric: "1.5", Tolerance: "0.1", TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -84,7 +84,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var2", ExpectedNumeric: 1.5, Tolerance: 0.1, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var2", ExpectedNumeric: "1.5", Tolerance: "0.1", TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -100,7 +100,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("nokey", ExpectedNumeric: 1.0, TimeoutMs: 100)),
+            TestCaseStep.Create(new AssertVariableStep("nokey", ExpectedNumeric: "1.0", TimeoutMs: "100")),
             ctx, default);
 
         // Assert
@@ -117,7 +117,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var3", ExpectedNumeric: 1.5, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var3", ExpectedNumeric: "1.5", TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -134,7 +134,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var4", TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var4", TimeoutMs: "200")),
             ctx, default);
 
         // Assert
@@ -150,7 +150,7 @@ public class AssertVariableStepExecutorTests
 
         // Act
         var result = await _executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedNumeric: 1.0, TimeoutMs: 200)),
+            TestCaseStep.Create(new AssertVariableStep("var1", ExpectedNumeric: "1.0", TimeoutMs: "200")),
             ctx, default);
 
         // Assert

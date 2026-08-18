@@ -21,9 +21,9 @@ public class StepParametersFactoryTests
         Assert.IsType<WaitForSignalStep>(result);
         var step = (WaitForSignalStep)result;
         Assert.Equal("BMS_Status.EngineRPM", step.SignalName);
-        Assert.Equal(3000.0, step.Expected);
-        Assert.Equal(50.0, step.Tolerance);
-        Assert.Equal(5000, step.TimeoutMs);
+        Assert.Equal("3000.0", step.Expected);
+        Assert.Equal("50.0", step.Tolerance);
+        Assert.Equal("5000", step.TimeoutMs);
     }
 
     [Theory]
@@ -74,7 +74,7 @@ public class StepParametersFactoryTests
         var result = StepParametersFactory.Create(TestCaseStepKind.Delay, p);
 
         Assert.IsType<DelayStep>(result);
-        Assert.Equal(1500, ((DelayStep)result).Milliseconds);
+        Assert.Equal("1500", ((DelayStep)result).Milliseconds);
     }
 
     [Fact]
@@ -121,8 +121,8 @@ public class StepParametersFactoryTests
             var result = StepParametersFactory.Create(TestCaseStepKind.WaitForSignal, p);
             var step = (WaitForSignalStep)result;
 
-            Assert.Equal(3.14, step.Expected);
-            Assert.Equal(0.5, step.Tolerance);
+            Assert.Equal("3.14", step.Expected);
+            Assert.Equal("0.5", step.Tolerance);
         }
         finally
         {

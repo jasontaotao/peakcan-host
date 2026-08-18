@@ -184,8 +184,8 @@ base hex  timestamps absolute
             var engine = new TestSuiteEngine(new FakeFixtureResolver(), executors);
 
             var suite = CreateSuite(CreateCase("case_1", "Standard Frame Test",
-                TestCaseStep.Create(new WaitForSignalStep("TestMsg.TestSignal", 100.0, 5.0, 5000)),
-                TestCaseStep.Create(new AssertSignalStep("TestMsg.TestSignal", 100.0, 5.0))));
+                TestCaseStep.Create(new WaitForSignalStep("TestMsg.TestSignal", "100.0", "5.0", "5000")),
+                TestCaseStep.Create(new AssertSignalStep("TestMsg.TestSignal", "100.0", "5.0"))));
 
             await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
 

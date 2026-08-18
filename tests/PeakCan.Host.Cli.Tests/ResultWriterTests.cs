@@ -123,7 +123,7 @@ base hex  timestamps absolute
             // Create and execute a test suite
             var suite = new TestSuite("CliIntegrationSuite",
                 new[] { new TestCase("case_1", "Assert Signal", "", null,
-                    new[] { TestCaseStep.Create(new AssertSignalStep("TestMsg.TestSignal", 100.0, 5.0)) },
+                    new[] { TestCaseStep.Create(new AssertSignalStep("TestMsg.TestSignal", "100.0", "5.0")) },
                     null, Array.Empty<string>(), 0, null) },
                 Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
 

@@ -18,7 +18,7 @@ public class ExpectFrameStepExecutorTests
     {
         // Arrange
         var step = TestCaseStep.Create(
-            new ExpectFrameStep(new CanId(0x123, FrameFormat.Standard), null, 1000));
+            new ExpectFrameStep(new CanId(0x123, FrameFormat.Standard), null, "1000"));
         var task = _executor.ExecuteAsync(step, _ctx, default);
 
         // Act
@@ -36,7 +36,7 @@ public class ExpectFrameStepExecutorTests
     {
         // Arrange - no frame will be fired
         var step = TestCaseStep.Create(
-            new ExpectFrameStep(new CanId(0x123, FrameFormat.Standard), null, 50));
+            new ExpectFrameStep(new CanId(0x123, FrameFormat.Standard), null, "50"));
 
         // Act
         var result = await _executor.ExecuteAsync(step, _ctx, default);

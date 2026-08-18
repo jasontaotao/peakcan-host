@@ -15,7 +15,7 @@ public class StepExecutorTests
         ctx.SetSignal("RPM", 3000.0);
 
         var executor = new WaitForSignalStepExecutor(new AssertionPrimitives(ctx));
-        var step = TestCaseStep.Create(new WaitForSignalStep("RPM", 3000.0, 10.0, 5000));
+        var step = TestCaseStep.Create(new WaitForSignalStep("RPM", "3000.0", "10.0", "5000"));
 
         // Push matching frame from background
         var push = Task.Run(() =>
@@ -37,7 +37,7 @@ public class StepExecutorTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
         var executor = new WaitForSignalStepExecutor(new AssertionPrimitives(ctx));
-        var step = TestCaseStep.Create(new WaitForSignalStep("RPM", 3000.0, 10.0, 5000));
+        var step = TestCaseStep.Create(new WaitForSignalStep("RPM", "3000.0", "10.0", "5000"));
 
         var result = await executor.ExecuteAsync(step, ctx, cts.Token);
 
@@ -51,7 +51,7 @@ public class StepExecutorTests
         ctx.SetSignal("RPM", 3005.0);
 
         var executor = new AssertSignalStepExecutor(new AssertionPrimitives(ctx));
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
 
         var result = await executor.ExecuteAsync(step, ctx, default);
 
@@ -65,7 +65,7 @@ public class StepExecutorTests
         ctx.SetSignal("RPM", 3100.0);
 
         var executor = new AssertSignalStepExecutor(new AssertionPrimitives(ctx));
-        var step = TestCaseStep.Create(new AssertSignalStep("RPM", 3000.0, 10.0));
+        var step = TestCaseStep.Create(new AssertSignalStep("RPM", "3000.0", "10.0"));
 
         var result = await executor.ExecuteAsync(step, ctx, default);
 
@@ -79,7 +79,7 @@ public class StepExecutorTests
         ctx.SetSignal("Temp", 50.0);
 
         var executor = new AssertRangeStepExecutor(new AssertionPrimitives(ctx));
-        var step = TestCaseStep.Create(new AssertRangeStep("Temp", 0.0, 100.0));
+        var step = TestCaseStep.Create(new AssertRangeStep("Temp", "0.0", "100.0"));
 
         var result = await executor.ExecuteAsync(step, ctx, default);
 
@@ -107,7 +107,7 @@ public class StepExecutorTests
         var ctx = new FakeAssertionContext();
 
         var executor = new DelayStepExecutor();
-        var step = TestCaseStep.Create(new DelayStep(50));
+        var step = TestCaseStep.Create(new DelayStep("50"));
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var result = await executor.ExecuteAsync(step, ctx, default);

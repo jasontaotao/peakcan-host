@@ -99,7 +99,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertNoFrameStepExecutor(collector);
             var result = await executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertNoFrameStep(Id, 50)), null!, default);
+                TestCaseStep.Create(new AssertNoFrameStep(Id, "50")), null!, default);
 
             result.Status.Should().Be(StepStatus.Passed);
         }
@@ -114,7 +114,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertNoFrameStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertNoFrameStep(Id, 200)), null!, default);
+                TestCaseStep.Create(new AssertNoFrameStep(Id, "200")), null!, default);
 
             await Task.Delay(10);                       // 确保 since 已打点
             clock.Ticks += 50;                          // 窗口内出现帧
@@ -136,7 +136,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertFrameCountStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertFrameCountStep(Id, 200, 2, 5)), null!, default);
+                TestCaseStep.Create(new AssertFrameCountStep(Id, "200", "2", "5")), null!, default);
 
             await Task.Delay(10);
             for (int i = 0; i < 3; i++)
@@ -161,7 +161,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertCycleTimeStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertCycleTimeStep(Id, 500, 80, 120, 3)), null!, default);
+                TestCaseStep.Create(new AssertCycleTimeStep(Id, "500", "80", "120", "3")), null!, default);
 
             await Task.Delay(10);
             // 窗口 [1_000_000, 1_000_500] 内 5 帧，间隔 100ms
@@ -185,7 +185,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertCycleTimeStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertCycleTimeStep(Id, 700, 80, 120, 3)), null!, default);
+                TestCaseStep.Create(new AssertCycleTimeStep(Id, "700", "80", "120", "3")), null!, default);
 
             await Task.Delay(10);
             // 间隔 100,100,300,100 → Mean=150 > MaxMs=120
@@ -210,7 +210,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertCycleTimeStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertCycleTimeStep(Id, 300, 80, 120, 3)), null!, default);
+                TestCaseStep.Create(new AssertCycleTimeStep(Id, "300", "80", "120", "3")), null!, default);
 
             await Task.Delay(10);
             // 窗口 [1_000_000, 1_000_300] 内仅 2 帧 < MinSamples=3
@@ -255,7 +255,7 @@ public class FrameStatisticsExecutorTests
         {
             var executor = new AssertCycleTimeStepExecutor(collector);
             var task = executor.ExecuteAsync(
-                TestCaseStep.Create(new AssertCycleTimeStep(Id, 700, 80, 120, 3)), null!, default);
+                TestCaseStep.Create(new AssertCycleTimeStep(Id, "700", "80", "120", "3")), null!, default);
 
             await Task.Delay(10);
             int[] offsets = { 50, 50, 250 };

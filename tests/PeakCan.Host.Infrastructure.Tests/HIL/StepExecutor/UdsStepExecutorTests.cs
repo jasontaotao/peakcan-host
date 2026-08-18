@@ -144,7 +144,7 @@ public class UdsStepExecutorTests
 
         var executor = new AssertDidValueStepExecutor();
         var result = await executor.ExecuteAsync(
-            TestCaseStep.Create(new AssertDidValueStep("nokey", null, TimeoutMs: 100)),
+            TestCaseStep.Create(new AssertDidValueStep("nokey", null, TimeoutMs: "100")),
             ctx, default);
 
         Assert.Equal(StepStatus.Failed, result.Status);

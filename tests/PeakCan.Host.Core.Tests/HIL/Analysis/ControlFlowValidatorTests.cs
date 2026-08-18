@@ -30,7 +30,7 @@ public class ControlFlowValidatorTests
         {
             TestCaseStep.Create(new AssignStep("state", "0")),
         };
-        var repeat = new RepeatStep(RepeatMode.While, Count: null, Condition: "${state}", body, MaxIterations: 100);
+        var repeat = new RepeatStep(RepeatMode.While, Count: null, Condition: "${state}", body, MaxIterations: "100");
         var suite = BuildSuite(TestCaseStep.Create(repeat));
 
         // Act
@@ -131,7 +131,7 @@ public class ControlFlowValidatorTests
     {
         // Arrange: Repeat Fixed MaxIterations=0（<1）
         var body = new[] { TestCaseStep.Create(new CommentStep("x")) };
-        var repeat = new RepeatStep(RepeatMode.Fixed, Count: "1", Condition: null, body, MaxIterations: 0);
+        var repeat = new RepeatStep(RepeatMode.Fixed, Count: "1", Condition: null, body, MaxIterations: "0");
         var suite = BuildSuite(TestCaseStep.Create(repeat));
 
         // Act
@@ -172,7 +172,7 @@ public class ControlFlowValidatorTests
         {
             TestCaseStep.Create(new AssignStep("state", "0")),
         };
-        var repeat = new RepeatStep(RepeatMode.While, null, "isUndefined(${state})", body, 100);
+        var repeat = new RepeatStep(RepeatMode.While, null, "isUndefined(${state})", body, "100");
         var suite = BuildSuite(TestCaseStep.Create(repeat));
 
         // Act
@@ -277,7 +277,7 @@ public class ControlFlowValidatorTests
         // Arrange: If body assign x（条件 writer）→ 后续 Repeat While(x>0) 守卫引用 x
         var ifBody = new[] { TestCaseStep.Create(new AssignStep("x", "1")) };
         var ifStep = new IfStep("true", ifBody, null);
-        var repeat = new RepeatStep(RepeatMode.While, null, "${x}", Array.Empty<TestCaseStep>(), 100);
+        var repeat = new RepeatStep(RepeatMode.While, null, "${x}", Array.Empty<TestCaseStep>(), "100");
         var steps = new[]
         {
             TestCaseStep.Create(ifStep),

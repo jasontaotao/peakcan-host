@@ -1,7 +1,10 @@
+using System.Globalization;
+
 namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes Delay steps. Returns Passed after the specified delay.
+/// B.5: Milliseconds is now string (supports ${name} interpolation, resolved by engine).
 /// </summary>
 internal sealed class DelayStepExecutor : IStepExecutor
 {
@@ -10,9 +13,10 @@ internal sealed class DelayStepExecutor : IStepExecutor
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, Contracts.IAssertionContext ctx, CancellationToken ct)
     {
         var p = (DelayStep)step.Parameters;
-        await Task.Delay(p.Milliseconds, ct);
+        var ms = int.Parse(p.Milliseconds, CultureInfo.InvariantCulture);
+        await Task.Delay(ms, ct);
 
         return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-            $"Delayed {p.Milliseconds}ms", null, null, 0);
+            $"Delayed {ms}ms", null, null, 0);
     }
 }

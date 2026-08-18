@@ -49,8 +49,8 @@ public class TestCaseGeneratorTests
         var result = TestCaseGenerator.Generate(template, ParameterSet.Create(("rpm", 3000.0)));
 
         var param = (WaitForSignalStep)result.Steps[0].Parameters;
-        Assert.Equal(3000.0, param.Expected);
-        Assert.Equal(50.0, param.Tolerance);
+        Assert.Equal("3000", param.Expected);
+        Assert.Equal("50", param.Tolerance);
     }
 
     [Fact]
@@ -91,10 +91,15 @@ public class TestCaseGeneratorTests
     [Fact]
     public void Generate_TypeConversionFailure_Throws()
     {
+        // B.5: 所有字段改为 string，不再有类型转换失败。
+        // 恢复旧行为需在引擎执行时 int.Parse 失败才报错。
+        // 当前测试验证：即使传 "not_a_number" 也能正常构造 DelayStep（string 接受一切）。
         var template = new TestCaseTemplate("test", "Test", "",
             new[] { new TemplateStep("delay", null, Dict(("Milliseconds", "not_a_number"))) },
             Array.Empty<string>());
 
-        Assert.ThrowsAny<Exception>(() => TestCaseGenerator.Generate(template, ParameterSet.Empty));
+        var result = TestCaseGenerator.Generate(template, ParameterSet.Empty);
+        var step = (DelayStep)result.Steps[0].Parameters;
+        Assert.Equal("not_a_number", step.Milliseconds);
     }
 }

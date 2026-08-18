@@ -1,9 +1,11 @@
+using System.Globalization;
 using PeakCan.HIL.Core.HIL.Contracts;
 
 namespace PeakCan.HIL.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertResponseTime steps. Sends request frame, measures wall-clock until response frame arrives.
+/// B.5: MaxMs is now string (supports ${name} interpolation).
 /// </summary>
 internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
 {
@@ -12,6 +14,7 @@ internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (AssertResponseTimeStep)step.Parameters;
+        var maxMs = int.Parse(p.MaxMs, CultureInfo.InvariantCulture);
 
         // 关键：先订阅再发送，避免 ECU 快响应（<1ms）在订阅注册前到达导致丢帧
         var tcs = new TaskCompletionSource<CanFrame>();
@@ -26,7 +29,7 @@ internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
         // ⚠️ 计时器必须在 SendFrameAsync 之前启动，否则发送延迟不被计入
         // 同时 cts.CancelAfter 与 Stopwatch 同步启动，确保超时判断与测量一致
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        cts.CancelAfter(p.MaxMs);
+        cts.CancelAfter(maxMs);
 
         using var registration = cts.Token.Register(() => tcs.TrySetCanceled());
 
@@ -42,19 +45,19 @@ internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
         {
             await tcs.Task.ConfigureAwait(false);
             sw.Stop();
-            bool withinTime = sw.ElapsedMilliseconds <= p.MaxMs;
+            bool withinTime = sw.ElapsedMilliseconds <= maxMs;
             return new StepResult(0, step.Kind, step.Label,
                 withinTime ? StepStatus.Passed : StepStatus.Failed,
                 withinTime ? $"Response in {sw.ElapsedMilliseconds}ms"
-                           : $"Response too slow: {sw.ElapsedMilliseconds}ms > {p.MaxMs}ms",
-                sw.ElapsedMilliseconds.ToString(), $"<= {p.MaxMs}ms", 0);
+                           : $"Response too slow: {sw.ElapsedMilliseconds}ms > {maxMs}ms",
+                sw.ElapsedMilliseconds.ToString(), $"<= {maxMs}ms", 0);
         }
         catch (OperationCanceledException)
         {
             sw.Stop();
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"No response from 0x{p.RespId.Raw:X} within {p.MaxMs}ms",
-                null, $"<= {p.MaxMs}ms", 0);
+                $"No response from 0x{p.RespId.Raw:X} within {maxMs}ms",
+                null, $"<= {maxMs}ms", 0);
         }
     }
 }

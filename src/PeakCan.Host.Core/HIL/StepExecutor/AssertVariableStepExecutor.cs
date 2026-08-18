@@ -14,9 +14,11 @@ internal sealed class AssertVariableStepExecutor : IStepExecutor
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 "Assertion context does not support IStepVariableStore", null, null, 0);
 
+        // B.5: TimeoutMs is now string; parse to int
+        var timeoutMs = int.Parse(p.TimeoutMs, CultureInfo.InvariantCulture);
         // 轮询等键出现（前置步骤若因 FailurePolicy 被跳过, 变量永不出现 →
         // 超时失败并给出明确原因）。跟随 AssertDidValueStepExecutor 模式。
-        var deadline = Environment.TickCount64 + p.TimeoutMs;
+        var deadline = Environment.TickCount64 + timeoutMs;
         while (!ct.IsCancellationRequested
                && !store.Variables.ContainsKey(p.VarKey)
                && Environment.TickCount64 < deadline)
@@ -24,7 +26,7 @@ internal sealed class AssertVariableStepExecutor : IStepExecutor
 
         if (!store.Variables.TryGetValue(p.VarKey, out var actual))
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"Variable '{p.VarKey}' not available within {p.TimeoutMs}ms", null, null, 0);
+                $"Variable '{p.VarKey}' not available within {timeoutMs}ms", null, null, 0);
 
         bool pass;
         string? actualStr, expectedStr;
@@ -40,24 +42,24 @@ internal sealed class AssertVariableStepExecutor : IStepExecutor
             }
             else
             {
-                // 外层已排除 byte[]，此分支 actual 必非 byte[]（v1 曾残留恒 false 的类型检查，已删）
                 actualStr = actual?.ToString() ?? "(null)";
-                pass = false;  // 类型不匹配
+                pass = false;
             }
         }
-        else if (p.ExpectedNumeric is { } expNum)
+        else if (p.ExpectedNumeric is { } expNumStr && double.TryParse(expNumStr, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var expNum))
         {
-            // 数值比较模式
+            // 数值比较模式（B.5: ExpectedNumeric is now string?）
+            var tolerance = double.Parse(p.Tolerance, CultureInfo.InvariantCulture);
             expectedStr = expNum.ToString("G", CultureInfo.InvariantCulture);
             if (actual is double actualDbl)
             {
                 actualStr = actualDbl.ToString("G", CultureInfo.InvariantCulture);
-                pass = Math.Abs(actualDbl - expNum) <= p.Tolerance;
+                pass = Math.Abs(actualDbl - expNum) <= tolerance;
             }
             else
             {
                 actualStr = actual?.ToString() ?? "(null)";
-                pass = false;  // 类型不匹配
+                pass = false;
             }
         }
         else

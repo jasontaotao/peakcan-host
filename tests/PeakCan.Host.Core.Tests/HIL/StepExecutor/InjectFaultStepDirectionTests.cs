@@ -14,8 +14,8 @@ public class InjectFaultStepDirectionTests
         => new(
             new CanId(0x100, FrameFormat.Standard),
             FaultType.Drop,
-            1.0,
-            0,
+            "1.0",
+            "0",
             null,
             (byte)0xFF,
             null,
@@ -70,7 +70,7 @@ public class InjectFaultStepDirectionTests
         var param = new InjectFaultStep(
             new CanId(0x100, FrameFormat.Standard),
             FaultType.Drop,
-            1.0, 0, null, (byte)0xFF, null);
+            "1.0", "0", null, (byte)0xFF, null);
 
         var ctx = new FakeIFaultInjectionContext();
         var executor = new InjectFaultStepExecutor();
