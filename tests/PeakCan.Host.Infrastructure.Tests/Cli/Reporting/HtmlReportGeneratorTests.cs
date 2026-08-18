@@ -251,6 +251,98 @@ public class HtmlReportGeneratorTests
         Assert.DoesNotContain("<svg class=\"signal-timeline\"", html);
     }
 
+    // ── 控制流报告：按 Path 分组缩进 + Iteration + 容器行聚合摘要 ────
+
+    [Fact]
+    public void HtmlReport_ControlFlow_IfContainer_ChildStepsIndented()
+    {
+        // 控制流 case：If 容器（StepIndex=1, Path=null, Kind=If, 聚合摘要）
+        // + 3 个子步骤（StepIndex=1, Path="1.0"/"1.1"/"1.2", 共享 StepIndex）
+        // 子步骤不应塌成一行，应有缩进 class（非控制流平铺无缩进）
+        var ifContainer = new StepResult(1, TestCaseStepKind.If, "Check DTC", StepStatus.Passed,
+            "if: 2/3 steps passed", null, null, 0)
+        { Path = null, Iteration = null };
+        var child1 = new StepResult(1, TestCaseStepKind.AssertDtc, "dtc1", StepStatus.Passed,
+            "ok", null, null, 10)
+        { Path = "1.0", Iteration = null };
+        var child2 = new StepResult(1, TestCaseStepKind.AssertDtc, "dtc2", StepStatus.Failed,
+            "not present", null, null, 10)
+        { Path = "1.1", Iteration = null };
+        var child3 = new StepResult(1, TestCaseStepKind.AssertDtc, "dtc3", StepStatus.Passed,
+            "ok", null, null, 10)
+        { Path = "1.2", Iteration = null };
+
+        var caseResult = new TestCaseResult("CtrlFlow", "CtrlFlow", false, "if branch failed",
+            100, 4, 2, 1, 0, 0,
+            new[] { ifContainer, child1, child2, child3 });
+        var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
+
+        var html = HtmlReportGenerator.GenerateHtml(result);
+
+        // 控制流行应有 depth class 缩进（非控制流 <tr> 无 step-depth-* class）
+        Assert.Contains("step-depth-2", html);
+        // 容器行 depth=0（Path=null）
+        Assert.Contains("step-depth-0", html);
+        // 聚合摘要消息
+        Assert.Contains("if: 2/3 steps passed", html);
+        // 子步骤共享 StepIndex=1，但不应塌成一行：应有 3 个 Path 不同的行
+        Assert.Contains("data-path=\"1.0\"", html);
+        Assert.Contains("data-path=\"1.1\"", html);
+        Assert.Contains("data-path=\"1.2\"", html);
+    }
+
+    [Fact]
+    public void HtmlReport_ControlFlow_LoopIteration_ShownInRow()
+    {
+        // Repeat 容器 + 子步骤带 Iteration
+        var repeatContainer = new StepResult(2, TestCaseStepKind.Repeat, "Retry", StepStatus.Failed,
+            "repeat: 0/3 steps passed", null, null, 0)
+        { Path = null, Iteration = null };
+        var loop1 = new StepResult(2, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "out of range", "5", "10", 10)
+        { Path = "2.0", Iteration = 0 };
+        var loop2 = new StepResult(2, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "out of range", "5", "10", 10)
+        { Path = "2.1", Iteration = 1 };
+        var loop3 = new StepResult(2, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "out of range", "5", "10", 10)
+        { Path = "2.2", Iteration = 2 };
+
+        var caseResult = new TestCaseResult("LoopCase", "LoopCase", false, "all retries failed",
+            100, 4, 0, 4, 0, 0,
+            new[] { repeatContainer, loop1, loop2, loop3 });
+        var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
+
+        var html = HtmlReportGenerator.GenerateHtml(result);
+
+        // 循环失败行应显示 Iteration
+        Assert.Contains("Iteration 0", html);
+        Assert.Contains("Iteration 1", html);
+        Assert.Contains("Iteration 2", html);
+    }
+
+    [Fact]
+    public void HtmlReport_NonControlFlow_Flat_NoIndentation()
+    {
+        // 非控制流（Path=null, 无容器 Kind）: 平铺，无 depth class
+        var step1 = new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Passed,
+            "ok", null, null, 10);
+        var step2 = new StepResult(1, TestCaseStepKind.AssertSignal, "s2", StepStatus.Failed,
+            "fail", "5", "10", 10);
+        var caseResult = new TestCaseResult("FlatCase", "FlatCase", false, "step 1 failed",
+            50, 2, 1, 1, 0, 0, new[] { step1, step2 });
+        var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
+
+        var html = HtmlReportGenerator.GenerateHtml(result);
+
+        // 平铺：<tr> 无 step-depth- class，无 data-path 属性
+        Assert.DoesNotContain("class=\"step-depth-", html);
+        Assert.DoesNotContain("data-path=\"", html);
+        // 仍按 StepIndex 区分
+        Assert.Contains(">0<", html);  // StepIndex 0
+        Assert.Contains(">1<", html);  // StepIndex 1
+    }
+
     [Fact]
     public void HtmlReport_SvgTimeline_FiltersFramesBySignalMessageId()
     {

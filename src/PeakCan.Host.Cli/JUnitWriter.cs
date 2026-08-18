@@ -18,7 +18,7 @@ public static class JUnitWriter
             {
                 var stepDetails = string.Join("\n", cr.StepResults
                     .Where(r => r.Status == StepStatus.Failed)
-                    .Select(r => $"Step {r.StepIndex}: {r.Message}"));
+                    .Select(r => FormatFailedStep(r)));
                 failure = new XElement("failure",
                     new XAttribute("message", cr.FailureReason ?? ""),
                     stepDetails);
@@ -44,5 +44,23 @@ public static class JUnitWriter
 
         await using var stream = File.Create(path);
         await doc.SaveAsync(stream, SaveOptions.None, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 格式化失败步骤：控制流步骤输出 Path/Iteration，非控制流向后兼容。
+    /// Path 缩进深度 = Path 分段数（null→0 层），每层 2 空格缩进。
+    /// </summary>
+    private static string FormatFailedStep(StepResult r)
+    {
+        var indent = "";
+        var pathInfo = "";
+        if (r.Path is not null)
+        {
+            int depth = r.Path.Split('.').Length;
+            indent = new string(' ', depth * 2);
+            pathInfo = $" Path={r.Path}";
+        }
+        var iterInfo = r.Iteration.HasValue ? $" Iteration={r.Iteration}" : "";
+        return $"{indent}Step {r.StepIndex}:{pathInfo}{iterInfo} {r.Message}";
     }
 }

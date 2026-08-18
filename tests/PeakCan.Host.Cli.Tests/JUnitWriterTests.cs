@@ -149,6 +149,100 @@ public class JUnitWriterTests
         }
     }
 
+    // ── 控制流：Path 缩进 + Iteration ────────────────────────────────
+
+    [Fact]
+    public async Task WriteJunit_ControlFlow_FailureDetailsIncludePathAndIteration()
+    {
+        // 控制流 case：Repeat 容器 + 子步骤带 Path/Iteration
+        var repeatContainer = new StepResult(0, TestCaseStepKind.Repeat, "Retry", StepStatus.Failed,
+            "repeat: 0/3 steps passed", null, null, 0)
+        { Path = null, Iteration = null };
+        var child1 = new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "out of range", "5", "10", 10)
+        { Path = "0.0", Iteration = 0 };
+        var child2 = new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "out of range", "5", "10", 10)
+        { Path = "0.1", Iteration = 1 };
+
+        var result = new TestSuiteResult(
+            SuiteName: "CtrlFlowSuite",
+            TotalCases: 1,
+            PassedCases: 0,
+            FailedCases: 1,
+            SkippedCases: 0,
+            ElapsedMs: 500,
+            SetupFailures: Array.Empty<string>(),
+            CaseResults: new[]
+            {
+                new TestCaseResult("CF_001", "ControlFlow Case", false, "retry failed",
+                    500, 3, 0, 3, 0, 0,
+                    new[] { repeatContainer, child1, child2 })
+            });
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            await JUnitWriter.WriteJunit(result, path);
+            var doc = XDocument.Load(path);
+            var failure = doc.Root!.Element("testsuite")!.Element("testcase")!.Element("failure")!;
+
+            // 失败 details 应包含 Path 和 Iteration
+            Assert.Contains("Path=0.0", failure.Value);
+            Assert.Contains("Path=0.1", failure.Value);
+            Assert.Contains("Iteration=0", failure.Value);
+            Assert.Contains("Iteration=1", failure.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task WriteJunit_NonControlFlow_Flat_NoPathOrIteration()
+    {
+        // 非控制流 case：Path=null，无 Path/Iteration 输出
+        var result = new TestSuiteResult(
+            SuiteName: "FlatSuite",
+            TotalCases: 1,
+            PassedCases: 0,
+            FailedCases: 1,
+            SkippedCases: 0,
+            ElapsedMs: 500,
+            SetupFailures: Array.Empty<string>(),
+            CaseResults: new[]
+            {
+                new TestCaseResult("FL_001", "Flat Case", false, "step failed",
+                    500, 2, 1, 1, 0, 0,
+                    new[]
+                    {
+                        new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Passed,
+                            "ok", null, null, 10),
+                        new StepResult(1, TestCaseStepKind.AssertSignal, "s2", StepStatus.Failed,
+                            "fail", "0", "1", 10),
+                    })
+            });
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            await JUnitWriter.WriteJunit(result, path);
+            var doc = XDocument.Load(path);
+            var failure = doc.Root!.Element("testsuite")!.Element("testcase")!.Element("failure")!;
+
+            // 非控制流：无 Path= 或 Iteration= 输出
+            Assert.DoesNotContain("Path=", failure.Value);
+            Assert.DoesNotContain("Iteration=", failure.Value);
+            // 仍按 Step {StepIndex} 输出
+            Assert.Contains("Step 1", failure.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task WriteJunit_FailureMessageContainsStepDetails()
     {

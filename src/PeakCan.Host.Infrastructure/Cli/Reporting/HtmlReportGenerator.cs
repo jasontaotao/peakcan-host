@@ -111,6 +111,11 @@ public static class HtmlReportGenerator
         var statusClass = c.Passed ? "pass" : "fail";
         var statusText = c.Passed ? "PASSED" : "FAILED";
 
+        // 判断是否为控制流 case：任意步骤有 Path!=null 或 Kind∈{If,Repeat,Loop}
+        // 控制流 case 按 Path 深度缩进；非控制流向后兼容平铺
+        bool isControlFlow = c.StepResults.Any(s => s.Path is not null ||
+            s.Kind is TestCaseStepKind.If or TestCaseStepKind.Repeat or TestCaseStepKind.Loop);
+
         sb.AppendLine($"<div class=\"case {statusClass}\">");
         sb.AppendLine($"<h3>{HtmlEncode(c.TestCaseName)} <span class=\"badge {statusClass}\">{statusText}</span></h3>");
         sb.AppendLine($"<div class=\"case-meta\">{c.PassedSteps}/{c.TotalSteps} steps passed · {c.ElapsedMs} ms</div>");
@@ -146,19 +151,53 @@ public static class HtmlReportGenerator
                 statusCell += " <span class=\"badge negated\" title=\"负测试：预期失败确实发生\">[negated]</span>";
             }
 
-            // 结构层（单元 C）：data-status 供 JS 状态筛选（值与 CSS class 一致），
-            // step-label/step-message 供 JS 文本搜索。
-            var dataStatus = stepClass;  // pass / fail / skipped / comment
-            sb.AppendLine($"<tr class=\"{rowClass}\" data-status=\"{dataStatus}\">" +
-                $"<td>{step.StepIndex}</td>" +
-                $"<td>{HtmlEncode(step.Kind.ToString())}</td>" +
-                $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
-                $"<td>{statusCell}</td>" +
-                $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
-                $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
-                $"<td>{HtmlEncode(step.ExpectedValue ?? "")}</td>" +
-                $"<td>{step.ElapsedMs}</td>" +
-                "</tr>");
+            // 控制流：按 Path 深度缩进 + 容器行标记 + 循环行 Iteration
+            if (isControlFlow)
+            {
+                int depth = step.Path?.Split('.').Length ?? 0;
+                bool isContainer = step.Kind is TestCaseStepKind.If or TestCaseStepKind.Repeat or TestCaseStepKind.Loop;
+                var classes = $"step-depth-{depth}";
+                if (stepClass.Length > 0) classes += $" {stepClass}";
+                if (step.WasNegatedTest) classes = $"step-depth-{depth} negated-pass";
+                if (isContainer) classes += " container-row";
+                var dataStatus = stepClass;
+                var dataPath = step.Path is not null ? $" data-path=\"{HtmlEncode(step.Path)}\"" : "";
+
+                // Iteration 显示（循环失败行）
+                var iterationHtml = step.Iteration.HasValue
+                    ? $" <span class=\"iteration\">Iteration {step.Iteration.Value}</span>"
+                    : "";
+                // 容器行标记
+                var containerPrefix = isContainer
+                    ? " <span class=\"container-badge\">[container]</span>"
+                    : "";
+
+                sb.AppendLine($"<tr class=\"{classes}\" data-status=\"{dataStatus}\"{dataPath}>" +
+                    $"<td>{step.StepIndex}{iterationHtml}</td>" +
+                    $"<td>{HtmlEncode(step.Kind.ToString())}{containerPrefix}</td>" +
+                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
+                    $"<td>{statusCell}</td>" +
+                    $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
+                    $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
+                    $"<td>{HtmlEncode(step.ExpectedValue ?? "")}</td>" +
+                    $"<td>{step.ElapsedMs}</td>" +
+                    "</tr>");
+            }
+            else
+            {
+                // 非控制流：向后兼容平铺（无 depth class，无 Path 属性）
+                var dataStatus = stepClass;  // pass / fail / skipped / comment
+                sb.AppendLine($"<tr class=\"{rowClass}\" data-status=\"{dataStatus}\">" +
+                    $"<td>{step.StepIndex}</td>" +
+                    $"<td>{HtmlEncode(step.Kind.ToString())}</td>" +
+                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
+                    $"<td>{statusCell}</td>" +
+                    $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
+                    $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
+                    $"<td>{HtmlEncode(step.ExpectedValue ?? "")}</td>" +
+                    $"<td>{step.ElapsedMs}</td>" +
+                    "</tr>");
+            }
 
             // Inline hex dump for failed steps with frames
             if (step.Status == StepStatus.Failed && step.FramesAroundFailure is { Count: > 0 })
@@ -518,6 +557,18 @@ public static class HtmlReportGenerator
             tr.comment td { color: var(--comment); font-style: italic; }
             tr.negated-pass td { border-left: 3px solid #ffc107; }
             .badge.negated { background: rgba(255, 193, 7, 0.15); color: #ffc107; }
+            /* 控制流缩进深度（step-depth-0 为顶层，每增 1 层缩进 24px） */
+            tr.step-depth-0 td:first-child { padding-left: 8px; }
+            tr.step-depth-1 td:first-child { padding-left: 32px; }
+            tr.step-depth-2 td:first-child { padding-left: 56px; }
+            tr.step-depth-3 td:first-child { padding-left: 80px; }
+            tr.step-depth-4 td:first-child { padding-left: 104px; }
+            tr.step-depth-5 td:first-child { padding-left: 128px; }
+            /* 容器行（If/Repeat/Loop）摘要 */
+            tr.container-row { background: rgba(100, 255, 218, 0.05); }
+            tr.container-row td { font-weight: 600; color: var(--accent); }
+            .container-badge { font-size: 10px; opacity: 0.7; margin-left: 4px; }
+            .iteration { font-size: 11px; color: var(--muted); margin-left: 6px; }
             .mono { font-family: "Cascadia Code", "Fira Code", Consolas, monospace; }
             .muted { color: var(--muted); }
             .frame-dump {
