@@ -512,4 +512,100 @@ public class TestSuiteEngineTests
         Assert.Null(ctx.ActiveSink);                  // detach 后无残留
         Assert.True(factory.Created[0].Disposed);     // Dispose 最后
     }
+
+    // ── §3 dtcPresent(code) 条件预查注入（方案 B）──────────────────────
+    // 引擎在 if/while 条件求值前 async 预查 ReadDtcInformation(0xFF)，
+    // active DTC codes 填入 case 级 set，求值器侧 dtcPresent(code) 同步读 set。
+    // 语义对齐 AssertDtcStepExecutor（bit0/bit2 active，2-byte ushort code）。
+
+    private static TestSuiteEngine CreateEngineWithUds(IUdsSession? uds, params IStepExecutor[] executors)
+        => new(new FakeFixtureResolver(), executors, uds);
+
+    private static TestCaseStep IfStep(string condition, string trueLabel, string falseLabel)
+        => TestCaseStep.Create(new IfStep(
+            condition,
+            new[] { TestCaseStep.Create(new CommentStep(trueLabel)) },
+            new[] { TestCaseStep.Create(new CommentStep(falseLabel)) }));
+
+    [Fact]
+    public async Task If_DtcPresent_PresentCode_RunsTrueBody()
+    {
+        var session = new FakeIUdsSession(new[] { new DtcInfo(0x1234, 0x01) }); // bit0 active
+        var engine = CreateEngineWithUds(session);
+        var suite = new TestSuite("S", new[] { CreateCase(IfStep("dtcPresent(0x1234)", "true-branch", "false-branch")) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        var msgs = result.CaseResults[0].StepResults.Select(r => r.Message).ToList();
+        Assert.Contains("Comment: true-branch", msgs);
+        Assert.DoesNotContain("Comment: false-branch", msgs);
+        Assert.True(session.ReadDtcCalled, "if 条件含 dtcPresent → 引擎预查 ReadDtcInformation");
+    }
+
+    [Fact]
+    public async Task If_DtcPresent_AbsentCode_RunsElseBody()
+    {
+        var session = new FakeIUdsSession(Array.Empty<DtcInfo>()); // 无 active DTC
+        var engine = CreateEngineWithUds(session);
+        var suite = new TestSuite("S", new[] { CreateCase(IfStep("dtcPresent(0x1234)", "true-branch", "false-branch")) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        var msgs = result.CaseResults[0].StepResults.Select(r => r.Message).ToList();
+        Assert.Contains("Comment: false-branch", msgs);
+        Assert.DoesNotContain("Comment: true-branch", msgs);
+        Assert.True(session.ReadDtcCalled);
+    }
+
+    [Fact]
+    public async Task If_DtcPresent_UdsError_ConditionFailsBodySkipped()
+    {
+        var session = new FakeIUdsSession(readException: new UdsSessionTransportException("timeout"));
+        var engine = CreateEngineWithUds(session);
+        var suite = new TestSuite("S", new[] { CreateCase(IfStep("dtcPresent(0x1234)", "true-branch", "false-branch")) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        var cr = result.CaseResults[0];
+        Assert.False(cr.Passed, "UDS 预查失败 → if 条件 Failed（containerOwnFailure）");
+        var msgs = cr.StepResults.Select(r => r.Message).ToList();
+        Assert.DoesNotContain("Comment: true-branch", msgs);   // body 不执行
+        Assert.DoesNotContain("Comment: false-branch", msgs);
+        Assert.True(session.ReadDtcCalled);
+    }
+
+    [Fact]
+    public async Task If_DtcPresent_NullUds_UnknownFunction_ConditionFails()
+    {
+        // Cli/trace 场景：engine 无 IUdsSession → dtcPresent 不可用 → UNKNOWN_FUNCTION → 条件 Failed
+        var engine = CreateEngine(); // 无 uds（第三参默认 null）
+        var suite = new TestSuite("S", new[] { CreateCase(IfStep("dtcPresent(0x1234)", "true-branch", "false-branch")) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        Assert.False(result.CaseResults[0].Passed, "无 IUdsSession → dtcPresent UNKNOWN_FUNCTION → 条件 Failed");
+    }
+
+    [Fact]
+    public async Task While_DtcPresent_AlwaysPresent_PrefetchesEachIteration()
+    {
+        // 固定 present → while 每迭代预查 + 不退出 → MaxIterations 后 did not converge
+        var session = new FakeIUdsSession(new[] { new DtcInfo(0x1234, 0x01) });
+        var engine = CreateEngineWithUds(session);
+        var whileStep = TestCaseStep.Create(new RepeatStep(
+            RepeatMode.While, null, "dtcPresent(0x1234)",
+            new[] { TestCaseStep.Create(new CommentStep("body")) }, "3", "i"));
+        var suite = new TestSuite("S", new[] { CreateCase(whileStep) },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), 0);
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), default, default);
+
+        var cr = result.CaseResults[0];
+        Assert.False(cr.Passed, "固定 present → while 不退出 → MaxIterations 3 后 did not converge");
+        Assert.True(session.ReadDtcCalled, "每迭代预查 ReadDtcInformation");
+    }
 }
