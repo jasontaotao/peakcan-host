@@ -21,14 +21,17 @@ public sealed class TestSuiteEngine
     private readonly IFixtureResolver _fixtureResolver;
     private readonly IReadOnlyDictionary<TestCaseStepKind, IStepExecutor> _executors;
     private readonly ExpressionEvaluator _evaluator = new();
+    // §3 dtcPresent(code) 预查注入：null（Cli/trace 场景）时 dtcPresent 不可用 → UNKNOWN_FUNCTION → 条件 Failed。
+    private readonly Contracts.IUdsSession? _uds;
 
     /// <summary>Loop 步骤硬上限（LoopStep 无 MaxIterations 字段，用常量兜底防死循环，§8.3）。</summary>
     private const int MaxLoopIterations = 100_000;
 
-    public TestSuiteEngine(IFixtureResolver fixtureResolver, IEnumerable<IStepExecutor> executors)
+    public TestSuiteEngine(IFixtureResolver fixtureResolver, IEnumerable<IStepExecutor> executors, Contracts.IUdsSession? uds = null)
     {
         _fixtureResolver = fixtureResolver;
         _executors = executors.ToDictionary(e => e.Kind);
+        _uds = uds;
     }
 
     public async Task<TestSuiteResult> ExecuteAsync(
@@ -160,16 +163,19 @@ public sealed class TestSuiteEngine
                 // 构造 StepScope（v11.1 Ruling 1：host 注入 core StepScope）。
                 // ctx 不实现 IStepVariableStore 时 store=null → Variables 层为 null（${name} 退化为 Undefined，
                 // 非控制流 suite 不用表达式，无影响）。
+                // §3 dtcPresent 预查 set（case 级；_uds=null 时 null → dtcPresent 不可用 → UNKNOWN_FUNCTION）
+                var dtcPresentSet = _uds is null ? null : new HashSet<uint>();
                 var scope = StepScopeFactory.Create(
                     ctx, ctx as IStepVariableStore, frameStats, caseStart,
-                    suiteParams: suiteParams, caseParams: testCase.Parameters);
+                    suiteParams: suiteParams, caseParams: testCase.Parameters,
+                    dtcPresentSet: dtcPresentSet);
 
                 // v11 H1：单解释器路径。非控制流 suite 递归退化为扁平循环（顶层步骤列表，无嵌套 body）。
                 await ExecuteStepListAsync(
                     testCase.Steps, scope, ctx, ct,
                     containerStepIndex: null, pathPrefix: null,
                     config, stepResults, iteration: null,
-                    frameStats, caseStart, failure);
+                    frameStats, caseStart, failure, dtcPresentSet);
             }
         }
         finally
@@ -247,7 +253,9 @@ public sealed class TestSuiteEngine
         int? iteration,
         IFrameStatistics? frameStats,
         long caseStart,
-        FailureCtx failure)
+        FailureCtx failure,
+        // §3 dtcPresent 预查 set 透传（case 级，if/while 条件求值前引擎预查填 active DTC codes）
+        HashSet<uint>? dtcPresentSet)
     {
         for (int i = 0; i < steps.Count; i++)
         {
@@ -314,7 +322,13 @@ public sealed class TestSuiteEngine
             if (step.Kind == TestCaseStepKind.If)
             {
                 var ifParams = (IfStep)step.Parameters;
-                var (condOk, branchTrue, condWarning, condError) = EvaluateIfCondition(ifParams.Condition, scope);
+                // §3 dtcPresent 预查：if 条件含 dtcPresent → 预查 ReadDtcInformation(0xFF) 填 set
+                string? dtcPrefillError = null;
+                if (_uds is not null && dtcPresentSet is not null && ContainsDtcPresentCall(ifParams.Condition))
+                    dtcPrefillError = await PrefillDtcPresentAsync(dtcPresentSet, ct);
+                var (condOk, branchTrue, condWarning, condError) = dtcPrefillError is not null
+                    ? (false, false, null, dtcPrefillError)
+                    : EvaluateIfCondition(ifParams.Condition, scope);
 
                 StepResult ifContainer;
                 int childrenStart = stepResults.Count;
@@ -340,7 +354,7 @@ public sealed class TestSuiteEngine
                     {
                         await ExecuteStepListAsync(body, scope, ctx, ct,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration, frameStats, caseStart, failure);
+                            config, stepResults, iteration, frameStats, caseStart, failure, dtcPresentSet);
                         // body 内 Assign/ReadDid 可能写入 Variables → 刷新 scope，使后续兄弟步骤可读
                         scope = RefreshScope(scope, ctx);
                     }
@@ -396,7 +410,7 @@ public sealed class TestSuiteEngine
                                 var iterScope = WithIndexVar(scope, rp.IndexVar, ExpressionValue.FromLong(k));
                                 await ExecuteStepListAsync(rp.Body, iterScope, ctx, ct,
                                     containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                    config, stepResults, iteration: k, frameStats, caseStart, failure);
+                                    config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
                                 // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                                 scope = RefreshScope(scope, ctx);
                             }
@@ -410,6 +424,16 @@ public sealed class TestSuiteEngine
                     {
                         ct.ThrowIfCancellationRequested();
                         var iterScope = WithIndexVar(scope, rp.IndexVar, ExpressionValue.FromLong(k));
+                        // §3 dtcPresent 预查（每迭代，DTC 状态会变）；失败 → repeatError 退出
+                        if (_uds is not null && dtcPresentSet is not null && ContainsDtcPresentCall(rp.Condition ?? "false"))
+                        {
+                            var dtcErr = await PrefillDtcPresentAsync(dtcPresentSet, ct);
+                            if (dtcErr is not null)
+                            {
+                                repeatError = dtcErr;
+                                break;
+                            }
+                        }
                         var guard = EvaluateWhileGuard(rp.Condition ?? "false", iterScope);
                         if (!guard.Success)
                         {
@@ -419,7 +443,7 @@ public sealed class TestSuiteEngine
                         if (!guard.Value) break;  // 条件 false → 退出循环
                         await ExecuteStepListAsync(rp.Body, iterScope, ctx, ct,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration: k, frameStats, caseStart, failure);
+                            config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
                         // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代 guard 可读
                         scope = RefreshScope(scope, ctx);
                         k++;
@@ -487,7 +511,7 @@ public sealed class TestSuiteEngine
                             var iterScope = WithIndexVar(scope, lp.IndexVar, ExpressionValue.FromDouble(v));
                             await ExecuteStepListAsync(lp.Body, iterScope, ctx, ct,
                                 containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                config, stepResults, iteration: k, frameStats, caseStart, failure);
+                                config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
                             // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                             scope = RefreshScope(scope, ctx);
                             k++;
@@ -676,6 +700,52 @@ public sealed class TestSuiteEngine
             return (false, false, $"guard evaluated to non-boolean {eval.Value.Kind}");
         }
         return (false, false, $"guard error: {eval.Error.Message}");
+    }
+
+    // ── §3 dtcPresent(code) 预查注入（方案 B）──────────────────────────
+    // 引擎在 if/while 条件求值前 async 预查 ReadDtcInformation(0xFF)，active DTC codes
+    // 填入 case 级 set，求值器侧 dtcPresent(code) 同步读 set（registry 已挂 composite）。
+
+    /// <summary>
+    /// 检测条件表达式是否含 dtcPresent 调用（决定是否触发预查，避免无谓 UDS I/O）。
+    /// Parse 失败（语法错）→ false（不预查，让 EvaluateIfCondition/EvaluateWhileGuard 报 parse error）。
+    /// </summary>
+    private bool ContainsDtcPresentCall(string condition)
+    {
+        var pr = _evaluator.Parse(condition);
+        if (pr.IsError) return false;
+        return AstContainsDtcPresent(pr.Ast!);
+    }
+
+    private static bool AstContainsDtcPresent(AstNode node) => node switch
+    {
+        FunctionCall f => f.Name == "dtcPresent" || f.Arguments.Any(AstContainsDtcPresent),
+        UnaryOp u => AstContainsDtcPresent(u.Operand),
+        BinaryOp b => AstContainsDtcPresent(b.Left) || AstContainsDtcPresent(b.Right),
+        _ => false,
+    };
+
+    /// <summary>
+    /// 预查 ReadDtcInformation(0xFF) → active DTC codes（bit0 testFailed / bit2 confirmedDTC，
+    /// 对齐 AssertDtcStepExecutor）填 set。成功返 null；UDS 失败返 error（调用方接通 condition Failed 通道）。
+    /// </summary>
+    private async Task<string?> PrefillDtcPresentAsync(HashSet<uint> set, CancellationToken ct)
+    {
+        try
+        {
+            var dtcs = await _uds!.ReadDtcInformation(0xFF, ct);
+            set.Clear();
+            foreach (var d in dtcs)
+            {
+                if ((d.Status & 0x01) != 0 || (d.Status & 0x04) != 0)
+                    set.Add(d.Code);
+            }
+            return null;
+        }
+        catch (Contracts.UdsSessionException ex)
+        {
+            return ex.Message;
+        }
     }
 
     /// <summary>

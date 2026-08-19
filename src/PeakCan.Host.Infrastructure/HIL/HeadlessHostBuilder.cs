@@ -173,7 +173,11 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertCycleTimeStepExecutor>();
 
         // Engine
-        builder.Services.AddSingleton<TestSuiteEngine>();
+        // §3 dtcPresent 预查注入：IUdsSession 可选注入（trace-replay 模式未注册 → null → dtcPresent 不可用）
+        builder.Services.AddSingleton<TestSuiteEngine>(sp => new TestSuiteEngine(
+            sp.GetRequiredService<IFixtureResolver>(),
+            sp.GetRequiredService<IEnumerable<IStepExecutor>>(),
+            sp.GetService<IUdsSession>()));
 
         // Sprint 19 Inc 8: LLM failure analysis service with Polly retry.
         // Credential store for headless/CLI runs (env var / ~/.hil/credentials).

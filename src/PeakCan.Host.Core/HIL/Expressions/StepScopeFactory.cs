@@ -33,16 +33,30 @@ public static class StepScopeFactory
         IReadOnlyDictionary<string, ParameterValue>? suiteParams = null,
         IReadOnlyDictionary<string, ParameterValue>? caseParams = null,
         IReadOnlyDictionary<string, ExpressionValue>? loopIndexVar = null,
-        IReadOnlyDictionary<string, ExpressionValue>? outerLoopIndexVar = null)
+        IReadOnlyDictionary<string, ExpressionValue>? outerLoopIndexVar = null,
+        // §3 dtcPresent 预查 set（case 级，引擎预查填 active DTC codes）；
+        // null（Cli/trace 无 UDS）时不挂 DtcPresence registry → dtcPresent → UNKNOWN_FUNCTION。
+        HashSet<uint>? dtcPresentSet = null)
     {
         // 创建 resolver 实现：DidResolver 内部 TryGetDid 访问 store.Variables，
         // store=null 时 Variables 为空字典（NSubstitute 默认）→ TryGetDid 返回 false。
         var signalResolver = new HostSignalValueResolver(ctx);
         var didResolver = new HostDidValueResolver(store ?? NullStepVariableStore.Instance);
-        // frameStats=null → 不注册帧函数注册表（求值器遇 frameCount/frameSeen/elapsedMs → UNKNOWN_FUNCTION）
-        IFunctionRegistry? functionRegistry = frameStats is null
+        // §3：frame + dtc 两个 registry composite 挂进 scope.FunctionRegistry（scope 单字段，不改 hil-core）。
+        // frameStats=null → 不注册帧函数；dtcPresentSet=null → 不注册 DtcPresence（dtcPresent → UNKNOWN_FUNCTION）。
+        IFunctionRegistry? frameReg = frameStats is null
             ? null
             : new FrameStatisticsFunctionRegistry(frameStats, caseStart);
+        IFunctionRegistry? dtcReg = dtcPresentSet is null
+            ? null
+            : new DtcPresenceFunctionRegistry(dtcPresentSet);
+        IFunctionRegistry? functionRegistry = (frameReg, dtcReg) switch
+        {
+            (null, null) => null,
+            (not null, null) => frameReg,
+            (null, not null) => dtcReg,
+            _ => new CompositeFunctionRegistry(frameReg!, dtcReg!),
+        };
 
         // 转换 Variables（store=null → null，${name} 解析退化为 Undefined）
         var variables = ConvertVariables(store?.Variables);
