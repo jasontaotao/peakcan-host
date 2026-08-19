@@ -796,6 +796,8 @@ public sealed class TestSuiteEngine
     /// <summary>
     /// 解析字符串中的 ${expr} 模式，用 scope 求值后替换。
     /// expr 走 ExpressionEvaluator（支持 param./did./signal./var 引用 + 运算）。
+    /// L4 安全：${expr} 求值结果中的 `${` 不会重解析（spec v11 L4："已解析值不重解析"）。
+    /// 多个 ${expr} 在同字符串中按顺序替换（独立求值，互不干扰）。
     /// </summary>
     private (bool Ok, string Value, string? Error) InterpolateString(string s, StepScope scope)
     {
