@@ -301,10 +301,10 @@ public class UdsStepExecutorTests
             new[]
             {
                 new TestCase("cA", "Write", "", null,
-                    new[] { TestCaseStep.Create(new DelayStep(1)) },
+                    new[] { TestCaseStep.Create(new DelayStep("1")) },
                     null, Array.Empty<string>()),
                 new TestCase("cB", "Assert", "", null,
-                    new[] { TestCaseStep.Create(new AssertDidValueStep("k", new byte[] { 0xAA }, 200)) },
+                    new[] { TestCaseStep.Create(new AssertDidValueStep("k", new byte[] { 0xAA }, "200")) },
                     null, Array.Empty<string>()),
             },
             Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig());

@@ -21,8 +21,8 @@ public class StepParametersFactoryTests
         Assert.IsType<WaitForSignalStep>(result);
         var step = (WaitForSignalStep)result;
         Assert.Equal("BMS_Status.EngineRPM", step.SignalName);
-        Assert.Equal("3000.0", step.Expected);
-        Assert.Equal("50.0", step.Tolerance);
+        Assert.Equal("3000", step.Expected);
+        Assert.Equal("50", step.Tolerance);
         Assert.Equal("5000", step.TimeoutMs);
     }
 
@@ -99,7 +99,7 @@ public class StepParametersFactoryTests
     public void Create_MissingKey_Throws()
     {
         var p = new Dictionary<string, object> { ["SignalName"] = "Test" };
-        Assert.Throws<KeyNotFoundException>(() => StepParametersFactory.Create(TestCaseStepKind.WaitForSignal, p));
+        Assert.Throws<ArgumentException>(() => StepParametersFactory.Create(TestCaseStepKind.WaitForSignal, p));
     }
 
     [Fact]

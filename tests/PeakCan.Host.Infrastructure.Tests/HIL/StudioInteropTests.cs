@@ -113,6 +113,6 @@ public class StudioInteropTests
         // $kind 判别器正确还原 delay 步骤类型。
         var step = Assert.Single(tc.Steps);
         Assert.IsType<DelayStep>(step.Parameters);
-        Assert.Equal(100, ((DelayStep)step.Parameters).Milliseconds);
+        Assert.Equal("100", ((DelayStep)step.Parameters).Milliseconds);
     }
 }
