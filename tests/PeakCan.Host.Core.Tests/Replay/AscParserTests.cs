@@ -125,8 +125,20 @@ also garbage
 
     /// <summary>
     /// v1.4.0 MINOR: large file (10000 frames) parses within reasonable time.
+    /// <para>
+    /// Marked [Trait("Performance","true")] and excluded from default CI
+    /// regression via the CI-side --filter "Performance!=true" (see
+    /// .github/workflows/ci.yml). The 500ms budget is a local-dev latency
+    /// signal, not a functional gate — under CI VM CPU contention it flakes
+    /// (parse is correct, just slower than 500ms). To run it locally:
+    ///   dotnet test --filter "FullyQualifiedName~Parse_LargeFile_Performance"
+    /// Mirrors the [Trait("Manual","true")] isolation convention in
+    /// BlfParserManualTests.cs (functional regression must not be blocked by
+    /// an environment-sensitive timing assertion).
+    /// </para>
     /// </summary>
     [Fact]
+    [Trait("Performance", "true")]
     public async Task Parse_LargeFile_Performance()
     {
         var sb = new StringBuilder();

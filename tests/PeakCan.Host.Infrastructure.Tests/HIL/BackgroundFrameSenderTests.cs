@@ -10,6 +10,18 @@ using Xunit;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
 
+/// <summary>
+/// D3-R1: 串行化 BackgroundFrame 时序测试集合——1ms/10ms Timer 周期发送对 CI CPU
+/// 争用敏感，与 BackgroundFrameAutoConfigTests 同集合序列化，避免并行加剧 tick
+/// 抖动致 flaky。对齐 HILIntegrationCollection 的序列化模式。
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class BackgroundFrameCollection
+{
+    public const string Name = "BackgroundFrame";
+}
+
+[Collection(BackgroundFrameCollection.Name)]
 public class BackgroundFrameSenderTests
 {
     private static BackgroundFrame MakeFrame(uint raw = 0x100, int periodMs = 50, byte[]? data = null) =>
@@ -47,19 +59,29 @@ public class BackgroundFrameSenderTests
         var channel = new VirtualChannel();
         await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
 
-        var received = new System.Collections.Concurrent.ConcurrentBag<CanFrame>();
-        channel.FrameReceived += f => received.Add(f);
+        // D3-R1: 转事件驱动 TCS——收到目标帧即完成，WaitAsync 作硬上限，
+        // 取代 Task.Delay(150) + count 断言（Timer tick 在 CI 上抖动致偶发空集）。
+        const uint targetId = 0x123u;
+        var targetTcs = new TaskCompletionSource<CanFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.FrameReceived += f =>
+        {
+            if (f.Id.Raw == targetId) targetTcs.TrySetResult(f);
+        };
 
         var sender = new BackgroundFrameSender(channel, NullLogger.Instance);
-        sender.Start(new[] { MakeFrame(0x123, periodMs: 20, data: new byte[] { 0xAA }) });
-
-        // 等待几帧发送
-        await Task.Delay(150);
-        sender.Stop();
-        sender.Dispose();
-
-        received.Should().NotBeEmpty();
-        received.Should().Contain(f => f.Id.Raw == 0x123u);
+        sender.Start(new[] { MakeFrame(targetId, periodMs: 20, data: new byte[] { 0xAA }) });
+        try
+        {
+            var frame = await targetTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            frame.Id.Raw.Should().Be(targetId);
+            frame.Data.Span.ToArray().Should().Equal(new byte[] { 0xAA });
+        }
+        finally
+        {
+            sender.Stop();
+            sender.Dispose();
+            await channel.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -68,24 +90,35 @@ public class BackgroundFrameSenderTests
         var channel = new VirtualChannel();
         await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
 
-        var received = new System.Collections.Concurrent.ConcurrentBag<CanFrame>();
-        channel.FrameReceived += f => received.Add(f);
+        // D3-R1: 转事件驱动 TCS——先等首帧旧数据（证明 sender 已启动），再 UpdateData，
+        // 然后等新数据帧；取代双重 Task.Delay(80) + Any 断言（窗口内可能未收齐致 flaky）。
+        const uint frameId = 0x200u;
+        var firstFrameTcs = new TaskCompletionSource<CanFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updatedTcs = new TaskCompletionSource<CanFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.FrameReceived += f =>
+        {
+            if (f.Id.Raw != frameId) return;
+            if (f.Data.Span.Length > 0 && f.Data.Span[0] == 0xFF)
+                updatedTcs.TrySetResult(f);
+            else
+                firstFrameTcs.TrySetResult(f);
+        };
 
         var sender = new BackgroundFrameSender(channel, NullLogger.Instance);
-        sender.Start(new[] { MakeFrame(0x200, periodMs: 20, data: new byte[] { 0x01 }) });
-
-        await Task.Delay(80); // 等几帧旧数据
-
-        // 替换数据
-        sender.UpdateFrameData(new CanId(0x200, FrameFormat.Standard), new byte[] { 0xFF });
-
-        await Task.Delay(80); // 等几帧新数据
-        sender.Stop();
-        sender.Dispose();
-
-        // 验证新数据被发送
-        var hasNewData = received.Any(f => f.Data.Span.ToArray().SequenceEqual(new byte[] { 0xFF }));
-        hasNewData.Should().BeTrue("expected to receive frames with updated data 0xFF");
+        sender.Start(new[] { MakeFrame(frameId, periodMs: 20, data: new byte[] { 0x01 }) });
+        try
+        {
+            await firstFrameTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            sender.UpdateFrameData(new CanId(frameId, FrameFormat.Standard), new byte[] { 0xFF });
+            var frame = await updatedTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            frame.Data.Span.ToArray().Should().Equal(new byte[] { 0xFF });
+        }
+        finally
+        {
+            sender.Stop();
+            sender.Dispose();
+            await channel.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -115,12 +148,23 @@ public class BackgroundFrameSenderTests
         var channel = new VirtualChannel();
         await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
 
+        // D3-R1: 转事件驱动 TCS——等首帧到达后再 Dispose，证明 Timer 确已运行；
+        // 取代 Task.Delay(50) 盲等（无法保证 tick 已发生）。
+        var firstFrameTcs = new TaskCompletionSource<CanFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        channel.FrameReceived += f => firstFrameTcs.TrySetResult(f);
+
         var sender = new BackgroundFrameSender(channel, NullLogger.Instance);
         sender.Start(new[] { MakeFrame(0x300, periodMs: 10) });
-
-        await Task.Delay(50);
-        // 直接 Dispose 不先 Stop
-        sender.Dispose();
+        try
+        {
+            await firstFrameTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            // 直接 Dispose 不先 Stop
+            sender.Dispose();
+            await channel.DisposeAsync();
+        }
 
         // 不抛异常即可
     }
