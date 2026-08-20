@@ -21,15 +21,17 @@ public class ReplayTimelineTests
     /// v1.4.0 MINOR Replay: Play emits frames at correct timestamps (within timer resolution).
     /// </summary>
     [Fact]
-    public async Task Play_EmitsFramesAtCorrectTimestamps()
+    public void Play_EmitsFramesAtCorrectTimestamps()
     {
         var frames = MakeFrames((0.0, 0x100), (0.2, 0x200), (0.4, 0x300));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(800);  // wait long enough for all 3 frames (0.4s at 1x + margin)
+        // Advance clock by 800ms in 1ms ticks → PlayedTimestamp = 0.8s, past all 3 frames
+        clock.TickRepeated(800);
         timeline.Stop();
 
         emitted.Should().HaveCount(3);
@@ -42,18 +44,19 @@ public class ReplayTimelineTests
     /// v1.4.0 MINOR: Pause halts playback.
     /// </summary>
     [Fact]
-    public async Task Pause_HaltsPlayback()
+    public void Pause_HaltsPlayback()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200), (5.0, 0x300));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(300);
+        clock.TickRepeated(300); // frames at 0.0 and 0.1 should fire
         timeline.Pause();
         var countAtPause = emitted.Count;
-        await Task.Delay(500);  // wait long enough that frame at 5s WOULD have fired
+        clock.TickRepeated(500); // frame at 5.0 should NOT fire (paused)
         timeline.Stop();
 
         emitted.Count.Should().Be(countAtPause, "no new frames should be emitted after Pause");
@@ -64,19 +67,20 @@ public class ReplayTimelineTests
     /// v1.4.0 MINOR: Resume continues from paused position.
     /// </summary>
     [Fact]
-    public async Task Resume_ContinuesFromPausePoint()
+    public void Resume_ContinuesFromPausePoint()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200), (0.5, 0x300));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(200);  // frames 100 + 200 should have fired
+        clock.TickRepeated(200); // frames 0x100 + 0x200 should fire
         timeline.Pause();
-        await Task.Delay(100);
-        timeline.Play();  // resume
-        await Task.Delay(500);  // frame 300 should now fire
+        clock.TickRepeated(100); // no ticks while paused
+        timeline.Play(); // resume
+        clock.TickRepeated(500); // frame 0x300 should fire (at t=0.5s)
         timeline.Stop();
 
         emitted.Should().HaveCount(3);
@@ -87,16 +91,17 @@ public class ReplayTimelineTests
     /// v1.4.0 MINOR: Seek jumps to specified timestamp.
     /// </summary>
     [Fact]
-    public async Task Seek_JumpsToTimestamp()
+    public void Seek_JumpsToTimestamp()
     {
         var frames = MakeFrames((0.0, 0x100), (0.5, 0x200), (1.0, 0x300), (1.5, 0x400));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
-        timeline.Seek(1.0);  // skip past frames 100, 200
+        timeline.Seek(1.0); // skip past frames 0x100, 0x200
         timeline.Play();
-        await Task.Delay(700);  // 300 (at 1.0s) and 400 (at 1.5s) should fire
+        clock.TickRepeated(700); // 0x300 (at 1.0s) and 0x400 (at 1.5s) should fire
         timeline.Stop();
 
         emitted.Should().HaveCount(2);
@@ -108,26 +113,22 @@ public class ReplayTimelineTests
     /// v1.4.0 MINOR: SetSpeed scales playback speed.
     /// </summary>
     [Fact]
-    public async Task SetSpeed_ScalesTimestamps()
+    public void SetSpeed_ScalesTimestamps()
     {
         // At 2x, frame at t=1.0s fires after 0.5s wall-clock
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
         timeline.SetSpeed(2.0);
         timeline.Play();
-        var sw = Stopwatch.StartNew();
-        await Task.Delay(1500);  // should fire both frames well within 1.5s at 2x
+        // At 2x speed, 1.0s frame needs 0.5s of clock time = 500 ticks.
+        clock.TickRepeated(600); // generous margin
         timeline.Stop();
-        sw.Stop();
 
         emitted.Should().HaveCount(2);
-        // 1.0s frame at 2x = 0.5s wall-clock; full 1.5s budget is generous.
-        // Widened from 2000ms to 5000ms (v3.4.5): latent CI flake risk per same
-        // shape as SequenceSendServiceTests.SendAsync_Sequential_DelayRespectedBetweenFrames.
-        sw.ElapsedMilliseconds.Should().BeLessThan(5000L);
     }
 
     // v3.16.9.3 PATCH: SetSpeed on a never-played timeline must NOT snap
@@ -171,20 +172,22 @@ public class ReplayTimelineTests
     /// playback and raises the onPlaybackEnded callback.
     /// </summary>
     [Fact]
-    public async Task EndOfStream_LoopFalse_AutoStopsAndRaisesCallback()
+    public void EndOfStream_LoopFalse_AutoStopsAndRaisesCallback()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200));
         var emitted = new List<ReplayFrame>();
         var endedCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: _ => endedCount++);
+            onPlaybackEnded: _ => endedCount++,
+            clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(500);  // both frames fire quickly at 1x
+        clock.TickRepeated(500); // both frames fire quickly; EOF at ~0.1s
         var isPlayingAfterStream = timeline.IsPlaying;
-        await Task.Delay(300);
+        clock.TickRepeated(300); // more ticks to verify no re-emit
         timeline.Stop();
 
         // v1.5.0 MINOR: with Loop=false (default), EOF auto-stops and raises
@@ -201,19 +204,22 @@ public class ReplayTimelineTests
     /// without raising onPlaybackEnded.
     /// </summary>
     [Fact]
-    public async Task OnTick_ReachesEnd_LoopTrue_RestartsAtZero()
+    public void OnTick_ReachesEnd_LoopTrue_RestartsAtZero()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200));
         var emitted = new List<ReplayFrame>();
         var endedCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: _ => endedCount++);
+            onPlaybackEnded: _ => endedCount++,
+            clock: clock);
         timeline.Loop = true;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(700);  // first cycle: both frames emit; second cycle restarts
+        // At 1x, each cycle is ~0.1s (100 ticks). 700 ticks = 7 cycles.
+        clock.TickRepeated(700);
         timeline.Stop();
 
         // With Loop=true, frames 0x100 + 0x200 emit at least twice (each cycle).
@@ -227,20 +233,22 @@ public class ReplayTimelineTests
     /// and transitions IsPlaying to false.
     /// </summary>
     [Fact]
-    public async Task OnTick_ReachesEnd_LoopFalse_RaisesPlaybackEnded()
+    public void OnTick_ReachesEnd_LoopFalse_RaisesPlaybackEnded()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200));
         var emitted = new List<ReplayFrame>();
         var endedCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: _ => endedCount++);
+            onPlaybackEnded: _ => endedCount++,
+            clock: clock);
         // Loop defaults to false.
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(500);  // both frames fire; then EOF
-        await Task.Delay(400);  // wait additional time to verify no re-raise
+        clock.TickRepeated(500); // both frames fire; then EOF
+        clock.TickRepeated(400); // additional ticks to verify no re-raise
         timeline.Stop();
 
         timeline.IsPlaying.Should().BeFalse("Loop=false EOF auto-stops playback");
@@ -254,17 +262,18 @@ public class ReplayTimelineTests
     /// of any ID.)
     /// </summary>
     [Fact]
-    public async Task EmitFrame_CanIdFilterNull_PassesAll()
+    public void EmitFrame_CanIdFilterNull_PassesAll()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200), (0.2, 0x300));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.SetFrames(frames);
 
         // No filter at the timeline level (filter is applied by the emit callback);
         // every frame must reach the emit callback.
         timeline.Play();
-        await Task.Delay(500);
+        clock.TickRepeated(500);
         timeline.Stop();
 
         emitted.Should().HaveCount(3, "timeline emits every frame; filter is in callback");
@@ -277,21 +286,22 @@ public class ReplayTimelineTests
     /// it by wrapping the callback to mirror the production filter logic.
     /// </summary>
     [Fact]
-    public async Task EmitFrame_CanIdFilterSet_OnlyMatchingIds()
+    public void EmitFrame_CanIdFilterSet_OnlyMatchingIds()
     {
         var filter = new HashSet<uint> { 0x100u, 0x200u };
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x300), (0.2, 0x200), (0.3, 0x400));
         var emitted = new List<ReplayFrame>();
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(f =>
         {
             // Mirror production filter logic: skip non-matching IDs.
             if (filter is not null && !filter.Contains(f.Id)) return;
             emitted.Add(f);
-        });
+        }, clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(700);
+        clock.TickRepeated(700);
         timeline.Stop();
 
         emitted.Should().HaveCount(2);
@@ -303,20 +313,21 @@ public class ReplayTimelineTests
     /// which means "all frames pass").
     /// </summary>
     [Fact]
-    public async Task EmitFrame_CanIdFilterSet_EmptySet_PassesNone()
+    public void EmitFrame_CanIdFilterSet_EmptySet_PassesNone()
     {
         var filter = new HashSet<uint>();  // empty set
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200));
         var emitted = new List<ReplayFrame>();
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(f =>
         {
             if (filter is not null && !filter.Contains(f.Id)) return;
             emitted.Add(f);
-        });
+        }, clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(500);
+        clock.TickRepeated(500);
         timeline.Stop();
 
         emitted.Should().BeEmpty("empty filter set blocks every frame");
@@ -327,23 +338,24 @@ public class ReplayTimelineTests
     /// on the next emit.
     /// </summary>
     [Fact]
-    public async Task EmitFrame_CanIdFilterChangedAtRuntime_TakesEffectImmediately()
+    public void EmitFrame_CanIdFilterChangedAtRuntime_TakesEffectImmediately()
     {
         var frames = MakeFrames((0.0, 0x100), (0.5, 0x200), (1.0, 0x300));
         var emitted = new List<ReplayFrame>();
         var filter = new HashSet<uint> { 0x100u };
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(f =>
         {
             if (filter is not null && !filter.Contains(f.Id)) return;
             emitted.Add(f);
-        });
+        }, clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(150);  // emit 0x100 only (0x200 at t=0.5s not yet due)
+        clock.TickRepeated(150); // emit 0x100 only (0x200 at t=0.5s not yet due)
         filter.Clear();
         filter.Add(0x200u);     // hot-swap: only 0x200 now passes
-        await Task.Delay(600);  // emit 0x200 (0x300 at t=1.0s still blocked)
+        clock.TickRepeated(600); // emit 0x200 (0x300 at t=1.0s still blocked)
         timeline.Stop();
 
         emitted.Select(f => f.Id).Should().Contain(0x100u);
@@ -362,12 +374,13 @@ public class ReplayTimelineTests
     /// args.
     /// </summary>
     [Fact]
-    public async Task OnTick_SinkThrows_AbortsPlaybackAndRaisesPlaybackEndedWithError()
+    public void OnTick_SinkThrows_AbortsPlaybackAndRaisesPlaybackEndedWithError()
     {
         var sinkException = new ReplaySendException("send failed");
         Exception? capturedSink = null;
         PlaybackEndedEventArgs? endedArgs = null;
         var emitted = new List<ReplayFrame>();
+        var clock = new FakeReplayClock();
 
         var timeline = new ReplayTimeline(
             emit: f =>
@@ -376,12 +389,13 @@ public class ReplayTimelineTests
                 throw sinkException;
             },
             onPlaybackEnded: args => endedArgs = args,
-            onSinkThrew: ex => capturedSink = ex);
+            onSinkThrew: ex => capturedSink = ex,
+            clock: clock);
         var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (0.1, 0x300));
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(300);  // first emit throws, playback aborts
+        clock.TickOnce(); // first emit throws, playback aborts
 
         timeline.IsPlaying.Should().BeFalse("sink throw must stop playback");
         capturedSink.Should().BeSameAs(sinkException,
@@ -394,9 +408,10 @@ public class ReplayTimelineTests
     /// must not emit any more frames (playback is halted).
     /// </summary>
     [Fact]
-    public async Task OnTick_SinkThrows_DoesNotEmitFurtherFrames()
+    public void OnTick_SinkThrows_DoesNotEmitFurtherFrames()
     {
         var emitCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: _ =>
             {
@@ -404,14 +419,15 @@ public class ReplayTimelineTests
                 throw new InvalidOperationException("fail");
             },
             onPlaybackEnded: _ => { },
-            onSinkThrew: _ => { });
+            onSinkThrew: _ => { },
+            clock: clock);
         var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (0.1, 0x300));
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(200);
+        clock.TickOnce(); // first frame attempted, threw
         var countAfterAbort = emitCount;
-        await Task.Delay(200);  // more time — must NOT emit further
+        clock.TickRepeated(200); // more ticks — must NOT emit further
 
         emitCount.Should().Be(1, "1st frame attempted, threw, no further emits");
         countAfterAbort.Should().Be(emitCount, "playback halted after throw, no more emits");
@@ -426,19 +442,18 @@ public class ReplayTimelineTests
     /// contains only frames at t ≥ 1.5.
     /// </summary>
     [Fact]
-    public async Task OnTick_StartTimestampSet_SkipsFramesBeforeStart()
+    public void OnTick_StartTimestampSet_SkipsFramesBeforeStart()
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.StartTimestamp = 1.5;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
-        // Replaces a latent Task.Delay(3500) that was vulnerable to flake under
-        // .NET test runner parallel scheduling. See release-notes-v3.6.3.
-        await Task.Delay(5000);  // give cursor enough wall-clock to walk past last frame
+        // At 1x, need > 3.0s of clock time to walk past last frame.
+        clock.TickRepeated(5000); // 5s of clock time
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=2.0 and t=3.0 are in range");
@@ -451,18 +466,17 @@ public class ReplayTimelineTests
     /// to 1.5 means frames with <c>Timestamp &gt; 1.5</c> are skipped.
     /// </summary>
     [Fact]
-    public async Task OnTick_EndTimestampSet_SkipsFramesAfterEnd()
+    public void OnTick_EndTimestampSet_SkipsFramesAfterEnd()
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.EndTimestamp = 1.5;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
-        // See release-notes-v3.6.3.
-        await Task.Delay(5000);
+        clock.TickRepeated(5000);
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=0 and t=1.0 are in range");
@@ -479,25 +493,27 @@ public class ReplayTimelineTests
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400), (4.0, 0x500));
         var emitted = new List<ReplayFrame>();
-        // v3.6.3 PATCH: converted from Task.Delay(4500) wall-clock wait to
-        // event-based signaling. The target frame (id 0x300) is the only one
-        // in range; we complete a TCS the instant it is emitted and use
-        // WaitAsync as a hard ceiling so a regression can't hang the test
-        // forever. See release-notes-v3.6.3.
+        // Event-based signaling: complete a TCS when the target frame is emitted.
         const uint targetId = 0x300u;
         var targetTcs = new TaskCompletionSource<ReplayFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f =>
             {
                 emitted.Add(f);
                 if (f.Id == targetId) targetTcs.TrySetResult(f);
-            });
+            },
+            clock: clock);
         timeline.StartTimestamp = 1.5;
         timeline.EndTimestamp = 2.5;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await targetTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // Tick the clock until the target frame is emitted (or timeout).
+        while (!targetTcs.Task.IsCompleted)
+        {
+            clock.TickOnce();
+        }
         timeline.Stop();
 
         emitted.Should().HaveCount(1, "only the frame at t=2.0 is in [1.5, 2.5]");
@@ -510,19 +526,18 @@ public class ReplayTimelineTests
     /// exactly equals End must both be emitted.
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_BoundaryInclusive()
+    public void OnTick_RangeFilter_BoundaryInclusive()
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300), (3.0, 0x400));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         timeline.StartTimestamp = 1.0;
         timeline.EndTimestamp = 2.0;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
-        // See release-notes-v3.6.3.
-        await Task.Delay(5000);
+        clock.TickRepeated(5000);
         timeline.Stop();
 
         emitted.Should().HaveCount(2, "frames at t=1.0 (== Start) and t=2.0 (== End) are inclusive");
@@ -535,18 +550,19 @@ public class ReplayTimelineTests
     /// (Start=set, End=null).
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_NullMeansUnbounded()
+    public void OnTick_RangeFilter_NullMeansUnbounded()
     {
         // Sub-case A: Start=null, End=1.0 → only frames at t ≤ 1.0 pass
         {
             var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
             var emitted = new List<ReplayFrame>();
-            var timeline = new ReplayTimeline(f => emitted.Add(f));
+            var clock = new FakeReplayClock();
+            var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
             timeline.EndTimestamp = 1.0;
             timeline.SetFrames(frames);
 
             timeline.Play();
-            await Task.Delay(2500);
+            clock.TickRepeated(2500);
             timeline.Stop();
 
             emitted.Should().HaveCount(2, "Start=null means unbounded below");
@@ -557,12 +573,13 @@ public class ReplayTimelineTests
         {
             var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
             var emitted = new List<ReplayFrame>();
-            var timeline = new ReplayTimeline(f => emitted.Add(f));
+            var clock = new FakeReplayClock();
+            var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
             timeline.StartTimestamp = 1.0;
             timeline.SetFrames(frames);
 
             timeline.Play();
-            await Task.Delay(2500);
+            clock.TickRepeated(2500);
             timeline.Stop();
 
             emitted.Should().HaveCount(2, "End=null means unbounded above");
@@ -577,28 +594,28 @@ public class ReplayTimelineTests
     /// not frame 0. Range filter is re-applied after the rewind.
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_LoopRewindReappliesRange()
+    public void OnTick_RangeFilter_LoopRewindReappliesRange()
     {
         var frames = MakeFrames((0.0, 0x100), (0.05, 0x200), (1.5, 0x300), (1.55, 0x400));
         var emitted = new List<ReplayFrame>();
         var endedCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: _ => endedCount++);
+            onPlaybackEnded: _ => endedCount++,
+            clock: clock);
         timeline.Loop = true;
         timeline.StartTimestamp = 1.5;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        // v3.6.3 PATCH: widened from 3500ms to 5000ms for CI parallel-load headroom.
-        // First cycle: emit 0x300 + 0x400; rewind; second cycle: 0x300 + 0x400 again.
-        // See release-notes-v3.6.3.
-        await Task.Delay(5000);
+        // Each cycle: frames at 1.5 and 1.55 = 0.05s of timeline. At 1x, 5000 ticks = 5s = ~100 cycles.
+        clock.TickRepeated(5000);
         timeline.Stop();
 
         // After loop rewind, cursor walks to t=1.5 again, skipping 0x100 and 0x200.
-        // Each cycle emits 0x300 + 0x400; over 3.5s wall-clock with frames ending at 1.55s,
-        // we expect at least 2 full cycles.
+        // Each cycle emits 0x300 + 0x400; over 5s of clock time with frames ending at 1.55s,
+        // we expect many cycles.
         emitted.Should().HaveCountGreaterThanOrEqualTo(4,
             "loop rewind must re-apply range filter; in-range frames emit per cycle");
         // First two emits in the first cycle must be 0x300 and 0x400 (NOT 0x100 or 0x200).
@@ -614,20 +631,22 @@ public class ReplayTimelineTests
     /// <c>onPlaybackEnded</c> with no error — "ended normally, nothing to emit".
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_EmptiesAllFrames_StillRaisesPlaybackEndedOnEof()
+    public void OnTick_RangeFilter_EmptiesAllFrames_StillRaisesPlaybackEndedOnEof()
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
         var emitted = new List<ReplayFrame>();
         PlaybackEndedEventArgs? endedArgs = null;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: args => endedArgs = args);
+            onPlaybackEnded: args => endedArgs = args,
+            clock: clock);
         // StartTimestamp=5.0 is past the last frame (t=2.0) — no frames in range.
         timeline.StartTimestamp = 5.0;
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(2500);
+        clock.TickRepeated(2500);
         timeline.Stop();
 
         emitted.Should().BeEmpty("no frames in range");
@@ -643,20 +662,22 @@ public class ReplayTimelineTests
     /// range — that's a deliberate Decision 5 (Seek is cursor move, not emit).
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_SeekOutsideRange_EmitsNothingOnPlay()
+    public void OnTick_RangeFilter_SeekOutsideRange_EmitsNothingOnPlay()
     {
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300));
         var emitted = new List<ReplayFrame>();
         var endedCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: f => emitted.Add(f),
-            onPlaybackEnded: _ => endedCount++);
+            onPlaybackEnded: _ => endedCount++,
+            clock: clock);
         timeline.StartTimestamp = 5.0;  // excludes every frame
         timeline.SetFrames(frames);
         timeline.Seek(0.0);  // seek to t=0 (out of range)
 
         timeline.Play();
-        await Task.Delay(2500);
+        clock.TickRepeated(2500);
         timeline.Stop();
 
         emitted.Should().BeEmpty("Seek outside range + Play → nothing emits");
@@ -669,18 +690,19 @@ public class ReplayTimelineTests
     /// decisions — same semantics as <c>CanIdFilter</c>).
     /// </summary>
     [Fact]
-    public async Task OnTick_RangeFilter_ChangedAtRuntime_TakesEffectImmediately()
+    public void OnTick_RangeFilter_ChangedAtRuntime_TakesEffectImmediately()
     {
         var frames = MakeFrames((0.0, 0x100), (0.3, 0x200), (0.6, 0x300), (0.9, 0x400));
         var emitted = new List<ReplayFrame>();
-        var timeline = new ReplayTimeline(f => emitted.Add(f));
+        var clock = new FakeReplayClock();
+        var timeline = new ReplayTimeline(f => emitted.Add(f), clock: clock);
         // Start with no range — all frames pass initially.
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(100);  // emit 0x100 only
+        clock.TickRepeated(100); // emit 0x100 only (0x200 at t=0.3s not yet due)
         timeline.StartTimestamp = 0.5;  // hot-swap: only frames at t ≥ 0.5
-        await Task.Delay(900);  // cursor walks through 0.6 → emit 0x300
+        clock.TickRepeated(900); // cursor walks through 0.6 → emit 0x300
         timeline.Stop();
 
         emitted.Should().Contain(f => f.Id == 0x100u,

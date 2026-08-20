@@ -131,6 +131,9 @@ public partial class AppHostBuilder
             new ReplayFrameSinkAdapter(sp.GetRequiredService<CoreSendService>()));
         services.AddSingleton<IReplayFrameSink>(sp =>
             sp.GetRequiredService<ReplayFrameSinkAdapter>());
+        // D3-R1: clock abstraction for replay — WallClockReplayClock uses
+        // real DateTime.UtcNow + Timer + Task.Delay. Tests inject a fake.
+        services.AddSingleton<IReplayClock, WallClockReplayClock>();
         services.AddSingleton<IReplayService, ReplayService>();
         // v1.4.0 MINOR Send DBC: stateless DbcEncodeService singleton
         // shared by DbcSendViewModel.

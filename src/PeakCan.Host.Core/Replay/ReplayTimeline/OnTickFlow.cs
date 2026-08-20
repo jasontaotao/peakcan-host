@@ -115,7 +115,7 @@ internal sealed partial class ReplayTimeline
                     {
                         _currentTimestamp = r.Start;
                         _playStartTimestamp = r.Start;
-                        _playStartWallClock = DateTime.UtcNow;
+                        _playStartWallClock = _clock.Now;
                         // Reset _nextFrameIndex to 0 then walk forward past
                         // every pre-region frame. Why reset to 0: the cursor
                         // may have been AT or PAST region.End in the previous
@@ -149,7 +149,7 @@ internal sealed partial class ReplayTimeline
                     _nextFrameIndex = 0;
                     _currentTimestamp = 0.0;
                     _playStartTimestamp = 0.0;
-                    _playStartWallClock = DateTime.UtcNow;
+                    _playStartWallClock = _clock.Now;
                 }
                 else
                 {

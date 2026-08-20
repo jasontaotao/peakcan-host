@@ -19,6 +19,7 @@ internal sealed partial class ReplayTimeline
     // so the A7 invalid-loop-region warning lands in the same Serilog pipeline
     // as the rest of the Replay subsystem's diagnostics.
     private readonly ILogger _logger;
+    private readonly IReplayClock _clock;
     private readonly Action<ReplayFrame> _emit;
     private readonly Action<PlaybackEndedEventArgs>? _onPlaybackEnded;
     private readonly Action<Exception>? _onSinkThrew;
@@ -50,7 +51,7 @@ internal sealed partial class ReplayTimeline
     private double? _endTimestamp;
     private DateTime _playStartWallClock;
     private double _playStartTimestamp;
-    private Timer? _timer;
+    private IDisposable? _timer;
     // v1.4.2 PATCH Item 3: captured first sink exception for surfacing via
     // PlaybackEndedEventArgs.Error. Set once; subsequent sink throws are
     // logged but not propagated (first-failure wins per spec Decision 5).
@@ -71,7 +72,10 @@ internal sealed partial class ReplayTimeline
         // v3.14.0 MINOR A7: optional logger for diagnostics. Defaults
         // to NullLogger so existing test sites that don't pass one
         // continue to work without change.
-        ILogger? logger = null)
+        ILogger? logger = null,
+        // D3-R1: optional clock abstraction. Defaults to WallClockReplayClock
+        // so existing test sites that don't pass one continue to work.
+        IReplayClock? clock = null)
     {
         _emit = emit;
         _onPlaybackEnded = onPlaybackEnded;
@@ -79,6 +83,7 @@ internal sealed partial class ReplayTimeline
         _activeLoopRegionGetter = activeLoopRegion;
         _onLoopRewound = onLoopRewound;
         _logger = logger ?? NullLogger.Instance;
+        _clock = clock ?? new WallClockReplayClock();
     }
 
     public double CurrentTimestamp { get { lock (_lock) return _currentTimestamp; } }

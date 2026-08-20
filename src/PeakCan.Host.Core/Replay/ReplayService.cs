@@ -19,7 +19,7 @@ public sealed partial class ReplayService : IReplayService, IDisposable
     private Exception? _sinkException;
     internal Exception? SinkExceptionForTesting => _sinkException;
 
-    public ReplayService(IReplayFrameSink sink, ILogger<ReplayService> logger)
+    public ReplayService(IReplayFrameSink sink, ILogger<ReplayService> logger, IReplayClock? clock = null)
     {
         _sink = sink;
         _logger = logger;
@@ -43,7 +43,9 @@ public sealed partial class ReplayService : IReplayService, IDisposable
             // v3.14.0 MINOR A7: pass our logger so the
             // LogInvalidLoopRegion warning lands in the same Serilog
             // pipeline as the rest of the Replay subsystem's diagnostics.
-            logger: _logger);
+            logger: _logger,
+            // D3-R1: clock abstraction for deterministic test timing.
+            clock: clock);
     }
 
     public ReplayState State => !_timeline.HasStarted

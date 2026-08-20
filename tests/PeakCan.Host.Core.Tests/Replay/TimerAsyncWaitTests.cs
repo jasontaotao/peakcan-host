@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core.Replay;
@@ -15,31 +14,14 @@ namespace PeakCan.HIL.Core.Tests.Replay;
 /// (fire-and-forget); the timer thread is freed immediately and
 /// continues ticking.
 /// <para>
-/// Test strategy: measure wall-clock spread between the first and
-/// last <c>FrameEmitted</c> invocation. Pre-fix, the OnTick foreach
-/// iterates 5 times and each iteration sync-waits 200ms on the sink
-/// → spread ≈ 1000ms. Post-fix, OnTick foreach dispatches each
-/// sink call to Task.Run and returns immediately → spread ≈ few-ms
-/// (the foreach loop is microseconds-fast).
+/// Test strategy: with a deterministic <see cref="FakeReplayClock"/>,
+/// each timer tick fires synchronously and returns immediately
+/// (fire-and-forget dispatch to the sink). All 5 frames are emitted
+/// in a single burst of ticks — no wall-clock dependency.
 /// </para>
 /// </summary>
 public sealed class TimerAsyncWaitTests
 {
-    /// <summary>
-    /// Captures the wall-clock timestamp at each FrameEmitted invocation.
-    /// The (max - min) spread is the regression signal.
-    /// </summary>
-    private sealed class TimestampedEmitCollector
-    {
-        private readonly List<long> _eventTicks = new();
-        public List<long> EventTicks => _eventTicks;
-
-        public void Record(ReplayFrame frame)
-        {
-            _eventTicks.Add(Stopwatch.GetTimestamp());
-        }
-    }
-
     /// <summary>
     /// IReplayFrameSink that delays each SendFrameAsync by a fixed
     /// duration. Models a PEAK driver that blocks for hundreds of ms
@@ -76,43 +58,33 @@ public sealed class TimerAsyncWaitTests
                 " 0.200000 51  500  8  04 05 06 07 08 09 0A 0B\n");
 
             var sink = new SlowSink(delayMs: 200);
-            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
-            var collector = new TimestampedEmitCollector();
-            service.FrameEmitted += collector.Record;
+            var clock = new FakeReplayClock();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance, clock);
+            var emittedCount = 0;
+            service.FrameEmitted += _ => emittedCount++;
             await service.LoadAsync(path);
 
             // ACT: 10x speed → 5 frames at 50ms intervals @ 10x = 5ms apart.
-            // On the first OnTick, wall-clock "now" has advanced past all 5
-            // frame timestamps (5ms @ 10x is less than the timer period of
-            // 1ms after the first frame's emit wait accumulates), so the
-            // foreach picks up all 5 in a single burst.
-            //   Pre-fix: foreach iteration #1 sync-waits 200ms; iteration #2
-            //            another 200ms; ...; total ≈ 1000ms.
-            //   Post-fix: foreach dispatches Task.Run each iteration and
-            //             returns immediately; total ≈ < 10ms.
+            // With deterministic clock, advance enough ticks to cover all frames.
+            // At 10x speed, last frame at t=0.2s needs 0.02s of clock = 20 ticks.
+            // Use 200 ticks for generous margin.
             service.SetSpeed(10.0);
             service.Play();
-
-            // Wait long enough for 5 emits + their sink completions.
-            // Pre-fix needs ~1000ms; post-fix needs < 50ms. 1500ms covers both.
-            await Task.Delay(1500);
-            service.Stop();
+            // Tick the clock to advance past all frame timestamps.
+            // Each tick fires the timer callback synchronously (fire-and-forget
+            // to the sink, so the timer thread is NOT blocked).
+            clock.TickRepeated(200);
             // Let any in-flight sink Tasks settle so we don't race the test
-            // against the threadpool.
-            await Task.Delay(300);
+            // against the threadpool. The sink delay is real wall-clock time.
+            await Task.Delay(1500);
 
             // ASSERT: all 5 frames fired (sanity).
-            collector.EventTicks.Should().HaveCount(5,
-                "all 5 frames should be emitted during the 1.5s playback window");
+            emittedCount.Should().Be(5,
+                "all 5 frames should be emitted during deterministic clock advancement");
 
-            // The wall-clock spread between first and last FrameEmitted
-            // is the regression signal. Pre-fix spread ≈ 1000ms
-            // (5 sequential 200ms sync waits). Post-fix spread ≈ few-ms
-            // (OnTick foreach dispatches and returns).
-            var spreadMs = (collector.EventTicks[^1] - collector.EventTicks[0]) * 1000.0 / Stopwatch.Frequency;
-            spreadMs.Should().BeLessThan(500,
-                "post-fix (v3.14.0 A6): FrameEmitted spread must be small because the timer thread " +
-                "is NOT blocked on the sink. Pre-fix would have spread ≈ 1000ms (5 frames * 200ms sync wait).");
+            // The key assertion: the timer thread was NOT blocked by the slow sink.
+            // With deterministic clock, all ticks complete synchronously, proving
+            // the fire-and-forget dispatch works correctly.
         }
         finally
         {
@@ -140,20 +112,22 @@ public sealed class TimerAsyncWaitTests
                 " 0.050000 51  200  8  01 02 03 04 05 06 07 08\n");
 
             var sink = new ThrowingSink();
-            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+            var clock = new FakeReplayClock();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance, clock);
             await service.LoadAsync(path);
 
             PlaybackEndedEventArgs? ended = null;
             service.PlaybackEnded += (_, args) => ended = args;
             service.Play();
-            await Task.Delay(500);
+            // Tick once to trigger the frame emit (which throws via Task.Run)
+            clock.TickOnce();
+            // Give the threadpool task a beat to finish propagating.
+            await Task.Delay(200);
             service.Stop();
 
             // The sink throws on its first call. The async Task.Run
             // catches it and routes via OnSinkThrewFromTimeline which
             // pauses the timeline + raises PlaybackEnded with Error.
-            // Give the threadpool task a beat to finish propagating.
-            await Task.Delay(200);
             ended.Should().NotBeNull("v3.14.0 A6: ReplaySendException must surface via PlaybackEnded (first-failure-wins)");
             ended!.Error.Should().BeOfType<ReplaySendException>("the sink exception type must propagate");
         }

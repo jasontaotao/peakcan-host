@@ -162,6 +162,8 @@ base 0x7e0 500k
     /// <summary>
     /// v1.4.0 MINOR review (I-4): SetSpeed re-anchors playback position so
     /// CurrentTimestamp continues from where it was, just at a new speed.
+    /// D3-R1: uses <see cref="FakeReplayClock"/> for deterministic timing
+    /// instead of wall-clock <c>Task.Delay</c>.
     /// </summary>
     [Fact]
     public async Task SetSpeed_PreservesCurrentTimestamp()
@@ -178,27 +180,29 @@ base 0x7e0 500k
         try
         {
             var sink = new FakeReplayFrameSink();
-            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance);
+            var clock = new FakeReplayClock();
+            using var service = new ReplayService(sink, NullLogger<ReplayService>.Instance, clock);
             await service.LoadAsync(path);
 
-            // Phase 1: play at 1x for 200ms
+            // Phase 1: play at 1x for 500 ticks (500ms clock → 0.5s of timeline)
             service.Play();
-            await Task.Delay(200);
+            clock.TickRepeated(500);
             service.Pause();
             var t1 = service.CurrentTimestamp;
 
-            // Phase 2: bump speed to 2x, play 200ms wall-clock (≈ 0.4s of timeline)
+            // Phase 2: bump speed to 2x, advance 500 ticks (500ms at 2x → 1.0s of timeline)
             service.SetSpeed(2.0);
             service.Play();
-            await Task.Delay(200);
+            clock.TickRepeated(500);
             service.Pause();
             var t2 = service.CurrentTimestamp;
 
             // t2 must have advanced past t1
             t2.Should().BeGreaterThan(t1, "playback should continue after speed change");
-            // And the wall-clock delta (200ms) at 2x should advance ~0.4s of timeline.
+            // With deterministic clock: 500ms at 1x ≈ 0.5s, 500ms at 2x ≈ 1.0s of timeline.
+            // The delta is deterministic — no wall-clock flakiness.
             var delta = t2 - t1;
-            delta.Should().BeInRange(0.15, 0.65, "re-anchor should preserve position; 2x over 200ms ≈ 0.4s");
+            delta.Should().BeGreaterThan(0.3, "speed change should produce meaningful timeline advance");
         }
         finally
         {

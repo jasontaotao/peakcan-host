@@ -34,14 +34,11 @@ public class ReplayLoopRewindTests
     /// Verified via the <c>onLoopRewound</c> callback firing
     /// deterministically (not via wall-clock-anchored emit counts).
     /// <para>
-    /// Test uses <c>SetSpeed(10.0)</c> so the wall-clock wait is
-    /// 10× shorter than the recorded time. 500 ms of wall clock = 5 s
-    /// of playback — enough for 1 full cycle through the [2, 4] region
-    /// (cursor goes 0→4, rewind to 2, then 2→4 again, rewind to 2).
+    /// Test uses deterministic clock advancement — no wall-clock dependency.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task Play_WithActiveLoopRegion_FiresRewindCallback_WhenCursorExceedsEnd()
+    public void Play_WithActiveLoopRegion_FiresRewindCallback_WhenCursorExceedsEnd()
     {
         // ARRANGE: 6 frames spanning t=0..5. Loop region (2.0, 4.0).
         var frames = MakeFrames((0.0, 0x100), (1.0, 0x200), (2.0, 0x300),
@@ -49,19 +46,23 @@ public class ReplayLoopRewindTests
         (double Start, double End)? activeRegion = (2.0, 4.0);
         var rewindCount = 0;
         (double Start, double End)? lastRewind = null;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: _ => { },
             activeLoopRegion: () => activeRegion,
-            onLoopRewound: r => { rewindCount++; lastRewind = r; });
+            onLoopRewound: r => { rewindCount++; lastRewind = r; },
+            clock: clock);
         timeline.SetFrames(frames);
-        timeline.SetSpeed(10.0);  // 10× speed: 500ms wall clock = 5s playback
+        timeline.SetSpeed(10.0);  // 10x speed: 5s of timeline = 0.5s of clock
 
         // ACT
         timeline.Play();
-        await Task.Delay(500);
+        // At 10x speed, 5s of timeline = 500ms of clock = 500 ticks.
+        // First rewind at t=4.0 (400ms of clock at 10x).
+        clock.TickRepeated(500);
         timeline.Stop();
 
-        // ASSERT: 10× speed means 500 ms wall = 5 s playback. Cursor
+        // ASSERT: 10x speed means 500 ms clock = 5 s playback. Cursor
         // reaches t=4 at ~400 ms (rewind #1), then runs 2→4 again at
         // ~800 ms (rewind #2) — but we stop at 500 ms, so the second
         // rewind is only partial. Assert ≥ 1 rewind for the first cycle.
@@ -78,10 +79,10 @@ public class ReplayLoopRewindTests
     /// timer resolution.
     /// </summary>
     [Fact]
-    public async Task Play_WithActiveLoopRegion_RewindFiresOnEveryCycle()
+    public void Play_WithActiveLoopRegion_RewindFiresOnEveryCycle()
     {
         // 11 frames spanning t=0..1.0, every 0.1s. Region (0.2, 0.8) is
-        // 0.6s wide. Each cycle = 0.6s. At 10x speed, 500ms wall = 5s
+        // 0.6s wide. Each cycle = 0.6s. At 10x speed, 500ms clock = 5s
         // playback = ~8 cycles.
         var frames = MakeFrames(
             (0.0, 0x100), (0.1, 0x200), (0.2, 0x300), (0.3, 0x400), (0.4, 0x500),
@@ -89,15 +90,17 @@ public class ReplayLoopRewindTests
             (1.0, 0xB00));
         (double Start, double End)? activeRegion = (0.2, 0.8);
         var rewindCount = 0;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: _ => { },
             activeLoopRegion: () => activeRegion,
-            onLoopRewound: _ => rewindCount++);
+            onLoopRewound: _ => rewindCount++,
+            clock: clock);
         timeline.SetFrames(frames);
-        timeline.SetSpeed(10.0);  // 500ms wall = 5s playback
+        timeline.SetSpeed(10.0);  // 500ms clock = 5s playback
 
         timeline.Play();
-        await Task.Delay(500);
+        clock.TickRepeated(500);
         timeline.Stop();
 
         // Each cycle through [0.2, 0.8] is 0.6s. At 10x, 5s of playback
@@ -112,21 +115,23 @@ public class ReplayLoopRewindTests
     /// existing PlaybackEnded event fires instead.
     /// </summary>
     [Fact]
-    public async Task Play_WithoutActiveLoopRegion_RewindCallbackNeverFires()
+    public void Play_WithoutActiveLoopRegion_RewindCallbackNeverFires()
     {
         var frames = MakeFrames((0.0, 0x100), (0.1, 0x200), (0.2, 0x300));
         (double Start, double End)? activeRegion = null;
         var rewindCount = 0;
         var playbackEndedFired = false;
+        var clock = new FakeReplayClock();
         var timeline = new ReplayTimeline(
             emit: _ => { },
             onPlaybackEnded: _ => playbackEndedFired = true,
             activeLoopRegion: () => activeRegion,
-            onLoopRewound: _ => rewindCount++);
+            onLoopRewound: _ => rewindCount++,
+            clock: clock);
         timeline.SetFrames(frames);
 
         timeline.Play();
-        await Task.Delay(800);
+        clock.TickRepeated(800);
         timeline.Stop();
 
         rewindCount.Should().Be(0,

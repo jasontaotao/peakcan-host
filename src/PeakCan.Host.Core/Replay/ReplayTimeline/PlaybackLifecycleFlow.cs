@@ -26,11 +26,11 @@ internal sealed partial class ReplayTimeline
                 LogPlayNoFrames(_logger);
                 return; // nothing to play; leave state as Stopped
             }
-            _playStartWallClock = DateTime.UtcNow;
+            _playStartWallClock = _clock.Now;
             _playStartTimestamp = _currentTimestamp;
             _isPlaying = true;
             _hasStarted = true;
-            _timer ??= new Timer(OnTick, null, dueTime: 1, period: 1);
+            _timer ??= _clock.CreateTimer(OnTick, null, dueTime: TimeSpan.FromMilliseconds(1), period: TimeSpan.FromMilliseconds(1));
             LogPlayStarted(_logger, _currentTimestamp, _frames.Count);
         }
     }
@@ -50,7 +50,7 @@ internal sealed partial class ReplayTimeline
         {
             _currentTimestamp = timestamp;
             _playStartTimestamp = timestamp;
-            _playStartWallClock = DateTime.UtcNow;
+            _playStartWallClock = _clock.Now;
             // Advance next-frame index to first frame with Timestamp >= target
             _nextFrameIndex = 0;
             while (_nextFrameIndex < _frames.Count && _frames[_nextFrameIndex].Timestamp < timestamp)
@@ -85,7 +85,7 @@ internal sealed partial class ReplayTimeline
             // PlayedTimestamp calculation uses the new wallclock (and
             // elapsed is 0 for a never-played timeline -> PlayedTimestamp
             // = _playStartTimestamp = 0).
-            _playStartWallClock = DateTime.UtcNow;
+            _playStartWallClock = _clock.Now;
             _currentTimestamp = PlayedTimestamp;
             _playStartTimestamp = _currentTimestamp;
             _speed = multiplier;
@@ -114,7 +114,7 @@ internal sealed partial class ReplayTimeline
     {
         get
         {
-            var elapsed = (DateTime.UtcNow - _playStartWallClock).TotalSeconds * _speed;
+            var elapsed = (_clock.Now - _playStartWallClock).TotalSeconds * _speed;
             return _playStartTimestamp + elapsed;
         }
     }
