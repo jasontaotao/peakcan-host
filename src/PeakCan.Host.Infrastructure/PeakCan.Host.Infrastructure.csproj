@@ -28,4 +28,9 @@
     <InternalsVisibleTo Include="peakcan-hil" />
   </ItemGroup>
 
+  <!-- ZLG zlgcan.dll 原生驱动：构建时自动复制到输出目录 -->
+  <ItemGroup>
+    <None Include="zlgcan.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

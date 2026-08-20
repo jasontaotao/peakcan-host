@@ -40,6 +40,7 @@
     <!-- Scripting engine: V8 via ClearScript -->
     <PackageVersion Include="Microsoft.ClearScript.V8" Version="7.4.5" />
     <PackageVersion Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.4.5" />
+    <PackageVersion Include="Microsoft.ClearScript.V8.Native.win-x86" Version="7.4.5" />
     <!-- WebView2 for CodeMirror editor -->
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
     <!-- v1.2.9: legacy code-page encodings for non-UTF-8 DBC files

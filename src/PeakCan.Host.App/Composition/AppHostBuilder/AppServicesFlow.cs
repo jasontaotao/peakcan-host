@@ -11,6 +11,7 @@ using PeakCan.HIL.Core.Devices;
 using PeakCan.HIL.Core.Path;
 using PeakCan.HIL.Core.Replay;
 using PeakCan.Host.Infrastructure.Peak;
+using PeakCan.Host.Infrastructure.Zlg;
 using Polly;
 
 namespace PeakCan.Host.App.Composition;
@@ -32,8 +33,9 @@ public partial class AppHostBuilder
         services.AddSingleton<WindowStateStore>();
         services.AddSingleton<WindowHostService>(sp =>
             new WindowHostService(sp.GetRequiredService<WindowStateStore>()));
-        // P1-1: device providers — one per supported CAN-box family (PEAK today).
+        // P1-1: device providers — one per supported CAN-box family (PEAK + ZLG).
         services.AddSingleton<ICanDeviceProvider, PeakCanDeviceProvider>();
+        services.AddSingleton<ICanDeviceProvider, ZlgCanDeviceProvider>();
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
         // so its OnError path is observable in Release builds (Debug.WriteLine
         // was previously stripped). Production DI resolves the logger from

@@ -18,7 +18,6 @@ using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Devices;
 using PeakCan.Host.Infrastructure.Channel;
-using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -57,8 +56,9 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
 {
     /// <summary>
     /// P1-4: default channel handle — the first enumerated channel, else the
-    /// first device provider's default, else the PEAK first handle. Replaces
-    /// the previously hard-coded 0x51 so non-PEAK boxes supply their own.
+    /// first device provider's default, else 0 (no hardware detected).
+    /// Previously hard-coded to 0x51 (PEAK first handle); updated to be
+    /// provider-agnostic so non-PEAK boxes supply their own.
     /// </summary>
     private ushort DefaultHandle
     {
@@ -68,8 +68,14 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             {
                 return AvailableChannels[0].Handle;
             }
-            return _deviceProviders.FirstOrDefault()?.EnumerateDevices().FirstOrDefault()?.DefaultHandle
-                ?? PeakCanDeviceProvider.PcanUsbFdFirstHandle;
+            // 遍历所有 provider，取第一个有默认值的 handle
+            foreach (var provider in _deviceProviders)
+            {
+                var devices = provider.EnumerateDevices();
+                if (devices.Count > 0)
+                    return devices[0].DefaultHandle;
+            }
+            return 0; // 无可用硬件
         }
     }
 

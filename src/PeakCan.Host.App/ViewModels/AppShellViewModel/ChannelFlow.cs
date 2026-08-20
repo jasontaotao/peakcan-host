@@ -127,7 +127,7 @@ public sealed partial class AppShellViewModel
     // falling back to the legacy ChannelList string check.
     private bool CanConnect() => !IsConnected && (
         SelectedChannel is not null
-        || ChannelList.StartsWith("USB1", StringComparison.Ordinal));
+        || !string.IsNullOrEmpty(ChannelList));
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
