@@ -2,7 +2,11 @@
 
 > Spec date: 2026-08-21
 > Depends: 现有 HIL 引擎（`PeakCan.Host.Core/HIL`）+ `PeakCanAssertionContext` + `HeadlessHostBuilder` + `AscFrameSink`/`AscFileFormat` + `HtmlReportGenerator` + hil-core 包 0.11.0（`PeakCan.HIL.Core` NuGet，双仓库 host+studio 消费）
-> Scope: **一次 HIL run 内连接多路 CAN 通道（多台 CAN 盒 / 单卡多通道混用），用例步骤可指定"发到哪路 / 监控哪路"，并贯穿 case log 与报告的通道区分**。AppShell 多通道不在本期（另立项，HIL 独立 host 链路天然不阻塞）。
+> Scope: **分两阶段**。
+> - **阶段一（本期，实施计划见 writing-plans）**：一次 HIL run 内连接多路 CAN 通道，用例步骤可指定"发到哪路 / 监控哪路"，贯穿 case log 与报告的通道区分。
+> - **阶段二（已规划，待启动）**：AppShell 多通道——连接设置弹窗支持一次开多台 CAN 盒，Trace/手动发送区分多路。详见 §8。
+>
+> 两阶段关系：HIL 是独立 host 链路（`HilRunnerService` 自建 host、自 `new PeakCanChannel`），与 AppShell 单连接**无代码耦合**，阶段一先行不阻塞阶段二。唯一共享点是物理硬件并发打开（ZLG 侧 `ZlgDeviceManager` 引用计数已支持；PEAK 侧待查 §7 开放项 1）。
 > Status: DRAFT（2026-08-21 用户确认 8 个决策点 Q1–Q8，见 §5）
 
 ---
@@ -202,7 +206,7 @@ MultiChannelAssertionContext  // 新，组合 N 个 SingleChannelContext
 | Q | 决策 | 理由 |
 |---|---|---|
 | Q1 | MVP 6 类步骤（发送+帧监控）；信号断言/UDS 多通道后置 | 信号断言依赖 per-channel DBC 语义，UDS 绑 per-channel 配置，复杂度另立项 |
-| Q2 | AppShell 多通道另立项，本期不阻塞 | HIL 独立 host 链路天然与 AppShell 单连接解耦 |
+| Q2 | AppShell 多通道划为**阶段二**（§8，已规划待启动），本期（阶段一）不阻塞 | HIL 独立 host 链路天然与 AppShell 单连接解耦；阶段二改弹窗+`IConnectSettingsSink`+`AppShellViewModel`+`SendService`，纯 host 单边改动不依赖 hil-core bump |
 | Q3 | 旧 suite 无 `Channels` + 步骤带 `TargetChannel` → validator 报错 | 防手误，文档说明 |
 | Q4 | 动手前核对 host/studio 双仓库当前 pin 版本 | 吸取 0.5.1 vs 0.6.0 漂移教训 |
 | Q5 | case log 一个 .asc 合并两路 + channel 列 | 符合 PEAK asc 惯例，工程师一文件看全貌 |
@@ -229,3 +233,48 @@ MultiChannelAssertionContext  // 新，组合 N 个 SingleChannelContext
 1. PEAK 侧 `PeakCanChannel/ConnectFlow.partial.cs` 同进程同通道并发 `Initialize` 行为（HIL+AppShell 共享物理设备时）。
 2. asc channel 号映射表的 ZLG 分配规则（devIdx/canIdx → asc channel 号）。
 3. studio 当前 pin hil-core 版本（Q4 核对项，动手第一步）。
+
+---
+
+## 8. 阶段二：AppShell 多通道（已规划，待启动）
+
+> 2026-08-21 用户确认：连接设置弹窗（`ConnectionSettingsWindow`）要支持一次开启多台 CAN 盒供 AppShell（Trace/手动发送）使用。本节固化范围，避免跨 session 遗忘。
+
+### 8.1 现状（单连接模型）
+
+| 环节 | 现状 | 证据 |
+|---|---|---|
+| 弹窗 XAML | 设备→通道→FD→波特率 四选一，"应用并连接"回写一组 | `ConnectionSettingsWindow.xaml:17-63` |
+| 弹窗 VM | `SelectedDevice/SelectedChannel/SelectedBaudRate/IsFd` 单值；`ApplyAndConnect` 调单组 sink | `ConnectionSettingsViewModel.cs:67-126` |
+| 回写契约 | `IConnectSettingsSink.ApplyConnection(channel, baud, isFd)` 单组 | `ConnectionSettingsViewModel.cs:25` |
+| Shell 状态 | `AppShellViewModel._activeChannel` 单槽位 + `IsConnected` 布尔 + Connect/Disconnect 互斥 | `AppShellViewModel.cs:179,214-218`；`ChannelFlow.cs:124-256` |
+| 发送 | `SendService.ActiveChannel` 全 app 唯一发送目标，6 处发送方收敛 | `SendService.cs:33,73-84` |
+
+### 8.2 阶段二改动面
+
+**弹窗**（`ConnectionSettingsWindow.xaml` + `ConnectionSettingsViewModel.cs`）：
+- 四行单选 → 通道列表（`ItemsControl`/`DataGrid`），每行一组（设备+通道+FD+波特率+移除），底部"+ 添加通道"。
+- `ApplyAndConnect` → 遍历列表逐组连接。
+
+**契约**（`IConnectSettingsSink`）：
+- `ApplyConnection(channel, baud, isFd)` 单组 → `ApplyConnections(IReadOnlyList<ConnectionConfig>)` 列表。
+
+**Shell**（`AppShellViewModel` + `ChannelFlow.cs`）：
+- `_activeChannel` 单槽位 → `ObservableCollection<ChannelConnection>`（每项 = channel + 名称 + 波特率 + 状态 + Disconnect 命令）。
+- `IsConnected` 布尔 → 派生"任意项已连接"；Connect/Disconnect 不再互斥（每项独立）。
+
+**发送**（`SendService`）：
+- `ActiveChannel` 单目标 → 多目标：保留 `ActiveChannel` 作"默认发送目标"（最小破坏面），新增 `SendAsync(frame, ChannelId)` 重载。6 个既有发送方零改动，只有手动发送/DBC 发送面板加目标选择器。
+
+**Trace/录制**：数据面已多通道原生（`CanFrame` 带 `Channel`、`ChannelRouter` 多注册、Trace 有"通道"列、CSV 带通道列），**零改动**可达；补的是按通道过滤 UI + 统计按通道聚合。
+
+### 8.3 与阶段一的边界
+
+- 阶段一不动 `ConnectionSettingsWindow`/`IConnectSettingsSink`/`AppShellViewModel`/`SendService`（HIL 走独立 host）。
+- 阶段二不动 HIL 引擎（`PeakCan.Host.Core/HIL`、`HeadlessHostBuilder`）。
+- 共享：阶段一的 `ChannelConfig` 逻辑名→handle 映射思路可复用到阶段二的 `ChannelConnection`；asc channel 号映射表（§7 开放项 2）两阶段共用。
+
+### 8.4 启动条件
+
+阶段一实施完成、双通道 loopback e2e 验证通过后，阶段二可独立启动。阶段二不依赖 hil-core 包 bump（纯 host `PeakCan.Host.App` + `PeakCan.Host.Infrastructure` 单边改动）。
+
