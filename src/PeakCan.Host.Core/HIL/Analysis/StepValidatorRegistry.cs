@@ -22,12 +22,45 @@ public sealed class StepValidatorRegistry
         _scanner = new DataFlowScanner(evaluator, dbcLookup, validators);
     }
 
-    /// <summary>校验整个 TestSuite，返回所有问题（含 Critical/High/Medium）。</summary>
+    /// <summary>
+    /// 校验整个 TestSuite，返回所有问题（含 Critical/High/Medium）。
+    /// ⑦：case 参数与 suite 参数同名 → Medium（StepScope.Resolve case 层先于 suite 层，
+    /// case 值生效、suite 值被遮蔽——可能非有意，警告不拦运行）。
+    /// ⑧（writer 遮蔽参数 → Critical）由 DataFlowScanner 按步骤树报。
+    /// </summary>
     public IReadOnlyList<ValidationIssue> Validate(TestSuite suite)
     {
         var issues = new List<ValidationIssue>();
-        foreach (var testCase in suite.Cases)
-            issues.AddRange(_scanner.ScanCase(testCase));
+        var suiteParamNames = suite.Parameters is { Count: > 0 } sp ? sp.Keys.ToList() : null;
+        for (int c = 0; c < suite.Cases.Count; c++)
+        {
+            var testCase = suite.Cases[c];
+
+            // ⑦ case 参数遮蔽 suite 参数（每个重名一条，case 级定位）
+            if (suiteParamNames is not null && testCase.Parameters is { Count: > 0 } cps)
+            {
+                foreach (var name in cps.Keys)
+                {
+                    if (!suiteParamNames.Contains(name)) continue;
+                    issues.Add(new ValidationIssue(
+                        ValidationSeverity.Medium, "⑦", "Case param shadows suite param",
+                        $"case '{testCase.Id}' parameter '{name}' shadows the suite parameter of the same name " +
+                        $"(StepScope.Resolve checks CaseParams before SuiteParams; the suite value is invisible to this case)",
+                        testCase.Id, testCase.Name));
+                }
+            }
+
+            // ⑧ 检查集 = case 参数名 ∪ suite 参数名（两层参数都遮蔽 Variables 层）
+            IReadOnlyCollection<string>? paramNames = null;
+            if (suiteParamNames is not null || testCase.Parameters is { Count: > 0 })
+            {
+                var names = new List<string>(suiteParamNames ?? (IReadOnlyCollection<string>)Array.Empty<string>());
+                if (testCase.Parameters is { Count: > 0 } cp)
+                    names.AddRange(cp.Keys.Where(k => !names.Contains(k)));
+                paramNames = names;
+            }
+            issues.AddRange(_scanner.ScanCase(testCase, paramNames));
+        }
         return issues;
     }
 

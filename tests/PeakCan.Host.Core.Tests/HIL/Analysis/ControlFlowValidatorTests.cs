@@ -316,4 +316,128 @@ public class ControlFlowValidatorTests
             i => i.RuleId == "⑥" && i.Severity == ValidationSeverity.Critical,
             "AssignStep.Assign 'i' shadows outer loop IndexVar 'i' (§5.8 ⑥ nested scope)");
     }
+
+    // ── ⑦⑧ 参数遮蔽防护（StepScope.Resolve: LoopIndexVar > CaseParams > SuiteParams > Variables）──
+
+    /// <summary>构造带 suite/case 参数的单 case suite（⑦⑧ 规则用）。</summary>
+    private static TestSuite BuildSuite(
+        IReadOnlyDictionary<string, ParameterValue>? suiteParams,
+        IReadOnlyDictionary<string, ParameterValue>? caseParams,
+        params TestCaseStep[] steps)
+    {
+        var testCase = new TestCase("c1", "case1", "", null, steps, null, Array.Empty<string>(),
+            Parameters: caseParams);
+        return new TestSuite("s1", new[] { testCase }, Array.Empty<string>(), Array.Empty<string>(),
+            new TestSuiteConfig(), Parameters: suiteParams);
+    }
+
+    private static Dictionary<string, ParameterValue> NumberParams(params (string Name, double Value)[] kvps)
+        => kvps.ToDictionary(k => k.Name, k => new ParameterValue(ParameterKind.Number, k.Value));
+
+    [Fact]
+    public void Assign_SameNameAsSuiteParam_ReportsCritical_8()
+    {
+        // Arrange: suite 参数 turnMs + Assign("turnMs") — Resolve 参数层先于 Variables，写入永远读不回
+        var suite = BuildSuite(
+            NumberParams(("turnMs", 200)), null,
+            TestCaseStep.Create(new AssignStep("turnMs", "500")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().Contain(
+            i => i.RuleId == "⑧" && i.Severity == ValidationSeverity.Critical,
+            "AssignStep.Assign 'turnMs' shadows suite parameter 'turnMs' (write never read back)");
+    }
+
+    [Fact]
+    public void ReadDidOutputVar_SameNameAsCaseParam_ReportsCritical_8()
+    {
+        // Arrange: case 参数 vin + ReadDid(OutputVar="vin") — 读回的始终是参数静态值
+        var suite = BuildSuite(
+            null, NumberParams(("vin", 1)),
+            TestCaseStep.Create(new ReadDidStep(0xF190, "vin")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().Contain(
+            i => i.RuleId == "⑧" && i.Severity == ValidationSeverity.Critical,
+            "ReadDidStep.OutputVar 'vin' shadows case parameter 'vin'");
+    }
+
+    [Fact]
+    public void RoutineControlOutputVar_SameNameAsSuiteParam_ReportsCritical_8()
+    {
+        // Arrange: suite 参数 rout + RoutineControl(OutputVar="rout")
+        var suite = BuildSuite(
+            NumberParams(("rout", 0)), null,
+            TestCaseStep.Create(new RoutineControlStep(1, 0x0200, null, "rout")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().Contain(
+            i => i.RuleId == "⑧" && i.Severity == ValidationSeverity.Critical,
+            "RoutineControlStep.OutputVar 'rout' shadows suite parameter 'rout'");
+    }
+
+    [Fact]
+    public void WriterInsideIfBody_SameNameAsParam_ReportsCritical_8()
+    {
+        // Arrange: If body 内 ReadDid(OutputVar="x") 与 suite 参数 x 同名 — body 遍历同样检查
+        var body = new[] { TestCaseStep.Create(new ReadDidStep(0xF187, "x")) };
+        var suite = BuildSuite(
+            NumberParams(("x", 1)), null,
+            TestCaseStep.Create(new IfStep("true", body, null)));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().Contain(
+            i => i.RuleId == "⑧" && i.Severity == ValidationSeverity.Critical,
+            "ReadDidStep.OutputVar 'x' inside If body shadows suite parameter 'x'");
+    }
+
+    [Fact]
+    public void NoNameCollision_NoRule7Or8()
+    {
+        // Arrange: 参数名与 writer 名全部不同 → 无 ⑦⑧（⑧ 阴性：不误报）
+        var suite = BuildSuite(
+            NumberParams(("turnMs", 200)), NumberParams(("vin", 1)),
+            TestCaseStep.Create(new AssignStep("threshold", "5")),
+            TestCaseStep.Create(new ReadDidStep(0xF190, "ecuVin")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().NotContain(i => i.RuleId == "⑦" || i.RuleId == "⑧",
+            "no writer shares a name with a suite/case parameter and no case param duplicates a suite param");
+    }
+
+    [Fact]
+    public void CaseParam_SameNameAsSuiteParam_ReportsMedium_7()
+    {
+        // Arrange: suite 与 case 都定义 turnMs — case 值生效，suite 值对该 case 不可见（可能非有意）
+        var suite = BuildSuite(
+            NumberParams(("turnMs", 200)), NumberParams(("turnMs", 500)),
+            TestCaseStep.Create(new CommentStep("noop")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().Contain(
+            i => i.RuleId == "⑦" && i.Severity == ValidationSeverity.Medium,
+            "case parameter 'turnMs' shadows suite parameter 'turnMs'");
+        issues.Should().ContainSingle(i => i.RuleId == "⑦",
+            "one shadowed name = one ⑦ issue");
+    }
+
+    [Fact]
+    public void DistinctParamNames_NoRule7()
+    {
+        // Arrange: suite {a} + case {b} — 无交集，无 ⑦（阴性）
+        var suite = BuildSuite(
+            NumberParams(("a", 1)), NumberParams(("b", 2)),
+            TestCaseStep.Create(new CommentStep("noop")));
+
+        var issues = _registry.Validate(suite);
+
+        issues.Should().NotContain(i => i.RuleId == "⑦",
+            "no case parameter name collides with a suite parameter name");
+    }
 }

@@ -20,6 +20,9 @@ namespace PeakCan.HIL.Core.HIL.Analysis;
 /// - ③：signal.* 不在已加载 DBC（DBC 未加载时跳过）→ Critical。
 /// - ⑤c：嵌套深度 &gt; 10 → Medium。
 /// - ⑥：AssignStep.Assign 与作用域内任一 IndexVar 同名 → Critical。
+/// - ⑧：writer（Assign.Assign / ReadDid.RoutineControl.IOControl.OutputVar）与 suite/case
+///   参数同名 → Critical（StepScope.Resolve 中参数层先于 Variables 层，写入被永久遮蔽）。
+///   ⑦（case 参数遮蔽 suite 参数 → Medium）在 StepValidatorRegistry 层报（需 suite 级视角）。
 /// writer：ReadDid（默认键 did_0x{Did:X4} 或自定义 OutputVar）、AssignStep.Assign、
 /// RoutineControl/IOControl.OutputVar。
 /// 逃生舱：守卫含 isUndefined(x) 时，① 不升级 Critical。
@@ -48,11 +51,15 @@ internal sealed class DataFlowScanner
         _validators = validators;
     }
 
-    /// <summary>扫描整个 case 的步骤树，返回所有问题。</summary>
-    public IReadOnlyList<ValidationIssue> ScanCase(TestCase testCase)
+    /// <summary>
+    /// 扫描整个 case 的步骤树，返回所有问题。
+    /// paramNames：suite+case 参数名集合（⑧ 规则用）；null = 未提供参数（跳过 ⑧）。
+    /// </summary>
+    public IReadOnlyList<ValidationIssue> ScanCase(
+        TestCase testCase, IReadOnlyCollection<string>? paramNames = null)
     {
         var issues = new List<ValidationIssue>();
-        var state = new ScanState();
+        var state = new ScanState { ParamNames = paramNames is { Count: > 0 } ? new HashSet<string>(paramNames) : null };
         WalkSteps(testCase.Steps, depth: 0, pathPrefix: null, state, issues);
         return issues;
     }
@@ -68,6 +75,9 @@ internal sealed class DataFlowScanner
 
         /// <summary>IndexVar 作用域栈（Loop/Repeat 压栈，Assign 检查遮蔽）。</summary>
         public Stack<HashSet<string>> IndexScope = new();
+
+        /// <summary>suite+case 参数名（⑧ writer 遮蔽检查）；null = 跳过。</summary>
+        public HashSet<string>? ParamNames;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -127,7 +137,7 @@ internal sealed class DataFlowScanner
             default:
                 // 非容器叶步骤：无控制流递归，仅收集 writer（ReadDid/RoutineControl/IOControl）。
                 // 新增带 writer 的叶步骤需在 HandleLeafWriter 添加 case。
-                HandleLeafWriter(step, state);
+                HandleLeafWriter(step, path, state, issues);
                 break;
         }
     }
@@ -152,6 +162,16 @@ internal sealed class DataFlowScanner
                     path, step.Label));
                 break;
             }
+        }
+
+        // ⑧ Assign 与 suite/case 参数同名 → Critical（Resolve 参数层先于 Variables，写入永久不可读）
+        if (state.ParamNames?.Contains(a.Assign) == true)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Critical, "⑧", "Writer shadows parameter",
+                $"AssignStep.Assign '{a.Assign}' shadows a suite/case parameter " +
+                $"(StepScope.Resolve checks params before Variables; the write is never read back)",
+                path, step.Label));
         }
 
         // writer: Assign 名加入当前作用域 definite
@@ -243,6 +263,7 @@ internal sealed class DataFlowScanner
             Definite = new HashSet<string>(state.Definite), // 继承父 definite，body 内局部累加
             Conditional = state.Conditional,               // 全局 conditional 共享
             IndexScope = state.IndexScope,                 // 作用域栈共享（body 内 Loop/Repeat 压弹平衡）
+            ParamNames = state.ParamNames,                 // ⑧ 参数名集合共享（body 内 writer 同样检查）
         };
         WalkSteps(body, depth + 1, path, bodyState, issues);
         // 导出：body 内新增 writer（不在父 definite）→ conditional
@@ -250,23 +271,45 @@ internal sealed class DataFlowScanner
             if (!state.Definite.Contains(w)) state.Conditional.Add(w);
     }
 
-    /// <summary>叶步骤 writer 收集：ReadDid/RoutineControl/IOControl 的 OutputVar。</summary>
-    private static void HandleLeafWriter(TestCaseStep step, ScanState state)
+    /// <summary>
+    /// 叶步骤 writer 收集：ReadDid/RoutineControl/IOControl 的 OutputVar。
+    /// ⑧：自定义 OutputVar 与 suite/case 参数同名 → Critical（写入被参数层永久遮蔽）。
+    /// ReadDid 默认键 did_0x{X4} 与参数名碰撞概率可忽略，不检查。
+    /// </summary>
+    private static void HandleLeafWriter(
+        TestCaseStep step, string path, ScanState state, List<ValidationIssue> issues)
     {
         switch (step.Parameters)
         {
             case ReadDidStep r:
                 // ReadDid 总会写入：自定义 OutputVar 或默认键 did_0x{Did:X4}
                 state.Definite.Add(r.OutputVar ?? DidVariableKey.Format(r.Did));
+                CheckWriterShadowsParam(r.OutputVar, "ReadDidStep.OutputVar", path, step.Label, state, issues);
                 break;
-            case RoutineControlStep rc when rc.OutputVar is not null:
-                state.Definite.Add(rc.OutputVar);
+            case RoutineControlStep rc:
+                if (rc.OutputVar is not null) state.Definite.Add(rc.OutputVar);
+                CheckWriterShadowsParam(rc.OutputVar, "RoutineControlStep.OutputVar", path, step.Label, state, issues);
                 break;
-            case IOControlStep io when io.OutputVar is not null:
-                state.Definite.Add(io.OutputVar);
+            case IOControlStep io:
+                if (io.OutputVar is not null) state.Definite.Add(io.OutputVar);
+                CheckWriterShadowsParam(io.OutputVar, "IOControlStep.OutputVar", path, step.Label, state, issues);
                 break;
             // 其他叶步骤（SendFrame/AssertSignal/...）无变量 writer，显式跳过
         }
+    }
+
+    /// <summary>⑧：writer 名与参数同名 → Critical。null/空名跳过（默认键走 did_ 前缀，另案忽略）。</summary>
+    private static void CheckWriterShadowsParam(
+        string? writerName, string writerDesc, string path, string? label,
+        ScanState state, List<ValidationIssue> issues)
+    {
+        if (string.IsNullOrEmpty(writerName)) return;
+        if (state.ParamNames?.Contains(writerName) != true) return;
+        issues.Add(new ValidationIssue(
+            ValidationSeverity.Critical, "⑧", "Writer shadows parameter",
+            $"{writerDesc} '{writerName}' shadows a suite/case parameter " +
+            $"(StepScope.Resolve checks params before Variables; the write is never read back)",
+            path, label));
     }
 
     // ─────────────────────────────────────────────────────────────
