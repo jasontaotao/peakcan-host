@@ -19,6 +19,10 @@ public interface IHasFrameSink
 {
     void SetFrameSink(IHilFrameSink? sink);
 
+    /// <summary>按逻辑名挂载/摘除帧 sink（channelName null/空 = 默认/唯一通道）。</summary>
+    void SetFrameSink(string? channelName, IHilFrameSink? sink)
+        => SetFrameSink(sink);
+
     /// <summary>有界等待 consumer 排空在途帧（channel 积压）。引擎线程在 case 结束、detach 之前调用；
     /// 500ms 上限或 ct 取消时直接返回（放弃排空，残余帧丢弃但文件仍合法）。</summary>
     Task WaitForFrameDrainAsync(CancellationToken ct = default);

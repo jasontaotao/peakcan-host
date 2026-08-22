@@ -14,8 +14,16 @@ public interface IFrameStatistics
     /// <summary>[since, now] 区间内指定 CAN ID 的帧计数。</summary>
     int CountSince(CanId id, long since, long now);
 
+    /// <summary>[since, now] 区间内指定 CAN ID 的帧计数（按通道路由）。</summary>
+    int CountSince(CanId id, long since, long now, string? channelName = null)
+        => CountSince(id, since, now);
+
     /// <summary>[since, now] 区间内的帧间隔统计；样本不足时 SampleCount 如实反映。</summary>
     FrameIntervalStats GetIntervalStats(CanId id, long since, long now);
+
+    /// <summary>[since, now] 区间内的帧间隔统计（按通道路由）。</summary>
+    FrameIntervalStats GetIntervalStats(CanId id, long since, long now, string? channelName = null)
+        => GetIntervalStats(id, since, now);
 }
 
 public sealed record FrameIntervalStats(

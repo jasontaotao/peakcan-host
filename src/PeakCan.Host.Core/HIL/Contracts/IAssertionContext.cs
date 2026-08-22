@@ -43,4 +43,18 @@ public interface IAssertionContext
     /// already arrived before subscription (avoids race condition with fast ECUs).
     /// </summary>
     IReadOnlyList<DecodedFrame> GetRecentDecodedFrames();
+
+    // ── Multi-channel overloads (DIM default = ignore channelName, forward to single-channel) ──
+
+    /// <summary>按逻辑名路由发送（channelName null/空 = 默认/唯一通道）。</summary>
+    ValueTask<Result<Unit>> SendFrameAsync(string? channelName, CanFrame frame, CancellationToken ct)
+        => SendFrameAsync(frame, ct);
+
+    /// <summary>按逻辑名订阅解码帧流。</summary>
+    IDisposable SubscribeDecodedFrames(string? channelName, Action<DecodedFrame> onFrame)
+        => SubscribeDecodedFrames(onFrame);
+
+    /// <summary>按通道桶查最近帧。</summary>
+    IReadOnlyList<DecodedFrame> GetRecentDecodedFrames(string? channelName)
+        => GetRecentDecodedFrames();
 }
