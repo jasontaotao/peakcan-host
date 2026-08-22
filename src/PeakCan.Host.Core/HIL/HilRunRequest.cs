@@ -21,4 +21,5 @@ public sealed record HilRunRequest(
     IReadOnlyList<string>? SelectedCaseNames = null,
     // 2026-08-15: WPF 每 case 全量报文 log
     bool CaptureCaseLogs = false,
-    string? CaseLogDirectory = null);
+    // 2026-08-22: 多通道硬件声明（spec §3.3/§3.4）。null = 旧单通道 HardwareChannel 路径不变。
+    IReadOnlyList<ChannelConfig>? HardwareChannels = null);

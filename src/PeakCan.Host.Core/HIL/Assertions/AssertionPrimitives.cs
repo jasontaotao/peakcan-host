@@ -77,12 +77,12 @@ public sealed class AssertionPrimitives
             : AssertionResult.Fail($"signal {name} = {val} outside [{min}, {max}]");
     }
 
+    /// <summary>按通道等待匹配帧（channelName null/空 = 默认/唯一通道）。</summary>
     public async Task<AssertionResult> WaitForFrameAsync(
-        CanId expectedId, byte[]? dataMask, int timeoutMs, CancellationToken ct)
+        CanId expectedId, byte[]? dataMask, int timeoutMs, string? channelName, CancellationToken ct)
     {
-        // Check recent frames first — avoids race condition when frame arrives before subscription
-        // (e.g. VirtualEcu responds in microseconds, faster than the subscription can be established)
-        var recentFrames = _ctx.GetRecentDecodedFrames();
+        // 与单通道版同逻辑，但帧流按 channelName 路由
+        var recentFrames = _ctx.GetRecentDecodedFrames(channelName);
         foreach (var f in recentFrames)
         {
             if (f.Frame.Id.Raw == expectedId.Raw && MatchesMask(f.Frame.Data, dataMask))
@@ -93,7 +93,7 @@ public sealed class AssertionPrimitives
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(timeoutMs);
 
-        using var sub = _ctx.SubscribeDecodedFrames(frame =>
+        using var sub = _ctx.SubscribeDecodedFrames(channelName, frame =>
         {
             if (frame.Frame.Id.Raw == expectedId.Raw && MatchesMask(frame.Frame.Data, dataMask))
                 tcs.TrySetResult(frame.Frame);
@@ -110,6 +110,10 @@ public sealed class AssertionPrimitives
             return AssertionResult.Fail($"timeout waiting for frame 0x{expectedId.Raw:X} ({timeoutMs}ms)");
         }
     }
+
+    public Task<AssertionResult> WaitForFrameAsync(
+        CanId expectedId, byte[]? dataMask, int timeoutMs, CancellationToken ct)
+        => WaitForFrameAsync(expectedId, dataMask, timeoutMs, channelName: null, ct);
 
     private static bool MatchesMask(ReadOnlyMemory<byte> data, byte[]? mask)
     {
