@@ -26,7 +26,9 @@
 
 ### 范围界定（Q1 决策）
 
-本期 **MVP 仅 6 类步骤**加 `TargetChannel`：`SendFrame` / `SendSequence` / `ExpectFrame` / `AssertNoFrame` / `AssertFrameCount` / `AssertCycleTime`。
+本期 **MVP 仅 5 类步骤**加 `TargetChannel`：`SendFrame` / `ExpectFrame` / `AssertNoFrame` / `AssertFrameCount` / `AssertCycleTime`。
+
+> `SendSequence` 为 Sprint 1 占位桩（`SendSequenceStepExecutor.cs:12` throw `NotSupportedException`，`SendSequenceStep` 类型在包中不存在），本期排除。
 
 **信号断言（`AssertSignal`/`AssertRange`/`WaitForSignal`）与 UDS 步骤（`ReadDid`/`WriteDid`/`RoutineControl` 等）本期不加 `TargetChannel`**——信号断言依赖 per-channel DBC 语义（每通道独立 DBC），UDS 绑定 per-channel UDS 配置，二者改动面与语义复杂度另立项。本期这些步骤在"唯一通道"场景下行为不变；多通道场景下它们默认作用于 suite 声明的第一个通道（兜底，validator 会 warn）。
 
@@ -81,9 +83,8 @@ ChannelConfig {
     uint? UdsResponseId;
 }
 
-// 6 类步骤加 TargetChannel（string?，null/""=唯一/默认通道）
+// 5 类步骤加 TargetChannel（string?，null/""=唯一/默认通道）
 SendFrameStep.TargetChannel
-SendSequenceStep.TargetChannel
 ExpectFrameStep.TargetChannel
 AssertNoFrameStep.TargetChannel
 AssertFrameCountStep.TargetChannel
@@ -151,7 +152,7 @@ MultiChannelAssertionContext  // 新，组合 N 个 SingleChannelContext
 
 - `AssertionPrimitives` 加按通道重载：`WaitForFrameAsync(CanId, byte[]?, int, string? channelName, ct)`、`AssertSignal(..., string? channelName)` 等；原签名转发到 `channelName=null`。
 - executor 路由：
-  - `SendFrameStepExecutor`/`SendSequenceStepExecutor`：`CanFrame` 构造不再 `default` channel —— 传 `ctx.ResolveChannelId(p.TargetChannel)` 得到正确 `ChannelId`；`StepResult.Channel = p.TargetChannel ?? default`
+  - `SendFrameStepExecutor`：`CanFrame` 构造不再 `default` channel —— 传 `ctx.ResolveChannelId(p.TargetChannel)` 得到正确 `ChannelId`；`StepResult.Channel = p.TargetChannel ?? default`
   - `ExpectFrameStepExecutor`/`AssertNoFrame`/`AssertFrameCount`/`AssertCycleTime`：调 `AssertionPrimitives` 按通道重载，`StepResult.Channel` 记录
 - `TestSuiteEngine`：case 边界清 variables 照旧；新增前置 validator —— "suite 未声明 `Channels` + 步骤带 `TargetChannel`" → 报错（Q3）；"引用未声明的通道名" → 报错。
 - `HilRunRequest` 加 `HardwareChannels : IReadOnlyList<ChannelConfig>?`（null = 旧单通道 `HardwareChannel` 路径不变）。
@@ -186,7 +187,7 @@ MultiChannelAssertionContext  // 新，组合 N 个 SingleChannelContext
 ### 3.7 UI
 
 - **host `HilView`/`HilViewModel`**：run 配置区从"单个通道文本框"扩展为"通道列表编辑器"（名称+句柄+波特率+FD+DBC 路径，≥1 项）；`HardwareChannel` 字符串 → `HardwareChannels` 列表构造 `HilRunRequest`。
-- **studio**（单边）：`EditableTestCaseStep` 透传 `TargetChannel`；6 个步骤描述符加 TargetChannel ComboBox（选项来自 suite 的 `Channels` 声明，离线时可选"默认通道"）；Copilot 模板同步；`StepValidatorRegistry` 加通道引用校验。
+- **studio**（单边）：`EditableTestCaseStep` 透传 `TargetChannel`；5 个步骤描述符加 TargetChannel ComboBox（选项来自 suite 的 `Channels` 声明，离线时可选"默认通道"）；Copilot 模板同步；`StepValidatorRegistry` 加通道引用校验。
 
 ---
 
@@ -205,7 +206,7 @@ MultiChannelAssertionContext  // 新，组合 N 个 SingleChannelContext
 
 | Q | 决策 | 理由 |
 |---|---|---|
-| Q1 | MVP 6 类步骤（发送+帧监控）；信号断言/UDS 多通道后置 | 信号断言依赖 per-channel DBC 语义，UDS 绑 per-channel 配置，复杂度另立项 |
+| Q1 | MVP 5 类步骤（发送+帧监控）；信号断言/UDS 多通道后置 | 信号断言依赖 per-channel DBC 语义，UDS 绑 per-channel 配置，复杂度另立项 |
 | Q2 | AppShell 多通道划为**阶段二**（§8，已规划待启动），本期（阶段一）不阻塞 | HIL 独立 host 链路天然与 AppShell 单连接解耦；阶段二改弹窗+`IConnectSettingsSink`+`AppShellViewModel`+`SendService`，纯 host 单边改动不依赖 hil-core bump |
 | Q3 | 旧 suite 无 `Channels` + 步骤带 `TargetChannel` → validator 报错 | 防手误，文档说明 |
 | Q4 | 动手前核对 host/studio 双仓库当前 pin 版本 | 吸取 0.5.1 vs 0.6.0 漂移教训 |
