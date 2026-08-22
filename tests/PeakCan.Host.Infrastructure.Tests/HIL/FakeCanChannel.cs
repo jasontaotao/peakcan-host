@@ -12,7 +12,9 @@ public sealed class FakeCanChannel : ICanChannel
     private int _isConnected; // 0=disconnected, 1=connected
     private int _disposed;
 
-    public ChannelId Id => new ChannelId(0x51);
+    public ChannelId Id { get; }
+
+    public FakeCanChannel(ushort handle = 0x51) => Id = new ChannelId(handle);
     public bool IsConnected => Volatile.Read(ref _isConnected) == 1;
 
     public event Action<CanFrame>? FrameReceived;
@@ -49,6 +51,9 @@ public sealed class FakeCanChannel : ICanChannel
         FrameReceived?.Invoke(frame);
         return ValueTask.FromResult(Result<Unit>.Ok(default));
     }
+
+    /// <summary>Simulate frame reception (raises FrameReceived). Deterministic for tests.</summary>
+    public void SimulateFrame(CanFrame frame) => FrameReceived?.Invoke(frame);
 
     public ValueTask DisposeAsync()
     {

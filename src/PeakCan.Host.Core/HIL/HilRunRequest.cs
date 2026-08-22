@@ -22,4 +22,6 @@ public sealed record HilRunRequest(
     // 2026-08-15: WPF 每 case 全量报文 log
     bool CaptureCaseLogs = false,
     // 2026-08-22: 多通道硬件声明（spec §3.3/§3.4）。null = 旧单通道 HardwareChannel 路径不变。
-    IReadOnlyList<ChannelConfig>? HardwareChannels = null);
+    IReadOnlyList<ChannelConfig>? HardwareChannels = null,
+    // 2026-08-15: 每 case 全量报文 log 目录（null = 默认 %LocalAppData%\PeakCanHost\hil-reports\case-logs\）
+    string? CaseLogDirectory = null);
