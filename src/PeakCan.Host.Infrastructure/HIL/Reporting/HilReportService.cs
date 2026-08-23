@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli.Reporting;
@@ -19,12 +20,23 @@ public sealed class HilReportService : IHilReportService
                             "PeakCanHost", "hil-reports");
     }
 
+    /// <summary>单 DBC 重载——转发到 dbcs:null + fallbackDbc:dbc（单通道向后兼容）。</summary>
     public HilReportResult Generate(TestSuiteResult result, DbcDocument? dbc = null)
+        => Generate(result, dbcs: null, fallbackDbc: dbc);
+
+    /// <summary>
+    /// 多通道重载：dbcs 按 frame.Channel 选对应通道 DBC；fallbackDbc 兜底。
+    /// 调用者负责从 HilRunRequest.HardwareChannels + suite.Channels 构造字典
+    /// （阶段二 AppShell 多通道接线点，见 ledger Task 11 裁决）。
+    /// </summary>
+    public HilReportResult Generate(TestSuiteResult result,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs,
+        DbcDocument? fallbackDbc = null)
     {
         Directory.CreateDirectory(ReportDirectory);
         var trendsPath = Path.Combine(ReportDirectory, "hil-trends.json");
         var trends = TrendTracker.Load(trendsPath);
-        var html = HtmlReportGenerator.GenerateHtml(result, trends, dbc);
+        var html = HtmlReportGenerator.GenerateHtml(result, trends, dbcs, fallbackDbc: fallbackDbc);
         // 单次捕获时间戳：文件名与趋势条目使用同一时刻（R4）。
         var now = DateTime.UtcNow;
         var filePath = Path.Combine(ReportDirectory, $"hil-report-{now:yyyyMMddHHmmssfff}.html");

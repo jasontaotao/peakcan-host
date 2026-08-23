@@ -21,10 +21,15 @@ public static class HtmlReportGenerator
     /// <summary>
     /// Generate a complete HTML document string for the given result.
     /// Optionally include a sparkline of historical trends.
-    /// When <paramref name="dbc"/> is provided, frames around failures are
-    /// decoded into DBC signal values; otherwise they fall back to raw hex.
+    /// When <paramref name="dbcs"/> is provided, frames around failures are decoded into
+    /// DBC signal values by frame.Channel; otherwise <paramref name="fallbackDbc"/> is used
+    /// (single-channel backward-compat: pass dbcs:null + fallbackDbc:dbc).
     /// </summary>
-    public static string GenerateHtml(TestSuiteResult result, IReadOnlyList<TrendEntry>? trends = null, DbcDocument? dbc = null)
+    public static string GenerateHtml(
+        TestSuiteResult result,
+        IReadOnlyList<TrendEntry>? trends = null,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs = null,
+        DbcDocument? fallbackDbc = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html>");
@@ -58,7 +63,7 @@ public static class HtmlReportGenerator
         sb.AppendLine("<details><summary>Test Cases</summary>");
         foreach (var c in result.CaseResults)
         {
-            sb.AppendLine(RenderCase(c, dbc));
+            sb.AppendLine(RenderCase(c, dbcs, fallbackDbc));
         }
         sb.AppendLine("</details>");
 
@@ -105,7 +110,9 @@ public static class HtmlReportGenerator
             """;
     }
 
-    private static string RenderCase(TestCaseResult c, DbcDocument? dbc = null)
+    private static string RenderCase(TestCaseResult c,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs = null,
+        DbcDocument? fallbackDbc = null)
     {
         var sb = new StringBuilder();
         var statusClass = c.Passed ? "pass" : "fail";
@@ -171,11 +178,15 @@ public static class HtmlReportGenerator
                 var containerPrefix = isContainer
                     ? " <span class=\"container-badge\">[container]</span>"
                     : "";
+                // 通道标签：步骤归属的 CAN 通道（多通道路由结果）。null/空=单通道默认，不显。
+                var channelHtml = !string.IsNullOrEmpty(step.Channel)
+                    ? $" <span class=\"channel\">通道: {HtmlEncode(step.Channel)}</span>"
+                    : "";
 
                 sb.AppendLine($"<tr class=\"{classes}\" data-status=\"{dataStatus}\"{dataPath}>" +
                     $"<td>{step.StepIndex}{iterationHtml}</td>" +
                     $"<td>{HtmlEncode(step.Kind.ToString())}{containerPrefix}</td>" +
-                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
+                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}{channelHtml}</td>" +
                     $"<td>{statusCell}</td>" +
                     $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
                     $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
@@ -187,10 +198,14 @@ public static class HtmlReportGenerator
             {
                 // 非控制流：向后兼容平铺（无 depth class，无 Path 属性）
                 var dataStatus = stepClass;  // pass / fail / skipped / comment
+                // 通道标签（与控制流分支同源）：多通道路由结果，null/空不显。
+                var channelHtml = !string.IsNullOrEmpty(step.Channel)
+                    ? $" <span class=\"channel\">通道: {HtmlEncode(step.Channel)}</span>"
+                    : "";
                 sb.AppendLine($"<tr class=\"{rowClass}\" data-status=\"{dataStatus}\">" +
                     $"<td>{step.StepIndex}</td>" +
                     $"<td>{HtmlEncode(step.Kind.ToString())}</td>" +
-                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}</td>" +
+                    $"<td class=\"step-label\">{HtmlEncode(step.Label ?? "")}{channelHtml}</td>" +
                     $"<td>{statusCell}</td>" +
                     $"<td class=\"step-message\">{HtmlEncode(step.Message ?? "")}</td>" +
                     $"<td>{HtmlEncode(step.ActualValue ?? "")}</td>" +
@@ -220,7 +235,7 @@ public static class HtmlReportGenerator
                         $"<td>{HtmlEncode(idStr)}</td>" +
                         $"<td class=\"mono\">{HtmlEncode(dataHex)}</td>" +
                         $"<td>{frame.Timestamp.TotalMicroseconds}</td>" +
-                        $"<td>{RenderDecodedSignals(frame, dbc)}</td>" +
+                        $"<td>{RenderDecodedSignals(frame, dbcs, fallbackDbc)}</td>" +
                         "</tr>");
                     count++;
                 }
@@ -232,7 +247,7 @@ public static class HtmlReportGenerator
 
                 sb.AppendLine("</tbody></table>");
                 // 单元 D：DBC 可用时，失败帧集下方渲染信号时序图
-                sb.AppendLine(RenderSignalTimeline(step.FramesAroundFailure, dbc));
+                sb.AppendLine(RenderSignalTimeline(step.FramesAroundFailure, dbcs, fallbackDbc));
                 sb.AppendLine("</div>");
                 sb.AppendLine("</td></tr>");
             }
@@ -284,8 +299,12 @@ public static class HtmlReportGenerator
         return sb.ToString();
     }
 
-    private static string RenderDecodedSignals(CanFrame frame, DbcDocument? dbc)
+    private static string RenderDecodedSignals(CanFrame frame,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs = null,
+        DbcDocument? fallbackDbc = null)
     {
+        // 多通道：按帧所在通道选 DBC；未命中或字典空 → fallbackDbc 兜底（单通道语义）
+        var dbc = DbcFor(frame, dbcs, fallbackDbc);
         if (dbc is null)
             return "";
 
@@ -322,33 +341,52 @@ public static class HtmlReportGenerator
         => HttpUtility.HtmlEncode(s);
 
     /// <summary>
+    /// 多通道路由：按帧所在 Channel 选 DBC。dbcs 命中→该通道 DBC；否则 fallbackDbc。
+    /// 单通道语义（dbcs:null + fallbackDbc:dbc）与旧单 DBC 行为一致。
+    /// </summary>
+    private static DbcDocument? DbcFor(CanFrame frame,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs,
+        DbcDocument? fallbackDbc)
+        => (dbcs is not null && dbcs.TryGetValue(frame.Channel, out var perChannel))
+            ? perChannel
+            : fallbackDbc;
+
+    /// <summary>
     /// 单元 D：为失败步骤的 FramesAroundFailure 渲染 SVG 信号时序图。
     /// Y 轴位置编码信号值（主线），颜色仅作多信号区分辅助（色盲可访问）；
     /// 每信号配 &lt;title&gt; tooltip 显示精确值。仅覆盖失败前后 ≤50 帧（引擎捕获范围）。
+    /// 多通道：每帧按 frame.Channel 选 DBC（DbcFor），同一 CAN ID 跨通道不同 DBC
+    /// 时按 (msgId, DbcDocument) 去重，生成各自信号曲线。
     /// </summary>
-    private static string RenderSignalTimeline(IReadOnlyList<CanFrame> frames, DbcDocument? dbc)
+    private static string RenderSignalTimeline(IReadOnlyList<CanFrame> frames,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs = null,
+        DbcDocument? fallbackDbc = null)
     {
-        if (dbc is null || frames.Count == 0)
+        if (frames.Count == 0)
             return "";
 
-        // 信号集：帧集内出现的所有 CAN ID 查 MessagesById 得消息，取全部信号，
+        // 信号集：帧集内出现的所有 CAN ID 在各帧对应 DBC 中查 MessagesById 得消息，取全部信号。
+        // 多通道下同一 CAN ID 在不同 DBC 可能是不同消息 → 按 (msgId, DbcDocument) 去重，
         // 按 (消息名, 信号名) 字典序排序（同一信号名跨消息不合并）。
-        var msgIds = new HashSet<uint>();
+        var msgDbcPairs = new HashSet<(uint MsgId, DbcDocument Dbc)>();
         foreach (var f in frames)
         {
+            var dbc = DbcFor(f, dbcs, fallbackDbc);
+            if (dbc is null)
+                continue;
             var key = PeakCan.Host.Infrastructure.HIL.DbcLookupKey.ToLookupKey(f.Id.Raw, f.Id.IsExtended);
             if (dbc.MessagesById.ContainsKey(key))
-                msgIds.Add(key);
+                msgDbcPairs.Add((key, dbc));
         }
-        if (msgIds.Count == 0)
+        if (msgDbcPairs.Count == 0)
             return "";
 
-        var entries = new List<(uint MsgId, string MsgName, Signal Sig)>();
-        foreach (var id in msgIds)
+        var entries = new List<(uint MsgId, string MsgName, Signal Sig, DbcDocument Dbc)>();
+        foreach (var (id, dbc) in msgDbcPairs)
         {
             var msg = dbc.MessagesById[id];
             foreach (var s in msg.Signals)
-                entries.Add((id, msg.Name, s));
+                entries.Add((id, msg.Name, s, dbc));
         }
         var ordered = entries
             .OrderBy(e => e.MsgName, StringComparer.Ordinal)
@@ -389,7 +427,7 @@ public static class HtmlReportGenerator
 
         for (int i = 0; i < signals.Count; i++)
         {
-            var (entryMsgId, _, sig) = signals[i];
+            var (entryMsgId, _, sig, entryDbc) = signals[i];
             var color = palette[i % palette.Length];
             var yTop = pad + i * slot;
             var yBot = pad + (i + 1) * slot;
@@ -400,6 +438,9 @@ public static class HtmlReportGenerator
             {
                 // H1：只对属于该信号所属消息的帧解码。其它 CAN ID 的帧不含此信号，
                 // 强行解码得到伪值会污染曲线（多 ID 混合捕获下每个信号都会被污染）。
+                // 多通道：帧还必须与该 entry 用同一 DBC（避免跨通道同 ID 不同 DBC 串线）。
+                if (!ReferenceEquals(DbcFor(frames[fi], dbcs, fallbackDbc), entryDbc))
+                    continue;
                 var frameKey = PeakCan.Host.Infrastructure.HIL.DbcLookupKey
                     .ToLookupKey(frames[fi].Id.Raw, frames[fi].Id.IsExtended);
                 if (frameKey != entryMsgId)
@@ -569,6 +610,7 @@ public static class HtmlReportGenerator
             tr.container-row td { font-weight: 600; color: var(--accent); }
             .container-badge { font-size: 10px; opacity: 0.7; margin-left: 4px; }
             .iteration { font-size: 11px; color: var(--muted); margin-left: 6px; }
+            .channel { font-size: 11px; color: var(--muted); margin-left: 6px; }
             .mono { font-family: "Cascadia Code", "Fira Code", Consolas, monospace; }
             .muted { color: var(--muted); }
             .frame-dump {

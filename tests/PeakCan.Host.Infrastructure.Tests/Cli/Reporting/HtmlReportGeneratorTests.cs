@@ -150,7 +150,7 @@ public class HtmlReportGeneratorTests
         var caseResult = new TestCaseResult("FailCase", "FailCase", false, "assertion failed", 10, 1, 0, 1, 0, 0, new[] { step });
         var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
 
-        var html = HtmlReportGenerator.GenerateHtml(result, dbc: doc);
+        var html = HtmlReportGenerator.GenerateHtml(result, fallbackDbc: doc);
 
         Assert.Contains("SigA=Two", html);
     }
@@ -179,7 +179,7 @@ public class HtmlReportGeneratorTests
         var caseResult = new TestCaseResult("FailCase", "FailCase", false, "fail", 10, 1, 0, 1, 0, 0, new[] { step });
         var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
 
-        var html = HtmlReportGenerator.GenerateHtml(result, dbc: doc);
+        var html = HtmlReportGenerator.GenerateHtml(result, fallbackDbc: doc);
 
         Assert.Contains("SigA=&lt;script&gt;", html);
         Assert.DoesNotContain("<script>alert(1)</script>", html);
@@ -225,7 +225,7 @@ public class HtmlReportGeneratorTests
         var caseResult = new TestCaseResult("FailCase", "FailCase", false, "fail", 10, 1, 0, 1, 0, 0, new[] { step });
         var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
 
-        var html = HtmlReportGenerator.GenerateHtml(result, dbc: doc);
+        var html = HtmlReportGenerator.GenerateHtml(result, fallbackDbc: doc);
 
         Assert.Contains("class=\"signal-timeline\"", html);   // 时序图 SVG
         Assert.Contains("SigA", html);                        // 信号名（图例/标题）
@@ -245,7 +245,7 @@ public class HtmlReportGeneratorTests
         var caseResult = new TestCaseResult("FailCase", "FailCase", false, "fail", 10, 1, 0, 1, 0, 0, new[] { step });
         var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
 
-        var html = HtmlReportGenerator.GenerateHtml(result, dbc: null);
+        var html = HtmlReportGenerator.GenerateHtml(result, fallbackDbc: null);
 
         // 注意：CSS 规则本身含 ".signal-timeline"，需断言 SVG 元素而非 class 字符串
         Assert.DoesNotContain("<svg class=\"signal-timeline\"", html);
@@ -374,7 +374,7 @@ public class HtmlReportGeneratorTests
         var caseResult = new TestCaseResult("FailCase", "FailCase", false, "fail", 10, 1, 0, 1, 0, 0, new[] { step });
         var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
 
-        var html = HtmlReportGenerator.GenerateHtml(result, dbc: doc);
+        var html = HtmlReportGenerator.GenerateHtml(result, fallbackDbc: doc);
 
         // SigA 只含 MsgA 帧点（0µs/2000µs）；修复前 SigA title 会是
         // "1 @ 0µs, 3 @ 1000µs, 2 @ 2000µs"（含 MsgB 帧伪值 3 的连续段），修复后断为两段。

@@ -155,7 +155,7 @@ public static class Program
                         var trends = TrendTracker.Load("./hil-trends.json");
                         // CLI 正常/simulate 模式强制 --dbc；此处实际非 null，null 分支仅防御。
                         var dbcDoc = host2.Services.GetService<DbcDocument>();
-                        var html = HtmlReportGenerator.GenerateHtml(result, trends, dbcDoc);
+                        var html = HtmlReportGenerator.GenerateHtml(result, trends, fallbackDbc: dbcDoc);
                         var htmlPath = cli.OutputPath ?? $"hil-report-{DateTime.UtcNow:yyyyMMddHHmmss}.html";
                         await File.WriteAllTextAsync(htmlPath, html);
                         Console.WriteLine($"HTML report written to {htmlPath}");
@@ -165,7 +165,7 @@ public static class Program
                     case "html+junit":
                         var trends2 = TrendTracker.Load("./hil-trends.json");
                         var dbcDoc2 = host2.Services.GetService<DbcDocument>();
-                        var html2 = HtmlReportGenerator.GenerateHtml(result, trends2, dbcDoc2);
+                        var html2 = HtmlReportGenerator.GenerateHtml(result, trends2, fallbackDbc: dbcDoc2);
                         var htmlPath2 = Path.ChangeExtension(cli.OutputPath ?? "hil-report", ".html");
                         await File.WriteAllTextAsync(htmlPath2, html2);
                         var junitPath = Path.ChangeExtension(cli.OutputPath ?? "hil-report", ".xml");
