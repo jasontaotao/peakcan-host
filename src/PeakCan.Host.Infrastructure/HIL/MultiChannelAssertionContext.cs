@@ -166,6 +166,19 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
         }
     }
 
+    /// <summary>
+    /// 断开所有通道（多通道模式，HilRunnerService finally 调用）。
+    /// Bug-1：PeakCanChannel 只实现 IAsyncDisposable，MS DI 同步 Dispose 不触发 DisposeAsync，
+    /// 且 SingleChannelContext.Dispose 只 cancel ConsumerLoop 不调 _channel.DisconnectAsync。
+    /// 故 HilRunnerService 必须显式调本方法，遍历所有通道 DisconnectAsync（Uninitialize PCAN handle + 停读循环）。
+    /// DisconnectAsync 幂等（PeakCanChannel _gate 二次返 null），首通道不会与单通道路径双重。
+    /// </summary>
+    public async Task DisconnectAllAsync(CancellationToken ct)
+    {
+        foreach (var ctx in _channels.Values)
+            await ctx.DisconnectAsync(ct).ConfigureAwait(false);
+    }
+
     // ── IDisposable ──
 
     public void Dispose()

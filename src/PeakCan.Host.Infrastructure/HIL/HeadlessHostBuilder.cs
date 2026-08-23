@@ -130,6 +130,11 @@ public static class HeadlessHostBuilder
                 // 避免对同一物理 handle new 第二个 PeakCanChannel（double-InitializeFD + 双读循环竞争）。
                 // 其余通道各自 new PeakCanChannel（不同物理 handle，互不冲突）。
                 var defaultChannel = sp.GetRequiredService<ICanChannel>();
+                // Bug-C：全局 DbcDocument 已由上方 lambda 基于 args.DbcPath 解析一次（供
+                // LastDbcDocument 报告 + 单通道 IDbcLookup）。多通道路径首通道 cfg.DbcPath
+                // 通常 null → 回落 args.DbcPath → 与全局同源；复用全局实例避免重复 ReadAllText
+                // + DbcParser.Parse。其余通道（DbcPath 非空或不同文件）各自解析。
+                var globalDbc = sp.GetService<DbcDocument>();
                 for (int i = 0; i < multiCfg.Count; i++)
                 {
                     var cfg = multiCfg[i];
@@ -137,13 +142,22 @@ public static class HeadlessHostBuilder
                         ? defaultChannel
                         : new PeakCanChannel(new ChannelId(ResolveChannelHandle(cfg.Handle)), peakLogger);
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
-                    // cfg.DbcPath null → 回落到 args.DbcPath（默认 DBC，供无独立 DBC 的通道）。
-                    var dbcPath = cfg.DbcPath ?? args.DbcPath;
-                    var dbcText = File.ReadAllText(dbcPath);
-                    var dbcDoc = PeakCan.HIL.Core.Dbc.DbcParser.Parse(dbcText);
-                    if (!dbcDoc.IsSuccess)
-                        throw new InvalidOperationException($"DBC parse failed for channel '{cfg.Name}' ('{dbcPath}'): {dbcDoc.Error?.Message}");
-                    var dbcLookup = new HeadlessDbcLookup(dbcDoc.Value!);
+                    DbcDocument dbcDoc;
+                    if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
+                    {
+                        // 首通道无独立 DbcPath → 复用全局 DbcDocument（与 args.DbcPath 同源）
+                        dbcDoc = globalDbc;
+                    }
+                    else
+                    {
+                        var dbcPath = cfg.DbcPath ?? args.DbcPath;
+                        var dbcText = File.ReadAllText(dbcPath);
+                        var parsed = PeakCan.HIL.Core.Dbc.DbcParser.Parse(dbcText);
+                        if (!parsed.IsSuccess)
+                            throw new InvalidOperationException($"DBC parse failed for channel '{cfg.Name}' ('{dbcPath}'): {parsed.Error?.Message}");
+                        dbcDoc = parsed.Value!;
+                    }
+                    var dbcLookup = new HeadlessDbcLookup(dbcDoc);
                     contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name);
                 }
                 return new MultiChannelAssertionContext(contexts, defaultChannelName: multiCfg[0].Name);

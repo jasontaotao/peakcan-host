@@ -51,6 +51,14 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
         return _channel.ConnectAsync(rate, fd, ct);
     }
 
+    /// <summary>
+    /// 断开底层通道（多通道模式由 MultiChannelAssertionContext.DisconnectAllAsync 转发）。
+    /// Bug-1：run 结束时所有通道必须 DisconnectAsync，否则非首通道 PCAN handle 泄漏
+    /// （PeakCanChannel 只实现 IAsyncDisposable，MS DI 同步 Dispose 不触发 DisposeAsync，
+    /// 且 SingleChannelContext.Dispose 只 cancel ConsumerLoop 不调 _channel.DisconnectAsync）。
+    /// </summary>
+    internal Task DisconnectAsync(CancellationToken ct) => _channel.DisconnectAsync(ct);
+
     public SingleChannelContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null, string? channelName = null)
     {
         _channel = channel;

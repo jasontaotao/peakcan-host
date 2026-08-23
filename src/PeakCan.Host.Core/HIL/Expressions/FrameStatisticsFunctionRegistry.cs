@@ -45,33 +45,58 @@ public sealed class FrameStatisticsFunctionRegistry : IFunctionRegistry
 
     /// <summary>
     /// frameSeen(id) = CountSince(id, caseStart, now) > 0。
+    /// frameSeen(id, 'channel') = CountSince(id, caseStart, now, channel) > 0（多通道路由，Bug-2）。
     /// </summary>
     private bool InvokeFrameSeen(ExpressionValue[] args, out ExpressionValue result)
     {
-        if (args.Length != 1 || !TryParseCanId(args[0], out var id))
+        // frameSeen(id) 或 frameSeen(id, 'channel')。第 2 参（如有）必须是字符串通道名。
+        if (args.Length is not (1 or 2) || !TryParseCanId(args[0], out var id))
             return Fail(out result);
 
+        string? channelName = null;
+        if (args.Length == 2)
+        {
+            if (args[1].Kind != ExpressionValue.ValueKind.String)
+                return Fail(out result); // 第 2 参必须是字符串通道名（非 windowMs）
+            channelName = args[1].AsString;
+        }
+
         var now = _frameStats.Now;
-        var count = _frameStats.CountSince(id, _caseStart, now);
+        // channelName null → 调 3 参重载（避免 NSubstitute mock 不执行 DIM 默认实现，
+        // 旧测试配的是 3 参重载；保持零回归）。channelName 非空 → 调 4 参重载路由通道。
+        var count = channelName is null
+            ? _frameStats.CountSince(id, _caseStart, now)
+            : _frameStats.CountSince(id, _caseStart, now, channelName);
         result = ExpressionValue.FromBool(count > 0);
         return true;
     }
 
     /// <summary>
     /// frameCount(id) = CountSince(id, caseStart, now)；
-    /// frameCount(id, windowMs) = CountSince(id, now - windowMs, now)。
+    /// frameCount(id, windowMs) = CountSince(id, now - windowMs, now)；
+    /// frameCount(id, 'channel') = CountSince(id, caseStart, now, channel)（多通道路由，Bug-2）；
+    /// frameCount(id, windowMs, 'channel') = CountSince(id, now - windowMs, now, channel)。
+    /// 末位字符串字面量 = 通道名；windowMs 是数字（倒数第二，如有）。
     /// </summary>
     private bool InvokeFrameCount(ExpressionValue[] args, out ExpressionValue result)
     {
-        if (args.Length is not (1 or 2) || !TryParseCanId(args[0], out var id))
+        if (args.Length is not (1 or 2 or 3) || !TryParseCanId(args[0], out var id))
             return Fail(out result);
+
+        // 末位是 String → channelName；否则无通道名（默认通道）。
+        string? channelName = null;
+        int windowArgCount = args.Length - 1; // 除 id 外的参数数
+        if (args.Length >= 2 && args[^1].Kind == ExpressionValue.ValueKind.String)
+        {
+            channelName = args[^1].AsString;
+            windowArgCount = args.Length - 2; // 末位是通道名，windowMs 参数少一个
+        }
 
         var now = _frameStats.Now;
         long since;
-
-        if (args.Length == 2)
+        if (windowArgCount == 1)
         {
-            // 滑动窗口
+            // 滑动窗口：windowMs 是 args[1]（数字）
             if (!TryParseLong(args[1], out var windowMs))
                 return Fail(out result);
             since = now - windowMs;
@@ -83,7 +108,11 @@ public sealed class FrameStatisticsFunctionRegistry : IFunctionRegistry
             since = _caseStart;
         }
 
-        var count = _frameStats.CountSince(id, since, now);
+        // channelName null → 调 3 参重载（NSubstitute mock 兼容 + 零回归）；
+        // channelName 非空 → 调 4 参重载路由通道。
+        var count = channelName is null
+            ? _frameStats.CountSince(id, since, now)
+            : _frameStats.CountSince(id, since, now, channelName);
         result = ExpressionValue.FromLong(count);
         return true;
     }
