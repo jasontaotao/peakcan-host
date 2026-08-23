@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Linq;
 using PeakCan.HIL.Core;
@@ -88,23 +89,20 @@ public sealed class DualChannelLoopbackE2E : IDisposable
                 new ChannelConfig("bus-b", "52", BaudRate.Can500kbps, Fd: false),
             });
 
-    /// <summary>Recording sink：收集所有通道写出的帧（带各自 Channel），验证 case log 标通道。</summary>
+    /// <summary>Recording sink：收集所有通道写出的帧（带各自 Channel），验证 case log 标通道。
+    /// 多通道扇出时多个 SingleChannelContext ConsumerLoop 线程并发 Write 同一 sink —— 用
+    /// ConcurrentBag 线程安全（List&lt;T&gt;.Add 并发丢帧，是 e2e flaky 的根因）。</summary>
     private sealed class RecordingSinkFactory : IHilFrameSinkFactory
     {
-        public List<CanFrame> Frames { get; } = new();
-        public IHilFrameSink Create(string caseName, int caseIndex)
-        {
-            var sink = new RecordingSink(Frames);
-            return sink;
-        }
+        public ConcurrentBag<CanFrame> Frames { get; } = new();
+        public IHilFrameSink Create(string caseName, int caseIndex) => new RecordingSink(Frames);
     }
 
     private sealed class RecordingSink : IHilFrameSink
     {
-        private readonly List<CanFrame> _frames;
-        public RecordingSink(List<CanFrame> frames) => _frames = frames;
-        public RecordingSink() => _frames = new List<CanFrame>();
-        public List<CanFrame> Frames => _frames;
+        private readonly ConcurrentBag<CanFrame> _frames;
+        public RecordingSink(ConcurrentBag<CanFrame> frames) => _frames = frames;
+        public ConcurrentBag<CanFrame> Frames => _frames;
         public void Write(CanFrame f) => _frames.Add(f);
         public void Dispose() { }
     }

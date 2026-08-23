@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Contracts;
@@ -24,7 +25,9 @@ public class MultiChannelAssertionContextTests
 
     private sealed class RecordingSink : IHilFrameSink
     {
-        public List<CanFrame> Frames { get; } = new();
+        // 多通道扇出时，多个 SingleChannelContext ConsumerLoop 线程并发 Write 同一 sink。
+        // List<T>.Add 非线程安全 → 并发丢帧。用 ConcurrentBag 线程安全。
+        public ConcurrentBag<CanFrame> Frames { get; } = new();
         public void Write(CanFrame f) => Frames.Add(f);
         public void Dispose() { }
     }
