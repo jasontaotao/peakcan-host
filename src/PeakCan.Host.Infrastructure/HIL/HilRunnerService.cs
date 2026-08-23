@@ -118,7 +118,12 @@ public sealed class HilRunnerService : IHilRunnerService
         finally
         {
             sender.Stop();
-            await channel.DisconnectAsync(ct);
+            // Bug-1：多通道路径必须断开所有通道（非首通道 PCAN handle 否则泄漏 + 读循环空转）。
+            // 单通道路径维持原样（只断 DI 默认 singleton）。
+            if (ctx is MultiChannelAssertionContext multiCtx)
+                await multiCtx.DisconnectAllAsync(ct);
+            else
+                await channel.DisconnectAsync(ct);
         }
     }
 }

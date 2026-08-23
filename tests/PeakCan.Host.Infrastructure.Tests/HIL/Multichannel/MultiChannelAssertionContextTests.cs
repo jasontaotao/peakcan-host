@@ -287,6 +287,25 @@ public class MultiChannelAssertionContextTests
         Assert.DoesNotContain(sink.Frames, f => f.Id.Raw == 0x200);
     }
 
+    // ── Disconnect ──
+
+    [Fact]
+    public async Task DisconnectAllAsync_DisconnectsAllChannels()
+    {
+        // Bug-1：多通道 run 结束时所有通道的 PeakCanChannel 必须 DisconnectAsync，
+        // 否则非首通道 PCAN handle 泄漏 + 读循环空转。
+        var (multi, chA, chB) = CreateTwoChannelContext();
+        await chA.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
+        await chB.ConnectAsync(BaudRate.CanFd1Mbps, fd: true);
+        Assert.True(chA.IsConnected, "chA should be connected");
+        Assert.True(chB.IsConnected, "chB should be connected");
+
+        await multi.DisconnectAllAsync(default);
+
+        Assert.False(chA.IsConnected, "chA should be disconnected");
+        Assert.False(chB.IsConnected, "chB should be disconnected");
+    }
+
     // ── Helpers ──
 
     private static FakeDbcLookup MakeDbc(uint id, string name)
