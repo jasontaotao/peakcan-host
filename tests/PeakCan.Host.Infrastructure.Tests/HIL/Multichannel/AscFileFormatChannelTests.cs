@@ -26,6 +26,7 @@ public sealed class AscFileFormatChannelTests
     [InlineData(0x52u, 2)]   // PEAK USB2 → 2
     [InlineData(0x60u, 16)]  // PEAK USB16 → 16
     [InlineData(0x00u, 1)]   // None/单通道默认 → 1（旧硬编码值兼容）
+    [InlineData(0x01u, 1)]   // TraceDrivenChannel placeholder handle=1 → 1（trace-replay 零回归）
     public void ChannelIdToAscNumber_PEAK_And_None(ushort handle, int expected)
     {
         Assert.Equal(expected, AscFileFormat.ChannelIdToAscNumber(new ChannelId(handle)));
