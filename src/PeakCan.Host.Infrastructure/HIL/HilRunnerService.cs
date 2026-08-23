@@ -103,17 +103,12 @@ public sealed class HilRunnerService : IHilRunnerService
                 }
             }
 
-            // B2-R1：注入帧统计 collector，使表达式 frameCount/frameSeen/elapsedMs 可用。
-            // 构造需 ICanChannel（已从 DI 拿 channel）；finally 负责 Dispose（退订 FrameReceived）。
-            var frameStats = new FrameStatisticsCollector(channel);
-            try
-            {
-                return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
-            }
-            finally
-            {
-                frameStats.Dispose();
-            }
+            // B2-R1 + Bug-2：帧统计从 DI 取（多通道=MultiChannelFrameStatistics 按通道路由，
+            // 单通道=FrameStatisticsCollector）。替代手动 new 单通道 collector——后者在多通道下
+            // 无法路由到非默认通道，导致 frameCount/frameSeen 表达式多通道失效。
+            // DI 注册的 IFrameStatistics 由 host Dispose 负责释放（退订 FrameReceived），无需手动 Dispose。
+            var frameStats = host.Services.GetService<IFrameStatistics>();
+            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
         }
         finally
         {
