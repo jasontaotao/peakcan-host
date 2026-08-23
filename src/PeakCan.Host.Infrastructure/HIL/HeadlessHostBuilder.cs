@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -41,7 +42,7 @@ public static class HeadlessHostBuilder
             // — UDS+stats multi-channel is deferred to Task 10/§3.4) resolve against the
             // default bus. MultiChannelAssertionContext (registered below) owns ALL channels
             // for per-step TargetChannel routing.
-            var defaultHandle = ParseChannelHandle(multiHw[0].Handle);
+            var defaultHandle = ResolveChannelHandle(multiHw[0].Handle);
             builder.Services.AddSingleton<ICanChannel>(sp =>
             {
                 var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
@@ -126,7 +127,7 @@ public static class HeadlessHostBuilder
                 var contexts = new Dictionary<string, SingleChannelContext>(StringComparer.Ordinal);
                 foreach (var cfg in multiCfg)
                 {
-                    var handle = ParseChannelHandle(cfg.Handle);
+                    var handle = ResolveChannelHandle(cfg.Handle);
                     var channel = new PeakCanChannel(new ChannelId(handle),
                         sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>());
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
@@ -306,6 +307,22 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ECUResetStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, CommunicationControlStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, IOControlStepExecutor>();
+    }
+
+    /// <summary>
+    /// 解析 ChannelConfig.Handle 为 PCAN-Basic 通道 handle。
+    /// 接受两种形式（对齐 ChannelConfig 文档："raw hex 51 / C600"）：
+    /// - raw hex（"51" / "0x51" / "C600"）→ 直接转 ushort；
+    /// - "USB1".."USB16" 习惯形式 → ParseChannelHandle（0x51..0x60）。
+    /// </summary>
+    public static ushort ResolveChannelHandle(string handle)
+    {
+        // raw hex（无前缀或 0x 前缀）
+        var hex = handle.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? handle[2..] : handle;
+        if (ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+            return raw;
+        // 回落到 "USBn" 形式
+        return ParseChannelHandle(handle);
     }
 
     /// <summary>

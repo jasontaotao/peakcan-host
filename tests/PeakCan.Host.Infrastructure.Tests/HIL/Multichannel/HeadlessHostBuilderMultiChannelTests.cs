@@ -95,4 +95,31 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         // null = 默认通道
         Assert.Equal(new ChannelId(0x51), multi.ResolveChannelId(null));
     }
+
+    [Theory]
+    [InlineData("51", 0x51)]      // raw hex（无前缀）— ChannelConfig 文档契约
+    [InlineData("0x52", 0x52)]     // 0x 前缀 hex
+    [InlineData("USB1", 0x51)]     // USBn 习惯形式（回落 ParseChannelHandle）
+    [InlineData("C600", 0xC600)]   // ZLG 风格大 hex
+    public void ResolveChannelHandle_Accepts_Hex_And_Usb_Forms(string handle, ushort expected)
+    {
+        Assert.Equal(expected, HeadlessHostBuilder.ResolveChannelHandle(handle));
+    }
+
+    [Fact]
+    public void Build_Accepts_RawHex_Handle_Per_ChannelConfig_Contract()
+    {
+        // ChannelConfig 文档说 Handle 是 raw hex（"51"/"C600"）。验证 hex 形式不抛异常。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "52", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var multi = (MultiChannelAssertionContext)host.Services.GetRequiredService<IAssertionContext>();
+        Assert.Equal(new ChannelId(0x51), multi.ResolveChannelId("bus-a"));
+        Assert.Equal(new ChannelId(0x52), multi.ResolveChannelId("bus-b"));
+    }
 }

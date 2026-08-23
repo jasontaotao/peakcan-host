@@ -138,7 +138,7 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
 
     /// <summary>
     /// 将逻辑通道名映射到底层 ICanChannel 的物理 ChannelId。
-    /// Task 9 的 executor 需要此方法：ctx.ResolveChannelId(p.TargetChannel) 构造 CanFrame 的 Channel。
+    /// 供测试 + SendFrameAsync 内填 frame.Channel 用（executors 不直接调——ChannelId 由 context 内填）。
     /// </summary>
     /// <param name="channelName">逻辑通道名。null/空 = 默认通道。</param>
     /// <returns>对应的 ChannelId；未知通道名返回 ChannelId.None。</returns>
