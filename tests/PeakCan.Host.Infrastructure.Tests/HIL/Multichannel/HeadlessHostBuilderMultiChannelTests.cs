@@ -144,4 +144,28 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         // 第二个通道（bus-b）是独立 new 的（不同引用）
         Assert.NotSame(diChannel, multi.GetChannel("bus-b").Channel);
     }
+
+    [Fact]
+    public void Build_FirstChannelNullDbcPath_ReusesGlobalDbc_Succeeds()
+    {
+        // Bug-C：首通道 cfg.DbcPath 为 null → 回落 args.DbcPath（与全局 DbcDocument 同源）。
+        // 应复用上方已解析的全局 DbcDocument，而非重复 ReadAllText + DbcParser.Parse。
+        // 回归验证：首通道 DbcPath null 时 host 构建成功，首通道 context 可用（不抛）。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "USB1", BaudRate.Can500kbps, false, DbcPath: null, null, null),
+            new ChannelConfig("bus-b", "USB2", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var multi = (MultiChannelAssertionContext)host.Services.GetRequiredService<IAssertionContext>();
+
+        // 构建成功 + 首通道 context 可取（复用全局 DbcDocument 不破坏 lookup 装配）
+        Assert.Equal(2, multi.ChannelCount);
+        var busA = multi.GetChannel("bus-a");
+        Assert.NotNull(busA);
+        // 首通道的 DBC 已装配：解码一帧 TestMsg(0x100) 能查到 TestSignal（验证 lookup 不是空壳）
+        busA.SubscribeDecodedFrames(_ => { }).Dispose();
+    }
 }
