@@ -133,4 +133,60 @@ public sealed class FrameStatisticsChannelRoutingTests
         Assert.True(ok);
         Assert.Null(spy.LastChannelName);
     }
+
+    // ── 端到端：经 ExpressionEvaluator（lexer → parser → evaluator → TryInvoke）完整路径 ──
+
+    /// <summary>
+    /// 构造最小 StepScope（只挂 frame function registry），供 evaluator 端到端求值。
+    /// frameCount/frameSeen 不触发 signal/did resolver，故 resolver 可为 null。
+    /// </summary>
+    private static StepScope ScopeWith(IFrameStatistics stats, long caseStart = 0)
+    {
+        var registry = new FrameStatisticsFunctionRegistry(stats, caseStart);
+        return new StepScope(functionRegistry: registry);
+    }
+
+    [Fact]
+    public void FrameCount_WithChannel_E2e_Evaluator_RoutesToThatChannel()
+    {
+        // 端到端：表达式字符串 "frameCount(0x123, 'bus-b')" 经 lexer（单引号字符串字面量）
+        // → parser（StringLiteral AST）→ evaluator（From("bus-b")）→ registry.TryInvoke。
+        var spy = new SpyFrameStatistics();
+        var evaluator = new ExpressionEvaluator();
+        var scope = ScopeWith(spy);
+
+        var eval = evaluator.Evaluate("frameCount(0x123, 'bus-b')", scope);
+
+        Assert.True(eval.IsSuccess, $"eval failed: {eval.Error?.Message}");
+        Assert.Equal(5L, eval.Value.AsLong);
+        Assert.Equal("bus-b", spy.LastChannelName);
+    }
+
+    [Fact]
+    public void FrameCount_WindowAndChannel_E2e_Evaluator_RoutesCorrectly()
+    {
+        var spy = new SpyFrameStatistics();
+        var evaluator = new ExpressionEvaluator();
+        var scope = ScopeWith(spy);
+
+        var eval = evaluator.Evaluate("frameCount(0x456, 1000, 'bus-a')", scope);
+
+        Assert.True(eval.IsSuccess);
+        Assert.Equal(5L, eval.Value.AsLong);
+        Assert.Equal("bus-a", spy.LastChannelName);
+    }
+
+    [Fact]
+    public void FrameSeen_WithChannel_E2e_Evaluator_RoutesToThatChannel()
+    {
+        var spy = new SpyFrameStatistics { ReturnCount = 1 };
+        var evaluator = new ExpressionEvaluator();
+        var scope = ScopeWith(spy);
+
+        var eval = evaluator.Evaluate("frameSeen(0x200, 'bus-b')", scope);
+
+        Assert.True(eval.IsSuccess);
+        Assert.True(eval.Value.AsBool);
+        Assert.Equal("bus-b", spy.LastChannelName);
+    }
 }
