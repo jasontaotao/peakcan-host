@@ -216,8 +216,18 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertVariableStepExecutor>();
         // Phase B: 帧统计基础设施 + 时序断言（所有模式注册，含 trace-replay；依赖 IFrameStatistics 而非 IAssertionContext）
+        // 多通道模式（spec §3.4，Task 10）：按通道独立 collector（各订阅自己 channel），
+        // MultiChannelFrameStatistics 按 channelName 路由。单通道模式直接注册单 collector。
         builder.Services.AddSingleton<IFrameStatistics>(sp =>
         {
+            if (args.HardwareChannels is { Count: > 0 } mcCfg
+                && sp.GetService<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>() is MultiChannelAssertionContext multi)
+            {
+                var collectors = new Dictionary<string, FrameStatisticsCollector>(StringComparer.Ordinal);
+                foreach (var name in multi.ChannelNames)
+                    collectors[name] = new FrameStatisticsCollector(multi.GetChannel(name).Channel);
+                return new MultiChannelFrameStatistics(collectors, defaultChannelName: mcCfg[0].Name);
+            }
             var channel = sp.GetRequiredService<ICanChannel>();
             return new FrameStatisticsCollector(channel);
         });
