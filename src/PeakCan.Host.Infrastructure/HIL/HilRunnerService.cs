@@ -57,10 +57,11 @@ public sealed class HilRunnerService : IHilRunnerService
         if (request.SelectedCaseNames is { Count: > 0 } selected)
             suite = suite with { Cases = suite.Cases.Where(c => selected.Contains(c.Name)).ToList() };
 
-        // 连接通道：多通道路径逐通道 connect（每通道独立 BaudRate/Fd，从 request.HardwareChannels 查）；
-        // 同时连接 DI 默认 ICanChannel singleton（= 第一个通道的 handle），让单通道默认依赖
-        // （BackgroundFrameSender / IFrameStatistics / IsoTpLayer / UdsClient，§3.4 延迟多通道化）
-        // 观察默认 bus。单通道路径维持原样（默认 ICanChannel，FD 1Mbps）。
+        // 连接通道：多通道路径逐通道 connect（每通道独立 BaudRate/Fd，从 request.HardwareChannels 查）。
+        // 第一个 SingleChannelContext 复用 DI 默认 ICanChannel singleton（同 handle，见 HeadlessHostBuilder），
+        // 故 ConnectAllAsync 连第一个 = 连 DI singleton，单通道默认依赖（BackgroundFrameSender /
+        // IFrameStatistics / IsoTpLayer / UdsClient，§3.4 延迟多通道化）即观察到默认 bus——无需再单独 connect。
+        // 单通道路径维持原样（默认 ICanChannel，FD 1Mbps）。
         if (ctx is MultiChannelAssertionContext multi && request.HardwareChannels is { Count: > 0 } hwCfgs)
         {
             var cfgByName = hwCfgs.ToDictionary(c => c.Name, c => (c.BaudRate, c.Fd), StringComparer.Ordinal);
@@ -71,9 +72,6 @@ public sealed class HilRunnerService : IHilRunnerService
                     return (v.BaudRate, v.Fd);
                 return (BaudRate.CanFd1Mbps, true);
             }, ct);
-            // DI 默认 ICanChannel（= 第一通道 handle）也需 connect，否则单通道默认依赖看到死 bus。
-            var first = hwCfgs[0];
-            await channel.ConnectAsync(first.BaudRate ?? BaudRate.CanFd1Mbps, first.Fd, ct);
         }
         else
         {

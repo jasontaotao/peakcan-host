@@ -25,6 +25,10 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
     /// <summary>通道数。</summary>
     public int ChannelCount => _channels.Count;
 
+    /// <summary>按名取底层 SingleChannelContext（internal，供测试验证默认通道与 DI singleton 共享实例）。</summary>
+    internal SingleChannelContext GetChannel(string name)
+        => _channels.TryGetValue(name, out var c) ? c : throw new KeyNotFoundException(name);
+
     /// <param name="channels">通道字典（key = 逻辑通道名，value = SingleChannelContext）。</param>
     /// <param name="defaultChannelName">默认通道名。null 或用第一个注册的通道。</param>
     /// <exception cref="ArgumentException">channels 为空或 defaultChannelName 不在字典中。</exception>

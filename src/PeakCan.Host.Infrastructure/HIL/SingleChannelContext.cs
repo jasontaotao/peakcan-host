@@ -37,6 +37,9 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     /// <summary>物理通道 Id（底层 ICanChannel 的 ChannelId）。</summary>
     public ChannelId ChannelId => _channel.Id;
 
+    /// <summary>底层 ICanChannel 引用（internal，供测试验证多通道模式下默认通道与 DI singleton 共享同一实例）。</summary>
+    internal ICanChannel Channel => _channel;
+
     /// <summary>
     /// 连接底层通道（多通道模式由 MultiChannelAssertionContext.ConnectAllAsync 转发）。
     /// 单通道模式不经过此处（HilRunnerService 直接对默认 ICanChannel.ConnectAsync）。

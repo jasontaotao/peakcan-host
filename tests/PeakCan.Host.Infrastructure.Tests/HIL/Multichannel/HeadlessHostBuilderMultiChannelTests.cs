@@ -122,4 +122,26 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         Assert.Equal(new ChannelId(0x51), multi.ResolveChannelId("bus-a"));
         Assert.Equal(new ChannelId(0x52), multi.ResolveChannelId("bus-b"));
     }
+
+    [Fact]
+    public void Build_FirstChannel_ReusesDiSingleton_NoDoubleReader()
+    {
+        // 防回归：多通道模式下第一个 SingleChannelContext 必须复用 DI 默认 ICanChannel singleton
+        // （同一对象引用），否则同一物理 handle 有两个 PeakCanChannel → 双 InitializeFD + 双读循环竞争。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "USB1", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "USB2", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var diChannel = host.Services.GetRequiredService<ICanChannel>();
+        var multi = (MultiChannelAssertionContext)host.Services.GetRequiredService<IAssertionContext>();
+
+        // 第一个通道（bus-a）的底层 ICanChannel 就是 DI singleton（引用相等）
+        Assert.Same(diChannel, multi.GetChannel("bus-a").Channel);
+        // 第二个通道（bus-b）是独立 new 的（不同引用）
+        Assert.NotSame(diChannel, multi.GetChannel("bus-b").Channel);
+    }
 }

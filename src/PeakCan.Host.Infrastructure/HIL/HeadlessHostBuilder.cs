@@ -124,12 +124,18 @@ public static class HeadlessHostBuilder
             builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
+                var peakLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
                 var contexts = new Dictionary<string, SingleChannelContext>(StringComparer.Ordinal);
-                foreach (var cfg in multiCfg)
+                // 第一个通道复用 DI 注册的默认 ICanChannel singleton（同 handle，已在上面注册），
+                // 避免对同一物理 handle new 第二个 PeakCanChannel（double-InitializeFD + 双读循环竞争）。
+                // 其余通道各自 new PeakCanChannel（不同物理 handle，互不冲突）。
+                var defaultChannel = sp.GetRequiredService<ICanChannel>();
+                for (int i = 0; i < multiCfg.Count; i++)
                 {
-                    var handle = ResolveChannelHandle(cfg.Handle);
-                    var channel = new PeakCanChannel(new ChannelId(handle),
-                        sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>());
+                    var cfg = multiCfg[i];
+                    ICanChannel channel = i == 0
+                        ? defaultChannel
+                        : new PeakCanChannel(new ChannelId(ResolveChannelHandle(cfg.Handle)), peakLogger);
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     // cfg.DbcPath null → 回落到 args.DbcPath（默认 DBC，供无独立 DBC 的通道）。
                     var dbcPath = cfg.DbcPath ?? args.DbcPath;
