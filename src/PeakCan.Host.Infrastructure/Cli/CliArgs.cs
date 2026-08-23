@@ -1,3 +1,5 @@
+using PeakCan.HIL.Core.HIL;
+
 namespace PeakCan.Host.Infrastructure.Cli;
 
 /// <summary>
@@ -31,7 +33,10 @@ public sealed record CliArgs(
     // Phase 7 Unit B additions (external generator plugin directory):
     string? GeneratorDir = null,
     // Phase 7 Unit D additions (multi-bus gateway config):
-    string? GatewayPath = null);
+    string? GatewayPath = null,
+    // 2026-08-22: 多通道硬件声明（spec §3.4）。非空 = 多通道模式（每通道独立 handle/DBC/FD）；
+    // null = 旧单通道 HardwareChannel 路径。CLI 不直接解析（多通道主要走 WPF HilRunRequest 路径）。
+    IReadOnlyList<ChannelConfig>? HardwareChannels = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.

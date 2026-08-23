@@ -29,12 +29,13 @@ internal sealed class AssertFrameCountStepExecutor : IStepExecutor
         var since = _stats.Now;
         await Task.Delay(windowMs, ct);
         var now = _stats.Now;   // 上界收口（review M3）
-        var count = _stats.CountSince(p.Id, since, now);
+        // channelName 路由：null = 默认通道（单通道零回归）。
+        var count = _stats.CountSince(p.Id, since, now, p.TargetChannel);
         bool pass = count >= minCount && count <= maxCount;
         return new StepResult(0, step.Kind, step.Label, pass ? StepStatus.Passed : StepStatus.Failed,
             pass
                 ? $"Frame count {count} in [{minCount},{maxCount}]"
                 : $"Frame count {count} outside [{minCount},{maxCount}] in {windowMs}ms",
-            null, null, 0);
+            null, null, 0, Channel: p.TargetChannel);
     }
 }

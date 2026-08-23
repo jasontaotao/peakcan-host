@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
 
 namespace PeakCan.HIL.Core.HIL.Analysis;
@@ -31,6 +32,7 @@ public sealed class StepValidatorRegistry
     public IReadOnlyList<ValidationIssue> Validate(TestSuite suite)
     {
         var issues = new List<ValidationIssue>();
+        issues.AddRange(ValidateTargetChannels(suite));
         var suiteParamNames = suite.Parameters is { Count: > 0 } sp ? sp.Keys.ToList() : null;
         for (int c = 0; c < suite.Cases.Count; c++)
         {
@@ -63,6 +65,66 @@ public sealed class StepValidatorRegistry
         }
         return issues;
     }
+
+    /// <summary>
+    /// TargetChannel 校验（Q3）。
+    /// (a) suite 未声明 Channels + 任一 MVP 步骤带非空 TargetChannel → Critical
+    ///     （TargetChannel 必须引用 suite.Channels 声明的通道名）。
+    /// (b) 步骤 TargetChannel 引用了未声明的通道名 → Critical。
+    /// 单通道 suite（无 Channels、无 TargetChannel）零变化。
+    /// </summary>
+    private IEnumerable<ValidationIssue> ValidateTargetChannels(TestSuite suite)
+    {
+        // 声明的通道名集合（null/空 = 单通道，无声明）
+        var declared = suite.Channels is { Count: > 0 } chs
+            ? new HashSet<string>(chs.Select(c => c.Name), StringComparer.Ordinal)
+            : null;
+
+        foreach (var testCase in suite.Cases)
+        {
+            foreach (var step in testCase.Steps)
+            {
+                var target = TryGetTargetChannel(step.Parameters);
+                if (string.IsNullOrEmpty(target))
+                    continue; // 无 TargetChannel = 默认通道，合法
+
+                // (a) suite 未声明 Channels 却用 TargetChannel → Critical
+                if (declared is null)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Critical, "MC-1", "TargetChannel without suite.Channels",
+                        $"case '{testCase.Id}' step has TargetChannel='{target}' but the suite declares no Channels. " +
+                        $"Declare Channels at suite level before referencing a channel by name.",
+                        testCase.Id, testCase.Name);
+                    continue;
+                }
+
+                // (b) 引用未声明的通道名 → Critical
+                if (!declared.Contains(target))
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Critical, "MC-2", "TargetChannel not declared",
+                        $"case '{testCase.Id}' step TargetChannel='{target}' is not declared in suite.Channels. " +
+                        $"Declared channels: {string.Join(", ", declared)}.",
+                        testCase.Id, testCase.Name);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 从 StepParameters 提取 TargetChannel（仅 5 个 MVP 帧步骤类型有此字段；
+    /// 其余类型返回 null）。pattern match 避免 IAssertionContext cast。
+    /// </summary>
+    private static string? TryGetTargetChannel(StepParameters p) => p switch
+    {
+        SendFrameStep s => s.TargetChannel,
+        ExpectFrameStep s => s.TargetChannel,
+        AssertNoFrameStep s => s.TargetChannel,
+        AssertFrameCountStep s => s.TargetChannel,
+        AssertCycleTimeStep s => s.TargetChannel,
+        _ => null,
+    };
 
     /// <summary>是否存在 Critical 问题（用于拦运行/拦 AI 插入）。</summary>
     public bool HasCritical(TestSuite suite)

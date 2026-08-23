@@ -17,12 +17,16 @@ internal sealed class SendFrameStepExecutor : IStepExecutor
             var payload = p.AutoCounter is null && p.AutoChecksum is null
                 ? p.Data
                 : FrameAutoConfigProcessor.ApplyOneShot(p.Data, p.AutoCounter, p.AutoChecksum);
-            var result = await ctx.SendFrameAsync(new CanFrame(p.Id, payload, flags, default, default), ct);
+            // ChannelId 由 ctx 内填：SendFrameAsync(channelName, ...) 重载会把 frame.Channel
+            // 设为该通道的物理 ChannelId（避免 executor cast ctx 到 MultiChannelAssertionContext）。
+            // channelName null = 默认/唯一通道（单通道零回归）。
+            var result = await ctx.SendFrameAsync(
+                p.TargetChannel, new CanFrame(p.Id, payload, flags, default, default), ct);
 
             return new StepResult(0, step.Kind, step.Label,
                 result.IsSuccess ? StepStatus.Passed : StepStatus.Failed,
                 result.IsSuccess ? "Frame sent" : (result.Error?.Message ?? "SendFrame failed (no error detail)"),
-                null, null, 0);
+                null, null, 0, Channel: p.TargetChannel);
         }
         catch (Exception ex)
         {

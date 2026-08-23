@@ -57,7 +57,23 @@ public sealed class HilRunnerService : IHilRunnerService
         if (request.SelectedCaseNames is { Count: > 0 } selected)
             suite = suite with { Cases = suite.Cases.Where(c => selected.Contains(c.Name)).ToList() };
 
-        await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true, ct);
+        // 连接通道：多通道路径逐通道 connect（每通道独立 BaudRate/Fd，从 request.HardwareChannels 查）；
+        // 单通道路径维持原样（默认 ICanChannel，FD 1Mbps）。
+        if (ctx is MultiChannelAssertionContext multi && request.HardwareChannels is { Count: > 0 } hwCfgs)
+        {
+            var cfgByName = hwCfgs.ToDictionary(c => c.Name, c => (c.BaudRate, c.Fd), StringComparer.Ordinal);
+            await multi.ConnectAllAsync(name =>
+            {
+                // 已声明的通道用其 ChannelConfig；未找到（不应发生——ctx 与 cfgs 同源）回落默认。
+                if (cfgByName.TryGetValue(name, out var v) && v.BaudRate is not null)
+                    return (v.BaudRate, v.Fd);
+                return (BaudRate.CanFd1Mbps, true);
+            }, ct);
+        }
+        else
+        {
+            await channel.ConnectAsync(BaudRate.CanFd1Mbps, fd: true, ct);
+        }
 
         // 启动后台帧
         if (suite.BackgroundFrames is { Count: > 0 })

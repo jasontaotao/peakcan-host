@@ -26,11 +26,12 @@ internal sealed class AssertNoFrameStepExecutor : IStepExecutor
         var since = _stats.Now;
         await Task.Delay(windowMs, ct);
         var now = _stats.Now;   // 实际窗口终点（Delay 返回后）——上界收口，排除尾部间隙帧（review M3）
-        var count = _stats.CountSince(p.Id, since, now);
+        // channelName 路由：null = 默认通道（单通道零回归）。
+        var count = _stats.CountSince(p.Id, since, now, p.TargetChannel);
         return count == 0
             ? new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-                $"No frame 0x{p.Id.Raw:X} in {windowMs}ms", null, null, 0)
+                $"No frame 0x{p.Id.Raw:X} in {windowMs}ms", null, null, 0, Channel: p.TargetChannel)
             : new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"Expected 0 frames for 0x{p.Id.Raw:X} in {windowMs}ms, got {count}", null, null, 0);
+                $"Expected 0 frames for 0x{p.Id.Raw:X} in {windowMs}ms, got {count}", null, null, 0, Channel: p.TargetChannel);
     }
 }

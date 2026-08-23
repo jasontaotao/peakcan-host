@@ -19,10 +19,11 @@ internal sealed class ExpectFrameStepExecutor : IStepExecutor
     {
         var p = (ExpectFrameStep)step.Parameters;
         var timeoutMs = int.Parse(p.TimeoutMs, CultureInfo.InvariantCulture);
-        var result = await _primitives.WaitForFrameAsync(p.Id, p.DataMask, timeoutMs, ct);
+        // channelName 路由：null = 默认通道（单通道零回归）。
+        var result = await _primitives.WaitForFrameAsync(p.Id, p.DataMask, timeoutMs, p.TargetChannel, ct);
 
         return new StepResult(0, step.Kind, step.Label,
             result.Passed ? StepStatus.Passed : StepStatus.Failed,
-            result.Message, result.ActualValue, result.ExpectedValue, 0);
+            result.Message, result.ActualValue, result.ExpectedValue, 0, Channel: p.TargetChannel);
     }
 }

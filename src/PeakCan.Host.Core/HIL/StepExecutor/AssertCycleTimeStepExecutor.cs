@@ -32,11 +32,12 @@ internal sealed class AssertCycleTimeStepExecutor : IStepExecutor
         var windowEnd = since + windowMs;   // 单调 ms 直接相加
         await Task.Delay(windowMs, ct);
 
-        var s = _stats.GetIntervalStats(p.Id, since, windowEnd);
+        // channelName 路由：null = 默认通道（单通道零回归）。
+        var s = _stats.GetIntervalStats(p.Id, since, windowEnd, p.TargetChannel);
         // review L1: 至少 2 帧才有间隔；同时满足 MinSamples
         if (s.SampleCount < 2 || s.SampleCount < minSamples)
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"Only {s.SampleCount} frames for 0x{p.Id.Raw:X}, need >= {Math.Max(2, minSamples)} (window {windowMs}ms)", null, null, 0);
+                $"Only {s.SampleCount} frames for 0x{p.Id.Raw:X}, need >= {Math.Max(2, minSamples)} (window {windowMs}ms)", null, null, 0, Channel: p.TargetChannel);
 
         // review M1: 逐区间判定（所有间隔落在 [MinMs, MaxMs]），而非均值掩盖个别越界周期
         bool pass = s.MinMs >= minMs && s.MaxMs <= maxMs;
@@ -44,6 +45,6 @@ internal sealed class AssertCycleTimeStepExecutor : IStepExecutor
             pass
                 ? $"Cycle [{s.MinMs:F1},{s.MaxMs:F1}]ms in [{minMs},{maxMs}] (n={s.SampleCount})"
                 : $"Cycle [{s.MinMs:F1},{s.MaxMs:F1}]ms outside [{minMs},{maxMs}] (n={s.SampleCount})",
-            null, null, 0);
+            null, null, 0, Channel: p.TargetChannel);
     }
 }

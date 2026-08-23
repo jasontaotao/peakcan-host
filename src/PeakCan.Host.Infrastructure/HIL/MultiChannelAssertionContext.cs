@@ -65,11 +65,16 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
         => ResolveChannel(null).SendFrameAsync(frame, ct);
 
     /// <summary>按通道名发送（显式实现 override DIM 默认）。channelName null/空 = 默认通道。</summary>
+    /// <para>内填 ChannelId：转发前用 ResolveChannelId 把 frame.Channel 设为该通道的物理 ChannelId，
+    /// 这样 executor 无需 cast ctx，case log/报告拿到的帧带正确通道。</para>
     public ValueTask<Result<Unit>> SendFrameAsync(string? channelName, CanFrame frame, CancellationToken ct)
     {
         try
         {
-            return ResolveChannel(channelName).SendFrameAsync(channelName, frame, ct);
+            var ctx = ResolveChannel(channelName);
+            // Fill ChannelId from the resolved channel before forwarding.
+            var filled = frame with { Channel = ctx.ChannelId };
+            return ctx.SendFrameAsync(channelName, filled, ct);
         }
         catch (KeyNotFoundException)
         {
@@ -141,6 +146,20 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
     {
         var ctx = ResolveChannel(channelName, allowMissing: true);
         return ctx?.ChannelId ?? ChannelId.None;
+    }
+
+    /// <summary>
+    /// 连接所有通道（多通道模式，HilRunnerService 调用）。
+    /// resolver 按逻辑通道名返回 (BaudRate, Fd)——从 request.HardwareChannels 查。
+    /// null BaudRate = 回落到默认（调用方保证）。
+    /// </summary>
+    public async Task ConnectAllAsync(Func<string, (BaudRate? Baud, bool Fd)> resolver, CancellationToken ct)
+    {
+        foreach (var (name, ctx) in _channels)
+        {
+            var (baud, fd) = resolver(name);
+            await ctx.ConnectAsync(baud, fd, ct).ConfigureAwait(false);
+        }
     }
 
     // ── IDisposable ──

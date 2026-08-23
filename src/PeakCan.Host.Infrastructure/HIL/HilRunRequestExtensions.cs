@@ -31,6 +31,7 @@ public static class HilRunRequestExtensions
             ecuPath,
             r.EnableFaultInjection,
             matrixPath,
-            GeneratorDir: r.GeneratorDir);
+            GeneratorDir: r.GeneratorDir,
+            HardwareChannels: r.HardwareChannels);
     }
 }

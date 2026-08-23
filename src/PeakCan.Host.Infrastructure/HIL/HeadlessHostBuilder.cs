@@ -32,10 +32,25 @@ public static class HeadlessHostBuilder
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
-        System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
-        if (args.HardwareChannel is not null)
+        System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString())}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
+        if (args.HardwareChannels is { Count: > 0 } multiHw)
         {
-            // Hardware mode (Sprint 3)
+            // Multi-channel hardware mode (2026-08-22, spec §3.4): the FIRST channel is
+            // registered as the default ICanChannel singleton so single-channel-default
+            // dependencies (BackgroundFrameSender / IFrameStatistics / IsoTpLayer / UdsClient
+            // — UDS+stats multi-channel is deferred to Task 10/§3.4) resolve against the
+            // default bus. MultiChannelAssertionContext (registered below) owns ALL channels
+            // for per-step TargetChannel routing.
+            var defaultHandle = ParseChannelHandle(multiHw[0].Handle);
+            builder.Services.AddSingleton<ICanChannel>(sp =>
+            {
+                var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
+                return new PeakCanChannel(new ChannelId(defaultHandle), logger);
+            });
+        }
+        else if (args.HardwareChannel is not null)
+        {
+            // Hardware mode (Sprint 3) — single channel
             var handle = ParseChannelHandle(args.HardwareChannel);
             builder.Services.AddSingleton<ICanChannel>(sp =>
             {
@@ -97,7 +112,38 @@ public static class HeadlessHostBuilder
             new HeadlessDbcLookup(sp.GetRequiredService<DbcDocument>()));
 
         // Assertion context + UDS (hardware / virtual-ECU / matrix / trace)
-        if (args.HardwareChannel is not null)
+        if (args.HardwareChannels is { Count: > 0 } multiCfg)
+        {
+            // Multi-channel hardware mode (2026-08-22, spec §3.4): build one
+            // SingleChannelContext per ChannelConfig (own PeakCanChannel + own DBC +
+            // own ChannelName), and register MultiChannelAssertionContext as
+            // IAssertionContext. The default ICanChannel singleton (first channel) is
+            // already registered above for single-channel-default deps (UDS/stats/bg).
+            // UDS multi-channel is deferred (§3.4): IsoTpLayer/UdsClient bind to default.
+            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
+            {
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
+                var contexts = new Dictionary<string, SingleChannelContext>(StringComparer.Ordinal);
+                foreach (var cfg in multiCfg)
+                {
+                    var handle = ParseChannelHandle(cfg.Handle);
+                    var channel = new PeakCanChannel(new ChannelId(handle),
+                        sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>());
+                    // Per-channel DBC (Q8: each channel = one network = one DBC).
+                    // cfg.DbcPath null → 回落到 args.DbcPath（默认 DBC，供无独立 DBC 的通道）。
+                    var dbcPath = cfg.DbcPath ?? args.DbcPath;
+                    var dbcText = File.ReadAllText(dbcPath);
+                    var dbcDoc = PeakCan.HIL.Core.Dbc.DbcParser.Parse(dbcText);
+                    if (!dbcDoc.IsSuccess)
+                        throw new InvalidOperationException($"DBC parse failed for channel '{cfg.Name}' ('{dbcPath}'): {dbcDoc.Error?.Message}");
+                    var dbcLookup = new HeadlessDbcLookup(dbcDoc.Value!);
+                    contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name);
+                }
+                return new MultiChannelAssertionContext(contexts, defaultChannelName: multiCfg[0].Name);
+            });
+            RegisterUdsServices(builder, args);
+        }
+        else if (args.HardwareChannel is not null)
         {
             // Hardware mode: PeakCanAssertionContext + ISO-TP bridge + UDS
             builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>

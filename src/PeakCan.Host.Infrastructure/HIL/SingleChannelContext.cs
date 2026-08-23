@@ -37,6 +37,17 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     /// <summary>物理通道 Id（底层 ICanChannel 的 ChannelId）。</summary>
     public ChannelId ChannelId => _channel.Id;
 
+    /// <summary>
+    /// 连接底层通道（多通道模式由 MultiChannelAssertionContext.ConnectAllAsync 转发）。
+    /// 单通道模式不经过此处（HilRunnerService 直接对默认 ICanChannel.ConnectAsync）。
+    /// </summary>
+    internal Task ConnectAsync(BaudRate? baud, bool fd, CancellationToken ct)
+    {
+        // null baud = 调用方保证给具体值（ChannelConfig.BaudRate 或 suite 默认）。
+        var rate = baud ?? BaudRate.CanFd1Mbps;
+        return _channel.ConnectAsync(rate, fd, ct);
+    }
+
     public SingleChannelContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null, string? channelName = null)
     {
         _channel = channel;
@@ -105,12 +116,16 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     }
 
     /// <summary>按通道名发送（显式实现 override DIM 默认）。</summary>
+    /// <para>内填 ChannelId：frame.Channel 被设为本通道的物理 ChannelId，
+    /// 这样 executor 无需 cast ctx，case log/报告拿到的帧带正确通道。</para>
     public ValueTask<Result<Unit>> SendFrameAsync(string? channelName, CanFrame frame, CancellationToken ct)
     {
         if (!AcceptsChannelName(channelName))
             return ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.InvalidArgument,
                 $"Frame send rejected: channelName '{channelName}' does not match this SingleChannelContext ('{ChannelName ?? "<anonymous>"}')"));
-        return SendFrameAsync(frame, ct);
+        // Fill ChannelId from the underlying channel (executor leaves it default).
+        var filled = frame with { Channel = _channel.Id };
+        return SendFrameAsync(filled, ct);
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
