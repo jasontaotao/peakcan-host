@@ -132,125 +132,149 @@ public sealed partial class AppShellViewModel
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
     {
-        // v0.4.0: use SelectedChannel handle when available.
-        var handle = SelectedChannel?.Handle ?? DefaultHandle;
-        ConnectionState = "连接中...";
-        StatusMessage = $"正在连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
-        var channel = _channelFactory.Create(new ChannelId(handle));
-        try
+        // Task 3 (phase 2 A-3): best-effort multi-channel connect. Walk the
+        // pending configs (from IConnectSettingsSink.ApplyConnections); each
+        // group connects independently — a failure marks that slot red and
+        // continues, never blocking the rest. The legacy single-group path
+        // (DIM default → 1-element list) is behaviorally equivalent to the
+        // pre-T3 single-channel connect.
+        var configs = _pendingConfigs;
+        // 零回归兜底：旧单通道路径（工具栏直接 Connect，未走 ApplyConnections）→
+        // _pendingConfigs 空。回落到用 SelectedChannel（或 DefaultHandle 当未 probe）
+        // 构造单元素列表，行为等价旧 ConnectAsync（连 SelectedChannel + BaudRate + IsFd；
+        // SelectedChannel null 时旧码用 DefaultHandle，这里同样）。
+        if (configs.Count == 0)
         {
-            var result = await channel.ConnectAsync(SelectedBaudRate, fd: IsFd).ConfigureAwait(true);
-            if (result.IsSuccess)
+            var legacyCh = SelectedChannel ?? new ChannelInfo(DefaultHandle, "USB1");
+            configs = new[] { new ConnectionConfig(legacyCh, SelectedBaudRate, IsFd) };
+        }
+        ConnectionState = "连接中...";
+        StatusMessage = configs.Count > 1
+            ? $"正在连接 {configs.Count} 路 CAN..."
+            : $"正在连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
+
+        foreach (var cfg in configs)
+        {
+            if (cfg.Channel is null) continue; // null 组跳过
+            var handle = cfg.Channel.Handle;
+            var rate = cfg.BaudRate;
+            var channel = _channelFactory.Create(new ChannelId(handle));
+            try
             {
-                _activeChannel = channel;
-                _router.RegisterChannel(channel);
-                // v3.16.9.4 PATCH: subscribe to read-loop errors so bus-off /
-                // driver unload / hardware faults surface on the UI status
-                // bar. Event fires on the SDK read thread; the handler must
-                // marshal to the UI thread itself (we use the captured sync
-                // context to marshal back onto the UI thread).
-                channel.ReadLoopError += OnReadLoopError;
-                // Set IsConnected=true BEFORE publishing the channel to
-                // SendService so that any binding observer sees "connected"
-                // and an available channel atomically — no window where
-                // Send can fire against a channel the UI still considers
-                // disconnected. [ObservableProperty] setters fire
-                // PropertyChanged in order; this ordering keeps the
-                // Send button's CanExecute (when wired) consistent.
-                IsConnected = true;
-                ConnectionState = $"已连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
-                StatusMessage = "已连接";
-                _sendService.ActiveChannel = channel;
-                LogConnectOk(_logger, handle);
+                var result = await channel.ConnectAsync(rate, fd: cfg.IsFd).ConfigureAwait(true);
+                if (result.IsSuccess)
+                {
+                    _router.RegisterChannel(channel);
+                    // v3.16.9.4 PATCH: subscribe to read-loop errors so bus-off /
+                    // driver unload / hardware faults surface on the UI status
+                    // bar. Event fires on the SDK read thread; the handler must
+                    // marshal to the UI thread itself (we use the captured sync
+                    // context to marshal back onto the UI thread).
+                    channel.ReadLoopError += OnReadLoopError;
+                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate));
+                    LogConnectOk(_logger, handle);
+                }
+                else
+                {
+                    // 尽力式：该组标红跳过，不阻塞其余组。
+                    var err = result.Error!;
+                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate)
+                        { State = $"连接失败: {err.Code}" });
+                    StatusMessage = $"通道 {cfg.Channel.Name} 连接失败: {err.Code} {err.Message}";
+                    LogConnectFailed(_logger, handle, err.Code, err.Message);
+                    // PeakCanChannel ctor allocates a CancellationTokenSource
+                    // (used by the read loop). On a failed Connect the channel
+                    // never acquires the hardware, so the safe teardown is to
+                    // dispose it now rather than wait for GC.
+                    await channel.DisposeAsync().ConfigureAwait(true);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                ConnectionState = "已断开";
-                _sendService.ActiveChannel = null;
-                var err = result.Error!;
-                StatusMessage = $"Connect failed: {err.Code} {err.Message}";
-                LogConnectFailed(_logger, handle, err.Code, err.Message);
-                // PeakCanChannel ctor allocates a CancellationTokenSource
-                // (used by the read loop). On a failed Connect the channel
-                // never acquires the hardware, so the safe teardown is to
-                // dispose it now rather than wait for GC.
+                // 尽力式：该组标红，继续其余组。
+                ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate)
+                    { State = $"连接异常: {ex.GetType().Name}" });
+                StatusMessage = $"通道 {cfg.Channel.Name} 连接异常: {ex.GetType().Name}";
+                LogConnectThrew(_logger, handle, ex);
+                try { _router.UnregisterChannel(channel); }
+                catch (Exception unregEx)
+                {
+                    LogUnregisterFailed(_logger, handle, unregEx);
+                }
                 await channel.DisposeAsync().ConfigureAwait(true);
             }
         }
-        catch (Exception ex)
-        {
-            ConnectionState = "已断开";
-            StatusMessage = $"Connect exception: {ex.GetType().Name}";
-            LogConnectThrew(_logger, handle, ex);
-            // v3.8.8 PATCH F1: also unregister the channel from the
-            // router. RegisterChannel is a two-step operation in
-            // ChannelRouter (Add to _channels + event subscribe); if
-            // the subscribe step throws AFTER the Add, the channel
-            // stays in the router's sink list and frames keep fanning
-            // into a disposed sink. UnregisterChannel is idempotent
-            // (Remove is a no-op if the channel was never added), so
-            // it is safe to call on every catch. Best-effort wrapped
-            // so a router failure cannot prevent the channel dispose.
-            try { _router.UnregisterChannel(channel); }
-            catch (Exception unregEx)
-            {
-                LogUnregisterFailed(_logger, handle, unregEx);
-            }
-            // M1 fix: dispose the channel if RegisterChannel or any
-            // subsequent step threw after ConnectAsync succeeded. Without
-            // this, the channel (and its CTS + read-loop task) leaks until
-            // the next GC cycle.
-            await channel.DisposeAsync().ConfigureAwait(true);
-        }
+
+        // Publish the connected set to SendService (default target = first
+        // connected channel) and refresh the derived IsConnected + CanExecute.
+        var connected = ChannelConnections.Where(c => c.State == "已连接").ToList();
+        _sendService.SetChannels(connected.ToDictionary(c => c.Channel.Id, c => c.Channel));
+        _sendService.ActiveChannel = connected.FirstOrDefault()?.Channel;
+        var count = connected.Count;
+        ConnectionState = count > 0 ? $"已连接 {count} 路" : "已断开";
+        // 仅在至少一路成功时覆盖 StatusMessage；全失败时保留 catch/else 块
+        // 已设的 per-channel 错误消息（避免抹掉"连接异常/连接失败"诊断信息）。
+        if (count > 0)
+            StatusMessage = $"已连接 {count} 路";
+        NotifyConnectionStateChanged();
+    }
+
+    /// <summary>
+    /// Task 3 (C6 ruling): IsConnected is now a computed property (no
+    /// [ObservableProperty] setter), so the Connect/Disconnect CanExecute
+    /// chain the old source-gen property carried must be refreshed manually
+    /// whenever ChannelConnections changes. Called at the end of Connect/
+    /// Disconnect; cheap (4 notifications).
+    /// </summary>
+    private void NotifyConnectionStateChanged()
+    {
+        OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(IsDisconnected));
+        ConnectCommand.NotifyCanExecuteChanged();
+        DisconnectCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]
     private async Task DisconnectAsync()
     {
-        if (!IsConnected || _activeChannel is null) return;
-        StatusMessage = $"正在断开 {SelectedBaudRate.Name}";
+        // Task 3 (phase 2 A-3): disconnect every connected channel, unregister
+        // each from the router, unsubscribe read-loop errors, then clear the
+        // collection. Per-channel failures are swallowed (best-effort) so one
+        // dead channel does not leave the rest connected. Method name kept as
+        // DisconnectAsync so the generated DisconnectCommand binding is stable.
+        if (!IsConnected) return;
+        StatusMessage = "正在断开所有通道";
         ConnectionState = "断开中...";
-        try
+        var snapshot = ChannelConnections.ToList();
+        foreach (var conn in snapshot)
         {
-            await _activeChannel.DisconnectAsync().ConfigureAwait(true);
-            _router.UnregisterChannel(_activeChannel);
-            // v3.16.9.4 PATCH: unsubscribe from read-loop errors before
-            // dropping the channel reference. Without this, a subsequent
-            // Connect → Disconnect cycle would leave the old channel's
-            // ReadLoopError event holding a strong reference to this VM
-            // (closure pins the captured `this`). Match the source-gen
-            // delegate equality used by PeakCanChannel.ReadLoopError.
-            _activeChannel.ReadLoopError -= OnReadLoopError;
-            _sendService.ActiveChannel = null;
-            IsConnected = false;
-            ConnectionState = "已断开";
-            StatusMessage = "已断开";
-            LogDisconnectOk(_logger, DefaultHandle);
+            try
+            {
+                await conn.Channel.DisconnectAsync().ConfigureAwait(true);
+                LogDisconnectOk(_logger, conn.Channel.Id.Handle);
+            }
+            catch (Exception ex)
+            {
+                // DisconnectAsync swallows hardware failures per its own
+                // contract; surface the exception as a per-channel state so
+                // the operator sees which channel failed to disconnect.
+                conn.State = $"断开异常: {ex.GetType().Name}";
+                LogDisconnectThrew(_logger, conn.Channel.Id.Handle, ex);
+            }
+            try { _router.UnregisterChannel(conn.Channel); }
+            catch (Exception unregEx) { LogUnregisterFailed(_logger, conn.Channel.Id.Handle, unregEx); }
+            // v3.16.9.4 PATCH: unsubscribe read-loop errors before dropping
+            // the reference — match the source-gen delegate equality so the
+            // old channel's event does not pin this VM.
+            conn.Channel.ReadLoopError -= OnReadLoopError;
+            conn.State = "已断开";
         }
-        catch (Exception ex)
-        {
-            // DisconnectAsync swallows hardware failures per its own contract;
-            // any exception here is therefore unexpected. Surface it as a
-            // status message so the operator is not stuck in "Disconnecting".
-            // Reset every piece of state the success path resets: leaving
-            // IsConnected=true keeps the Disconnect button enabled against a
-            // dead channel; leaving the channel on the router keeps frames
-            // being routed to it; leaving SendService.ActiveChannel set
-            // targets the next manual send at a dead channel. Order matches
-            // the success path (UnregisterChannel → ActiveChannel=null →
-            // IsConnected=false) so the two paths produce identical state
-            // transitions from an observer's point of view.
-            _router.UnregisterChannel(_activeChannel);
-            _sendService.ActiveChannel = null;
-            IsConnected = false;
-            ConnectionState = "已断开";
-            StatusMessage = $"Disconnect exception: {ex.GetType().Name}";
-            LogDisconnectThrew(_logger, DefaultHandle, ex);
-        }
-        finally
-        {
-            _activeChannel = null;
-        }
+        ChannelConnections.Clear();
+        _sendService.SetChannels(null);
+        _sendService.ActiveChannel = null;
+        ConnectionState = "已断开";
+        StatusMessage = "已断开";
+        NotifyConnectionStateChanged();
     }
 
     private bool CanDisconnect() => IsConnected;
