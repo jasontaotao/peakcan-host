@@ -56,6 +56,58 @@
         <TextBlock Text="标准帧 / 扩展帧是每帧属性，发送时选择，不在此配置。"
                    Foreground="{StaticResource TextSecondary}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,16" />
 
+        <!-- Task 4 (phase 2 A-2): 额外通道行（首组=上方单组字段，此处为多通道追加行） -->
+        <Separator Margin="0,0,0,8" />
+        <TextBlock Text="额外通道" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <ItemsControl ItemsSource="{Binding ExtraRows}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1" Padding="0,4">
+                        <StackPanel Margin="0,0,0,8">
+                            <!-- 设备类型（每行可独立选） -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="设备类型" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding Devices}"
+                                          SelectedItem="{Binding SelectedDevice}" DisplayMemberPath="DisplayName" />
+                            </Grid>
+                            <!-- 通道 -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="通道" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding Channels}" SelectedItem="{Binding SelectedChannel}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock>
+                                                <Run Text="{Binding Name}" />
+                                                <Run Text=" (0x" /><Run Text="{Binding Handle, StringFormat=X2}" /><Run Text=")" />
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </Grid>
+                            <!-- CAN 模式 -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="CAN 模式" VerticalAlignment="Center"/>
+                                <CheckBox Grid.Column="1" Content="启用 CAN FD" IsChecked="{Binding IsFd}" VerticalAlignment="Center" />
+                            </Grid>
+                            <!-- 波特率 -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding RateLabel}" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableBaudRates}"
+                                          SelectedItem="{Binding SelectedBaudRate}" DisplayMemberPath="Name" />
+                            </Grid>
+                            <Button Content="移除该通道" Command="{Binding DataContext.RemoveChannelCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding}" Padding="8,2" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="+ 添加通道" Command="{Binding AddChannelCommand}" Padding="8,2" HorizontalAlignment="Left" Margin="0,0,0,12" />
+
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="应用并连接" Command="{Binding ApplyAndConnectCommand}"
                     Padding="14,5" Margin="0,0,8,0" IsDefault="True" />

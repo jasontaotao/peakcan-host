@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -145,11 +146,47 @@ public partial class ConnectionSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Task 4 (phase 2 A-2): extra channel rows beyond the first (the first
+    /// group is still the legacy single-group fields above, so existing
+    /// single-channel callers/tests keep working). Each AddChannel appends a
+    /// row; RemoveChannel drops one.
+    /// </summary>
+    public ObservableCollection<ChannelRow> ExtraRows { get; } = new();
+
+    [RelayCommand]
+    private void AddChannel()
+    {
+        // 新行复用同一设备枚举（多 CAN 盒混插时用户可改每行设备）。
+        ExtraRows.Add(new ChannelRow(Devices));
+    }
+
+    [RelayCommand]
+    private void RemoveChannel(ChannelRow? row)
+    {
+        if (row is not null)
+            ExtraRows.Remove(row);
+    }
+
     [RelayCommand]
     private void ApplyAndConnect()
     {
-        var match = _sink.AvailableChannels.FirstOrDefault(c => c.Handle == SelectedChannel?.Handle);
-        _sink.ApplyConnection(match, SelectedBaudRate, IsFd);
+        // Task 4: collect the first group (legacy single-group fields) + any
+        // extra rows into a ConnectionConfig list → ApplyConnections. The
+        // shell's best-effort loop connects each; legacy single-channel path
+        // (no extra rows) yields a 1-element list, behaviorally equivalent to
+        // the pre-T4 ApplyConnection call (DIM default forwards single→list).
+        var available = _sink.AvailableChannels;
+        var configs = new List<ConnectionConfig>
+        {
+            // 首组：既有单组字段
+            new(_sink.AvailableChannels.FirstOrDefault(c => c.Handle == SelectedChannel?.Handle),
+                SelectedBaudRate, IsFd),
+        };
+        // 额外行：各自匹配 handle
+        foreach (var row in ExtraRows)
+            configs.Add(new ConnectionConfig(row.MatchChannel(available), row.SelectedBaudRate, row.IsFd));
+        _sink.ApplyConnections(configs);
         _sink.Connect();
     }
 }

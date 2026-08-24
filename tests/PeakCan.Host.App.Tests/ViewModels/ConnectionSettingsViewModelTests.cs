@@ -127,11 +127,12 @@ public sealed class ConnectionSettingsViewModelTests
         // Act
         vm.ApplyAndConnectCommand.Execute(null);
 
-        // Assert
-        sink.Received(1).ApplyConnection(
-            Arg.Is<ChannelInfo>(c => c.Handle == 0x52),
-            FdRates[1],
-            true);
+        // Assert — T4: ApplyAndConnect now calls ApplyConnections (list form).
+        // The DIM default ApplyConnection forwards to it; single-group path
+        // yields a 1-element list, behaviorally equivalent to the pre-T4 call.
+        sink.Received(1).ApplyConnections(
+            Arg.Is<IReadOnlyList<ConnectionConfig>>(list =>
+                list.Count == 1 && list[0].Channel != null && list[0].Channel!.Handle == 0x52 && list[0].IsFd));
         sink.Received(1).Connect();
     }
 
@@ -146,8 +147,60 @@ public sealed class ConnectionSettingsViewModelTests
         // Act
         vm.ApplyAndConnectCommand.Execute(null);
 
-        // Assert — null channel written through; Connect still fired.
-        sink.Received(1).ApplyConnection(null, Arg.Any<BaudRate>(), true);
+        // Assert — null channel in the single-group config; Connect still fired.
+        sink.Received(1).ApplyConnections(
+            Arg.Is<IReadOnlyList<ConnectionConfig>>(list =>
+                list.Count == 1 && list[0].Channel == null));
+        sink.Received(1).Connect();
+    }
+
+    // ── Task 4: 多通道弹窗 UI（A-2）──────────
+
+    [Fact]
+    public void AddChannel_IncrementsRows_RemoveChannel_Decrements()
+    {
+        var sink = Substitute.For<IConnectSettingsSink>();
+        sink.AvailableChannels.Returns(new[] { new ChannelInfo(0x51, "CH0") });
+        var vm = NewVm(sink);
+
+        vm.ExtraRows.Should().BeEmpty();
+        vm.AddChannelCommand.Execute(null);
+        vm.ExtraRows.Should().HaveCount(1);
+        vm.AddChannelCommand.Execute(null);
+        vm.ExtraRows.Should().HaveCount(2);
+
+        var first = vm.ExtraRows[0];
+        vm.RemoveChannelCommand.Execute(first);
+        vm.ExtraRows.Should().HaveCount(1);
+        vm.ExtraRows.Should().NotContain(first);
+    }
+
+    [Fact]
+    public void ApplyAndConnect_MultipleRows_CollectsAllConfigs_ToSink()
+    {
+        // 首组（VM 单组字段）+ 1 额外行 → ApplyConnections 收到 2 个 config。
+        var sink = Substitute.For<IConnectSettingsSink>();
+        sink.AvailableChannels.Returns(new[]
+        {
+            new ChannelInfo(0x51, "CH0"),
+            new ChannelInfo(0x52, "CH1"),
+        });
+        var vm = NewVm(sink);
+        // 首组：CH1 (0x52)
+        vm.SelectedChannel = vm.Channels[1];
+
+        // 额外行 1
+        vm.AddChannelCommand.Execute(null);
+        var row = vm.ExtraRows[0];
+        row.SelectedChannel = row.Channels[0]; // CH0 → 0x51
+
+        vm.ApplyAndConnectCommand.Execute(null);
+
+        sink.Received(1).ApplyConnections(
+            Arg.Is<IReadOnlyList<ConnectionConfig>>(list =>
+                list.Count == 2
+                && list.Any(c => c.Channel != null && c.Channel!.Handle == 0x52)
+                && list.Any(c => c.Channel != null && c.Channel!.Handle == 0x51)));
         sink.Received(1).Connect();
     }
 }
