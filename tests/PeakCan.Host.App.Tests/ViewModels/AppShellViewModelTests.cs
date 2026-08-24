@@ -1435,4 +1435,38 @@ public class AppShellViewModelTests
         shell.ShowTraceViewerCommand.Should().NotBeNull();
         shell.ShowTraceViewerCommand.CanExecute(null).Should().BeTrue();
     }
+
+    // ── Task 2: IConnectSettingsSink 列表契约 + ConnectionConfig（A-1）──────────
+
+    [Fact]
+    public void ApplyConnections_List_Form_RoutesToShellState()
+    {
+        // 多通道契约层：ApplyConnections(IReadOnlyList<ConnectionConfig>) 显式实现
+        // 不抛 + 存首组到旧 SelectedChannel/BaudRate/IsFd（兼容工具栏绑定）。
+        var shell = NewVm();
+        var cfg = new ConnectionConfig(
+            new ChannelInfo(0x51, "USB1"), BaudRate.CanFd1Mbps, true);
+
+        ((IConnectSettingsSink)shell).ApplyConnections(new[] { cfg });
+
+        // 首组回写旧单通道字段（T3 才真正存多通道列表，T2 验契约路由 + 首组回写）
+        shell.SelectedChannel.Should().NotBeNull();
+        shell.SelectedChannel!.Handle.Should().Be((ushort)0x51);
+        shell.IsFd.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyConnection_LegacySingle_DelegatesToListForm()
+    {
+        // 零回归：旧单组 ApplyConnection 经 DIM 默认转发到 ApplyConnections（单元素）。
+        // 移除旧显式实现后，DIM 默认接管——行为等价旧单组路径。
+        var shell = NewVm();
+
+        ((IConnectSettingsSink)shell).ApplyConnection(
+            new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false);
+
+        // 不抛即通过；首组回写旧字段
+        shell.SelectedChannel!.Handle.Should().Be((ushort)0x52);
+        shell.IsFd.Should().BeFalse();
+    }
 }

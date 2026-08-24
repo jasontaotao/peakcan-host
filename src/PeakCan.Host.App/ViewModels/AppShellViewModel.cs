@@ -178,6 +178,15 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// <summary>Active channel after a successful Connect command; null otherwise.</summary>
     private ICanChannel? _activeChannel;
 
+    /// <summary>
+    /// Task 2 (phase 2 A-1): pending multi-channel configs collected by
+    /// <see cref="IConnectSettingsSink.ApplyConnections"/>; <see cref="ConnectAsync"/>
+    /// (T3) reads this list to drive the best-effort multi-channel connect loop.
+    /// Empty before any Apply call; the legacy single-group path (DIM default)
+    /// forwards a single-element list here.
+    /// </summary>
+    private IReadOnlyList<ConnectionConfig> _pendingConfigs = Array.Empty<ConnectionConfig>();
+
     /// <summary>Last known probe result. Connect is enabled only when this is "USB1 ...".</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
@@ -419,12 +428,21 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         }
     }
 
-    void IConnectSettingsSink.ApplyConnection(ChannelInfo? channel, BaudRate baudRate, bool isFd)
+    void IConnectSettingsSink.ApplyConnections(IReadOnlyList<ConnectionConfig> configs)
     {
-        SelectedChannel = channel;
-        SelectedBaudRate = baudRate;
-        IsFd = isFd;
+        _pendingConfigs = configs ?? Array.Empty<ConnectionConfig>();
+        // 兼容旧单通道 UI 绑定：工具栏 ComboBox 仍绑 SelectedChannel/BaudRate/IsFd，
+        // 取首组回写（T3 才真正存多通道列表驱动 ConnectAsync；T2 契约层先回写首组）。
+        if (_pendingConfigs.Count > 0)
+        {
+            var first = _pendingConfigs[0];
+            SelectedChannel = first.Channel;
+            SelectedBaudRate = first.BaudRate;
+            IsFd = first.IsFd;
+        }
     }
+    // 旧 ApplyConnection 显式实现移除：IConnectSettingsSink 的 DIM 默认方法接管，
+    // 转发到 ApplyConnections（单元素）——既有单通道调用方/测试行为不变。
 
     void IConnectSettingsSink.Connect()
     {

@@ -13,6 +13,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// channel/baud/FD state + Connect flow) — an interface so the panel VM is
 /// unit-testable without constructing a real shell, and to avoid a DI
 /// circular dependency (shell ⇄ panel VM).
+/// <para>
+/// Task 2 (phase 2 A-1): multi-channel list contract. <see cref="ApplyConnections"/>
+/// takes a list of <see cref="ConnectionConfig"/> (one per CAN channel); the
+/// legacy single-group <see cref="ApplyConnection"/> is kept as a default
+/// interface method that forwards to the list form with a single element —
+/// zero regression for existing single-channel callers/tests.
+/// </para>
 /// </summary>
 public interface IConnectSettingsSink
 {
@@ -22,11 +29,32 @@ public interface IConnectSettingsSink
     /// first use) so a channel chosen here can be matched to a handle.</summary>
     void ProbeChannels();
 
-    void ApplyConnection(ChannelInfo? channel, BaudRate baudRate, bool isFd);
+    /// <summary>
+    /// 多通道列表形式（phase 2 A-1）。shell 逐组尽力式连接，失败该组跳过不阻塞其余。
+    /// </summary>
+    void ApplyConnections(IReadOnlyList<ConnectionConfig> configs);
+
+    /// <summary>
+    /// 旧单组形式（DIM 默认转发到 <see cref="ApplyConnections"/>，单元素）——
+    /// 零回归：既有单通道调用方/测试行为不变。channel 可空（对齐旧契约），
+    /// null 时空列表转发。
+    /// </summary>
+    void ApplyConnection(ChannelInfo? channel, BaudRate baudRate, bool isFd)
+        => ApplyConnections(channel is null
+            ? Array.Empty<ConnectionConfig>()
+            : new[] { new ConnectionConfig(channel, baudRate, isFd) });
 
     /// <summary>Trigger the shell's Connect flow (no-op when not connectable).</summary>
     void Connect();
 }
+
+/// <summary>
+/// Task 2 (phase 2 A-1): one CAN channel's connection parameters.
+/// <see cref="Channel"/> is nullable to align with the legacy
+/// <see cref="IConnectSettingsSink.ApplyConnection"/> contract (null channel
+/// means "skip this group" — the shell's best-effort loop ignores it).
+/// </summary>
+public sealed record ConnectionConfig(ChannelInfo? Channel, BaudRate BaudRate, bool IsFd);
 
 /// <summary>
 /// P1-2/D6: connection-settings panel view model. Fields are driven by the
