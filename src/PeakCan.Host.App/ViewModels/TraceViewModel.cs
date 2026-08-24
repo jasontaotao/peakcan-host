@@ -104,6 +104,15 @@ public sealed partial class TraceViewModel : ObservableObject
     private bool _showErrorsOnly;
 
     /// <summary>
+    /// Task 7 (phase 2 A-5): channel filter. null = show all channels (zero
+    /// regression). Set to a ChannelId to suppress frames from other channels
+    /// in the trace. Applied alongside FilterText + ShowErrorsOnly in
+    /// ReceptionFlow; data plane (ChannelRouter) is unchanged.
+    /// </summary>
+    [ObservableProperty]
+    private ChannelId? _channelFilter;
+
+    /// <summary>
     /// When true, new frames are not appended to the trace.
     /// Counter updates still happen.
     /// </summary>

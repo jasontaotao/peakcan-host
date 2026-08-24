@@ -44,19 +44,20 @@ public class TraceViewModelTests
     public TraceViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
 
     private static CanFrame MakeFrame(uint id = 0x123, byte dlc = 4, bool fd = false, bool error = false, bool rtr = false)
+        => MakeFrameOnChannel(0x51, id, dlc, fd, error, rtr);
+
+    /// <summary>Task 7: frame on a specific channel (for channel-filter tests).</summary>
+    private static CanFrame MakeFrameOnChannel(ushort channelHandle, uint id = 0x123, byte dlc = 4, bool fd = false, bool error = false, bool rtr = false)
     {
         byte[] payload = dlc == 0 ? Array.Empty<byte>() : new byte[dlc];
         var flags = FrameFlags.None;
         if (fd) flags |= FrameFlags.Fd;
         if (error) flags |= FrameFlags.ErrFrame;
-        // v1.2.11 PATCH Item 1: RTR uses empty payload per CAN spec;
-        // override dlc=0 callers if rtr=true.
         if (rtr) { flags |= FrameFlags.Rtr; payload = Array.Empty<byte>(); }
         return new CanFrame(
             new CanId(id, FrameFormat.Standard),
-            payload,
-            flags,
-            new ChannelId(0x51),
+            payload, flags,
+            new ChannelId(channelHandle),
             Timestamp.FromMicroseconds(1_000_000UL));
     }
 
@@ -290,5 +291,44 @@ public class TraceViewModelTests
         k1.Should().Be(k2, "same (id, timestamp, channel) → equal keys");
         k1.Should().NotBe(k3, "different timestamp → different keys");
         k1.Should().NotBe(k4, "different channel → different keys");
+    }
+
+    // ── Task 7 (phase 2 A-5): Trace 通道过滤 ──────────────
+
+    [Fact]
+    public void PassesFilters_NoChannelFilter_ShowsAll_Channels()
+    {
+        // 零回归：ChannelFilter null → 所有通道帧都通过
+        var vm = new TraceViewModel();
+        var busA = MakeFrameOnChannel(0x51, id: 0x100);
+        var busB = MakeFrameOnChannel(0x52, id: 0x200);
+
+        vm.PassesFilters(busA).Should().BeTrue();
+        vm.PassesFilters(busB).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PassesFilters_ChannelFilterSet_HidesOtherChannelFrames()
+    {
+        var vm = new TraceViewModel { ChannelFilter = new ChannelId(0x51) };
+        var busA = MakeFrameOnChannel(0x51, id: 0x100);
+        var busB = MakeFrameOnChannel(0x52, id: 0x200);
+
+        vm.PassesFilters(busA).Should().BeTrue("bus-a 匹配 ChannelFilter → 显示");
+        vm.PassesFilters(busB).Should().BeFalse("bus-b 不匹配 → 过滤");
+    }
+
+    [Fact]
+    public void PassesFilters_ChannelFilter_CombinesWith_HexPrefixFilter()
+    {
+        // 复合过滤：hex prefix + channel 都要满足
+        var vm = new TraceViewModel { FilterText = "1A", ChannelFilter = new ChannelId(0x51) };
+        var match = MakeFrameOnChannel(0x51, id: 0x1A3);   // 通道 + hex 都匹配
+        var wrongChannel = MakeFrameOnChannel(0x52, id: 0x1A3); // hex 匹配但通道不对
+        var wrongHex = MakeFrameOnChannel(0x51, id: 0x200);      // 通道对但 hex 不匹配
+
+        vm.PassesFilters(match).Should().BeTrue();
+        vm.PassesFilters(wrongChannel).Should().BeFalse("通道不匹配");
+        vm.PassesFilters(wrongHex).Should().BeFalse("hex 不匹配");
     }
 }
