@@ -45,20 +45,11 @@ public sealed partial class TraceViewModel
                 // v0.9.2: pause still tracks counts but skips display.
                 if (IsPaused) continue;
 
-                // v0.6.0: apply hex-prefix filter. If FilterText is non-empty,
-                // only append frames whose ID hex starts with the pattern.
-                if (FilterText.Length > 0)
-                {
-                    var idHex = f.Id.Raw.ToString("X", System.Globalization.CultureInfo.InvariantCulture);
-                    if (!idHex.StartsWith(FilterText, StringComparison.OrdinalIgnoreCase))
-                    {
-                        FilteredCount++;
-                        continue;
-                    }
-                }
-
-                // v0.9.2: error-only filter.
-                if (ShowErrorsOnly && !f.IsError)
+                // v0.6.0/v0.9.2/Task 7: composite display filter (hex prefix +
+                // error-only + channel). Extracted to PassesFilters for unit
+                // testing on MTA (the AppendBatchAsync dispatcher hop makes
+                // the inline path STA-only).
+                if (!PassesFilters(f))
                 {
                     FilteredCount++;
                     continue;
@@ -90,5 +81,30 @@ public sealed partial class TraceViewModel
             }
             while (Entries.Count > MaxRows) Entries.RemoveAt(0);
         }).Task;
+    }
+
+    /// <summary>
+    /// Task 7 (phase 2 A-5): composite display filter — hex-prefix (FilterText)
+    /// + error-only (ShowErrorsOnly) + channel (ChannelFilter). Returns true
+    /// when the frame should be shown. Extracted from the inline AppendBatchAsync
+    /// loop so it is unit-testable on MTA (the dispatcher hop makes the inline
+    /// path STA-only). Zero regression: all three filters default to "show all".
+    /// </summary>
+    internal bool PassesFilters(CanFrame f)
+    {
+        // v0.6.0: hex-prefix filter.
+        if (FilterText.Length > 0)
+        {
+            var idHex = f.Id.Raw.ToString("X", System.Globalization.CultureInfo.InvariantCulture);
+            if (!idHex.StartsWith(FilterText, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        // v0.9.2: error-only filter.
+        if (ShowErrorsOnly && !f.IsError)
+            return false;
+        // Task 7: channel filter. null = show all (zero regression).
+        if (ChannelFilter is { } cf && f.Channel != cf)
+            return false;
+        return true;
     }
 }

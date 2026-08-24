@@ -20,6 +20,14 @@
             <TextBlock Text=" (上限: " VerticalAlignment="Center" Margin="4,0,0,0" Foreground="{StaticResource TextSecondary}" />
             <TextBlock Text="{Binding MaxRows}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
             <TextBlock Text=" 行)" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
+            <!-- Task 7 (phase 2 A-5): 通道过滤（留空=全部通道，零回归） -->
+            <TextBlock Text="  通道:" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <ComboBox MinWidth="100"
+                      ItemsSource="{Binding DataContext.ChannelConnections, RelativeSource={RelativeSource AncestorType=Window}}"
+                      DisplayMemberPath="Name"
+                      SelectedValuePath="Channel.Id"
+                      SelectedValue="{Binding ChannelFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      ToolTip="留空=显示全部通道" />
         </StackPanel>
         <!-- v0.9.2: highlight bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,4">

@@ -384,12 +384,16 @@ public class AppShellViewModelTests
     }
 
     [Fact]
-    public void DisconnectCommand_Is_Enabled_When_IsConnected_Is_True()
+    public async Task DisconnectCommand_Is_Enabled_When_IsConnected_Is_True()
     {
+        // T3: IsConnected is now a computed property (no settable backing field),
+        // so the old reflection-SetValue hack no longer works. Drive a real
+        // successful Connect (fake factory) to flip IsConnected true, then the
+        // Disconnect CanExecute must be enabled.
         var vm = NewVm();
-        typeof(AppShellViewModel)
-            .GetProperty(nameof(AppShellViewModel.IsConnected))!
-            .SetValue(vm, true);
+        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeTrue();
         vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
     }
 
@@ -861,7 +865,9 @@ public class AppShellViewModelTests
         // was disposed rather than leaked.
         vm.IsConnected.Should().BeFalse();
         vm.ConnectionState.Should().Be("已断开");
-        vm.StatusMessage.Should().Contain("Connect exception");
+        // T3: catch block now sets Chinese StatusMessage ("连接异常") instead of
+        // the legacy English "Connect exception". Either conveys the same fault.
+        vm.StatusMessage.Should().Contain("连接异常");
         factory.LastCreated!.WasDisposed.Should().BeTrue(
             "M1 fix: catch block must dispose the channel after ConnectAsync throws");
     }
@@ -993,7 +999,9 @@ public class AppShellViewModelTests
         // AND the channel was disposed (M1 fix).
         await act.Should().NotThrowAsync();
         vm.IsConnected.Should().BeFalse();
-        vm.StatusMessage.Should().Contain("Connect exception");
+        // T3: catch block sets Chinese StatusMessage ("连接异常"); legacy asserted
+        // the English "Connect exception" — same fault, localized文案.
+        vm.StatusMessage.Should().Contain("连接异常");
         GetRegisteredChannelCount(router).Should().Be(0,
             "v3.8.8 F1 fix: catch block must call _router.UnregisterChannel(channel) so a partially-registered channel is removed from the router's sink list");
         factory.LastCreated!.WasDisposed.Should().BeTrue(
@@ -1434,5 +1442,157 @@ public class AppShellViewModelTests
             "P0-3: AppShellViewModel must expose the WindowHostService seam");
         shell.ShowTraceViewerCommand.Should().NotBeNull();
         shell.ShowTraceViewerCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    // ── Task 2: IConnectSettingsSink 列表契约 + ConnectionConfig（A-1）──────────
+
+    [Fact]
+    public void ApplyConnections_List_Form_RoutesToShellState()
+    {
+        // 多通道契约层：ApplyConnections(IReadOnlyList<ConnectionConfig>) 显式实现
+        // 不抛 + 存首组到旧 SelectedChannel/BaudRate/IsFd（兼容工具栏绑定）。
+        var shell = NewVm();
+        var cfg = new ConnectionConfig(
+            new ChannelInfo(0x51, "USB1"), BaudRate.CanFd1Mbps, true);
+
+        ((IConnectSettingsSink)shell).ApplyConnections(new[] { cfg });
+
+        // 首组回写旧单通道字段（T3 才真正存多通道列表，T2 验契约路由 + 首组回写）
+        shell.SelectedChannel.Should().NotBeNull();
+        shell.SelectedChannel!.Handle.Should().Be((ushort)0x51);
+        shell.IsFd.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyConnection_LegacySingle_DelegatesToListForm()
+    {
+        // 零回归：旧单组 ApplyConnection 经 DIM 默认转发到 ApplyConnections（单元素）。
+        // 移除旧显式实现后，DIM 默认接管——行为等价旧单组路径。
+        var shell = NewVm();
+
+        ((IConnectSettingsSink)shell).ApplyConnection(
+            new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false);
+
+        // 不抛即通过；首组回写旧字段
+        shell.SelectedChannel!.Handle.Should().Be((ushort)0x52);
+        shell.IsFd.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Review H2 fix: ApplyConnection(null, ...) 旧置 SelectedChannel=null。
+    /// DIM 默认转发单元素列表（含 null Channel），ApplyConnections 首组回写
+    /// null → SelectedChannel 被置 null（旧行为保持）。空列表转发会使
+    /// Count>0 守卫不触发，SelectedChannel 残留旧值——回归。
+    /// </summary>
+    [Fact]
+    public void ApplyConnection_NullChannel_WritesSelectedChannelNull()
+    {
+        var shell = NewVm();
+        // 先设一个非 null SelectedChannel（模拟用户先选了通道）
+        shell.SelectedChannel = new ChannelInfo(0x52, "USB2");
+        shell.SelectedChannel.Should().NotBeNull();
+
+        // Act: 旧单组 ApplyConnection 传 null channel
+        ((IConnectSettingsSink)shell).ApplyConnection(
+            null, BaudRate.Can500kbps, false);
+
+        // Assert: SelectedChannel 被置 null（旧行为保持，H2 回归修复）
+        shell.SelectedChannel.Should().BeNull();
+    }
+
+    // ── Task 3: 多槽位 ChannelConnection + 尽力式连接（A-3）──────────
+
+    /// <summary>
+    /// Factory that fails Connect for a configurable handle, succeeds the rest.
+    /// Lets the best-effort test simulate "second group fails" without hardware.
+    /// </summary>
+    private sealed class SelectiveFailFactory : IChannelFactory
+    {
+        private readonly ushort _failHandle;
+        public int CreatedCount { get; private set; }
+        public SelectiveFailFactory(ushort failHandle) { _failHandle = failHandle; }
+        public ICanChannel Create(ChannelId id)
+        {
+            CreatedCount++;
+            return id.Handle == _failHandle
+                ? new FailingFakeCanChannel(id)
+                : new FakeCanChannel(id);
+        }
+    }
+
+    /// <summary>Channel whose ConnectAsync always fails (simulates hardware fault).</summary>
+    private sealed class FailingFakeCanChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
+        public FailingFakeCanChannel(ChannelId id) { Id = id; }
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+            => Task.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "fake connect fail"));
+        public Task DisconnectAsync(CancellationToken ct = default) { IsConnected = false; return Task.CompletedTask; }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [Fact]
+    public async Task ConnectAsync_MultiConfigs_BestEffort_AllSucceed_RegistersAll()
+    {
+        // 2 组 ConnectionConfig，FakeChannelFactory 造 2 个都成功的 channel。
+        var shell = NewVmWithFactory(new FakeChannelFactory());
+        var cfgs = new[] {
+            new ConnectionConfig(new ChannelInfo(0x51, "USB1"), BaudRate.CanFd1Mbps, true),
+            new ConnectionConfig(new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false),
+        };
+        ((IConnectSettingsSink)shell).ApplyConnections(cfgs);
+
+        await shell.ConnectCommand.ExecuteAsync(null);
+
+        shell.ChannelConnections.Should().HaveCount(2);
+        shell.IsConnected.Should().BeTrue();
+        shell.ChannelConnections.Should().OnlyContain(c => c.State == "已连接");
+    }
+
+    [Fact]
+    public async Task ConnectAsync_MultiConfigs_SecondFails_BestEffort_KeepsFirst()
+    {
+        // 第二组（0x52）ConnectAsync 返 Fail → 尽力式标红跳过，第一组保留。
+        var shell = NewVmWithFactory(new SelectiveFailFactory(failHandle: 0x52));
+        var cfgs = new[] {
+            new ConnectionConfig(new ChannelInfo(0x51, "USB1"), BaudRate.CanFd1Mbps, true),
+            new ConnectionConfig(new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false),
+        };
+        ((IConnectSettingsSink)shell).ApplyConnections(cfgs);
+
+        await shell.ConnectCommand.ExecuteAsync(null);
+
+        // 第一组成功保留，第二组标红；整体仍 IsConnected（至少一路成功）
+        shell.ChannelConnections.Should().HaveCount(2);
+        shell.IsConnected.Should().BeTrue("第一组成功 → 至少一路已连接");
+        shell.ChannelConnections.Should().Contain(c => c.Channel.Id.Handle == 0x51 && c.State == "已连接");
+        shell.ChannelConnections.Should().Contain(c => c.Channel.Id.Handle == 0x52 && c.State.Contains("连接失败"));
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_ClearsAllChannels_AndResetsState()
+    {
+        // 连 2 路后 DisconnectAsync → ChannelConnections 清空 + IsConnected false
+        var shell = NewVmWithFactory(new FakeChannelFactory());
+        var cfgs = new[] {
+            new ConnectionConfig(new ChannelInfo(0x51, "USB1"), BaudRate.CanFd1Mbps, true),
+            new ConnectionConfig(new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false),
+        };
+        ((IConnectSettingsSink)shell).ApplyConnections(cfgs);
+        await shell.ConnectCommand.ExecuteAsync(null);
+        shell.IsConnected.Should().BeTrue();
+
+        await shell.DisconnectCommand.ExecuteAsync(null);
+
+        shell.ChannelConnections.Should().BeEmpty();
+        shell.IsConnected.Should().BeFalse();
+        shell.ConnectionState.Should().Be("已断开");
     }
 }

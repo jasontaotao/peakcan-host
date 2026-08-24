@@ -32,6 +32,16 @@
                         <!-- P1-5: 右侧常驻面板窄栏（~300px）——数据输入自适应栏宽 -->
                         <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" MinWidth="160" />
                     </StackPanel>
+                    <!-- Task 6 (phase 2 A-4): 目标通道选择（空选=ActiveChannel 默认） -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="目标通道:" Width="80" VerticalAlignment="Center" />
+                        <ComboBox MinWidth="140"
+                                  ItemsSource="{Binding DataContext.ChannelConnections, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  DisplayMemberPath="Name"
+                                  SelectedValuePath="Channel.Id"
+                                  SelectedValue="{Binding SelectedTargetChannelId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  ToolTip="留空=用默认通道（ActiveChannel）" />
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Button Content="发送" Command="{Binding SendCommand}" Width="80" />
                         <!-- v2.1.0 MINOR: open the multi-frame send

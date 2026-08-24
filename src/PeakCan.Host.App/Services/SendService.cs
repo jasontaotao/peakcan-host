@@ -33,6 +33,15 @@ public partial class SendService
     private ICanChannel? _activeChannel;
 
     /// <summary>
+    /// Task 3 (phase 2 A-4): multi-channel snapshot — key = ChannelId (readonly
+    /// record struct, value-equality, safe as dict key), value = the live
+    /// ICanChannel. Replaced wholesale on shell connect/disconnect via
+    /// <see cref="SetChannels"/> (Volatile.Read in the T6
+    /// <c>SendAsync(frame, ChannelId)</c> hot path, no per-call delegate alloc).
+    /// </summary>
+    private IReadOnlyDictionary<ChannelId, ICanChannel>? _channels;
+
+    /// <summary>
     /// The channel the next <see cref="SendAsync"/> will target.
     /// <c>null</c> means "no channel connected" — the next send returns
     /// a failed <see cref="Result{T}"/> with <see cref="ErrorCode.InvalidState"/>
@@ -66,6 +75,15 @@ public partial class SendService
     }
 
     /// <summary>
+    /// Task 3 (phase 2 A-4): replace the multi-channel snapshot wholesale.
+    /// Called by the shell after a best-effort connect (all connected channels)
+    /// or disconnect (null). Volatile.Write for lock-free read in the T6
+    /// <c>SendAsync(frame, ChannelId)</c> hot path.
+    /// </summary>
+    public void SetChannels(IReadOnlyDictionary<ChannelId, ICanChannel>? channels)
+        => Volatile.Write(ref _channels, channels);
+
+    /// <summary>
     /// Transmit <paramref name="frame"/> on the <see cref="ActiveChannel"/>.
     /// Returns a failed <see cref="Result{T}"/> with
     /// <see cref="ErrorCode.InvalidState"/> when no channel is connected.
@@ -81,6 +99,23 @@ public partial class SendService
         return ch is null
             ? ValueTask.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "No active channel"))
             : ch.WriteAsync(frame, ct);
+    }
+
+    /// <summary>
+    /// Task 6 (phase 2 A-4): transmit <paramref name="frame"/> on the channel
+    /// identified by <paramref name="channelId"/> in the multi-channel snapshot
+    /// (set via <see cref="SetChannels"/>). Bypasses <see cref="ActiveChannel"/>
+    /// when the channel is found; falls back to <see cref="ActiveChannel"/> when
+    /// the snapshot is null or the id is not present (zero regression for the
+    /// 6 legacy senders that call <see cref="SendAsync(CanFrame, CancellationToken)"/>).
+    /// </summary>
+    public virtual ValueTask<Result<Unit>> SendAsync(CanFrame frame, ChannelId channelId, CancellationToken ct = default)
+    {
+        var map = Volatile.Read(ref _channels);
+        if (map is not null && map.TryGetValue(channelId, out var ch))
+            return ch.WriteAsync(frame, ct);
+        // 未找到（无快照或 id 不在）→ 回落 ActiveChannel（尽力式，不硬失败）
+        return SendAsync(frame, ct);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SendService active channel changed to handle 0x{Handle:X2}")]

@@ -78,7 +78,11 @@ public sealed partial class SendViewModel
         var frame = new CanFrame(canId, bytes, flags, ChannelId.None, default);
         try
         {
-            var r = await _svc.SendAsync(frame).ConfigureAwait(true);
+            // Task 6 (phase 2 A-4): 显式目标通道 → SendAsync(frame, channelId)；
+            // 未选 → SendAsync(frame) 走 ActiveChannel（零回归，6 既有发送方路径不变）。
+            var r = SelectedTargetChannelId is { } cid
+                ? await _svc.SendAsync(frame, cid).ConfigureAwait(true)
+                : await _svc.SendAsync(frame).ConfigureAwait(true);
             Status = r.IsSuccess
                 ? $"Sent {bytes.Length} bytes @ 0x{canId}"
                 : $"FAIL: {r.Error!.Code} {r.Error.Message}";
