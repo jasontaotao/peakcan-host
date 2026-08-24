@@ -41,4 +41,44 @@ public sealed class ChannelConnectionTests
         Assert.Equal(BaudRate.Can500kbps, conn.BaudRate);
         Assert.Equal("已连接", conn.State);
     }
+
+    /// <summary>
+    /// Review H1 fix: State 变化时触发 StateChanged event，让 shell 订阅后
+    /// 刷新 IsConnected + Connect/Disconnect CanExecute。per-slot 断开最后
+    /// 一路时 IsConnected 必须翻回 false。
+    /// </summary>
+    [Fact]
+    public void StateChanged_RaisesWhenStateChanges()
+    {
+        // Arrange
+        var channel = Substitute.For<ICanChannel>();
+        channel.Id.Returns(new ChannelId(0x51));
+        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps);
+        var raised = 0;
+        conn.StateChanged += () => raised++;
+
+        // Act: 断开改 State
+        conn.State = "已断开";
+
+        // Assert: event 触发了一次（shell 据此刷新 IsConnected）
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void StateChanged_DoesNotRaiseWhenStateUnchanged()
+    {
+        // Arrange
+        var channel = Substitute.For<ICanChannel>();
+        channel.Id.Returns(new ChannelId(0x51));
+        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps);
+        conn.State = "已断开"; // 先触发一次
+        var raised = 0;
+        conn.StateChanged += () => raised++;
+
+        // Act: 设同值（源生成 SetProperty 会比较，相等不触发）
+        conn.State = "已断开";
+
+        // Assert: 不重复触发
+        Assert.Equal(0, raised);
+    }
 }

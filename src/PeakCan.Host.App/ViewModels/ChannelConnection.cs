@@ -16,6 +16,15 @@ namespace PeakCan.Host.App.ViewModels;
 /// collection for the full-teardown path; this command is for the UI's
 /// "disconnect just this one channel" button.
 /// </para>
+/// <para>
+/// <b>State-change notification (review H1 fix):</b> because the shell's
+/// <c>IsConnected</c> is a computed property with no source-gen setter, the
+/// per-slot DisconnectCommand must tell the shell to re-evaluate it. This
+/// class raises <see cref="StateChanged"/> whenever <see cref="State"/>
+/// changes (via <c>OnStateChanged</c>); the shell subscribes on Add and
+/// calls <c>NotifyConnectionStateChanged()</c> so Connect/Disconnect button
+/// CanExecute + <c>IsConnected</c>/<c>IsDisconnected</c> bindings refresh.
+/// </para>
 /// </summary>
 public sealed partial class ChannelConnection : ObservableObject
 {
@@ -38,8 +47,21 @@ public sealed partial class ChannelConnection : ObservableObject
     }
 
     /// <summary>
+    /// Raised when <see cref="State"/> changes. The shell subscribes to
+    /// refresh its computed <c>IsConnected</c> + Connect/Disconnect
+    /// CanExecute (review H1 — per-slot disconnect must not leave the
+    /// toolbar buttons stale).
+    /// </summary>
+    public event Action? StateChanged;
+
+    // Source-gen hook for [ObservableProperty] State: fire the notification
+    // event so the shell re-evaluates IsConnected after a per-slot disconnect.
+    partial void OnStateChanged(string value) => StateChanged?.Invoke();
+
+    /// <summary>
     /// 单项断开：仅断底层 channel + 置状态。不触碰 shell 集合/SendService
     /// （那是 shell DisconnectAllAsync 的职责，本命令供 UI 每项独立断开按钮）。
+    /// 置 State 后通过 <see cref="StateChanged"/> 通知 shell 刷新 IsConnected。
     /// </summary>
     [RelayCommand]
     private async Task DisconnectAsync()

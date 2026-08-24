@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Globalization;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -196,6 +197,11 @@ public sealed partial class AppShellViewModel
                     { State = $"连接异常: {ex.GetType().Name}" });
                 StatusMessage = $"通道 {cfg.Channel.Name} 连接异常: {ex.GetType().Name}";
                 LogConnectThrew(_logger, handle, ex);
+                // RegisterChannel 抛异常时硬件可能已连接但未注册——先
+                // 断开硬件连接再 Unregister + Dispose，避免 handle 泄漏
+                // （review M2 fix：DisposeAsync 不保证断开硬件连接）。
+                try { await channel.DisconnectAsync().ConfigureAwait(true); }
+                catch (Exception discEx) { LogDisconnectThrew(_logger, handle, discEx); }
                 try { _router.UnregisterChannel(channel); }
                 catch (Exception unregEx)
                 {
@@ -220,11 +226,29 @@ public sealed partial class AppShellViewModel
     }
 
     /// <summary>
+    /// Task 3 review H1 fix: subscribe to each slot's StateChanged on Add,
+    /// unsubscribe on Remove/Clear. A per-slot disconnect changes State, which
+    /// fires StateChanged, which tells the shell to re-evaluate IsConnected +
+    /// refresh Connect/Disconnect CanExecute — so the toolbar buttons stay in
+    /// sync even when only one channel is disconnected via its own button.
+    /// </summary>
+    private void OnChannelConnectionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is { } newItems)
+            foreach (ChannelConnection c in newItems)
+                c.StateChanged += NotifyConnectionStateChanged;
+        if (e.OldItems is { } oldItems)
+            foreach (ChannelConnection c in oldItems)
+                c.StateChanged -= NotifyConnectionStateChanged;
+    }
+
+    /// <summary>
     /// Task 3 (C6 ruling): IsConnected is now a computed property (no
     /// [ObservableProperty] setter), so the Connect/Disconnect CanExecute
     /// chain the old source-gen property carried must be refreshed manually
     /// whenever ChannelConnections changes. Called at the end of Connect/
-    /// Disconnect; cheap (4 notifications).
+    /// Disconnect (and now also from per-slot StateChanged via H1 fix).
+    /// Cheap (4 notifications).
     /// </summary>
     private void NotifyConnectionStateChanged()
     {

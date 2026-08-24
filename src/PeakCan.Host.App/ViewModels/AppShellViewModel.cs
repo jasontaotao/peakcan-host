@@ -401,6 +401,11 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             _persistedHandleOnStartup = h;
         }
 
+        // Task 3 review H1 fix: per-slot StateChanged → re-evaluate
+        // IsConnected/CanExecute. Subscribe on Add, unsubscribe on
+        // Remove/Clear so a per-slot disconnect refreshes the toolbar.
+        ChannelConnections.CollectionChanged += OnChannelConnectionsChanged;
+
         // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
         MainTabs = new[]
         {

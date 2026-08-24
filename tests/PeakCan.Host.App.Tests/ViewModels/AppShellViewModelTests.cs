@@ -1478,6 +1478,28 @@ public class AppShellViewModelTests
         shell.IsFd.Should().BeFalse();
     }
 
+    /// <summary>
+    /// Review H2 fix: ApplyConnection(null, ...) 旧置 SelectedChannel=null。
+    /// DIM 默认转发单元素列表（含 null Channel），ApplyConnections 首组回写
+    /// null → SelectedChannel 被置 null（旧行为保持）。空列表转发会使
+    /// Count>0 守卫不触发，SelectedChannel 残留旧值——回归。
+    /// </summary>
+    [Fact]
+    public void ApplyConnection_NullChannel_WritesSelectedChannelNull()
+    {
+        var shell = NewVm();
+        // 先设一个非 null SelectedChannel（模拟用户先选了通道）
+        shell.SelectedChannel = new ChannelInfo(0x52, "USB2");
+        shell.SelectedChannel.Should().NotBeNull();
+
+        // Act: 旧单组 ApplyConnection 传 null channel
+        ((IConnectSettingsSink)shell).ApplyConnection(
+            null, BaudRate.Can500kbps, false);
+
+        // Assert: SelectedChannel 被置 null（旧行为保持，H2 回归修复）
+        shell.SelectedChannel.Should().BeNull();
+    }
+
     // ── Task 3: 多槽位 ChannelConnection + 尽力式连接（A-3）──────────
 
     /// <summary>

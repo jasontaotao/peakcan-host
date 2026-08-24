@@ -37,13 +37,14 @@ public interface IConnectSettingsSink
 
     /// <summary>
     /// 旧单组形式（DIM 默认转发到 <see cref="ApplyConnections"/>，单元素）——
-    /// 零回归：既有单通道调用方/测试行为不变。channel 可空（对齐旧契约），
-    /// null 时空列表转发。
+    /// 零回归：既有单通道调用方/测试行为不变。channel 可空（对齐旧契约）：
+    /// 始终转发单元素列表（含 null Channel），让 sink 回写 SelectedChannel=null
+    /// 旧行为；ConnectAsync 循环中 <c>cfg.Channel is null continue</c> 跳过。
+    /// （review H2 fix：旧空列表转发使 ApplyConnections 的 Count>0 守卫不触发，
+    /// SelectedChannel 不被置 null → 工具栏残留旧选择。）
     /// </summary>
     void ApplyConnection(ChannelInfo? channel, BaudRate baudRate, bool isFd)
-        => ApplyConnections(channel is null
-            ? Array.Empty<ConnectionConfig>()
-            : new[] { new ConnectionConfig(channel, baudRate, isFd) });
+        => ApplyConnections(new[] { new ConnectionConfig(channel, baudRate, isFd) });
 
     /// <summary>Trigger the shell's Connect flow (no-op when not connectable).</summary>
     void Connect();
@@ -105,9 +106,13 @@ public partial class ConnectionSettingsViewModel : ObservableObject
     [ObservableProperty]
     private ChannelDescriptor? _selectedChannel;
 
+    // Default true aligns with AppShellViewModel._isFd so an ApplyAndConnect
+    // before any device-driven OnSelectedDeviceChanged (or for a device that
+    // supports FD) does not silently flip the shell's FD mode to false.
+    // OnSelectedDeviceChanged still overrides per device capability.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RateLabel))]
-    private bool _isFd;
+    private bool _isFd = true;
 
     [ObservableProperty]
     private IReadOnlyList<BaudRate> _availableBaudRates = EmptyBaudRates;
