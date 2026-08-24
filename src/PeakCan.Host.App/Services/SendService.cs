@@ -101,6 +101,23 @@ public partial class SendService
             : ch.WriteAsync(frame, ct);
     }
 
+    /// <summary>
+    /// Task 6 (phase 2 A-4): transmit <paramref name="frame"/> on the channel
+    /// identified by <paramref name="channelId"/> in the multi-channel snapshot
+    /// (set via <see cref="SetChannels"/>). Bypasses <see cref="ActiveChannel"/>
+    /// when the channel is found; falls back to <see cref="ActiveChannel"/> when
+    /// the snapshot is null or the id is not present (zero regression for the
+    /// 6 legacy senders that call <see cref="SendAsync(CanFrame, CancellationToken)"/>).
+    /// </summary>
+    public virtual ValueTask<Result<Unit>> SendAsync(CanFrame frame, ChannelId channelId, CancellationToken ct = default)
+    {
+        var map = Volatile.Read(ref _channels);
+        if (map is not null && map.TryGetValue(channelId, out var ch))
+            return ch.WriteAsync(frame, ct);
+        // 未找到（无快照或 id 不在）→ 回落 ActiveChannel（尽力式，不硬失败）
+        return SendAsync(frame, ct);
+    }
+
     [LoggerMessage(Level = LogLevel.Information, Message = "SendService active channel changed to handle 0x{Handle:X2}")]
     private static partial void LogActiveChannelChanged(ILogger logger, ushort handle);
 

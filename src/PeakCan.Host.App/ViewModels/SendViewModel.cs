@@ -71,6 +71,15 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     [ObservableProperty]
     private bool _isErrorStateIndicator;
 
+    /// <summary>
+    /// Task 6 (phase 2 A-4): selected target channel for single-shot send.
+    /// null = use SendService.ActiveChannel (default, zero regression for the
+    /// legacy single-shot + cyclic paths). Set by the SendView target ComboBox
+    /// (options sourced from the shell's ChannelConnections).
+    /// </summary>
+    [ObservableProperty]
+    private ChannelId? _selectedTargetChannelId;
+
     [ObservableProperty]
     private string _dataText = "DEADBEEF";
 
