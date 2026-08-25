@@ -37,13 +37,17 @@ public sealed partial class ChannelConnection : ObservableObject
     /// <summary>The baud rate this channel connected at.</summary>
     public BaudRate BaudRate { get; }
 
+    /// <summary>Whether this channel connected in CAN-FD mode (spec v3 §3.4 binding).</summary>
+    public bool IsFd { get; }
+
     [ObservableProperty] private string _state = "已连接";
 
-    public ChannelConnection(ICanChannel channel, string name, BaudRate baud)
+    public ChannelConnection(ICanChannel channel, string name, BaudRate baud, bool isFd)
     {
         Channel = channel ?? throw new ArgumentNullException(nameof(channel));
         Name = name;
         BaudRate = baud;
+        IsFd = isFd;
     }
 
     /// <summary>

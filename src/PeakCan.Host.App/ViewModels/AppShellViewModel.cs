@@ -348,6 +348,14 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
+        // Spec v3 §3.4: 把已连接通道提供者注入 HilViewModel（AppShell 单例持有
+        // 连接状态快照；DI factory 注入会形成 AppShell⇄HilViewModel 循环死锁，
+        // 故由 AppShell 构造时直连配置）。
+        _hilViewModel.SetConnectedChannelsProvider(() =>
+            ChannelConnections
+                .Where(c => c.State == "已连接")
+                .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd))
+                .ToList());
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The

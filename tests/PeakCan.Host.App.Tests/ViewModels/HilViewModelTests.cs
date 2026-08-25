@@ -363,4 +363,53 @@ public sealed class HilViewModelTests
             File.Delete(suitePath);
         }
     }
+
+    [Fact]
+    public async Task RunAsync_NoSuiteChannels_NullHardwareChannels()
+    {
+        // 零回归：suite 无 channels 字段 → HardwareChannels null（单通道路径）
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, """{"name":"S","cases":[{"id":"c1","name":"T","steps":[{"parameters":{"$kind":"delay","Milliseconds":10}}]}]}""");
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () => [new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false)]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+            captured!.HardwareChannels.Should().BeNull("suite 无 channels → 单通道零回归");
+        }
+        finally { File.Delete(suitePath); }
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderNull_NullHardwareChannels()
+    {
+        // 零回归：connectedChannels provider null（默认构造）→ HardwareChannels null
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, """{"name":"S","channels":[{"name":"bus-a"}],"cases":[{"id":"c1","name":"T","steps":[{"parameters":{"$kind":"delay","Milliseconds":10}}]}]}""");
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = CreateViewModel(runner); // 默认 ctor 无 provider
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+            captured!.HardwareChannels.Should().BeNull("无 provider → null");
+        }
+        finally { File.Delete(suitePath); }
+    }
 }

@@ -289,6 +289,9 @@ public partial class AppHostBuilder
 
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
+        // Spec v3 §3.4: HilViewModel 的 connectedChannels 提供者由 AppShellViewModel
+        // 构造时注入（AppShell 单例持有连接状态；DI factory 引 shell 会形成
+        // AppShell ⇄ HilViewModel 循环解析死锁——恢复普通 transient 注册）。
         builder.Services.AddTransient<ViewModels.HilViewModel>();
         builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。

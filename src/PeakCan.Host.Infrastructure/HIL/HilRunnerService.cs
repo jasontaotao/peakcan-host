@@ -64,6 +64,8 @@ public sealed class HilRunnerService : IHilRunnerService
         // 单通道路径维持原样（默认 ICanChannel，FD 1Mbps）。
         if (ctx is MultiChannelAssertionContext multi && request.HardwareChannels is { Count: > 0 } hwCfgs)
         {
+            // Review HIGH-1: 连接失败明细显式上报——首通故障不再静默降级。
+            multi.Failures.Clear();
             var cfgByName = hwCfgs.ToDictionary(c => c.Name, c => (c.BaudRate, c.Fd), StringComparer.Ordinal);
             await multi.ConnectAllAsync(name =>
             {
@@ -72,6 +74,11 @@ public sealed class HilRunnerService : IHilRunnerService
                     return (v.BaudRate, v.Fd);
                 return (BaudRate.CanFd1Mbps, true);
             }, ct);
+            if (multi.Failures.Count > 0)
+            {
+                var failed = string.Join(", ", multi.Failures.Select(f => $"{f.ChannelName}({f.ErrorCode})"));
+                throw new InvalidOperationException($"CAN 通道连接失败: {failed}");
+            }
         }
         else
         {

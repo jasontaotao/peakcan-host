@@ -43,8 +43,10 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     /// <summary>
     /// 连接底层通道（多通道模式由 MultiChannelAssertionContext.ConnectAllAsync 转发）。
     /// 单通道模式不经过此处（HilRunnerService 直接对默认 ICanChannel.ConnectAsync）。
+    /// 返回 ICanChannel.ConnectAsync 的 Result（不再丢弃——review HIGH-1: 首通道
+    /// 连接失败必须由调用方显式检查/上报，防静默降级）。
     /// </summary>
-    internal Task ConnectAsync(BaudRate? baud, bool fd, CancellationToken ct)
+    internal Task<Result<Unit>> ConnectAsync(BaudRate? baud, bool fd, CancellationToken ct)
     {
         // null baud = 调用方保证给具体值（ChannelConfig.BaudRate 或 suite 默认）。
         var rate = baud ?? BaudRate.CanFd1Mbps;

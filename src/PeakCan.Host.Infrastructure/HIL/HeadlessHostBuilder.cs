@@ -340,29 +340,28 @@ public static class HeadlessHostBuilder
     }
 
     /// <summary>
-    /// 解析 ChannelConfig.Handle 为 PCAN-Basic 通道 handle。
-    /// 接受两种形式（对齐 ChannelConfig 文档："raw hex 51 / C600"）：
-    /// - raw hex（"51" / "0x51" / "C600"）→ 直接转 ushort；
-    /// - "USB1".."USB16" 习惯形式 → ParseChannelHandle（0x51..0x60）。
-    /// </summary>
-    /// <param name="handle">通道 handle 串。</param>
-    /// <param name="index">通道在 multiCfg 中的索引——空/非法 handle 时按
-    /// 索引顺序映射 0x51+i（Spec v3 §3.4：studio 声明只留名，连接参数与硬件
-    /// 口由 host 决定；非空 handle（旧套件）保持解析，向后兼容）。</param>
-    public static ushort ResolveChannelHandle(string handle, int index = 0)
-        => string.IsNullOrWhiteSpace(handle)
-            ? (ushort)(0x51 + index)
-            : ResolveChannelHandle(handle);
+/// Parse ChannelConfig.Handle into a PCAN-Basic channel handle.
+/// Two forms (per ChannelConfig doc "raw hex 51 / C600"):
+/// - raw hex ("51" / "0x51" / "C600") - direct ushort parse;
+/// - "USB1".."USB16" convention - ParseChannelHandle (0x51..0x60).
+/// Empty/blank handle maps by index to 0x51+index (Spec v3 §3.4: studio
+/// declares names only; the physical port is host-side, ordered by index).
+/// </summary>
+public static ushort ResolveChannelHandle(string handle, int index)
+    => string.IsNullOrWhiteSpace(handle)
+        ? (ushort)(0x51 + index)
+        : ResolveChannelHandle(handle);
 
-    public static ushort ResolveChannelHandle(string handle)
-    {
-        // raw hex（无前缀或 0x 前缀）
-        var hex = handle.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? handle[2..] : handle;
-        if (ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
-            return raw;
-        // 回落到 "USBn" 形式
-        return ParseChannelHandle(handle);
-    }
+/// <summary>Parse a non-empty handle (hex or "USBn"); throws on invalid.</summary>
+public static ushort ResolveChannelHandle(string handle)
+{
+    // raw hex（无前缀或 0x 前缀）
+    var hex = handle.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? handle[2..] : handle;
+    if (ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+        return raw;
+    // 回落到 "USBn" 形式
+    return ParseChannelHandle(handle);
+}
 
     /// <summary>
     /// 将 "USB1".."USB16" 字符串解析为 PCAN-Basic 通道 handle（0x51..0x60）。

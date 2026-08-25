@@ -159,12 +159,22 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
     /// </summary>
     public async Task ConnectAllAsync(Func<string, (BaudRate? Baud, bool Fd)> resolver, CancellationToken ct)
     {
+        // Review HIGH-1: 逐通道连接结果不再丢弃——失败明细由调用方（HilRunnerService）
+        // 检查并显式日志/中断，防多通道首通故障静默降级。
         foreach (var (name, ctx) in _channels)
         {
             var (baud, fd) = resolver(name);
-            await ctx.ConnectAsync(baud, fd, ct).ConfigureAwait(false);
+            var result = await ctx.ConnectAsync(baud, fd, ct).ConfigureAwait(false);
+            if (!result.IsSuccess)
+                Failures.Add(new ChannelConnectFailure(name, result.Error?.Code, result.Error?.Message));
         }
     }
+
+    /// <summary>最近一次 ConnectAllAsync 的连接失败明细（review HIGH-1 供诊断）。</summary>
+    public List<ChannelConnectFailure> Failures { get; } = new();
+
+    /// <summary>单通道连接失败记录。</summary>
+    public sealed record ChannelConnectFailure(string ChannelName, ErrorCode? ErrorCode, string? ErrorMessage);
 
     /// <summary>
     /// 断开所有通道（多通道模式，HilRunnerService finally 调用）。

@@ -93,14 +93,14 @@ public sealed class TimerAsyncWaitTests
     }
 
     /// <summary>
-    /// v3.14.0 MINOR A6 (amended v3.xx): ReplaySendException from the sink
-    /// is now logged + swallowed — the timeline continues ticking for
-    /// offline preview. PlaybackEnded is NOT raised with the error, and
-    /// SinkExceptionForTesting remains null. The sink error is visible
-    /// only through the log.
+    /// v3.14.0 MINOR A6: a ReplaySendException from the sink still
+    /// surfaces via the OnSinkThrew callback + PlaybackEnded event
+    /// (first-failure-wins contract preserved). Post-fix the exception
+    /// is raised on the threadpool (not the timer thread), but the
+    /// timeline-level pause + capture behavior is identical.
     /// </summary>
     [Fact]
-    public async Task ReplaySendException_FromSink_IsSwallowed_ForOfflinePreview()
+    public async Task ReplaySendException_FromSink_RaisesPlaybackEnded_WithError()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"slow-throw-{Guid.NewGuid():N}.asc");
         try
@@ -125,11 +125,11 @@ public sealed class TimerAsyncWaitTests
             await Task.Delay(200);
             service.Stop();
 
-            // The sink throws on its first call, but the error is now
-            // swallowed (logged only). PlaybackEnded does NOT fire with
-            // error, and SinkExceptionForTesting is null.
-            ended.Should().BeNull("sink exception is swallowed — PlaybackEnded is NOT raised with error");
-            service.SinkExceptionForTesting.Should().BeNull("sink exception is not captured");
+            // The sink throws on its first call. The async Task.Run
+            // catches it and routes via OnSinkThrewFromTimeline which
+            // pauses the timeline + raises PlaybackEnded with Error.
+            ended.Should().NotBeNull("v3.14.0 A6: ReplaySendException must surface via PlaybackEnded (first-failure-wins)");
+            ended!.Error.Should().BeOfType<ReplaySendException>("the sink exception type must propagate");
         }
         finally
         {

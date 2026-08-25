@@ -99,10 +99,17 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>已连接通道的快照（host 打开时配好的多路：handle/波特率/FD）。</summary>
     public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd);
 
-    private readonly Func<IReadOnlyList<ConnectedChannel>>? _connectedChannels;
+    private Func<IReadOnlyList<ConnectedChannel>>? _connectedChannels;
 
     /// <summary>多通道绑定截断提示（Run 完成后拼接到 StatusMessage，防被结果覆盖）。</summary>
     private string? _truncationWarning;
+
+    /// <summary>
+    /// Spec v3 §3.4: 注入已连接通道提供者（AppShell 构造时调用——DI factory 注入会
+    /// 形成 AppShell⇄HilViewModel 循环死锁，用 setter 直连）。null 清除（单通道零回归）。
+    /// </summary>
+    public void SetConnectedChannelsProvider(Func<IReadOnlyList<ConnectedChannel>>? provider)
+        => _connectedChannels = provider;
 
     // --- Browse commands ---
 
@@ -157,10 +164,13 @@ public sealed partial class HilViewModel : ObservableObject
     private IReadOnlyList<ChannelConfig>? BuildHardwareChannels()
     {
         if (string.IsNullOrEmpty(SuitePath) || _connectedChannels is null) return null;
-        var connected = _connectedChannels();
+        // Review MEDIUM-4: provider 只取一次快照（防动态提供者两次调用间变化导致索引越界）。
+        var connected = _connectedChannels().ToList();
         if (connected.Count == 0) return null;
 
-        // 读 suite.Channels 的名字列表（弱解析：失败时返回 null 走单通道）
+        // 读 suite.Channels 的名字列表（弱解析：失败时返回 null 走单通道）。
+        // Review MEDIUM-2: 空名元素计入声明数（参与截断判断），重名预检防
+        // runner 侧 ToDictionary 抛异常。
         List<string>? declaredNames = null;
         try
         {
@@ -169,19 +179,31 @@ public sealed partial class HilViewModel : ObservableObject
             {
                 declaredNames = chEl.EnumerateArray()
                     .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
-                    .Where(n => !string.IsNullOrEmpty(n))
                     .ToList();
             }
         }
         catch
         {
+            // Review MEDIUM-1: 弱解析失败不静默——完整反序列化在 runner 兜底，
+            // 此处记 warning 由调用方拼接（不返回 null 走单通道，避免无声降级）。
+            _truncationWarning = "（无法读取 suite 通道声明——按单通道执行）";
             return null;
         }
-        if (declaredNames is { Count: 0 }) return null;
+        var declaredCount = declaredNames?.Count ?? 0;
+        if (declaredCount == 0) return null;
 
-        var count = Math.Min(declaredNames.Count, connected.Count);
-        _truncationWarning = declaredNames.Count != connected.Count
-            ? $"（suite 声明 {declaredNames.Count} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
+        // 重名声明预检：studio 编辑器允许重复名，runner 按名 ToDictionary 会抛。
+        var dup = declaredNames!.GroupBy(n => n, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
+        if (dup is not null)
+        {
+            _truncationWarning = $"（suite 通道名 '{dup}' 重复——请先在 studio 修正，本次按单通道执行）";
+            return null;
+        }
+
+        var count = Math.Min(declaredCount, connected.Count);
+        _truncationWarning = declaredCount != connected.Count
+            ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
             : null;
 
         var list = new List<ChannelConfig>(count);
@@ -189,7 +211,7 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var c = connected[i];
             list.Add(new ChannelConfig(
-                declaredNames[i],
+                declaredNames![i],
                 "",                   // 空 handle → host 按索引顺序映射物理通道（spec v3 T13，厂商无关）
                 c.BaudRate,           // 连接参数取 host 已连通道实际值
                 c.Fd,
@@ -413,6 +435,9 @@ public sealed partial class HilViewModel : ObservableObject
         {
             _logger.LogError(ex, "HIL test execution failed");
             StatusMessage = $"Error: {ex.Message}";
+            // Review MEDIUM-3: 异常路径也带截断/预检警告（防信息丢失）。
+            if (_truncationWarning is not null)
+                StatusMessage += $" {_truncationWarning}";
         }
         finally
         {

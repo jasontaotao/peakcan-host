@@ -19,7 +19,7 @@ public sealed class ChannelConnectionTests
         // Arrange
         var channel = Substitute.For<ICanChannel>();
         channel.Id.Returns(new ChannelId(0x51));
-        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps);
+        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps, true);
         conn.State = "已连接";
 
         // Act
@@ -34,7 +34,7 @@ public sealed class ChannelConnectionTests
     public void Constructor_SetsChannelNameBaudRate_DefaultStateConnected()
     {
         var channel = Substitute.For<ICanChannel>();
-        var conn = new ChannelConnection(channel, "bus-b", BaudRate.Can500kbps);
+        var conn = new ChannelConnection(channel, "bus-b", BaudRate.Can500kbps, false);
 
         Assert.Same(channel, conn.Channel);
         Assert.Equal("bus-b", conn.Name);
@@ -53,7 +53,7 @@ public sealed class ChannelConnectionTests
         // Arrange
         var channel = Substitute.For<ICanChannel>();
         channel.Id.Returns(new ChannelId(0x51));
-        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps);
+        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps, true);
         var raised = 0;
         conn.StateChanged += () => raised++;
 
@@ -70,7 +70,7 @@ public sealed class ChannelConnectionTests
         // Arrange
         var channel = Substitute.For<ICanChannel>();
         channel.Id.Returns(new ChannelId(0x51));
-        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps);
+        var conn = new ChannelConnection(channel, "bus-a", BaudRate.CanFd1Mbps, true);
         conn.State = "已断开"; // 先触发一次
         var raised = 0;
         conn.StateChanged += () => raised++;

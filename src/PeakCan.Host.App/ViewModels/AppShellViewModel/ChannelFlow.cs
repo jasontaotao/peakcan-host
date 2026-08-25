@@ -172,14 +172,14 @@ public sealed partial class AppShellViewModel
                     // marshal to the UI thread itself (we use the captured sync
                     // context to marshal back onto the UI thread).
                     channel.ReadLoopError += OnReadLoopError;
-                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate));
+                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd));
                     LogConnectOk(_logger, handle);
                 }
                 else
                 {
                     // 尽力式：该组标红跳过，不阻塞其余组。
                     var err = result.Error!;
-                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate)
+                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd)
                         { State = $"连接失败: {err.Code}" });
                     StatusMessage = $"通道 {cfg.Channel.Name} 连接失败: {err.Code} {err.Message}";
                     LogConnectFailed(_logger, handle, err.Code, err.Message);
@@ -193,7 +193,7 @@ public sealed partial class AppShellViewModel
             catch (Exception ex)
             {
                 // 尽力式：该组标红，继续其余组。
-                ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate)
+                ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd)
                     { State = $"连接异常: {ex.GetType().Name}" });
                 StatusMessage = $"通道 {cfg.Channel.Name} 连接异常: {ex.GetType().Name}";
                 LogConnectThrew(_logger, handle, ex);
