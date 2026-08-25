@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Contracts;
@@ -411,5 +412,71 @@ public sealed class HilViewModelTests
             captured!.HardwareChannels.Should().BeNull("无 provider → null");
         }
         finally { File.Delete(suitePath); }
+    }
+
+    // ── 报告侧多通道 DBC 字典接线（Task 11 闭环）────────────
+
+    [Fact]
+    public async Task RunAsync_WithPerChannelDbcs_ReportUsesMultiChannelOverload()
+    {
+        // runner 返回 per-channel DBC 字典 → 报告走多通道重载（fallbackDbc = LastDbcDocument）
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var dbcs = new Dictionary<ChannelId, DbcDocument> { [new ChannelId(0x51)] = Util.MakeDbc("A") };
+        runner.LastPerChannelDbcs.Returns(dbcs);
+        runner.LastDbcDocument.Returns(Util.MakeDbc("Global"));
+
+        var reportService = Substitute.For<IHilReportService>();
+        reportService.Generate(Arg.Any<TestSuiteResult>(), (IReadOnlyDictionary<ChannelId, DbcDocument>?)null, Arg.Any<DbcDocument?>())
+            .Returns(new HilReportResult("", @"C:\report.html"));
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), reportService);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        reportService.Received(1).Generate(
+            Arg.Any<TestSuiteResult>(),
+            Arg.Is<IReadOnlyDictionary<ChannelId, DbcDocument>>(d => d!.ContainsKey(new ChannelId(0x51))),
+            Arg.Is<DbcDocument?>(f => f != null && f.SourcePath == "Global"));
+        reportService.DidNotReceive().Generate(Arg.Any<TestSuiteResult>(), Arg.Any<DbcDocument?>());
+    }
+
+    [Fact]
+    public async Task RunAsync_NoPerChannelDbcs_ReportUsesSingleDbcOverload()
+    {
+        // running 无 per-channel DBC（单通道）→ 回落单 DBC 重载（零回归）
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        runner.LastPerChannelDbcs.Returns((IReadOnlyDictionary<ChannelId, DbcDocument>?)null);
+
+        var reportService = Substitute.For<IHilReportService>();
+        reportService.Generate(Arg.Any<TestSuiteResult>(), Arg.Any<DbcDocument?>())
+            .Returns(new HilReportResult("", @"C:\report.html"));
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), reportService);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        reportService.Received(1).Generate(Arg.Any<TestSuiteResult>(), Arg.Any<DbcDocument?>());
+        reportService.DidNotReceive().Generate(Arg.Any<TestSuiteResult>(), Arg.Any<IReadOnlyDictionary<ChannelId, DbcDocument>>(), Arg.Any<DbcDocument?>());
+    }
+
+    private static class Util
+    {
+        public static DbcDocument MakeDbc(string src)
+            => new("", new List<Node>(), new List<Message>(),
+                new Dictionary<uint, Message>(), new Dictionary<string, ValueTable>(), SourcePath: src);
     }
 }

@@ -413,7 +413,11 @@ public sealed partial class HilViewModel : ObservableObject
             // 指向 trace 面板的其它文件导致解码错 DBC；可能为 null（无 DBC），报告回落 hex 显示。
             try
             {
-                var report = _reportService.Generate(result, _runner.LastDbcDocument);
+                // 多通道报告：取 per-channel DBC 字典（HeadlessHostBuilder 在 IAssertionContext
+                // 工厂中按 ChannelId 注册）。单通道/无 DBC 时回落单 DBC 重载。
+                var report = _runner.LastPerChannelDbcs is { Count: > 0 } dbcs
+                    ? _reportService.Generate(result, dbcs, fallbackDbc: _runner.LastDbcDocument)
+                    : _reportService.Generate(result, _runner.LastDbcDocument);
                 LatestReportPath = report.FilePath;
                 ShowReportError = false;
                 ReportError = "";

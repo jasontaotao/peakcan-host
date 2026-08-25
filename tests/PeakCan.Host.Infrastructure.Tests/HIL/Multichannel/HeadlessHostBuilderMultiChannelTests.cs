@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Cli;
@@ -187,5 +188,66 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         // bus-a → 0x51（索引 0），bus-b → 0x52（索引 1）
         Assert.Equal(new ChannelId(0x51), multi.ResolveChannelId("bus-a"));
         Assert.Equal(new ChannelId(0x52), multi.ResolveChannelId("bus-b"));
+    }
+
+    [Fact]
+    public void Build_WithTwoChannels_RegistersPerChannelDbcsByChannelId()
+    {
+        // Task 11 接线闭环：per-channel DBC 字典应按 ChannelId 注册（报告按 frame.Channel 查）。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        // 触发 IAssertionContext 工厂（填充字典）
+        _ = host.Services.GetRequiredService<IAssertionContext>();
+        var dbcs = host.Services.GetRequiredService<IReadOnlyDictionary<ChannelId, DbcDocument>>();
+
+        Assert.Equal(2, dbcs.Count);
+        Assert.NotNull(dbcs[new ChannelId(0x51)]); // bus-a → USB1
+        Assert.NotNull(dbcs[new ChannelId(0x52)]); // bus-b → USB2
+    }
+
+    [Fact]
+    public void Build_WithDistinctChannelDbcs_MapsEachChannelIdToItsDbc()
+    {
+        // 不同通道不同 DBC 文件 → 各自 ChannelId 映射到对应文档（非全局 DBC）。
+        var dbcB = Path.Combine(Path.GetTempPath(), $"mc_b_{Guid.NewGuid():N}.dbc");
+        File.WriteAllText(dbcB, """
+            VERSION "1.0";
+            NS_ :
+            BS_:
+            BU_: ECU
+            BO_ 512 MsgB: 8 ECU
+             SG_ SigB : 0|8@1+ (1,0) [0|255] "V"  ECU
+            """);
+        try
+        {
+            var channels = new[]
+            {
+                new ChannelConfig("bus-a", "", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+                new ChannelConfig("bus-b", "", BaudRate.Can500kbps, false, DbcPath: dbcB, null, null),
+            };
+            var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+            using var host = HeadlessHostBuilder.Build(args);
+            _ = host.Services.GetRequiredService<IAssertionContext>();
+            var dbcs = host.Services.GetRequiredService<IReadOnlyDictionary<ChannelId, DbcDocument>>();
+
+            // bus-a 的 DBC 含 MsgA(0x100)，bus-b 的 DBC 含 MsgB(0x200)——各自文档独立
+            var busA = dbcs[new ChannelId(0x51)];
+            var busB = dbcs[new ChannelId(0x52)];
+            Assert.True(busA.MessagesById.ContainsKey(0x100));
+            Assert.False(busA.MessagesById.ContainsKey(0x200));
+            Assert.False(busB.MessagesById.ContainsKey(0x100));
+            Assert.True(busB.MessagesById.ContainsKey(0x200));
+        }
+        finally
+        {
+            try { File.Delete(dbcB); } catch { }
+        }
     }
 }

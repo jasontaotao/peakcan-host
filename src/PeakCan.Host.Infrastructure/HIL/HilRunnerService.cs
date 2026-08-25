@@ -20,6 +20,9 @@ public sealed class HilRunnerService : IHilRunnerService
     public DbcDocument? LastDbcDocument { get; private set; }
 
     /// <inheritdoc/>
+    public IReadOnlyDictionary<ChannelId, DbcDocument>? LastPerChannelDbcs { get; private set; }
+
+    /// <inheritdoc/>
     public string? LastCaseLogDirectory { get; private set; }
 
     /// <summary>解析 case-log 目录：request 覆盖值 或 默认 %LocalAppData%\PeakCanHost\hil-reports\case-logs\。internal 便于测试。</summary>
@@ -43,6 +46,9 @@ public sealed class HilRunnerService : IHilRunnerService
 
         // 报告用 DBC 必须与运行实际解析的文档一致（避免 DbcService.Current 指向 trace 面板的其它文件）。
         LastDbcDocument = host.Services.GetService<DbcDocument>();
+
+        // 多通道 per-channel DBC 字典（HeadlessHostBuilder 注册，null = 单通道）。
+        LastPerChannelDbcs = host.Services.GetService<IReadOnlyDictionary<ChannelId, DbcDocument>>();
 
         var engine = host.Services.GetRequiredService<TestSuiteEngine>();
         var channel = host.Services.GetRequiredService<ICanChannel>();

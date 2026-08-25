@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
 
@@ -18,4 +20,12 @@ public interface IHilReportService
     /// DBC signal values; otherwise they fall back to raw hex.
     /// </summary>
     HilReportResult Generate(TestSuiteResult result, DbcDocument? dbc = null);
+
+    /// <summary>
+    /// 多通道重载：dbcs 按 frame.Channel 选对应通道 DBC；未命中通道回落 fallbackDbc。
+    /// 单通道调用应传 dbcs:null + fallbackDbc:dbc（等价于旧单 DBC 重载）。
+    /// </summary>
+    HilReportResult Generate(TestSuiteResult result,
+        IReadOnlyDictionary<ChannelId, DbcDocument>? dbcs,
+        DbcDocument? fallbackDbc = null);
 }

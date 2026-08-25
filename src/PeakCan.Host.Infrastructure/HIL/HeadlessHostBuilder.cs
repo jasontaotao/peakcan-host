@@ -115,6 +115,12 @@ public static class HeadlessHostBuilder
         // Assertion context + UDS (hardware / virtual-ECU / matrix / trace)
         if (args.HardwareChannels is { Count: > 0 } multiCfg)
         {
+            // Mutable per-channel DBC dictionary: populated inside the IAssertionContext factory
+            // below (per-channel DbcDocument already loaded there), resolved by HilRunnerService
+            // afterwards for multi-channel report generation. Empty for single-channel runs.
+            var perChannelDbcs = new Dictionary<ChannelId, DbcDocument>();
+            builder.Services.AddSingleton<IReadOnlyDictionary<ChannelId, DbcDocument>>(perChannelDbcs);
+
             // Multi-channel hardware mode (2026-08-22, spec §3.4): build one
             // SingleChannelContext per ChannelConfig (own PeakCanChannel + own DBC +
             // own ChannelName), and register MultiChannelAssertionContext as
@@ -158,6 +164,8 @@ public static class HeadlessHostBuilder
                         dbcDoc = parsed.Value!;
                     }
                     var dbcLookup = new HeadlessDbcLookup(dbcDoc);
+                    // Per-channel DBC for report: map ChannelId → DbcDocument
+                    perChannelDbcs[channel.Id] = dbcDoc;
                     contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name);
                 }
                 return new MultiChannelAssertionContext(contexts, defaultChannelName: multiCfg[0].Name);
