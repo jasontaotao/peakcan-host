@@ -67,13 +67,10 @@ public sealed partial class ReplayService
         // (USB unplug / driver busy). The self-contradicting xmldoc
         // previously here claimed "intentionally fire-and-forget" but
         // the implementation was sync wait — implementation now matches
-        // the intent. ReplaySendException no longer rethrows from the
-        // timer thread; it propagates via OnSinkThrewFromTimeline on the
-        // threadpool, which captures it as first-failure + pauses +
-        // raises PlaybackEnded (same first-failure-wins contract as
-        // v1.4.2 PATCH Item 3, just not on the timer thread anymore).
-        // Other exceptions are logged + swallowed (preserves the
-        // v1.4.0 tolerance for non-send failures).
+        // the intent. ReplaySendException is logged + swallowed so the
+        // timeline continues to tick even when the CAN bus is unavailable
+        // (offline preview mode). Other exceptions are also logged +
+        // swallowed (preserves the v1.4.0 tolerance for non-send failures).
         _ = Task.Run(async () =>
         {
             try
@@ -82,7 +79,7 @@ public sealed partial class ReplayService
             }
             catch (ReplaySendException ex)
             {
-                OnSinkThrewFromTimeline(ex);
+                LogSinkThrew(_logger, ex, frame.Id, frame.Timestamp);
             }
             catch (Exception ex)
             {

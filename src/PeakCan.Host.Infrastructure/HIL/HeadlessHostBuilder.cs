@@ -42,7 +42,7 @@ public static class HeadlessHostBuilder
             // — UDS+stats multi-channel is deferred to Task 10/§3.4) resolve against the
             // default bus. MultiChannelAssertionContext (registered below) owns ALL channels
             // for per-step TargetChannel routing.
-            var defaultHandle = ResolveChannelHandle(multiHw[0].Handle);
+            var defaultHandle = ResolveChannelHandle(multiHw[0].Handle, index: 0);
             builder.Services.AddSingleton<ICanChannel>(sp =>
             {
                 var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
@@ -140,7 +140,7 @@ public static class HeadlessHostBuilder
                     var cfg = multiCfg[i];
                     ICanChannel channel = i == 0
                         ? defaultChannel
-                        : new PeakCanChannel(new ChannelId(ResolveChannelHandle(cfg.Handle)), peakLogger);
+                        : new PeakCanChannel(new ChannelId(ResolveChannelHandle(cfg.Handle, index: i)), peakLogger);
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     DbcDocument dbcDoc;
                     if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
@@ -345,6 +345,15 @@ public static class HeadlessHostBuilder
     /// - raw hex（"51" / "0x51" / "C600"）→ 直接转 ushort；
     /// - "USB1".."USB16" 习惯形式 → ParseChannelHandle（0x51..0x60）。
     /// </summary>
+    /// <param name="handle">通道 handle 串。</param>
+    /// <param name="index">通道在 multiCfg 中的索引——空/非法 handle 时按
+    /// 索引顺序映射 0x51+i（Spec v3 §3.4：studio 声明只留名，连接参数与硬件
+    /// 口由 host 决定；非空 handle（旧套件）保持解析，向后兼容）。</param>
+    public static ushort ResolveChannelHandle(string handle, int index = 0)
+        => string.IsNullOrWhiteSpace(handle)
+            ? (ushort)(0x51 + index)
+            : ResolveChannelHandle(handle);
+
     public static ushort ResolveChannelHandle(string handle)
     {
         // raw hex（无前缀或 0x 前缀）

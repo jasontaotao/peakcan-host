@@ -168,4 +168,24 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         // 首通道的 DBC 已装配：解码一帧 TestMsg(0x100) 能查到 TestSignal（验证 lookup 不是空壳）
         busA.SubscribeDecodedFrames(_ => { }).Dispose();
     }
+
+    [Fact]
+    public void Build_EmptyHandle_AssignsSequentialPhysicalChannel()
+    {
+        // Spec v3 §3.4: 空 Handle（studio 声明只留名）→ 按索引顺序映射物理通道
+        // 0x51+i（PEAK USB1..USBn 惯例），不抛异常；非空 Handle 保持解析（旧套件兼容）。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var multi = (MultiChannelAssertionContext)host.Services.GetRequiredService<IAssertionContext>();
+
+        // bus-a → 0x51（索引 0），bus-b → 0x52（索引 1）
+        Assert.Equal(new ChannelId(0x51), multi.ResolveChannelId("bus-a"));
+        Assert.Equal(new ChannelId(0x52), multi.ResolveChannelId("bus-b"));
+    }
 }

@@ -78,14 +78,31 @@ public sealed partial class HilViewModel : ObservableObject
         IsMatrixMode = value == HilMode.Matrix;
     }
 
-    public HilViewModel(IHilRunnerService runner, ILogger<HilViewModel> logger, IFileDialogService fileDialog, IHilAnalysisService analysisService, IHilReportService reportService)
+    public HilViewModel(
+        IHilRunnerService runner,
+        ILogger<HilViewModel> logger,
+        IFileDialogService fileDialog,
+        IHilAnalysisService analysisService,
+        IHilReportService reportService,
+        // Spec v3 §3.4: 已连接通道提供者（AppShell 连接设置配的多路）。
+        // 默认 null = 无已连通道 → 走单通道路径（零回归）。测试注入 fake。
+        Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null)
     {
         _runner = runner;
         _logger = logger;
         _fileDialog = fileDialog;
         _analysisService = analysisService;
         _reportService = reportService;
+        _connectedChannels = connectedChannels;
     }
+
+    /// <summary>已连接通道的快照（host 打开时配好的多路：handle/波特率/FD）。</summary>
+    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd);
+
+    private readonly Func<IReadOnlyList<ConnectedChannel>>? _connectedChannels;
+
+    /// <summary>多通道绑定截断提示（Run 完成后拼接到 StatusMessage，防被结果覆盖）。</summary>
+    private string? _truncationWarning;
 
     // --- Browse commands ---
 
@@ -129,6 +146,56 @@ public sealed partial class HilViewModel : ObservableObject
         {
             // 解析失败不阻塞 -- Run 时完整反序列化会报具体错误
         }
+    }
+
+    /// <summary>
+    /// Spec v3 §3.4: suite 声明的通道名按索引顺序绑定到 host 已连接通道。
+    /// 返回 HardwareChannels（每项 ChannelConfig：Name=声明名、handle 空由 host
+    /// 顺序映射、BaudRate/Fd 取已连通道实际值）；数量不一致按少的截断并提示。
+    /// 无 suite.Channels、无提供者、或提供者空 → null（单通道零回归）。
+    /// </summary>
+    private IReadOnlyList<ChannelConfig>? BuildHardwareChannels()
+    {
+        if (string.IsNullOrEmpty(SuitePath) || _connectedChannels is null) return null;
+        var connected = _connectedChannels();
+        if (connected.Count == 0) return null;
+
+        // 读 suite.Channels 的名字列表（弱解析：失败时返回 null 走单通道）
+        List<string>? declaredNames = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
+            if (doc.RootElement.TryGetProperty("channels", out var chEl))
+            {
+                declaredNames = chEl.EnumerateArray()
+                    .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .ToList();
+            }
+        }
+        catch
+        {
+            return null;
+        }
+        if (declaredNames is { Count: 0 }) return null;
+
+        var count = Math.Min(declaredNames.Count, connected.Count);
+        _truncationWarning = declaredNames.Count != connected.Count
+            ? $"（suite 声明 {declaredNames.Count} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
+            : null;
+
+        var list = new List<ChannelConfig>(count);
+        for (int i = 0; i < count; i++)
+        {
+            var c = connected[i];
+            list.Add(new ChannelConfig(
+                declaredNames[i],
+                "",                   // 空 handle → host 按索引顺序映射物理通道（spec v3 T13，厂商无关）
+                c.BaudRate,           // 连接参数取 host 已连通道实际值
+                c.Fd,
+                null, null, null));
+        }
+        return list;
     }
 
     [RelayCommand]
@@ -274,6 +341,12 @@ public sealed partial class HilViewModel : ObservableObject
         try
         {
             var progress = new Progress<TestProgress>(p => ProgressPercent = p.PercentComplete);
+            _truncationWarning = null; // 每次 Run 重置（防上一次残留）
+
+            // Spec v3 §3.4: 多通道执行接线——suite 声明的通道名按索引顺序绑定
+            // 到 host 已连接通道（连接参数在 AppShell 打开时配好）。
+            // 数量不一致按少的截断 + 状态栏提示。suite 无 Channels 或未连 → null（单通道零回归）。
+            var hardwareChannels = BuildHardwareChannels();
 
             var request = new HilRunRequest(
                 DbcPath, SuitePath,
@@ -287,6 +360,7 @@ public sealed partial class HilViewModel : ObservableObject
                 SelectedCaseNames: AvailableCases.Count > 0
                     ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
                     : null,
+                HardwareChannels: hardwareChannels,
                 CaptureCaseLogs: CaptureCaseLogs);
 
             var result = await _runner.RunAsync(request, progress, default);
@@ -306,6 +380,9 @@ public sealed partial class HilViewModel : ObservableObject
             // 2026-08-15: 每 case 报文 log 成功时在状态栏提示实际写入目录（case-log P11）。
             if (CaptureCaseLogs && _runner.LastCaseLogDirectory is { } caseLogDir)
                 StatusMessage += $" — case logs: {caseLogDir}";
+            // Spec v3 §3.4: 多通道截断警告拼到结果后（防被覆盖）。
+            if (_truncationWarning is not null)
+                StatusMessage += $" {_truncationWarning}";
 
             // Phase 7 Unit C: 生成 HTML 报告。插入点在 StatusMessage 之后、Phase 7 A 的
             // AnalyzeAsync 之前 —— 报告是秒级本地 IO，不被 LLM 调用（最长 ~150s 超时）阻塞。

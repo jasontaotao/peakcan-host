@@ -292,15 +292,14 @@ base 0x7e0 500k
     // ---------- v1.4.2 PATCH Item 3: PlaybackEnded surfaces sink error ----------
 
     /// <summary>
-    /// v1.4.2 PATCH Item 3: when the sink throws, the service raises
-    /// <see cref="IReplayService.PlaybackEnded"/> with
-    /// <see cref="PlaybackEndedEventArgs.Error"/> populated so the UI
-    /// can surface the first-failure reason to the user. Previously
-    /// the throw was silently swallowed (user-hostile on no-channel:
-    /// 10000 frames of silent drop = no feedback).
+    /// v1.4.2 PATCH Item 3 (amended v3.xx): sink exceptions are no longer
+    /// propagated to PlaybackEnded — the timeline continues ticking so the
+    /// UI can preview the trace offline. PlaybackEnded still fires at EOF
+    /// but with Error = null. SinkExceptionForTesting stays null because
+    /// the exception is logged + swallowed, not captured.
     /// </summary>
     [Fact]
-    public async Task PlaybackEnded_RaisedWithError_OnFirstSinkFailure()
+    public async Task PlaybackEnded_FiresAtEof_WithoutError_WhenSinkThrows()
     {
         var path = WriteTempAsc(@"
 date Wed Jun 28 10:00:00 2026
@@ -319,17 +318,13 @@ base 0x7e0 500k
         {
             await service.LoadAsync(path);
             service.Play();
-            await Task.Delay(200);  // let timer tick + first frame throw
+            await Task.Delay(500);  // let playback reach EOF
 
-            endedArgs.Should().NotBeNull("PlaybackEnded must fire after sink throw");
-            endedArgs!.Error.Should().NotBeNull("Error must carry the sink exception");
-            endedArgs.Error.Should().BeOfType<ReplaySendException>(
-                "original exception type preserved");
-            endedArgs.Error!.Message.Should().Contain("no active channel");
+            endedArgs.Should().NotBeNull("PlaybackEnded must fire at EOF");
+            endedArgs!.Error.Should().BeNull("sink error is NOT propagated (offline preview mode)");
 
-            // SinkExceptionForTesting exposes the captured first exception
-            // for test introspection (memory v1.2.14 PATCH pattern).
-            service.SinkExceptionForTesting.Should().BeSameAs(endedArgs.Error);
+            // SinkExceptionForTesting is never set — sink errors are logged, not captured.
+            service.SinkExceptionForTesting.Should().BeNull("sink exception is not captured");
         }
         finally
         {

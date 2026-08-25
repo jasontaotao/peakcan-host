@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -273,5 +274,93 @@ public sealed class HilViewModelTests
 
         Assert.Contains("case logs", vm.StatusMessage);
         Assert.Contains(@"C:\logs\case-logs", vm.StatusMessage);
+    }
+
+    // ── Spec v3 §3.4: HIL 执行按顺序绑定已连接通道 ─────────────────
+
+    private const string MultiChannelSuiteJson = """
+    {
+      "name": "MultiChannel",
+      "channels": [
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null },
+        { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null }
+      ],
+      "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
+    }
+    """;
+
+    [Fact]
+    public async Task RunAsync_WithSuiteChannels_AndConnectedChannels_BindsByOrder()
+    {
+        // suite 声明 bus-a/bus-b；host 已连接 2 路（0x51@500k, 0x52@125k）
+        // → HardwareChannels[i] = suite.Channels[i].Name + 已连通道 i 的波特率/FD
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured.Should().NotBeNull("RunAsync 应被调且捕获 request");
+            captured!.HardwareChannels.Should().HaveCount(2);
+            captured.HardwareChannels![0].Name.Should().Be("bus-a");
+            captured.HardwareChannels[0].BaudRate.Should().Be(BaudRate.Can500kbps);
+            captured.HardwareChannels[0].Fd.Should().BeFalse();
+            captured.HardwareChannels[1].Name.Should().Be("bus-b");
+            captured.HardwareChannels[1].BaudRate.Should().Be(BaudRate.Can125kbps);
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_SuiteChannelsMoreThanConnected_TruncatesAndWarns()
+    {
+        // suite 声明 2 路，host 只连 1 路 → HardwareChannels 截断到 1 + 状态栏提示
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: true),
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured!.HardwareChannels.Should().HaveCount(1, "按少的截断");
+            vm.StatusMessage.Should().Contain("仅");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
     }
 }
