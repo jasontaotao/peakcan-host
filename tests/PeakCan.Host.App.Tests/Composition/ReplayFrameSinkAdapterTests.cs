@@ -19,24 +19,30 @@ namespace PeakCan.Host.App.Tests.Composition;
 public class ReplayFrameSinkAdapterTests
 {
     /// <summary>
-    /// On a failed <c>Result&lt;Unit&gt;</c>, the adapter throws
-    /// <see cref="ReplaySendException"/> with the failure reason in the
-    /// message. RED-then-GREEN: this test FAILS on unfixed code (result
-    /// discarded, no throw) and PASSES on fixed code.
+    /// v3.18.5 PATCH (BLF offline playback): a <c>Result.Fail(InvalidState)</c>
+    /// ("No active channel" / "Not connected") means the user is replaying
+    /// OFFLINE to view the timeline without a hardware channel connected — a
+    /// LEGAL use case (user confirmed "both connected and offline must work").
+    /// Pre-v3.18.5 the adapter threw ReplaySendException on this, which the
+    /// timeline's first-failure handler turned into "Replay aborted" on the
+    /// FIRST frame — making offline playback impossible. Now InvalidState is
+    /// a silent skip (the frame just isn't sent; timeline keeps advancing).
+    /// Real hardware errors (HardwareNotAvailable / IoError) still throw —
+    /// those are genuine failures the user must see.
     /// </summary>
     [Fact]
-    public async Task SendFrameAsync_FailResult_ThrowsReplaySendException()
+    public async Task SendFrameAsync_InvalidStateNoChannel_DoesNotThrow_SilentSkip()
     {
         var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
         sendService.SendAsync(Arg.Any<CanFrame>(), Arg.Any<CancellationToken>())
-            .Returns(Result<Unit>.Fail(ErrorCode.InvalidState, "no active channel"));
+            .Returns(Result<Unit>.Fail(ErrorCode.InvalidState, "No active channel"));
 
         var adapter = new ReplayFrameSinkAdapter(sendService);
         var frame = new ReplayFrame(0.005, 0x100, 2, new byte[] { 0xAA, 0xBB }, FrameFlags.None);
 
         var act = async () => await adapter.SendFrameAsync(frame);
-        await act.Should().ThrowAsync<ReplaySendException>()
-            .Where(ex => ex.Message.Contains("no active channel"));
+        await act.Should().NotThrowAsync(
+            "InvalidState (no active channel) is an offline-replay scenario, not a failure — must not abort playback");
     }
 
     /// <summary>
@@ -91,5 +97,92 @@ public class ReplayFrameSinkAdapterTests
     public void Ctor_NullSendService_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new ReplayFrameSinkAdapter(null!));
+    }
+
+    // === v3.18.4 PATCH (BLF extended-ID send crash + CPU sink) ===
+    // Root cause (取证 from peak-20260826.log): real Vector BLF frames carry
+    // 29-bit extended CAN IDs with bit31 set (e.g. 0x98ffc23a). The adapter
+    // hardcoded FrameFormat.Standard, so CanId..ctor(0x98ffc23a, Standard)
+    // threw ArgumentOutOfRangeException on EVERY frame. 742 throws/s →
+    // threadpool starvation + 22MB of stack-trace logs + slider 2-3s jumps.
+    // Verified against python-can's BLFReader: arbitration_id = can_id &
+    // 0x1FFFFFFF, is_extended_id = (can_id & 0x80000000) != 0.
+    // Fix: mask the 29-bit ID + pick FrameFormat by the extended bit.
+
+    /// <summary>
+    /// A 29-bit extended ID with bit31 set (real BLF extended frame) must NOT
+    /// throw ArgumentOutOfRangeException when the adapter builds the CanId.
+    /// Pre-fix this threw on every extended frame. RED: fails on unfixed code.
+    /// </summary>
+    [Fact]
+    public async Task SendFrameAsync_ExtendedIdWithBit31_DoesNotThrow()
+    {
+        // 0x98ffc23a: bit31=1 (extended marker), low 29 bits = 0x18ffc23a.
+        var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
+        sendService.SendAsync(Arg.Any<CanFrame>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Ok(new Unit()));
+
+        var adapter = new ReplayFrameSinkAdapter(sendService);
+        var frame = new ReplayFrame(0.5, 0x98ffc23a, 8,
+            new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 },
+            FrameFlags.None);
+
+        var act = async () => await adapter.SendFrameAsync(frame);
+        await act.Should().NotThrowAsync("extended BLF frames must not crash the send path");
+        await sendService.Received(1).SendAsync(Arg.Any<CanFrame>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The adapter must mask the 29-bit ID (clear bit31) AND pick
+    /// FrameFormat.Extended for an extended frame, matching python-can's
+    /// `can_id & 0x1FFFFFFF` + `(can_id & 0x80000000) != 0`. Captures the
+    /// CanFrame handed to SendService via Arg.Do and asserts on it.
+    /// </summary>
+    [Fact]
+    public async Task SendFrameAsync_ExtendedId_Masks29BitsAndPicksExtendedFormat()
+    {
+        CanFrame? captured = null;
+        var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
+        sendService.SendAsync(Arg.Do<CanFrame>(f => captured = f), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Ok(new Unit()));
+
+        var adapter = new ReplayFrameSinkAdapter(sendService);
+        var frame = new ReplayFrame(0.5, 0x98ffc23a, 8,
+            new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 },
+            FrameFlags.None);
+
+        await adapter.SendFrameAsync(frame);
+
+        captured.Should().NotBeNull();
+        // bit31 cleared: 0x98ffc23a & 0x1FFFFFFF == 0x18ffc23a
+        captured!.Value.Id.Raw.Should().Be(0x18ffc23au,
+            "BLF extended bit31 is a format marker, not part of the CAN ID; adapter must mask it");
+        captured.Value.Id.Format.Should().Be(FrameFormat.Extended,
+            "bit31 set in the raw BLF frame_id means 29-bit extended format");
+    }
+
+    /// <summary>
+    /// A standard 11-bit ID (no bit31) must stay Standard format and the ID
+    /// unchanged — regression guard so the extended fix doesn't break the
+    /// existing standard-frame path.
+    /// </summary>
+    [Fact]
+    public async Task SendFrameAsync_Standard11BitId_StaysStandardFormat()
+    {
+        CanFrame? captured = null;
+        var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
+        sendService.SendAsync(Arg.Do<CanFrame>(f => captured = f), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Ok(new Unit()));
+
+        var adapter = new ReplayFrameSinkAdapter(sendService);
+        var frame = new ReplayFrame(0.5, 0x100, 8,
+            new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 },
+            FrameFlags.None);
+
+        await adapter.SendFrameAsync(frame);
+
+        captured.Should().NotBeNull();
+        captured!.Value.Id.Raw.Should().Be(0x100u, "standard 11-bit ID passes through unchanged");
+        captured.Value.Id.Format.Should().Be(FrameFormat.Standard, "no bit31 → standard 11-bit format");
     }
 }

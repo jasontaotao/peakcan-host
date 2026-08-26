@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using PeakCan.HIL.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -34,18 +35,42 @@ public sealed partial class ReplayViewModel
     /// timestamp update to the captured <see cref="SynchronizationContext"/>
     /// so the binding writes occur on the UI thread. Without this, WPF
     /// throws on cross-thread collection / DP access.
+    /// <para>
+    /// v3.18.1 PATCH (BLF playback UI freeze fix): a real Vector BLF emits
+    /// ~742 frames/s (high-load CAN). Posting once per frame drowns the
+    /// UI dispatcher in CurrentTimestamp rewrites (742 slider redraws/s)
+    /// and the app freezes ~0.26s in. Now the latest timestamp is tracked
+    /// in <c>_latestFrameTimestamp</c> (no INPC) and the UI marshal is
+    /// coalesced to ~30fps via a <see cref="Stopwatch"/> tick window. The
+    /// final position still lands via <see cref="ApplyPlaybackEnded"/>'s
+    /// flush on EOF, so the slider thumb ends at the true last frame.
+    /// </para>
     /// </summary>
     private void OnFrameEmitted(ReplayFrame frame)
     {
+        _latestFrameTimestamp = frame.Timestamp;
         if (_syncContext is not null)
         {
-            _syncContext.Post(_ => CurrentTimestamp = frame.Timestamp, null);
+            // v3.18.1: throttle. Coalesce Posts to ~UiUpdateFps. The first
+            // Post always fires (_lastUiPostTicks starts at 0); subsequent
+            // ones within the window are dropped — the next frame outside
+            // the window carries the freshest _latestFrameTimestamp, so no
+            // position is lost, only intermediate redraws.
+            long now = Stopwatch.GetTimestamp();
+            long interval = (long)(Stopwatch.Frequency / UiUpdateFps);
+            if (now - _lastUiPostTicks < interval)
+            {
+                return;
+            }
+            _lastUiPostTicks = now;
+            _syncContext.Post(_ => CurrentTimestamp = _latestFrameTimestamp, null);
         }
         else
         {
             // Test path: no SynchronizationContext. Direct set is safe
             // because tests don't pump the dispatcher — they assert on
-            // the value immediately after raising the event.
+            // the value immediately after raising the event. Still bypass
+            // the throttle (tests need every value observable).
             CurrentTimestamp = frame.Timestamp;
         }
     }
@@ -77,6 +102,11 @@ public sealed partial class ReplayViewModel
         {
             ErrorMessage = $"Replay aborted: {e.Error.Message}";
         }
+        // v3.18.1 PATCH: flush the throttled timestamp on end so the slider
+        // thumb lands at the true final position even if the last emitted
+        // frame was inside a throttle drop window (would otherwise leave the
+        // cursor mid-way on EOF).
+        CurrentTimestamp = _latestFrameTimestamp;
         // Whether the end was normal (EOF) or error, stop playing.
         IsPlaying = false;
     }

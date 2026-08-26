@@ -38,12 +38,14 @@ public class ReplayServiceBlfLoadTests
             await sut.LoadAsync(blfPath);
 
             // Assert — dispatcher picked .blf → BlfParser and populated frames.
-            sut.Frames.Should().HaveCount(1,
-                "the synthetic .blf has exactly 1 CanMessage; if count is 0 the dispatcher routed to AscParser instead");
+            sut.Frames.Should().HaveCount(2,
+                "the synthetic .blf has 2 CanMessage objects; if count is 0 the dispatcher routed to AscParser instead");
             sut.TotalDuration.Should().BeGreaterThan(0,
-                "the synthetic frame has a non-zero timestamp; 0 means parse failed silently");
+                "the synthetic .blf has a 5-second span; 0 means parse failed silently or relativization dropped the span");
             sut.Frames[0].Id.Should().Be(0x123u,
-                "frame_id round-trips through BlfParser correctly");
+                "first frame_id round-trips through BlfParser correctly");
+            sut.Frames[1].Id.Should().Be(0x456u,
+                "second frame_id round-trips through BlfParser correctly");
         }
         finally
         {
@@ -65,6 +67,18 @@ public class ReplayServiceBlfLoadTests
         // and the IHHQ extension, placing the timestamp 24 bytes too
         // far forward — TotalDuration came back 0 even though
         // LoadedFrames.Count==1. v3.51.0 T5 PATCH lines up the order.
+        // v3.17.0 PATCH (BLF playback fix): two frames now (was 1). BlfParser
+        // relativizes to the minimum frame timestamp, so a single-frame file
+        // yields TotalDuration=0 (its only frame is the baseline → 0). Two
+        // frames with a real span keep TotalDuration > 0 after relativization.
+        WriteCanMessageObject(ms, 500_000_000L, 0x123u);      // first frame, t=0.5s (1ns/tick)
+        WriteCanMessageObject(ms, 5_500_000_000L, 0x456u);   // second frame, t=5.5s (+5s span, 1ns/tick)
+
+        System.IO.File.WriteAllBytes(path, ms.ToArray());
+    }
+
+    private static void WriteCanMessageObject(MemoryStream ms, long timestamp, uint frameId)
+    {
         ms.Write(Encoding.ASCII.GetBytes(BlfFormat.ObjSignature));
         ms.Write(BitConverter.GetBytes((ushort)BlfFormat.ObjectHeaderSize));
         ms.Write(BitConverter.GetBytes((ushort)1));
@@ -74,14 +88,12 @@ public class ReplayServiceBlfLoadTests
         ms.Write(BitConverter.GetBytes(0u));            // object_flags (4)
         ms.Write(BitConverter.GetBytes((ushort)0));     // client_index (2)
         ms.Write(BitConverter.GetBytes((ushort)0));     // reserved (2)
-        ms.Write(BitConverter.GetBytes(5_000_000L));    // timestamp 0.5s
-        // 12-byte CanMessage frame data
+        ms.Write(BitConverter.GetBytes(timestamp));     // object_time_stamp (8, 1ns ticks)
+        // 16-byte CanMessage frame data (HBBI8s)
         ms.Write(BitConverter.GetBytes((ushort)1));
         ms.WriteByte(0);
         ms.WriteByte(8);
-        ms.Write(BitConverter.GetBytes(0x123u));
+        ms.Write(BitConverter.GetBytes(frameId));
         ms.Write(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04 });
-
-        System.IO.File.WriteAllBytes(path, ms.ToArray());
     }
 }

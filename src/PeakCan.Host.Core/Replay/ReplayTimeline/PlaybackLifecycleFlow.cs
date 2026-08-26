@@ -30,6 +30,14 @@ internal sealed partial class ReplayTimeline
             _playStartTimestamp = _currentTimestamp;
             _isPlaying = true;
             _hasStarted = true;
+            // v3.16.7 DIAG: 1ms tick. Kept (not raised to 16ms) because
+            // FakeReplayClock.TickRepeated(N) advances _now by the timer
+            // period per tick — raising the period to 16ms would re-interpret
+            // every existing TickRepeated(N) call as 16N ms instead of N ms
+            // and break ~30 timeline tests that were written against the 1ms
+            // semantics. The real CPU sink was the v3.16.7 per-tick
+            // Information logs (demoted to Debug in v3.18.2), not the tick
+            // rate itself (each tick is O(1): one lock + one while-walk).
             _timer ??= _clock.CreateTimer(OnTick, null, dueTime: TimeSpan.FromMilliseconds(1), period: TimeSpan.FromMilliseconds(1));
             LogPlayStarted(_logger, _currentTimestamp, _frames.Count);
         }

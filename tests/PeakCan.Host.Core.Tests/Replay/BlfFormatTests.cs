@@ -83,10 +83,14 @@ public class BlfFormatTests
     }
 
     [Fact]
-    public void BlfFormat_TimestampScaleIs10Million()
+    public void BlfFormat_TimestampScaleIsOneBillion()
     {
-        // vblf stores timestamp as 10ns ticks since Vector epoch.
-        BlfFormat.TimestampScale.Should().Be(10_000_000.0);
+        // BLF object_time_stamp is 1-nanosecond ticks since the 1970-01-01
+        // UTC Vector epoch (verified against a real Vector CANalyzer BLF:
+        // 97246 frames / 128584400000 ticks → 128.58s ≈ 742 frames/s at
+        // 1ns/tick; the prior 10ns assumption gave 12858s ≈ 7.6 frames/s,
+        // contradicting the frame density). Divide by 1e9 to get seconds.
+        BlfFormat.TimestampScale.Should().Be(1_000_000_000.0);
     }
 
     // v3.51.0: verify the fixture's internal object structure rather than only

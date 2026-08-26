@@ -225,6 +225,44 @@ public class ReplayViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// v3.18.0 PATCH (BLF playback fix follow-up): the ReplayView speed
+    /// ComboBox binds <c>SelectedItem="{Binding Speed, Mode=TwoWay}"</c> —
+    /// it writes the <c>Speed</c> PROPERTY directly, not the
+    /// <c>SetSpeedCommand</c>. So the property's setter must forward to
+    /// <see cref="IReplayService.SetSpeed"/>; otherwise the combobox
+    /// changes the VM's <c>Speed</c> field but the timeline keeps playing
+    /// at 1.0x (the reported "倍速选择无效" symptom).
+    /// </summary>
+    [Fact]
+    public void SpeedProperty_SetDirectly_ForwardsToService()
+    {
+        // Direct property write — the path the ComboBox TwoWay binding takes.
+        _sut.Speed = 2.0;
+
+        _service.Received(1).SetSpeed(2.0);
+        _sut.Speed.Should().Be(2.0);
+    }
+
+    /// <summary>
+    /// v3.18.0 PATCH: non-positive values written directly to the
+    /// <c>Speed</c> property (e.g. via a future numeric-entry binding)
+    /// must NOT reach the service (div-by-zero guard) and must NOT stick
+    /// on the VM (revert to the previous valid value).
+    /// </summary>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void SpeedProperty_NonPositive_DoesNotForward_AndReverts(double value)
+    {
+        _sut.Speed = 1.0;
+
+        _sut.Speed = value;
+
+        _service.DidNotReceive().SetSpeed(Arg.Any<double>());
+        _sut.Speed.Should().Be(1.0, "non-positive Speed must revert to the prior valid value");
+    }
+
+    /// <summary>
     /// v1.4.0 MINOR: <c>SetSpeedCommand</c> rejects non-positive
     /// multipliers (per <see cref="IReplayService.SetSpeed"/> contract —
     /// the timeline requires multiplier &gt; 0). The command is a
@@ -2055,5 +2093,126 @@ public class ReplayViewModelTests : IDisposable
         vm.Label.Should().Be("user-edited label");
         dto.Label.Should().Be("user-edited label",
             "v3.9.0 P4: setter must update the DTO in place, not replace it");
+    }
+
+    // === v3.18.1 PATCH (BLF playback UI freeze fix) ===
+    // Root cause: high-frame-rate BLF (742 frames/s) made OnFrameEmitted
+    // Post to the UI SynchronizationContext once per emitted frame. Each
+    // Post rewrites CurrentTimestamp (source-gen INPC) → slider redraw ×742/s,
+    // swamping the UI dispatcher until the app appears frozen (~0.26s in,
+    // when enough Posts accumulate). Fix: OnFrameEmitted throttles the UI
+    // marshal to ~30fps, tracking the latest frame timestamp internally so
+    // the final flush still lands the cursor at the true position.
+
+    /// <summary>
+    /// A SynchronizationContext that counts Post calls instead of
+    /// marshalling to any real dispatcher. Lets a unit test assert how
+    /// many UI-bound work items OnFrameEmitted schedules.
+    /// </summary>
+    private sealed class CountingSyncContext : SynchronizationContext
+    {
+        public int PostCount;
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            Interlocked.Increment(ref PostCount);
+            d(state);  // run synchronously so the test can observe CurrentTimestamp
+        }
+    }
+
+    /// <summary>
+    /// v3.18.1 PATCH: raising FrameEmitted at high frequency (742 calls,
+    /// matching the real BLF's frame density) must NOT Post to the UI
+    /// SynchronizationContext 742 times. Pre-fix, OnFrameEmitted Post'd
+    /// every frame → 742 UI redraws/s → frozen app. Post-fix, the throttle
+    /// coalesces these to a few (~30fps ceiling), and the final timestamp
+    /// still reaches CurrentTimestamp so the slider ends at the right spot.
+    /// </summary>
+    [Fact]
+    public void OnFrameEmitted_HighFrequency_PostsAreThrottledBelowFrameCount()
+    {
+        // Arrange: install a counting SynchronizationContext BEFORE
+        // constructing the VM so the ctor's _syncContext capture picks
+        // it up. Restore the previous context after.
+        var prev = SynchronizationContext.Current;
+        var counting = new CountingSyncContext();
+        SynchronizationContext.SetSynchronizationContext(counting);
+        ReplayViewModel sut;
+        try
+        {
+            sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, _recentSessions);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(prev);
+        }
+
+        // Act: simulate 742 frames emitted in rapid succession (a real
+        // 1-second slice of the high-load BLF at 1x). Timestamps climb
+        // 1/742s apart — realistic inter-frame spacing.
+        for (int i = 1; i <= 742; i++)
+        {
+            var f = new ReplayFrame(i / 742.0, 0x100, 8, new byte[8], FrameFlags.None);
+            _service.FrameEmitted += Raise.Event<Action<ReplayFrame>>(f);
+        }
+
+        // Assert: Post count must be far below 742. The throttle ceiling
+        // is ~30fps, so over a wall-clock-near-zero burst (all 742 raise
+        // calls happen in <1ms of test time) only the FIRST Post should
+        // fire — the rest are coalesced until the throttle window elapses.
+        // We assert a generous upper bound (≤5) that proves throttling
+        // is in effect without coupling to the exact frame timing.
+        counting.PostCount.Should().BeLessThan(742,
+            "high-frequency FrameEmitted must throttle UI Posts, not Post per frame");
+        counting.PostCount.Should().BeLessThanOrEqualTo(5,
+            "a sub-millisecond burst of 742 frames must coalesce to at most a few UI Posts");
+
+        // During the throttle window the slider does NOT track every frame
+        // (that's the point — 742 redraws/s froze the app). The final
+        // position is reconciled by the PlaybackEnded flush, verified by
+        // OnPlaybackEnded_FlushesFinalTimestampToCurrentTimestamp below.
+        // So we do NOT assert CurrentTimestamp == 742/742 here.
+    }
+
+    /// <summary>
+    /// v3.18.1 PATCH: on PlaybackEnded, the throttled CurrentTimestamp must
+    /// flush to the true final position even if the last emitted frame was
+    /// inside a throttle window (so the slider doesn't freeze mid-way on EOF).
+    /// </summary>
+    [Fact]
+    public void OnPlaybackEnded_FlushesFinalTimestampToCurrentTimestamp()
+    {
+        var prev = SynchronizationContext.Current;
+        var counting = new CountingSyncContext();
+        SynchronizationContext.SetSynchronizationContext(counting);
+        ReplayViewModel sut;
+        try
+        {
+            sut = NewVm(_service, _fileDialog, _hasher, _ascLocator, _library, _recentSessions);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(prev);
+        }
+
+        // Emit two frames so the SECOND is inside the throttle drop window.
+        // The first (9.0) Posts and sets CurrentTimestamp=9.0; the second
+        // (9.5) is dropped by the throttle (sub-millisecond after the first),
+        // so CurrentTimestamp stays 9.0 — _latestFrameTimestamp tracks 9.5.
+        _service.FrameEmitted += Raise.Event<Action<ReplayFrame>>(
+            new ReplayFrame(9.0, 0x100, 8, new byte[8], FrameFlags.None));
+        _service.FrameEmitted += Raise.Event<Action<ReplayFrame>>(
+            new ReplayFrame(9.5, 0x100, 8, new byte[8], FrameFlags.None));
+        // Sanity: the throttle dropped the second frame's UI update.
+        sut.CurrentTimestamp.Should().Be(9.0,
+            "the second frame is inside the throttle window and must NOT update CurrentTimestamp yet");
+
+        // Act: playback ends — the handler must flush the throttled value.
+        _service.PlaybackEnded += Raise.Event<EventHandler<PlaybackEndedEventArgs>>(
+            this, new PlaybackEndedEventArgs(error: null));
+
+        // Assert: CurrentTimestamp must now reflect the LAST frame (9.5),
+        // not the throttled mid-value (9.0) — the slider thumb lands at EOF.
+        sut.CurrentTimestamp.Should().Be(9.5,
+            "PlaybackEnded must flush the throttled CurrentTimestamp to the final frame position");
     }
 }

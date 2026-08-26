@@ -60,7 +60,16 @@ public static class BlfFormat
     public const int CanFdMessage64DataSize = 56;    // BBBBIIIIIIIHBBI (test-compatible)
     public const int CanFdMessage64ExtSize = 8;      // II (extension)
 
-    /// <summary>Timestamp scale: vblf stores as 10ns ticks since Vector
-    /// epoch; divide by this to get seconds.</summary>
-    public const double TimestampScale = 10_000_000.0;
+    /// <summary>Timestamp scale: BLF <c>object_time_stamp</c> is a UINT64 of
+    /// 1-nanosecond ticks since the 1970-01-01 UTC Vector epoch; divide by
+    /// this (1e9) to get seconds. <para>Verified against a real Vector
+    /// CANalyzer BLF: 97246 frames span 128584400000 raw ticks. At 1ns/tick
+    /// that is 128.58s (≈742 frames/s — a plausible high-load CAN bus); at the
+    /// previously-assumed 10ns/tick it would be 12858s (≈7.6 frames/s), which
+    /// contradicts the frame density. The 1ns unit also matches Vector's BLF
+    /// spec (object_time_stamp is FILETIME-resolution nanoseconds). The prior
+    /// <c>10_000_000.0</c> value was a 10ns assumption that made every
+    /// relativized span 100× too large (user symptom: "131s real → 13145s
+    /// displayed").</para></summary>
+    public const double TimestampScale = 1_000_000_000.0;
 }

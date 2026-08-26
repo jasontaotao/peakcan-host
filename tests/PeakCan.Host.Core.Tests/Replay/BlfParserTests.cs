@@ -44,9 +44,17 @@ public class BlfParserTests
     ///     I = object_flags (UINT32 LE)
     ///     H = client_index (UINT16 LE)
     ///     H = reserved (UINT16 LE)
-    ///     Q = object_time_stamp (UINT64 LE, 10ns ticks since Vector epoch)
+    ///     Q = object_time_stamp (UINT64 LE, 1ns ticks since Vector epoch)
     /// </summary>
     private static void WriteObject(MemoryStream ms, uint objType, int objectDataSize, Action<BinaryWriter> writeFrameData)
+        => WriteObject(ms, objType, objectDataSize, writeFrameData, timestamp: 0L);
+
+    /// <summary>
+    /// v3.17.0 PATCH: overload with explicit object_time_stamp (UINT64 LE,
+    /// 1-nanosecond ticks since Vector epoch). Existing zero-timestamp
+    /// overload delegates here. Used by the BLF relative-timestamp tests.
+    /// </summary>
+    private static void WriteObject(MemoryStream ms, uint objType, int objectDataSize, Action<BinaryWriter> writeFrameData, long timestamp)
     {
         // ObjectHeaderBase: 16 bytes
         ms.Write(Encoding.ASCII.GetBytes(BlfFormat.ObjSignature));  // 4s = LOBJ (4 bytes)
@@ -60,7 +68,7 @@ public class BlfParserTests
         ms.Write(BitConverter.GetBytes(0u));  // I = object_flags (4 bytes LE)
         ms.Write(BitConverter.GetBytes((ushort)0));  // H = client_index (2 bytes LE)
         ms.Write(BitConverter.GetBytes((ushort)0));  // H = reserved (2 bytes LE)
-        ms.Write(BitConverter.GetBytes(0L));  // Q = object_time_stamp (8 bytes LE, 10ns ticks)
+        ms.Write(BitConverter.GetBytes(timestamp));  // Q = object_time_stamp (8 bytes LE, 1ns ticks)
         // Frame data
         var frameDataPos = ms.Position;
         using (var writer = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true))
@@ -70,6 +78,11 @@ public class BlfParserTests
         var actualWritten = ms.Position - frameDataPos;
         actualWritten.Should().Be(objectDataSize, "frame data must match objectDataSize");
     }
+
+    // Vector epoch is 1970-01-01 (per BlfFormat.TimestampScale xmldoc:
+    // "1-nanosecond ticks since Vector epoch"). BLF absolute seconds =
+    // timestamp_ticks / 1e9. WallClockOrigin = VectorEpoch + absolute seconds.
+    private static readonly DateTime VectorEpoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public async Task BlfParser_CanMessage_Parsed()
@@ -405,6 +418,184 @@ public class BlfParserTests
         frames[0].Data.Should().Equal(
             (byte)0x55, (byte)0x66, (byte)0x77, (byte)0x88,
             (byte)0x99, (byte)0xaa, (byte)0xbb, (byte)0xcc);
+    }
+
+    // === v3.17.0 PATCH: BLF relative-timestamp relativization (BLF playback fix) ===
+    // Root cause: BlfParser stored absolute seconds (since 1970 Vector epoch) into
+    // ReplayFrame.Timestamp, but ReplayTimeline.OnTick compares frame.Timestamp
+    // (huge absolute value) against PlayedTimestamp (relative, from 0). now never
+    // reaches the first frame's Timestamp → 0 frames emit, slider/time frozen.
+    // Fix: BlfParser.ParseAsyncWithOrigin relativizes all frame timestamps to the
+    // minimum frame timestamp and returns the original absolute first-frame time
+    // as WallClockOrigin (sister of AscParseResult). ParseAsync delegates and
+    // returns only .Frames (preserves the existing 14-test contract).
+
+    private static void WriteCanMessage(MemoryStream ms, long timestamp, uint frameId)
+    {
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
+        {
+            w.Write((ushort)1);   // channel
+            w.Write((byte)0);     // flags
+            w.Write((byte)8);     // dlc
+            w.Write(frameId);
+            w.Write(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04 });
+        }, timestamp);
+    }
+
+    [Fact]
+    public async Task BlfParser_AbsoluteTimestamp_RelativizedToZero()
+    {
+        // BLF first frame at absolute 155696.89s (≈1.8 days since Vector epoch).
+        // ticks = 155696.89 * 1e9 = 155696890000000 (1ns/tick).
+        long firstTicks = 155696890000000L;
+        long secondTicks = firstTicks + 5_000_000_000L; // +5.0s in 1ns ticks
+
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteCanMessage(ms, firstTicks, 0x100);
+        WriteCanMessage(ms, secondTicks, 0x200);
+        ms.Position = 0;
+
+        var result = await BlfParser.ParseAsyncWithOrigin(ms, DefaultOptions());
+        result.Frames.Should().HaveCount(2);
+        // First frame relativized to 0 (the bug fix core).
+        result.Frames[0].Timestamp.Should().Be(0.0);
+        // Second frame = +5.0s relative (interval preserved).
+        result.Frames[1].Timestamp.Should().BeApproximately(5.0, 1e-6);
+        // WallClockOrigin preserved for future X-axis wall-clock display.
+        result.WallClockOrigin.Should().NotBeNull();
+        result.WallClockOrigin!.Should().Be(VectorEpoch.AddSeconds(155696.89),
+            "BLF absolute first-frame seconds = VectorEpoch + 155696.89s");
+    }
+
+    [Fact]
+    public async Task BlfParser_GapWindow_RelativizedInterval_Preserved()
+    {
+        // User scenario: BLF messages are not contiguous — large gap window
+        // with no messages in the middle. Relativization is a uniform shift;
+        // inter-frame intervals (including gaps) must be preserved exactly.
+        // frames: A=big, B=A+0.05s, C=A+6.0s (6s gap), D=A+6.01s
+        long a = 155696890000000L;
+        long b = a + 50_000_000L;     // +0.05s (1ns/tick)
+        long c = a + 6_000_000_000L; // +6.0s  (gap window)
+        long d = a + 6_010_000_000L; // +6.01s
+
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteCanMessage(ms, a, 0x01);
+        WriteCanMessage(ms, b, 0x02);
+        WriteCanMessage(ms, c, 0x03);
+        WriteCanMessage(ms, d, 0x04);
+        ms.Position = 0;
+
+        var result = await BlfParser.ParseAsyncWithOrigin(ms, DefaultOptions());
+        result.Frames.Should().HaveCount(4);
+        result.Frames[0].Timestamp.Should().Be(0.0);
+        result.Frames[1].Timestamp.Should().BeApproximately(0.05, 1e-6);
+        result.Frames[2].Timestamp.Should().BeApproximately(6.0, 1e-6);   // gap preserved
+        result.Frames[3].Timestamp.Should().BeApproximately(6.01, 1e-6);
+    }
+
+    [Fact]
+    public async Task BlfParser_NonMonotonicOrder_RelativizedByMin()
+    {
+        // BLF object stream order is NOT guaranteed strictly increasing
+        // (LOG_CONTAINER recursion can append out-of-absolute-time-order).
+        // Relativization uses Min(Timestamp), not result[0], so a non-first
+        // minimum frame yields non-negative relative timestamps for all.
+        // Layout: first written frame has a LARGER absolute time than the
+        // second; the second is the true minimum.
+        long smaller = 155696890000000L; // baseline min (true minimum)
+        long larger = smaller + 5_000_000_000L; // +5.0s above smaller (1ns/tick)
+
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteCanMessage(ms, larger, 0x100);   // written first, but larger
+        WriteCanMessage(ms, smaller, 0x200);  // written second, true min
+        ms.Position = 0;
+
+        var result = await BlfParser.ParseAsyncWithOrigin(ms, DefaultOptions());
+        result.Frames.Should().HaveCount(2);
+        // Min baseline = smaller (0x200 frame) → both relative to it.
+        // 0x200 frame is the min → its relative timestamp is 0.
+        // 0x100 frame is +5.0s above min.
+        var minFrame = result.Frames.Single(f => f.Id == 0x200u);
+        var largerFrame = result.Frames.Single(f => f.Id == 0x100u);
+        minFrame.Timestamp.Should().Be(0.0);
+        largerFrame.Timestamp.Should().BeApproximately(5.0, 1e-6);
+    }
+
+    [Fact]
+    public async Task BlfParser_ParseAsync_PreservesRelativeContract()
+    {
+        // B2 contract: ParseAsync (legacy signature, returns IReadOnlyList)
+        // must also relativize — it delegates to ParseAsyncWithOrigin and
+        // returns .Frames. Existing 14 tests use zero-timestamp objects;
+        // for them Min=0 so relativization is a no-op (values unchanged).
+        // This test uses a non-zero first timestamp to prove ParseAsync
+        // also relativizes (not just ParseAsyncWithOrigin).
+        long firstTicks = 155696890000000L;
+
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteCanMessage(ms, firstTicks, 0x100);
+        WriteCanMessage(ms, firstTicks + 5_000_000_000L, 0x200);
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+        frames.Should().HaveCount(2);
+        frames[0].Timestamp.Should().Be(0.0, "ParseAsync also relativizes (delegates to WithOrigin)");
+        frames[1].Timestamp.Should().BeApproximately(5.0, 1e-6);
+    }
+
+    // === v3.17.0 PATCH follow-up: BLF frame sort ===
+    // Root cause of "播放到结束不停 + 时间超过 TotalDuration 还在涨":
+    // BlfParser did NOT sort frames by Timestamp (sister AscParser.ParseLines
+    // does `frames.Sort` at ParseLinesFlow.cs:70). BLF object stream order is
+    // NOT guaranteed strictly increasing — LOG_CONTAINER recursion appends
+    // inner objects in container order, which can be out-of-absolute-time
+    // order. Unsorted frames break two invariants:
+    //   1. TotalDuration = _frames[^1].Timestamp (ReplayService.cs:55 /
+    //      TraceViewerService.cs:88) takes the LAST element, not the max —
+    //      so if the max-timestamp frame is in the middle, TotalDuration is
+    //      too small. The UI slider Maximum tracks this too-small value, so
+    //      playback time visually exceeds TotalDuration mid-playback.
+    //   2. OnTick's `_nextFrameIndex >= _frames.Count` EOF check still fires
+    //      (idx walks the list in order), but the UI shows time > TotalDuration
+    //      for any mid-list frame whose Timestamp > _frames[^1].Timestamp.
+    // Fix: BlfParser sorts frames by Timestamp after relativization, matching
+    // the AscParser contract. Then TotalDuration = _frames[^1].Timestamp = max.
+
+    [Fact]
+    public async Task BlfParser_UnsortedFrames_SortedByTimestamp()
+    {
+        // Write frames in NON-monotonic absolute order: the largest
+        // timestamp is the middle frame. Without sort, _frames[^1] would
+        // be the smallest; TotalDuration (last element) would be wrong.
+        long a = 155696890000000L;            // baseline (min)
+        long c = a + 6_000_000_000L;          // +6.0s (largest — written 2nd, 1ns/tick)
+        long b = a + 5_000_000_000L;          // +5.0s (written 3rd, 1ns/tick)
+
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteCanMessage(ms, a, 0x01);   // written 1st, min
+        WriteCanMessage(ms, c, 0x03);   // written 2nd, max (out of order)
+        WriteCanMessage(ms, b, 0x02);   // written 3rd, middle
+        ms.Position = 0;
+
+        var result = await BlfParser.ParseAsyncWithOrigin(ms, DefaultOptions());
+        result.Frames.Should().HaveCount(3);
+        // After sort: timestamps ascending [0, 5.0, 6.0].
+        result.Frames[0].Timestamp.Should().Be(0.0);
+        result.Frames[1].Timestamp.Should().BeApproximately(5.0, 1e-6);
+        result.Frames[2].Timestamp.Should().BeApproximately(6.0, 1e-6);
+        // IDs follow their frames through the sort.
+        result.Frames[0].Id.Should().Be(0x01u);
+        result.Frames[1].Id.Should().Be(0x02u);
+        result.Frames[2].Id.Should().Be(0x03u);
+        // TotalDuration invariant: last element = max after sort.
+        result.Frames[^1].Timestamp.Should().Be(result.Frames.Max(f => f.Timestamp),
+            "after sort, _frames[^1] is the max — TotalDuration invariant restored");
     }
 
     private static byte[] CompressZlib(byte[] data)

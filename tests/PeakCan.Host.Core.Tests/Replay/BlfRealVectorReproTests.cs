@@ -54,10 +54,33 @@ public class BlfRealVectorReproTests
             frames.Count.Should().BeGreaterThan(0,
                 "real Vector BLF must parse to >0 frames; 0 means dispatcher failed");
 
-            // Sanity-check first frame
+            // Sanity-check: first frame should have a non-zero CAN ID.
             frames[0].Id.Should().NotBe(0u, "first frame should have a non-zero CAN ID");
-            frames[0].Timestamp.Should().BeGreaterThan(0,
-                "first frame timestamp should be > 0 seconds; 0 means the 64-bit timestamp field wasn't read from the right offset");
+            // v3.17.0 PATCH (BLF playback fix): BlfParser now relativizes all
+            // frame timestamps to the minimum, so frames[0].Timestamp is 0.0
+            // (the first-emitted frame is the relative baseline). The
+            // original "frames[0].Timestamp > 0 → 64-bit field read from the
+            // right offset" assertion no longer distinguishes a correct parse
+            // from a relativized baseline. The last frame's timestamp is the
+            // robust signal: a real multi-frame recording has a non-zero
+            // span, so frames[^1].Timestamp > 0 proves the 64-bit timestamp
+            // field was read from the right offset for every frame.
+            frames[^1].Timestamp.Should().BeGreaterThan(0,
+                "last frame timestamp should be > 0 seconds (relative); 0 means the 64-bit timestamp field wasn't read from the right offset or the file has a single frame at t=0");
+
+            // v3.17.0 PATCH follow-up: relativization must produce a SANE
+            // relative span, not the raw absolute epoch seconds. This fixture
+            // (CH0_242下坡掉READY0.blf) is a ~131s / 97246-frame recording.
+            // At the correct 1ns/tick scale (BlfFormat.TimestampScale = 1e9),
+            // the last relative timestamp is ~128.6s. The prior 10ns/tick
+            // assumption (scale = 1e7) made every span 100× too large
+            // (~12858s) — the user-visible "131s real → 13145s displayed"
+            // regression. The tight <1000s bound catches both that 100× scale
+            // error AND a skipped-relativization (absolute ~1.5e5s) at once;
+            // the old <86400s (1 day) bound was too loose to catch either.
+            frames[^1].Timestamp.Should().BeLessThan(1000.0,
+                "after relativization the last frame's relative timestamp must be < 1000s for this ~131s fixture; " +
+                "~1.3e4 means the 10ns/tick scale error (100× too large); ~1.5e5 means relativization was skipped");
         }
         catch (EndOfStreamException ex)
         {

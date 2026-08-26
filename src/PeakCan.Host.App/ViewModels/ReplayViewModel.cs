@@ -76,6 +76,18 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     // (e.g. test fixtures); in that path we fall back to direct set.
     private readonly SynchronizationContext? _syncContext;
 
+    // v3.18.1 PATCH (BLF playback UI freeze fix): throttle the per-frame
+    // UI marshal. High-frame-rate BLF (742 frames/s) made OnFrameEmitted
+    // Post once per frame → 742 CurrentTimestamp rewrites/s → 742 slider
+    // redraws/s → the UI dispatcher drowned and the app froze ~0.26s in.
+    // _latestFrameTimestamp always tracks the newest frame (no INPC) so a
+    // flush can land the cursor at the true position; the Post to the UI
+    // is coalesced to ~30fps via _lastUiPostTicks. Stopwatch.GetTimestamp
+    // is monotonic and allocation-free (no DateTime.UtcNow timezone cost).
+    private double _latestFrameTimestamp;
+    private long _lastUiPostTicks;
+    private const double UiUpdateFps = 30.0;
+
     [ObservableProperty]
     private double _currentTimestamp;
 
@@ -85,7 +97,14 @@ public sealed partial class ReplayViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double _scrubberMaxValue;
 
-    [ObservableProperty]
+    // v3.18.0 PATCH (BLF playback fix follow-up): Speed is now a manual
+    // property (sister of StartTimestamp/EndTimestamp in RangeFilter.partial).
+    // The ReplayView ComboBox binds `SelectedItem="{Binding Speed}"` — it
+    // writes the PROPERTY directly, so the setter must forward to
+    // IReplayService.SetSpeed. The [ObservableProperty] source-gen setter
+    // only raised INPC without forwarding, so the combobox changed the VM
+    // field but the timeline stayed at 1.0x (the "倍速选择无效" symptom).
+    // Manual setter = validate (reject non-positive) + forward + INPC.
     private double _speed = 1.0;
 
     [ObservableProperty]

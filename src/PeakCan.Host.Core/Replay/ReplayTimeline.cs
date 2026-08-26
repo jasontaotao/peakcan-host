@@ -156,8 +156,13 @@ internal sealed partial class ReplayTimeline
         Message = "Invalid loop region (Start > End: {Start} > {End}); rewind disabled, playback continues to natural EOF")]
     private static partial void LogInvalidLoopRegion(ILogger logger, double start, double end);
 
-    // v3.16.7 DIAG: Play() entry log — fires every time user hits Play
-    [LoggerMessage(Level = LogLevel.Information,
+    // v3.16.7 DIAG → v3.18.2 PATCH: Play() entry log. v3.16.7 fired this at
+    // Information; combined with the 1ms OnTick DIAG logs that starved the
+    // CPU (1000+ Information logs/s → Serilog File sink write amplification
+    // → app "very laggy, high CPU" during BLF playback). Demoted to Debug so
+    // production (MinimumLevel=Information) skips it; operators chasing a
+    // Play-entry issue bump Serilog to Debug.
+    [LoggerMessage(Level = LogLevel.Debug,
         Message = "ReplayTimeline.Play() ENTER: _frames.Count={Count} _isPlaying={Playing} _hasStarted={Started} _currentTimestamp={Ts}")]
     private static partial void LogPlayEntry(ILogger logger, int count, bool playing, bool started, double ts);
 
@@ -169,12 +174,14 @@ internal sealed partial class ReplayTimeline
         Message = "ReplayTimeline.Play() skipped: 0 frames loaded")]
     private static partial void LogPlayNoFrames(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information,
+    [LoggerMessage(Level = LogLevel.Debug,
         Message = "ReplayTimeline.Play() STARTED: timer=1ms, _currentTimestamp={Ts}, _frames.Count={Count}")]
     private static partial void LogPlayStarted(ILogger logger, double ts, int count);
 
-    // v3.16.7 DIAG: OnTick entry — fires every 1ms when timer is running
-    [LoggerMessage(Level = LogLevel.Information,
+    // v3.16.7 DIAG → v3.18.2 PATCH: OnTick entry — fires every timer tick
+    // (1ms). v3.16.7 logged this at Information = 1000 logs/s → CPU sink
+    // during BLF playback. Demoted to Debug; production skips it.
+    [LoggerMessage(Level = LogLevel.Debug,
         Message = "OnTick: _isPlaying={Playing} _frames.Count={Count} _nextFrameIndex={Idx} _currentTimestamp={Ts}")]
     private static partial void LogOnTickEntry(ILogger logger, bool playing, int count, int idx, double ts);
 
@@ -182,7 +189,10 @@ internal sealed partial class ReplayTimeline
         Message = "OnTick: !_isPlaying — early return, no emit")]
     private static partial void LogOnTickNotPlaying(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information,
+    // v3.16.7 DIAG → v3.18.2 PATCH: OnTick emit log — fires on every tick
+    // that emits frames (high-frame BLF: ~742/s). v3.16.7 Information
+    // → Serilog write amplification. Demoted to Debug.
+    [LoggerMessage(Level = LogLevel.Debug,
         Message = "OnTick EMIT: {Count} frames to emit, now={Now} new _currentTimestamp={Ts}")]
     private static partial void LogOnTickEmitting(ILogger logger, int count, double now, double ts);
     // === Flow A methods moved to ReplayTimeline/PlaybackLifecycleFlow.cs (W15 Task 1) ===

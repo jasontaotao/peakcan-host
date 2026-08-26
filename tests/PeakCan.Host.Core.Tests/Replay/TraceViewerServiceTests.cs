@@ -74,11 +74,12 @@ public class TraceViewerServiceTests
             var sut = new TraceViewerService(Substitute.For<ILogger<TraceViewerService>>());
             await sut.LoadAsync(path);
 
-            sut.LoadedFrames.Should().HaveCount(1,
-                "synthetic .blf has exactly 1 CanMessage; if 0 the .blf branch did not run");
+            sut.LoadedFrames.Should().HaveCount(2,
+                "synthetic .blf has 2 CanMessage objects; if 0 the .blf branch did not run");
             sut.TotalDuration.Should().BeGreaterThan(0,
-                "non-zero timestamp → non-zero TotalDuration");
+                "5-second span → non-zero TotalDuration; 0 means parse failed or relativization dropped the span");
             sut.LoadedFrames[0].Id.Should().Be(0x123u);
+            sut.LoadedFrames[1].Id.Should().Be(0x456u);
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -89,6 +90,18 @@ public class TraceViewerServiceTests
         // 24-byte file header
         ms.Write(System.Text.Encoding.ASCII.GetBytes(BlfFormat.FileSignature));
         ms.Write(new byte[BlfFormat.FileHeaderSize - 4]);
+        // v3.17.0 PATCH (BLF playback fix): two frames (was 1). BlfParser
+        // relativizes to the minimum frame timestamp, so a single-frame file
+        // yields TotalDuration=0 (its only frame is the baseline → 0). Two
+        // frames with a real span keep TotalDuration > 0 after relativization.
+        WriteCanMessageObject(ms, 500_000_000L, 0x123u);   // first frame, t=0.5s (1ns/tick)
+        WriteCanMessageObject(ms, 5_500_000_000L, 0x456u); // second frame, t=5.5s (+5s span, 1ns/tick)
+
+        File.WriteAllBytes(path, ms.ToArray());
+    }
+
+    private static void WriteCanMessageObject(System.IO.MemoryStream ms, long timestamp, uint frameId)
+    {
         // ObjectHeader (32): 4 LOBJ + 2 header_size + 2 header_version +
         // 4 object_size + 4 object_type + 4 object_flags + 2 client +
         // 2 reserved + 8 timestamp. Field order matches
@@ -107,15 +120,13 @@ public class TraceViewerServiceTests
         ms.Write(BitConverter.GetBytes(0u));            // object_flags (4)
         ms.Write(BitConverter.GetBytes((ushort)0));     // client_index (2)
         ms.Write(BitConverter.GetBytes((ushort)0));     // reserved (2)
-        ms.Write(BitConverter.GetBytes(5_000_000L));    // timestamp 0.5s (Q = 8)
-        // 12-byte CanMessage frame
+        ms.Write(BitConverter.GetBytes(timestamp));     // object_time_stamp (8, 1ns ticks)
+        // 16-byte CanMessage frame (HBBI8s)
         ms.Write(BitConverter.GetBytes((ushort)1));
         ms.WriteByte(0);
         ms.WriteByte(8);
-        ms.Write(BitConverter.GetBytes(0x123u));
+        ms.Write(BitConverter.GetBytes(frameId));
         ms.Write(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04 });
-
-        File.WriteAllBytes(path, ms.ToArray());
     }
 
     [Fact]

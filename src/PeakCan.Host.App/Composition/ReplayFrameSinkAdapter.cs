@@ -59,8 +59,26 @@ public sealed class ReplayFrameSinkAdapter : IReplayFrameSink
     /// </summary>
     public async ValueTask SendFrameAsync(ReplayFrame frame, CancellationToken ct = default)
     {
+        // v3.18.4 PATCH (BLF extended-ID send crash + CPU sink): BLF frame_id
+        // is a 32-bit field where bit31 marks 29-bit extended format (per
+        // Vector spec, verified 1:1 against python-can's BLFReader:
+        // arbitration_id = can_id & 0x1FFFFFFF, is_extended_id =
+        // (can_id & 0x80000000) != 0). The prior code hardcoded
+        // FrameFormat.Standard and passed the raw 32-bit value straight into
+        // CanId(.., Standard), which throws ArgumentOutOfRangeException for
+        // any extended frame (raw > 0x7FF). Real BLF traces are dominated by
+        // extended IDs (e.g. 0x98ffc23a), so EVERY send threw → 742 throws/s
+        // → threadpool starvation + 22MB of stack-trace logs + slider 2-3s
+        // jumps + high CPU. Now mask the 29-bit ID and pick the format by the
+        // extended bit, matching the project convention in
+        // FrameStatisticsFunctionRegistry.cs:132 (`raw > 0x7FF ? Extended`).
+        const uint extendedBit = 0x80000000;
+        const uint idMask = 0x1FFFFFFF;
+        var format = (frame.Id & extendedBit) != 0
+            ? FrameFormat.Extended
+            : FrameFormat.Standard;
         var canFrame = new CanFrame(
-            Id: new CanId(frame.Id, FrameFormat.Standard),
+            Id: new CanId(frame.Id & idMask, format),
             Data: frame.Data,
             Flags: frame.Flags,
             Channel: ChannelId.None,
@@ -68,6 +86,22 @@ public sealed class ReplayFrameSinkAdapter : IReplayFrameSink
         var result = await _send.SendAsync(canFrame, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
+            // v3.18.5 PATCH (BLF offline playback): InvalidState here means
+            // "No active channel" / "Not connected" — the user is replaying
+            // OFFLINE to view the timeline without hardware attached. That is
+            // a legitimate use case (user confirmed "connected + offline both
+            // must work"), not a failure. Pre-v3.18.5 the adapter threw here
+            // on the FIRST frame → the timeline's first-failure handler
+            // raised "Replay aborted" → offline playback was impossible.
+            // Now: InvalidState is a silent skip (frame not sent, timeline
+            // keeps advancing). Genuine hardware errors
+            // (HardwareNotAvailable / IoError / Refused / etc.) still throw
+            // — those are real failures the user must see, and they abort
+            // playback so a dropped USB stick isn't a 10000-frame silent drop.
+            if (result.Error?.Code == ErrorCode.InvalidState)
+            {
+                return;
+            }
             throw new ReplaySendException(
                 $"Replay frame send failed at t={frame.Timestamp}s, id=0x{frame.Id:X}: " +
                 $"{result.Error?.Message ?? "unknown error"}");

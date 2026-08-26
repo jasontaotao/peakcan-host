@@ -114,15 +114,60 @@ public sealed partial class ReplayViewModel
     }
 
     /// <summary>
+    /// Playback speed multiplier. Manual property (not [ObservableProperty])
+    /// so the setter can forward to <see cref="IReplayService.SetSpeed"/>.
+    /// <para>
+    /// v3.18.0 PATCH (BLF playback fix follow-up): the ReplayView speed
+    /// ComboBox binds <c>SelectedItem="{Binding Speed, Mode=TwoWay}"</c> —
+    /// it writes THIS property directly. The old [ObservableProperty]
+    /// source-gen setter only raised INPC without forwarding, so the
+    /// combobox changed the VM field but the timeline kept playing at 1.0x
+    /// (the "倍速选择无效" symptom). Now the setter validates (rejects
+    /// non-positive, per <see cref="IReplayService.SetSpeed"/> contract —
+    /// 0/negative would divide-by-zero the timeline), forwards to the
+    /// service, AND raises INPC — keeping the field, service, and UI in
+    /// sync on every write path (combobox OR SetSpeedCommand).
+    /// </para>
+    /// </summary>
+    public double Speed
+    {
+        get => _speed;
+        set
+        {
+            if (value <= 0)
+            {
+                // Rejected: do NOT touch backing field, do NOT push to
+                // service. Mirrors StartTimestamp/EndTimestamp rejection
+                // semantics in RangeFilter.partial.cs — the UI binding reads
+                // back the old value via the unchanged getter.
+                return;
+            }
+            if (!EqualityComparer<double>.Default.Equals(_speed, value))
+            {
+                _speed = value;
+                _service.SetSpeed(value);
+                OnPropertyChanged(nameof(Speed));
+            }
+        }
+    }
+
+    /// <summary>
     /// Change playback speed multiplier. Guards against non-positive
     /// values per the <see cref="IReplayService.SetSpeed"/> contract —
     /// a 0 / negative multiplier would divide-by-zero the timeline.
+    /// <para>
+    /// v3.18.0 PATCH: this command now only writes <see cref="Speed"/>;
+    /// the property's setter forwards to the service. Previously the
+    /// command called <c>_service.SetSpeed</c> directly AND set the field,
+    /// but the combobox path bypassed the command entirely — so only the
+    /// command-driven path forwarded. Centralizing the forward in the
+    /// setter covers both paths with one code site.
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void SetSpeed(double multiplier)
     {
         if (multiplier <= 0) return;
-        _service.SetSpeed(multiplier);
         Speed = multiplier;
     }
 

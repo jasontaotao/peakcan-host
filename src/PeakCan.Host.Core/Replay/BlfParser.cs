@@ -29,14 +29,140 @@ public static partial class BlfParser
     /// <summary>
     /// v3.51.0 MINOR: parse <paramref name="stream"/> as BLF. Sister of
     /// AscParser.ParseAsync. Throws ReplayFormatException on bad magic /
-    /// >50% corruption; throws ReplayLoadException on stream-size cap
+    /// &gt;50% corruption; throws ReplayLoadException on stream-size cap
     /// exceeded (via existing CountingStream path).
+    /// <para>
+    /// v3.17.0 PATCH (BLF playback fix): delegates to
+    /// <see cref="ParseAsyncWithOrigin"/> and returns only
+    /// <see cref="BlfParseResult.Frames"/> (already relativized + sorted).
+    /// Preserves the original <c>IReadOnlyList&lt;ReplayFrame&gt;</c> return
+    /// contract so the existing 14 call sites and tests are unaffected.
+    /// </para>
     /// </summary>
     public static async Task<IReadOnlyList<ReplayFrame>> ParseAsync(
         Stream stream,
         ReplayOptions options,
         ILogger? logger = null,
         CancellationToken ct = default)
+        => (await ParseAsyncWithOrigin(stream, options, logger, ct).ConfigureAwait(false)).Frames;
+
+    /// <summary>
+    /// v3.17.0 PATCH (BLF playback fix): parse <paramref name="stream"/> as
+    /// BLF and return both the frame list AND the wall-clock origin. Sister
+    /// of <see cref="AscParser.ParseAsyncWithHeaderAsync"/>.
+    /// <para>
+    /// <b>Why relativize:</b> BLF object_time_stamp is 1-nanosecond ticks
+    /// since the 1970 Vector epoch — an absolute value in the ~1.5e5-second
+    /// range (~1.8 days) for real recordings. <see cref="ReplayFrame.Timestamp"/>'s
+    /// contract is "seconds from recording start" (relative), and
+    /// <see cref="ReplayTimeline"/>'s <c>PlayedTimestamp</c> grows from 0.
+    /// Without relativization, <c>OnTick</c>'s <c>frame.Timestamp &lt;= now</c>
+    /// predicate never matches (now needs ~1.8 days to reach the first
+    /// frame) → 0 frames emit, slider/time frozen. Relativization subtracts
+    /// the minimum absolute timestamp from every frame so the first-emitted
+    /// frame is at t=0, matching the ASC + ReplayTimeline relative contract.
+    /// </para>
+    /// <para>
+    /// <b>Why Min, not result[0]:</b> BLF object stream order is NOT
+    /// guaranteed strictly increasing — LOG_CONTAINER recursion appends inner
+    /// objects in container order, which may be out of absolute-time order.
+    /// Using <c>result[0]</c> as the baseline can yield negative relative
+    /// timestamps for earlier-time frames written later. Min is the robust
+    /// baseline; inter-frame intervals (including gap windows with no
+    /// messages) are preserved exactly because the shift is uniform.
+    /// </para>
+    /// <para>
+    /// <b>Why single outer pass:</b> LogContainerFlow recurses into
+    /// <see cref="ParseCoreAsync"/> per zlib chunk; relativization must NOT
+    /// happen per-container (each chunk has its own min, so per-container
+    /// relativization resets timestamps to ~0 at every chunk boundary,
+    /// breaking the cross-container baseline). This public entry point
+    /// is the outermost call — it delegates to ParseCoreAsync (raw parse,
+    /// no relativization) then applies ONE uniform shift + sort across all
+    /// frames from all containers.
+    /// </para>
+    /// <para>
+    /// <b>WallClockOrigin:</b> the pre-relativization minimum absolute
+    /// timestamp as a UTC DateTime (<c>VectorEpoch + minAbsoluteSeconds</c>).
+    /// Reserved for future X-axis wall-clock display; no live consumer wires
+    /// it yet (YAGNI).
+    /// </para>
+    /// </summary>
+    public static async Task<BlfParseResult> ParseAsyncWithOrigin(
+        Stream stream,
+        ReplayOptions options,
+        ILogger? logger = null,
+        CancellationToken ct = default)
+    {
+        var result = await ParseCoreAsync(stream, options, logger, ct).ConfigureAwait(false);
+
+        if (result.Count == 0)
+        {
+            throw new ReplayFormatException("BLF file contains no parseable frames");
+        }
+
+        // v3.17.0 PATCH follow-up: ALWAYS shift, even when min==0. Real BLF
+        // files commonly contain zero-timestamp objects (file-statistics
+        // artifacts, metadata objects, or genuinely zero-tick frames). The
+        // old `if (minTimestamp > 0.0)` guard skipped relativization when
+        // such an object set min==0 — leaving every absolute-timestamp frame
+        // at its raw ~1.5e5 value. A no-op shift (subtract 0) produces the
+        // same result for all-zero fixtures anyway, so the guard was pure
+        // downside on real files. Removed.
+        double minTimestamp = result.Min(f => f.Timestamp);
+        // Vector epoch = 1970-01-01 UTC per BlfFormat.TimestampScale xmldoc
+        // ("1-nanosecond ticks since Vector epoch").
+        var vectorEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        DateTime? wallClockOrigin = vectorEpoch.AddSeconds(minTimestamp);
+        var relativized = new List<ReplayFrame>(result.Count);
+        foreach (var f in result)
+        {
+            relativized.Add(f with { Timestamp = f.Timestamp - minTimestamp });
+        }
+        result = relativized;
+
+        // v3.17.0 PATCH follow-up: sort frames by Timestamp (ascending).
+        // BLF object stream order is NOT guaranteed strictly increasing —
+        // LOG_CONTAINER recursion appends inner objects in container order,
+        // which can be out-of-absolute-time order. Without sort, two
+        // invariants break:
+        //   1. TotalDuration = _frames[^1].Timestamp (ReplayService.cs:55 /
+        //      TraceViewerService.cs:88) takes the LAST element, not the max
+        //      — so if the max-timestamp frame is mid-list, TotalDuration is
+        //      too small and the UI slider Maximum tracks it, making playback
+        //      time visually exceed TotalDuration mid-playback (user symptom:
+        //      "时间超过 TotalDuration 还在涨").
+        //   2. OnTick's `_nextFrameIndex >= _frames.Count` EOF check still
+        //      fires (idx walks in list order), but the UI shows time >
+        //      TotalDuration for any mid-list frame whose Timestamp >
+        //      _frames[^1].Timestamp — "跑到结束不停" is the perceived symptom
+        //      because time keeps climbing past the displayed TotalDuration
+        //      until the true max frame emits and idx finally reaches Count.
+        // Sister of AscParser.ParseLinesFlow.cs:70 `frames.Sort`. Sort is
+        // applied AFTER relativization (the shift is uniform, so the relative
+        // order is identical to the absolute order — sort either way yields
+        // the same sequence).
+        result.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
+
+        return new BlfParseResult(result, wallClockOrigin);
+    }
+
+    /// <summary>
+    /// v3.17.0 PATCH follow-up: the raw BLF parse loop — scans for LOBJ,
+    /// reads ObjectHeader, dispatches to per-frame unpackers, applies the
+    /// 50% corruption threshold. Returns frames with their RAW absolute
+    /// timestamps (1ns-ticks-since-Vector-epoch / TimestampScale seconds);
+    /// does NOT relativize or sort. Used internally by ParseAsyncWithOrigin
+    /// (which does the single outer relativization+sort pass) and by
+    /// LogContainerFlow's per-chunk recursion (so each chunk's frames keep
+    /// raw absolute timestamps and the outer caller can relativize them all
+    /// against a single baseline).
+    /// </summary>
+    internal static async Task<List<ReplayFrame>> ParseCoreAsync(
+        Stream stream,
+        ReplayOptions options,
+        ILogger? logger,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(options);
         _logger = logger ?? NullLogger.Instance;
@@ -54,9 +180,6 @@ public static partial class BlfParser
 
         // 1. Detect format: starts with LOGG (full file with FileStatistics) or
         //    LOBJ (raw object stream, e.g. vblf test fixture or decompressed container).
-        //    This mirrors vblf_reader.py where the reader expects FileStatistics
-        //    prefix, but also lets us parse object-only streams (LOG_CONTAINER
-        //    decompressed payload, vblf_test_CAN_MESSAGE.lobj unit-test fixture).
         long firstSigPos = stream.Position;
         string fileSig = new string(reader.ReadChars(4));
         if (fileSig == BlfFormat.FileSignature)
@@ -80,16 +203,13 @@ public static partial class BlfParser
         }
 
         // 2. Object stream parse loop (sister of vblf._generate_objects)
-        // Algorithm: scan for LOBJ signature, then read full 32-byte ObjectHeader
-        // (16-byte ObjectHeaderBase + 16-byte IHHQ extension per vblf_general.py),
-        // then dispatch by object_type to per-frame-class unpacker.
         while (stream.Position < stream.Length)
         {
             ct.ThrowIfCancellationRequested();
 
-            // Search for LOBJ signature (sister of vblf reader line 97-105).
-            // If 4 bytes don't match LOBJ, rewind 3 bytes and try again — this
-            // tolerates up to 3 padding bytes between objects.
+            // Search for LOBJ signature. If 4 bytes don't match LOBJ, rewind
+            // 3 bytes and try again — this tolerates up to 3 padding bytes
+            // between objects.
             long pos = stream.Position;
             while (stream.Position < stream.Length)
             {
@@ -97,8 +217,7 @@ public static partial class BlfParser
                 int bytesAvailable = (int)Math.Min(4, stream.Length - stream.Position);
                 if (bytesAvailable < 4)
                 {
-                    // Near EOF: cannot possibly match a 4-byte signature
-                    break;
+                    break; // Near EOF: cannot possibly match a 4-byte signature
                 }
                 string sig = new string(reader.ReadChars(4));
                 if (sig == BlfFormat.ObjSignature)
@@ -112,12 +231,10 @@ public static partial class BlfParser
             if (stream.Position >= stream.Length) break;
 
             // Read ObjectHeaderBase (16 bytes) + ObjectHeader extension (16 bytes) = 32 bytes.
-            // ObjectHeaderBase._FORMAT = struct.Struct("4sHHII") = 16 bytes:
-            //   4s = signature (LOBJ), H = header_size, H = header_version,
-            //   I = object_size, I = object_type
-            // ObjectHeader._FORMAT = struct.Struct("IHHQ") = 16 bytes:
-            //   I = object_flags, H = client_index, H = reserved/object_version,
-            //   Q = object_time_stamp (UINT64, 10ns ticks since Vector epoch)
+            //   ObjectHeaderBase = "4sHHII": signature, header_size, header_version,
+            //     object_size, object_type
+            //   ObjectHeader = "IHHQ": object_flags, client_index, reserved,
+            //     object_time_stamp (UINT64, 1ns ticks since Vector epoch)
             long objStart = stream.Position;
             string objSig;
             try
@@ -126,26 +243,18 @@ public static partial class BlfParser
             }
             catch (EndOfStreamException)
             {
-                // v3.51.0 T6 PATCH: real Vector BLF often ends with a
-                // partial trailing object (recording cut off mid-write
-                // or partial zlib trailer). The previous behavior was
-                // to fall through to the next iteration with a partial
-                // header, then trip the 50% corruption threshold. Now
-                // we exit cleanly so the caller gets all fully-parsed
-                // frames.
+                // Real Vector BLF often ends with a partial trailing object.
                 break;
             }
             if (objSig != BlfFormat.ObjSignature)
             {
-                // No LOBJ found (stream ended); exit
-                break;
+                break; // No LOBJ found (stream ended); exit
             }
-            ushort headerSize = reader.ReadUInt16();
-            ushort headerVersion = reader.ReadUInt16();
+            _ = reader.ReadUInt16();   // header_size
+            _ = reader.ReadUInt16();   // header_version
             uint objectSize = reader.ReadUInt32();
             uint objectType = reader.ReadUInt32();
-            // ObjectHeader extension (16 bytes) — read all so the stream is
-            // positioned at the start of frame data.
+            // ObjectHeader extension (16 bytes)
             _ = reader.ReadUInt32();   // object_flags
             _ = reader.ReadUInt16();   // client_index
             _ = reader.ReadUInt16();   // reserved / object_version
@@ -165,9 +274,6 @@ public static partial class BlfParser
             try
             {
                 // Read exactly frameDataSize bytes of frame data into a buffer.
-                // This isolates the unpacker from stream-position issues (e.g.
-                // truncated objects where stream.Read would happily read past
-                // the current object into the next object's header).
                 byte[] frameData = new byte[frameDataSize];
                 int totalRead = 0;
                 while (totalRead < frameDataSize)
@@ -188,28 +294,13 @@ public static partial class BlfParser
             {
                 errorCount++;
                 LogCorruptedFrame(_logger, objStart, ex.Message);
-                // Seek to the end of this object (clamped to stream length) so
-                // the next LOBJ search starts cleanly.
                 long objEnd = objStart + BlfFormat.ObjectHeaderSize + frameDataSize;
                 if (objEnd <= stream.Length) stream.Position = objEnd;
             }
 
-            // v3.51.0 T6 PATCH: after SUCCESSFUL parse, position the
-            // stream at the end of this object (objStart + objSize) so
-            // the next iteration's LOBJ search does NOT re-enter the
-            // just-parsed object's payload. Without this, real Vector
-            // BLF files (where multiple LOG_CONTAINERs are chained with
-            // optional zlib trailer padding) hit a false-positive
-            // 50% corruption threshold: a successful LOG_CONTAINER
-            // leaves the stream at the byte-after-end of the parsed
-            // payload, but if that byte happens to be the first byte
-            // of the next container's LOBJ+header (with a few bytes of
-            // inter-container padding merged) the outer scanner
-            // either skips past real content (under-count) or matches
-            // a partial LOBJ signature that fails to parse (over-count).
-            // objSize is the trusted byte budget set by the writer; we
-            // use it as the absolute cap. Clamp to stream length so we
-            // don't seek past EOF.
+            // After SUCCESSFUL parse, position the stream at the end of this
+            // object (objStart + objSize) so the next LOBJ search does NOT
+            // re-enter the just-parsed object's payload.
             long successEnd = objStart + objectSize;
             if (stream.CanSeek && successEnd <= stream.Length)
             {
@@ -222,11 +313,6 @@ public static partial class BlfParser
                 throw new ReplayFormatException(
                     $"BLF corruption: {errorCount}/{objectCount} objects failed (>{50}%)");
             }
-        }
-
-        if (result.Count == 0)
-        {
-            throw new ReplayFormatException("BLF file contains no parseable frames");
         }
 
         return result;

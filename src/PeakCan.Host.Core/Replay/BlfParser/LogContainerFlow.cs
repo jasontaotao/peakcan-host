@@ -68,7 +68,16 @@ public static partial class BlfParser
         try
         {
             using var innerMs = new MemoryStream(innerBytes, writable: false);
-            var innerTask = ParseAsync(innerMs, new ReplayOptions(), logger, CancellationToken.None);
+            // v3.17.0 PATCH follow-up: recurse into ParseCoreAsync (raw parse,
+            // NO relativization). Previously this called ParseAsync, which
+            // since v3.17.0 delegates to ParseAsyncWithOrigin and relativizes
+            // — so each container's frames were shifted against that
+            // container's own min, breaking the cross-container baseline.
+            // Relativization must happen once, at the outermost call, over
+            // ALL frames from ALL containers. ParseCoreAsync returns raw
+            // absolute-timestamp frames; the outer ParseAsyncWithOrigin
+            // applies the uniform shift + sort.
+            var innerTask = ParseCoreAsync(innerMs, new ReplayOptions(), logger, CancellationToken.None);
             return innerTask.GetAwaiter().GetResult();
         }
         catch (ReplayFormatException ex)
