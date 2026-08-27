@@ -59,26 +59,12 @@ public sealed class ReplayFrameSinkAdapter : IReplayFrameSink
     /// </summary>
     public async ValueTask SendFrameAsync(ReplayFrame frame, CancellationToken ct = default)
     {
-        // v3.18.4 PATCH (BLF extended-ID send crash + CPU sink): BLF frame_id
-        // is a 32-bit field where bit31 marks 29-bit extended format (per
-        // Vector spec, verified 1:1 against python-can's BLFReader:
-        // arbitration_id = can_id & 0x1FFFFFFF, is_extended_id =
-        // (can_id & 0x80000000) != 0). The prior code hardcoded
-        // FrameFormat.Standard and passed the raw 32-bit value straight into
-        // CanId(.., Standard), which throws ArgumentOutOfRangeException for
-        // any extended frame (raw > 0x7FF). Real BLF traces are dominated by
-        // extended IDs (e.g. 0x98ffc23a), so EVERY send threw → 742 throws/s
-        // → threadpool starvation + 22MB of stack-trace logs + slider 2-3s
-        // jumps + high CPU. Now mask the 29-bit ID and pick the format by the
-        // extended bit, matching the project convention in
-        // FrameStatisticsFunctionRegistry.cs:132 (`raw > 0x7FF ? Extended`).
-        const uint extendedBit = 0x80000000;
-        const uint idMask = 0x1FFFFFFF;
-        var format = (frame.Id & extendedBit) != 0
-            ? FrameFormat.Extended
-            : FrameFormat.Standard;
+        // v3.18.4 → 重构：扩展格式判断已收敛到 parser 输出层（ReplayFrame.IsExtended）。
+        // parser 掩码掉 BLF bit31 后填入裸 29 位 Id + IsExtended 标记，consumer 直接读，
+        // 不再各自掩码。原 bit31 掩码逻辑见 BlfParser/CanMessageFlow.cs。
+        var format = frame.IsExtended ? FrameFormat.Extended : FrameFormat.Standard;
         var canFrame = new CanFrame(
-            Id: new CanId(frame.Id & idMask, format),
+            Id: new CanId(frame.Id, format),
             Data: frame.Data,
             Flags: frame.Flags,
             Channel: ChannelId.None,

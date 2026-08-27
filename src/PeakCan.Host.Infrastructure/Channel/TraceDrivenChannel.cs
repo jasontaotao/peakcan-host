@@ -251,7 +251,9 @@ public sealed class TraceDrivenChannel : ICanChannel
 
     private static CanFrame ToCanFrame(ReplayFrame frame, ChannelId channelId)
     {
-        var format = (frame.Id > 0x7FFu) ? FrameFormat.Extended : FrameFormat.Standard;
+        // 扩展格式判断收敛到 parser 输出层（ReplayFrame.IsExtended）。
+        // parser 已掩码 BLF bit31，consumer 直接读 IsExtended，不再用 > 0x7FF 启发式。
+        var format = frame.IsExtended ? FrameFormat.Extended : FrameFormat.Standard;
         var totalUs = (ulong)(frame.Timestamp * 1_000_000.0);
         return new CanFrame(
             new CanId(frame.Id, format),
