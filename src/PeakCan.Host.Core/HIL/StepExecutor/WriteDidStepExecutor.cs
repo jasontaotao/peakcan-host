@@ -9,24 +9,25 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class WriteDidStepExecutor : IStepExecutor
 {
-    private readonly IUdsSession _uds;
+    private readonly IUdsSessionResolver _resolver;
 
-    public WriteDidStepExecutor(IUdsSession uds) => _uds = uds;
+    public WriteDidStepExecutor(IUdsSessionResolver resolver) => _resolver = resolver;
     public TestCaseStepKind Kind => TestCaseStepKind.WriteDid;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (WriteDidStep)step.Parameters;
+        var session = _resolver.Resolve(p.TargetChannel);
         try
         {
-            await _uds.WriteDataByIdentifierAsync(p.Did, p.Data, ct);
+            await session.WriteDataByIdentifierAsync(p.Did, p.Data, ct);
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-                $"Write DID 0x{p.Did:X4}: {Convert.ToHexString(p.Data)}", null, null, 0);
+                $"Write DID 0x{p.Did:X4}: {Convert.ToHexString(p.Data)}", null, null, 0, Channel: p.TargetChannel);
         }
         catch (UdsSessionException ex)
         {
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"WriteDID 0x{p.Did:X4} failed: {ex.Message}", null, null, 0);
+                $"WriteDID 0x{p.Did:X4} failed: {ex.Message}", null, null, 0, Channel: p.TargetChannel);
         }
     }
 }

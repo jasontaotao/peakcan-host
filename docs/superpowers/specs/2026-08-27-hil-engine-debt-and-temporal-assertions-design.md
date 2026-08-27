@@ -129,8 +129,13 @@ Task B（UDS step record 补 TargetChannel）与 Task C（新增 `TestCaseStepKi
 - ✅ A 回归绿灯（2026-08-27，commit 0c859bc：9 边界用例全绿，风险用例减法实证可用）
 - ✅ B 第一步接口统一（2026-08-27，commit 37d821c：IUdsSession +DID 两方法；UdsSessionAdapter 迁入 host Core；ReadDid/WriteDid executor 接口化；Core.Tests 924/924 + Infra.Tests 594/594 绿；review APPROVE，MEDIUM 双重前缀已修）
 - ✅ hil-core 0.14.0 打包（2026-08-27，commit 98e2bc5：11 个 UDS step record 补 TargetChannel + MatchMode/AssertSignalWithin/AssertStable 两 step kind + [JsonDerivedType] 注册 + Factory/Exporter 对称 + SignalName 校验/引用收集对齐；hil-core.Tests 255/255 绿；review APPROVE——MEDIUM ReferenceCollector 盲区已修，LOW×2 测试已补。测试修复 2 处：dynamic+FluentAssertions 改显式 switch、IReadOnlyDictionary 赋值包 new Dictionary）
-- → host/studio lockstep 升级落地后做 B 第二步 resolver 接线 + C 两个 executor 实现。
-- ⏳ 留待 lockstep 阶段：§3.4 validator 新增的 per-channel DBC 信号名路由 + WindowMs>0 / MaxDelta/Tolerance 数值合法性校验（依赖 per-channel DBC lookup 上下文，与 host 侧 DBC 路由一起做）
+- ✅ host lockstep 升级（2026-08-27：Directory.Packages.props 0.13.0→0.14.0，stash 验证 0 回归，既有 ConnectCommand 失败非升级引入）
+- ✅ B 第二步 resolver 接线（2026-08-27：IUdsSession 扩 8 方法 + UdsSessionAdapter 补齐 + 新建 IUdsSessionResolver/UdsSessionResolver + 11 UDS executor 迁 resolver（Resolve(TargetChannel)+StepResult.Channel 填充）+ HeadlessHostBuilder per-channel UDS 栈注册（Channels[].UdsRequestId/UdsResponseId 非空通道建独立 IsoTp 栈）+ 测试适配；Core.Tests 925/0、Infra.Tests 594/0 绿）
+- ✅ C 两个 executor（2026-08-27：AssertSignalWithinStepExecutor/AssertStableStepExecutor——订阅 decoded 帧窗口 + GetSignalValue 快照 + Delay + 集合判定 + 零样本防空窗口；DI 注册；TemporalAssertionExecutorTests 15 用例；Core.Tests 940/0 绿）
+- ✅ §2.4 validator（2026-08-27：TryGetTargetChannel 5→18 类（+11 UDS/DTC + 2 时间窗信号断言）+ MC-3 UDS 步骤路由无 UDS ID 通道→High + MC-4 同通道 RequestId==ResponseId→High + MC-5 跨通道 UDS ID 冲突→Medium；UdsChannelConfigValidatorTests 10 + TargetChannelValidatorTests +2；Core.Tests 952/0 绿）
+- ✅ studio lockstep + InteropTests 同步（2026-08-27：Directory.Packages.props 0.13.0→0.14.0；Studio_Serializes_TaskC_Steps_For_Host（$kind 判别器 + TargetChannel 透传 round-trip）+ host StudioInteropTests Direction B verbatim；studio Core 81/0 + App 623/0 绿）
+- ✅ §2.5 双通道 UDS 集成测试（2026-08-27：DualChannelUdsLoopbackE2E——bus-a ECU-A F190=AAAAAA / bus-b ECU-B F190=BBBBBB 同 case 分别 ReadDid 互不串扰；Infra.Tests 596/0 绿）
+- ⏳ 留待 lockstep 阶段：§3.4 validator 新增的 per-channel DBC 信号名路由 + WindowMs>0 / MaxDelta/Tolerance 数值合法性校验（依赖 per-channel DBC lookup 上下文，与 host 侧 DBC 路由一起做；两新 kind 已纳入 hil-core 0.14.0 SignalNameStepValidator 单通道 DBC 校验，数值合法性 + per-channel 路由尚未做）
 
 原序：A 回归绿灯 → B 第一步接口统一（扩 `IUdsSession` + executor 迁移，纯 host 侧）→ hil-core 0.14.0 打包（B 的 step 字段 + C 的新 step kind 同车）→ host/studio lockstep 升级落地后做 B 第二步 resolver 接线 + C 两个 executor 实现。
 

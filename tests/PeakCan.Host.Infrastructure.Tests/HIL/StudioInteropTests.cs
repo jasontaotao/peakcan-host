@@ -115,4 +115,85 @@ public class StudioInteropTests
         Assert.IsType<DelayStep>(step.Parameters);
         Assert.Equal("100", ((DelayStep)step.Parameters).Milliseconds);
     }
+
+    // ── 0.14.0 新 kind（spec 2026-08-27 §3.4）: host 读 studio 的 studio-suite-taskc.json 产物 ──
+
+    [Fact]
+    public void Host_Loads_Studio_TaskC_Steps()
+    {
+        // studio InteropTests.Studio_Serializes_TaskC_Steps_For_Host 产物的 verbatim 拷贝。
+        // 覆盖 0.14.0 新增：AssertSignalWithin/AssertStable $kind 判别器 + UDS 步骤 TargetChannel 透传。
+        const string json = """
+        {
+          "name": "StudioTaskCSuite",
+          "cases": [
+            {
+              "id": "c1",
+              "name": "TC",
+              "description": "task c steps",
+              "steps": [
+                {
+                  "parameters": {
+                    "$kind": "assertSignalWithin",
+                    "signalName": "BMS.EngineRPM",
+                    "expected": "100",
+                    "tolerance": "5",
+                    "windowMs": "200",
+                    "mode": "Any",
+                    "targetChannel": "bus-a",
+                    "kind": "AssertSignalWithin"
+                  }
+                },
+                {
+                  "parameters": {
+                    "$kind": "assertStable",
+                    "signalName": "BMS.EngineRPM",
+                    "windowMs": "200",
+                    "maxDelta": "5",
+                    "minSamples": "3",
+                    "kind": "AssertStable"
+                  }
+                },
+                {
+                  "parameters": {
+                    "$kind": "readDid",
+                    "did": 61840,
+                    "targetChannel": "bus-a",
+                    "kind": "ReadDid"
+                  }
+                }
+              ],
+              "tags": [],
+              "timeoutMs": 0
+            }
+          ],
+          "globalCaseFixtureKeys": [],
+          "suiteFixtureKeys": [],
+          "config": {
+            "failurePolicy": "ContinueAll",
+            "continueAfterSetupFailure": true
+          },
+          "timeoutMs": 0
+        }
+        """;
+
+        var suite = JsonSerializer.Deserialize<TestSuite>(json, HILJsonOptions.Default);
+
+        Assert.NotNull(suite);
+        Assert.Equal("StudioTaskCSuite", suite!.Name);
+        var tc = Assert.Single(suite.Cases);
+        Assert.Equal(3, tc.Steps.Count);
+
+        // $kind 判别器还原 0.14.0 新 kind。
+        var sw = Assert.IsType<AssertSignalWithinStep>(tc.Steps[0].Parameters);
+        Assert.Equal("BMS.EngineRPM", sw.SignalName);
+        Assert.Equal("200", sw.WindowMs);
+        Assert.Equal(MatchMode.Any, sw.Mode);
+        Assert.Equal("bus-a", sw.TargetChannel);   // TargetChannel 透传
+
+        Assert.IsType<AssertStableStep>(tc.Steps[1].Parameters);
+        var rd = Assert.IsType<ReadDidStep>(tc.Steps[2].Parameters);
+        Assert.Equal(0xF190, rd.Did);
+        Assert.Equal("bus-a", rd.TargetChannel);   // UDS 步骤 TargetChannel 透传
+    }
 }

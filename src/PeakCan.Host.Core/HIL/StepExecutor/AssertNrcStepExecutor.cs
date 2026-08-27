@@ -7,21 +7,22 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class AssertNrcStepExecutor : IStepExecutor
 {
-    private readonly IUdsSession _uds;
+    private readonly IUdsSessionResolver _resolver;
 
-    public AssertNrcStepExecutor(IUdsSession uds) => _uds = uds;
+    public AssertNrcStepExecutor(IUdsSessionResolver resolver) => _resolver = resolver;
     public TestCaseStepKind Kind => TestCaseStepKind.AssertNrc;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (AssertNrcStep)step.Parameters;
+        var session = _resolver.Resolve(p.TargetChannel);
         try
         {
-            await _uds.SendRequestAsync(p.ServiceId, p.Data, ct);
+            await session.SendRequestAsync(p.ServiceId, p.Data, ct);
             // Positive response (no exception) → we expected NRC → fail
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Expected NRC 0x{p.ExpectedNrc:X2} but got positive response for service 0x{p.ServiceId:X2}",
-                "positive response", $"NRC 0x{p.ExpectedNrc:X2}", 0);
+                "positive response", $"NRC 0x{p.ExpectedNrc:X2}", 0, Channel: p.TargetChannel);
         }
         catch (UdsNrcException ex)
         {
@@ -30,12 +31,12 @@ internal sealed class AssertNrcStepExecutor : IStepExecutor
                 nrcMatches ? StepStatus.Passed : StepStatus.Failed,
                 nrcMatches ? $"NRC 0x{p.ExpectedNrc:X2} received as expected"
                            : $"NRC mismatch: got 0x{ex.Nrc:X2}, expected 0x{p.ExpectedNrc:X2}",
-                $"0x{ex.Nrc:X2}", $"0x{p.ExpectedNrc:X2}", 0);
+                $"0x{ex.Nrc:X2}", $"0x{p.ExpectedNrc:X2}", 0, Channel: p.TargetChannel);
         }
         catch (UdsSessionException ex)
         {
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"UDS error (not NRC): {ex.Message}", null, null, 0);
+                $"UDS error (not NRC): {ex.Message}", null, null, 0, Channel: p.TargetChannel);
         }
     }
 }

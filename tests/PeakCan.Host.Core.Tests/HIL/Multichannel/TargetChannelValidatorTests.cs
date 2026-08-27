@@ -113,4 +113,48 @@ public sealed class TargetChannelValidatorTests
         var issues = NewRegistry().Validate(suite);
         Assert.DoesNotContain(issues, i => i.RuleId == "MC-1");
     }
+
+    // ---- Task 10（spec 2026-08-27 §2.4）：TryGetTargetChannel 扩展后 UDS/DTC 步骤也被 MC-1/MC-2 覆盖 ----
+
+    private static TestCase CaseWithUdsStep(string caseId, string? targetChannel)
+    {
+        var p = new ReadDidStep(0xF190) { TargetChannel = targetChannel };
+        var step = TestCaseStep.Create(p, label: "read-did");
+        return new TestCase(caseId, caseId, "desc", null,
+            new[] { step }, null, Array.Empty<string>());
+    }
+
+    [Fact]
+    public void UdsStep_WithTargetChannel_WithoutChannels_ReportsCritical()
+    {
+        // UDS 步骤（ReadDid）带 TargetChannel + suite 无 Channels → MC-1 Critical
+        var suite = new TestSuite("s", new[] { CaseWithUdsStep("c1", "bus-a") },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig());
+
+        var issues = NewRegistry().Validate(suite);
+
+        var mc1 = issues.FirstOrDefault(i => i.RuleId == "MC-1");
+        Assert.NotNull(mc1);
+        Assert.Equal(ValidationSeverity.Critical, mc1!.Severity);
+        Assert.Contains("bus-a", mc1.Message);
+    }
+
+    [Fact]
+    public void UdsStep_WithTargetChannel_ReferenceUndeclared_ReportsCritical()
+    {
+        // UDS 步骤 TargetChannel 引用未声明通道 → MC-2 Critical
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "USB1", BaudRate.Can500kbps, false, null, null, null),
+        };
+        var suite = new TestSuite("s", new[] { CaseWithUdsStep("c1", "bus-b") },
+            Array.Empty<string>(), Array.Empty<string>(), new TestSuiteConfig(), Channels: channels);
+
+        var issues = NewRegistry().Validate(suite);
+
+        var mc2 = issues.FirstOrDefault(i => i.RuleId == "MC-2");
+        Assert.NotNull(mc2);
+        Assert.Equal(ValidationSeverity.Critical, mc2!.Severity);
+        Assert.Contains("bus-b", mc2.Message);
+    }
 }

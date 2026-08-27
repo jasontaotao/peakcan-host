@@ -17,6 +17,10 @@ namespace PeakCan.Host.Infrastructure.Tests.HIL.StepExecutor;
 /// </summary>
 public class UdsStepExecutorTests
 {
+    /// <summary>Task B 第二步（spec 2026-08-27 §Q1）：executor 吃 resolver，默认分支回落该 session。</summary>
+    private static UdsSessionResolver Resolver(IUdsSession session)
+        => new UdsSessionResolver(new Dictionary<string, IUdsSession>(StringComparer.Ordinal), () => session);
+
     private const int RequestId = 0x7E0;
     private const int ResponseId = 0x7E8;
 
@@ -76,7 +80,7 @@ public class UdsStepExecutorTests
             Rule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
+            var executor = new ReadDidStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), new StubAssertionContext(), default);
 
@@ -93,7 +97,7 @@ public class UdsStepExecutorTests
         var (channel, uds) = await BuildUdsAsync(null);
         try
         {
-            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
+            var executor = new ReadDidStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), new StubAssertionContext(), default);
 
@@ -111,7 +115,7 @@ public class UdsStepExecutorTests
         try
         {
             var ctx = new StubAssertionContext();
-            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
+            var executor = new ReadDidStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), ctx, default);
 
@@ -160,7 +164,7 @@ public class UdsStepExecutorTests
             Rule(0x2E, new byte[] { 0x6E, 0xF1, 0x90 }));
         try
         {
-            var executor = new WriteDidStepExecutor(new UdsSessionAdapter(uds));
+            var executor = new WriteDidStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new WriteDidStep(0xF190, new byte[] { 0x01, 0x02 })),
                 new StubAssertionContext(), default);
@@ -181,7 +185,7 @@ public class UdsStepExecutorTests
         try
         {
             var ctx = new StubAssertionContext();
-            var executor = new SessionControlStepExecutor(uds);
+            var executor = new SessionControlStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new SessionControlStep(0x02)), ctx, default);
 
@@ -201,7 +205,7 @@ public class UdsStepExecutorTests
             Rule(0x14, new byte[] { 0x54, 0x00 }));
         try
         {
-            var executor = new ClearDtcStepExecutor(uds);
+            var executor = new ClearDtcStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ClearDtcStep()), new StubAssertionContext(), default);
 
@@ -221,7 +225,7 @@ public class UdsStepExecutorTests
             Rule(0x31, new byte[] { 0x71, 0x01, 0x02, 0x03, 0xAA }));
         try
         {
-            var executor = new RoutineControlStepExecutor(uds);
+            var executor = new RoutineControlStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new RoutineControlStep(1, 0x0203)),
                 new StubAssertionContext(), default);
@@ -243,7 +247,7 @@ public class UdsStepExecutorTests
         try
         {
             var ctx = new StubAssertionContext();
-            var executor = new SecurityAccessStepExecutor(uds);
+            var executor = new SecurityAccessStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new SecurityAccessStep(1)), ctx, default);
 

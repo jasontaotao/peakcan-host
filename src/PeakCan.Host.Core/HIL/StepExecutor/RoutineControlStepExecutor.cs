@@ -9,28 +9,29 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class RoutineControlStepExecutor : IStepExecutor
 {
-    private readonly UdsClient _uds;
+    private readonly IUdsSessionResolver _resolver;
 
-    public RoutineControlStepExecutor(UdsClient uds) => _uds = uds;
+    public RoutineControlStepExecutor(IUdsSessionResolver resolver) => _resolver = resolver;
     public TestCaseStepKind Kind => TestCaseStepKind.RoutineControl;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (RoutineControlStep)step.Parameters;
+        var session = _resolver.Resolve(p.TargetChannel);
         try
         {
-            var result = await _uds.RoutineControlAsync(p.ControlType, p.RoutineId, p.Data, ct);
+            var result = await session.RoutineControlAsync(p.ControlType, p.RoutineId, p.Data, ct);
             if (p.OutputVar is { } varName && ctx is IStepVariableStore store)
                 store.Variables[varName] = result;
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 result.Length > 0
                     ? $"Routine 0x{p.RoutineId:X4} type {p.ControlType}: {Convert.ToHexString(result)}"
-                    : $"Routine 0x{p.RoutineId:X4} type {p.ControlType}: OK", null, null, 0);
+                    : $"Routine 0x{p.RoutineId:X4} type {p.ControlType}: OK", null, null, 0, Channel: p.TargetChannel);
         }
-        catch (UdsException ex)
+        catch (UdsSessionException ex)
         {
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"RoutineControl 0x{p.RoutineId:X4} failed: {ex.Message}", null, null, 0);
+                $"RoutineControl 0x{p.RoutineId:X4} failed: {ex.Message}", null, null, 0, Channel: p.TargetChannel);
         }
     }
 }

@@ -1,4 +1,5 @@
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.Uds;
 
 namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
 
@@ -72,4 +73,30 @@ internal sealed class FakeIUdsSession : IUdsSession
         if (_writeDidException is not null) throw _writeDidException;
         return Task.CompletedTask;
     }
+
+    // Task B 第二步（spec 2026-08-27 §Q1）新增接口方法——本 fake 的既有测试只覆盖
+    // DID/DTC 路径，其余方法在需要时再补桩（当前无调用方，抛 NotSupported 防静默假通过）。
+    public Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 DiagnosticSessionControlAsync");
+
+    public Task ClearDiagnosticInformationAsync(uint groupOfDtc, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 ClearDiagnosticInformationAsync");
+
+    public Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 RoutineControlAsync");
+
+    public Task<byte[]> RequestSeedAsync(byte level, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 RequestSeedAsync");
+
+    public Task<byte[]> SecurityAccessAsync(byte level, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 SecurityAccessAsync");
+
+    public Task<byte> EcuResetAsync(byte resetType, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 EcuResetAsync");
+
+    public Task TesterPresentAsync(bool suppressPosResponse, CancellationToken ct)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 TesterPresentAsync");
+
+    public Task<byte[]> IOControlAsync(ushort did, byte controlType, byte[]? data, byte controlEnableMask = 0xFF, CancellationToken ct = default)
+        => throw new NotSupportedException("FakeIUdsSession 未实现 IOControlAsync");
 }

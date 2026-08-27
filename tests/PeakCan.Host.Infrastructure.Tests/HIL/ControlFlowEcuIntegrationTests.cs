@@ -19,6 +19,9 @@ namespace PeakCan.Host.Infrastructure.Tests.HIL;
 /// </summary>
 public class ControlFlowEcuIntegrationTests
 {
+    /// <summary>Task B 第二步（spec 2026-08-27 §Q1）：executor 吃 resolver，默认分支回落该 session。</summary>
+    private static UdsSessionResolver Resolver(IUdsSession session)
+        => new UdsSessionResolver(new Dictionary<string, IUdsSession>(StringComparer.Ordinal), () => session);
     private const int RequestId = 0x7E0;  // host 发请求
     private const int ResponseId = 0x7E8; // ECU 发响应
 
@@ -75,7 +78,7 @@ public class ControlFlowEcuIntegrationTests
             Rule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var readDidExec = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
+            var readDidExec = new ReadDidStepExecutor(Resolver(new UdsSessionAdapter(uds)));
             var engine = new TestSuiteEngine(
                 new HeadlessFixtureResolver(),
                 new IStepExecutor[] { readDidExec });

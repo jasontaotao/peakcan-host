@@ -83,6 +83,137 @@ internal sealed class UdsSessionAdapter : IUdsSession
         }
     }
 
+    // ── Task B 第二步（Q1，spec 2026-08-27）：SessionControl/ClearDtc/Routine/
+    // Security/ECUReset/CommCtrl/IOControl 7 类 executor 从 concrete UdsClient 迁到本接口 ──
+
+    public async Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct)
+    {
+        try
+        {
+            return await _client.DiagnosticSessionControlAsync(sessionType, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task ClearDiagnosticInformationAsync(uint groupOfDtc, CancellationToken ct)
+    {
+        try
+        {
+            await _client.ClearDiagnosticInformationAsync(groupOfDtc, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data, CancellationToken ct)
+    {
+        try
+        {
+            return await _client.RoutineControlAsync(routineControlType, routineId, data, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task<byte[]> RequestSeedAsync(byte level, CancellationToken ct)
+    {
+        try
+        {
+            return await _client.RequestSeedAsync(level, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task<byte[]> SecurityAccessAsync(byte level, CancellationToken ct)
+    {
+        try
+        {
+            return await _client.SecurityAccessAsync(level, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task<byte> EcuResetAsync(byte resetType, CancellationToken ct)
+    {
+        try
+        {
+            return await _client.EcuResetAsync(resetType, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task TesterPresentAsync(bool suppressPosResponse, CancellationToken ct)
+    {
+        try
+        {
+            await _client.TesterPresentAsync(suppressPosResponse, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
+    public async Task<byte[]> IOControlAsync(ushort did, byte controlType, byte[]? data, byte controlEnableMask = 0xFF, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.IOControlAsync(did, controlType, data, controlEnableMask, ct);
+        }
+        catch (UdsNegativeResponseException ex)
+        {
+            throw new UdsNrcException(ex.ServiceId, (byte)ex.ResponseCode);
+        }
+        catch (UdsException ex)
+        {
+            throw new UdsSessionTransportException(ex.Message, ex);
+        }
+    }
+
     private static IReadOnlyList<DtcInfo> ParseDtcInfos(byte[] response)
     {
         var result = new List<DtcInfo>();

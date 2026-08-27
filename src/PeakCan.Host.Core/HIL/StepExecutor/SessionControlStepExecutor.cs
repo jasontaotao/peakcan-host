@@ -9,26 +9,28 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class SessionControlStepExecutor : IStepExecutor
 {
-    private readonly UdsClient _uds;
+    private readonly IUdsSessionResolver _resolver;
 
-    public SessionControlStepExecutor(UdsClient uds) => _uds = uds;
+    public SessionControlStepExecutor(IUdsSessionResolver resolver) => _resolver = resolver;
     public TestCaseStepKind Kind => TestCaseStepKind.SessionControl;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (SessionControlStep)step.Parameters;
+        var session = _resolver.Resolve(p.TargetChannel);
         try
         {
-            var response = await _uds.DiagnosticSessionControlAsync(p.Session, ct);
+            var response = await session.DiagnosticSessionControlAsync(p.Session, ct);
             if (ctx is IStepVariableStore store)
                 store.Variables["session"] = new[] { p.Session };   // byte[] 统一，供 AssertDidValue 断言
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-                $"Session switched to 0x{p.Session:X2} (P2={response.P2}ms, P2*={response.P2Star}ms)", null, null, 0);
+                $"Session switched to 0x{p.Session:X2} (P2={response.P2}ms, P2*={response.P2Star}ms)", null, null, 0,
+                Channel: p.TargetChannel);
         }
-        catch (UdsException ex)
+        catch (UdsSessionException ex)
         {
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"SessionControl 0x{p.Session:X2} failed: {ex.Message}", null, null, 0);
+                $"SessionControl 0x{p.Session:X2} failed: {ex.Message}", null, null, 0, Channel: p.TargetChannel);
         }
     }
 }

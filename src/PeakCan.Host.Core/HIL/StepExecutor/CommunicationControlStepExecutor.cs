@@ -10,24 +10,25 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class CommunicationControlStepExecutor : IStepExecutor
 {
-    private readonly UdsClient _uds;
+    private readonly IUdsSessionResolver _resolver;
 
-    public CommunicationControlStepExecutor(UdsClient uds) => _uds = uds;
+    public CommunicationControlStepExecutor(IUdsSessionResolver resolver) => _resolver = resolver;
     public TestCaseStepKind Kind => TestCaseStepKind.CommunicationControl;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
     {
         var p = (CommunicationControlStep)step.Parameters;
+        var session = _resolver.Resolve(p.TargetChannel);
         try
         {
-            await _uds.SendRequestAsync(0x28, new[] { p.ControlType }, ct);
+            await session.SendRequestAsync(0x28, new[] { p.ControlType }, ct);
             return new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
-                $"CommunicationControl 0x{p.ControlType:X2} acknowledged", null, null, 0);
+                $"CommunicationControl 0x{p.ControlType:X2} acknowledged", null, null, 0, Channel: p.TargetChannel);
         }
-        catch (UdsException ex)
+        catch (UdsSessionException ex)
         {
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                $"CommunicationControl 0x{p.ControlType:X2} failed: {ex.Message}", null, null, 0);
+                $"CommunicationControl 0x{p.ControlType:X2} failed: {ex.Message}", null, null, 0, Channel: p.TargetChannel);
         }
     }
 }

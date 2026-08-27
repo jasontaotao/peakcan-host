@@ -13,6 +13,9 @@ namespace PeakCan.HIL.Core.Tests.HIL;
 
 public class TestSuiteEngineTests
 {
+    /// <summary>Task B 第二步（spec 2026-08-27 §Q1）：executor 吃 resolver，默认分支回落该 session。</summary>
+    private static UdsSessionResolver Resolver(IUdsSession session)
+        => new UdsSessionResolver(new Dictionary<string, IUdsSession>(StringComparer.Ordinal), () => session);
     private static TestSuiteEngine CreateEngine(params IStepExecutor[] executors)
     {
         var fixtureResolver = new FakeFixtureResolver();
@@ -446,7 +449,7 @@ public class TestSuiteEngineTests
             E2eRule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var engine = CreateEngine(new ReadDidStepExecutor(new UdsSessionAdapter(uds)), new AssertVariableStepExecutor());
+            var engine = CreateEngine(new ReadDidStepExecutor(Resolver(new UdsSessionAdapter(uds))), new AssertVariableStepExecutor());
             var step1 = TestCaseStep.Create(new ReadDidStep(0xF190));
             var step2 = TestCaseStep.Create(new AssertVariableStep(
                 "did_0xF190", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: "200"));

@@ -20,6 +20,9 @@ namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
 /// </summary>
 public class OdxPhase0StepExecutorTests
 {
+    /// <summary>Task B 第二步（spec 2026-08-27 §Q1）：executor 吃 resolver，默认分支回落该 session。</summary>
+    private static UdsSessionResolver Resolver(IUdsSession session)
+        => new UdsSessionResolver(new Dictionary<string, IUdsSession>(StringComparer.Ordinal), () => session);
     private sealed class SpySession : IUdsSession
     {
         public byte? LastSid;
@@ -49,6 +52,24 @@ public class OdxPhase0StepExecutorTests
 
             return Task.CompletedTask;
         }
+
+        // Task B 第二步（spec 2026-08-27 §Q1）新增接口方法——本测试只用 SendRequestAsync。
+        public Task<DiagnosticSessionResponse> DiagnosticSessionControlAsync(byte sessionType, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task ClearDiagnosticInformationAsync(uint groupOfDtc, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task<byte[]> RoutineControlAsync(byte routineControlType, ushort routineId, byte[]? data, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task<byte[]> RequestSeedAsync(byte level, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task<byte[]> SecurityAccessAsync(byte level, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task<byte> EcuResetAsync(byte resetType, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task TesterPresentAsync(bool suppressPosResponse, CancellationToken ct)
+            => throw new NotSupportedException("SpySession 未实现");
+        public Task<byte[]> IOControlAsync(ushort did, byte controlType, byte[]? data, byte controlEnableMask = 0xFF, CancellationToken ct = default)
+            => throw new NotSupportedException("SpySession 未实现");
     }
 
     private sealed class SpyUdsClient : UdsClient
@@ -98,7 +119,7 @@ public class OdxPhase0StepExecutorTests
     public async Task AssertNrc_WithData_SendsPayload()
     {
         var uds = new SpySession();
-        var ex = new AssertNrcStepExecutor(uds);
+        var ex = new AssertNrcStepExecutor(Resolver(uds));
         var step = TestCaseStep.Create(new AssertNrcStep(0x22, 0x33, new byte[] { 0xF1, 0x90 }));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -112,7 +133,7 @@ public class OdxPhase0StepExecutorTests
     public async Task AssertNrc_WithoutData_BackCompat()
     {
         var uds = new SpySession();
-        var ex = new AssertNrcStepExecutor(uds);
+        var ex = new AssertNrcStepExecutor(Resolver(uds));
         var step = TestCaseStep.Create(new AssertNrcStep(0x22, 0x33));
 
         await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -124,7 +145,7 @@ public class OdxPhase0StepExecutorTests
     public async Task SecurityAccess_SeedOnly_FetchesSeedWithoutUnlocking()
     {
         var uds = new SpyUdsClient();
-        var ex = new SecurityAccessStepExecutor(uds);
+        var ex = new SecurityAccessStepExecutor(Resolver(new UdsSessionAdapter(uds)));
         var step = TestCaseStep.Create(new SecurityAccessStep(0x01, SeedOnly: true));
         var ctx = new DummyContext();
 
@@ -142,7 +163,7 @@ public class OdxPhase0StepExecutorTests
     public async Task CommunicationControl_Sends_PhysicalAddressing()
     {
         var uds = new SpyUdsClient();
-        var ex = new CommunicationControlStepExecutor(uds);
+        var ex = new CommunicationControlStepExecutor(Resolver(new UdsSessionAdapter(uds)));
         var step = TestCaseStep.Create(new CommunicationControlStep(0x00));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -156,7 +177,7 @@ public class OdxPhase0StepExecutorTests
     public async Task ECUReset_SendsReset_ThenPollsTesterPresent()
     {
         var uds = new SpyUdsClient();
-        var ex = new ECUResetStepExecutor(uds);
+        var ex = new ECUResetStepExecutor(Resolver(new UdsSessionAdapter(uds)));
         var step = TestCaseStep.Create(new ECUResetStep(0x01));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -172,7 +193,7 @@ public class OdxPhase0StepExecutorTests
     public async Task IOControl_SendsDidMaskParam()
     {
         var uds = new SpyUdsClient();
-        var ex = new IOControlStepExecutor(uds);
+        var ex = new IOControlStepExecutor(Resolver(new UdsSessionAdapter(uds)));
         var step = TestCaseStep.Create(new IOControlStep(0xF191, 0x03, new byte[] { 0xAB }));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -186,7 +207,7 @@ public class OdxPhase0StepExecutorTests
     public async Task AssertNrc_ExpectedNrc_Passes()
     {
         var uds = new SpySession { NextException = new UdsNrcException(0x22, 0x33) };
-        var ex = new AssertNrcStepExecutor(uds);
+        var ex = new AssertNrcStepExecutor(Resolver(uds));
         var step = TestCaseStep.Create(new AssertNrcStep(0x22, 0x33, new byte[] { 0xF1, 0x90 }));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);
@@ -202,7 +223,7 @@ public class OdxPhase0StepExecutorTests
     public async Task ECUReset_NoReconnect_ReturnsFailed()
     {
         var uds = new SpyUdsClient { ThrowOnTesterPresent = true };
-        var ex = new ECUResetStepExecutor(uds, reconnectTimeoutMs: 50);
+        var ex = new ECUResetStepExecutor(Resolver(new UdsSessionAdapter(uds)), reconnectTimeoutMs: 50);
         var step = TestCaseStep.Create(new ECUResetStep(0x01));
 
         var result = await ex.ExecuteAsync(step, new DummyContext(), default);

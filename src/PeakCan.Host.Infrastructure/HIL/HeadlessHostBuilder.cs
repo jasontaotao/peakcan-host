@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -126,6 +127,14 @@ public static class HeadlessHostBuilder
             var perChannelDbcs = new Dictionary<ChannelId, DbcDocument>();
             builder.Services.AddSingleton<IReadOnlyDictionary<ChannelId, DbcDocument>>(perChannelDbcs);
 
+            // Task B 第二步（spec 2026-08-27 §2.2/§Q1）：per-channel UDS 会话字典（可变，factory 内填充）。
+            // Channels[].UdsRequestId/UdsResponseId 非空的通道各获得独立 UDS 栈；resolver 的
+            // 默认分支回落 RegisterUdsServices 注册的默认栈（CLI args，单通道零变化）。
+            var udsSessions = new Dictionary<string, IUdsSession>(StringComparer.Ordinal);
+            builder.Services.AddSingleton<IUdsSessionResolver>(sp => new UdsSessionResolver(
+                udsSessions,
+                () => sp.GetRequiredService<IUdsSession>()));
+
             // Multi-channel hardware mode (2026-08-22, spec §3.4): build one
             // SingleChannelContext per ChannelConfig (own PeakCanChannel + own DBC +
             // own ChannelName), and register MultiChannelAssertionContext as
@@ -172,6 +181,23 @@ public static class HeadlessHostBuilder
                     // Per-channel DBC for report: map ChannelId → DbcDocument
                     perChannelDbcs[channel.Id] = dbcDoc;
                     contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name);
+
+                    // Task B 第二步（spec §2.2）：Channels[].UdsRequestId/UdsResponseId 非空 →
+                    // 独立 UDS 栈（独立 IsoTp 过滤 ID + 独立安全访问锁状态机），绑定本通道 ICanChannel。
+                    if (cfg.UdsRequestId is { } udsReqId && cfg.UdsResponseId is { } udsRespId)
+                    {
+                        var isoTp = new IsoTpLayer(new CanIdConfig
+                        {
+                            RequestId = udsReqId,
+                            ResponseId = udsRespId,
+                            IsExtendedFrame = false,
+                        }, async frame => { await channel.WriteAsync(frame, default); });
+                        // 入站桥接（review HIGH）：IsoTpLayer 不自动订阅 FrameReceived（同默认路径
+                        // RegisterUdsServices 的 HilIsoTpBridge 语义）。bridge 订阅 channel 事件 →
+                        // channel 持有 bridge 引用，不会被 GC；每通道独立桥接，互不串扰。
+                        _ = new HilIsoTpBridge(channel, isoTp);
+                        udsSessions[cfg.Name] = new UdsSessionAdapter(new UdsClient(isoTp));
+                    }
                 }
                 return new MultiChannelAssertionContext(contexts, defaultChannelName: multiCfg[0].Name);
             });
@@ -261,6 +287,9 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertNoFrameStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertFrameCountStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertCycleTimeStepExecutor>();
+        // Task C (spec 2026-08-27 §3): 信号维度时间窗断言——窗口收集解码帧快照，依赖 IAssertionContext 订阅（通道路由经 ctx）
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
 
         // Engine
         // §3 dtcPresent 预查注入：IUdsSession 可选注入（trace-replay 模式未注册 → null → dtcPresent 不可用）
@@ -350,6 +379,13 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ECUResetStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, CommunicationControlStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, IOControlStepExecutor>();
+
+        // Task B 第二步（spec 2026-08-27 §Q1）：resolver 默认分支——非多通道模式（或通道未配
+        // UDS ID）时 per-channel 字典为空，恒回落默认栈。TryAdd 避免覆盖多通道分支已注册的
+        // resolver（后者带 per-channel 字典 + 同款默认 fallback）。
+        builder.Services.TryAddSingleton<IUdsSessionResolver>(sp => new UdsSessionResolver(
+            new Dictionary<string, IUdsSession>(StringComparer.Ordinal),
+            () => sp.GetRequiredService<IUdsSession>()));
     }
 
     /// <summary>
