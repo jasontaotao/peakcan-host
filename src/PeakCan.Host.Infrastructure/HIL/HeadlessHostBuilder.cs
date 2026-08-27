@@ -87,12 +87,18 @@ public static class HeadlessHostBuilder
         }
         else
         {
-            // Trace-replay mode (Sprint 2)
+            // Trace-replay mode (Sprint 2): dispatch by file extension.
+            // .blf → LoadBlf（BLF 二进制，含 bit31 扩展标记，parser 已掩码），
+            // 其他 → LoadAscii（ASC 文本，双信号判扩展）。
+            // 与 ReplayService/TraceViewerService 的分发约定一致。
             builder.Services.AddSingleton<ICanChannel>(sp =>
             {
                 var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TraceDrivenChannel>>();
                 var ch = new TraceDrivenChannel(new ChannelId(1), logger);
-                ch.LoadAscii(args.TracePath);
+                if (args.TracePath!.EndsWith(".blf", StringComparison.OrdinalIgnoreCase))
+                    ch.LoadBlf(args.TracePath);
+                else
+                    ch.LoadAscii(args.TracePath);
                 return ch;
             });
         }
