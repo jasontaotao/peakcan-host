@@ -1,4 +1,5 @@
 using System.Text;
+using FluentAssertions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
@@ -91,5 +92,41 @@ public class TraceDrivenChannelBlfTests
 
         // Act & Assert
         Assert.Throws<FileNotFoundException>(() => channel.LoadBlf("nonexistent.blf"));
+    }
+
+    /// <summary>
+    /// HIL BLF 扩展帧守卫：真实 BLF 扩展帧的 frame_id 带 bit31（Vector 扩展标记位）。
+    /// 重构前 TraceDrivenChannel.ToCanFrame 用 > 0x7FF 判 format 不掩码 bit31，
+    /// 对扩展帧抛 ArgumentOutOfRangeException × 1000/s（1ms timer）→ CPU 空转 +
+    /// 回放静默失败。重构后 parser 掩码 bit31 + 填 IsExtended，consumer 读标记。
+    /// </summary>
+    [Fact]
+    public async Task LoadBlf_ExtendedFrame_EmitsWithExtendedFormat()
+    {
+        // 合成 BLF：canId = 0x18FFC23A | 0x80000000（bit31 置位，模拟真实 BLF 扩展帧）
+        var blfPath = Path.Combine(Path.GetTempPath(), $"hil-blf-ext-{Guid.NewGuid():N}.blf");
+        try
+        {
+            BuildSyntheticBlf(blfPath, canId: 0x18FFC23Au | 0x80000000u);
+            var ch = new TraceDrivenChannel(new ChannelId(1));
+            ch.LoadBlf(blfPath);
+
+            var frames = new List<CanFrame>();
+            ch.FrameReceived += f => frames.Add(f);
+
+            await ch.ConnectAsync(BaudRate.Can500kbps, false);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (frames.Count < 1 && sw.ElapsedMilliseconds < 5000)
+                await Task.Delay(50);
+
+            frames.Should().NotBeEmpty("扩展帧必须被发射，不抛 ArgumentOutOfRangeException");
+            frames[0].Id.IsExtended.Should().BeTrue("bit31 置位的 BLF frame_id 是扩展帧");
+            frames[0].Id.Raw.Should().Be(0x18FFC23Au,
+                "parser 掩码 bit31 后 consumer 拿到裸 29 位值");
+        }
+        finally
+        {
+            if (File.Exists(blfPath)) File.Delete(blfPath);
+        }
     }
 }

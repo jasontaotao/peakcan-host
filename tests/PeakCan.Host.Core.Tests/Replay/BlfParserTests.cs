@@ -413,7 +413,12 @@ public class BlfParserTests
         await using var fs = File.OpenRead(path);
         var frames = await BlfParser.ParseAsync(fs, DefaultOptions());
         frames.Should().HaveCount(1, "vblf_test_CAN_MESSAGE.lobj contains 1 CanMessage");
-        frames[0].Id.Should().Be(0x44444444u, "frame_id parsed from synthetic fixture bytes 36-39");
+        // fixture frame_id=0x44444444 是任意合成 sentinel 值（非合法 CAN ID）。
+        // parser 掩码 bit31（Vector 扩展标记位）后输出裸 29 位值 0x04444444；
+        // bit31 未置位 → IsExtended=false（standard format）。
+        frames[0].Id.Should().Be(0x04444444u,
+            "frame_id 掩码 bit31 后的裸 29 位值（fixture bytes 36-39 = 0x44444444）");
+        frames[0].IsExtended.Should().BeFalse("fixture frame_id bit31 未置位 → standard");
         frames[0].Dlc.Should().Be((byte)0x33, "dlc is the literal byte at fixture offset 35 (synthetic value 51)");
         frames[0].Data.Should().Equal(
             (byte)0x55, (byte)0x66, (byte)0x77, (byte)0x88,

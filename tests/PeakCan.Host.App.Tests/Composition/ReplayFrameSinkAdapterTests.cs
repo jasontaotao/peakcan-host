@@ -113,19 +113,23 @@ public class ReplayFrameSinkAdapterTests
     /// A 29-bit extended ID with bit31 set (real BLF extended frame) must NOT
     /// throw ArgumentOutOfRangeException when the adapter builds the CanId.
     /// Pre-fix this threw on every extended frame. RED: fails on unfixed code.
+    /// <para>
+    /// 重构后：parser 已掩码 bit31 并填 IsExtended，consumer 直接读标记，
+    /// 输入是裸 29 位值 + IsExtended:true（模拟 parser 修复后的输出）。
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task SendFrameAsync_ExtendedIdWithBit31_DoesNotThrow()
+    public async Task SendFrameAsync_ExtendedId_DoesNotThrow()
     {
-        // 0x98ffc23a: bit31=1 (extended marker), low 29 bits = 0x18ffc23a.
+        // 0x18ffc23a: 裸 29 位扩展 ID（parser 已掩码 bit31），IsExtended=true。
         var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
         sendService.SendAsync(Arg.Any<CanFrame>(), Arg.Any<CancellationToken>())
             .Returns(Result<Unit>.Ok(new Unit()));
 
         var adapter = new ReplayFrameSinkAdapter(sendService);
-        var frame = new ReplayFrame(0.5, 0x98ffc23a, 8,
+        var frame = new ReplayFrame(0.5, 0x18ffc23a, 8,
             new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 },
-            FrameFlags.None);
+            FrameFlags.None, IsExtended: true);
 
         var act = async () => await adapter.SendFrameAsync(frame);
         await act.Should().NotThrowAsync("extended BLF frames must not crash the send path");
@@ -133,13 +137,14 @@ public class ReplayFrameSinkAdapterTests
     }
 
     /// <summary>
-    /// The adapter must mask the 29-bit ID (clear bit31) AND pick
-    /// FrameFormat.Extended for an extended frame, matching python-can's
-    /// `can_id & 0x1FFFFFFF` + `(can_id & 0x80000000) != 0`. Captures the
-    /// CanFrame handed to SendService via Arg.Do and asserts on it.
+    /// The adapter must forward the bare 29-bit ID and pick
+    /// FrameFormat.Extended for an extended frame. After the parser-layer
+    /// refactor, the input is already masked (IsExtended=true, Id=bare value);
+    /// the adapter reads IsExtended and constructs CanId accordingly.
+    /// Captures the CanFrame handed to SendService via Arg.Do and asserts on it.
     /// </summary>
     [Fact]
-    public async Task SendFrameAsync_ExtendedId_Masks29BitsAndPicksExtendedFormat()
+    public async Task SendFrameAsync_ExtendedId_Forwards29BitIdAndExtendedFormat()
     {
         CanFrame? captured = null;
         var sendService = Substitute.For<SendService>(NullLogger<SendService>.Instance);
@@ -147,18 +152,18 @@ public class ReplayFrameSinkAdapterTests
             .Returns(Result<Unit>.Ok(new Unit()));
 
         var adapter = new ReplayFrameSinkAdapter(sendService);
-        var frame = new ReplayFrame(0.5, 0x98ffc23a, 8,
+        var frame = new ReplayFrame(0.5, 0x18ffc23a, 8,
             new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 },
-            FrameFlags.None);
+            FrameFlags.None, IsExtended: true);
 
         await adapter.SendFrameAsync(frame);
 
         captured.Should().NotBeNull();
-        // bit31 cleared: 0x98ffc23a & 0x1FFFFFFF == 0x18ffc23a
+        // parser 已掩码 bit31，consumer 透传裸 29 位值
         captured!.Value.Id.Raw.Should().Be(0x18ffc23au,
-            "BLF extended bit31 is a format marker, not part of the CAN ID; adapter must mask it");
+            "parser 掩码 bit31 后 consumer 透传裸 29 位 ID");
         captured.Value.Id.Format.Should().Be(FrameFormat.Extended,
-            "bit31 set in the raw BLF frame_id means 29-bit extended format");
+            "IsExtended=true → 29-bit extended format");
     }
 
     /// <summary>

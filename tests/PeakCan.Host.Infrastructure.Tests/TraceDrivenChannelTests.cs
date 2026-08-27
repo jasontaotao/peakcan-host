@@ -233,10 +233,10 @@ base hex  timestamps absolute
             while (frames.Count < 2 && sw.ElapsedMilliseconds < 5000)
                 await Task.Delay(50);
 
-            frames[0].Id.IsExtended.Should().BeTrue("ID 0x18FEF100 > 0x7FF should be extended");
+            frames[0].Id.IsExtended.Should().BeTrue("ASC 双信号判扩展（> 0x7FF 兜底，fixture 无 x 后缀）");
             frames[0].Id.Raw.Should().Be(0x18FEF100u);
 
-            frames[1].Id.IsExtended.Should().BeFalse("ID 0x123 should be standard");
+            frames[1].Id.IsExtended.Should().BeFalse("ID 0x123 standard");
         }
         finally
         {
