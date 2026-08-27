@@ -21,6 +21,11 @@ public static partial class BlfParser
         byte dlc = frameData[3];
         uint fdFlags = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(4));
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(8));
+        // BLF bit 31 = extended-format marker (see CanMessageFlow). Mask to bare ID.
+        const uint extendedBit = 0x80000000;
+        const uint idMask = 0x1FFFFFFF;
+        var isExtended = (frameId & extendedBit) != 0;
+        var rawId = frameId & idMask;
         // Skip 4 reserved bytes (offset 12-15)
         byte frameLength = frameData[16];
         // Skip 1 reserved byte (offset 17)
@@ -40,6 +45,6 @@ public static partial class BlfParser
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
         if ((flags & 0x02) != 0) ff |= FrameFlags.BitRateSwitch;
         if ((flags & 0x04) != 0) ff |= FrameFlags.ErrorStateIndicator;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, ff);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
     }
 }

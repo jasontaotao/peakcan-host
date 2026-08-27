@@ -21,8 +21,13 @@ public static partial class BlfParser
         }
         // For v3.51.0 MVP, extract just frame_id from offset 16 (4th I field).
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(16));
+        // BLF bit 31 = extended-format marker (see CanMessageFlow). Mask to bare ID.
+        const uint extendedBit = 0x80000000;
+        const uint idMask = 0x1FFFFFFF;
+        var isExtended = (frameId & extendedBit) != 0;
+        var rawId = frameId & idMask;
         // DLC and data are at complex offsets in this struct; for v3.51.0 MVP
         // use empty data + dlc=0. Future v3.52.0 can fully extract.
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, 0, Array.Empty<byte>(), FrameFlags.Fd);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, 0, Array.Empty<byte>(), FrameFlags.Fd, isExtended);
     }
 }

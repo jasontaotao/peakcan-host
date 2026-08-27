@@ -19,6 +19,14 @@ public static partial class BlfParser
         byte flags = frameData[2];
         byte dlc = frameData[3];
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(4));
+        // Vector BLF spec (verified 1:1 against python-can BLFReader): bit 31
+        // of frame_id is the extended-format marker, low 29 bits are the real
+        // CAN ID. Mask here so ReplayFrame.Id is always the bare value and
+        // consumers read IsExtended instead of re-deriving from bit pattern.
+        const uint extendedBit = 0x80000000;
+        const uint idMask = 0x1FFFFFFF;
+        var isExtended = (frameId & extendedBit) != 0;
+        var rawId = frameId & idMask;
         var data = frameData.Slice(8, 8).ToArray();
         // v3.51.0 T6.5 PATCH (reviewer finding #3 — HIGH): map Vector's
         // 1-byte can_flags to our FrameFlags enum. Per vblf_can.py the
@@ -33,6 +41,6 @@ public static partial class BlfParser
         // which hard-codes Fd regardless of can_flags.
         var ff = FrameFlags.None;
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, ff);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
     }
 }

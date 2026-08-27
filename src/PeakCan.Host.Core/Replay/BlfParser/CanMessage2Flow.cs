@@ -19,12 +19,17 @@ public static partial class BlfParser
         byte flags = frameData[2];
         byte dlc = frameData[3];
         uint frameId = BinaryPrimitives.ReadUInt32LittleEndian(frameData.Slice(4));
+        // BLF bit 31 = extended-format marker (see CanMessageFlow). Mask to bare ID.
+        const uint extendedBit = 0x80000000;
+        const uint idMask = 0x1FFFFFFF;
+        var isExtended = (frameId & extendedBit) != 0;
+        var rawId = frameId & idMask;
         var data = frameData.Slice(8, 8).ToArray();
         // Trailer (IBBH = 4+2+1+1 = 8 bytes) at offset 16 — skipped (debug info)
         // v3.51.0 T6.5 PATCH: same flag-mapping as CanMessageFlow —
         // (flags & 0x01) → Rtr. Sister of CanMessageFlow review fix.
         var ff = FrameFlags.None;
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, frameId, dlc, data, ff);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
     }
 }
