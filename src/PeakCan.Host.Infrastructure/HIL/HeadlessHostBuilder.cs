@@ -18,7 +18,6 @@ using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Peak;
-using PeakCan.Host.Infrastructure.Uds;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

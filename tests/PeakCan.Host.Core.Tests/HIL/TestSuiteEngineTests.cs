@@ -446,7 +446,7 @@ public class TestSuiteEngineTests
             E2eRule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var engine = CreateEngine(new ReadDidStepExecutor(uds), new AssertVariableStepExecutor());
+            var engine = CreateEngine(new ReadDidStepExecutor(new UdsSessionAdapter(uds)), new AssertVariableStepExecutor());
             var step1 = TestCaseStep.Create(new ReadDidStep(0xF190));
             var step2 = TestCaseStep.Create(new AssertVariableStep(
                 "did_0xF190", ExpectedHexBytes: new byte[] { 0xAA, 0xBB }, TimeoutMs: "200"));

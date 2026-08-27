@@ -29,6 +29,12 @@ public class OdxPhase0StepExecutorTests
         public Task<IReadOnlyList<DtcInfo>> ReadDtcInformation(byte statusMask, CancellationToken ct)
             => throw new NotSupportedException("执行器只用 SendRequestAsync");
 
+        public Task<byte[]> ReadDataByIdentifierAsync(ushort did, CancellationToken ct)
+            => throw new NotSupportedException("执行器只用 SendRequestAsync");
+
+        public Task WriteDataByIdentifierAsync(ushort did, byte[] data, CancellationToken ct)
+            => throw new NotSupportedException("执行器只用 SendRequestAsync");
+
         public Task SendRequestAsync(byte serviceId, byte[]? data = null, CancellationToken ct = default)
         {
             // 先记录再抛，这样 NRC 分支测试也能断言 payload 已送达。

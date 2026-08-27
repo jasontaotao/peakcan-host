@@ -75,7 +75,7 @@ public class ControlFlowEcuIntegrationTests
             Rule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var readDidExec = new ReadDidStepExecutor(uds);
+            var readDidExec = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
             var engine = new TestSuiteEngine(
                 new HeadlessFixtureResolver(),
                 new IStepExecutor[] { readDidExec });

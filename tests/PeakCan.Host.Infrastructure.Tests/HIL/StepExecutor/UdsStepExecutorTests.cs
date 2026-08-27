@@ -76,7 +76,7 @@ public class UdsStepExecutorTests
             Rule(0x22, new byte[] { 0x62, 0xF1, 0x90, 0xAA, 0xBB }));
         try
         {
-            var executor = new ReadDidStepExecutor(uds);
+            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), new StubAssertionContext(), default);
 
@@ -93,7 +93,7 @@ public class UdsStepExecutorTests
         var (channel, uds) = await BuildUdsAsync(null);
         try
         {
-            var executor = new ReadDidStepExecutor(uds);
+            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), new StubAssertionContext(), default);
 
@@ -111,7 +111,7 @@ public class UdsStepExecutorTests
         try
         {
             var ctx = new StubAssertionContext();
-            var executor = new ReadDidStepExecutor(uds);
+            var executor = new ReadDidStepExecutor(new UdsSessionAdapter(uds));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new ReadDidStep(0xF190)), ctx, default);
 
@@ -160,7 +160,7 @@ public class UdsStepExecutorTests
             Rule(0x2E, new byte[] { 0x6E, 0xF1, 0x90 }));
         try
         {
-            var executor = new WriteDidStepExecutor(uds);
+            var executor = new WriteDidStepExecutor(new UdsSessionAdapter(uds));
             var result = await executor.ExecuteAsync(
                 TestCaseStep.Create(new WriteDidStep(0xF190, new byte[] { 0x01, 0x02 })),
                 new StubAssertionContext(), default);
