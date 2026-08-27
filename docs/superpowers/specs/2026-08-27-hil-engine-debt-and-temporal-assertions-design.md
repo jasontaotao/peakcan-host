@@ -50,7 +50,7 @@
 ### 2.2 目标行为
 
 - suite `Channels[].UdsRequestId/UdsResponseId` 非空的通道，各获得独立 UDS 栈（独立 IsoTp 过滤 ID、独立安全访问锁状态机）；
-- UDS 类步骤（ReadDid/WriteDid/RoutineControl/SessionControl/SecurityAccess 相关/AssertDtc/AssertNrc/ClearFault/CommunicationControl）经 `TargetChannel`（复用阶段一字段语义）路由到对应通道的 `IUdsSession`；
+- UDS 类步骤（ReadDid/WriteDid/RoutineControl/SessionControl/SecurityAccess 相关/AssertDtc/AssertNrc/ECUReset/IOControl/ClearDtc —— 2026-08-27 实核修正：原列的 ClearFault 是 fault-injection（IFaultInjectionContext），不走 UDS 栈，从本清单剔除）经 `TargetChannel`（复用阶段一字段语义）路由到对应通道的 `IUdsSession`；
 - `TargetChannel = null` → 全局默认 UDS 栈（现状），旧 suite 零变化；
 - 表达式函数 `dtcPresent()`：v1 维持全局默认栈语义并在 case 报告附注（不给表达式语言加 channel 参数——复杂度不成比例；per-channel 版本等真实需求立项）；
 - 报告 `StepResult.Channel` 带路由结果（✅ 已核 2026-08-27：字段已在 hil-core `StepResult.cs` 末位可选参数 `string? Channel = null`，语义 = 通道名字符串；现状 executor 构造仅传至 ElapsedMs → 恒 null。实现 = executor 按 TargetChannel 解析结果填充该参数，record 本体不动、无额外冻结面）。
@@ -124,9 +124,15 @@ Task B（UDS step record 补 TargetChannel）与 Task C（新增 `TestCaseStepKi
 - setup/teardown 增强：fixture 体系已够用，等真实痛点；
 - While/Loop 增加 break 语句（控制流复杂度换收益不明）；JS 节点仿真（另一条线：CAPL-lite spec，待起草）。
 
-## 5. 执行顺序
+## 5. 执行顺序（含进度）
 
-A 回归绿灯 → B 第一步接口统一（扩 `IUdsSession` + executor 迁移，纯 host 侧）→ hil-core 0.14.0 打包（B 的 step 字段 + C 的新 step kind 同车）→ host/studio lockstep 升级落地后做 B 第二步 resolver 接线 + C 两个 executor 实现。
+- ✅ A 回归绿灯（2026-08-27，commit 0c859bc：9 边界用例全绿，风险用例减法实证可用）
+- ✅ B 第一步接口统一（2026-08-27，commit 37d821c：IUdsSession +DID 两方法；UdsSessionAdapter 迁入 host Core；ReadDid/WriteDid executor 接口化；Core.Tests 924/924 + Infra.Tests 594/594 绿；review APPROVE，MEDIUM 双重前缀已修）
+- ✅ hil-core 0.14.0 打包（2026-08-27，commit 98e2bc5：11 个 UDS step record 补 TargetChannel + MatchMode/AssertSignalWithin/AssertStable 两 step kind + [JsonDerivedType] 注册 + Factory/Exporter 对称 + SignalName 校验/引用收集对齐；hil-core.Tests 255/255 绿；review APPROVE——MEDIUM ReferenceCollector 盲区已修，LOW×2 测试已补。测试修复 2 处：dynamic+FluentAssertions 改显式 switch、IReadOnlyDictionary 赋值包 new Dictionary）
+- → host/studio lockstep 升级落地后做 B 第二步 resolver 接线 + C 两个 executor 实现。
+- ⏳ 留待 lockstep 阶段：§3.4 validator 新增的 per-channel DBC 信号名路由 + WindowMs>0 / MaxDelta/Tolerance 数值合法性校验（依赖 per-channel DBC lookup 上下文，与 host 侧 DBC 路由一起做）
+
+原序：A 回归绿灯 → B 第一步接口统一（扩 `IUdsSession` + executor 迁移，纯 host 侧）→ hil-core 0.14.0 打包（B 的 step 字段 + C 的新 step kind 同车）→ host/studio lockstep 升级落地后做 B 第二步 resolver 接线 + C 两个 executor 实现。
 
 ## 6. 实施前待核清单（✅ 两项已核，2026-08-27 续 session）
 
