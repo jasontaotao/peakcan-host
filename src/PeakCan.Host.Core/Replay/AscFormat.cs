@@ -118,7 +118,9 @@ public static class AscFormat
         }
 
         var idToken = tokens[2];
-        if (idToken.EndsWith("x", StringComparison.OrdinalIgnoreCase))
+        // Vector ASC spec: an `x` suffix marks the ID as 29-bit extended.
+        var isExtended = idToken.EndsWith("x", StringComparison.OrdinalIgnoreCase);
+        if (isExtended)
         {
             idToken = idToken.Substring(0, idToken.Length - 1);
         }
@@ -127,6 +129,9 @@ public static class AscFormat
             reason = $"invalid CAN id '{tokens[2]}'";
             return false;
         }
+        // 兜底：无 x 后缀但数值 > 0x7FF 也判扩展（兼容无 x 标记的不规范 ASC 文件
+        // + 现有测试 fixture 18FEF100 无 x）。真实扩展帧 ID 必然 > 0x7FF。
+        if (!isExtended && id > 0x7FFu) isExtended = true;
 
         int dataStartIndex = 4;
         byte dlc;
@@ -232,7 +237,7 @@ public static class AscFormat
             return false;
         }
 
-        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags);
+        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended);
         return true;
     }
 
