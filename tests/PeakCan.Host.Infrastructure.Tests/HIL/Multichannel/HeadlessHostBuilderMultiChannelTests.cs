@@ -5,6 +5,8 @@ using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.Peak;
+using PeakCan.Host.Infrastructure.Zlg;
 using Xunit;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Multichannel;
@@ -294,5 +296,41 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         Assert.NotNull(sessionA);
         Assert.NotNull(sessionB);
         Assert.Same(sessionA, sessionB);   // 都回落默认栈（同一 DI 单例）
+    }
+
+    [Fact]
+    public void Build_ZlgFirstChannel_ResolvesZlgCanChannel_NotPeak()
+    {
+        // 产品 review: 多厂商设备身份。首通道是 ZLG handle（0xC600，高位 0x8000+）→
+        // 默认 ICanChannel 应为 ZlgCanChannel（CompositeChannelFactory 分派），
+        // 而非硬编码 PeakCanChannel。RED：现在 Build 一律 new PeakCanChannel。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "0xC600", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "0x51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var channel = host.Services.GetRequiredService<ICanChannel>();
+        Assert.IsType<ZlgCanChannel>(channel);
+        Assert.Equal(new ChannelId(0xC600), channel.Id);
+    }
+
+    [Fact]
+    public void Build_ZlgSecondChannel_ResolvesZlgCanChannel()
+    {
+        // 混用：首通道 PEAK（0x51）、第二通道 ZLG（0xC600）→ 第二通道 context 底层是 ZlgCanChannel。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "0x51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "0xC600", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var multi = (MultiChannelAssertionContext)host.Services.GetRequiredService<IAssertionContext>();
+        Assert.IsType<ZlgCanChannel>(multi.GetChannel("bus-b").Channel);
+        Assert.IsType<PeakCanChannel>(multi.GetChannel("bus-a").Channel);
     }
 }
