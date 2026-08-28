@@ -331,6 +331,11 @@ public sealed partial class HilViewModel : ObservableObject
     {
         ChannelBindings.Clear();
         if (declared is null || declared.Count == 0) return;
+        // 重名声明与 Run 路径（BuildHardwareChannels 返 null 走单通道）对齐：重名时映射无法按名区分，
+        // 清空清单避免 UI 显示与 Run 实际行为不一致（studio 保存前已拦，此处为 host 兜底）。
+        var dup = declared.GroupBy(d => d.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
+        if (dup is not null) return;
         var count = Math.Min(declared.Count, connected.Count);
         for (int i = 0; i < count; i++)
         {
