@@ -244,7 +244,9 @@ public sealed partial class HilViewModel : ObservableObject
             var d = declared[i];
             list.Add(new ChannelConfig(
                 d.Name,
-                "",                   // 空 handle → host 按索引顺序映射物理通道（spec v3 T13，厂商无关）
+                // 产品 review: 透传真实 handle（含厂商编码 raw hex）——不再设空串让 host 0x51+index 硬算，
+                // 否则连的 ZLG 口/非连续 USB 口会错开成 PEAK USB1..N。host ResolveChannelHandle 由 handle 反推厂商分派。
+                $"0x{c.Handle:X}",
                 c.BaudRate,           // 连接参数取 host 已连通道实际值
                 c.Fd,
                 d.DbcPath,            // G2: per-channel DBC 透传（不再丢弃）

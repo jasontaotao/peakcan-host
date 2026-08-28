@@ -383,6 +383,46 @@ public sealed class HilViewModelTests
         }
     }
 
+    [Fact]
+    public async Task RunAsync_ZlgConnectedChannel_PropagatesRealHandle_NotEmpty()
+    {
+        // 产品 review: BuildHardwareChannels 必须透传 connected[i].Handle 的真实值（含厂商编码），
+        // 而非硬编码空串——否则 host 用 0x51+index 硬算，连的 ZLG 口被错开成 PEAK USB1。
+        // connected[0].Handle=0xC600（ZLG）→ ChannelConfig.Handle 应为 "0xC600"。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0xC600, BaudRate.Can500kbps, Fd: false),  // ZLG USBCAN 0-0
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),    // PEAK USB2
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB2";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured.Should().NotBeNull();
+            captured!.HardwareChannels.Should().HaveCount(2);
+            // RED: 现在 Handle 是空串 → 断言失败；修复后应透传真实 ZLG handle
+            captured.HardwareChannels![0].Handle.Should().Be("0xC600");
+            captured.HardwareChannels[1].Handle.Should().Be("0x52");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
     // ── G3: USBx 下拉绑已连接通道（spec §4）──────────────────
 
     private static HilViewModel NewVm(Func<IReadOnlyList<HilViewModel.ConnectedChannel>>? connected = null)
