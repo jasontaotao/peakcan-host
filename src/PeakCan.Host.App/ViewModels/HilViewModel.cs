@@ -564,6 +564,10 @@ public sealed partial class HilViewModel : ObservableObject
                     Name = step.Label ?? $"Step {step.StepIndex}",
                     Status = step.Status.ToString(),
                     Message = step.Message ?? "",
+                    // G6: 结果树展示通道归属 + Actual/Expected（仅非空时 XAML 渲染）
+                    Channel = step.Channel ?? "",
+                    ActualValue = step.ActualValue ?? "",
+                    ExpectedValue = step.ExpectedValue ?? "",
                 };
                 if (step.FramesAroundFailure is { Count: > 0 })
                 {

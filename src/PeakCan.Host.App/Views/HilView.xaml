@@ -179,10 +179,44 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="Bold" />
                             </HierarchicalDataTemplate>
                             <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" Width="140" />
-                                    <TextBlock Text="{Binding Status}" Width="70" />
-                                    <TextBlock Text="{Binding Message}" />
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" Width="140" />
+                                        <TextBlock Text="{Binding Status}" Width="70" />
+                                        <TextBlock Text="{Binding Message}" />
+                                        <!-- G6: 通道徽标（仅非空，多通道失败归属一目了然） -->
+                                        <Border Background="{StaticResource RowSelected}" CornerRadius="2" Padding="3,0" Margin="4,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Channel}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Channel}" FontSize="11" Foreground="{StaticResource Accent}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <!-- G6: Actual/Expected 行（仅失败步骤非空时显示） -->
+                                    <StackPanel Orientation="Horizontal" Margin="140,2,0,0">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ActualValue}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+                                        <TextBlock Text="Actual:" FontSize="11" Foreground="{StaticResource TextSecondary}" Width="44"/>
+                                        <TextBlock Text="{Binding ActualValue}" FontSize="11"/>
+                                        <TextBlock Text="Expected:" FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="{Binding ExpectedValue}" FontSize="11"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </HierarchicalDataTemplate>
                             <DataTemplate DataType="{x:Type vm:FrameNode}">
