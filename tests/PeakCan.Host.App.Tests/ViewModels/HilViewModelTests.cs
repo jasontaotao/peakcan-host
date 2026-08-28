@@ -438,6 +438,67 @@ public sealed class HilViewModelTests
         vm.IsMultiChannelSuite.Should().BeFalse();
     }
 
+    // ── G4: 文件后缀区分（spec §5）──────────────────
+
+    [Fact]
+    public void BrowseSuite_UsesSuiteJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseSuiteCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.suite.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void BrowseEcu_UsesEcuJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseEcuCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.ecu.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void BrowseMatrix_UsesMatrixJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseMatrixCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.matrix.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void LoadCaseList_NotSuiteFile_SetsStatusMessage()
+    {
+        // G4 内容硬校验：打开无 cases 字段的 JSON → 明确提示（当前静默 catch → RED）
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, """{ "name": "not-a-suite" }""");
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns(path);
+        var vm = CreateViewModel(fileDialog: fd);
+        try
+        {
+            vm.BrowseSuiteCommand.Execute(null);
+            vm.StatusMessage.Should().Contain("不是测试套件文件");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task RunAsync_WithSuiteChannels_AndConnectedChannels_BindsByOrder()
     {
