@@ -161,6 +161,24 @@ public sealed partial class HilViewModel : ObservableObject
     /// 顺序映射、BaudRate/Fd 取已连通道实际值）；数量不一致按少的截断并提示。
     /// 无 suite.Channels、无提供者、或提供者空 → null（单通道零回归）。
     /// </summary>
+    /// <summary>suite 通道声明的弱解析结果（G2：per-channel DBC/UDS 三字段透传）。</summary>
+    private sealed record ChannelDeclaration(string Name, string? DbcPath, uint? UdsRequestId, uint? UdsResponseId);
+
+    /// <summary>读 JSON 里的 UDS ID（uint?）。hil-core 存 JSON 数字；兼容 hex 字符串 "7E0"/"0x7E0"。</summary>
+    private static uint? TryGetUdsId(JsonElement e, string prop)
+    {
+        if (!e.TryGetProperty(prop, out var v) || v.ValueKind == JsonValueKind.Null) return null;
+        if (v.ValueKind == JsonValueKind.Number) return v.GetUInt32();
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var s = v.GetString();
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            var hex = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s;
+            return Convert.ToUInt32(hex, 16);
+        }
+        return null;
+    }
+
     private IReadOnlyList<ChannelConfig>? BuildHardwareChannels()
     {
         if (string.IsNullOrEmpty(SuitePath) || _connectedChannels is null) return null;
@@ -168,17 +186,22 @@ public sealed partial class HilViewModel : ObservableObject
         var connected = _connectedChannels().ToList();
         if (connected.Count == 0) return null;
 
-        // 读 suite.Channels 的名字列表（弱解析：失败时返回 null 走单通道）。
+        // 读 suite.Channels 的声明（弱解析：失败时返回 null 走单通道）。
+        // G2: 读 name/dbcPath/udsRequestId/udsResponseId 四字段（dbcPath/ID 缺省 null 合法）。
         // Review MEDIUM-2: 空名元素计入声明数（参与截断判断），重名预检防
         // runner 侧 ToDictionary 抛异常。
-        List<string>? declaredNames = null;
+        List<ChannelDeclaration>? declared = null;
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
             if (doc.RootElement.TryGetProperty("channels", out var chEl))
             {
-                declaredNames = chEl.EnumerateArray()
-                    .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+                declared = chEl.EnumerateArray()
+                    .Select(e => new ChannelDeclaration(
+                        e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                        e.TryGetProperty("dbcPath", out var d) ? d.GetString() : null,
+                        TryGetUdsId(e, "udsRequestId"),
+                        TryGetUdsId(e, "udsResponseId")))
                     .ToList();
             }
         }
@@ -189,11 +212,11 @@ public sealed partial class HilViewModel : ObservableObject
             _truncationWarning = "（无法读取 suite 通道声明——按单通道执行）";
             return null;
         }
-        var declaredCount = declaredNames?.Count ?? 0;
+        var declaredCount = declared?.Count ?? 0;
         if (declaredCount == 0) return null;
 
         // 重名声明预检：studio 编辑器允许重复名，runner 按名 ToDictionary 会抛。
-        var dup = declaredNames!.GroupBy(n => n, StringComparer.Ordinal)
+        var dup = declared!.GroupBy(d => d.Name, StringComparer.Ordinal)
             .Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
         if (dup is not null)
         {
@@ -202,20 +225,32 @@ public sealed partial class HilViewModel : ObservableObject
         }
 
         var count = Math.Min(declaredCount, connected.Count);
-        _truncationWarning = declaredCount != connected.Count
-            ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
-            : null;
+        // G2: 状态栏提示各通道 DBC/UDS 绑定概况——明示 suite per-channel 配置覆盖界面全局 DBC（改配置回 studio）。
+        var bindingSummary = string.Join("; ", Enumerable.Range(0, count).Select(i =>
+        {
+            var d = declared![i];
+            var dbc = d.DbcPath is { } dp ? $" {Path.GetFileName(dp)}" : " (全局DBC)";
+            var uds = d.UdsRequestId is { } req ? $" UDS 0x{req:X3}/0x{d.UdsResponseId:X3}" : "";
+            return $"{d.Name}:{dbc}{uds}";
+        }));
+        _truncationWarning = (declaredCount != connected.Count
+                ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
+                : "")
+            + $" 绑定[{bindingSummary}]（界面 DBC 已被 suite per-channel 覆盖，改配置回 studio）";
 
         var list = new List<ChannelConfig>(count);
         for (int i = 0; i < count; i++)
         {
             var c = connected[i];
+            var d = declared![i];
             list.Add(new ChannelConfig(
-                declaredNames![i],
+                d.Name,
                 "",                   // 空 handle → host 按索引顺序映射物理通道（spec v3 T13，厂商无关）
                 c.BaudRate,           // 连接参数取 host 已连通道实际值
                 c.Fd,
-                null, null, null));
+                d.DbcPath,            // G2: per-channel DBC 透传（不再丢弃）
+                d.UdsRequestId,       // G2: per-channel UDS ID 透传（suite 配了 → host 建独立 UDS 栈）
+                d.UdsResponseId));
         }
         return list;
     }
