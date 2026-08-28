@@ -284,9 +284,20 @@ public sealed partial class HilViewModel : ObservableObject
         var declared = string.IsNullOrEmpty(SuitePath) ? null : TryParseDeclaredChannels();
         IsMultiChannelSuite = (declared?.Count ?? 0) > 1;
 
-        var connected = _connectedChannels?.Invoke() ?? Array.Empty<ConnectedChannel>();
         var previous = HardwareChannel;
         AvailableChannels.Clear();
+        IReadOnlyList<ConnectedChannel> connected;
+        try
+        {
+            // provider 是外部注入回调，异常不阻塞 UI 初始化/运行（否则 OnLoaded 的
+            // async-void 裸调会变成未处理异常崩进程——review LOW 加固）。
+            connected = _connectedChannels?.Invoke() ?? Array.Empty<ConnectedChannel>();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"获取已连接通道失败: {ex.Message}";
+            connected = Array.Empty<ConnectedChannel>();
+        }
         foreach (var c in connected)
         {
             var handle = $"USB{c.Handle - 0x50}";   // PCAN handle 0x51..0x60 → USB1..USB16
