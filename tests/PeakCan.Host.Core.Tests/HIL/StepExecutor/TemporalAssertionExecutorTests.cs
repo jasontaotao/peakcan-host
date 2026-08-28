@@ -399,4 +399,41 @@ public class TemporalAssertionExecutorTests
         result.Status.Should().Be(StepStatus.Passed);   // 未路由 → Failed（max-min=60）→ 断言失败 = RED
         result.Channel.Should().Be("bus-b");
     }
+
+    // ---- G5: StepResult 填 ActualValue/ExpectedValue（spec §6，LLM 分析用）----
+
+    [Fact]
+    public async Task AssertSignalWithin_PopulatesActualExpectedValues()
+    {
+        var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
+        ctx.SetChannelSignal("bus-a", 100);
+        var executor = new AssertSignalWithinStepExecutor();
+        var task = executor.ExecuteAsync(
+            TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
+
+        await Task.Delay(20);
+        ctx.EmitFrame();   // 1 样本命中
+
+        var result = await task;
+        result.Status.Should().Be(StepStatus.Passed);
+        result.ActualValue.Should().NotBeNull();
+        result.ActualValue.Should().Contain("samples");
+        result.ExpectedValue.Should().Be("100±5");   // Expected 插值后值 + Tolerance（±）
+    }
+
+    [Fact]
+    public async Task AssertStable_PopulatesActualExpectedValues()
+    {
+        var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
+        var executor = new AssertStableStepExecutor();
+        var task = executor.ExecuteAsync(
+            TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
+
+        await Task.Delay(20);
+        for (int i = 0; i < 3; i++) ctx.EmitFrame();   // max-min=0
+
+        var result = await task;
+        result.ActualValue.Should().Contain("max-min");
+        result.ExpectedValue.Should().Be("≤5");
+    }
 }
