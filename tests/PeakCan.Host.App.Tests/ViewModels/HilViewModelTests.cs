@@ -346,6 +346,98 @@ public sealed class HilViewModelTests
         }
     }
 
+    // ── G3: USBx 下拉绑已连接通道（spec §4）──────────────────
+
+    private static HilViewModel NewVm(Func<IReadOnlyList<HilViewModel.ConnectedChannel>>? connected = null)
+        => new(
+            Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance,
+            Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(),
+            Substitute.For<IHilReportService>(), connectedChannels: connected);
+
+    [Fact]
+    public void RefreshAvailableChannels_WithConnectedChannels_PopulatesDropdownAndDefaultsFirst()
+    {
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().HaveCount(2);
+        vm.AvailableChannels[0].Handle.Should().Be("USB1");      // n = handle - 0x50
+        vm.AvailableChannels[0].Display.Should().Contain("USB1");
+        vm.AvailableChannels[0].Display.Should().Contain("500 kbps");
+        vm.AvailableChannels[1].Handle.Should().Be("USB2");
+        vm.HardwareChannel.Should().Be("USB1");                  // 默认第一个已连接
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_EmptyProvider_EmptiesDropdownAndClearsChannel()
+    {
+        var vm = NewVm(() => []);
+        vm.HardwareChannel = "USB3";
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().BeEmpty();
+        vm.HardwareChannel.Should().Be("", "无已连接通道 → 清空 HardwareChannel, CanRun false");
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_PreservesLastSelection()
+    {
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.RefreshAvailableChannels();
+        vm.HardwareChannel.Should().Be("USB1");
+
+        // 用户切到 USB2 → 再刷新 → 保留 USB2（不跳回第一个，防连接目标漂移）
+        vm.HardwareChannel = "USB2";
+        vm.RefreshAvailableChannels();
+
+        vm.HardwareChannel.Should().Be("USB2");
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_MultiChannelSuite_FlagsIsMultiChannel()
+    {
+        // G3: suite 声明多通道（declaredCount>1）→ Hardware 下拉置灰（IsMultiChannelSuite）
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.IsMultiChannelSuite.Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_SingleChannelSuite_NotMultiChannel()
+    {
+        // 单通道 suite（无 channels 或 1 路）→ 下拉可配（IsMultiChannelSuite false）
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+        ]);
+        vm.RefreshAvailableChannels();
+        vm.IsMultiChannelSuite.Should().BeFalse();
+    }
+
     [Fact]
     public async Task RunAsync_WithSuiteChannels_AndConnectedChannels_BindsByOrder()
     {
