@@ -451,6 +451,24 @@ public sealed class HilViewModelTests
     }
 
     [Fact]
+    public void RefreshAvailableChannels_ZlgConnected_HexHandleAndNameDisplay()
+    {
+        // 产品 review: ZLG 通道（0xC600，高位 0x8000+）下拉绑定值用 raw hex（下游能解析），
+        // 显示用设备名（USBCAN 0-0）区分厂商，而非 USB{handle-0x50} 算出的错误口。
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0xC600, BaudRate.Can500kbps, Fd: false, Name: "USBCAN 0-0"),
+        ]);
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().HaveCount(1);
+        vm.AvailableChannels[0].Handle.Should().Be("0xC600");
+        vm.AvailableChannels[0].Display.Should().Contain("USBCAN 0-0");
+        vm.HardwareChannel.Should().Be("0xC600");
+    }
+
+    [Fact]
     public void RefreshAvailableChannels_EmptyProvider_EmptiesDropdownAndClearsChannel()
     {
         var vm = NewVm(() => []);

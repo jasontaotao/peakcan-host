@@ -56,7 +56,9 @@ public static class HeadlessHostBuilder
         {
             // Hardware mode (Sprint 3) — single channel（也走工厂，支持单通道 ZLG）
             RegisterChannelFactory(builder);
-            var handle = ParseChannelHandle(args.HardwareChannel);
+            // ResolveChannelHandle 接受 USB{n}（PEAK）与 raw hex（如 "0xC600" ZLG），
+            // 取代 ParseChannelHandle（仅 USB{n}）——否则单通道 ZLG 选不了。
+            var handle = ResolveChannelHandle(args.HardwareChannel);
             builder.Services.AddSingleton<ICanChannel>(sp =>
                 sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>().Create(new ChannelId(handle)));
         }

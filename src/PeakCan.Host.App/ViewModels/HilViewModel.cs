@@ -95,8 +95,12 @@ public sealed partial class HilViewModel : ObservableObject
         _connectedChannels = connectedChannels;
     }
 
-    /// <summary>已连接通道的快照（host 打开时配好的多路：handle/波特率/FD）。</summary>
-    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd);
+    /// <summary>
+    /// 已连接通道的快照（host 打开时配好的多路：handle/波特率/FD + 设备名）。
+    /// Name 来自 ChannelInfo.Name（如 "USB1" / "USBCAN 0-1"），UI 用它区分厂商显示；
+    /// Handle 是含厂商编码的 ushort（0x51-0x60 PEAK / 0x8000+ ZLG）。
+    /// </summary>
+    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd, string Name = "");
 
     /// <summary>硬件通道下拉项（G3）：Handle = 绑定值（"USB{n}"，下游 ParseChannelHandle 语义不变），Display = 显示连接信息。</summary>
     public sealed record HardwareChannelOption(string Handle, string Display);
@@ -306,8 +310,13 @@ public sealed partial class HilViewModel : ObservableObject
         }
         foreach (var c in connected)
         {
-            var handle = $"USB{c.Handle - 0x50}";   // PCAN handle 0x51..0x60 → USB1..USB16
-            AvailableChannels.Add(new HardwareChannelOption(handle, $"{handle}（已连接·{c.BaudRate.Name}）"));
+            // 绑定值：PEAK 用 USB{n}（下游 ParseChannelHandle 语义不变）；非 PEAK（ZLG，高位 0x8000+）
+            // 用 raw hex（"0xC600"），host 单通道已走 CompositeChannelFactory 能解析。显示用设备名区分厂商。
+            var handle = (c.Handle & 0x8000) != 0
+                ? $"0x{c.Handle:X}"
+                : $"USB{c.Handle - 0x50}";
+            var displayName = string.IsNullOrEmpty(c.Name) ? handle : c.Name;
+            AvailableChannels.Add(new HardwareChannelOption(handle, $"{displayName}（已连接·{c.BaudRate.Name}）"));
         }
         // 产品 review: 多通道映射清单（suite 声明通道 → 物理口，按索引顺序）只读展示。
         RefreshChannelBindings(declared, connected);
@@ -342,8 +351,11 @@ public sealed partial class HilViewModel : ObservableObject
         for (int i = 0; i < count; i++)
         {
             var d = declared[i];
-            var handle = $"USB{connected[i].Handle - 0x50}";
-            ChannelBindings.Add(new ChannelBindingRow(d.Name, handle, FormatBindingDetail(d)));
+            var c = connected[i];
+            // 设备名区分厂商（"USB1" / "USBCAN 0-1"）；Name 为空（测试直构造）回退 USB{handle-0x50}。
+            var deviceName = string.IsNullOrEmpty(c.Name) ? $"USB{c.Handle - 0x50}" : c.Name;
+            var detail = $"{FormatBindingDetail(d).Trim()} · {c.BaudRate.Name}";
+            ChannelBindings.Add(new ChannelBindingRow(d.Name, deviceName, detail));
         }
         if (declared.Count > connected.Count)
         {

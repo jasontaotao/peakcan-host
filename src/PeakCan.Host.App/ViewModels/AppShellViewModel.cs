@@ -354,7 +354,7 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         _hilViewModel.SetConnectedChannelsProvider(() =>
             ChannelConnections
                 .Where(c => c.State == "已连接")
-                .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd))
+                .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd, c.Name))
                 .ToList());
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
