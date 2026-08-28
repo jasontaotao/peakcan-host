@@ -65,6 +65,20 @@ public sealed class HilViewModelTests
                 }),
         });
 
+    /// <summary>失败步骤带 Channel/Actual/Expected（G6 结果树展示用）。</summary>
+    private static TestSuiteResult FailedResultWithChannel() => new(
+        "test", TotalCases: 1, PassedCases: 0, FailedCases: 1, SkippedCases: 0,
+        ElapsedMs: 100, SetupFailures: Array.Empty<string>(),
+        CaseResults: new[]
+        {
+            new TestCaseResult("tc1", "Case1", false, "signal mismatch", 100, 1, 0, 1, 0, 0,
+                new[]
+                {
+                    new StepResult(0, TestCaseStepKind.AssertSignal, "Assert", StepStatus.Failed,
+                        "expected 1 got 0", "0", "1", 50, Channel: "bus-a"),
+                }),
+        });
+
     // --- Mode → path mapping ---
 
     [Fact]
@@ -210,6 +224,29 @@ public sealed class HilViewModelTests
         var caseNode = Assert.IsType<TestCaseNode>(vm.ResultsTree[0]);
         Assert.Single(caseNode.Steps);
         Assert.Empty(caseNode.Steps[0].Frames); // no frames captured when passed
+    }
+
+    [Fact]
+    public async Task ResultTree_PopulatesChannelAndActualExpected()
+    {
+        // G6: 结果树 StepNode 展示 Channel/ActualValue/ExpectedValue（仅失败步骤有值）
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(FailedResultWithChannel()));
+
+        var vm = CreateViewModel(runner);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        var caseNode = Assert.IsType<TestCaseNode>(vm.ResultsTree[0]);
+        var step = Assert.Single(caseNode.Steps);
+        step.Channel.Should().Be("bus-a");
+        step.ActualValue.Should().Be("0");
+        step.ExpectedValue.Should().Be("1");
     }
 
     // --- ECU script path ---
