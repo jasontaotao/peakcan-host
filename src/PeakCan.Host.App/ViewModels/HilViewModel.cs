@@ -101,6 +101,15 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>硬件通道下拉项（G3）：Handle = 绑定值（"USB{n}"，下游 ParseChannelHandle 语义不变），Display = 显示连接信息。</summary>
     public sealed record HardwareChannelOption(string Handle, string Display);
 
+    /// <summary>
+    /// 多通道映射清单行（产品 review 补）：suite 声明的通道 → 绑定到的物理硬件口（按索引顺序）。
+    /// 只读展示（维持 spec §4.2 "只展示不覆盖"裁决），消除"bus-a 到底对应哪块硬件"的黑盒。
+    /// </summary>
+    public sealed record ChannelBindingRow(string SuiteName, string Handle, string Detail);
+
+    /// <summary>多通道映射清单（IsMultiChannelSuite 时展示；单通道空）。</summary>
+    public ObservableCollection<ChannelBindingRow> ChannelBindings { get; } = new();
+
     private Func<IReadOnlyList<ConnectedChannel>>? _connectedChannels;
 
     /// <summary>多通道绑定截断提示（Run 完成后拼接到 StatusMessage，防被结果覆盖）。</summary>
@@ -221,13 +230,8 @@ public sealed partial class HilViewModel : ObservableObject
 
         var count = Math.Min(declaredCount, connected.Count);
         // G2: 状态栏提示各通道 DBC/UDS 绑定概况——明示 suite per-channel 配置覆盖界面全局 DBC（改配置回 studio）。
-        var bindingSummary = string.Join("; ", Enumerable.Range(0, count).Select(i =>
-        {
-            var d = declared[i];
-            var dbc = d.DbcPath is { } dp ? $" {Path.GetFileName(dp)}" : " (全局DBC)";
-            var uds = d.UdsRequestId is { } req ? $" UDS 0x{req:X3}/0x{d.UdsResponseId:X3}" : "";
-            return $"{d.Name}:{dbc}{uds}";
-        }));
+        var bindingSummary = string.Join("; ", Enumerable.Range(0, count)
+            .Select(i => $"{declared[i].Name}:{FormatBindingDetail(declared[i])}"));
         _truncationWarning = (declaredCount != connected.Count
                 ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
                 : "")
@@ -303,6 +307,8 @@ public sealed partial class HilViewModel : ObservableObject
             var handle = $"USB{c.Handle - 0x50}";   // PCAN handle 0x51..0x60 → USB1..USB16
             AvailableChannels.Add(new HardwareChannelOption(handle, $"{handle}（已连接·{c.BaudRate.Name}）"));
         }
+        // 产品 review: 多通道映射清单（suite 声明通道 → 物理口，按索引顺序）只读展示。
+        RefreshChannelBindings(declared, connected);
         if (AvailableChannels.Count > 0)
         {
             // 保留上次选择（防连接顺序变化导致默认选中漂移）；记忆值不在当前列表才回退第一个
@@ -314,6 +320,38 @@ public sealed partial class HilViewModel : ObservableObject
             // 无已连接通道：清空选择 → Hardware 模式 CanRun false + 状态提示
             HardwareChannel = "";
         }
+    }
+
+    /// <summary>
+    /// 刷新多通道映射清单（产品 review 补，只读展示）：suite 声明的第 i 路通道按索引顺序
+    /// 绑定到已连接的第 i 路物理口（与 BuildHardwareChannels 同一接线语义，见 spec v3 §3.4）。
+    /// 数量不一致按少的截断（同 Run 截断语义，下方提示补齐）。
+    /// </summary>
+    private void RefreshChannelBindings(List<ChannelDeclaration>? declared, IReadOnlyList<ConnectedChannel> connected)
+    {
+        ChannelBindings.Clear();
+        if (declared is null || declared.Count == 0) return;
+        var count = Math.Min(declared.Count, connected.Count);
+        for (int i = 0; i < count; i++)
+        {
+            var d = declared[i];
+            var handle = $"USB{connected[i].Handle - 0x50}";
+            ChannelBindings.Add(new ChannelBindingRow(d.Name, handle, FormatBindingDetail(d)));
+        }
+        if (declared.Count > connected.Count)
+        {
+            // 声明多于已连：未被绑定的声明通道也展示（标注未绑定，揭示"为什么少一路"）。
+            for (int i = count; i < declared.Count; i++)
+                ChannelBindings.Add(new ChannelBindingRow(declared[i].Name, "未绑定", "(已连接通道不足)"));
+        }
+    }
+
+    /// <summary>per-channel DBC/UDS 绑定摘要（共享给映射清单 + Run 状态栏，防两处漂移）。</summary>
+    private static string FormatBindingDetail(ChannelDeclaration d)
+    {
+        var dbc = d.DbcPath is { } dp ? $" {Path.GetFileName(dp)}" : " (全局DBC)";
+        var uds = d.UdsRequestId is { } req ? $" UDS 0x{req:X3}/0x{d.UdsResponseId:X3}" : "";
+        return $"{dbc}{uds}";
     }
 
     [RelayCommand]

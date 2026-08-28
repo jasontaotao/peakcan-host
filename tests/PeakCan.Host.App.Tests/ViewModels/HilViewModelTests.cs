@@ -464,6 +464,61 @@ public sealed class HilViewModelTests
     }
 
     [Fact]
+    public void RefreshAvailableChannels_MultiChannelSuite_PopulatesReadonlyBindingMapping()
+    {
+        // 产品 review: 多通道映射清单（只读）——suite 声明通道按索引顺序绑到已连接物理口，消除黑盒。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteWithPerChannelParamsJson);   // bus-a(A.dbc/UDS 7E0) + bus-b(B.dbc/UDS 6E0)
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),   // → USB1
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),   // → USB2
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.ChannelBindings.Should().HaveCount(2);
+            vm.ChannelBindings[0].SuiteName.Should().Be("bus-a");
+            vm.ChannelBindings[0].Handle.Should().Be("USB1");       // 索引 0 → 已连接第 0 路
+            vm.ChannelBindings[0].Detail.Should().Contain("A.dbc"); // per-channel DBC 摘要
+            vm.ChannelBindings[0].Detail.Should().Contain("7E0");
+            vm.ChannelBindings[1].SuiteName.Should().Be("bus-b");
+            vm.ChannelBindings[1].Handle.Should().Be("USB2");
+            vm.ChannelBindings[1].Detail.Should().Contain("B.dbc");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_DeclaredMoreThanConnected_MarksUnbound()
+    {
+        // 声明 2 路、已连 1 路 → 第 1 路绑定 USB1，第 2 路标"未绑定"（揭示截断原因）。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),   // 仅 1 路
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.ChannelBindings.Should().HaveCount(2);
+            vm.ChannelBindings[0].Handle.Should().Be("USB1");
+            vm.ChannelBindings[1].Handle.Should().Be("未绑定");
+            vm.ChannelBindings[1].Detail.Should().Contain("不足");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
     public void RefreshAvailableChannels_SingleChannelSuite_NotMultiChannel()
     {
         // 单通道 suite（无 channels 或 1 路）→ 下拉可配（IsMultiChannelSuite false）
