@@ -130,6 +130,9 @@ public sealed partial class HilViewModel : ObservableObject
         {
             SuitePath = path;
             LoadCaseList(path);
+            // G3（spec §4.2）: 换套件后重算多通道置灰态 + 刷新下拉——否则从多通道切单通道
+            // 下拉仍置灰（IsMultiChannelSuite 陈旧）直到下次 Run。
+            RefreshAvailableChannels();
         }
     }
 
@@ -154,9 +157,12 @@ public sealed partial class HilViewModel : ObservableObject
                 AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // 解析失败不阻塞 -- Run 时完整反序列化会报具体错误
+            // G4（spec §5.3）: 解析失败不静默——设明确提示（缺 cases 字段已在上文单独拦截，
+            // 这里兜底 JSON 损坏/读取失败/字段类型异常；Run 时完整反序列化仍会报具体错误）。
+            AvailableCases.Clear();
+            StatusMessage = $"套件文件解析失败: {ex.Message}";
         }
     }
 

@@ -36,6 +36,9 @@ public partial class HilView : UserControl
         _isLoaded = true;
         _vm.PropertyChanged += OnVmPropertyChanged;
         UpdateReportPanel();
+        // G3（spec §4.2）: 窗口 Loaded 时刷新 Hardware 通道下拉（provider 拉模式无通知，
+        // 只在 Loaded + Run 前拉两次；否则打开窗口下拉为空、多通道置灰态陈旧直到首次 Run）。
+        _vm.RefreshAvailableChannels();
 
         try
         {

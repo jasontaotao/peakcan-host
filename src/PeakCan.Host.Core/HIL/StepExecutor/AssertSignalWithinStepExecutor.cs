@@ -20,14 +20,18 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
     {
         var p = (AssertSignalWithinStep)step.Parameters;
         var expected = double.Parse(p.Expected, CultureInfo.InvariantCulture);
-        var tolerance = double.Parse(p.Tolerance, CultureInfo.InvariantCulture);
+        // G5（spec §6 裁决）: Tolerance 空/空白 = 精确匹配（窗口退化为 hit 需 v==expected），
+        // ExpectedValue 只显示 Expected 不带 ±；否则 double.Parse("") 空串会抛 FormatException。
+        var hasTolerance = !string.IsNullOrWhiteSpace(p.Tolerance);
+        var tolerance = hasTolerance ? double.Parse(p.Tolerance, CultureInfo.InvariantCulture) : 0;
         var windowMs = int.Parse(p.WindowMs, CultureInfo.InvariantCulture);
 
         if (windowMs <= 0)   // 非法参数 fail fast（同 AssertCycleTime review L4）
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Invalid params: WindowMs={windowMs}", null, null, 0, Channel: p.TargetChannel);
 
-        var expectedValue = $"{expected}±{tolerance}";   // G5: LLM 分析用（插值后值 + Tolerance）
+        // G5（spec §6）: 有 Tolerance 拼 `1500±10`；空 Tolerance 只显示 Expected（不带 ±）。
+        var expectedValue = hasTolerance ? $"{expected}±{tolerance}" : $"{expected}";
         var samples = new List<double>();
         var gate = new object();
 

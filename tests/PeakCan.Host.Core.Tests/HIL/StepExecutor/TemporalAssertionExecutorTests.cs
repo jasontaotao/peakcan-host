@@ -100,6 +100,25 @@ public class TemporalAssertionExecutorTests
     }
 
     [Fact]
+    public async Task AssertSignalWithin_EmptyTolerance_NoCtorCrash_And_ExpectedWithoutTolerance()
+    {
+        // G5（spec §6 裁决）: Tolerance 为空 = 精确匹配（不抛 FormatException），
+        // ExpectedValue 只显示 Expected 不带 ±。
+        var ctx = new ManualAssertionContext();
+        var executor = new AssertSignalWithinStepExecutor();
+        var task = executor.ExecuteAsync(
+            TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "", "200")), ctx, default);
+
+        await Task.Delay(20);
+        ctx.SignalValue = 100; ctx.EmitFrame();   // 精确命中（tolerance=0）
+
+        var result = await task;
+        result.Status.Should().Be(StepStatus.Passed);
+        result.ExpectedValue.Should().Be("100");          // 不带 ±
+        result.ActualValue.Should().Be("1/1 samples");
+    }
+
+    [Fact]
     public async Task AssertSignalWithin_Any_NoHit_Fails()
     {
         var ctx = new ManualAssertionContext();
