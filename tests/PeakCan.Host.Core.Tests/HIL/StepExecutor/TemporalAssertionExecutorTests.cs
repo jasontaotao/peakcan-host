@@ -208,7 +208,8 @@ public class TemporalAssertionExecutorTests
     [Fact]
     public async Task AssertSignalWithin_RoutesToTargetChannel()
     {
-        var ctx = new ManualAssertionContext();
+        // fake 通道感知化后：值必须设到目标通道 bus-a（SignalValue 属性 = DefaultChannel 缓存）
+        var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         var executor = new AssertSignalWithinStepExecutor();
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")
@@ -351,7 +352,8 @@ public class TemporalAssertionExecutorTests
     [Fact]
     public async Task AssertStable_RoutesToTargetChannel()
     {
-        var ctx = new ManualAssertionContext();
+        // fake 通道感知化后：值必须设到目标通道 bus-b（SignalValue 属性 = DefaultChannel 缓存）
+        var ctx = new ManualAssertionContext { DefaultChannel = "bus-b" };
         var executor = new AssertStableStepExecutor();
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")

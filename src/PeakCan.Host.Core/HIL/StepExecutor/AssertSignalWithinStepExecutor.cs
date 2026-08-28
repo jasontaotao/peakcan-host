@@ -32,7 +32,8 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
 
         using var sub = ctx.SubscribeDecodedFrames(p.TargetChannel, _ =>
         {
-            var val = ctx.GetSignalValue(p.SignalName, maxAgeMs: 5000);
+            // G1: 采样按 TargetChannel 路由（订阅已路由，采样未路由 → 恒取默认通道，错总线）
+            var val = ctx.GetSignalValue(p.TargetChannel, p.SignalName, maxAgeMs: 5000);
             if (val is { } v)
                 lock (gate) samples.Add(v);
         });

@@ -123,6 +123,14 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
         return entry.Value;
     }
 
+    /// <summary>按通道名取信号快照（显式实现 override DIM 默认）。null/空/相等名 → 自身；非匹配名 → null。</summary>
+    public double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
+    {
+        if (!AcceptsChannelName(channelName))
+            return null;   // 非本通道：信号不在本通道缓存，executor 判零样本
+        return GetSignalValue(signalName, maxAgeMs);
+    }
+
     public ValueTask<Result<Unit>> SendFrameAsync(CanFrame frame, CancellationToken ct = default)
     {
         return _channel.WriteAsync(frame, ct);

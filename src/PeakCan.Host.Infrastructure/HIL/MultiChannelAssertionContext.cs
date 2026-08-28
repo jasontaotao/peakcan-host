@@ -62,6 +62,10 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
     public double? GetSignalValue(string signalName, int maxAgeMs = 5000)
         => ResolveChannel(null).GetSignalValue(signalName, maxAgeMs);
 
+    /// <summary>按通道名取信号快照（显式实现 override DIM 默认）。channelName null/空 = 默认通道；未知名 -> KeyNotFoundException。</summary>
+    public double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
+        => ResolveChannel(channelName).GetSignalValue(signalName, maxAgeMs);
+
     public double CurrentTimestamp => ResolveChannel(null).CurrentTimestamp;
 
     /// <summary>按通道名发送帧。channelName null/空 = 默认通道。</summary>
