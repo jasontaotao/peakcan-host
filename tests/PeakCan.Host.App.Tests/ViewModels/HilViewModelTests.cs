@@ -290,6 +290,62 @@ public sealed class HilViewModelTests
     }
     """;
 
+    // G2: suite 声明 per-channel DBC/UDS ID（UDS ID 为 JSON 数字——hil-core uint 形态，0x7E0=2016 等）
+    private const string MultiChannelSuiteWithPerChannelParamsJson = """
+    {
+      "name": "MultiChannel",
+      "channels": [
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": "A.dbc", "udsRequestId": 2016, "udsResponseId": 2024 },
+        { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "dbcPath": "B.dbc", "udsRequestId": 1760, "udsResponseId": 1768 }
+      ],
+      "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
+    }
+    """;
+
+    [Fact]
+    public async Task RunAsync_WithSuitePerChannelParams_PropagatesToHardwareChannels()
+    {
+        // G2 host 读侧：suite 带 dbcPath/udsRequestId/udsResponseId → HardwareChannels 透传（不再丢弃）
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteWithPerChannelParamsJson);
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured.Should().NotBeNull();
+            captured!.HardwareChannels.Should().HaveCount(2);
+            // per-channel 三字段透传（当前 BuildHardwareChannels 透传 null → 断言失败 = RED）
+            captured.HardwareChannels![0].DbcPath.Should().Be("A.dbc");
+            captured.HardwareChannels[0].UdsRequestId.Should().Be(2016);
+            captured.HardwareChannels[0].UdsResponseId.Should().Be(2024);
+            captured.HardwareChannels[1].DbcPath.Should().Be("B.dbc");
+            captured.HardwareChannels[1].UdsRequestId.Should().Be(1760);
+            captured.HardwareChannels[1].UdsResponseId.Should().Be(1768);
+            // 连接参数仍取已连通道实际值（spec v3 T13 语义不变）
+            captured.HardwareChannels[0].BaudRate.Should().Be(BaudRate.Can500kbps);
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
     [Fact]
     public async Task RunAsync_WithSuiteChannels_AndConnectedChannels_BindsByOrder()
     {
