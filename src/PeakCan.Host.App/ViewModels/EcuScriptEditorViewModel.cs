@@ -61,7 +61,7 @@ public partial class EcuScriptEditorViewModel : ObservableObject
                 "Opening a file will discard unsaved changes. Continue?", null);
             if (r != MessageBoxResult.Yes) return;
         }
-        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.ecu.json|All Files|*.*");
         if (path is null) return;
         if (!TryReadFile(path, out var content, out var readError))
         {
@@ -86,7 +86,7 @@ public partial class EcuScriptEditorViewModel : ObservableObject
     private void SaveAs()
     {
         var dir = FilePath is null ? null : Path.GetDirectoryName(FilePath);
-        var chosen = _fileDialog.ShowSaveDialog("ECU Script JSON|*.json", ".json", dir);
+        var chosen = _fileDialog.ShowSaveDialog("ECU Script JSON|*.ecu.json", ".ecu.json", dir);
         if (chosen is null) return;
         TrySaveTo(chosen);
     }

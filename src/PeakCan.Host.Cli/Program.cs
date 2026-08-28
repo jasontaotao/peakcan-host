@@ -181,7 +181,7 @@ public static class Program
                         break;
                     case "json":
                         var jsonStr = JsonSerializer.Serialize(result, HILJsonOptions.Default);
-                        var jsonPath = cli.OutputPath ?? $"hil-result-{DateTime.UtcNow:yyyyMMddHHmmss}.json";
+                        var jsonPath = cli.OutputPath ?? $"hil-result-{DateTime.UtcNow:yyyyMMddHHmmss}.result.json";
                         await File.WriteAllTextAsync(jsonPath, jsonStr);
                         Console.WriteLine($"JSON result written to {jsonPath}");
                         break;

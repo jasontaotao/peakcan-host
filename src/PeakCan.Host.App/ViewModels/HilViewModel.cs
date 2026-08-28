@@ -125,7 +125,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseSuite()
     {
-        var path = _fileDialog.ShowOpenDialog("Test Suite JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("Test Suite JSON|*.suite.json|All Files|*.*");
         if (path is not null)
         {
             SuitePath = path;
@@ -141,14 +141,17 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var json = File.ReadAllText(suitePath);
             using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("cases", out var casesEl))
+            // G4 内容硬校验：顶层无 cases 数组 → 明确提示（防选错文件静默——原静默 catch 吞掉）
+            if (!doc.RootElement.TryGetProperty("cases", out var casesEl))
             {
-                foreach (var caseEl in casesEl.EnumerateArray())
-                {
-                    var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-                    var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                    AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
-                }
+                StatusMessage = "不是测试套件文件（缺少 cases 字段）";
+                return;
+            }
+            foreach (var caseEl in casesEl.EnumerateArray())
+            {
+                var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
             }
         }
         catch
@@ -318,7 +321,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseEcu()
     {
-        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.ecu.json|All Files|*.*");
         if (path is not null)
         {
             EcuScriptPath = path;
@@ -329,7 +332,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseMatrix()
     {
-        var path = _fileDialog.ShowOpenDialog("Matrix Config JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("Matrix Config JSON|*.matrix.json|All Files|*.*");
         if (path is not null) MatrixPath = path;
     }
 
