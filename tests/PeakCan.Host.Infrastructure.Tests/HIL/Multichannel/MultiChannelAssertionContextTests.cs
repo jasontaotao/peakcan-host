@@ -287,6 +287,63 @@ public class MultiChannelAssertionContextTests
         Assert.DoesNotContain(sink.Frames, f => f.Id.Raw == 0x200);
     }
 
+    // ── GetSignalValue channel routing (G1) ──
+
+    private static (MultiChannelAssertionContext Multi, FakeCanChannel ChA, FakeCanChannel ChB) CreateTwoChannelContextWithDbc()
+    {
+        // 同名信号 "Msg.Sig" 两通道不同值：bus-a=100 (0x64)、bus-b=200 (0xC8)
+        var chA = new FakeCanChannel(handle: 0x51);
+        var chB = new FakeCanChannel(handle: 0x52);
+        var ctxA = new SingleChannelContext(chA, MakeDbc(0x100, "Msg"), channelName: "bus-a");
+        var ctxB = new SingleChannelContext(chB, MakeDbc(0x200, "Msg"), channelName: "bus-b");
+        var multi = new MultiChannelAssertionContext(
+            new Dictionary<string, SingleChannelContext> { ["bus-a"] = ctxA, ["bus-b"] = ctxB },
+            defaultChannelName: "bus-a");
+        return (multi, chA, chB);
+    }
+
+    [Fact]
+    public async Task GetSignalValue_SpecificChannel_ReturnsThatChannelsValue()
+    {
+        var (multi, chA, chB) = CreateTwoChannelContextWithDbc();
+        using var _ = multi;
+
+        chA.SimulateFrame(new CanFrame(new CanId(0x100, FrameFormat.Standard),
+            new byte[] { 0x64 }, FrameFlags.None, new ChannelId(0x51), new Timestamp(0)));
+        chB.SimulateFrame(new CanFrame(new CanId(0x200, FrameFormat.Standard),
+            new byte[] { 0xC8 }, FrameFlags.None, new ChannelId(0x52), new Timestamp(1)));
+        await multi.WaitForFrameDrainAsync(default);
+
+        // DIM 成员须经接口引用调用（concrete 类型看不到 DIM 默认）；executor 均持 IAssertionContext
+        IAssertionContext iface = multi;
+        Assert.Equal(100.0, iface.GetSignalValue("bus-a", "Msg.Sig"));
+        Assert.Equal(200.0, iface.GetSignalValue("bus-b", "Msg.Sig"));
+    }
+
+    [Fact]
+    public async Task GetSignalValue_NullChannelName_RoutesToDefault()
+    {
+        var (multi, chA, _) = CreateTwoChannelContextWithDbc();
+        using var _ = multi;
+
+        chA.SimulateFrame(new CanFrame(new CanId(0x100, FrameFormat.Standard),
+            new byte[] { 0x64 }, FrameFlags.None, new ChannelId(0x51), new Timestamp(0)));
+        await multi.WaitForFrameDrainAsync(default);
+
+        // null → 默认通道（bus-a）
+        IAssertionContext iface = multi;
+        Assert.Equal(100.0, iface.GetSignalValue(null, "Msg.Sig"));
+    }
+
+    [Fact]
+    public void GetSignalValue_UnknownChannel_ThrowsKeyNotFoundException()
+    {
+        var (multi, _, _) = CreateTwoChannelContextWithDbc();
+        using var _ = multi;
+        IAssertionContext iface = multi;
+        Assert.Throws<KeyNotFoundException>(() => iface.GetSignalValue("unknown-bus", "Msg.Sig"));
+    }
+
     // ── Disconnect ──
 
     [Fact]

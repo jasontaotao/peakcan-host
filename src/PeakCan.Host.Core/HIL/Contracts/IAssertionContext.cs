@@ -57,4 +57,11 @@ public interface IAssertionContext
     /// <summary>按通道桶查最近帧。</summary>
     IReadOnlyList<DecodedFrame> GetRecentDecodedFrames(string? channelName)
         => GetRecentDecodedFrames();
+
+    /// <summary>按逻辑通道取信号快照。channelName null/空 = 默认通道；未知名 -> 抛 KeyNotFoundException（与 GetRecentDecodedFrames(string?) 一致）。</summary>
+    /// <remarks>DIM 默认：仅 null/空转发单通道版；非 null 抛 NotSupportedException——防"新实现漏写显式实现时静默错路由"（G1 review 裁决）。</remarks>
+    double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
+        => string.IsNullOrEmpty(channelName)
+            ? GetSignalValue(signalName, maxAgeMs)
+            : throw new NotSupportedException($"GetSignalValue(channelName: '{channelName}') unsupported by this context.");
 }
