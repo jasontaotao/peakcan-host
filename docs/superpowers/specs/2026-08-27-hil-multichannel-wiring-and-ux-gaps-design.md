@@ -4,7 +4,7 @@
 > Depends: hil-core 0.14.0（已 lockstep 双仓）、2026-08-27-hil-engine-debt-and-temporal-assertions-design.md（B/C 已完成）、2026-08-21-hil-multichannel-design.md
 > Scope: 七个接线缺口，三批次 -- (1) 时间窗断言采样路由修正（HIGH）；(2) per-channel DbcPath/UDS ID 双仓贯穿（HIGH）；(3) USBx 下拉绑已连接通道；(4) 文件后缀区分 + 选错硬校验；(5) 分析 prompt / 结果树补 Channel 与 Actual/Expected。
 > Status: CONFIRMED--Q1/Q2 已裁决（2026-08-27 用户确认按推荐执行，见 §3.3）；2026-08-28 review 闭环 5 个遗留决策点（见 §9 已核清单 + §2.2/§3.2 契约裁决），无剩余决策点。
-> Review: 2026-08-27 session 审计（Explore agent 全区块对照 hil-core 0.14.0 接口）+ 用户逐点盘查（DBC 用途、原始值/物理值、文件后缀）。2026-08-28 review 修复：① G1 接口契约矛盾（未知通道名抛 vs null）定死抛 KeyNotFoundException + DIM 默认非 null 抛 NotSupportedException；② UDS ID 输入格式裁决（裸 hex → uint JSON 数字）；③ G5 现状修正（Channel 已填，只剩 Actual/Expected）+ Expected 插值口径；④ G4 内容校验字段定死（ECU `name+canIds`、矩阵 `name+ecus[]`）；⑤ G3 多通道 UI 并存态定死（置灰）+ 保留上次选择；⑥ G2 补重名校验 + 首通道 DBC 覆盖提示 + Q1 不一致可发现性。
+> Review: 2026-08-27 session 审计（Explore agent 全区块对照 hil-core 0.14.0 接口）+ 用户逐点盘查（DBC 用途、原始值/物理值、文件后缀）。2026-08-28 review 修复：① G1 接口契约矛盾（未知通道名抛 vs null）定死抛 KeyNotFoundException；② UDS ID 输入格式裁决（裸 hex → uint JSON 数字）；③ G5 现状修正（Channel 已填，只剩 Actual/Expected）+ Expected 插值口径；④ G4 内容校验字段定死（ECU `name+canIds`、矩阵 `name+ecus[]`）；⑤ G3 多通道 UI 并存态定死（置灰）+ 保留上次选择；⑥ G2 补重名校验 + 首通道 DBC 覆盖提示 + Q1 不一致可发现性；⑦（code-review HIGH 二次修正）G1 DIM 默认从"非 null 抛"改"忽略 channelName 转发"——抛会被 ConsumerLoop 吞成静默 "No samples" 假失败。
 > Trigger: 时间窗断言 executor 多通道路由只做了一半（订阅路由、采样没路由）被审计抓出；用户确认 HIL 界面 DBC/通道/文件选择三层均未接 AppShell/suite 已有数据。
 
 ---
@@ -42,19 +42,17 @@
 **DIM 接口重载**（与既有三兄弟 `SendFrameAsync/SubscribeDecodedFrames/GetRecentDecodedFrames(string? channelName, ...)` 同模式）：
 
 ```csharp
-// IAssertionContext.cs 追加（DIM 默认 = 仅 null/空转发单通道版；非 null 抛异常防静默错路由）
+// IAssertionContext.cs 追加（DIM 默认 = 忽略 channelName 转发单通道版，与既有三兄弟 DIM 一致）
 /// <summary>按逻辑通道取信号快照。channelName null/空 = 默认通道；未知名 -> 抛 KeyNotFoundException（与 GetRecentDecodedFrames(string?) 一致）。</summary>
 double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
-    => string.IsNullOrEmpty(channelName)
-        ? GetSignalValue(signalName, maxAgeMs)
-        : throw new NotSupportedException($"GetSignalValue(channelName: '{channelName}') unsupported by this context.");
+    => GetSignalValue(signalName, maxAgeMs);
 ```
 
 实现：
 - `MultiChannelAssertionContext`：显式实现 -> `ResolveChannel(channelName).GetSignalValue(signalName, maxAgeMs)`。未知名沿用 `ResolveChannel` 抛 KeyNotFoundException 的既有行为（与 `GetRecentDecodedFrames(string?)` 一致；executor 层 TargetChannel 已被 MC-2 校验拦 Critical，运行到这里名字必然已声明）。
 - `SingleChannelContext`：显式实现 -> `AcceptsChannelName(channelName) ? GetSignalValue(signalName, maxAgeMs) : null`。命名通道收到不匹配名返回 null（该信号不在本通道缓存，executor 判零样本，语义正确）。
 - 其余 21 个 `IAssertionContext` 实现：吃 DIM 默认——单通道 suite 的 TargetChannel 恒 null → 走 null 分支转发单通道版，零改动。
-- **契约裁决（2026-08-28 review 补）**：未知通道名统一抛 KeyNotFoundException（与 `GetRecentDecodedFrames(string?)` 对齐，接口注释已同步修正——原"未知名 -> null"与实现矛盾）；DIM 默认对**非 null** channelName 抛 NotSupportedException 而非静默忽略——防"将来通道感知实现漏写显式实现时静默错路由"（复现本缺口想修的 bug 模式）。已核：全仓 executor 只会传 `p.TargetChannel`（单通道 suite 为 null），无调用方对非通道感知 context 传非 null channelName，安全。
+- **契约裁决（2026-08-28 review 补，第二次修正）**：未知通道名统一抛 KeyNotFoundException（与 `GetRecentDecodedFrames(string?)` 对齐，接口注释已同步修正——原"未知名 -> null"与实现矛盾）。**DIM 默认裁决修订（review HIGH）**：原"非 null 抛 NotSupportedException 防静默错"被否决——实证发现单通道 context（`HILAssertionContext`/`PeakCanAssertionContext` 走 DIM 默认）在单通道 suite 配非 null TargetChannel 时抛异常，被 `ConsumerLoop` per-subscriber catch 吞掉 → 静默 "No samples" 假失败（比静默错更糟）。**改为忽略 channelName 转发单通道版**（与既有三兄弟 DIM 一致，单通道 context 语义正确）；多通道感知实现必须显式 override（MultiChannel/SingleChannel），漏实现由测试/评审兜底。
 
 executor 改动：两个时间窗 executor 采样调用改 `ctx.GetSignalValue(p.TargetChannel, p.SignalName, maxAgeMs: 5000)`。
 
@@ -186,5 +184,5 @@ executor 改动：两个时间窗 executor 采样调用改 `ctx.GetSignalValue(p
 - [x] ECU 脚本 / 矩阵 JSON 的顶层结构关键字段（已核 2026-08-28：ECU = `name` + `canIds.requestId/responseId`（`EcuScriptLoader.cs:32/83/92-93`）；矩阵 = `name` + `ecus[]`（`MatrixConfigLoader.cs:25/28`））
 - [x] `MultiChannelAssertionContext.ResolveChannel` 未知名行为核对（已核 2026-08-28：`MultiChannelAssertionContext.cs:218-219` 抛 KeyNotFoundException；`ResolveChannelId` 走 allowMissing 返回 ChannelId.None——Task 1 统一**抛** KeyNotFoundException，与 `GetRecentDecodedFrames(string?)` 对齐，接口注释已同步）
 - [x] studio `ChannelConfigRow` 的 UDS ID 输入格式（已裁决 2026-08-28：裸 hex 输入，保存转 uint JSON 数字——与 `ChannelConfigTests.cs:51` round-trip `0x7E8u` 一致，见 §3.2）
-- [x] `GetSignalValue` DIM 默认行为（已裁决 2026-08-28：null/空转发、非 null 抛 NotSupportedException——防静默错路由，见 §2.2）
+- [x] `GetSignalValue` DIM 默认行为（已裁决 2026-08-28，二次修订：忽略 channelName 转发单通道版——review HIGH 否决"非 null 抛"因会被 ConsumerLoop 吞成假失败，见 §2.2）
 - [x] G5 executor 填值现状（已核 2026-08-28：`Channel` 已填 `p.TargetChannel`，本任务只剩 `ActualValue/ExpectedValue`）

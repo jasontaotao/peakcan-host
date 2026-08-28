@@ -59,9 +59,12 @@ public interface IAssertionContext
         => GetRecentDecodedFrames();
 
     /// <summary>按逻辑通道取信号快照。channelName null/空 = 默认通道；未知名 -> 抛 KeyNotFoundException（与 GetRecentDecodedFrames(string?) 一致）。</summary>
-    /// <remarks>DIM 默认：仅 null/空转发单通道版；非 null 抛 NotSupportedException——防"新实现漏写显式实现时静默错路由"（G1 review 裁决）。</remarks>
+    /// <remarks>
+    /// DIM 默认：忽略 channelName 转发单通道版（与既有三兄弟 DIM 一致，单通道 context 语义正确）。
+    /// 注意：非通道感知实现传非 null channelName 不抛异常——2026-08-28 review HIGH 修正（原"非 null 抛
+    /// NotSupportedException"会被 ConsumerLoop 的 per-subscriber catch 吞掉 → 静默"No samples"假失败，比
+    /// 静默错更糟）。多通道感知实现必须显式 override 按名路由（MultiChannelAssertionContext/SingleChannelContext）。
+    /// </remarks>
     double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
-        => string.IsNullOrEmpty(channelName)
-            ? GetSignalValue(signalName, maxAgeMs)
-            : throw new NotSupportedException($"GetSignalValue(channelName: '{channelName}') unsupported by this context.");
+        => GetSignalValue(signalName, maxAgeMs);
 }
