@@ -226,4 +226,86 @@ public sealed class DualChannelLoopbackE2E : IDisposable
         Assert.Equal(StepStatus.Failed, expectStep.Status);
         Assert.Equal("bus-a", expectStep.Channel);
     }
+
+    // ── G1 时间窗断言采样路由 E2E（spec §2.3）：同名信号两通道不同值 ──
+
+    /// <summary>
+    /// 构造双通道 + per-channel 独立 DBC：bus-a 解码 0x100→Msg.Sig=100 (0x64)、bus-b 解码 0x200→Msg.Sig=200 (0xC8)。
+    /// 返回 (ctx, chA, chB)——测试主线程在 executor 窗口内周期推帧，无后台 pump 线程
+    /// （后台循环在全量并发跑时加重既有时序用例的 flaky 概率）。
+    /// 用 internal 带 AddMessage 的 FakeDbcLookup（类内 private 空实现被遮蔽，须完整名）。
+    /// </summary>
+    private static (MultiChannelAssertionContext Ctx, FakeCanChannel ChA, FakeCanChannel ChB) CreateSignalContext()
+    {
+        var chA = new FakeCanChannel(handle: 0x51);
+        var chB = new FakeCanChannel(handle: 0x52);
+        var signal = new Signal("Sig", 0, 8, ByteOrder.LittleEndian, PeakCan.HIL.Core.Dbc.ValueType.Unsigned,
+            1, 0, 0, 1000, "", Array.Empty<string>());
+        var dbcA = new PeakCan.Host.Infrastructure.Tests.FakeDbcLookup();
+        dbcA.AddMessage(new Message(0x100, "Msg", 8, "Test", new[] { signal }, false, null));
+        var dbcB = new PeakCan.Host.Infrastructure.Tests.FakeDbcLookup();
+        dbcB.AddMessage(new Message(0x200, "Msg", 8, "Test", new[] { signal }, false, null));
+        var ctxA = new SingleChannelContext(chA, dbcA, channelName: "bus-a");
+        var ctxB = new SingleChannelContext(chB, dbcB, channelName: "bus-b");
+        var ctx = new MultiChannelAssertionContext(
+            new Dictionary<string, SingleChannelContext> { ["bus-a"] = ctxA, ["bus-b"] = ctxB },
+            defaultChannelName: "bus-a");
+        return (ctx, chA, chB);
+    }
+
+    /// <summary>executor 窗口期间主线程周期推帧（覆盖整个窗口，无后台线程）。</summary>
+    private static async Task PumpFramesForWindow(FakeCanChannel chA, FakeCanChannel chB, int windowMs)
+    {
+        var frameA = new CanFrame(new CanId(0x100, FrameFormat.Standard),
+            new byte[] { 0x64 }, FrameFlags.None, new ChannelId(0x51), new Timestamp(0));   // Msg.Sig = 100
+        var frameB = new CanFrame(new CanId(0x200, FrameFormat.Standard),
+            new byte[] { 0xC8 }, FrameFlags.None, new ChannelId(0x52), new Timestamp(0));   // Msg.Sig = 200
+        // 25ms 间隔、覆盖窗口 + 余量 → ≥12 有效样本
+        for (int i = 0; i * 25 <= windowMs + 50; i++)
+        {
+            chA.SimulateFrame(frameA);
+            chB.SimulateFrame(frameB);
+            await Task.Delay(25);
+        }
+    }
+
+    [Fact]
+    public async Task TimeWindowAssertion_SamplesFromTargetChannel()
+    {
+        // G1 E2E：AssertSignalWithin(TargetChannel=bus-b, Expected=200) 采样必须来自 bus-b → Pass
+        var (ctx, chA, chB) = CreateSignalContext();
+        using var _ = ctx;
+        var executor = new AssertSignalWithinStepExecutor();
+        var task = executor.ExecuteAsync(
+            TestCaseStep.Create(new AssertSignalWithinStep("Msg.Sig", "200", "5", "300")
+            {
+                TargetChannel = "bus-b",
+            }), ctx, default);
+
+        await PumpFramesForWindow(chA, chB, windowMs: 300);
+        var result = await task;
+
+        Assert.Equal(StepStatus.Passed, result.Status);
+        Assert.Equal("bus-b", result.Channel);
+    }
+
+    [Fact]
+    public async Task TimeWindowAssertion_DoesNotSampleDefaultChannel()
+    {
+        // G1 E2E 反例：默认通道(bus-a)=100 命中 Expected=100，目标通道(bus-b)=200 不命中——
+        // 若路由错到默认通道会假 Pass，必须 Fail
+        var (ctx, chA, chB) = CreateSignalContext();
+        using var _ = ctx;
+        var executor = new AssertSignalWithinStepExecutor();
+        var task = executor.ExecuteAsync(
+            TestCaseStep.Create(new AssertSignalWithinStep("Msg.Sig", "100", "5", "300")
+            {
+                TargetChannel = "bus-b",
+            }), ctx, default);
+
+        await PumpFramesForWindow(chA, chB, windowMs: 300);
+        var result = await task;
+
+        Assert.Equal(StepStatus.Failed, result.Status);   // bus-b=200 不命中 Expected=100±5
+    }
 }
