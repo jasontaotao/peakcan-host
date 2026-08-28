@@ -76,10 +76,25 @@
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsHardwareMode, Converter={StaticResource BoolToVis}}">
+                <!-- G3: 动态刷新已连接通道（Handle 值 "USB{n}" + Display 连接信息）；多通道 suite 置灰 -->
                 <ComboBox ItemsSource="{Binding AvailableChannels}"
-                          SelectedItem="{Binding HardwareChannel}"
-                          Width="90" Margin="0,0,12,0"
-                          ToolTip="PCAN hardware channel" />
+                          SelectedValue="{Binding HardwareChannel}"
+                          SelectedValuePath="Handle"
+                          DisplayMemberPath="Display"
+                          Width="170" Margin="0,0,12,0"
+                          ToolTip="PCAN hardware channel（已连接通道）">
+                  <ComboBox.Style>
+                    <Style TargetType="ComboBox">
+                      <Setter Property="IsEnabled" Value="True"/>
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsMultiChannelSuite}" Value="True">
+                          <Setter Property="IsEnabled" Value="False"/>
+                          <Setter Property="ToolTip" Value="通道由套件声明按序绑定（多通道）"/>
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </ComboBox.Style>
+                </ComboBox>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
