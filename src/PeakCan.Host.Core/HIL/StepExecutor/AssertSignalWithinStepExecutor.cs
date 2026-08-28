@@ -27,6 +27,7 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Invalid params: WindowMs={windowMs}", null, null, 0, Channel: p.TargetChannel);
 
+        var expectedValue = $"{expected}±{tolerance}";   // G5: LLM 分析用（插值后值 + Tolerance）
         var samples = new List<double>();
         var gate = new object();
 
@@ -44,7 +45,8 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
         {
             if (samples.Count == 0)
                 return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                    $"No samples for {p.SignalName} in {windowMs}ms window", null, null, 0, Channel: p.TargetChannel);
+                    $"No samples for {p.SignalName} in {windowMs}ms window",
+                    null, expectedValue, 0, Channel: p.TargetChannel);
 
             var hits = samples.Count(v => Math.Abs(v - expected) <= tolerance);
             var pass = p.Mode == MatchMode.Any ? hits >= 1 : hits == samples.Count;
@@ -53,7 +55,7 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
                 pass
                     ? $"signal {p.SignalName} {hits}/{samples.Count} samples in {range} (mode {p.Mode})"
                     : $"signal {p.SignalName} {hits}/{samples.Count} samples in {range}, need {(p.Mode == MatchMode.Any ? ">= 1" : "all")} (mode {p.Mode})",
-                null, null, 0, Channel: p.TargetChannel);
+                $"{hits}/{samples.Count} samples", expectedValue, 0, Channel: p.TargetChannel);
         }
     }
 }

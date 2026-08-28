@@ -26,6 +26,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
                 $"Invalid params: WindowMs={windowMs}, MaxDelta={maxDelta}, MinSamples={minSamples}",
                 null, null, 0, Channel: p.TargetChannel);
 
+        var expectedValue = $"≤{maxDelta}";   // G5: LLM 分析用
         var samples = new List<double>();
         var gate = new object();
 
@@ -44,7 +45,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
             if (samples.Count < minSamples)
                 return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                     $"Only {samples.Count} samples for {p.SignalName}, need >= {minSamples} (window {windowMs}ms)",
-                    null, null, 0, Channel: p.TargetChannel);
+                    null, expectedValue, 0, Channel: p.TargetChannel);
 
             var min = samples.Min();
             var max = samples.Max();
@@ -54,7 +55,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
                 pass
                     ? $"signal {p.SignalName} stable [{min:F1}, {max:F1}] delta={delta:F1} <= {maxDelta} (n={samples.Count})"
                     : $"signal {p.SignalName} unstable [{min:F1}, {max:F1}] delta={delta:F1} > {maxDelta} (n={samples.Count})",
-                null, null, 0, Channel: p.TargetChannel);
+                $"max-min={delta:F1}", expectedValue, 0, Channel: p.TargetChannel);
         }
     }
 }

@@ -425,6 +425,7 @@ public class TemporalAssertionExecutorTests
     public async Task AssertStable_PopulatesActualExpectedValues()
     {
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
+        ctx.SignalValue = 100;   // 默认通道有值 → 回调采样非 null
         var executor = new AssertStableStepExecutor();
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
