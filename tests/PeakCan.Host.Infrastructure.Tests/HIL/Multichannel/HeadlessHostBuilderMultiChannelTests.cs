@@ -250,4 +250,49 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
             try { File.Delete(dbcB); } catch { }
         }
     }
+
+    [Fact]
+    public void Build_WithPerChannelUdsIds_RegistersIndependentUdsStacks()
+    {
+        // G2 集成（spec §3.4）：suite 带 per-channel UDS ID → HeadlessHostBuilder 187-200 分支
+        // 为每通道建独立 IsoTp 栈（独立过滤 ID + 独立安全访问锁），resolver 按名路由到各自 session。
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "USB1", BaudRate.Can500kbps, false, DbcPath: _dbcPath, UdsRequestId: 0x7E0, UdsResponseId: 0x7E8),
+            new ChannelConfig("bus-b", "USB2", BaudRate.Can500kbps, false, DbcPath: _dbcPath, UdsRequestId: 0x6E0, UdsResponseId: 0x6E8),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        // 触发 IAssertionContext 工厂（per-channel UDS 栈在工厂内填充 udsSessions 字典）
+        _ = host.Services.GetRequiredService<IAssertionContext>();
+        var resolver = host.Services.GetRequiredService<IUdsSessionResolver>();
+
+        var sessionA = resolver.Resolve("bus-a");
+        var sessionB = resolver.Resolve("bus-b");
+        Assert.NotNull(sessionA);
+        Assert.NotNull(sessionB);
+        Assert.NotSame(sessionA, sessionB);   // 独立栈（各自 IsoTp 过滤 ID + 安全访问锁状态机）
+    }
+
+    [Fact]
+    public void Build_WithoutPerChannelUdsIds_FallsBackToDefaultStack()
+    {
+        // G2 零回归：无 per-channel UDS ID → Resolve 回落默认栈（DI 单例 IUdsSession，单通道语义）
+        var channels = new[]
+        {
+            new ChannelConfig("bus-a", "USB1", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "USB2", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+        };
+        var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
+
+        using var host = HeadlessHostBuilder.Build(args);
+        var resolver = host.Services.GetRequiredService<IUdsSessionResolver>();
+
+        var sessionA = resolver.Resolve("bus-a");
+        var sessionB = resolver.Resolve("bus-b");
+        Assert.NotNull(sessionA);
+        Assert.NotNull(sessionB);
+        Assert.Same(sessionA, sessionB);   // 都回落默认栈（同一 DI 单例）
+    }
 }
