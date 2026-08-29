@@ -124,11 +124,14 @@ public sealed partial class AppShellViewModel
 
     private bool CanEnumerateChannels() => !IsConnected;
 
-    // v0.4.0: CanConnect now checks SelectedChannel when available,
-    // falling back to the legacy ChannelList string check.
+    // v0.4.0: CanConnect checks SelectedChannel when available, falling back
+    // to the legacy "USB1 ..." sentinel that only a successful single-channel
+    // probe writes. The default ChannelList ("(click Probe to detect)") and
+    // failure messages ("未检测到 PEAK 硬件") must NOT enable Connect —
+    // guarded by ConnectCommand_Is_Disabled_Before_Probe_Succeeds.
     private bool CanConnect() => !IsConnected && (
         SelectedChannel is not null
-        || !string.IsNullOrEmpty(ChannelList));
+        || ChannelList.StartsWith("USB1", StringComparison.Ordinal));
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
