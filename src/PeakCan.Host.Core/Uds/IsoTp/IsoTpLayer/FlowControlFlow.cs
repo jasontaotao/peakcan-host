@@ -19,6 +19,7 @@ public sealed partial class IsoTpLayer
             _txBlockSize = frame.BlockSize;
             _txStMin = frame.StMin;
             _txWaitingForFc = false;
+            _hasReceivedFc = true;
         }
     }
 

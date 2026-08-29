@@ -285,6 +285,10 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
                 sp.GetRequiredService<IHostApplicationLifetime>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>()));
+        // Read-only communication-parameters panel: polls the diagnostic IsoTpLayer/UdsClient
+        // singletons + the FlashPanelViewModel's in-flight secondary stack. Public ctor, so
+        // plain registration suffices — UdsViewModel's optional ctor param auto-resolves to it.
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)

@@ -118,6 +118,7 @@ public sealed class FlashPanelViewModelTests
     {
         public readonly List<string> CallOrder = new();
         public UdsClient Client { get; } = new StallingTransferUdsClient();
+        public IsoTpLayer Transport { get; } = new(new CanIdConfig { RequestId = 0x7E2, ResponseId = 0x7EA }, _ => { });
         public void AttachToRouter() => CallOrder.Add("attach");
         public void DetachFromRouter() => CallOrder.Add("detach");
         public void Dispose() => CallOrder.Add("dispose");
@@ -140,6 +141,7 @@ public sealed class FlashPanelViewModelTests
         // parameterless ctor so Substitute.For<UdsClient>() throws, and a subclass
         // is the test-double pattern already established by PipelineExecutorTests.
         public UdsClient Client { get; } = new FastPositiveUdsClient();
+        public IsoTpLayer Transport { get; } = new(new CanIdConfig { RequestId = 0x7E2, ResponseId = 0x7EA }, _ => { });
 
         public void AttachToRouter() => CallOrder.Add("attach");
         public void DetachFromRouter() => CallOrder.Add("detach");

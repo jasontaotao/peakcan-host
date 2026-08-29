@@ -30,11 +30,19 @@ public sealed partial class UdsViewModel : ObservableObject
     /// </summary>
     public FlashPanelViewModel Flash { get; }
 
+    /// <summary>
+    /// Read-only communication-parameters panel (P2/P2*, STmin/BS, N_Bs/N_Cr, CAN IDs)
+    /// for both UDS stacks. Optional in the production ctor — back-compat ctors that
+    /// don't supply it get a disabled instance that shows placeholders and never polls.
+    /// </summary>
+    public TransportParamsViewModel Params { get; }
+
     /// <summary>Shared UDS log; all panels append here.</summary>
     public ObservableCollection<UdsLogLine> OutputLog { get; } = new();
 
     /// <summary>
-    /// Production ctor (DI). Six panels: Session / DID / Routine / DTC / OdxImport / Flash.
+    /// Production ctor (DI). Six panels: Session / DID / Routine / DTC / OdxImport / Flash,
+    /// plus the optional transport-parameters panel.
     /// </summary>
     public UdsViewModel(
         SessionPanelViewModel session,
@@ -42,7 +50,8 @@ public sealed partial class UdsViewModel : ObservableObject
         RoutinePanelViewModel routine,
         DtcPanelViewModel     dtc,
         OdxImportViewModel    odxImport,
-        FlashPanelViewModel   flash)
+        FlashPanelViewModel   flash,
+        TransportParamsViewModel? transportParams = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(did);
@@ -57,6 +66,7 @@ public sealed partial class UdsViewModel : ObservableObject
         Dtc     = dtc;
         OdxImport = odxImport;
         Flash = flash;
+        Params = transportParams ?? TransportParamsViewModel.CreateDisabled();
 
         Session.AttachLog(OutputLog);
         Did.AttachLog(OutputLog);

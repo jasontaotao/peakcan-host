@@ -100,6 +100,9 @@ internal sealed class SecondaryFlashStack : ISecondaryFlashStack
     /// <summary>The secondary UdsClient the PipelineExecutor drives.</summary>
     public UdsClient Client => _client;
 
+    /// <summary>The secondary ISO-TP transport (programming CAN-ID pair) for read-only display.</summary>
+    public IsoTpLayer Transport => _isoTp;
+
     /// <summary>
     /// Attach the receive adapter to the shared router. Idempotent — a second call is a
     /// no-op (guarded by <see cref="_attached"/>). ChannelRouter.AttachSink is itself

@@ -101,6 +101,13 @@ public sealed partial class IsoTpLayer : IDisposable
     private int _txStMin;
     private bool _txWaitingForFc;
 
+    /// <summary>
+    /// True once a Flow Control frame has been accepted by <see cref="FlowControlFlow.HandleFlowControl"/>.
+    /// Lets UI readers distinguish the initial all-zero state (no FC seen yet) from a
+    /// genuine BS=0/STmin=0 Flow Control.
+    /// </summary>
+    private bool _hasReceivedFc;
+
     private TimeSpan _flowControlTimeout = DefaultFlowControlTimeout;
     private TimeSpan _receiveTimeout = DefaultReceiveTimeout;
 
@@ -125,16 +132,60 @@ public sealed partial class IsoTpLayer : IDisposable
         set => _receiveTimeout = value;
     }
 
+    /// <summary>
+    /// The CAN ID configuration this layer was constructed with (request/response IDs,
+    /// functional ID, frame format). <see cref="CanIdConfig"/> is an immutable record,
+    /// so the reference is safe to expose read-only.
+    /// </summary>
+    public CanIdConfig Config => _config;
+
+    /// <summary>
+    /// Atomic snapshot of the transmit-side flow-control state (single lock acquisition)
+    /// for read-only display, e.g. the host app's communication-parameters panel.
+    /// <see cref="IsoTpTxSnapshot.HasReceivedFlowControl"/> is false until the first
+    /// Flow Control frame is accepted, in which case StMinRaw/BlockSize are the
+    /// initial zeros rather than ECU-provided values.
+    /// </summary>
+    public IsoTpTxSnapshot SnapshotTxState()
+    {
+        lock (_txLock)
+        {
+            return new IsoTpTxSnapshot(
+                _txStMin,
+                StMinToTimeSpan(_txStMin),
+                _txBlockSize,
+                _txWaitingForFc,
+                _hasReceivedFc);
+        }
+    }
+
     /// <summary>Raised when a complete message is reassembled.</summary>
     public event Action<byte[]>? MessageReceived;
-
-
-
-
-
-
-
-
-
 }
 
+/// <summary>
+/// Read-only point-in-time view of <see cref="IsoTpLayer"/>'s transmit-side
+/// flow-control state, taken atomically by <see cref="IsoTpLayer.SnapshotTxState"/>.
+/// </summary>
+/// <param name="StMinRaw">
+/// Raw STmin byte from the last accepted Flow Control (ISO 15765-2 §6.5.5.4 encoding:
+/// 0x00-0x7F ms, 0xF1-0xF9 100-µs units, other values reserved).
+/// </param>
+/// <param name="StMinDelay">Effective STmin delay decoded from <paramref name="StMinRaw"/>.</param>
+/// <param name="BlockSize">
+/// Block size (BS) from the last accepted Flow Control; 0 means unlimited consecutive
+/// frames between Flow Controls.
+/// </param>
+/// <param name="WaitingForFlowControl">
+/// True while a multi-frame send is parked waiting for the ECU's Flow Control (N_Bs window).
+/// </param>
+/// <param name="HasReceivedFlowControl">
+/// False until the first Flow Control frame is accepted; when false, StMinRaw/BlockSize
+/// are initial zeros, not ECU-provided values.
+/// </param>
+public readonly record struct IsoTpTxSnapshot(
+    int StMinRaw,
+    TimeSpan StMinDelay,
+    int BlockSize,
+    bool WaitingForFlowControl,
+    bool HasReceivedFlowControl);
