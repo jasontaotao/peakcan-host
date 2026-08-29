@@ -1,0 +1,256 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace PeakCan.HIL.Core.J1939;
+
+public sealed partial class J1939TpLayer
+{
+    /// <summary>PGN 的 PF 字节。</summary>
+    private static byte PduFormatOf(uint pgn) => (byte)((pgn >> 8) & 0xFF);
+
+    private static double ToSeconds(CanFrame frame) => frame.Timestamp.TotalMicroseconds / 1_000_000.0;
+
+    private partial void ProcessFrameCore(CanFrame frame)
+    {
+        if (!frame.Id.IsExtended)
+            return;
+
+        var id = new J1939Id(frame.Id.Raw);
+        if (id.PduFormat is not (0xEB or 0xEC))
+            return;
+
+        if (id.PduFormat == 0xEC)
+        {
+            var cm = TpCmMessage.Decode(frame.Data.Span);   // 畸形 → ArgumentException（契约）
+            HandleControl(id, cm, frame);
+        }
+        else
+        {
+            var dt = TpDtMessage.Decode(frame.Data.Span);
+            HandleDt(id, dt, frame);
+        }
+    }
+
+    private void HandleControl(J1939Id id, TpCmMessage cm, CanFrame frame)
+    {
+        LogControlReceived(_logger ?? NullLogger<J1939TpLayer>.Instance, cm.Control.ToString());
+        double ts = ToSeconds(frame);
+        lock (_gate)
+            _lastActivityTimestampSec = ts;
+
+        switch (cm.Control)
+        {
+            case TpCmControl.Bam:
+                CreateOrReplaceSession(new SessionKey(id.SourceAddress, 0xFF), id.Priority, cm, TpMode.Bam, ts);
+                break;
+
+            case TpCmControl.Rts:
+                HandleRts(id, cm, frame, ts);
+                break;
+
+            case TpCmControl.Cts:
+            case TpCmControl.EomAck:
+            case TpCmControl.ConnAbort:
+                HandleTxControl(id, cm);   // RtsCtsFlow（Task 7）；无发送会话时静默忽略
+                break;
+        }
+    }
+
+    // 注：brief 原稿此方法体内引用了不在作用域内的 `id.Priority`（无法编译），
+    // 最小修订为显式传入 `byte priority`（两个调用点均传 id.Priority），其余逐字未动。
+    private void CreateOrReplaceSession(SessionKey key, byte priority, TpCmMessage cm, TpMode mode, double ts)
+    {
+        TpSession? superseded = null;
+        lock (_gate)
+        {
+            if (_rxSessions.TryGetValue(key, out var existing))
+            {
+                superseded = existing;
+                _rxSessions.Remove(key);
+            }
+
+            if (cm.TotalSize > _options.MaxPayloadBytes || cm.TotalPackets == 0)
+            {
+                // 锁内不做日志也可，但为避免复杂化这里直接返回前先记录（锁内日志可接受：Debug/Warning 不重）。
+                LogDeclaredLengthExceeds(_logger ?? NullLogger<J1939TpLayer>.Instance, cm.TotalSize, _options.MaxPayloadBytes);
+                if (superseded is not null)
+                    RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "superseded by oversized declaration"));
+                return;
+            }
+
+            EvictIfFull_Locked();
+            _rxSessions[key] = new TpSession(cm.TotalPackets)
+            {
+                Pgn = cm.Pgn,
+                Priority = priority,
+                Mode = mode,
+                TotalBytes = cm.TotalSize,
+                TotalPackets = cm.TotalPackets,
+                FirstFrameTimestampSec = ts,
+                LastFrameTimestampSec = ts,
+            };
+        }
+
+        if (superseded is not null)
+        {
+            LogSessionSuperseded(_logger ?? NullLogger<J1939TpLayer>.Instance, key.Sa, key.Da, superseded.Pgn);
+            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "restarted"));
+        }
+    }
+
+    private void HandleRts(J1939Id id, TpCmMessage cm, CanFrame frame, double ts)
+    {
+        bool isLocal;
+        lock (_gate)
+            isLocal = _options.AutoRespondToRts && id.PduSpecific != 0 && _localAddresses.Contains(id.PduSpecific);
+
+        if (!isLocal)
+            return;   // 纯监听：不建会话、不注入任何 TP.CM
+
+        CreateOrReplaceSession(new SessionKey(id.SourceAddress, id.PduSpecific), id.Priority, cm, TpMode.RtsCts, ts);
+        SendCts(id.SourceAddress, id.PduSpecific, id.Priority, cm);
+    }
+
+    /// <summary>接收方 CTS：grant = 策略放行包数（0=全部剩余，恒 ≥1）。</summary>
+    private void SendCts(byte peerSa, byte localDa, byte priority, TpCmMessage rts)
+    {
+        int remaining = rts.TotalPackets;
+        byte grant = _options.CtsMaxPackets == 0
+            ? (byte)Math.Min(remaining, 0xFF)
+            : (byte)Math.Min(_options.CtsMaxPackets, remaining);
+        var ctsFrame = new CanFrame(
+            new CanId(J1939Id.Compose(priority, TpCmPgn, localDa, peerSa), FrameFormat.Extended),
+            TpCmMessage.Cts(grant, 1, rts.Pgn).Encode(),
+            FrameFlags.None,
+            ChannelId.None,
+            default);
+        FireAndForget(ctsFrame);
+    }
+
+    private void HandleDt(J1939Id id, TpDtMessage dt, CanFrame frame)
+    {
+        double ts = ToSeconds(frame);
+        var key = new SessionKey(id.SourceAddress, id.PduSpecific);
+        TpSession? completed = null;
+        J1939SessionEvent? lossEvent = null;
+
+        lock (_gate)
+        {
+            if (!_rxSessions.TryGetValue(key, out var s))
+                return;   // 无会话 → 丢弃（总线上常见半截流量，不计错误）
+
+            s.LastFrameTimestampSec = ts;
+            if (dt.SequenceNumber == s.NextExpectedSeq)
+            {
+                StorePacket(s, dt.SequenceNumber, dt.Data.Span);
+                s.ReceivedPackets++;
+                s.NextExpectedSeq++;
+            }
+            else if (dt.SequenceNumber > s.NextExpectedSeq)
+            {
+                s.GapDetected = true;
+                LogSequenceGap(_logger ?? NullLogger<J1939TpLayer>.Instance, s.NextExpectedSeq, dt.SequenceNumber);
+                if (_options.OfflineMode)
+                {
+                    // 离线：保留会话继续收，flush 时按 PacketLoss 结算（spec 修订 6）
+                    StorePacket(s, dt.SequenceNumber, dt.Data.Span);
+                    s.ReceivedPackets++;
+                    s.NextExpectedSeq = dt.SequenceNumber + 1;
+                }
+                else
+                {
+                    // 在线：会话作废 + PacketLoss 事件（spec §12）
+                    _rxSessions.Remove(key);
+                    lossEvent = new J1939SessionEvent(SessionEventKind.PacketLoss, key.Sa, key.Da, s.Pgn, s.Mode,
+                        $"expected seq {s.NextExpectedSeq}, got {dt.SequenceNumber}");
+                }
+            }
+            else
+            {
+                return;   // 旧/重复序号 → 忽略
+            }
+
+            if (s.ReceivedPackets == s.TotalPackets)
+            {
+                _rxSessions.Remove(key);
+                completed = s;
+            }
+            else if (!_options.OfflineMode && s.GrantSinceCts + 1 >= s.CurrentGrant)
+            {
+                // RTS/CTS 接收方：本轮授权收满，授权剩余
+                s.GrantSinceCts = 0;
+                s.CurrentGrant = _options.CtsMaxPackets == 0
+                    ? Math.Min(s.TotalPackets - s.ReceivedPackets, 0xFF)
+                    : Math.Min(_options.CtsMaxPackets, s.TotalPackets - s.ReceivedPackets);
+                SendCtsContinuation(key, s, (byte)s.CurrentGrant);
+            }
+
+            if (completed is not null && s.Mode == TpMode.RtsCts)
+                SendEomAck(key, s);
+        }
+
+        if (lossEvent is not null)
+            RaiseSessionEvent(lossEvent);
+
+        if (completed is not null)
+        {
+            var payload = new byte[completed.TotalBytes];
+            Array.Copy(completed.Buffer, payload, Math.Min(completed.Buffer.Length, completed.TotalBytes));
+            RaiseMessageReceived(new J1939Message(
+                completed.Pgn, key.Sa, key.Da, completed.Priority, completed.Mode,
+                payload, completed.FirstFrameTimestampSec, completed.LastFrameTimestampSec));
+        }
+    }
+
+    private static void StorePacket(TpSession s, byte seq, ReadOnlySpan<byte> data)
+    {
+        int offset = (seq - 1) * 7;
+        data.CopyTo(s.Buffer.AsSpan(offset));
+        if (s.Mode == TpMode.RtsCts)
+            s.GrantSinceCts++;
+    }
+
+    private void SendCtsContinuation(SessionKey key, TpSession s, byte grant)
+    {
+        var frame = new CanFrame(
+            new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
+            TpCmMessage.Cts(grant, (byte)(s.ReceivedPackets + 1), s.Pgn).Encode(),
+            FrameFlags.None, ChannelId.None, default);
+        FireAndForget(frame);
+    }
+
+    private void SendEomAck(SessionKey key, TpSession s)
+    {
+        var frame = new CanFrame(
+            new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
+            TpCmMessage.EomAck((ushort)s.TotalBytes, (byte)s.TotalPackets, s.Pgn).Encode(),
+            FrameFlags.None, ChannelId.None, default);
+        FireAndForget(frame);
+    }
+
+    /// <summary>容量防御：接收会话超上限时驱逐最近活动最旧者（近似 LRU）。</summary>
+    private void EvictIfFull_Locked()
+    {
+        if (_rxSessions.Count < _options.MaxConcurrentSessions)
+            return;
+
+        byte evictSa = 0, evictDa = 0;
+        double oldest = double.MaxValue;
+        TpSession? victim = null;
+        foreach (var (key, s) in _rxSessions)
+        {
+            if (s.LastFrameTimestampSec < oldest)
+            {
+                oldest = s.LastFrameTimestampSec;
+                victim = s;
+                (evictSa, evictDa) = key;
+            }
+        }
+
+        if (victim is null)
+            return;
+        _rxSessions.Remove(new SessionKey(evictSa, evictDa));
+        LogSessionEvicted(_logger ?? NullLogger<J1939TpLayer>.Instance, _options.MaxConcurrentSessions);
+        RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Evicted, evictSa, evictDa, victim.Pgn, victim.Mode, "session table full"));
+    }
+}
