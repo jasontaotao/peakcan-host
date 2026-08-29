@@ -88,7 +88,16 @@ public class AppShellViewModelTests
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 
-    private static AppShellViewModel NewVm()
+    /// <summary>Legacy probe failure path (architect review 2026-08-29): exercises the
+    /// "未检测到 PEAK 硬件: ..." ChannelList branch that must NOT satisfy the
+    /// USB1 sentinel in CanConnect.</summary>
+    private sealed class FailingChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    {
+        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
+            => new(false, "fake probe failed");
+    }
+
+    private static AppShellViewModel NewVm(PeakCan.HIL.Core.IChannelProbe? probe = null)
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
@@ -108,7 +117,7 @@ public class AppShellViewModelTests
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
-            new FakeChannelProbe(),
+            probe ?? new FakeChannelProbe(),
             new FakeChannelFactory(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
@@ -222,6 +231,21 @@ public class AppShellViewModelTests
         var vm = NewVm();
         vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
         vm.ConnectCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConnectCommand_Stays_Disabled_After_Failed_Probe()
+    {
+        // Regression guard for f4f250e (architect review 2026-08-29): the
+        // legacy probe-failure path writes "未检测到 PEAK 硬件: ..." into
+        // ChannelList — that text must not satisfy the "USB1" sentinel in
+        // CanConnect. Any future edit that makes a failure/status string
+        // start with "USB1" would silently re-enable pre-probe Connect;
+        // this test fails first.
+        var vm = NewVm(new FailingChannelProbe());
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.ChannelList.Should().Contain("未检测到 PEAK 硬件");
+        vm.ConnectCommand.CanExecute(null).Should().BeFalse();
     }
 
     // Task 15: the OpenDbcCommand stub behaviour (sets StatusMessage to
