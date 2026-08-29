@@ -5,7 +5,7 @@ namespace PeakCan.Host.Infrastructure.Composite;
 
 /// <summary>
 /// 组合通道工厂：根据 <see cref="ChannelId.Handle"/> 范围路由到正确的子工厂。
-/// PEAK 工厂处理 0x51-0x60，ZLG 工厂处理 0x0100+。
+/// PEAK 工厂处理 0x51-0x60，ZLG 工厂处理 0x8000+（handle 高位标记位，见 ZlgChannelEnumerator.EncodeHandle）。
 /// </summary>
 public sealed class CompositeChannelFactory : IChannelFactory
 {
