@@ -61,7 +61,8 @@ public sealed partial class TransportParamsViewModel : ObservableObject
 
     /// <summary>
     /// Production ctor: poll the diagnostic stack (DI singletons) and the flash panel's
-    /// in-flight secondary stack. Starts the 500 ms poll timer.
+    /// in-flight secondary stack. Timer is created stopped — the hosting UdsWindow
+    /// starts/stops polling on open/close (DI-singleton lifetime ≠ window lifetime).
     /// </summary>
     public TransportParamsViewModel(
         IsoTpLayer diagnosticTransport,
@@ -85,8 +86,17 @@ public sealed partial class TransportParamsViewModel : ObservableObject
             Interval = TimeSpan.FromMilliseconds(500)
         };
         _pollTimer.Tick += (_, _) => Poll();
-        _pollTimer.Start();
+        // review 2026-08-29 P2: 不在 ctor 启动——VM 是 DI 单例，进程存活期 2Hz 空转
+        // UI 线程（UDS 窗口关闭时也在跑）。改由 UdsWindow 绑定 DataContext 时
+        // StartPolling / Unloaded 时 StopPolling（与 Session/Flash 的
+        // StopForWindowClose 同一生命周期模式）。
     }
+
+    /// <summary>UDS 窗口打开时由 UdsWindow 调；Disabled 实例（无 timer）为 no-op。</summary>
+    public void StartPolling() => _pollTimer?.Start();
+
+    /// <summary>UDS 窗口关闭（Unloaded）时由 UdsWindow 调；可重复调用。</summary>
+    public void StopPolling() => _pollTimer?.Stop();
 
     /// <summary>
     /// Disabled instance for back-compat <see cref="UdsViewModel"/> ctors (tests /

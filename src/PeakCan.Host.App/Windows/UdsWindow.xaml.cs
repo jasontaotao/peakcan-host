@@ -86,6 +86,8 @@ public partial class UdsWindow : Window
         // real Dispose on these singletons — native OEM-DLL handles release there, not here.
         udsVm.Session.StopForWindowClose();
         udsVm.Flash.StopForWindowClose();
+        // review 2026-08-29 P2: 停掉通信参数轮询（窗口重开时 DataContextChanged 再启动）。
+        udsVm.Params.StopPolling();
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -94,6 +96,9 @@ public partial class UdsWindow : Window
         if (e.NewValue is UdsViewModel vm)
         {
             vm.OutputLog.CollectionChanged += OnLogCollectionChanged;
+            // review 2026-08-29 P2: 通信参数面板的 2Hz 轮询随窗口打开启动
+            // （VM 是 DI 单例，不再 ctor 常驻轮询）。
+            vm.Params.StartPolling();
         }
     }
 
