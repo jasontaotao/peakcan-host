@@ -5,7 +5,7 @@ namespace PeakCan.Host.Infrastructure.Composite;
 
 /// <summary>
 /// 组合通道工厂：根据 <see cref="ChannelId.Handle"/> 范围路由到正确的子工厂。
-/// PEAK 工厂处理 0x51-0x60，ZLG 工厂处理 0x0100+。
+/// PEAK 工厂处理 0x51-0x60，ZLG 工厂处理 0x8000+（handle 高位标记位，见 ZlgChannelEnumerator.EncodeHandle）。
 /// </summary>
 public sealed class CompositeChannelFactory : IChannelFactory
 {
@@ -20,16 +20,15 @@ public sealed class CompositeChannelFactory : IChannelFactory
 
     public ICanChannel Create(ChannelId id)
     {
+        // 先按 handle 范围选工厂，再构造（review LOW：原来先构造再检查，对不匹配工厂
+        // 也 Create 一次——多通道/单通道现在全走本分派是热路径，且未来厂商工厂若
+        // Create 有副作用（如开设备）会 double-open/泄漏）。
         foreach (var factory in _factories)
         {
-            // 尝试创建：子工厂返回的通道如果 IsConnected 为 false 且
-            // 不是该工厂的 handle 范围，应由子工厂自身处理。
-            var channel = factory.Create(id);
-            // 简单路由：按 handle 范围选择工厂
             if (IsHandleInRange(id.Handle, factory))
-                return channel;
+                return factory.Create(id);
         }
-        // fallback：交给第一个工厂
+        // fallback：交给第一个工厂（空 handle 兜底 0x51+index 语义）
         return _factories[0].Create(id);
     }
 

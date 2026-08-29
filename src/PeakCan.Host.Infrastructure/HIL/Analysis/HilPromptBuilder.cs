@@ -24,6 +24,9 @@ public static class HilPromptBuilder
             foreach (var s in c.StepResults.Where(s => s.Status == StepStatus.Failed))
             {
                 sb.AppendLine($"  Step {s.StepIndex} ({s.Kind}): {s.Message}");
+                // G5: 通道归属（多通道失败分析不被误导根因；仅非空时渲染）
+                if (s.Channel is not null)
+                    sb.AppendLine($"    Channel: {s.Channel}");
                 if (s.ActualValue is not null)
                     sb.AppendLine($"    Actual: {s.ActualValue}, Expected: {s.ExpectedValue}");
 

@@ -20,19 +20,25 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
     {
         var p = (AssertSignalWithinStep)step.Parameters;
         var expected = double.Parse(p.Expected, CultureInfo.InvariantCulture);
-        var tolerance = double.Parse(p.Tolerance, CultureInfo.InvariantCulture);
+        // G5（spec §6 裁决）: Tolerance 空/空白 = 精确匹配（窗口退化为 hit 需 v==expected），
+        // ExpectedValue 只显示 Expected 不带 ±；否则 double.Parse("") 空串会抛 FormatException。
+        var hasTolerance = !string.IsNullOrWhiteSpace(p.Tolerance);
+        var tolerance = hasTolerance ? double.Parse(p.Tolerance, CultureInfo.InvariantCulture) : 0;
         var windowMs = int.Parse(p.WindowMs, CultureInfo.InvariantCulture);
 
         if (windowMs <= 0)   // 非法参数 fail fast（同 AssertCycleTime review L4）
             return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                 $"Invalid params: WindowMs={windowMs}", null, null, 0, Channel: p.TargetChannel);
 
+        // G5（spec §6）: 有 Tolerance 拼 `1500±10`；空 Tolerance 只显示 Expected（不带 ±）。
+        var expectedValue = hasTolerance ? $"{expected}±{tolerance}" : $"{expected}";
         var samples = new List<double>();
         var gate = new object();
 
         using var sub = ctx.SubscribeDecodedFrames(p.TargetChannel, _ =>
         {
-            var val = ctx.GetSignalValue(p.SignalName, maxAgeMs: 5000);
+            // G1: 采样按 TargetChannel 路由（订阅已路由，采样未路由 → 恒取默认通道，错总线）
+            var val = ctx.GetSignalValue(p.TargetChannel, p.SignalName, maxAgeMs: 5000);
             if (val is { } v)
                 lock (gate) samples.Add(v);
         });
@@ -43,7 +49,8 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
         {
             if (samples.Count == 0)
                 return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
-                    $"No samples for {p.SignalName} in {windowMs}ms window", null, null, 0, Channel: p.TargetChannel);
+                    $"No samples for {p.SignalName} in {windowMs}ms window",
+                    null, expectedValue, 0, Channel: p.TargetChannel);
 
             var hits = samples.Count(v => Math.Abs(v - expected) <= tolerance);
             var pass = p.Mode == MatchMode.Any ? hits >= 1 : hits == samples.Count;
@@ -52,7 +59,7 @@ internal sealed class AssertSignalWithinStepExecutor : IStepExecutor
                 pass
                     ? $"signal {p.SignalName} {hits}/{samples.Count} samples in {range} (mode {p.Mode})"
                     : $"signal {p.SignalName} {hits}/{samples.Count} samples in {range}, need {(p.Mode == MatchMode.Any ? ">= 1" : "all")} (mode {p.Mode})",
-                null, null, 0, Channel: p.TargetChannel);
+                $"{hits}/{samples.Count} samples", expectedValue, 0, Channel: p.TargetChannel);
         }
     }
 }

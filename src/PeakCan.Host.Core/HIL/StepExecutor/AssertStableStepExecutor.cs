@@ -26,12 +26,14 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
                 $"Invalid params: WindowMs={windowMs}, MaxDelta={maxDelta}, MinSamples={minSamples}",
                 null, null, 0, Channel: p.TargetChannel);
 
+        var expectedValue = $"≤{maxDelta}";   // G5: LLM 分析用
         var samples = new List<double>();
         var gate = new object();
 
         using var sub = ctx.SubscribeDecodedFrames(p.TargetChannel, _ =>
         {
-            var val = ctx.GetSignalValue(p.SignalName, maxAgeMs: 5000);
+            // G1: 采样按 TargetChannel 路由（订阅已路由，采样未路由 → 恒取默认通道，错总线）
+            var val = ctx.GetSignalValue(p.TargetChannel, p.SignalName, maxAgeMs: 5000);
             if (val is { } v)
                 lock (gate) samples.Add(v);
         });
@@ -43,7 +45,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
             if (samples.Count < minSamples)
                 return new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
                     $"Only {samples.Count} samples for {p.SignalName}, need >= {minSamples} (window {windowMs}ms)",
-                    null, null, 0, Channel: p.TargetChannel);
+                    null, expectedValue, 0, Channel: p.TargetChannel);
 
             var min = samples.Min();
             var max = samples.Max();
@@ -53,7 +55,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
                 pass
                     ? $"signal {p.SignalName} stable [{min:F1}, {max:F1}] delta={delta:F1} <= {maxDelta} (n={samples.Count})"
                     : $"signal {p.SignalName} unstable [{min:F1}, {max:F1}] delta={delta:F1} > {maxDelta} (n={samples.Count})",
-                null, null, 0, Channel: p.TargetChannel);
+                $"max-min={delta:F1}", expectedValue, 0, Channel: p.TargetChannel);
         }
     }
 }

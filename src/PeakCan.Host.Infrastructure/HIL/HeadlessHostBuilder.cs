@@ -18,7 +18,9 @@ using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Infrastructure.Composite;
 using PeakCan.Host.Infrastructure.Peak;
+using PeakCan.Host.Infrastructure.Zlg;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -36,6 +38,10 @@ public static class HeadlessHostBuilder
         System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString())}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
         if (args.HardwareChannels is { Count: > 0 } multiHw)
         {
+            // 多厂商通道工厂（产品 review: PEAK + ZLG + 未来厂商）。硬件模式注册
+            // CompositeChannelFactory，按 ChannelId.Handle 范围分派 PeakCanChannel / ZlgCanChannel，
+            // 取代硬编码 new PeakCanChannel——否则 ZLG handle 会错误地建 PeakCanChannel。
+            RegisterChannelFactory(builder);
             // Multi-channel hardware mode (2026-08-22, spec §3.4): the FIRST channel is
             // registered as the default ICanChannel singleton so single-channel-default
             // dependencies (BackgroundFrameSender / IFrameStatistics / IsoTpLayer / UdsClient
@@ -44,20 +50,17 @@ public static class HeadlessHostBuilder
             // for per-step TargetChannel routing.
             var defaultHandle = ResolveChannelHandle(multiHw[0].Handle, index: 0);
             builder.Services.AddSingleton<ICanChannel>(sp =>
-            {
-                var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
-                return new PeakCanChannel(new ChannelId(defaultHandle), logger);
-            });
+                sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>().Create(new ChannelId(defaultHandle)));
         }
         else if (args.HardwareChannel is not null)
         {
-            // Hardware mode (Sprint 3) — single channel
-            var handle = ParseChannelHandle(args.HardwareChannel);
+            // Hardware mode (Sprint 3) — single channel（也走工厂，支持单通道 ZLG）
+            RegisterChannelFactory(builder);
+            // ResolveChannelHandle 接受 USB{n}（PEAK）与 raw hex（如 "0xC600" ZLG），
+            // 取代 ParseChannelHandle（仅 USB{n}）——否则单通道 ZLG 选不了。
+            var handle = ResolveChannelHandle(args.HardwareChannel);
             builder.Services.AddSingleton<ICanChannel>(sp =>
-            {
-                var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
-                return new PeakCanChannel(new ChannelId(handle), logger);
-            });
+                sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>().Create(new ChannelId(handle)));
         }
         else if (args.EcuScriptPath is not null)
         {
@@ -144,7 +147,6 @@ public static class HeadlessHostBuilder
             builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
-                var peakLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanChannel>>();
                 var contexts = new Dictionary<string, SingleChannelContext>(StringComparer.Ordinal);
                 // 第一个通道复用 DI 注册的默认 ICanChannel singleton（同 handle，已在上面注册），
                 // 避免对同一物理 handle new 第二个 PeakCanChannel（double-InitializeFD + 双读循环竞争）。
@@ -155,12 +157,15 @@ public static class HeadlessHostBuilder
                 // 通常 null → 回落 args.DbcPath → 与全局同源；复用全局实例避免重复 ReadAllText
                 // + DbcParser.Parse。其余通道（DbcPath 非空或不同文件）各自解析。
                 var globalDbc = sp.GetService<DbcDocument>();
+                var factory = sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>();
                 for (int i = 0; i < multiCfg.Count; i++)
                 {
                     var cfg = multiCfg[i];
+                    // 首通道复用 DI 默认 ICanChannel singleton（防同一 handle 双 InitializeFD/双读循环）；
+                    // 其余通道按 handle 厂商分派（PEAK/ZLG，产品 review 多厂商）。
                     ICanChannel channel = i == 0
                         ? defaultChannel
-                        : new PeakCanChannel(new ChannelId(ResolveChannelHandle(cfg.Handle, index: i)), peakLogger);
+                        : factory.Create(new ChannelId(ResolveChannelHandle(cfg.Handle, index: i)));
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     DbcDocument dbcDoc;
                     if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
@@ -320,6 +325,27 @@ public static class HeadlessHostBuilder
             .CreateLogger());
 
         return builder.Build();
+    }
+
+    /// <summary>
+    /// 注册多厂商通道工厂（产品 review: PEAK + ZLG + 未来厂商）。
+    /// CompositeChannelFactory 按 ChannelId.Handle 范围分派：0x51-0x60 → PeakCanChannelFactory，
+    /// 0x8000+ → ZlgCanChannelFactory。新增厂商 = 加一个 IChannelFactory 子类 + 注册进数组，
+    /// 不改本 host 的通道分派逻辑。
+    /// </summary>
+    private static void RegisterChannelFactory(HostApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.IPcanReader>(
+            _ => new PeakCan.Host.Infrastructure.Peak.PcanReader());
+        builder.Services.AddSingleton<IZlgReader>(_ => new ZlgReader());
+        builder.Services.AddSingleton<ZlgDeviceManager>();
+        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
+        builder.Services.AddSingleton<ZlgCanChannelFactory>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.IChannelFactory>(sp => new CompositeChannelFactory(
+        [
+            sp.GetRequiredService<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>(),
+            sp.GetRequiredService<ZlgCanChannelFactory>(),
+        ]));
     }
 
     /// <summary>

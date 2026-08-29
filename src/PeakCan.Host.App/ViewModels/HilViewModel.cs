@@ -25,6 +25,9 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _suitePath = "";
     [ObservableProperty] private string _tracePath = "";
     [ObservableProperty] private string _hardwareChannel = "USB1";
+
+    /// <summary>G3: suite 声明多通道（declaredCount>1）→ Hardware 下拉置灰（通道由套件声明按序绑定）。</summary>
+    [ObservableProperty] private bool _isMultiChannelSuite;
     [ObservableProperty] private string _ecuScriptPath = "";
     [ObservableProperty] private string _matrixPath = "";
     [ObservableProperty] private bool _enableFaultInjection = false;
@@ -56,12 +59,8 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
 
-    /// <summary>PCAN 硬件通道下拉选项: USB1..USB16.</summary>
-    public ObservableCollection<string> AvailableChannels { get; } = new()
-    {
-        "USB1", "USB2", "USB3", "USB4", "USB5", "USB6", "USB7", "USB8",
-        "USB9", "USB10", "USB11", "USB12", "USB13", "USB14", "USB15", "USB16",
-    };
+    /// <summary>PCAN 硬件通道下拉选项（G3）：动态刷新自已连接通道。Handle = "USB{n}" 值, Display = 显示文本。</summary>
+    public ObservableCollection<HardwareChannelOption> AvailableChannels { get; } = new();
 
     // --- Mode-specific field visibility ---
 
@@ -96,8 +95,24 @@ public sealed partial class HilViewModel : ObservableObject
         _connectedChannels = connectedChannels;
     }
 
-    /// <summary>已连接通道的快照（host 打开时配好的多路：handle/波特率/FD）。</summary>
-    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd);
+    /// <summary>
+    /// 已连接通道的快照（host 打开时配好的多路：handle/波特率/FD + 设备名）。
+    /// Name 来自 ChannelInfo.Name（如 "USB1" / "USBCAN 0-1"），UI 用它区分厂商显示；
+    /// Handle 是含厂商编码的 ushort（0x51-0x60 PEAK / 0x8000+ ZLG）。
+    /// </summary>
+    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd, string Name = "");
+
+    /// <summary>硬件通道下拉项（G3）：Handle = 绑定值（"USB{n}"，下游 ParseChannelHandle 语义不变），Display = 显示连接信息。</summary>
+    public sealed record HardwareChannelOption(string Handle, string Display);
+
+    /// <summary>
+    /// 多通道映射清单行（产品 review 补）：suite 声明的通道 → 绑定到的物理硬件口（按索引顺序）。
+    /// 只读展示（维持 spec §4.2 "只展示不覆盖"裁决），消除"bus-a 到底对应哪块硬件"的黑盒。
+    /// </summary>
+    public sealed record ChannelBindingRow(string SuiteName, string Handle, string Detail);
+
+    /// <summary>多通道映射清单（IsMultiChannelSuite 时展示；单通道空）。</summary>
+    public ObservableCollection<ChannelBindingRow> ChannelBindings { get; } = new();
 
     private Func<IReadOnlyList<ConnectedChannel>>? _connectedChannels;
 
@@ -123,11 +138,14 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseSuite()
     {
-        var path = _fileDialog.ShowOpenDialog("Test Suite JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("Test Suite JSON|*.suite.json|All Files|*.*");
         if (path is not null)
         {
             SuitePath = path;
             LoadCaseList(path);
+            // G3（spec §4.2）: 换套件后重算多通道置灰态 + 刷新下拉——否则从多通道切单通道
+            // 下拉仍置灰（IsMultiChannelSuite 陈旧）直到下次 Run。
+            RefreshAvailableChannels();
         }
     }
 
@@ -139,19 +157,25 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var json = File.ReadAllText(suitePath);
             using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("cases", out var casesEl))
+            // G4 内容硬校验：顶层无 cases 数组 → 明确提示（防选错文件静默——原静默 catch 吞掉）
+            if (!doc.RootElement.TryGetProperty("cases", out var casesEl))
             {
-                foreach (var caseEl in casesEl.EnumerateArray())
-                {
-                    var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-                    var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                    AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
-                }
+                StatusMessage = "不是测试套件文件（缺少 cases 字段）";
+                return;
+            }
+            foreach (var caseEl in casesEl.EnumerateArray())
+            {
+                var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // 解析失败不阻塞 -- Run 时完整反序列化会报具体错误
+            // G4（spec §5.3）: 解析失败不静默——设明确提示（缺 cases 字段已在上文单独拦截，
+            // 这里兜底 JSON 损坏/读取失败/字段类型异常；Run 时完整反序列化仍会报具体错误）。
+            AvailableCases.Clear();
+            StatusMessage = $"套件文件解析失败: {ex.Message}";
         }
     }
 
@@ -161,6 +185,24 @@ public sealed partial class HilViewModel : ObservableObject
     /// 顺序映射、BaudRate/Fd 取已连通道实际值）；数量不一致按少的截断并提示。
     /// 无 suite.Channels、无提供者、或提供者空 → null（单通道零回归）。
     /// </summary>
+    /// <summary>suite 通道声明的弱解析结果（G2：per-channel DBC/UDS 三字段透传）。</summary>
+    private sealed record ChannelDeclaration(string Name, string? DbcPath, uint? UdsRequestId, uint? UdsResponseId);
+
+    /// <summary>读 JSON 里的 UDS ID（uint?）。hil-core 存 JSON 数字；兼容 hex 字符串 "7E0"/"0x7E0"。</summary>
+    private static uint? TryGetUdsId(JsonElement e, string prop)
+    {
+        if (!e.TryGetProperty(prop, out var v) || v.ValueKind == JsonValueKind.Null) return null;
+        if (v.ValueKind == JsonValueKind.Number) return v.GetUInt32();
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var s = v.GetString();
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            var hex = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s;
+            return Convert.ToUInt32(hex, 16);
+        }
+        return null;
+    }
+
     private IReadOnlyList<ChannelConfig>? BuildHardwareChannels()
     {
         if (string.IsNullOrEmpty(SuitePath) || _connectedChannels is null) return null;
@@ -168,32 +210,21 @@ public sealed partial class HilViewModel : ObservableObject
         var connected = _connectedChannels().ToList();
         if (connected.Count == 0) return null;
 
-        // 读 suite.Channels 的名字列表（弱解析：失败时返回 null 走单通道）。
-        // Review MEDIUM-2: 空名元素计入声明数（参与截断判断），重名预检防
-        // runner 侧 ToDictionary 抛异常。
-        List<string>? declaredNames = null;
-        try
+        // 读 suite.Channels 的声明（弱解析：失败时返回 null 走单通道）。
+        // G2: 读 name/dbcPath/udsRequestId/udsResponseId 四字段（dbcPath/ID 缺省 null 合法）。
+        // Review MEDIUM-1: 解析失败不静默——完整反序列化在 runner 兜底，记 warning 由调用方拼接。
+        // Review MEDIUM-2: 空名元素计入声明数（参与截断判断），重名预检防 runner ToDictionary 抛。
+        var declared = TryParseDeclaredChannels();
+        if (declared is null)
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
-            if (doc.RootElement.TryGetProperty("channels", out var chEl))
-            {
-                declaredNames = chEl.EnumerateArray()
-                    .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
-                    .ToList();
-            }
-        }
-        catch
-        {
-            // Review MEDIUM-1: 弱解析失败不静默——完整反序列化在 runner 兜底，
-            // 此处记 warning 由调用方拼接（不返回 null 走单通道，避免无声降级）。
             _truncationWarning = "（无法读取 suite 通道声明——按单通道执行）";
             return null;
         }
-        var declaredCount = declaredNames?.Count ?? 0;
+        var declaredCount = declared.Count;
         if (declaredCount == 0) return null;
 
         // 重名声明预检：studio 编辑器允许重复名，runner 按名 ToDictionary 会抛。
-        var dup = declaredNames!.GroupBy(n => n, StringComparer.Ordinal)
+        var dup = declared.GroupBy(d => d.Name, StringComparer.Ordinal)
             .Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
         if (dup is not null)
         {
@@ -202,22 +233,144 @@ public sealed partial class HilViewModel : ObservableObject
         }
 
         var count = Math.Min(declaredCount, connected.Count);
-        _truncationWarning = declaredCount != connected.Count
-            ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
-            : null;
+        // G2: 状态栏提示各通道 DBC/UDS 绑定概况——明示 suite per-channel 配置覆盖界面全局 DBC（改配置回 studio）。
+        var bindingSummary = string.Join("; ", Enumerable.Range(0, count)
+            .Select(i => $"{declared[i].Name}:{FormatBindingDetail(declared[i])}"));
+        _truncationWarning = (declaredCount != connected.Count
+                ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
+                : "")
+            + $" 绑定[{bindingSummary}]（界面 DBC 已被 suite per-channel 覆盖，改配置回 studio）";
 
         var list = new List<ChannelConfig>(count);
         for (int i = 0; i < count; i++)
         {
             var c = connected[i];
+            var d = declared[i];
             list.Add(new ChannelConfig(
-                declaredNames![i],
-                "",                   // 空 handle → host 按索引顺序映射物理通道（spec v3 T13，厂商无关）
+                d.Name,
+                // 产品 review: 透传真实 handle（含厂商编码 raw hex）——不再设空串让 host 0x51+index 硬算，
+                // 否则连的 ZLG 口/非连续 USB 口会错开成 PEAK USB1..N。host ResolveChannelHandle 由 handle 反推厂商分派。
+                $"0x{c.Handle:X}",
                 c.BaudRate,           // 连接参数取 host 已连通道实际值
                 c.Fd,
-                null, null, null));
+                d.DbcPath,            // G2: per-channel DBC 透传（不再丢弃）
+                d.UdsRequestId,       // G2: per-channel UDS ID 透传（suite 配了 → host 建独立 UDS 栈）
+                d.UdsResponseId));
         }
         return list;
+    }
+
+    /// <summary>弱解析 suite.Channels 声明（name/dbcPath/udsRequestId/udsResponseId）。无 channels 或解析失败 → null。</summary>
+    private List<ChannelDeclaration>? TryParseDeclaredChannels()
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
+            if (doc.RootElement.TryGetProperty("channels", out var chEl))
+            {
+                return chEl.EnumerateArray()
+                    .Select(e => new ChannelDeclaration(
+                        e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                        e.TryGetProperty("dbcPath", out var d) ? d.GetString() : null,
+                        TryGetUdsId(e, "udsRequestId"),
+                        TryGetUdsId(e, "udsResponseId")))
+                    .ToList();
+            }
+        }
+        catch
+        {
+            // 弱解析失败：BuildHardwareChannels 记 warning；RefreshAvailableChannels 当无声明
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// G3: 刷新硬件通道下拉（已连接通道）+ 多通道置灰标记 + 保留上次选择。
+    /// 调用时机：HilWindow Loaded + 每次 Run 前（provider 是拉模式无通知，不做连接状态实时推送）。
+    /// </summary>
+    public void RefreshAvailableChannels()
+    {
+        // 解析 suite 通道声明数 → 多通道（declaredCount>1）置灰 Hardware 下拉（通道由套件声明按序绑定）
+        var declared = string.IsNullOrEmpty(SuitePath) ? null : TryParseDeclaredChannels();
+        IsMultiChannelSuite = (declared?.Count ?? 0) > 1;
+
+        var previous = HardwareChannel;
+        AvailableChannels.Clear();
+        IReadOnlyList<ConnectedChannel> connected;
+        try
+        {
+            // provider 是外部注入回调，异常不阻塞 UI 初始化/运行（否则 OnLoaded 的
+            // async-void 裸调会变成未处理异常崩进程——review LOW 加固）。
+            connected = _connectedChannels?.Invoke() ?? Array.Empty<ConnectedChannel>();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"获取已连接通道失败: {ex.Message}";
+            connected = Array.Empty<ConnectedChannel>();
+        }
+        foreach (var c in connected)
+        {
+            // 绑定值：PEAK 用 USB{n}（下游 ParseChannelHandle 语义不变）；非 PEAK（ZLG，高位 0x8000+）
+            // 用 raw hex（"0xC600"），host 单通道已走 CompositeChannelFactory 能解析。显示用设备名区分厂商。
+            var handle = (c.Handle & 0x8000) != 0
+                ? $"0x{c.Handle:X}"
+                : $"USB{c.Handle - 0x50}";
+            var displayName = string.IsNullOrEmpty(c.Name) ? handle : c.Name;
+            AvailableChannels.Add(new HardwareChannelOption(handle, $"{displayName}（已连接·{c.BaudRate.Name}）"));
+        }
+        // 产品 review: 多通道映射清单（suite 声明通道 → 物理口，按索引顺序）只读展示。
+        RefreshChannelBindings(declared, connected);
+        if (AvailableChannels.Count > 0)
+        {
+            // 保留上次选择（防连接顺序变化导致默认选中漂移）；记忆值不在当前列表才回退第一个
+            if (!AvailableChannels.Any(o => o.Handle == previous))
+                HardwareChannel = AvailableChannels[0].Handle;
+        }
+        else
+        {
+            // 无已连接通道：清空选择 → Hardware 模式 CanRun false + 状态提示
+            HardwareChannel = "";
+        }
+    }
+
+    /// <summary>
+    /// 刷新多通道映射清单（产品 review 补，只读展示）：suite 声明的第 i 路通道按索引顺序
+    /// 绑定到已连接的第 i 路物理口（与 BuildHardwareChannels 同一接线语义，见 spec v3 §3.4）。
+    /// 数量不一致按少的截断（同 Run 截断语义，下方提示补齐）。
+    /// </summary>
+    private void RefreshChannelBindings(List<ChannelDeclaration>? declared, IReadOnlyList<ConnectedChannel> connected)
+    {
+        ChannelBindings.Clear();
+        if (declared is null || declared.Count == 0) return;
+        // 重名声明与 Run 路径（BuildHardwareChannels 返 null 走单通道）对齐：重名时映射无法按名区分，
+        // 清空清单避免 UI 显示与 Run 实际行为不一致（studio 保存前已拦，此处为 host 兜底）。
+        var dup = declared.GroupBy(d => d.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
+        if (dup is not null) return;
+        var count = Math.Min(declared.Count, connected.Count);
+        for (int i = 0; i < count; i++)
+        {
+            var d = declared[i];
+            var c = connected[i];
+            // 设备名区分厂商（"USB1" / "USBCAN 0-1"）；Name 为空（测试直构造）回退 USB{handle-0x50}。
+            var deviceName = string.IsNullOrEmpty(c.Name) ? $"USB{c.Handle - 0x50}" : c.Name;
+            var detail = $"{FormatBindingDetail(d).Trim()} · {c.BaudRate.Name}";
+            ChannelBindings.Add(new ChannelBindingRow(d.Name, deviceName, detail));
+        }
+        if (declared.Count > connected.Count)
+        {
+            // 声明多于已连：未被绑定的声明通道也展示（标注未绑定，揭示"为什么少一路"）。
+            for (int i = count; i < declared.Count; i++)
+                ChannelBindings.Add(new ChannelBindingRow(declared[i].Name, "未绑定", "(已连接通道不足)"));
+        }
+    }
+
+    /// <summary>per-channel DBC/UDS 绑定摘要（共享给映射清单 + Run 状态栏，防两处漂移）。</summary>
+    private static string FormatBindingDetail(ChannelDeclaration d)
+    {
+        var dbc = d.DbcPath is { } dp ? $" {Path.GetFileName(dp)}" : " (全局DBC)";
+        var uds = d.UdsRequestId is { } req ? $" UDS 0x{req:X3}/0x{d.UdsResponseId:X3}" : "";
+        return $"{dbc}{uds}";
     }
 
     [RelayCommand]
@@ -242,7 +395,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseEcu()
     {
-        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("ECU Script JSON|*.ecu.json|All Files|*.*");
         if (path is not null)
         {
             EcuScriptPath = path;
@@ -253,7 +406,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void BrowseMatrix()
     {
-        var path = _fileDialog.ShowOpenDialog("Matrix Config JSON|*.json|All Files|*.*");
+        var path = _fileDialog.ShowOpenDialog("Matrix Config JSON|*.matrix.json|All Files|*.*");
         if (path is not null) MatrixPath = path;
     }
 
@@ -364,6 +517,9 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var progress = new Progress<TestProgress>(p => ProgressPercent = p.PercentComplete);
             _truncationWarning = null; // 每次 Run 重置（防上一次残留）
+
+            // G3: Run 前刷新通道下拉（provider 是拉模式，Run 时取最新已连状态）
+            RefreshAvailableChannels();
 
             // Spec v3 §3.4: 多通道执行接线——suite 声明的通道名按索引顺序绑定
             // 到 host 已连接通道（连接参数在 AppShell 打开时配好）。
@@ -482,6 +638,10 @@ public sealed partial class HilViewModel : ObservableObject
                     Name = step.Label ?? $"Step {step.StepIndex}",
                     Status = step.Status.ToString(),
                     Message = step.Message ?? "",
+                    // G6: 结果树展示通道归属 + Actual/Expected（仅非空时 XAML 渲染）
+                    Channel = step.Channel ?? "",
+                    ActualValue = step.ActualValue ?? "",
+                    ExpectedValue = step.ExpectedValue ?? "",
                 };
                 if (step.FramesAroundFailure is { Count: > 0 })
                 {

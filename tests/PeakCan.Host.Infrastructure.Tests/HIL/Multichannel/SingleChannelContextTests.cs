@@ -86,6 +86,46 @@ public class SingleChannelContextTests
     }
 
     [Fact]
+    public void GetSignalValue_NamedChannel_NullOrMatchingName_ReturnsSelf()
+    {
+        var channel = new FakeCanChannel();
+        var dbc = new FakeDbcLookup();
+        dbc.AddMessage(CreateMessage(0x123, "TestMsg",
+            CreateSignal("TestSignal", 0, 8, ByteOrder.LittleEndian, DbcValueType.Unsigned)));
+        using var ctx = new SingleChannelContext(channel, dbc, channelName: "bus-a");
+        var frame = new CanFrame(new CanId(0x123, FrameFormat.Standard),
+            new byte[] { 0x64, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None, new ChannelId(1), new Timestamp(0));
+
+        channel.SimulateFrame(frame);
+        Thread.Sleep(200);
+
+        // DIM 成员须经接口引用调用（concrete 类型看不到 DIM 默认）；executor 均持 IAssertionContext 接口
+        IAssertionContext iface = ctx;
+        // null/空/相等名 → 视为本通道（G1：单通道 suite 的 TargetChannel=null 走此路径）
+        Assert.Equal(100.0, iface.GetSignalValue(null, "TestMsg.TestSignal"));
+        Assert.Equal(100.0, iface.GetSignalValue("bus-a", "TestMsg.TestSignal"));
+    }
+
+    [Fact]
+    public void GetSignalValue_NamedChannel_NonMatchingName_ReturnsNull()
+    {
+        var channel = new FakeCanChannel();
+        var dbc = new FakeDbcLookup();
+        dbc.AddMessage(CreateMessage(0x123, "TestMsg",
+            CreateSignal("TestSignal", 0, 8, ByteOrder.LittleEndian, DbcValueType.Unsigned)));
+        using var ctx = new SingleChannelContext(channel, dbc, channelName: "bus-a");
+        var frame = new CanFrame(new CanId(0x123, FrameFormat.Standard),
+            new byte[] { 0x64, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None, new ChannelId(1), new Timestamp(0));
+
+        channel.SimulateFrame(frame);
+        Thread.Sleep(200);
+
+        // 命名通道收到不匹配名 → null（该信号不在本通道缓存，executor 判零样本，语义正确）
+        IAssertionContext iface = ctx;
+        Assert.Null(iface.GetSignalValue("bus-b", "TestMsg.TestSignal"));
+    }
+
+    [Fact]
     public void Dispose_UnsubscribesAndDrains()
     {
         var channel = new FakeCanChannel();

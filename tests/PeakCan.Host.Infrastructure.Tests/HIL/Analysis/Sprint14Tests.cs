@@ -81,6 +81,20 @@ public class Sprint14Tests
     }
 
     [Fact]
+    public void PromptBuilder_IncludesChannel_WhenPresent()
+    {
+        // G5: 失败步骤带 StepResult.Channel → prompt 渲染 Channel（多通道失败分析不被误导根因）
+        var step = new StepResult(0, TestCaseStepKind.AssertSignal, "s1", StepStatus.Failed,
+            "fail", null, null, 0, Channel: "bus-a");
+        var caseResult = MakeCase("f1", "FailCase", false, "fail", new[] { step });
+        var result = new TestSuiteResult("Suite", 1, 0, 1, 0, 100, Array.Empty<string>(), new[] { caseResult });
+
+        var prompt = HilPromptBuilder.Build(result);
+
+        Assert.Contains("Channel: bus-a", prompt);
+    }
+
+    [Fact]
     public async Task AnalysisService_MockHttpClient_ReturnsContent()
     {
         var mockHandler = new MockHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.OK)

@@ -75,11 +75,45 @@
                 <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
             </StackPanel>
 
-            <StackPanel Orientation="Horizontal" Visibility="{Binding IsHardwareMode, Converter={StaticResource BoolToVis}}">
-                <ComboBox ItemsSource="{Binding AvailableChannels}"
-                          SelectedItem="{Binding HardwareChannel}"
-                          Width="90" Margin="0,0,12,0"
-                          ToolTip="PCAN hardware channel" />
+            <StackPanel Visibility="{Binding IsHardwareMode, Converter={StaticResource BoolToVis}}">
+                <StackPanel Orientation="Horizontal">
+                    <!-- G3: 动态刷新已连接通道（Handle 值 "USB{n}" + Display 连接信息）；多通道 suite 置灰 -->
+                    <ComboBox ItemsSource="{Binding AvailableChannels}"
+                              SelectedValue="{Binding HardwareChannel}"
+                              SelectedValuePath="Handle"
+                              DisplayMemberPath="Display"
+                              Width="170" Margin="0,0,12,0"
+                              ToolTip="PCAN hardware channel（已连接通道）">
+                      <ComboBox.Style>
+                        <Style TargetType="ComboBox">
+                          <Setter Property="IsEnabled" Value="True"/>
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsMultiChannelSuite}" Value="True">
+                              <Setter Property="IsEnabled" Value="False"/>
+                              <Setter Property="ToolTip" Value="通道由套件声明按序绑定（多通道，见下方映射）"/>
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </ComboBox.Style>
+                    </ComboBox>
+                </StackPanel>
+                <!-- 产品 review: 多通道映射清单（只读）——bus-a→USB1 绑定可见，消除黑盒。
+                     单通道（IsMultiChannelSuite=false）隐藏，避免占用横向空间。 -->
+                <ItemsControl ItemsSource="{Binding ChannelBindings}"
+                              Margin="0,4,0,0"
+                              Visibility="{Binding IsMultiChannelSuite, Converter={StaticResource BoolToVis}}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" Margin="0,1">
+                        <TextBlock Text="{Binding SuiteName}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}" />
+                        <TextBlock Text=" → " Foreground="{StaticResource TextSecondary}" />
+                        <TextBlock Text="{Binding Handle}" Foreground="{StaticResource Accent}" />
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource TextSecondary}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
@@ -164,10 +198,44 @@
                                 <TextBlock Text="{Binding Name}" FontWeight="Bold" />
                             </HierarchicalDataTemplate>
                             <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Name}" Width="140" />
-                                    <TextBlock Text="{Binding Status}" Width="70" />
-                                    <TextBlock Text="{Binding Message}" />
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" Width="140" />
+                                        <TextBlock Text="{Binding Status}" Width="70" />
+                                        <TextBlock Text="{Binding Message}" />
+                                        <!-- G6: 通道徽标（仅非空，多通道失败归属一目了然） -->
+                                        <Border Background="{StaticResource RowSelected}" CornerRadius="2" Padding="3,0" Margin="4,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Channel}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Channel}" FontSize="11" Foreground="{StaticResource Accent}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <!-- G6: Actual/Expected 行（仅失败步骤非空时显示） -->
+                                    <StackPanel Orientation="Horizontal" Margin="140,2,0,0">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ActualValue}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+                                        <TextBlock Text="Actual:" FontSize="11" Foreground="{StaticResource TextSecondary}" Width="44"/>
+                                        <TextBlock Text="{Binding ActualValue}" FontSize="11"/>
+                                        <TextBlock Text="Expected:" FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="{Binding ExpectedValue}" FontSize="11"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </HierarchicalDataTemplate>
                             <DataTemplate DataType="{x:Type vm:FrameNode}">

@@ -65,6 +65,20 @@ public sealed class HilViewModelTests
                 }),
         });
 
+    /// <summary>失败步骤带 Channel/Actual/Expected（G6 结果树展示用）。</summary>
+    private static TestSuiteResult FailedResultWithChannel() => new(
+        "test", TotalCases: 1, PassedCases: 0, FailedCases: 1, SkippedCases: 0,
+        ElapsedMs: 100, SetupFailures: Array.Empty<string>(),
+        CaseResults: new[]
+        {
+            new TestCaseResult("tc1", "Case1", false, "signal mismatch", 100, 1, 0, 1, 0, 0,
+                new[]
+                {
+                    new StepResult(0, TestCaseStepKind.AssertSignal, "Assert", StepStatus.Failed,
+                        "expected 1 got 0", "0", "1", 50, Channel: "bus-a"),
+                }),
+        });
+
     // --- Mode → path mapping ---
 
     [Fact]
@@ -212,6 +226,29 @@ public sealed class HilViewModelTests
         Assert.Empty(caseNode.Steps[0].Frames); // no frames captured when passed
     }
 
+    [Fact]
+    public async Task ResultTree_PopulatesChannelAndActualExpected()
+    {
+        // G6: 结果树 StepNode 展示 Channel/ActualValue/ExpectedValue（仅失败步骤有值）
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(), Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(FailedResultWithChannel()));
+
+        var vm = CreateViewModel(runner);
+        vm.DbcPath = "x.dbc";
+        vm.SuitePath = "y.json";
+        vm.TracePath = "x.asc";
+        vm.SelectedMode = HilMode.TraceReplay;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        var caseNode = Assert.IsType<TestCaseNode>(vm.ResultsTree[0]);
+        var step = Assert.Single(caseNode.Steps);
+        step.Channel.Should().Be("bus-a");
+        step.ActualValue.Should().Be("0");
+        step.ExpectedValue.Should().Be("1");
+    }
+
     // --- ECU script path ---
 
     [Fact]
@@ -289,6 +326,328 @@ public sealed class HilViewModelTests
       "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
     }
     """;
+
+    // G2: suite 声明 per-channel DBC/UDS ID（UDS ID 为 JSON 数字——hil-core uint 形态，0x7E0=2016 等）
+    private const string MultiChannelSuiteWithPerChannelParamsJson = """
+    {
+      "name": "MultiChannel",
+      "channels": [
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": "A.dbc", "udsRequestId": 2016, "udsResponseId": 2024 },
+        { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "dbcPath": "B.dbc", "udsRequestId": 1760, "udsResponseId": 1768 }
+      ],
+      "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
+    }
+    """;
+
+    [Fact]
+    public async Task RunAsync_WithSuitePerChannelParams_PropagatesToHardwareChannels()
+    {
+        // G2 host 读侧：suite 带 dbcPath/udsRequestId/udsResponseId → HardwareChannels 透传（不再丢弃）
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteWithPerChannelParamsJson);
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured.Should().NotBeNull();
+            captured!.HardwareChannels.Should().HaveCount(2);
+            // per-channel 三字段透传（当前 BuildHardwareChannels 透传 null → 断言失败 = RED）
+            captured.HardwareChannels![0].DbcPath.Should().Be("A.dbc");
+            captured.HardwareChannels[0].UdsRequestId.Should().Be(2016);
+            captured.HardwareChannels[0].UdsResponseId.Should().Be(2024);
+            captured.HardwareChannels[1].DbcPath.Should().Be("B.dbc");
+            captured.HardwareChannels[1].UdsRequestId.Should().Be(1760);
+            captured.HardwareChannels[1].UdsResponseId.Should().Be(1768);
+            // 连接参数仍取已连通道实际值（spec v3 T13 语义不变）
+            captured.HardwareChannels[0].BaudRate.Should().Be(BaudRate.Can500kbps);
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ZlgConnectedChannel_PropagatesRealHandle_NotEmpty()
+    {
+        // 产品 review: BuildHardwareChannels 必须透传 connected[i].Handle 的真实值（含厂商编码），
+        // 而非硬编码空串——否则 host 用 0x51+index 硬算，连的 ZLG 口被错开成 PEAK USB1。
+        // connected[0].Handle=0xC600（ZLG）→ ChannelConfig.Handle 应为 "0xC600"。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        HilRunRequest? captured = null;
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Do<HilRunRequest>(r => captured = r),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0xC600, BaudRate.Can500kbps, Fd: false),  // ZLG USBCAN 0-0
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),    // PEAK USB2
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB2";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            captured.Should().NotBeNull();
+            captured!.HardwareChannels.Should().HaveCount(2);
+            // RED: 现在 Handle 是空串 → 断言失败；修复后应透传真实 ZLG handle
+            captured.HardwareChannels![0].Handle.Should().Be("0xC600");
+            captured.HardwareChannels[1].Handle.Should().Be("0x52");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    // ── G3: USBx 下拉绑已连接通道（spec §4）──────────────────
+
+    private static HilViewModel NewVm(Func<IReadOnlyList<HilViewModel.ConnectedChannel>>? connected = null)
+        => new(
+            Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance,
+            Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(),
+            Substitute.For<IHilReportService>(), connectedChannels: connected);
+
+    [Fact]
+    public void RefreshAvailableChannels_WithConnectedChannels_PopulatesDropdownAndDefaultsFirst()
+    {
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().HaveCount(2);
+        vm.AvailableChannels[0].Handle.Should().Be("USB1");      // n = handle - 0x50
+        vm.AvailableChannels[0].Display.Should().Contain("USB1");
+        vm.AvailableChannels[0].Display.Should().Contain("500 kbps");
+        vm.AvailableChannels[1].Handle.Should().Be("USB2");
+        vm.HardwareChannel.Should().Be("USB1");                  // 默认第一个已连接
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_ZlgConnected_HexHandleAndNameDisplay()
+    {
+        // 产品 review: ZLG 通道（0xC600，高位 0x8000+）下拉绑定值用 raw hex（下游能解析），
+        // 显示用设备名（USBCAN 0-0）区分厂商，而非 USB{handle-0x50} 算出的错误口。
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0xC600, BaudRate.Can500kbps, Fd: false, Name: "USBCAN 0-0"),
+        ]);
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().HaveCount(1);
+        vm.AvailableChannels[0].Handle.Should().Be("0xC600");
+        vm.AvailableChannels[0].Display.Should().Contain("USBCAN 0-0");
+        vm.HardwareChannel.Should().Be("0xC600");
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_EmptyProvider_EmptiesDropdownAndClearsChannel()
+    {
+        var vm = NewVm(() => []);
+        vm.HardwareChannel = "USB3";
+
+        vm.RefreshAvailableChannels();
+
+        vm.AvailableChannels.Should().BeEmpty();
+        vm.HardwareChannel.Should().Be("", "无已连接通道 → 清空 HardwareChannel, CanRun false");
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_PreservesLastSelection()
+    {
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.RefreshAvailableChannels();
+        vm.HardwareChannel.Should().Be("USB1");
+
+        // 用户切到 USB2 → 再刷新 → 保留 USB2（不跳回第一个，防连接目标漂移）
+        vm.HardwareChannel = "USB2";
+        vm.RefreshAvailableChannels();
+
+        vm.HardwareChannel.Should().Be("USB2");
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_MultiChannelSuite_FlagsIsMultiChannel()
+    {
+        // G3: suite 声明多通道（declaredCount>1）→ Hardware 下拉置灰（IsMultiChannelSuite）
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.IsMultiChannelSuite.Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_MultiChannelSuite_PopulatesReadonlyBindingMapping()
+    {
+        // 产品 review: 多通道映射清单（只读）——suite 声明通道按索引顺序绑到已连接物理口，消除黑盒。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteWithPerChannelParamsJson);   // bus-a(A.dbc/UDS 7E0) + bus-b(B.dbc/UDS 6E0)
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),   // → USB1
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),   // → USB2
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.ChannelBindings.Should().HaveCount(2);
+            vm.ChannelBindings[0].SuiteName.Should().Be("bus-a");
+            vm.ChannelBindings[0].Handle.Should().Be("USB1");       // 索引 0 → 已连接第 0 路
+            vm.ChannelBindings[0].Detail.Should().Contain("A.dbc"); // per-channel DBC 摘要
+            vm.ChannelBindings[0].Detail.Should().Contain("7E0");
+            vm.ChannelBindings[1].SuiteName.Should().Be("bus-b");
+            vm.ChannelBindings[1].Handle.Should().Be("USB2");
+            vm.ChannelBindings[1].Detail.Should().Contain("B.dbc");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_DeclaredMoreThanConnected_MarksUnbound()
+    {
+        // 声明 2 路、已连 1 路 → 第 1 路绑定 USB1，第 2 路标"未绑定"（揭示截断原因）。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteJson);   // bus-a/bus-b 两路
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),   // 仅 1 路
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.ChannelBindings.Should().HaveCount(2);
+            vm.ChannelBindings[0].Handle.Should().Be("USB1");
+            vm.ChannelBindings[1].Handle.Should().Be("未绑定");
+            vm.ChannelBindings[1].Detail.Should().Contain("不足");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_SingleChannelSuite_NotMultiChannel()
+    {
+        // 单通道 suite（无 channels 或 1 路）→ 下拉可配（IsMultiChannelSuite false）
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+        ]);
+        vm.RefreshAvailableChannels();
+        vm.IsMultiChannelSuite.Should().BeFalse();
+    }
+
+    // ── G4: 文件后缀区分（spec §5）──────────────────
+
+    [Fact]
+    public void BrowseSuite_UsesSuiteJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseSuiteCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.suite.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void BrowseEcu_UsesEcuJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseEcuCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.ecu.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void BrowseMatrix_UsesMatrixJsonFilter()
+    {
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns((string?)null);
+        var vm = CreateViewModel(fileDialog: fd);
+
+        vm.BrowseMatrixCommand.Execute(null);
+
+        fd.Received().ShowOpenDialog(Arg.Is<string>(f =>
+            f.Contains("*.matrix.json", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void LoadCaseList_NotSuiteFile_SetsStatusMessage()
+    {
+        // G4 内容硬校验：打开无 cases 字段的 JSON → 明确提示（当前静默 catch → RED）
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, """{ "name": "not-a-suite" }""");
+        var fd = Substitute.For<IFileDialogService>();
+        fd.ShowOpenDialog(Arg.Any<string>()).Returns(path);
+        var vm = CreateViewModel(fileDialog: fd);
+        try
+        {
+            vm.BrowseSuiteCommand.Execute(null);
+            vm.StatusMessage.Should().Contain("不是测试套件文件");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     [Fact]
     public async Task RunAsync_WithSuiteChannels_AndConnectedChannels_BindsByOrder()
