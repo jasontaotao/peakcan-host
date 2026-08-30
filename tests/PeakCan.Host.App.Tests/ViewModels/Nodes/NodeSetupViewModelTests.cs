@@ -83,6 +83,25 @@ public class NodeSetupViewModelTests
         row.IsRunning.Should().BeFalse();
     }
 
+    // 评审修复钉（修订 12 的实时半边）：EditorEnabled 不得只在选择变更时计算——
+    // 选中节点经行 ▶ 启停后，编辑门必须随 Started/Stopped 活动实时翻转。
+    [Fact]
+    public void Editor_Enabled_Gate_Follows_Selected_Row_StartStop()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+        var row = vm.Nodes.Single();
+        vm.SelectedNode.Should().BeSameAs(row);            // RefreshFromHost 自动选中
+        vm.Editor.EditorEnabled.Should().BeTrue();
+
+        row.StartStopCommand.Execute(null);                // Started → 编辑门实时关闭
+        vm.Editor.EditorEnabled.Should().BeFalse();
+        row.StartStopCommand.Execute(null);                // Stopped → 实时恢复
+        vm.Editor.EditorEnabled.Should().BeTrue();
+    }
+
     // Task 18 绑定注 4 的钉：SA 冲突拒绝必须走 Activity/Error 路径进入活动日志
     // （StartAll/行 VM Toggle 丢弃 Result——活动日志是唯一可见面，不得静默）。
     [Fact]

@@ -117,10 +117,16 @@ public sealed partial class NodeSetupViewModel : ObservableObject
 
     private void AppendActivity(NodeActivity activity)
     {
-        // 运行状态点随 Started/Stopped 刷新（事件驱动；决策 3 首选路径）
+        // 运行状态点随 Started/Stopped 刷新（事件驱动；决策 3 首选路径）。
         var row = Nodes.FirstOrDefault(n => n.Name == activity.NodeName);
         if (activity.Kind is NodeActivityKind.Started or NodeActivityKind.Stopped && row is not null)
+        {
             row.IsRunning = activity.Kind == NodeActivityKind.Started;
+            // 修订 12 的实时半边（评审修复）：翻转的是选中行时同步编辑器只读门——
+            // EditorEnabled 不只在选择变更时计算，否则选中节点经行 ▶ 启停后门态失真。
+            if (ReferenceEquals(row, SelectedNode))
+                Editor.SetRunning(row.IsRunning);
+        }
 
         Activities.Add(activity);
         while (Activities.Count > ActivityCapacity)

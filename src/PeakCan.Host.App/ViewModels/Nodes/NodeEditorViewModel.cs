@@ -49,6 +49,18 @@ public sealed partial class NodeEditorViewModel : ObservableObject
             Rules.Add(new ResponseRuleRowViewModel(r));
     }
 
+    /// <summary>
+    /// 选中节点运行状态翻转（由 <see cref="NodeSetupViewModel.AppendActivity"/> 在 Started/Stopped
+    /// 活动且命中选中行时推送）：只刷新只读门（修订 12 的"实时"半边），不重建行集。
+    /// 评审修复——原实现仅在 <see cref="Select"/>（选择变更）时计算，选中节点经行 ▶ 启停后
+    /// <see cref="EditorEnabled"/> 失真（运行中仍可编辑 / 停止后仍禁用，直到重新选择）。
+    /// </summary>
+    public void SetRunning(bool running)
+    {
+        _configRunning = running;
+        OnPropertyChanged(nameof(EditorEnabled));
+    }
+
     /// <summary>消息表"标识"列文本（后端解释自己的 MessageRef 子类——决策 4）。</summary>
     /// <remarks>
     /// TP 模式经 <see cref="string.ToUpperInvariant"/> 转大写——计划原稿 <c>{mode}</c> 输出
