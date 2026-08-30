@@ -40,7 +40,8 @@ public static class J1939VirtualFrameMerger
     }
 
     /// <summary>
-    /// 三级回退匹配（首个命中级别即停；级别按 DbcDocument 缓存——同一 DBC 的消息 ID 惯例一致）：
+    /// 三级回退匹配（首个命中级别即停；命中级别按 DbcDocument 缓存——同一 DBC 的消息 ID 惯例一致，
+    /// 未命中不缓存，miss 后续调用重扫）：
     /// ① 精确 29 位（DBC Id 先剥 bit31 IDE 位）；② 掩掉优先级 <c>&amp; 0x03FFFFFF</c>；
     /// ③ PDU1 PF 段 <c>&amp; 0x00FF0000</c>（覆盖 PGN&lt;&lt;8|SA 惯例与 BAM 广播虚拟帧）。
     /// </summary>
@@ -54,7 +55,10 @@ public static class J1939VirtualFrameMerger
         if (level == 0)
         {
             level = ResolveLevel(dbc, virtualId);
-            box.Value = level;   // 0 仍未命中 → 缓存 0，后续直接快速失败
+            // 仅缓存命中级别（1/2/3）；未命中（-1）不得缓存——否则首次 miss 永久毒化
+            // 该文档的后续匹配（Task 13 review Finding 1；代价：每次 miss 重扫一遍）。
+            if (level > 0)
+                box.Value = level;
         }
 
         return level switch

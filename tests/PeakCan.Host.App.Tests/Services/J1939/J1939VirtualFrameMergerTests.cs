@@ -118,6 +118,24 @@ public class J1939VirtualFrameMergerTests
             .Should().BeNull();
     }
 
+    // Task 13 review Finding 1：未命中不得缓存（ResolveLevel 的 -1 不入缓存）——否则
+    // 首次 miss 会永久毒化该 DbcDocument 的后续匹配（§9.3 的“惯例一致”假设只为
+    // 正向级别缓存背书，不为负向缓存背书）。
+    [Fact]
+    public void FindMessage_Miss_Does_Not_Poison_Subsequent_Match()
+    {
+        var dbc = MakeDbc(0x980256F4u);
+
+        // 首查：文档不含 PGN 0x00F999 的任何惯例 ID → 三级全不命中 → null（且不得入缓存）。
+        J1939VirtualFrameMerger.FindMessage(dbc, J1939Id.Compose(6, 0x00F999, 0x11))
+            .Should().BeNull();
+
+        // 后查：文档经级别③实际命中的 BAM 虚拟 ID 仍须解析成功
+        // （负向缓存被毒化时此调用将错误返回 null）。
+        J1939VirtualFrameMerger.FindMessage(dbc, J1939Id.Compose(6, 0x000200, 0xF4, 0xFF))
+            .Should().NotBeNull();
+    }
+
     /// <summary>
     /// 单消息 DBC（brief MakeDbc 的 5 参适配版：<see cref="DbcDocument"/> 实际签名含
     /// <c>MessagesById</c> 字典）。
