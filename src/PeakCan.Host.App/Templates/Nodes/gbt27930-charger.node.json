@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "config": {
+    "name": "gbt27930-charger",
+    "tag": "gbt27930",
+    "identity": { "kind": "j1939", "channel": null, "sa": 86 },
+    "addressClaimEnabled": false,
+    "messages": [
+      { "ref": { "kind": "j1939", "pgn": 9728, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 500, "payload": { "kind": "fixedHex", "hex": "01 01 00" }, "enabled": true },
+      { "ref": { "kind": "j1939", "pgn": 256, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "AA 11 22 33 44 31 32 30" }, "enabled": false },
+      { "ref": { "kind": "j1939", "pgn": 2048, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "88 13 DC 05 64 19 A0 0F" }, "enabled": true },
+      { "ref": { "kind": "j1939", "pgn": 2560, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "AA" }, "enabled": false },
+      { "ref": { "kind": "j1939", "pgn": 4608, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 50, "payload": { "kind": "fixedHex", "hex": "A0 0F 88 13 3C 00 01" }, "enabled": false },
+      { "ref": { "kind": "j1939", "pgn": 6656, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 0, "payload": { "kind": "fixedHex", "hex": "00 00 00 00" }, "enabled": false },
+      { "ref": { "kind": "j1939", "pgn": 7424, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "intervalMs": 0, "payload": { "kind": "fixedHex", "hex": "3C 00 88 13 11 22 33 44" }, "enabled": false }
+    ],
+    "rules": [
+      { "trigger": { "kind": "j1939", "pgn": 512, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "start", "ref": { "kind": "j1939", "pgn": 256, "priority": 6, "mode": "Single", "sa": null, "da": 244 } }, "delayMs": 0 },
+      { "trigger": { "kind": "j1939", "pgn": 1536, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "start", "ref": { "kind": "j1939", "pgn": 2560, "priority": 6, "mode": "Single", "sa": null, "da": 244 } }, "delayMs": 0 },
+      { "trigger": { "kind": "j1939", "pgn": 2304, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "start", "ref": { "kind": "j1939", "pgn": 4608, "priority": 6, "mode": "Single", "sa": null, "da": 244 } }, "delayMs": 0 },
+      { "trigger": { "kind": "j1939", "pgn": 6400, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "stop", "ref": { "kind": "j1939", "pgn": 4608, "priority": 6, "mode": "Single", "sa": null, "da": 244 } }, "delayMs": 0 },
+      { "trigger": { "kind": "j1939", "pgn": 6400, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "send", "ref": { "kind": "j1939", "pgn": 6656, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "payload": { "kind": "fixedHex", "hex": "00 00 00 00" } }, "delayMs": 0 },
+      { "trigger": { "kind": "j1939", "pgn": 7168, "priority": 6, "mode": null, "sa": 244 }, "condition": null, "action": { "kind": "send", "ref": { "kind": "j1939", "pgn": 7424, "priority": 6, "mode": "Single", "sa": null, "da": 244 }, "payload": { "kind": "fixedHex", "hex": "3C 00 88 13 11 22 33 44" } }, "delayMs": 0 }
+    ]
+  }
+}
