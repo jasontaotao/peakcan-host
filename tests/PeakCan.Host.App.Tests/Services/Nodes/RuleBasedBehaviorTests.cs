@@ -16,13 +16,25 @@ internal sealed class FakeNodeContext(NodeRuntimeState? runtime = null) : INodeC
     public List<(MessageRef Ref, NodePayloadSource Payload)> Sent { get; } = new();
     public List<(NodeActivityKind Kind, string Detail)> Reports { get; } = new();
     public event Action<NodeMessageArrived>? MessageArrived;
-#pragma warning disable CS0067 // SendFailed 在此替身中不引发（行为引擎仅订阅）
-    public event Action<Exception>? SendFailed;
-#pragma warning restore CS0067
+
+    // 公有委托字段 + 显式接口事件实现（CS0534 实证：公有字段不能隐式实现接口 event）：
+    // event 形式从类型外只能 +=/-=，而 NodeHostServiceTests 需从外部触发 SendFailed 模拟
+    // 后端发送失败——宿主经接口订阅、测试经字段触发，两者落在同一委托字段上。
+    public Action<Exception>? SendFailed;
+
+    event Action<Exception>? INodeContext.SendFailed
+    {
+        add => SendFailed += value;
+        remove => SendFailed -= value;
+    }
+
     public event Action<NodeActivityKind, string>? Reported;
 
+    public void Start() { }
+    public void Stop() { }
     public void Send(MessageRef target, NodePayloadSource payload) => Sent.Add((target, payload));
     public void Report(NodeActivityKind kind, string detail) { Reports.Add((kind, detail)); Reported?.Invoke(kind, detail); }
+    public void Dispose() { }
     public void Arrive(MessageRef refr, byte sa = 0xF4, byte[]? payload = null)
         => MessageArrived?.Invoke(new NodeMessageArrived(refr, sa, payload ?? new byte[] { 0xAA }, 1.0));
 }

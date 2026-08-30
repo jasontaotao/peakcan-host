@@ -1,29 +1,7 @@
 namespace PeakCan.Host.App.Services.Nodes;
 
-/// <summary>节点活动种类。</summary>
-/// <remarks>
-/// 值集与宿主主计划 Task 16 <c>NodeActivity.cs</c> 的定义一致（<c>NodeActivity</c> 记录落地时本枚举移至该文件）。
-/// </remarks>
-public enum NodeActivityKind : byte
-{
-    /// <summary>节点启动。</summary>
-    Started,
-
-    /// <summary>节点停止。</summary>
-    Stopped,
-
-    /// <summary>响应规则命中。</summary>
-    RuleMatched,
-
-    /// <summary>周期报文已发送。</summary>
-    MessageSent,
-
-    /// <summary>错误（如 ScriptAction 降级）。</summary>
-    Error,
-}
-
-/// <summary>行为引擎编程所依赖的运行环境契约（由宿主服务实现；Start/Stop/Dispose 生命周期在 Task 16 扩展）。</summary>
-public interface INodeContext
+/// <summary>行为引擎编程所依赖的运行环境契约（由宿主服务实现）。</summary>
+public interface INodeContext : IDisposable
 {
     /// <summary>节点身份（源地址等）。</summary>
     NodeIdentity Identity { get; }
@@ -33,6 +11,12 @@ public interface INodeContext
 
     /// <summary>注入时钟（行为内所有调度/延迟经此计，测试用 FakeTimeProvider 驱动）。</summary>
     TimeProvider Clock { get; }
+
+    /// <summary>启动：注册本机身份/挂路由器等（由 <see cref="SimulatedNode.Start"/> 调用）。</summary>
+    void Start();
+
+    /// <summary>停止：Start 的反向清理（由 <see cref="SimulatedNode.Stop"/> 调用）。</summary>
+    void Stop();
 
     /// <summary>fire-and-forget 发送（后端路由：J1939MessageRef→TP/单帧；CanMessageRef→ NotSupportedException）。</summary>
     void Send(MessageRef target, NodePayloadSource payload);

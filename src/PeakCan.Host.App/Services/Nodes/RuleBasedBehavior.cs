@@ -24,11 +24,12 @@ public sealed partial class RuleBasedBehavior : INodeBehavior
     private bool[] _enabled = Array.Empty<bool>();
     private long[] _nextDueMs = Array.Empty<long>();
 
-    public RuleBasedBehavior(IReadOnlyList<NodeMessage> messages, IReadOnlyList<ResponseRule> rules)
+    /// <summary>创建行为引擎（<paramref name="logger"/> 由 NodeHostService 注入；缺省 NullLogger，ScriptAction 降级日志 9441 随之静默）。</summary>
+    public RuleBasedBehavior(IReadOnlyList<NodeMessage> messages, IReadOnlyList<ResponseRule> rules, ILogger<RuleBasedBehavior>? logger = null)
     {
         _messages = messages;
         _rules = rules;
-        _logger = NullLogger<RuleBasedBehavior>.Instance;
+        _logger = logger ?? NullLogger<RuleBasedBehavior>.Instance;
     }
 
     /// <inheritdoc/>
