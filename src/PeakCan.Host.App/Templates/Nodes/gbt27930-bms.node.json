@@ -11,7 +11,7 @@
       { "ref": { "kind": "j1939", "pgn": 2304, "priority": 6, "mode": "Single", "sa": null, "da": 86 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "AA" }, "enabled": false },
       { "ref": { "kind": "j1939", "pgn": 4096, "priority": 6, "mode": "Single", "sa": null, "da": 86 }, "intervalMs": 50, "payload": { "kind": "fixedHex", "hex": "A0 0F 88 13 01" }, "enabled": false },
       { "ref": { "kind": "j1939", "pgn": 4352, "priority": 6, "mode": "Bam", "sa": null, "da": 255 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "01 00 00 00 00 00 00 00 00" }, "enabled": false },
-      { "ref": { "kind": "j1939", "pgn": 4864, "priority": 6, "mode": "Bam", "sa": null, "da": 255 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "01 28 01 28 01 00 00" }, "enabled": false },
+      { "ref": { "kind": "j1939", "pgn": 4864, "priority": 6, "mode": "Single", "sa": null, "da": 86 }, "intervalMs": 250, "payload": { "kind": "fixedHex", "hex": "01 28 01 28 01 00 00" }, "enabled": false },
       { "ref": { "kind": "j1939", "pgn": 6400, "priority": 6, "mode": "Single", "sa": null, "da": 86 }, "intervalMs": 0, "payload": { "kind": "fixedHex", "hex": "00 00 00 00" }, "enabled": false },
       { "ref": { "kind": "j1939", "pgn": 7168, "priority": 6, "mode": "Single", "sa": null, "da": 86 }, "intervalMs": 0, "payload": { "kind": "fixedHex", "hex": "32 64 00 64 00 1E 1E" }, "enabled": false }
     ],

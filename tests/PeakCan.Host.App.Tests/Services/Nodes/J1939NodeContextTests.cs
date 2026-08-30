@@ -273,6 +273,12 @@ public class Gbt27930NodeTemplateTests
                 r.Da.Should().Be(0x56);             // 单帧指向充电机
             }
         }
+
+        // 评审修订（Important）：BSM 为 7B 单帧（GB/T 27930：BSM 7B）——≤8B 载荷走 Bam 会被
+        // SendBamAsync.TryValidatePayload 以 InvalidArgument 拒绝（SendFlow.cs"≤8 字节应直接
+        // 发单帧"），启用即每周期报错。模板已改 Single/da=0x56，此处显式固化防回归。
+        byPgn[0x001300].Ref.Mode.Should().Be(TpMode.Single);
+        byPgn[0x001300].Ref.Da.Should().Be(0x56);
     }
 
     [Fact]
