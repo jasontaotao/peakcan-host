@@ -18,6 +18,9 @@ public sealed partial class NodeConfigLibrary
     internal static JsonSerializerOptions JsonOpts { get; } = new()
     {
         WriteIndented = true,
+        // Task 17 模板契约：节点文件属性名为 camelCase（"pgn"/"intervalMs"/包装 "version"/"config"），
+        // 枚举值保持 C# 拼写字符串（"mode": "Single"），判别符 "kind" 字面输出不受命名策略影响。
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() },
     };
 

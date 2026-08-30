@@ -53,8 +53,8 @@ public class NodeModelJsonTests
     {
         var json = JsonSerializer.Serialize(Sample(), Opts);
 
-        json.Should().Contain("\"Mode\": \"Bam\"");   // JsonStringEnumConverter（缩进 JSON：冒号后带空格；属性名默认 PascalCase）
-        json.Should().Contain("\"Pgn\": 9728");        // PGN 十进制序列化（0x002600 = 9728；brief 原文 0x0A00=2560 不在样例中，按实际样例修正）
+        json.Should().Contain("\"mode\": \"Bam\"");    // brief 原文 camelCase（Task 17 模板契约）：属性名 camelCase + 枚举值保持 C# 拼写；冒号后空格来自 WriteIndented
+        json.Should().Contain("\"pgn\": 9728");        // brief 原文 camelCase "pgn" 十进制（0x002600 = 9728；brief 原文 0x0A00=2560 不在样例中，按裁定修正）
     }
 
     [Fact]
@@ -80,6 +80,27 @@ public class NodeModelJsonTests
 
         var json = JsonSerializer.Serialize(config, Opts);
         json.Should().Contain("\"kind\": \"can\"");
+
+        var restored = JsonSerializer.Deserialize<NodeConfig>(json, Opts);
+
+        restored.Should().BeEquivalentTo(config);
+    }
+
+    [Fact]
+    public void TpMode_RoundTrips_As_String_Enum_Spelling()
+    {
+        // Task 17 模板契约："mode": "Single" —— 字符串枚举（值保持 C# 拼写），不是整数。
+        var config = new NodeConfig
+        {
+            Name = "tp-mode",
+            Identity = new J1939NodeIdentity(0x56),
+            Messages = [new NodeMessage(new J1939MessageRef(0x002600, 6, TpMode.Single, null, 0xF4), 500,
+                new FixedHexSource("01"), true)],
+            Rules = [],
+        };
+
+        var json = JsonSerializer.Serialize(config, Opts);
+        json.Should().Contain("\"mode\": \"Single\"").And.NotContain("\"mode\": 2");
 
         var restored = JsonSerializer.Deserialize<NodeConfig>(json, Opts);
 
