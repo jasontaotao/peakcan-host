@@ -58,9 +58,15 @@ public sealed partial class J1939TpLayer
 
     // 注：brief 原稿此方法体内引用了不在作用域内的 `id.Priority`（无法编译），
     // 最小修订为显式传入 `byte priority`（两个调用点均传 id.Priority），其余逐字未动。
+    // Task 4 review 修订：原稿在锁内记 3103 日志并引发 Superseded 事件，且 EvictIfFull_Locked
+    // 在锁内记 3106 并引发 Evicted 事件——订阅者同步回调可能再进本层取 _gate 而自死锁；
+    // 现改为锁内仅采集元数据（superseded/oversized/evicted），锁外记日志并引发事件
+    // （与 HandleDt 的 lossEvent/completed 锁外引发同模式）。事件顺序不变：Evicted → Superseded。
     private void CreateOrReplaceSession(SessionKey key, byte priority, TpCmMessage cm, TpMode mode, double ts)
     {
         TpSession? superseded = null;
+        bool oversized = false;
+        (SessionKey Key, TpSession Victim)? evicted = null;
         lock (_gate)
         {
             if (_rxSessions.TryGetValue(key, out var existing))
@@ -71,24 +77,36 @@ public sealed partial class J1939TpLayer
 
             if (cm.TotalSize > _options.MaxPayloadBytes || cm.TotalPackets == 0)
             {
-                // 锁内不做日志也可，但为避免复杂化这里直接返回前先记录（锁内日志可接受：Debug/Warning 不重）。
-                LogDeclaredLengthExceeds(_logger ?? NullLogger<J1939TpLayer>.Instance, cm.TotalSize, _options.MaxPayloadBytes);
-                if (superseded is not null)
-                    RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "superseded by oversized declaration"));
-                return;
+                oversized = true;   // 拒绝建会话；3103 日志与 Superseded 事件由锁外代码引发
             }
-
-            EvictIfFull_Locked();
-            _rxSessions[key] = new TpSession(cm.TotalPackets)
+            else
             {
-                Pgn = cm.Pgn,
-                Priority = priority,
-                Mode = mode,
-                TotalBytes = cm.TotalSize,
-                TotalPackets = cm.TotalPackets,
-                FirstFrameTimestampSec = ts,
-                LastFrameTimestampSec = ts,
-            };
+                evicted = EvictIfFull_Locked();
+                _rxSessions[key] = new TpSession(cm.TotalPackets)
+                {
+                    Pgn = cm.Pgn,
+                    Priority = priority,
+                    Mode = mode,
+                    TotalBytes = cm.TotalSize,
+                    TotalPackets = cm.TotalPackets,
+                    FirstFrameTimestampSec = ts,
+                    LastFrameTimestampSec = ts,
+                };
+            }
+        }
+
+        if (oversized)
+        {
+            LogDeclaredLengthExceeds(_logger ?? NullLogger<J1939TpLayer>.Instance, cm.TotalSize, _options.MaxPayloadBytes);
+            if (superseded is not null)
+                RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "superseded by oversized declaration"));
+            return;
+        }
+
+        if (evicted is not null)
+        {
+            LogSessionEvicted(_logger ?? NullLogger<J1939TpLayer>.Instance, _options.MaxConcurrentSessions);
+            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Evicted, evicted.Value.Key.Sa, evicted.Value.Key.Da, evicted.Value.Victim.Pgn, evicted.Value.Victim.Mode, "session table full"));
         }
 
         if (superseded is not null)
@@ -133,6 +151,8 @@ public sealed partial class J1939TpLayer
         var key = new SessionKey(id.SourceAddress, id.PduSpecific);
         TpSession? completed = null;
         J1939SessionEvent? lossEvent = null;
+        CanFrame? ctsContinuation = null;   // Task 4 review：锁内仅构造帧，锁外 FireAndForget
+        CanFrame? eomAck = null;            // （同步发送回调可能再进本层取 _gate 而自死锁）
 
         lock (_gate)
         {
@@ -182,12 +202,18 @@ public sealed partial class J1939TpLayer
                 s.CurrentGrant = _options.CtsMaxPackets == 0
                     ? Math.Min(s.TotalPackets - s.ReceivedPackets, 0xFF)
                     : Math.Min(_options.CtsMaxPackets, s.TotalPackets - s.ReceivedPackets);
-                SendCtsContinuation(key, s, (byte)s.CurrentGrant);
+                ctsContinuation = BuildCtsContinuation(key, s, (byte)s.CurrentGrant);
             }
 
             if (completed is not null && s.Mode == TpMode.RtsCts)
-                SendEomAck(key, s);
+                eomAck = BuildEomAck(key, s);
         }
+
+        // 锁外 fire-and-forget（保持原锁内发送相对事件引发的先后顺序：发送 → lossEvent → MessageReceived）。
+        if (ctsContinuation is not null)
+            FireAndForget(ctsContinuation.Value);
+        if (eomAck is not null)
+            FireAndForget(eomAck.Value);
 
         if (lossEvent is not null)
             RaiseSessionEvent(lossEvent);
@@ -210,29 +236,33 @@ public sealed partial class J1939TpLayer
             s.GrantSinceCts++;
     }
 
-    private void SendCtsContinuation(SessionKey key, TpSession s, byte grant)
+    /// <summary>构造 CTS 续授权帧。必须在 _gate 内调用（读取会话状态）；发送由调用方在锁外
+    /// FireAndForget（Task 4 review：原 SendCtsContinuation 在锁内发送，回调可能自死锁）。</summary>
+    private static CanFrame BuildCtsContinuation(SessionKey key, TpSession s, byte grant)
     {
-        var frame = new CanFrame(
+        return new CanFrame(
             new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
             TpCmMessage.Cts(grant, (byte)(s.ReceivedPackets + 1), s.Pgn).Encode(),
             FrameFlags.None, ChannelId.None, default);
-        FireAndForget(frame);
     }
 
-    private void SendEomAck(SessionKey key, TpSession s)
+    /// <summary>构造 EOM.ACK 帧。必须在 _gate 内调用（读取会话状态）；发送由调用方在锁外
+    /// FireAndForget（Task 4 review：原 SendEomAck 在锁内发送，回调可能自死锁）。</summary>
+    private static CanFrame BuildEomAck(SessionKey key, TpSession s)
     {
-        var frame = new CanFrame(
+        return new CanFrame(
             new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
             TpCmMessage.EomAck((ushort)s.TotalBytes, (byte)s.TotalPackets, s.Pgn).Encode(),
             FrameFlags.None, ChannelId.None, default);
-        FireAndForget(frame);
     }
 
-    /// <summary>容量防御：接收会话超上限时驱逐最近活动最旧者（近似 LRU）。</summary>
-    private void EvictIfFull_Locked()
+    /// <summary>容量防御：接收会话超上限时驱逐最近活动最旧者（近似 LRU）。
+    /// 必须在 _gate 内调用：仅摘除受害者并返回其 (key, session)；3106 日志与 Evicted 事件
+    /// 由调用方在锁外记日志/引发（Task 4 review：锁内引发会与需要 _gate 的同步订阅者死锁）。</summary>
+    private (SessionKey Key, TpSession Victim)? EvictIfFull_Locked()
     {
         if (_rxSessions.Count < _options.MaxConcurrentSessions)
-            return;
+            return null;
 
         byte evictSa = 0, evictDa = 0;
         double oldest = double.MaxValue;
@@ -248,9 +278,9 @@ public sealed partial class J1939TpLayer
         }
 
         if (victim is null)
-            return;
-        _rxSessions.Remove(new SessionKey(evictSa, evictDa));
-        LogSessionEvicted(_logger ?? NullLogger<J1939TpLayer>.Instance, _options.MaxConcurrentSessions);
-        RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Evicted, evictSa, evictDa, victim.Pgn, victim.Mode, "session table full"));
+            return null;
+        var victimKey = new SessionKey(evictSa, evictDa);
+        _rxSessions.Remove(victimKey);
+        return (victimKey, victim);
     }
 }
