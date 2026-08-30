@@ -26,12 +26,20 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     public IReadOnlyList<ReplayFrame> DecodeFrames => _decodeFrames ?? _masterService?.LoadedFrames ?? Array.Empty<ReplayFrame>();
 
-    /// <summary>重组 + 重建解码帧序列（加载成功后调用；幂等）。</summary>
+    /// <summary>
+    /// 重组 + 重建解码帧序列（加载成功后调用；幂等）。无源（最后卸载后 master 恒为
+    /// null）时清空 L2 行 + 虚拟帧输入后返回——Task 13 路由决策（stale-DecodeFrames）：
+    /// 否则陈旧虚拟帧永久滞留、<see cref="DecodeFrames"/> 持续供给陈旧合并列表。
+    /// </summary>
     [RelayCommand]
     private void RebuildJ1939Views()
     {
         if (_masterService is null)
+        {
+            ReassembledMessages.Clear();
+            _decodeFrames = null;   // DecodeFrames 退化为原始帧序列（此处 master null → 空序列）
             return;
+        }
 
         var raw = _masterService.LoadedFrames;
         var messages = _j1939Reassembly.Reassemble(raw);
@@ -40,7 +48,8 @@ public sealed partial class TraceViewerViewModel
         foreach (var m in messages)
             ReassembledMessages.Add(m);
 
-        // Task 12 最小 Merge 已落地；Task 13 扩展 DBC 三级匹配与注入点替换。
+        // L3 解码帧序列（spec §9.3）：原始 ∪ 完整重组虚拟帧，同刻原始帧在前；
+        // Task 13 注入点经 DecodeFrames 供给解码路径（SamplingTableFlow / ChartSeriesFlow）。
         _decodeFrames = J1939VirtualFrameMerger.Merge(raw, messages);
     }
 

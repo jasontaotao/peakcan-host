@@ -263,6 +263,11 @@ public sealed partial class TraceViewerViewModel
             }
         }
         RebindMasterFromRegistry();
+        // Task 13 路由决策（stale-DecodeFrames）：源清空（最后一个源卸载）→ master null，
+        // 此后 RebuildJ1939Views 若无人调用将永远停在陈旧状态。经现有重建路径触发其
+        // 清空分支（L2 行 + 虚拟帧输入），使 DecodeFrames 退化为原始帧序列直至下次加载。
+        if (_masterService is null)
+            RebuildJ1939ViewsCommand.Execute(null);
         OnPropertyChanged(nameof(Sources));
         OnPropertyChanged(nameof(HasSources));
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";

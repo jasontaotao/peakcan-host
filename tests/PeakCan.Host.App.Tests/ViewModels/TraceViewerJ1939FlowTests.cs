@@ -65,6 +65,27 @@ public class TraceViewerJ1939FlowTests
 
         master.Received(1).Seek(1.0);   // TP.CM 首帧时间（spec §9.2）
     }
+
+    // Task 13 路由决策（stale-DecodeFrames）：最后一个源卸载后 _masterService 恒为
+    // null，若重建命令对无源状态只 early-return，陈旧虚拟帧会永久滞留在 DecodeFrames。
+    // 钉住"卸载 → 经现有重建路径清空 L2 行 + 虚拟帧输入 → DecodeFrames 退化为原始帧"。
+    [Fact]
+    public void Unload_Last_Source_Clears_Panel_And_DecodeFrames_Degrades_To_Raw()
+    {
+        var master = Substitute.For<ITraceViewerService>();
+        master.LoadedFrames.Returns(BuildBamFrames());
+        var (vm, registry) = TraceViewerViewModelFactory.CreateWithRegistry(master);
+        vm.RebuildJ1939ViewsCommand.Execute(null);
+        vm.ReassembledMessages.Should().ContainSingle();
+        vm.DecodeFrames.Should().HaveCount(9);   // 原始 8 帧 + 1 虚拟帧
+
+        // 最后一个源卸载（RemoveTraceAsync → registry.UnloadAsync → SourcesChanged 同路径）。
+        registry.Sources.Returns(new List<TraceSource>());
+        registry.SourcesChanged += Raise.Event<Action>();
+
+        vm.ReassembledMessages.Should().BeEmpty();
+        vm.DecodeFrames.Should().BeEmpty();   // master null → 空序列（不再吃陈旧合并列表）
+    }
 }
 
 /// <summary>
@@ -77,6 +98,11 @@ public class TraceViewerJ1939FlowTests
 internal static class TraceViewerViewModelFactory
 {
     public static TraceViewerViewModel Create(ITraceViewerService master, string sourceId = "a")
+        => CreateWithRegistry(master, sourceId).Vm;
+
+    // Task 13：卸载路径用例需要持有 registry 以清空 Sources + 触发 SourcesChanged。
+    public static (TraceViewerViewModel Vm, ITraceSessionRegistry Registry) CreateWithRegistry(
+        ITraceViewerService master, string sourceId = "a")
     {
         // 配置非空集合，否则 VM ctor 对 WatchedSignals.CollectionChanged 的订阅会 NRE
         //（ChatFlowTests.BuildVm 同款注释）。
@@ -94,8 +120,9 @@ internal static class TraceViewerViewModelFactory
         var sessionLibrary = new TraceSessionLibrary(
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tmtrace-j1939-{Guid.NewGuid():N}.tmtrace"),
             NullLogger<TraceSessionLibrary>.Instance);
-        return new TraceViewerViewModel(
+        var vm = new TraceViewerViewModel(
             session, registry, dbcService, NullLogger<TraceViewerViewModel>.Instance, sessionLibrary,
             j1939Reassembly: new J1939ReassemblyService());
+        return (vm, registry);
     }
 }

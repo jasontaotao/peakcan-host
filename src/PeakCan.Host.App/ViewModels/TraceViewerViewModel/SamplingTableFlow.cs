@@ -60,7 +60,10 @@ public sealed partial class TraceViewerViewModel
             return;
         }
 
-        var frames = _masterService.LoadedFrames;
+        // Task 13 L3 注入点 1/2：解码路径帧源 → DecodeFrames（原始 ∪ 完整重组虚拟帧，
+        // 同刻原始帧在前）。帧计数类用途仍走 LoadedFrames；未重组过时 DecodeFrames
+        // 退化为 master 原始帧序列，行为与本表旧实现一致。
+        var frames = DecodeFrames;
         if (frames.Count == 0)
         {
             SamplingRows.Clear();

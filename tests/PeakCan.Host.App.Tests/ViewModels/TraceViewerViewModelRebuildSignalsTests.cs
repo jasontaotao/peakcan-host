@@ -139,6 +139,8 @@ public class TraceViewerViewModelRebuildSignalsTests
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
+        // Task 13 L3：图序列构建吃 DecodeFrames（master 绑定）→ 配置 master.LoadedFrames。
+        svc.LoadedFrames.Returns(new[] { Frame(0x100, 0x10, 0x00) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
@@ -163,6 +165,9 @@ public class TraceViewerViewModelRebuildSignalsTests
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
+        // Task 13 L3：图序列构建吃 DecodeFrames（master 绑定）→ 配置 master.LoadedFrames，
+        // 保持"先建序列 → 卸除后为空"的断言非空洞（否则 BeEmpty 恒真）。
+        svc.LoadedFrames.Returns(new[] { Frame(0x100, 0x10, 0x00) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
@@ -190,6 +195,8 @@ public class TraceViewerViewModelRebuildSignalsTests
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
+        // Task 13 L3：图序列构建吃 DecodeFrames（master 绑定）→ 配置 master.LoadedFrames。
+        svc.LoadedFrames.Returns(new[] { Frame(0x100, 0x10, 0x00) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithTwoMessages());
@@ -309,6 +316,12 @@ public class TraceViewerViewModelRebuildSignalsTests
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[]
+        {
+            Frame(0x100, 0x10, 0x00),
+            Frame(0x200, 0x20, 0x00),
+        });
+        // Task 13 L3：图序列构建吃 DecodeFrames（master 绑定）→ 配置 master.LoadedFrames。
+        svc.LoadedFrames.Returns(new[]
         {
             Frame(0x100, 0x10, 0x00),
             Frame(0x200, 0x20, 0x00),

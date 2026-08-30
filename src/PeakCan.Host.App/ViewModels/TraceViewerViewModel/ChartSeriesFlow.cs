@@ -36,7 +36,11 @@ public sealed partial class TraceViewerViewModel
         var perSourceAllowed = CanIdListParser.Parse(source.CanIdFilter).AllowList;
         var effective = perSourceAllowed ?? globalAllowed;
 
-        var frames = _registry.GetFrames(source.SourceId)
+        // Task 13 L3 注入点 2/2：解码路径帧源从 registry 原始帧查询换成 DecodeFrames
+        // （原始 ∪ 完整重组虚拟帧，同刻原始帧在前，见 J1939Flow）；ID 过滤/排序语义
+        // 不变——虚拟帧 ID 为 Compose 全 29 位，与 bit31 惯例 DBC 的 lookupId
+        // （& 0x7FFFFFFF）直接可比。
+        var frames = DecodeFrames
             .Where(f => (f.Id & 0x7FFFFFFFu) == lookupId
                         && (effective is null || effective.Contains(f.Id)))
             .OrderBy(f => f.Timestamp)

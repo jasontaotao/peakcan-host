@@ -105,6 +105,10 @@ public class TraceViewerViewModelChartWiringTests
         });
         registry.GetService("a").Returns(svc);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x42, 0x01) });
+        // Task 13 L3：BuildOneChartSeriesForSource 的解码路径帧源换成 DecodeFrames
+        // （master 绑定）——图序列构建吃 master.LoadedFrames；GetFrames 仍供
+        // RefreshFrameCounts（帧计数保持原始帧）。
+        svc.LoadedFrames.Returns(new[] { Frame(0x100, 0x42, 0x01) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
@@ -131,6 +135,9 @@ public class TraceViewerViewModelChartWiringTests
         registry.GetService("b").Returns(svcB);
         registry.GetFrames("a").Returns(new[] { Frame(0x100, 0x10, 0x00) });
         registry.GetFrames("b").Returns(new[] { Frame(0x100, 0x20, 0x00) });
+        // Task 13 L3：解码路径帧源为 DecodeFrames（master 绑定 = Sources[0] "a"）；
+        // b 的序列亦由 master 的合并序列构建（DecodeFrames 为 master 域，见 J1939Flow）。
+        svcA.LoadedFrames.Returns(new[] { Frame(0x100, 0x10, 0x00) });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
         dbc.SetCurrentForTests(DocWithRpmSignal());
@@ -171,6 +178,11 @@ public class TraceViewerViewModelChartWiringTests
         registry.GetFrames("b").Returns(new[]
         {
             Frame(0x100, 0.0, 0x30, 0x00), Frame(0x100, 1.0, 0x40, 0x00),
+        });
+        // Task 13 L3：解码路径帧源为 DecodeFrames（master 绑定 = Sources[0] "a"）。
+        svcA.LoadedFrames.Returns(new[]
+        {
+            Frame(0x100, 0.0, 0x10, 0x00), Frame(0x100, 1.0, 0x20, 0x00),
         });
 
         var dbc = new DbcService(Substitute.For<ILogger<DbcService>>());
