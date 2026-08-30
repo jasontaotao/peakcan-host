@@ -11,6 +11,7 @@ using OxyPlot.Axes;
 using OxyPlot.Series;
 using PeakCan.Host.App.Helpers;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.J1939;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Analysis;
@@ -59,8 +60,20 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, Plot> _activePlots = new();
 
     /// <summary>v3.62.0 MINOR: lookup active fill request for View to wire RefreshCallback</summary>
-    public bool TryGetActiveFillRequest(string signalKey, out FillRequest request) =>
-        _activeFillRequests.TryGetValue(signalKey, out request);
+    // Task 12: expanded from the single-expression form to fix pre-existing
+    // CS8601 (TryGetValue's [MaybeNullWhen(false)] out value flowing into the
+    // non-nullable out param) — touched-file zero-warnings convention.
+    public bool TryGetActiveFillRequest(string signalKey, out FillRequest request)
+    {
+        if (_activeFillRequests.TryGetValue(signalKey, out var value))
+        {
+            request = value;
+            return true;
+        }
+
+        request = null!;   // false contract: callers only read `request` when true
+        return false;
+    }
 
     /// <summary>v3.62.0 MINOR: View registers its WpfPlot.Plot so VM can add anchor lines.</summary>
     public void RegisterPlot(string signalKey, Plot plot)
@@ -187,7 +200,12 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         TraceSessionSnapshotBuilder? builder = null,
         IChatProvider? chatProvider = null,
         IEnumerable<IChatTool>? chatTools = null,
-        ICredentialStore? credentialStore = null)
+        ICredentialStore? credentialStore = null,
+        // Task 12 (J1939 L2): offline reassembly service backing the "J1939 重组"
+        // panel. Nullable + default keeps legacy test ctor signatures compiling
+        // (_builder 同款兜底模式); production DI injects the singleton
+        // (ViewModelsBatch2Flow), test fixtures fall back to a NullLogger instance.
+        J1939ReassemblyService? j1939Reassembly = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -213,6 +231,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // production DI passes a real IChatProvider + the 6 IChatTool instances.
         _chatProvider = chatProvider;
         _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
+        // Task 12 (J1939 L2): nullable-param fallback (NullLogger instance) —
+        // mirrors the _builder pattern above so legacy test ctor calls keep
+        // compiling without a DI container. Must run before the ctor's
+        // OnRegistrySourcesChanged() initial pull (partial-flow visibility).
+        _j1939Reassembly = j1939Reassembly ?? new J1939ReassemblyService();
         // v3.62.0 MINOR: wire plot resolver for axis sync (View owns the actual Plot objects)
         ChartViewModel.PlotResolver = key => _activePlots.TryGetValue(key, out var p) ? p : null;
         _registry.SourcesChanged += OnRegistrySourcesChanged;

@@ -99,6 +99,10 @@ public sealed partial class TraceViewerViewModel
             StatusMessage = $"Loading {name}…";
             await _registry.LoadAsync(path).ConfigureAwait(true);
             StatusMessage = $"Loaded {name}";
+            // Task 12 (J1939 L2): trace 加载成功分支（brief：加载成功路径调用重组）——
+            // 重组 + 重建 L2/L3 视图。幂等；仍在 UI 线程（ConfigureAwait(true)，
+            // 加载流程本身已在 Dispatcher 上，与 brief 的线程注记一致）。
+            RebuildJ1939ViewsCommand.Execute(null);
         }
         catch (OperationCanceledException)
         {

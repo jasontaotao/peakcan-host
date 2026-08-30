@@ -89,6 +89,10 @@ public partial class AppHostBuilder
         // 转发属性——窗口关闭时 VM 由 TraceViewerView.Closed dispose 释放，重开窗口
         // 由 DI 工厂新建实例。窗口级状态（scrubber / chart / 聊天 / 锚点）随窗口
         // 销毁，不再依赖 Reset() 手工清理。
+        // Task 12 (J1939 L2): offline reassembly service backing the Trace
+        // Viewer "J1939 重组" panel. Stateless per-call Reassemble → singleton;
+        // resolved into the transient TraceViewerViewModel ctor below.
+        services.AddSingleton<PeakCan.Host.App.Services.J1939.J1939ReassemblyService>();
         services.AddTransient<TraceViewerViewModel>();
         // v3.5.0 MINOR: persists Trace Viewer multi-trace sessions to .tmtrace
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
