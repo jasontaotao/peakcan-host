@@ -162,6 +162,11 @@ public partial class AppHostBuilder
         // pattern-match is future-proofing against a DI refactor that
         // might bypass the decorator for callers that opt out of rate
         // limiting.
+        // Task 19: J1939 send panel (spec §8.2)。CyclicSendService 走 Core 的
+        // ITimerFactory（CyclicTimerFactory，CoreInfrastructureFlow 已注册）；VM 与
+        // 服务均 singleton——运行状态跨 tab 切换保持（同 NodeSetupViewModel 先例）。
+        services.AddSingleton<PeakCan.Host.App.Services.J1939.J1939CyclicSendService>();
+        services.AddSingleton<J1939SendViewModel>();
         services.AddSingleton<SendViewModel>(sp =>
         {
             var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
@@ -178,7 +183,10 @@ public partial class AppHostBuilder
                 rateLimitRejectedCountProvider: rejectedCountProvider,
                 // P0-3: shared secondary-window host (DI singleton — same
                 // instance as AppShellViewModel so Multi-frame is one window).
-                windowHost: sp.GetRequiredService<WindowHostService>());
+                windowHost: sp.GetRequiredService<WindowHostService>(),
+                // Task 19: J1939 send sub-panel (DI auto-resolves the VM +
+                // its J1939CyclicSendService dependency).
+                j1939Send: sp.GetRequiredService<J1939SendViewModel>());
         });
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown (same rationale as RecordViewModel).
