@@ -215,6 +215,32 @@ public partial class AppHostBuilder
                 }
             }, isoLogger);
         });
+
+        // J1939TP stack：每应用一个 singleton（跟随 CoreSendService 的活动通道模型；
+        // 多通道扩展锚点保留——层角色无关，后续按通道建实例时移到 per-channel 注册点）。
+        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        {
+            var sendService = sp.GetRequiredService<CoreSendService>();
+            var j1939Logger = sp.GetRequiredService<ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>();
+            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+                async (frame, ct) =>
+                {
+                    try
+                    {
+                        return await sendService.SendAsync(frame, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        PeakCan.HIL.Core.J1939.J1939TpLayer.LogSendFailed(j1939Logger, ex, frame.Id.Raw);
+                        return PeakCan.HIL.Core.Result<Unit>.Fail(
+                            PeakCan.HIL.Core.ErrorCode.InvalidState, ex.Message);
+                    }
+                },
+                new PeakCan.HIL.Core.J1939.J1939TpOptions(),
+                j1939Logger);
+        });
+        builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
+
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.IKeyDerivationAlgorithm, PeakCan.HIL.Core.Uds.PlaceholderKeyAlgorithm>();
         // v1.1.0: DID + Routine databases (load from %APPDATA%\PeakCan.Host\ on construction).

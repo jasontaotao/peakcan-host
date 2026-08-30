@@ -22,6 +22,9 @@
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <!-- Task 9: J1939TpSinkAdapterTests needs FakeTimeProvider for the
+         offline J1939TpLayer ctor (same package Core.Tests uses). -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="xunit" />

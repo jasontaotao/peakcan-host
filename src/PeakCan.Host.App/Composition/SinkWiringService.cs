@@ -35,12 +35,13 @@ internal sealed class SinkWiringService : IHostedService
     private readonly DbcDecodeBackgroundService _dbcDecode;
     private readonly RecordService _record;
     private readonly IsoTpSinkAdapter _isoTpAdapter;
+    private readonly J1939TpSinkAdapter _j1939Adapter;
 
     /// <summary>
-    /// All six dependencies are resolved by DI. The router and the
-    /// four sinks + the ISO-TP adapter are registered as singletons in
-    /// <c>AppHostBuilder.Build</c>, so this service is the only place
-    /// that ever wires them together.
+    /// All seven dependencies are resolved by DI. The router and the
+    /// four sinks + the ISO-TP adapter + the J1939 TP adapter are
+    /// registered as singletons in <c>AppHostBuilder.Build</c>, so this
+    /// service is the only place that ever wires them together.
     /// <para>
     /// P0 (flashing feature 2026-07-21): the <see cref="IsoTpSinkAdapter"/>
     /// closes the long-standing receive-wiring gap — the production UDS
@@ -50,6 +51,13 @@ internal sealed class SinkWiringService : IHostedService
     /// incoming router frames. Attaching the adapter here makes the three
     /// diagnostic tabs (DIDs / Routines / DTCs) finally receive ECU replies.
     /// </para>
+    /// <para>
+    /// Task 9: the <see cref="J1939TpSinkAdapter"/> does the same for the
+    /// J1939 transport-protocol stack — the adapter feeds TP.CM/TP.DT
+    /// frames (PGN 0x00EC00/0x00EB00) into
+    /// <see cref="PeakCan.HIL.Core.J1939.J1939TpLayer.ProcessFrame"/>,
+    /// which otherwise also has no production call site.
+    /// </para>
     /// </summary>
     public SinkWiringService(
         ChannelRouter router,
@@ -57,7 +65,8 @@ internal sealed class SinkWiringService : IHostedService
         BusStatisticsCollector stats,
         DbcDecodeBackgroundService dbcDecode,
         RecordService record,
-        IsoTpSinkAdapter isoTpAdapter)
+        IsoTpSinkAdapter isoTpAdapter,
+        J1939TpSinkAdapter j1939Adapter)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
@@ -65,6 +74,7 @@ internal sealed class SinkWiringService : IHostedService
         _dbcDecode = dbcDecode ?? throw new ArgumentNullException(nameof(dbcDecode));
         _record = record ?? throw new ArgumentNullException(nameof(record));
         _isoTpAdapter = isoTpAdapter ?? throw new ArgumentNullException(nameof(isoTpAdapter));
+        _j1939Adapter = j1939Adapter ?? throw new ArgumentNullException(nameof(j1939Adapter));
     }
 
     /// <summary>
@@ -73,8 +83,9 @@ internal sealed class SinkWiringService : IHostedService
     /// begins its 50 ms tick. After this point, any frame arriving at
     /// the router is fanned out to all consumers; the DBC decode service
     /// runs the dictionary lookup + signal decode on its own worker, off
-    /// the SDK read thread, and the ISO-TP adapter feeds ECU responses
-    /// into the UDS stack via <c>ProcessFrame</c>.
+    /// the SDK read thread, the ISO-TP adapter feeds ECU responses
+    /// into the UDS stack via <c>ProcessFrame</c>, and the J1939 TP
+    /// adapter feeds TP.CM/TP.DT frames into the J1939 transport layer.
     /// </summary>
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -83,6 +94,7 @@ internal sealed class SinkWiringService : IHostedService
         _router.AttachSink(_dbcDecode);
         _router.AttachSink(_record);
         _router.AttachSink(_isoTpAdapter);
+        _router.AttachSink(_j1939Adapter);
         return Task.CompletedTask;
     }
 
