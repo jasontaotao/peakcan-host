@@ -136,6 +136,17 @@ public sealed partial class J1939TpLayer
         byte grant = _options.CtsMaxPackets == 0
             ? (byte)Math.Min(remaining, 0xFF)
             : (byte)Math.Min(_options.CtsMaxPackets, remaining);
+        // Task 6 修订（初始授权记账，brief Files 列"补 GrantSinceCts 初始授权语义"）：初始 CTS
+        // 放行的包数必须记入会话（CurrentGrant），否则 HandleDt 的授权耗尽判定永不触发、
+        // CtsMaxPackets 分段策略下无续授权 CTS（RED 证据：brief 测试 Receiver_With_CtsMaxPackets_2_Segments_Grants）。
+        // 记账须先于发送（FireAndForget 同步可完成时内联送达对端）；锁内仅改状态、锁外发送，
+        // 与 Task 4 review 的锁纪律一致。会话不存在（超长 RTS 被拒）则无从记账，行为不变。
+        lock (_gate)
+        {
+            if (_rxSessions.TryGetValue(new SessionKey(peerSa, localDa), out var s))
+                s.CurrentGrant = grant;
+        }
+
         var ctsFrame = new CanFrame(
             new CanId(J1939Id.Compose(priority, TpCmPgn, localDa, peerSa), FrameFormat.Extended),
             TpCmMessage.Cts(grant, 1, rts.Pgn).Encode(),
@@ -195,9 +206,15 @@ public sealed partial class J1939TpLayer
                 _rxSessions.Remove(key);
                 completed = s;
             }
-            else if (!_options.OfflineMode && s.GrantSinceCts + 1 >= s.CurrentGrant)
+            else if (!_options.OfflineMode && s.GrantSinceCts >= s.CurrentGrant)
             {
-                // RTS/CTS 接收方：本轮授权收满，授权剩余
+                // RTS/CTS 接收方：本轮授权收满，授权剩余。
+                // Task 6 修订（有据，见 task-6-report）：原稿 `GrantSinceCts + 1 >= CurrentGrant` 提前一包
+                // 触发续授权——StorePacket 已先把 GrantSinceCts 累计到本包（授权 k 包收满第 k 包时
+                // GrantSinceCts==k），`+1` 使判定在 k==CurrentGrant-1 即成立；brief 对打测试
+                // Receiver_With_CtsMaxPackets_2_Segments_Grants 在 DT#2 后恰好断言 1 条续 CTS，
+                // `>=` 才是"收满再补发"的语义。此前因 CurrentGrant 从未被初始 CTS 记账（恒
+                // int.MaxValue）而潜伏，任何 CtsMaxPackets 分段策略下均不会暴露。
                 s.GrantSinceCts = 0;
                 s.CurrentGrant = _options.CtsMaxPackets == 0
                     ? Math.Min(s.TotalPackets - s.ReceivedPackets, 0xFF)
