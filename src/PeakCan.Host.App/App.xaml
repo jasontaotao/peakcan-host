@@ -32,6 +32,8 @@
             <conv:HexConverter x:Key="HexConverter" />
             <!-- 空字符串占位符转换器: null/"" -> Visible, 非空 -> Collapsed. HIL Browse 字段 overlay 用. -->
             <conv:EmptyStringToVisibilityConverter x:Key="EmptyStringToVisibilityConverter" />
+            <!-- Task 18: NodesView 节点状态点 Fill——true(运行中)→Green, false→Gray. -->
+            <conv:BoolToBrushConverter x:Key="BoolToGreenRedConverter" />
             <!-- v3.11.6 PATCH: per-source master-radio resource removed; the
                  legend-strip XAML now uses MultiBinding + the singleton
                  SourceIdEqualsMasterConverter instead. -->

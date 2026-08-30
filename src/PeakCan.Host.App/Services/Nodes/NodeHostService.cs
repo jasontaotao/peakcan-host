@@ -110,8 +110,13 @@ public sealed partial class NodeHostService : IDisposable
                     other != node && other.IsRunning &&
                     other.Config.Identity is J1939NodeIdentity otherId && otherId.Sa == identity.Sa);
                 if (conflicting is not null)
-                    return Result<Unit>.Fail(ErrorCode.InvalidState,
-                        $"源地址 SA 0x{identity.Sa:X2} 已被运行中的节点 '{conflicting.Config.Name}' 占用");
+                {
+                    // Task 18 绑定注 4：SA 冲突拒绝必须经 Activity/Error 呈现（UI 活动日志），
+                    // 不得静默吞掉——StartAll 丢弃 Result，活动日志是唯一可见面。
+                    var message = $"源地址 SA 0x{identity.Sa:X2} 已被运行中的节点 '{conflicting.Config.Name}' 占用";
+                    Raise(name, NodeActivityKind.Error, message);
+                    return Result<Unit>.Fail(ErrorCode.InvalidState, message);
+                }
             }
         }
 
