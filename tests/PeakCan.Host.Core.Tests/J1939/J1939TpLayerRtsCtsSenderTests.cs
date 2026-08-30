@@ -29,7 +29,8 @@ public class J1939TpLayerRtsCtsSenderTests
     public async Task Hold_Cts_Zero_Then_Continue()   // 修订 5：线 CTS 0 = hold → T4 后等下一 CTS
     {
         // 对端被替换为脚本化的假接收方：CTS(0) hold → 收到 RTS 后先回 hold，Advance 时间后不自动重发——
-        // hold 测试用"下一个 CTS"直接驱动：收到 hold 后层应等待；我们再喂 CTS(2) 让它继续。
+        // hold 测试用"下一个 CTS"直接驱动：收到 hold 后层应等待；我们再喂 CTS(7) 让它继续
+        //（T2 修订：一次授权剩余全部，见下）。
         //
         // 修订（有据，见 task-7-report 修订 T2）：brief 原稿 grantReply = Cts(2,1,...)（授权 2 包）后直接喂
         // EomAck(49,7) 并断言成功——与 brief 自身实现矛盾：其循环顶注释明言 EOM_ACK 不应出现在等 CTS 阶段

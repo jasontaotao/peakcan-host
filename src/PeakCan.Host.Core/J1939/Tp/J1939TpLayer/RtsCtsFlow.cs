@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace PeakCan.HIL.Core.J1939;
 
 public sealed partial class J1939TpLayer
@@ -166,23 +164,27 @@ public sealed partial class J1939TpLayer
     }
 
     /// <summary>
-    /// 注册下一等待阶段的 waiter（必须在 _gate 内改会话状态；TrySetResult 在锁外）。
-    /// 若注册前已有控制帧先到（存于 <see cref="RtsCtsTxSession.PendingControls"/>），按 FIFO 以队首
-    /// 立即补完成该 waiter（防丢唤醒）——RunContinuationsAsynchronously 下续接恒为线程池排队，
-    /// 此处锁外 TrySetResult 不会内联重入状态机。
+    /// 注册下一等待阶段的 waiter。若注册前已有控制帧先到（存于 <see cref="RtsCtsTxSession.PendingControls"/>），
+    /// 按 FIFO 以队首在同一临界区内立即消费并完成该 waiter（防丢唤醒）。
+    /// <para>修订 F1（review fix）：安装 waiter、消费队首、完成 waiter 三步必须在同一 _gate 临界区内
+    /// 原子完成——原实现把 TrySetResult 放在锁外，读线程可趁"锁已放、尚未完成"的窗口取走刚安装的
+    /// waiter 先行完成，队首帧 TrySetResult 失败且已被出队 → 静默丢失。锁内 TrySetResult 是安全的：
+    /// RunContinuationsAsynchronously 使续接恒排队线程池、绝不内联执行状态机代码，故持锁期间不会有
+    /// 任何会再取 _gate 的代码运行；且全部 completer（本方法与 HandleTxControl）自此都串行于 _gate，
+    /// TrySetResult 恒成功、无帧可失。</para>
     /// </summary>
     private TaskCompletionSource<TpCmMessage> RegisterWaiter(RtsCtsTxSession session)
     {
         var waiter = new TaskCompletionSource<TpCmMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-        TpCmMessage? early;
         lock (_gate)
         {
             session.Waiter = waiter;
-            early = session.PendingControls.Count > 0 ? session.PendingControls.Dequeue() : null;
+            if (session.PendingControls.Count > 0)
+            {
+                session.Waiter = null;   // 队首帧在本临界区内即时消费
+                waiter.TrySetResult(session.PendingControls.Dequeue());
+            }
         }
-
-        if (early is not null)
-            waiter.TrySetResult(early.Value);
         return waiter;
     }
 
@@ -210,25 +212,26 @@ public sealed partial class J1939TpLayer
     /// 下一帧被静默丢弃、状态机在 FakeTimeProvider 下永挂（实测：Hold_Cts_Zero_Then_Continue 与
     /// Rts_Declares_Sender_MaxPackets_Per_Cts 逐测试运行均挂死）。真实链路上对端 CTS/EOM_ACK 相对
     /// 本端阶段切换本就异步到达，暂存兜底同样是正确的产线行为。
+    /// <para>修订 F1（review fix）：取 waiter、置 null、TrySetResult 三步移入同一 _gate 临界区原子完成，
+    /// 堵住与 <see cref="RegisterWaiter"/> 早交付之间的 lost-frame 竞态窗口（任一方在锁外完成，另一方的
+    /// 帧即被静默丢弃）。锁内 TrySetResult 的安全性论证见 <see cref="RegisterWaiter"/>。</para>
     /// </summary>
     private partial void HandleTxControl(J1939Id id, TpCmMessage cm)
     {
-        TaskCompletionSource<TpCmMessage>? waiter;
         lock (_gate)
         {
             // 发送会话键 (Sa=本机, Da=对端)；控制帧 (Sa=对端, Da=本机) → 查 (PS, SA)
             var key = new SessionKey(id.PduSpecific, id.SourceAddress);
             if (!_txSessions.TryGetValue(key, out var session) || session.Pgn != cm.Pgn)
                 return;
-            waiter = session.Waiter;
+            var waiter = session.Waiter;
             if (waiter is null)
             {
                 session.PendingControls.Enqueue(cm);   // 无 waiter 窗口先到 → 暂存，注册时补交付
                 return;
             }
             session.Waiter = null;
+            waiter.TrySetResult(cm);   // F1：锁内原子完成（续接恒线程池排队，不内联重入状态机）
         }
-
-        waiter.TrySetResult(cm);   // 锁外（RunContinuationsAsynchronously：续接恒线程池排队，不内联重入）
     }
 }
