@@ -204,7 +204,8 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // Task 12 (J1939 L2): offline reassembly service backing the "J1939 重组"
         // panel. Nullable + default keeps legacy test ctor signatures compiling
         // (_builder 同款兜底模式); production DI injects the singleton
-        // (ViewModelsBatch2Flow), test fixtures fall back to a NullLogger instance.
+        // (ViewModelsBatch2Flow), test fixtures without the arg fall back to a
+        // loggerless `new J1939ReassemblyService()` (NullLogger inside).
         J1939ReassemblyService? j1939Reassembly = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -231,10 +232,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         // production DI passes a real IChatProvider + the 6 IChatTool instances.
         _chatProvider = chatProvider;
         _chatTools = (chatTools ?? Enumerable.Empty<IChatTool>()).ToList();
-        // Task 12 (J1939 L2): nullable-param fallback (NullLogger instance) —
-        // mirrors the _builder pattern above so legacy test ctor calls keep
-        // compiling without a DI container. Must run before the ctor's
-        // OnRegistrySourcesChanged() initial pull (partial-flow visibility).
+        // Task 12 (J1939 L2): nullable-param fallback (loggerless service
+        // instance, NullLogger inside) — mirrors the _builder pattern above so
+        // legacy test ctor calls keep compiling without a DI container. Must
+        // run before the ctor's OnRegistrySourcesChanged() initial pull
+        // (partial-flow visibility).
         _j1939Reassembly = j1939Reassembly ?? new J1939ReassemblyService();
         // v3.62.0 MINOR: wire plot resolver for axis sync (View owns the actual Plot objects)
         ChartViewModel.PlotResolver = key => _activePlots.TryGetValue(key, out var p) ? p : null;

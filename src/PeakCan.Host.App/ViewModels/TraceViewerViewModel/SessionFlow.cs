@@ -110,7 +110,7 @@ public sealed partial class TraceViewerViewModel
                 ColorR = src.Color.R,
                 ColorG = src.Color.G,
                 ColorB = src.Color.B,
-                StrokeStyle = src.StrokeStyle.ToString(),
+                StrokeStyle = src.StrokeStyle?.ToString() ?? "",
                 CanIdFilter = src.CanIdFilter ?? "",
                 ContentHash = hash,
             });
@@ -156,6 +156,12 @@ public sealed partial class TraceViewerViewModel
     private void OnSessionRestored()
     {
         RebindMasterServiceIfChanged();
+        // Task 12 review fix (Important): OpenSessionAsync loads traces via
+        // _registry.LoadAsync directly (TraceSessionService.cs:173), bypassing
+        // AddTraceAsync — without this the L2 panel stays silently empty after
+        // File ▸ Open Session. Event-driven (never runs during construction),
+        // so the ctor-time ReassembledMessages contract is unaffected.
+        RebuildJ1939ViewsCommand.Execute(null);
         if (_dbcService.Current is not null) RefreshFrameCounts();
         if (!double.IsNaN(_anchorTimestampSeconds))
             RefreshAtAnchor(_anchorTimestampSeconds);
