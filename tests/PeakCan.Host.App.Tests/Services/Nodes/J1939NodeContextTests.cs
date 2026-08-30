@@ -250,13 +250,14 @@ public class Gbt27930NodeTemplateTests
         var byPgn = bms.Messages.ToDictionary(
             m => ((J1939MessageRef)m.Ref).Pgn,
             m => (Ref: (J1939MessageRef)m.Ref, m.Payload, m.Enabled));
-        // BHM(0x2700)/BRM(0x0200)/BRO(0x0900)/BCL(0x1000)/BCS(0x1100)/BSM(0x1300)/BST(0x1900)/BSD(0x1C00)
+        // BHM(0x2700)/BRM(0x0200)/BCP(0x0600)/BRO(0x0900)/BCL(0x1000)/BCS(0x1100)/BSM(0x1300)/BST(0x1900)/BSD(0x1C00)
         byPgn.Keys.Should().BeEquivalentTo([
-            0x002700u, 0x000200u, 0x000900u, 0x001000u, 0x001100u, 0x001300u, 0x001900u, 0x001C00u]);
+            0x002700u, 0x000200u, 0x000600u, 0x000900u, 0x001000u, 0x001100u, 0x001300u, 0x001900u, 0x001C00u]);
 
         byPgn[0x002700].Enabled.Should().BeTrue();  // BHM 待机常发
         ByteCount(byPgn[0x002700].Payload).Should().Be(2);    // BHM 2B
         ByteCount(byPgn[0x000200].Payload).Should().Be(49);   // BRM 49B（7×TP.DT）
+        ByteCount(byPgn[0x000600].Payload).Should().Be(13);   // BCP 13B
         ByteCount(byPgn[0x001100].Payload).Should().Be(9);    // BCS 9B
         ByteCount(byPgn[0x001000].Payload).Should().Be(5);    // BCL 5B
         ByteCount(byPgn[0x001300].Payload).Should().Be(7);    // BSM 7B
@@ -266,7 +267,7 @@ public class Gbt27930NodeTemplateTests
         {
             r.Sa.Should().BeNull();                 // 发送时用节点自身 SA（0xF4）
             if (r.Mode == TpMode.Bam)
-                r.Da.Should().Be(0xFF);             // BAM 广播（BRM/BCS）
+                r.Da.Should().Be(0xFF);             // BAM 广播（BRM/BCP/BCS）
             else
             {
                 r.Mode.Should().Be(TpMode.Single);
@@ -279,6 +280,13 @@ public class Gbt27930NodeTemplateTests
         // 发单帧"），启用即每周期报错。模板已改 Single/da=0x56，此处显式固化防回归。
         byPgn[0x001300].Ref.Mode.Should().Be(TpMode.Single);
         byPgn[0x001300].Ref.Da.Should().Be(0x56);
+
+        // 终审修复（Important）：BCP 13B Bam 广播补齐（GB/T 27930 §11.3）——充电机模板的
+        // BCP→CRO 规则此前对模拟 BMS 永不触发（配置阶段停摆）。BCP 为休眠项（enabled=false，
+        // 与 BRM/BCS 同款，由编辑器/规则按需启用），此处显式固化防回归。
+        byPgn[0x000600].Ref.Mode.Should().Be(TpMode.Bam);
+        byPgn[0x000600].Ref.Da.Should().Be(0xFF);
+        byPgn[0x000600].Enabled.Should().BeFalse();
     }
 
     [Fact]
@@ -316,8 +324,8 @@ public class Gbt27930NodeTemplateTests
     {
         var bms = Load("gbt27930-bms");
 
-        bms.Rules.Should().HaveCount(7);
-        // CHM→BRM、CRM→BRO、CRO→BCL+BCS、CST→停 BCL+BCS+发 BSD；触发方均为充电机（SA=0x56）
+        bms.Rules.Should().HaveCount(8);
+        // CHM→BRM、CRM→BRO、CRO→BCL+BCS、CST→停 BCL+BCS+发 BST+发 BSD；触发方均为充电机（SA=0x56）
         TriggerPgn(bms.Rules[0]).Should().Be(0x002600);
         bms.Rules[0].Action.Should().BeOfType<StartMessageAction>()
             .Which.Ref.Should().BeOfType<J1939MessageRef>().Which.Mode.Should().Be(TpMode.Bam);
@@ -327,10 +335,16 @@ public class Gbt27930NodeTemplateTests
         TriggerPgn(bms.Rules[4]).Should().Be(0x001A00);
         TriggerPgn(bms.Rules[5]).Should().Be(0x001A00);
         TriggerPgn(bms.Rules[6]).Should().Be(0x001A00);
-        // CRO 启动 BCL(0x1000) + BCS(0x1100)；CST 停二者并回 BSD(0x1C00)
+        TriggerPgn(bms.Rules[7]).Should().Be(0x001A00);
+        // CRO 启动 BCL(0x1000) + BCS(0x1100)；CST 停二者并回 BST(0x1900)+BSD(0x1C00)
         new[] { bms.Rules[2], bms.Rules[3] }.Select(StartPgn).Should().BeEquivalentTo([0x001000u, 0x001100u]);
         new[] { bms.Rules[4], bms.Rules[5] }.Select(StopPgn).Should().BeEquivalentTo([0x001000u, 0x001100u]);
-        var bsd = bms.Rules[6].Action.Should().BeOfType<SendMessageAction>().Which;
+        // 终审修复（Important）：补 CST→发 BST 规则（镜像充电机模板 BST→发 CST）——此前 BST
+        // 报文为孤儿（无规则引用），标准结束序 CST→BST→BSD/CSD 对模拟 BMS 不可达。
+        var bst = bms.Rules[6].Action.Should().BeOfType<SendMessageAction>().Which;
+        bst.Ref.Should().BeOfType<J1939MessageRef>().Which.Pgn.Should().Be(0x001900);
+        ByteCount(bst.Payload).Should().Be(4);
+        var bsd = bms.Rules[7].Action.Should().BeOfType<SendMessageAction>().Which;
         bsd.Ref.Should().BeOfType<J1939MessageRef>().Which.Pgn.Should().Be(0x001C00);
         ByteCount(bsd.Payload).Should().Be(7);
         bms.Rules.Select(TriggerSa).Should().OnlyContain(sa => sa == 0x56);

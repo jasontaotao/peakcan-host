@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
+using PeakCan.HIL.Core.Services;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.J1939;
 using PeakCan.Host.App.ViewModels;
@@ -39,21 +40,23 @@ public class J1939SendViewModelTests
         }
     }
 
-    private static (J1939SendViewModel vm, CapturingSendService send, List<CanFrame> tpSent) Create()
+    private static (J1939SendViewModel vm, CapturingSendService send, List<CanFrame> tpSent, J1939CyclicSendService cyclic) Create()
     {
         var send = new CapturingSendService();
         var tpSent = new List<CanFrame>();
         var layer = new J1939TpLayer(
             (frame, _) => { tpSent.Add(frame); return ValueTask.FromResult(Result<Unit>.Ok(default)); },
             new J1939TpOptions { BamIntervalMs = 0 });
-        var vm = new J1939SendViewModel(layer, send, NullLogger<J1939SendViewModel>.Instance);
-        return (vm, send, tpSent);
+        // 终审修复钉住用：注入真实 cyclic 服务——StartCyclic 拒绝路径须可断言 IsRunning 不变。
+        var cyclic = new J1939CyclicSendService(new CyclicTimerFactory());
+        var vm = new J1939SendViewModel(layer, send, NullLogger<J1939SendViewModel>.Instance, cyclic);
+        return (vm, send, tpSent, cyclic);
     }
 
     [Fact]
     public void Single_Mode_Sends_Composed_Frame_With_Da()
     {
-        var (vm, send, _) = Create();
+        var (vm, send, _, _) = Create();
         vm.PgnHex = "0x2600"; vm.Priority = "6"; vm.SourceAddressHex = "0x56";
         vm.DestinationAddressHex = "0xF4"; vm.ModeIndex = 0; vm.PayloadHex = "01 01 00";
 
@@ -66,7 +69,7 @@ public class J1939SendViewModelTests
     [Fact]
     public void Bam_Mode_Routes_To_Tp_Layer()
     {
-        var (vm, send, tpSent) = Create();
+        var (vm, send, tpSent, _) = Create();
         vm.PgnHex = "0x0200"; vm.Priority = "6"; vm.SourceAddressHex = "0xF4";
         vm.ModeIndex = 1; vm.PayloadHex = string.Join(" ", Enumerable.Range(1, 49).Select(i => i.ToString("X2", CultureInfo.InvariantCulture)));
 
@@ -79,7 +82,7 @@ public class J1939SendViewModelTests
     [Fact]
     public void Payload_Under_9B_With_Tp_Mode_Shows_Guidance_Error()
     {
-        var (vm, send, tpSent) = Create();
+        var (vm, _, tpSent, _) = Create();
         vm.PgnHex = "0x0200"; vm.SourceAddressHex = "0xF4"; vm.ModeIndex = 1;
         vm.PayloadHex = "01 02 03";
 
@@ -92,13 +95,33 @@ public class J1939SendViewModelTests
     [Fact]
     public void RtsCts_Mode_Requires_Da()
     {
-        var (vm, send, tpSent) = Create();
+        var (vm, _, tpSent, _) = Create();
         vm.PgnHex = "0x0200"; vm.SourceAddressHex = "0xF4"; vm.DestinationAddressHex = "";
         vm.ModeIndex = 2; vm.PayloadHex = string.Join(" ", Enumerable.Range(1, 20).Select(i => i.ToString("X2", CultureInfo.InvariantCulture)));
 
         vm.SendCommand.Execute(null);
 
         vm.Status.Should().Contain("目标地址");
+        tpSent.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// 终审修复（Important #1）：单帧 + PDU2 PGN 的循环发送在 tick 侧
+    /// <see cref="J1939Id.Compose"/>(…, Da ?? 0xFF) 必抛（PDU2 禁 DA），此前表现为
+    /// 「已启动」+ 每 tick 静默 FailureCount。入口拒绝并给出模式指引，服务不得启动。
+    /// </summary>
+    [Fact]
+    public void StartCyclic_Pdu2_Pgn_Shows_Guidance_And_Service_Not_Started()
+    {
+        var (vm, send, tpSent, cyclic) = Create();
+        vm.PgnHex = "0x00F999"; vm.Priority = "6"; vm.SourceAddressHex = "0xF4";
+        vm.ModeIndex = 0; vm.IntervalMs = "100"; vm.PayloadHex = "01 02";
+
+        vm.StartCyclicCommand.Execute(null);
+
+        vm.Status.Should().Contain("PDU2").And.Contain("BAM");   // 指引改用 BAM / RTS-CTS
+        cyclic.IsRunning.Should().BeFalse();                     // 定时器不得创建
+        send.Sent.Should().BeEmpty();
         tpSent.Should().BeEmpty();
     }
 }

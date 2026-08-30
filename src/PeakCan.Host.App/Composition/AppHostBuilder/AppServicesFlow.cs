@@ -170,7 +170,11 @@ public partial class AppHostBuilder
                     router,
                     sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Nodes.J1939.J1939NodeContext>>()),
                 router: router,
-                logger: logger);
+                logger: logger,
+                // 终审修复（Important）：必须传入日志工厂——默认行为工厂据此给 RuleBasedBehavior
+                // 解析真实类别日志器（ScriptAction 逃生口降级告警 EventId 9441），缺省时落
+                // NullLogger，9441 在生产日志中永久静默（Task 16 第 5 参即为 wires 此处）。
+                loggerFactory: sp.GetRequiredService<ILoggerFactory>());
         });
         // v1.5.1 PATCH Item 2 (Periodic DBC send): independent service
         // per Decision 7 — does NOT share code with CyclicSendService.

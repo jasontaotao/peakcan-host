@@ -100,7 +100,9 @@ public sealed partial class J1939SendViewModel : ObservableObject
         SendCore(spec);
     }
 
-    /// <summary>启动周期发送（命令）：与单次发送同一套解析/校验；周期需 &gt; 0 ms。</summary>
+    /// <summary>启动周期发送（命令）：与单次发送同一套解析/校验；周期需 &gt; 0 ms；
+    /// 单帧 + PDU2 PGN 拒绝启动（tick 侧 <see cref="J1939Id.Compose"/> 对 PDU2 禁 DA，
+    /// 否则每 tick 抛异常、仅 FailureCount 递增，UI 却显示已启动）。</summary>
     [RelayCommand]
     private void StartCyclic()
     {
@@ -113,6 +115,12 @@ public sealed partial class J1939SendViewModel : ObservableObject
         if (!int.TryParse(IntervalMs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intervalMs) || intervalMs <= 0)
         {
             Status = "周期需为正整数毫秒（0=单次，请用发送按钮）";
+            LogSendRejected(_logger, Status);
+            return;
+        }
+        if (spec.Mode == TpMode.Single && !J1939Id.IsPdu1Pgn(spec.Pgn))
+        {
+            Status = "PDU2 PGN（PF≥0xF0）不支持单帧循环发送；请改用 BAM 或 RTS-CTS 模式";
             LogSendRejected(_logger, Status);
             return;
         }
