@@ -168,4 +168,39 @@ public class RuleBasedBehaviorTests
 
         ctx.Sent.Count.Should().Be(count);
     }
+
+    [Fact]
+    public void OnMessageArrived_Before_Attach_Is_Noop()
+    {
+        // 评审修复 1 的回归钉：_ctx 在数组就绪前不发布——Attach 前的到达走 null 守卫，
+        // 而不是带着零长 _enabled/_nextDueMs 进入 SetEnabled 越界。
+        var ctx = new FakeNodeContext();
+        var behavior = new RuleBasedBehavior(
+            new List<NodeMessage> { new(CrmRef, 250, new FixedHexSource("AA"), true) },
+            new List<ResponseRule> { new(BroRef, null, new StartMessageAction(CrmRef), 0) });
+        ctx.MessageArrived += behavior.OnMessageArrived;   // 模拟宿主 consumer 直派
+
+        ctx.Arrive(BroRef);
+
+        ctx.Sent.Should().BeEmpty();
+        ctx.Reports.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void OnMessageArrived_After_Detach_Is_Noop()
+    {
+        // 评审修复 2 的回归钉：Detach 后到达不再发送/上报（锁内 null 守卫兜住在途窗口）。
+        var ctx = new FakeNodeContext();
+        var behavior = new RuleBasedBehavior(
+            new List<NodeMessage> { new(CrmRef, 250, new FixedHexSource("AA"), true) },
+            new List<ResponseRule> { new(BroRef, null, new StartMessageAction(CrmRef), 0) });
+        ctx.MessageArrived += behavior.OnMessageArrived;   // 模拟宿主 consumer 直派
+        behavior.Attach(ctx);
+        behavior.Detach();
+
+        ctx.Arrive(BroRef);
+
+        ctx.Sent.Should().BeEmpty();
+        ctx.Reports.Should().BeEmpty();
+    }
 }

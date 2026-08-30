@@ -34,13 +34,15 @@ public sealed partial class RuleBasedBehavior : INodeBehavior
     /// <inheritdoc/>
     public void Attach(INodeContext ctx)
     {
-        _ctx = ctx;
         var now = NowMs(ctx);
         lock (_gate)
         {
             _enabled = _messages.Select(m => m.Enabled).ToArray();
             _nextDueMs = _messages.Select(m => now + m.IntervalMs).ToArray();
             _pending.Clear();
+            // 评审修复：_ctx 必须在索引数组就绪后发布——否则 Attach 窗口内到达并命中
+            // Start/Stop 规则时，SetEnabled 会在零长数组上越界（IndexOutOfRangeException）。
+            _ctx = ctx;
             _scanTimer = ctx.Clock.CreateTimer(Scan, null, TimeSpan.FromMilliseconds(ScanIntervalMs), TimeSpan.FromMilliseconds(ScanIntervalMs));
         }
     }
@@ -60,14 +62,18 @@ public sealed partial class RuleBasedBehavior : INodeBehavior
     /// <inheritdoc/>
     public void OnMessageArrived(NodeMessageArrived message)
     {
-        var ctx = _ctx;
-        if (ctx is null)
-            return;
-
-        long dueAt = NowMs(ctx);
+        // 评审修复：ctx 在 _gate 内捕获并校验——Detach 与在途调用并发时，锁的先后决定
+        // 命运：Detach 先拿到锁 → 在途调用看到 null 直接 no-op；在途调用先拿到锁 →
+        // 本批次在合法 Attached 状态下完成。避免对已停止节点再发送/上报。
         List<ResponseRule>? immediate = null;
+        INodeContext? ctx;
+        long dueAt;
         lock (_gate)
         {
+            ctx = _ctx;
+            if (ctx is null)
+                return;
+            dueAt = NowMs(ctx);
             foreach (var rule in _rules)
             {
                 if (!MessageRefMatcher.Matches(rule.Trigger, message.Ref))
@@ -91,14 +97,17 @@ public sealed partial class RuleBasedBehavior : INodeBehavior
 
     private void Scan(object? state)
     {
-        var ctx = _ctx;
-        if (ctx is null)
-            return;
-        var now = NowMs(ctx);
-
+        // 评审修复：ctx 在 _gate 内捕获并校验——Timer.Dispose 不等待在途回调，
+        // Detach 后仍在飞的 tick 不得再发送周期帧 / 触发 pending 规则。
         List<ResponseRule>? dueRules = null;
+        INodeContext? ctx;
         lock (_gate)
         {
+            ctx = _ctx;
+            if (ctx is null)
+                return;
+            var now = NowMs(ctx);
+
             for (int i = 0; i < _messages.Count; i++)
             {
                 if (!_enabled[i] || _messages[i].IntervalMs <= 0 || now < _nextDueMs[i])
