@@ -30,9 +30,6 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty]
     private ObservableCollection<SamplingTableRow> samplingRows = new();
 
-    // Deprecated debounce helper retained as a no-op scaffold (unused).
-    private CancellationTokenSource? _samplingRefreshCts;
-
     /// <summary>
     /// True 表示 SamplingRows 至少要有 1 行可见。XAML 右侧 panel 用这个
     /// 显隐 — 无 watched signals 时整个 panel 折叠以节省 horizontal space。
