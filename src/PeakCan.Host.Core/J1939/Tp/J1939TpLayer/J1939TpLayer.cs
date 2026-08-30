@@ -47,6 +47,7 @@ public sealed partial class J1939TpLayer
     private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
     private readonly Dictionary<SessionKey, TpSession> _rxSessions = new();
+    private readonly Dictionary<SessionKey, RtsCtsTxSession> _txSessions = new();   // RTS/CTS 发送会话（RtsCtsFlow，Task 7）
     private readonly HashSet<byte> _localAddresses = new();
     private double _lastActivityTimestampSec;
 
