@@ -17,6 +17,7 @@
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.Host.App.Services.J1939;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -71,6 +72,9 @@ public sealed partial class TraceViewerViewModel
 
         var targetTs = _masterService.CurrentTimestamp;
         int idx = BinarySearchLatestAtOrBefore(frames, targetTs);
+        // Task 10 L1: anchor 帧（CurrentTimestamp 前最近一帧）的 J1939 TP 注解 —
+        // 所有行采样同一个 anchor 帧，故 TP 列各行同值；非 TP/畸形帧为空串。
+        ReplayFrame? f = idx < 0 ? null : frames[idx];
 
         var rows = new List<SamplingTableRow>(capacity: WatchedSignals.Count);
         foreach (var watch in WatchedSignals)
@@ -82,7 +86,10 @@ public sealed partial class TraceViewerViewModel
                 MessageName: watch.MessageName,
                 SignalName: watch.SignalName,
                 Unit: watch.Unit,
-                Value: value?.ToString("F2") ?? "—"));
+                Value: value?.ToString("F2") ?? "—")
+            {
+                TpInfo = f is null ? "" : J1939TpAnnotation.Annotate(f) ?? "",
+            });
         }
         SamplingRows.Clear();
         foreach (var r in rows) SamplingRows.Add(r);
@@ -119,4 +126,11 @@ public sealed record SamplingTableRow(
     string MessageName,
     string SignalName,
     string Unit,
-    string Value);
+    string Value)
+{
+    /// <summary>
+    /// Task 10 L1 行内注解：anchor 帧（CurrentTimestamp 前最近一帧）为 J1939-21
+    /// TP 帧（PF=0xEB/0xEC）时的单行解码文本；非 TP/畸形帧为空串。
+    /// </summary>
+    public string TpInfo { get; init; } = "";
+}
