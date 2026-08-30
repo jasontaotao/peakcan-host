@@ -134,6 +134,27 @@ public class NodeHostServiceTests : IDisposable
     }
 
     [Fact]
+    public void Activity_Subscriber_Exception_Is_Isolated()
+    {
+        // 评审修复回归钉：Raise 逐订阅者隔离（J1939TpLayer.RaiseMessageReceived 同款）——
+        // 坏订阅者不得让 Start/Stop 抛出、不得殃及同批其他订阅者、不得杀死 consumer 分发。
+        var host = CreateHost();
+        var received = new List<NodeActivity>();
+        host.Activity += _ => throw new InvalidOperationException("bad handler");   // 先订阅坏处理器
+        host.Activity += received.Add;                                              // 好处理器仍须收到
+
+        host.AddNode(Config("n1"));
+        host.StartNode("n1").IsSuccess.Should().BeTrue();
+        received.Should().Contain(a => a.Kind == NodeActivityKind.Started);
+
+        _contexts[0].Report(NodeActivityKind.RuleMatched, "test");   // 同一坏订阅者重复抛出
+        received.Should().Contain(a => a.Kind == NodeActivityKind.RuleMatched);
+
+        host.StopNode("n1");
+        received.Should().Contain(a => a.Kind == NodeActivityKind.Stopped);
+    }
+
+    [Fact]
     public void Context_SendFailed_Becomes_Error_Activity()
     {
         var host = CreateHost();

@@ -87,7 +87,12 @@ public sealed partial class NodeHostService : IDisposable
         return Result<Unit>.Ok(default);
     }
 
-    /// <summary>启动节点（幂等；SA 冲突——与运行中节点同 J1939 源地址——→ Error）。</summary>
+    /// <summary>
+    /// 启动节点（幂等；SA 冲突——与运行中节点同 J1939 源地址——→ Error）。
+    /// <para><b>线程契约：</b>调用方必须固定在单线程（WPF UI 线程）上调用——SA 校验虽在
+    /// <c>_gate</c> 内，<c>node.Start</c>/Wire 却在锁外执行，对本服务不构成并发原子操作。
+    /// </para>
+    /// </summary>
     public Result<Unit> StartNode(string name)
     {
         SimulatedNode? node;
@@ -117,7 +122,10 @@ public sealed partial class NodeHostService : IDisposable
         return Result<Unit>.Ok(default);
     }
 
-    /// <summary>停止节点（幂等：未运行直接 Ok，不引发 Activity）。</summary>
+    /// <summary>
+    /// 停止节点（幂等：未运行直接 Ok，不引发 Activity）。
+    /// <para><b>线程契约：</b>调用方必须固定在单线程（WPF UI 线程）上调用；启停/挂接对并发调用方不具原子性。</para>
+    /// </summary>
     public Result<Unit> StopNode(string name)
     {
         lock (_gate)
@@ -149,7 +157,10 @@ public sealed partial class NodeHostService : IDisposable
             _ = StopNode(node.Config.Name);
     }
 
-    /// <summary>挂接：后端事件 → 入队；Report/SendFailed → Activity。</summary>
+    /// <summary>
+    /// 挂接：后端事件 → 入队；Report/SendFailed → Activity。
+    /// <para><b>线程契约：</b>与 Start/Stop 同线程（WPF UI 线程）调用；挂接/摘除对并发调用方不具原子性。</para>
+    /// </summary>
     private void Wire(SimulatedNode node)
     {
         if (node.Context is null)
@@ -161,6 +172,7 @@ public sealed partial class NodeHostService : IDisposable
             _router.AttachSink(sink);
     }
 
+    /// <summary><b>线程契约：</b>与 Wire 相同——仅在 WPF UI 线程经 Start/Stop 调用；不具并发原子性。</summary>
     private void Unwire(SimulatedNode node)
     {
         if (node.Context is null)
@@ -213,8 +225,29 @@ public sealed partial class NodeHostService : IDisposable
         }
     }
 
-    private void Raise(string name, NodeActivityKind kind, string detail) =>
-        Activity?.Invoke(new NodeActivity(name, kind, detail, DateTimeOffset.UtcNow));
+    // 事件隔离（同 J1939TpLayer.RaiseMessageReceived 模式）：快照委托后逐订阅者 try/catch——
+    // 一个坏订阅者（Task 17/18 的 UI Activity 处理器）不得殃及同批其他订阅者，更不得
+    // 逃逸出去杀死 consumer 分发循环或把已成功的 Start/Stop 变成抛出。仍在触发方线程同步引发
+    // （NodeActivity 的线程契约不变）。订阅者异常按 9402 Error 记录（评审二选一：9402 或
+    // Debug——选 Error 保证生产可见；{Node} 标明来源节点）。
+    private void Raise(string name, NodeActivityKind kind, string detail)
+    {
+        var handlers = Activity;   // 委托引用读取原子，快照即一致
+        if (handlers is null)
+            return;
+        var activity = new NodeActivity(name, kind, detail, DateTimeOffset.UtcNow);
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<NodeActivity>)handler)(activity);
+            }
+            catch (Exception ex)
+            {
+                LogBehaviorThrew(_logger, ex, name);
+            }
+        }
+    }
 
     /// <summary>停止全部节点并取消 consumer 任务（宿主关闭时调用）。</summary>
     public void Dispose()
@@ -225,10 +258,11 @@ public sealed partial class NodeHostService : IDisposable
     }
 
     // 计划原文参数名 count/node 与模板占位符 {Count}/{Node} 不匹配（SYSLIB1014/1015，LoggerMessage
-    // 生成器按名匹配，Task 15 同款修订）——按占位符改名 Count/Node。
-    [LoggerMessage(EventId = 9401, Level = LogLevel.Warning, Message = "NodeHostService queue near capacity ({Count}/256)")]
+    // 生成器按名匹配，Task 15 同款修订）——按占位符改名 Count/Node。模板文本以 Global Constraints
+    // 绑定表为准（Task 9 的 9301/9302 同款裁定：表优先于 brief 示例）。
+    [LoggerMessage(EventId = 9401, Level = LogLevel.Warning, Message = "node queue near capacity ({Count}/256)")]
     private static partial void LogQueueNearCapacity(ILogger logger, int Count);
 
-    [LoggerMessage(EventId = 9402, Level = LogLevel.Error, Message = "Node behavior threw for {Node}")]
+    [LoggerMessage(EventId = 9402, Level = LogLevel.Error, Message = "node behavior threw for {Node}")]
     private static partial void LogBehaviorThrew(ILogger logger, Exception ex, string Node);
 }
