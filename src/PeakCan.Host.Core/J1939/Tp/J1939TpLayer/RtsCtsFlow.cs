@@ -15,9 +15,17 @@ public sealed partial class J1939TpLayer
         public TaskCompletionSource<TpCmMessage>? Waiter;
 
         /// <summary>无 waiter 窗口内先到的控制帧（如对端续授权 CTS/EOM_ACK 恰在两次注册间抵达）。
-        /// FIFO，注册下一 waiter 时补交付（防丢唤醒）；会话移除时随之丢弃。</summary>
+        /// FIFO，注册下一 waiter 时补交付（防丢唤醒）；会话移除时随之丢弃。
+        /// 上限 <see cref="MaxPendingControls"/>（Task 8 hardening），溢出丢最旧。</summary>
         public readonly Queue<TpCmMessage> PendingControls = new();
     }
+
+    /// <summary>
+    /// Task 8 hardening（Task 7 路由）：<see cref="RtsCtsTxSession.PendingControls"/> 上限。
+    /// 该队列是无 waiter 窗口的暂存兜底，正常深度 ≤2（一个窗口至多一条续授权 CTS + 一条 EOM_ACK）；
+    /// 持续堆积只能是对端刷帧。取 8 ≈ 4 倍正常深度上限，防恶意对端打爆内存。
+    /// </summary>
+    private const int MaxPendingControls = 8;
 
     /// <summary>
     /// RTS/CTS 点对点发送（spec §6.2）。Task 在收到 EOM_ACK（校验一致）后完成；
@@ -227,6 +235,11 @@ public sealed partial class J1939TpLayer
             var waiter = session.Waiter;
             if (waiter is null)
             {
+                // Task 8 hardening（Task 7 路由）：队列封顶，溢出丢最旧、留最新——CTS 授权以后到者
+                // 为准（新授权覆盖旧授权），且被丢帧的最终表现是状态机 T3/T4 超时 Error，
+                // 不新增失败路径、不上总线、不让对端刷帧打爆内存。
+                if (session.PendingControls.Count >= MaxPendingControls)
+                    session.PendingControls.Dequeue();
                 session.PendingControls.Enqueue(cm);   // 无 waiter 窗口先到 → 暂存，注册时补交付
                 return;
             }

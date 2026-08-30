@@ -24,7 +24,18 @@ public sealed partial class J1939TpLayer
     /// <summary>接收会话（BAM 与 RTS/CTS 接收方共用）。</summary>
     internal sealed class TpSession
     {
-        public TpSession(int totalPackets) => Buffer = new byte[Math.Max(totalPackets, 1) * 7];
+        public TpSession(int totalPackets)
+        {
+            Buffer = new byte[Math.Max(totalPackets, 1) * 7];
+            // Task 8 修订（有据）：brief Step 3 的 FlushPendingSessions 先 0xFF 填充 payload 再整段
+            // Array.Copy(s.Buffer, payload, ...)——若 Buffer 零初始化，未收到包的位置会以 0x00 覆盖
+            // 0xFF，brief 自带测试 Offline_Gap_Keeps_Session_And_Flush_Reports_PacketLoss 断言
+            // PartialPayload[20]==0xFF（缺失包区域）必失败。J1939-21 §8.7 要求缺失字节填 1 →
+            // 缓冲区以 0xFF 预填充、收到包写时覆盖。对收齐的会话不可见：ReceivedPackets==TotalPackets
+            // 蕴含每个槽位 1..TotalPackets 均已写入（HandleDt 的存储序号严格递增且经越界守卫限位于
+            // [1, TotalPackets]），其拷贝长度为 TotalBytes，尾包填充区不参与拷贝。
+            Array.Fill(Buffer, (byte)0xFF);
+        }
 
         public required uint Pgn { get; init; }
         public required byte Priority { get; init; }
@@ -39,6 +50,13 @@ public sealed partial class J1939TpLayer
         public int CurrentGrant = int.MaxValue;   // 本次 CTS 授权的包数
         public byte[] Buffer;
         public double LastFrameTimestampSec;
+
+        /// <summary>
+        /// 最后一帧活动时刻的 <see cref="TimeProvider.GetTimestamp"/> 计时值（Task 8：watchdog 扫描
+        /// 用 <see cref="TimeProvider.GetElapsedTime(long)"/> 计 T1，须与 GetTimestamp 同基准；
+        /// brief Step 3 实现说明。显示语义仍用 <see cref="LastFrameTimestampSec"/> 秒值）。
+        /// </summary>
+        public long LastFrameTimestampTicks;
     }
 
     private readonly Func<CanFrame, CancellationToken, ValueTask<Result<Unit>>> _sendAsync;

@@ -91,6 +91,7 @@ public sealed partial class J1939TpLayer
                     TotalPackets = cm.TotalPackets,
                     FirstFrameTimestampSec = ts,
                     LastFrameTimestampSec = ts,
+                    LastFrameTimestampTicks = _timeProvider.GetTimestamp(),   // Task 8：T1 扫描基准（brief Step 3 实现说明）
                 };
             }
         }
@@ -126,6 +127,12 @@ public sealed partial class J1939TpLayer
             return;   // 纯监听：不建会话、不注入任何 TP.CM
 
         CreateOrReplaceSession(new SessionKey(id.SourceAddress, id.PduSpecific), id.Priority, cm, TpMode.RtsCts, ts);
+
+        // Task 8 hardening（Task 6 review 路由）：OfflineMode 的 xmldoc 承诺"禁止一切主动发送"——
+        // 离线回放即使注册了本机地址并收到指向本机的 RTS，也绝不注入初始 CTS（续授权 CTS 与
+        // EOM_ACK 分别由 HandleDt 的 !OfflineMode 条件把关）。会话仍建立，供 DT 重组与离线 flush 结算。
+        if (_options.OfflineMode)
+            return;
         SendCts(id.SourceAddress, id.PduSpecific, id.Priority, cm);
     }
 
@@ -140,11 +147,14 @@ public sealed partial class J1939TpLayer
         // 放行的包数必须记入会话（CurrentGrant），否则 HandleDt 的授权耗尽判定永不触发、
         // CtsMaxPackets 分段策略下无续授权 CTS（RED 证据：brief 测试 Receiver_With_CtsMaxPackets_2_Segments_Grants）。
         // 记账须先于发送（FireAndForget 同步可完成时内联送达对端）；锁内仅改状态、锁外发送，
-        // 与 Task 4 review 的锁纪律一致。会话不存在（超长 RTS 被拒）则无从记账，行为不变。
+        // 与 Task 4 review 的锁纪律一致。
+        // Task 8 hardening（Task 6 review 路由）：RTS 被拒（声明超长/零包，CreateOrReplaceSession
+        // 未建会话）时到此无会话可记账——绝不对不存在的会话授予 CTS（线上"无主"授权），静默返回。
         lock (_gate)
         {
-            if (_rxSessions.TryGetValue(new SessionKey(peerSa, localDa), out var s))
-                s.CurrentGrant = grant;
+            if (!_rxSessions.TryGetValue(new SessionKey(peerSa, localDa), out var s))
+                return;
+            s.CurrentGrant = grant;
         }
 
         var ctsFrame = new CanFrame(
@@ -171,6 +181,22 @@ public sealed partial class J1939TpLayer
                 return;   // 无会话 → 丢弃（总线上常见半截流量，不计错误）
 
             s.LastFrameTimestampSec = ts;
+            s.LastFrameTimestampTicks = _timeProvider.GetTimestamp();   // Task 8：T1 扫描基准随活动刷新
+
+            // Task 8 hardening（Task 4 review 路由）：离线下越界序号（> TotalPackets）不得存储——
+            // 两条崩溃路径：(a) gap 路径直存超界序号，StorePacket 的 AsSpan(offset) 越界抛
+            // ArgumentOutOfRangeException；(b) 此前 gap 存储把 NextExpectedSeq 推到 TotalPackets+1
+            // （如 Total=3 收 {1,3} 后补发 seq==Next 的帧），in-order 路径 AsSpan(Buffer.Length)
+            // 得空跨度、CopyTo 抛 ArgumentException。视同序号跳变：记 3107、置 GapDetected、
+            // 忽略该帧（不存储、不推进 NextExpectedSeq，后续合法序号仍可入库）→ flush 永不抛。
+            // 仅离线：在线 gap 仍走下方作废路径（spec §12），语义不变。
+            if (_options.OfflineMode && dt.SequenceNumber > s.TotalPackets)
+            {
+                s.GapDetected = true;
+                LogSequenceGap(_logger ?? NullLogger<J1939TpLayer>.Instance, s.NextExpectedSeq, dt.SequenceNumber);
+                return;
+            }
+
             if (dt.SequenceNumber == s.NextExpectedSeq)
             {
                 StorePacket(s, dt.SequenceNumber, dt.Data.Span);
@@ -222,7 +248,10 @@ public sealed partial class J1939TpLayer
                 ctsContinuation = BuildCtsContinuation(key, s, (byte)s.CurrentGrant);
             }
 
-            if (completed is not null && s.Mode == TpMode.RtsCts)
+            // Task 8 hardening（Task 6 review 路由）：OfflineMode 承诺"禁止一切主动发送"——离线完成
+            // 的 RTS/CTS 会话（离线下指向本机的 RTS 仍建会话）不得注入 EOM_ACK；重组结果照常经
+            // MessageReceived 交付。续授权 CTS 由上方 !_options.OfflineMode 条件把关。
+            if (completed is not null && s.Mode == TpMode.RtsCts && !_options.OfflineMode)
                 eomAck = BuildEomAck(key, s);
         }
 
