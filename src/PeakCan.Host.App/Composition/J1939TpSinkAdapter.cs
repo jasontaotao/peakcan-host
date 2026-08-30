@@ -44,7 +44,7 @@ namespace PeakCan.Host.App.Composition;
 /// still surface via <see cref="OnError"/>.
 /// </para>
 /// </summary>
-internal sealed class J1939TpSinkAdapter : IFrameSink
+internal sealed partial class J1939TpSinkAdapter : IFrameSink
 {
     private readonly J1939TpLayer _layer;
     private readonly ILogger<J1939TpSinkAdapter> _logger;
@@ -89,7 +89,7 @@ internal sealed class J1939TpSinkAdapter : IFrameSink
             // IFrameSink.OnFrame MUST NOT throw — narrow-catch the TP
             // codecs' malformed-frame exceptions so the SDK read thread
             // stays alive.
-            _logger.LogDebug(ex, "J1939TpSinkAdapter dropped a malformed TP frame (CAN ID 0x{CanId:X}).", frame.Id.Raw);
+            LogDroppedMalformedTpFrame(_logger, ex, frame.Id.Raw);
         }
     }
 
@@ -102,5 +102,24 @@ internal sealed class J1939TpSinkAdapter : IFrameSink
     /// errors.
     /// </summary>
     public void OnError(Exception ex)
-        => _logger.LogWarning(ex, "J1939TpSinkAdapter: a sibling sink threw in the router fan-out; the J1939 receive path is unaffected.");
+        => LogSiblingSinkThrew(_logger, ex);
+
+    // Logging (fix round 1): the plan's Global Constraints assign EventIds
+    // 9301/9302 to this adapter; the [LoggerMessage] source-gen partials
+    // replace the inline LogDebug/LogWarning calls while keeping the
+    // narrow-catch behavior identical. Message templates are exactly the
+    // Global Constraints entries; the logger category
+    // (ILogger<J1939TpSinkAdapter>) carries the adapter name, so the
+    // templates do not repeat it. ILogger parameters are non-nullable per
+    // the J1939TpLayer/IsoTpLayer LoggingFlow precedent (the generated body
+    // dereferences the logger for the IsEnabled check, so a nullable param
+    // would raise CS8602 in the generated file).
+
+    /// <summary>EventId 9301: a malformed TP frame was dropped by the narrow-catch in <see cref="OnFrame"/>.</summary>
+    [LoggerMessage(EventId = 9301, Level = LogLevel.Debug, Message = "dropped malformed TP frame (CAN ID 0x{CanId:X})")]
+    private static partial void LogDroppedMalformedTpFrame(ILogger logger, Exception ex, uint canId);
+
+    /// <summary>EventId 9302: a sibling sink threw in the router fan-out; the J1939 receive path is unaffected.</summary>
+    [LoggerMessage(EventId = 9302, Level = LogLevel.Warning, Message = "sibling sink threw; receive path unaffected")]
+    private static partial void LogSiblingSinkThrew(ILogger logger, Exception ex);
 }
