@@ -99,9 +99,12 @@ public sealed record TraceFilterSpec
         if (ErrorsOnly && !entry.IsError)
             return false;
 
-        // 7. Payload（帧短于 offset → 不匹配，非错误）。
+        // 7. Payload（帧短于 offset → 不匹配，非错误；负 offset（防御，parser 已拒）
+        //    同样恒不匹配——谓词在 view.Filter 委托内执行，抛异常会杀死 TraceService）。
         if (Payload is { } p
-            && (entry.Data.Length <= p.Offset || (entry.Data[p.Offset] & p.Mask) != p.Value))
+            && (p.Offset < 0
+                || entry.Data.Length <= p.Offset
+                || (entry.Data[p.Offset] & p.Mask) != p.Value))
             return false;
 
         return true;

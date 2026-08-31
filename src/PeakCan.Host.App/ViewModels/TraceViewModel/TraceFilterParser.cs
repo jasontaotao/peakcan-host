@@ -93,7 +93,11 @@ internal static class TraceFilterParser
         {
             if (!offsetFilled || !maskFilled || !valueFilled)
                 return (null, "payload 三个字段需同时填写");
-            if (!int.TryParse(payloadOffset, NumberStyles.Integer, CultureInfo.InvariantCulture, out var offset))
+            // 负数 offset 拒绝（NumberStyles.Integer 允许负号；负值会使 Filter 谓词
+            // entry.Data[-1] 抛 IndexOutOfRangeException → TraceService 后台循环死亡。
+            // review 2026-08-31 CRITICAL。）
+            if (!int.TryParse(payloadOffset, NumberStyles.Integer, CultureInfo.InvariantCulture, out var offset)
+                || offset < 0)
                 return (null, $"payload offset 无效: {payloadOffset}");
             if (!TryParseHexByte(payloadMask!, out var mask))
                 return (null, $"payload mask 无效: {payloadMask}");

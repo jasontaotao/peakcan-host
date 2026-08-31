@@ -181,6 +181,20 @@ public class TraceFilterSpecTests
         spec.Matches(Extended(0x100, new byte[] { 0x00, 0x00 })).Should().BeFalse();
     }
 
+    // 2026-08-31 review CRITICAL 纵深防御：parser 已拒绝负 offset，但 spec 是 public
+    // 类型可能被直接构造（含未来调用方）——谓词侧对负 offset 恒不匹配，绝不抛
+    // IndexOutOfRangeException（Filter 谓词内抛异常会杀死 TraceService 后台循环）。
+    [Fact]
+    public void Payload_Negative_Offset_Never_Matches_And_Does_Not_Throw()
+    {
+        var spec = new TraceFilterSpec { Payload = new BytePattern(Offset: -1, Mask: 0xFF, Value: 0xAB) };
+        // 不抛异常（关键断言——之前 entry.Data[-1] 会抛 IOOR）。
+        var act = () => spec.Matches(Extended(0x100, new byte[] { 0x00, 0xAB, 0x00 }));
+        act.Should().NotThrow();
+        // 负 offset 视为恒不匹配（与"长度不足"同语义，非错误）。
+        spec.Matches(Extended(0x100, new byte[] { 0x00, 0xAB, 0x00 })).Should().BeFalse();
+    }
+
     // —— 8. Exclude ——
 
     [Fact]

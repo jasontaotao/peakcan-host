@@ -187,6 +187,17 @@ public class TraceFilterParsingTests
         error.Should().NotBeNullOrEmpty();
     }
 
+    // 2026-08-31 review CRITICAL: 负 offset 若不拦截会被 int.TryParse(NumberStyles.Integer)
+    // 放行 → BytePattern(-1,..) → Filter 谓词内 entry.Data[-1] 抛 IndexOutOfRangeException
+    // → TraceService 后台循环死亡。必须作为字段错误拒绝。
+    [Fact]
+    public void Payload_Negative_Offset_Is_Error()
+    {
+        var (spec, error) = Parse(payloadOffset: "-1", payloadMask: "FF", payloadValue: "01");
+        spec.Should().BeNull();
+        error.Should().NotBeNullOrEmpty();
+    }
+
     [Fact]
     public void Payload_Valid_Builds_BytePattern()
     {

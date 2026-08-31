@@ -150,6 +150,29 @@ public class TraceViewModelFilterTests
         vm.FilterErrorText.Should().BeNull();
     }
 
+    // 2026-08-31 review HIGH: ClearFilters 之前只清文本字段+Exclude，漏掉并入 spec 的
+    // ChannelFilter/ShowErrorsOnly——下次编辑任一过滤字段时旧值被重新 merge 进 spec
+    // 静默复活。清除必须一并重置这两个并入字段。
+    [Fact]
+    public void ClearFilters_Also_Resets_Channel_And_ErrorsOnly()
+    {
+        var vm = new TraceViewModel();
+        vm.AppendBatchCore(new[] { Frame(0x100, error: true), Frame(0x200, error: false) });
+        vm.ChannelFilter = new ChannelId(0x51);
+        vm.ShowErrorsOnly = true;
+        vm.EntriesView.Count.Should().Be(1, "通道 0x51 + 仅错误 → 只显示错误帧");
+
+        vm.ClearFiltersCommand.Execute(null);
+
+        vm.ChannelFilter.Should().BeNull("清除过滤必须重置通道");
+        vm.ShowErrorsOnly.Should().BeFalse("清除过滤必须重置仅错误帧开关");
+        vm.EntriesView.Count.Should().Be(2, "重置后全显");
+        // 复用点：清完后编辑任一文本字段 → spec 重建不复活已清除的并入条件
+        // （ChannelFilter/ShowErrorsOnly 已是 null/false，merge 后仍全显）。
+        vm.IdListText = "0x100";
+        vm.EntriesView.Count.Should().Be(1, "仅按新 ID 条件收窄，通道/错误旧值不复活");
+    }
+
     // —— MaxRows 校验（spec §5.8）——
 
     [Fact]

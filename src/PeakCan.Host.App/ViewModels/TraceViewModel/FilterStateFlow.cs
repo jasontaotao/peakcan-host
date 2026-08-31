@@ -118,7 +118,7 @@ public sealed partial class TraceViewModel
         UpdateStatusText();
     }
 
-    /// <summary>清空全部过滤字段 + 重置为全显。</summary>
+    /// <summary>清空全部过滤字段 + 重置为全显（含并入 spec 的通道/仅错误，review 2026-08-31）。</summary>
     [RelayCommand]
     private void ClearFilters()
     {
@@ -128,6 +128,10 @@ public sealed partial class TraceViewModel
         DaText = "";
         DbcMessageName = "";
         ExcludeMatch = false;
+        // 并入 spec 的两个独立 VM 属性也必须重置——否则下次编辑任一文本字段时
+        // TryRebuildSpec 重新 merge 旧值，"已清除"的通道/仅错误条件静默复活。
+        ShowErrorsOnly = false;
+        ChannelFilter = null;
         PayloadOffsetText = "";
         PayloadMaskHex = "";
         PayloadValueHex = "";
