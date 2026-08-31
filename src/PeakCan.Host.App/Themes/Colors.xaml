@@ -32,6 +32,12 @@
     <SolidColorBrush x:Key="FrameBgFd" Color="#E3F2FD" />
     <SolidColorBrush x:Key="FrameBgError" Color="#FFCDD2" />
     <SolidColorBrush x:Key="FrameBgHighlight" Color="#FFFDE7" />
+    <!-- 高亮调色板 TraceHl1..5（spec §5.6：索引 0 复用 FrameBgHighlight，1..5 新增） -->
+    <SolidColorBrush x:Key="TraceHl1" Color="#E8F5E9" />
+    <SolidColorBrush x:Key="TraceHl2" Color="#F3E5F5" />
+    <SolidColorBrush x:Key="TraceHl3" Color="#E0F7FA" />
+    <SolidColorBrush x:Key="TraceHl4" Color="#FFF3E0" />
+    <SolidColorBrush x:Key="TraceHl5" Color="#FBE9E7" />
     <!-- 控制台 -->
     <SolidColorBrush x:Key="ConsoleBg" Color="#FBFBFC" />
     <SolidColorBrush x:Key="ConsoleFg" Color="#24292F" />
