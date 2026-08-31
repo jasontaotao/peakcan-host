@@ -44,14 +44,23 @@ public sealed record MessageIdStat(
 /// resolved before the service starts).
 /// </para>
 /// <para>
-/// <b>v0.6.0 frame filter:</b> <see cref="FilterText"/> accepts a hex
-/// prefix pattern (e.g. <c>"1A"</c> matches IDs 0x1A0–0x1AF). When
-/// non-empty, only matching frames are appended to <see cref="Entries"/>.
-/// <see cref="FilteredCount"/> tracks how many frames were suppressed.
+/// <b>2026-08-31 P1:</b> 视图层过滤——<see cref="Entries"/> 全量入列（非破坏性），
+/// <see cref="FilterStateFlow.EntriesView"/>（<c>ListCollectionView</c>）做谓词过滤，
+/// 改过滤可找回已入列帧。旧的 hex 前缀 <c>FilterText</c>/<c>FilteredCount</c> 已移除。
 /// </para>
 /// </summary>
 public sealed partial class TraceViewModel : ObservableObject
 {
+    /// <summary>
+    /// 无参 ctor（DI 循环规避设计）：建 <see cref="EntriesView"/>（同线程）并初始化状态文本。
+    /// <c>DbcService</c> 经 <see cref="DbcBindingFlow.BindDbc"/> 属性注入。
+    /// </summary>
+    public TraceViewModel()
+    {
+        EntriesView = new System.Windows.Data.ListCollectionView(Entries);
+        UpdateStatusText();
+    }
+
     /// <summary>
     /// Backing store of trace rows. Mutated only on the WPF UI thread via
     /// <see cref="AppendBatchAsync"/>; reads from any thread are safe
@@ -62,52 +71,29 @@ public sealed partial class TraceViewModel : ObservableObject
     /// <summary>
     /// FIFO trim threshold. When <see cref="Entries"/>.Count exceeds this
     /// value after a batch is appended, the oldest rows are removed
-    /// (from index 0) until the count is back at the cap. Default 1_000
-    /// keeps the WPF DataGrid render cost manageable under sustained
-    /// high frame rates. 1_000 rows × 20 px = 20 k px of virtualized
-    /// content, well within the recycling virtualization budget.
-    /// The toolbar's "cap: {N} rows" label displays the current value
-    /// (read-only); programmatic mutation via the generated setter is
-    /// supported but no UI editor ships today. A future PATCH can
-    /// add a numeric input bound TwoWay to <see cref="MaxRows"/> if
-    /// user-tunable cap is wanted.
+    /// (from index 0) until the count is back at the cap. Default 5_000
+    /// (2026-08-31 P1，原 1_000 提升，配合视图层过滤 + 工具栏可调输入框
+    /// <see cref="MaxRowsText"/>，校验范围 [100, 50000])。
     /// </summary>
     [ObservableProperty]
-    private int _maxRows = 1_000;
+    private int _maxRows = 5_000;
 
-    /// <summary>
-    /// v0.6.0: hex prefix filter for CAN IDs. Empty = show all.
-    /// E.g. "1A" matches 0x1A0–0x1AF; "1A3" matches exactly 0x1A3.
-    /// </summary>
-    [ObservableProperty]
-    private string _filterText = "";
-
-    /// <summary>Count of frames suppressed by the current filter.</summary>
-    [ObservableProperty]
-    private long _filteredCount;
-
-    /// <summary>Total frames received (including filtered).</summary>
+    /// <summary>Total frames received (including any display-filtered rows).</summary>
     [ObservableProperty]
     private long _totalFrameCount;
 
     /// <summary>
-    /// Hex prefix for highlighting matching rows. Empty = no highlight.
-    /// Matching rows get <see cref="TraceEntry.IsHighlighted"/> = true.
-    /// </summary>
-    [ObservableProperty]
-    private string _highlightText = "";
-
-    /// <summary>
-    /// When true, only error frames are shown in the trace.
+    /// When true, only error frames are shown in the trace (并入
+    /// <see cref="TraceFilterSpec.ErrorsOnly"/>，经 <c>TryRebuildSpec</c> 生效)。
     /// </summary>
     [ObservableProperty]
     private bool _showErrorsOnly;
 
     /// <summary>
-    /// Task 7 (phase 2 A-5): channel filter. null = show all channels (zero
-    /// regression). Set to a ChannelId to suppress frames from other channels
-    /// in the trace. Applied alongside FilterText + ShowErrorsOnly in
-    /// ReceptionFlow; data plane (ChannelRouter) is unchanged.
+    /// Channel filter. null = show all channels (零回归). Set to a ChannelId to
+    /// suppress frames from other channels in the trace (并入
+    /// <see cref="TraceFilterSpec.Channel"/>，经 <c>TryRebuildSpec</c> 生效）。
+    /// 视图层过滤（非破坏性），数据平面 (ChannelRouter) 不变。
     /// </summary>
     [ObservableProperty]
     private ChannelId? _channelFilter;
@@ -144,12 +130,14 @@ public sealed partial class TraceViewModel : ObservableObject
     private void Clear()
     {
         Entries.Clear();
-        FilteredCount = 0;
         TotalFrameCount = 0;
         _messageCounts.Clear();
         // v1.2.11: drop pending-decode entries so stale lookups don't fill
         // Decoded on rows the user has already discarded.
         _pendingDecode.Clear();
+        // 统计/状态随入列清空同步刷新。
+        if (StatsExpanded) RefreshStats();
+        UpdateStatusText();
     }
 
     // === Flow B methods moved to TraceViewModel/HighlightFilterFlow.cs (W19 Task 2) ===

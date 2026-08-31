@@ -13,9 +13,9 @@ namespace PeakCan.Host.App.ViewModels;
 /// view-model layer free of UI-framework concerns.
 /// </para>
 /// <para>
-/// <b>v0.9.2:</b> <see cref="IsHighlighted"/> is mutable for
-/// highlight-on-match functionality. Fires
-/// <see cref="PropertyChanged"/> when toggled.
+/// <b>v0.9.2 / 2026-08-31:</b> 多色高亮由 <see cref="HighlightColorIndex"/>
+/// (int，-1=无高亮) 承载（原 <c>IsHighlighted</c> bool 升级）。Fires
+/// <see cref="PropertyChanged"/> when changed.
 /// </para>
 /// </summary>
 public sealed class TraceEntry : INotifyPropertyChanged
@@ -34,6 +34,13 @@ public sealed class TraceEntry : INotifyPropertyChanged
 
     /// <summary>Payload as contiguous uppercase hex bytes (e.g. "DEADBEEF"). Empty string when <see cref="Dlc"/> is 0.</summary>
     public string DataHex { get; init; } = "";
+
+    /// <summary>
+    /// Original payload byte copy (入列时 <c>f.Data.ToArray()</c> 拷贝)。payload
+    /// 模式过滤与"高亮规则变更后全量重算"都需要——仅 <see cref="DataHex"/> 字符串
+    /// 不够用。不可变（<c>init</c>-only），谓词只读。
+    /// </summary>
+    public byte[] Data { get; init; } = Array.Empty<byte>();
 
     /// <summary>DBC-decoded signal values; empty until a DBC is loaded (Task 15).</summary>
     public string Decoded
@@ -63,23 +70,24 @@ public sealed class TraceEntry : INotifyPropertyChanged
     public string FrameType => IsError ? "ERR" : IsRtr ? "RTR" : IsFd ? "FD" : "";
 
     /// <summary>
-    /// Whether this row is highlighted (e.g. matching a highlight filter).
-    /// Used by the view to apply a background color.
+    /// 多色高亮索引（0..5 = 调色板某色，-1 = 无高亮）。高亮规则求值
+    /// （<c>EvaluateHighlight</c>）为每行计算，视图据此上底色。INPC 语义同
+    /// <see cref="Decoded"/>（仅值变化触发，避免 DataGrid 无谓重绘）。
     /// </summary>
-    public bool IsHighlighted
+    public int HighlightColorIndex
     {
-        get => _isHighlighted;
+        get => _highlightColorIndex;
         set
         {
-            if (_isHighlighted != value)
+            if (_highlightColorIndex != value)
             {
-                _isHighlighted = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHighlighted)));
+                _highlightColorIndex = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HighlightColorIndex)));
             }
         }
     }
-    private bool _isHighlighted;
+    private int _highlightColorIndex = -1;
 
-    /// <summary>Fires when <see cref="IsHighlighted"/> changes.</summary>
+    /// <summary>Fires when a mutable property (e.g. <see cref="Decoded"/>/<see cref="HighlightColorIndex"/>) changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 }

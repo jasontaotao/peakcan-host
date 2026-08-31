@@ -1,34 +1,9 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceViewModel
 {
-    /// <summary>
-    /// Called when <see cref="HighlightText"/> changes. Updates
-    /// <see cref="TraceEntry.IsHighlighted"/> on all entries.
-    /// </summary>
-    partial void OnHighlightTextChanged(string value) => ApplyHighlight();
-
-    private void ApplyHighlight()
-    {
-        var pattern = HighlightText.AsSpan().Trim();
-        foreach (var entry in Entries)
-        {
-            if (pattern.Length == 0)
-            {
-                entry.IsHighlighted = false;
-            }
-            else
-            {
-                var idHex = entry.Id.Raw.ToString("X",
-                    System.Globalization.CultureInfo.InvariantCulture);
-                entry.IsHighlighted = idHex.StartsWith(pattern,
-                    StringComparison.OrdinalIgnoreCase);
-            }
-        }
-    }
-
     /// <summary>
     /// Get per-message-ID statistics sorted by count (descending).
     /// Returns the top N message IDs with their counts and percentages.
