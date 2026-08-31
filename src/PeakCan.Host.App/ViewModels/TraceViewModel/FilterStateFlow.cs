@@ -144,15 +144,42 @@ public sealed partial class TraceViewModel
     [ObservableProperty]
     private bool _statsExpanded;
 
-    /// <summary>
-    /// 对新入列行求高亮色索引（0..5，-1=无）。规则求值见 T6（
-    /// <c>HighlightRuleRowViewModel</c>）；本期占位恒返回 -1，T6 接上真实逻辑。
-    /// </summary>
-    private int EvaluateHighlight(TraceEntry entry) => -1;
-
     /// <summary>统计面板刷新（T11 填充：Top20 重建 <see cref="StatsRows"/>）。</summary>
     private void RefreshStats()
     {
+    }
+
+    // —— MaxRows 可调输入（spec §5.8）——
+
+    /// <summary>MaxRows 文本（TwoWay 绑定工具栏输入框），初始同步当前 <see cref="MaxRows"/>。</summary>
+    [ObservableProperty]
+    private string _maxRowsText = "5000";
+
+    /// <summary>MaxRows 非法时红字；null=无错。</summary>
+    [ObservableProperty]
+    private string? _maxRowsErrorText;
+
+    /// <summary>
+    /// <see cref="MaxRowsText"/> 变更：解析成功且 ∈ [100, 50000] → 应用 <see cref="MaxRows"/>；
+    /// 非法 → <see cref="MaxRowsErrorText"/> 红字 + <see cref="MaxRows"/> 不变 + 文本回退旧值。
+    /// trim 在批次末按新值生效（调低后下一批次截断）。
+    /// </summary>
+    partial void OnMaxRowsTextChanged(string value)
+    {
+        if (int.TryParse(value, out var parsed) && parsed is >= 100 and <= 50000)
+        {
+            MaxRows = parsed;
+            MaxRowsErrorText = null;
+            UpdateStatusText();
+        }
+        else
+        {
+            MaxRowsErrorText = $"MaxRows 需在 [100, 50000] 之间";
+            // 直接写 backing 字段回退旧值，避免重入 OnMaxRowsTextChanged 清掉刚设的错误；
+            // 再手动 OnPropertyChanged 通知 UI 刷新文本框。
+            _maxRowsText = MaxRows.ToString();
+            OnPropertyChanged(nameof(MaxRowsText));
+        }
     }
 
     /// <summary>状态文本：`显示 X / 共 Y（上限 Z）｜总收 N`（spec §5.8）。</summary>

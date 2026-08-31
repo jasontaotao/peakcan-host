@@ -149,4 +149,37 @@ public class TraceViewModelFilterTests
         vm.EntriesView.Count.Should().Be(3);
         vm.FilterErrorText.Should().BeNull();
     }
+
+    // —— MaxRows 校验（spec §5.8）——
+
+    [Fact]
+    public void MaxRows_Valid_Input_Applies()
+    {
+        var vm = new TraceViewModel();
+        vm.MaxRowsText = "100";
+        vm.MaxRows.Should().Be(100);
+        vm.MaxRowsErrorText.Should().BeNull();
+        vm.MaxRowsText.Should().Be("100");
+    }
+
+    [Fact]
+    public void MaxRows_Invalid_Input_Keeps_Old_Value_And_Reverts_Text()
+    {
+        var vm = new TraceViewModel();
+        vm.MaxRowsText = "abc";
+        vm.MaxRows.Should().Be(5_000, "非法输入应保持旧值");
+        vm.MaxRowsErrorText.Should().NotBeNullOrEmpty();
+        vm.MaxRowsText.Should().Be("5000", "文本应回退旧值");
+    }
+
+    [Fact]
+    public void MaxRows_Out_Of_Range_Is_Rejected()
+    {
+        var vm = new TraceViewModel();
+        vm.MaxRowsText = "10";     // < 100
+        vm.MaxRows.Should().Be(5_000);
+        vm.MaxRowsText = "99999";  // > 50000
+        vm.MaxRows.Should().Be(5_000);
+        vm.MaxRowsErrorText.Should().NotBeNullOrEmpty();
+    }
 }
