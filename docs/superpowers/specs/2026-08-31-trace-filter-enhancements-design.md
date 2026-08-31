@@ -1,7 +1,7 @@
 # Trace 页过滤扩展（P1–P4）— 设计文档
 
 - 日期：2026-08-31
-- 状态：Draft（待用户 review）
+- 状态：已 review 修订（2026-08-31）：修正 `CanId.Raw` IDE 位事实错误（§3/§5.2，IDE 位在 DBC `Message.Id` 而非 `CanId.Raw`）、`Matches` 静态→实例矛盾（§4）、`DbcLoaded` 线程封送（§7.4）、Replay 错误模型差异对照（§5.3）、新文件目录对齐既有 `ViewModels/TraceViewModel/`（§5.1/5.3/5.6/5.7）、布局补「暂停」（§6）；钉死 `BytePattern` 复用（§5.1）、状态文本格式（§4/§5.8）、`MaxRowsErrorText` 独立（§5.8）、`HighlightSummaryText`/行 `ErrorText`（§5.6/§9）、SetFilterToId 覆盖语义（§5.7）、`Clear()` 改写（§9）、解析细节（§5.3）
 - 分支：`feat/trace-filter-enhancements`（自 `feat/j1939tp-gbt27930` 切出）
 - 相关先例：`ReplayViewModel.CanIdFilterText`（allow-list 过滤 + 错误直显）、`CanIdListParser`（HIL.Core.Replay 共享解析器）、`NodeConfigAssembler`（hex 解析与条件校验语义）、`J1939NodeContext.OnFrame`（J1939Id 分解生产先例）、`NodeEditorViewModel.Bind`（VM 属性注入规避 DI 循环）
 
@@ -42,7 +42,7 @@ Trace 页（`TraceView` / `TraceViewModel`，实时总线监视）当前过滤�
 | `J1939Id`（`.Pgn/.Priority/.SourceAddress/.DestinationAddress/.IsPdu1`） | `PeakCan.HIL.Core.J1939` | PGN/SA/DA 分解；`J1939NodeContext.OnFrame:103` 生产先例 |
 | `DbcService.Current.Messages`（`DbcLoaded` 事件） | App Services | DBC 消息名 → ID 符号解析；统计行 DBC 名 |
 | `TraceViewModel.GetMessageIdStats(topN)`（已有测试） | `HighlightFilterFlow.cs:36` | 统计面板数据源原样复用 |
-| `CanId.Raw` bit31 = IDE 标志，`& 0x7FFF_FFFF` 掩码 | `SignalFlow.cs:73` 先例 | ID 匹配统一掩码后比较 |
+| DBC `Message.Id` bit31 = merged IDE 位，`& 0x7FFF_FFFF` 掩码后得裸 ID | `Message.cs` xmldoc + `SignalFlow.cs:73` 先例 | DBC 消息名解析并入 allow-list 时掩码（§5.3）；`CanId.Raw` 由 ctor 保证 ≤0x1FFFFFFF、从不携带 IDE 位（`CanId.cs:29-38`），匹配侧无需掩码 |
 | `NodeConfigAssembler.TryParseHexUInt32/TryParseHexByte/TryBuildCondition` | App ViewModels.Nodes | PGN/SA/DA/payload 字段 hex 语义模板（0x 可选，无前缀按 hex） |
 | `NodeEditorViewModel.Bind(host, ...)` 属性注入 | App ViewModels.Nodes | `TraceViewModel` 无参 ctor 下注入 `DbcService` 的同款模式 |
 | `ReplayViewModel.OnCanIdFilterTextChanged` 错误模式 | App ViewModels | 非法输入不清用户文本、错误文本直显 |
@@ -69,16 +69,16 @@ CanFrame → TraceService(200ms批次) → AppendBatchAsync(dispatcher hop)
 ```
 
 - `EntriesView = new ListCollectionView(Entries)` 在 `TraceViewModel` ctor 创建（VM 是单例、UI 线程解析，view 与 collection 同线程；测试单线程 MTA 直接构造）。DataGrid 改绑 `EntriesView`。
-- 过滤谓词 `TraceFilterSpec.Matches(TraceEntry)` 为纯静态方法，**过滤器与高亮规则共用**（P3 复用落点）。
+- 过滤谓词 `TraceFilterSpec.Matches(TraceEntry)` 为纯谓词实例方法（无 I/O、无共享状态），**过滤器与高亮规则共用**（P3 复用落点）。
 - spec 任一字段变更 → 解析组装新 `TraceFilterSpec`（不可变 record）→ `EntriesView.Filter = spec.IsEmpty ? null : spec.Matches` → `EntriesView.Refresh()`。
 - **`IsPaused` 保持入口级破坏性语义**（暂停=不入列仍计数，刻意保留）；暂停期间仍可改过滤检视存量行（Refresh 作用于静态数据）。
-- `FilteredCount` 语义消亡 → 状态文本 `显示 {VisibleCount} / {Entries.Count}（上限 {MaxRows}）｜总收 {TotalFrameCount}`，批次末与 Refresh 后更新。
+- `FilteredCount` 语义消亡 → 状态文本 `显示 {VisibleCount} / 共 {Entries.Count}（上限 {MaxRows}）｜总收 {TotalFrameCount}`（格式与 §5.8 统一），批次末与 Refresh 后更新。
 
 **已知限制（诚实记录）**：`ListCollectionView.Refresh()` 后视口回顶部（WPF 默认行为）。追帧时自动滚动到底不受影响；暂停检视时改过滤会跳顶。本期不做视口锚定。
 
 ## 5. 组件设计
 
-### 5.1 `TraceFilterSpec`（新文件 `ViewModels/Trace/TraceFilterSpec.cs`）
+### 5.1 `TraceFilterSpec`（新文件 `ViewModels/TraceViewModel/TraceFilterSpec.cs`，与既有 partial 目录一致）
 
 ```csharp
 public sealed record TraceFilterSpec
@@ -90,20 +90,23 @@ public sealed record TraceFilterSpec
     public ChannelId? Channel { get; init; }
     public bool ErrorsOnly { get; init; }
     public bool Exclude { get; init; }                       // 整体取反
-    public TracePayloadPattern? Payload { get; init; }       // null=不过滤
+    public BytePattern? Payload { get; init; }               // null=不过滤（复用既有类型，见下）
     public static TraceFilterSpec Empty { get; }
     public bool IsEmpty { get; }
-    public bool Matches(TraceEntry entry);                   // 静态纯谓词（见 §5.2）
+    public bool Matches(TraceEntry entry);                   // 纯谓词（见 §5.2）
 }
 
-public sealed record TracePayloadPattern(int Offset, byte Mask, byte Value);
+// Payload 模式复用既有 `BytePattern`（`Services/Nodes/NodeModel.cs:46`，
+// `BytePattern(int Offset, byte Mask, byte Value)`，语义注释同款
+// `(payload[Offset] & Mask) == Value`）——同 App 层、shape 与语义完全一致，
+// 复用不改变其 NodeModel JSON 契约；不再新造 TracePayloadPattern。
 ```
 
 ### 5.2 谓词语义（`Matches`，AND + 整体取反）
 
 逐条判定（全部通过才 match=true，最后 `Exclude` 取反）：
 
-1. **IdAllowList**：`(entry.Id.Raw & 0x7FFF_FFFF) ∈ IdAllowList`（bit31=IDE 标志，`SignalFlow.cs:73` 同款掩码）。
+1. **IdAllowList**：`entry.Id.Raw ∈ IdAllowList`（`CanId.Raw` 由 ctor 保证 ≤0x1FFFFFFF、从不携带 IDE 位，匹配侧无掩码；DBC 消息 ID 的 `& 0x7FFF_FFFF` 掩码已在 §5.3 解析侧完成）。
 2. **PgnList**：仅扩展帧可匹配——`entry.Id.IsExtended` 为假 → 不匹配；否则 `new J1939Id(entry.Id.Raw).Pgn ∈ PgnList`（`J1939Id.Pgn` 已处理 PDU1 的 DA 屏蔽，`J1939NodeContext.OnFrame:103` 先例）。
 3. **Sa**：仅扩展帧可匹配；`J1939Id.SourceAddress == Sa`。
 4. **Da**：仅扩展帧且 PDU1 可匹配；PDU2（广播无 DA）在设了 Da 条件时**不匹配**。
@@ -116,19 +119,19 @@ public sealed record TracePayloadPattern(int Offset, byte Mask, byte Value);
 
 `IsEmpty`：全部条件 null/false。`Empty` 单例供初始与"清除过滤"。
 
-### 5.3 过滤字段解析与错误模型（新文件 `ViewModels/Trace/TraceFilterParser.cs`）
+### 5.3 过滤字段解析与错误模型（新文件 `ViewModels/TraceViewModel/TraceFilterParser.cs`）
 
 | UI 字段 | 语法 | 非法处理 |
 |---|---|---|
-| ID 列表 | `CanIdListParser`（逗号/空格分隔，0x=hex，**无前缀=十进制**——与 Replay/Viewer 一致） | InvalidTokens 进错误文本 |
-| PGN | 逗号/空格分隔 hex（0x 可选，**无前缀按 hex**，≤0x3FFFF） | 超域/非 hex 进错误文本 |
-| SA / DA | 单 hex 字节（0x 可选，无前缀按 hex） | 非 hex 进错误文本 |
+| ID 列表 | `CanIdListParser`（逗号/空格分隔，0x=hex，**无前缀=十进制**——与 Replay/Viewer 一致）；**用户输入不掩码**——输入带 bit31 的值（如 CANoe 式 0x98EAFF00）视为普通数值 ID，与裸 29 位 Raw 永不匹配 | InvalidTokens 进错误文本 |
+| PGN | 逗号/空格分隔 hex（0x 可选，**无前缀按 hex**，≤0x3FFFF；分隔符集合对齐 `CanIdListParser` 的 `{',', ' ', '\t', '\n', '\r'}`） | 超域/非 hex 进错误文本 |
+| SA / DA | 单 hex 字节（0x 可选，无前缀按 hex）；**空 = 不过滤**（对应 spec 字段 null） | 非 hex 进错误文本 |
 | DBC 消息名 | 经 `DbcService.Current.Messages` case-insensitive 查名（`EncodeDbc` 先例），命中取 `Id & 0x7FFF_FFFF` **并入** IdAllowList（与手填 ID 取并集）；同名多消息取 First | DBC 未加载 / 名字未命中 → 字段错误 |
-| payload | 三小字段（offset 十进制 / mask hex / value hex），**全空=无条件，部分填=错误**（`NodeConfigAssembler.TryBuildCondition` 先例） | 部分填/非数值 → 字段错误 |
+| payload | 三小字段（offset 十进制 / mask hex / value hex），**全空=无条件，部分填=错误**（`NodeConfigAssembler.TryBuildCondition` 先例）；offset 不校验上界——≥帧长时按 §5.2 第 7 条恒不匹配（非错误） | 部分填/非数值 → 字段错误 |
 
 字段语法分裂的合理性：ID 列表对齐 Replay/Viewer 既有习惯（无前缀十进制）；PGN/SA/DA 对齐节点编辑器 hex 习惯。工具栏标签分别注明 `(hex)` / ID 列表不注。
 
-**错误模型（防意外放宽）**：任一字段非法 → **整体沿用上一有效 spec**（不做"非法字段按缺席处理"——用户敲错 PGN 时期望收窄，静默放宽成全显是危险方向）+ `FilterErrorText` 红字直显首个错误 + 用户输入文本保留不清。
+**错误模型（防意外放宽）**：任一字段非法 → **整体沿用上一有效 spec**（不做"非法字段按缺席处理"——用户敲错 PGN 时期望收窄，静默放宽成全显是危险方向）+ `FilterErrorText` 红字直显首个错误 + 用户输入文本保留不清。**与 Replay 先例的差异**：`ReplayViewModel.OnCanIdFilterTextChanged` 部分非法时仍应用有效子集（全非法→空集→全隐藏）；本设计整体沿用上一有效 spec——多字段 AND 组合下部分应用会产生用户未预期的过滤组合。复用 Replay 的只有"错误直显 + 文本保留"两点。
 
 ### 5.4 `TraceEntry` 变更
 
@@ -144,24 +147,24 @@ core 内每帧流程：计数（`_messageCounts`/`TotalFrameCount`）→ `IsPaus
 
 DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_pendingDecode`——与"未设过滤"的现行行为一致，解码服务容量已验证，无新风险。
 
-### 5.6 高亮规则（新文件 `ViewModels/Trace/HighlightRuleRowViewModel.cs`）
+### 5.6 高亮规则（新文件 `ViewModels/TraceViewModel/HighlightRuleRowViewModel.cs`）
 
-- 行 VM（ObservableObject）：`Enabled`(默认 true) / `ColorIndex`(0..5，默认 0) / `IdListText` / `PgnListText`。**两文本全空 = 匹配全部**（刻意：可做"其余全部底色"兜底规则）；行内文本非法 → 该行视为不匹配 + 行内红字（不全局报错）。
-- 求值 `EvaluateHighlight(TraceEntry) → int`：规则自上而下，**先匹配先赢**；无命中 → -1。谓词构造：每行现场组装一个 `TraceFilterSpec`（仅 IdAllowList/PgnList 两字段）复用 `Matches`——零重复谓词代码。
+- 行 VM（ObservableObject）：`Enabled`(默认 true) / `ColorIndex`(0..5，默认 0) / `IdListText` / `PgnListText` / `ErrorText`（行内红字，string?）。**两文本全空 = 匹配全部**（刻意：可做"其余全部底色"兜底规则）；行内文本非法 → 该行视为不匹配 + `ErrorText` 行内红字（不全局报错）。
+- 求值 `EvaluateHighlight(TraceEntry) → int`：规则自上而下，**先匹配先赢**（顺序即优先级——"全空=匹配全部"的兜底规则必须放最后，否则后续规则永不命中）；无命中 → -1。谓词构造：每行现场组装一个 `TraceFilterSpec`（仅 IdAllowList/PgnList 两字段）复用 `Matches`——零重复谓词代码。
 - 触发：新帧入列时对新行求值；规则集/行属性变更 → 遍历 `Entries` 全量重算（5000 行 × 廉价谓词，按键级实时无压力）。
 - 调色板 6 色：索引 0 复用现有 `FrameBgHighlight`，新增 `TraceHl1..TraceHl5` 五个画刷资源（加到 `FrameBg*` 所在资源字典）。RowStyle：IsError/IsFd 触发器保留，`HighlightColorIndex` 0..5 六条 DataTrigger **排最后**（高亮盖过 Error/Fd 底色，与现行优先级一致）。
 - VM 命令：`AddHighlightRule` / `RemoveHighlightRule`(参数=行)；`HighlightRules` ObservableCollection；收起时摘要文本 `N 条规则生效`。
 
-### 5.7 统计面板（新文件 `ViewModels/Trace/MessageIdStatRow.cs`）
+### 5.7 统计面板（新文件 `ViewModels/TraceViewModel/MessageIdStatRow.cs`）
 
 - 行：`IdHex` / `DbcName`(string?，刷新时经 DBC 解析，无则空) / `Count` / `Percent`。
 - 数据源：现有 `GetMessageIdStats(topN: 20)` 原样复用；**展开时**（`StatsExpanded`=true）每次 `AppendBatchCore` 末尾全量重建 `StatsRows`（20 行 clear+refill，不增量）；收起不刷。
-- 行命令 `SetFilterToIdCommand`(参数=行)：写 `IdListText = row.IdHex`（0x 前缀形式）→ 走正常 spec 重建管线。
+- 行命令 `SetFilterToIdCommand`(参数=行)：**覆盖**写 `IdListText = row.IdHex`（覆盖手填内容，刻意——统计行的语义就是"只看这个 ID"）→ 走正常 spec 重建管线。闭环成立依据：`_messageCounts` 的 key 是 `f.Id.Raw`（裸 29 位，ReceptionFlow.cs:43），`MessageIdStat.IdHex` 已是 `0x`-前缀裸 ID，经 `CanIdListParser` hex 解析后与 `entry.Id.Raw` 直接匹配（§5.2 第 1 条无掩码语义）。
 - `Expander.IsExpanded` 双向绑 `StatsExpanded`（默认 false=收起）；展开瞬间立即刷一次。
 
 ### 5.8 MaxRows 与状态文本
 
-- `_maxRows` 默认 **1000 → 5000**。`MaxRowsText` 字符串字段（TwoWay）：解析成功且 ∈ [100, 50000] → 应用 `MaxRows`；非法 → 状态区红字、`MaxRows` 不变、文本回退旧值。trim 在批次末按新值生效（调低后下一批次截断）。
+- `_maxRows` 默认 **1000 → 5000**。`MaxRowsText` 字符串字段（TwoWay）：解析成功且 ∈ [100, 50000] → 应用 `MaxRows`；非法 → 独立 `MaxRowsErrorText` 红字（不复用 `FilterErrorText`——两者错误语义与恢复路径不同，复用会互相覆盖）、`MaxRows` 不变、文本回退旧值。trim 在批次末按新值生效（调低后下一批次截断）。
 - `StatusText`：`显示 X / 共 Y（上限 Z）｜总收 N`，批次末与 Refresh 后重算；`VisibleCount = EntriesView.Count`。
 
 ### 5.9 导出
@@ -179,8 +182,8 @@ DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_
 ```
 ┌ 工具栏1(过滤) ────────────────────────────────────────────────────────┐
 │ [清空帧][导出 CSV][导出全部]  ID列表[____] PGN(hex)[__] SA[__] DA[__] │
-│ DBC消息[可编辑ComboBox▼] 通道[▼] [✓]仅错误帧 [ ]排除 [清除过滤]        │
-│ ⚠FilterErrorText(红)        显示 X / 共 Y（上限 [Z]）｜总收 N         │
+│ DBC消息[可编辑ComboBox▼] 通道[▼] [✓]仅错误帧 [ ]排除 [ ]暂停 [清除过滤] │
+│ ⚠FilterErrorText(红) ⚠MaxRowsErrorText(红)  显示 X / 共 Y（上限 [Z]）｜总收 N │
 ├ 工具栏2(高亮) ────────────────────────────────────────────────────────┤
 │ [▾] 高亮规则（N 条生效） [+ 添加]                                      │
 │ 展开时: [✓启用][颜色▼6色][ID列表____][PGN____][✕]  × N 行              │
@@ -199,7 +202,7 @@ DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_
 1. **入列**：TraceService 批次 → AppendBatchAsync → dispatcher → AppendBatchCore → 计数/paused/建行（Data+高亮求值）/Add/注册解码/trim → 视图自动对新行应用谓词 → （StatsExpanded 时）刷统计 → 状态文本。
 2. **过滤变更**：任一字段 setter → `TryRebuildSpec()` → 解析（§5.3）→ 非法：红字+沿用旧 spec；合法：`EntriesView.Filter` 置换 + `Refresh()` + 状态文本。
 3. **高亮变更**：规则行集/属性变更 → 遍历 Entries 重算 `HighlightColorIndex`（行内非法行跳过）。
-4. **DBC 加载**：`DbcLoaded` 事件 → 刷新 `DbcMessageNames` 投影 + 统计 DBC 名列（若展开）+ 若 DBC 名字段非空则重解析 spec（加载后名字变可解析）。
+4. **DBC 加载**：`DbcLoaded` 事件 → 刷新 `DbcMessageNames` 投影 + 统计 DBC 名列（若展开）+ 若 DBC 名字段非空则重解析 spec（加载后名字变可解析）。**线程封送（必做）**：`DbcLoaded` 在线程池线程引发（`DbcService` xmldoc 契约：`LoadAsync` 的 Task.Run worker 上触发），处理器触碰 ObservableCollection / INPC / `EntriesView.Refresh()` 前必须经 `Application.Current.Dispatcher` marshal 回 UI 线程。
 5. **导出**：两命令各自快照（view / Entries）→ Task.Run 写盘。
 
 ## 8. 错误处理
@@ -209,7 +212,7 @@ DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_
 | 过滤字段非法 | 沿用上一有效 spec + `FilterErrorText` 红字 + 用户文本保留 |
 | DBC 名字段在 DBC 未加载/未命中 | 同上（字段错误文本） |
 | 高亮行内非法 | 该行视为不匹配 + 行内红字；不影响其他行 |
-| MaxRows 非法 | 红字 + 回退旧值 |
+| MaxRows 非法 | `MaxRowsErrorText` 红字 + 回退旧值 |
 | payload offset 超帧长 | 不匹配（非错误） |
 | 标准帧遇 PGN/SA/DA 条件 | 不匹配（语义钉死，§5.2） |
 | 导出 IO 异常 | 现行为不变（Debug.WriteLine + 不崩） |
@@ -219,11 +222,11 @@ DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_
 
 **移除**：`TraceViewModel.FilterText` / `HighlightText` / `FilteredCount` / `PassesFilters` / `OnHighlightTextChanged` / `ApplyHighlight`；`TraceEntry.IsHighlighted`。
 **并入 spec**：`ChannelFilter`、`ShowErrorsOnly`（保留 VM 字段名与绑定，参与 spec 构建）。
-**新增**：`EntriesView` / `IdListText` / `PgnText` / `SaText` / `DaText` / `DbcMessageName` / `DbcMessageNames` / `ExcludeMatch` / `PayloadOffsetText` / `PayloadMaskHex` / `PayloadValueHex` / `FilterErrorText` / `StatusText` / `MaxRowsText` / `HighlightRules` / `StatsRows` / `StatsExpanded` / `ClearFiltersCommand` / `AddHighlightRuleCommand` / `RemoveHighlightRuleCommand` / `SetFilterToIdCommand` / `ExportAllCsvCommand` / `BindDbc` / `AppendBatchCore`。
+**新增**：`EntriesView` / `IdListText` / `PgnText` / `SaText` / `DaText` / `DbcMessageName` / `DbcMessageNames` / `ExcludeMatch` / `PayloadOffsetText` / `PayloadMaskHex` / `PayloadValueHex` / `FilterErrorText` / `MaxRowsErrorText` / `StatusText` / `MaxRowsText` / `HighlightRules` / `HighlightSummaryText`（§5.6 收起摘要"N 条规则生效"）/ `StatsRows` / `StatsExpanded` / `ClearFiltersCommand` / `AddHighlightRuleCommand` / `RemoveHighlightRuleCommand` / `SetFilterToIdCommand` / `ExportAllCsvCommand` / `BindDbc` / `AppendBatchCore`。
 **默认值变更**：`MaxRows` 1000 → 5000。
 
 **既有测试改写清单**：
-- `TraceViewModelTests`：`PassesFilters_*` 删除（方法消亡）；带 `FilteredCount` 断言的 `AppendBatch_*` 重写为视图断言；`ApplyHighlight_*`/`HighlightText_*` 重写为规则求值；`MaxRows` 默认值断言更新。
+- `TraceViewModelTests`：`PassesFilters_*` 删除（方法消亡）；带 `FilteredCount` 断言的 `AppendBatch_*` 重写为视图断言；`ApplyHighlight_*`/`HighlightText_*` 重写为规则求值；`MaxRows` 默认值断言更新。`Clear()` 同步改写：删 `FilteredCount = 0;`（字段消亡）。
 - `TraceEntryTests`：`IsHighlighted` → `HighlightColorIndex`。
 - `ExportCsv_*`：拆可见/全部两命令。
 - 不受影响：`DbcDecodeBackgroundServiceTests`（`RegisterForTesting` 直注）、`TraceServiceTests`（批次管线不变）、`GetMessageIdStats` 既有钉。
@@ -233,7 +236,7 @@ DBC 解码注册全量化：`PassesFilters` 消亡后所有入列帧都注册 `_
 新文件（`tests/PeakCan.Host.App.Tests/ViewModels/`）：
 
 1. **`TraceFilterSpecTests`**——纯谓词矩阵：ID 掩 IDE 位匹配 / PGN×(PDU1·PDU2·标准帧) / SA / DA×(PDU1 命中·PDU2 不匹配) / 通道 / 仅错误 / payload(命中·mask·帧过短) / Exclude 整体取反 / Empty 全显。
-2. **`TraceFilterParsingTests`**——逐字段非法→沿用旧 spec+错误文本；PGN 超 0x3FFFF；payload 部分填；DBC 名解析（命中并入 allow-list 取并集 / 未加载 / 未命中）；`BindDbc` 未绑降级。
+2. **`TraceFilterParsingTests`**——逐字段非法→沿用旧 spec+错误文本；PGN 超 0x3FFFF；payload 部分填；DBC 名解析（命中并入 allow-list 取并集 / 未加载 / 未命中）；`BindDbc` 未绑降级；`DbcLoaded` 处理器线程封送（非 UI 线程触发不崩、UI 状态经 dispatcher 落地，§7.4）。
 3. **`TraceViewModelFilterTests`**——`AppendBatchCore` MTA 直驱：全量入列（过滤不丢帧）/ 视图可见计数 / Refresh 语义 / IsPaused 入口级 / MaxRows trim 与校验 / 状态文本。
 4. **`TraceHighlightRuleTests`**——规则求值（先匹配先赢 / 全空=匹配全部 / 非法行跳过 / 禁用行跳过）；规则变更全量重算；新帧入列即带色。
 5. **`TraceStatsTests`**——收起不刷 / 展开即刷 / Top20 排序 / DBC 名 / `SetFilterToId` 写 ID 字段。
