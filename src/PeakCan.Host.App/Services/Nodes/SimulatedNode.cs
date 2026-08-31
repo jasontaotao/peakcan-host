@@ -3,14 +3,20 @@ namespace PeakCan.Host.App.Services.Nodes;
 /// <summary>虚拟 ECU 角色（身份 + 行为 + 运行时信号表）。生命周期由 <see cref="NodeHostService"/> 驱动。</summary>
 public sealed class SimulatedNode
 {
-    /// <summary>节点配置（身份、周期表、规则表）。</summary>
-    public NodeConfig Config { get; }
+    /// <summary>
+    /// 节点配置（身份、周期表、规则表）。<see cref="NodeHostService.UpdateNode"/> 在
+    /// 节点未运行时替换（节点实例保留 → <see cref="Runtime"/> 跨更新不丢）。
+    /// </summary>
+    public NodeConfig Config { get; internal set; }
 
     /// <summary>运行时信号值表（跨启停保持）。</summary>
     public NodeRuntimeState Runtime { get; } = new();
 
-    /// <summary>行为引擎（宿主经 behaviorFactory 创建）。</summary>
-    public INodeBehavior Behavior { get; }
+    /// <summary>
+    /// 行为引擎（宿主经 behaviorFactory 创建）。<see cref="NodeHostService.UpdateNode"/>
+    /// 替换配置时一并重建——<see cref="RuleBasedBehavior"/> 在 ctor 快照 messages/rules。
+    /// </summary>
+    public INodeBehavior Behavior { get; internal set; }
 
     /// <summary>当前运行上下文；运行期间非空，停止后置 null。</summary>
     public INodeContext? Context { get; private set; }

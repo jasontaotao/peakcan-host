@@ -104,6 +104,107 @@ public class NodeSetupViewModelTests
 
     // Task 18 绑定注 4 的钉：SA 冲突拒绝必须走 Activity/Error 路径进入活动日志
     // （StartAll/行 VM Toggle 丢弃 Result——活动日志是唯一可见面，不得静默）。
+    // 删除节点命令（审计补点 1）：停止节点从 host + 列表移除并刷新；运行中节点拒绝且
+    // 经 Activity Error 呈现（Task 18 绑定注 4 同款契约——命令丢弃 Result，活动日志是
+    // 唯一可见面，不得静默）。SelectedNode 为 null（列表空）时 no-op。
+    [Fact]
+    public void Delete_Selected_Node_Removes_Row()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+
+        vm.DeleteSelectedCommand.Execute(null);
+
+        vm.Nodes.Should().BeEmpty();
+        host.Nodes.Should().BeEmpty();
+    }
+
+    // review MEDIUM 钉：成功删除后选中必须显式收敛（空列表 → null；非空 → 首行），
+    // 不得悬垂指向已删行实例（该实例 ConcurrentDictionary 已移除，后续 Save/Delete 会幽灵操作）。
+    [Fact]
+    public void Delete_Success_Converges_Selection_To_Null_When_List_Empty()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+
+        vm.DeleteSelectedCommand.Execute(null);
+
+        vm.SelectedNode.Should().BeNull();
+        vm.Editor.EditorEnabled.Should().BeFalse();   // 编辑区随选择收敛清空
+    }
+
+    [Fact]
+    public void Delete_Success_Converges_Selection_To_First_Remaining()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "a", Identity = new J1939NodeIdentity(0x11) });
+        host.AddNode(new NodeConfig { Name = "b", Identity = new J1939NodeIdentity(0x12) });
+        vm.RefreshFromHost();   // 自动选中首行 "a"
+        vm.SelectedNode!.Name.Should().Be("a");
+
+        vm.DeleteSelectedCommand.Execute(null);   // 删除 "a"
+
+        vm.Nodes.Single().Name.Should().Be("b");
+        vm.SelectedNode.Should().BeSameAs(vm.Nodes.Single());   // 收敛到剩余首行
+        vm.Editor.EditorEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Delete_Running_Node_Is_Rejected_With_Error_Activity()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+        var row = vm.Nodes.Single();
+        row.StartStopCommand.Execute(null);   // 启动 → 运行中
+        vm.SelectedNode.Should().BeSameAs(row);
+
+        vm.DeleteSelectedCommand.Execute(null);
+
+        vm.Nodes.Should().ContainSingle();    // 仍在列表
+        vm.Activities.Should().Contain(a =>
+            a.Kind == NodeActivityKind.Error && a.NodeName == "n" && a.Detail.Contains("正在运行"));
+    }
+
+    [Fact]
+    public void Delete_With_Empty_Selection_Is_Noop()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+        vm.SelectedNode = null;
+
+        vm.DeleteSelectedCommand.Execute(null);
+
+        vm.Nodes.Should().ContainSingle();    // 无选中 → 不删任何东西
+        vm.Activities.Should().BeEmpty();     // 也不产生错误活动
+    }
+
+    // 编辑提交（ConfigApplied 事件）→ 节点列表刷新 + 重选新名行（引用陷阱收敛钉：
+    // 行 VM/SelectedNode 持旧 record 引用，必须经 OnConfigApplied 重建）。
+    [Fact]
+    public void ApplyConfig_Rename_Refreshes_Node_List_And_Selection()
+    {
+        var host = CreateHost();
+        var vm = CreateVm(host);
+        host.AddNode(new NodeConfig { Name = "n", Identity = new J1939NodeIdentity(0x11) });
+        vm.RefreshFromHost();
+
+        vm.Editor.NodeName = "renamed";
+        vm.Editor.ApplyConfigCommand.Execute(null);
+
+        vm.Nodes.Single().Name.Should().Be("renamed");
+        vm.SelectedNode.Should().BeSameAs(vm.Nodes.Single());   // 重选新名行（旧行已失效）
+        vm.Editor.Config.Should().BeSameAs(vm.Nodes.Single().Config);   // 编辑区随重选指向新配置
+    }
+
     [Fact]
     public void Sa_Conflict_Start_Failure_Is_Surfaced_As_Error_Activity()
     {

@@ -168,6 +168,91 @@ public class NodeHostServiceTests : IDisposable
         activities.Should().Contain(a => a.Kind == NodeActivityKind.Error && a.Detail.Contains("boom"));
     }
 
+    // 节点配置编辑器（NodeEditorViewModel 升级）的 host 契约钉：
+    // UpdateNode 替换配置并重建行为；运行中拒绝（RemoveNode 同款 "请先停止"）；改名需唯一。
+    [Fact]
+    public void UpdateNode_Success_Replaces_Config_And_Rebuilds_Behavior()
+    {
+        var factoryCalls = 0;
+        var host = new NodeHostService(
+            (config, runtime) => new FakeNodeContext(runtime),
+            behaviorFactory: _ => { factoryCalls++; return _behavior; });
+        host.AddNode(Config("n"));
+
+        var updated = new NodeConfig
+        {
+            Name = "n2",
+            Identity = new J1939NodeIdentity(0x22),
+            Messages = [new NodeMessage(new J1939MessageRef(0x001200, 6, TpMode.Single, null, 0x22), 50, new FixedHexSource("AA BB"))],
+            Rules = [new ResponseRule(new J1939MessageRef(0x000900, 6, null, null), null, new StopMessageAction(new J1939MessageRef(0x001200, 6, TpMode.Single, null, 0x22)), 0)],
+        };
+        host.UpdateNode("n", updated).IsSuccess.Should().BeTrue();
+
+        factoryCalls.Should().Be(2);   // AddNode 1 次 + UpdateNode 重建 1 次（快照新配置）
+        var node = host.Nodes.Single();
+        node.Config.Name.Should().Be("n2");          // 改名生效
+        node.Config.Identity.Should().Be(new J1939NodeIdentity(0x22));
+        node.IsRunning.Should().BeFalse();
+    }
+
+    [Fact]
+    public void UpdateNode_While_Running_Fails()
+    {
+        var host = CreateHost();
+        host.AddNode(Config("n"));
+        host.StartNode("n");
+
+        var r = host.UpdateNode("n", Config("n2", sa: 0x22));
+
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Message.Should().Contain("请先停止");   // RemoveNode 同款语义
+        host.Nodes.Single().Config.Name.Should().Be("n");   // 运行中不生效
+    }
+
+    [Fact]
+    public void UpdateNode_Rename_Collision_Fails()
+    {
+        var host = CreateHost();
+        host.AddNode(Config("a"));
+        host.AddNode(Config("b"));
+
+        var r = host.UpdateNode("a", Config("b"));
+
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Message.Should().Contain("已存在");
+        host.Nodes.Select(n => n.Config.Name).Should().Equal("a", "b");   // 无变更
+    }
+
+    [Fact]
+    public void UpdateNode_Unknown_Name_Fails()
+    {
+        var host = CreateHost();
+
+        var r = host.UpdateNode("nope", Config("n"));
+
+        r.IsSuccess.Should().BeFalse();
+        r.Error!.Code.Should().Be(ErrorCode.NotFound);
+    }
+
+    // 生效语义钉：停止节点更新（含改名）后以新名登记，可再次启动；Runtime（跨启停信号表）保留。
+    [Fact]
+    public void UpdateNode_After_Stop_Applies_And_Preserves_Runtime()
+    {
+        var host = CreateHost();
+        host.AddNode(Config("n"));
+        host.StartNode("n");
+        host.Nodes.Single().Runtime.SetSignalValue("CCS", "voltage", 42.0);
+        host.StopNode("n");
+
+        host.UpdateNode("n", Config("n2", sa: 0x22)).IsSuccess.Should().BeTrue();
+
+        host.Nodes.Single().Config.Name.Should().Be("n2");
+        host.Nodes.Single().Runtime.TryGetSignalValue("CCS", "voltage", out var v).Should().BeTrue();
+        v.Should().Be(42.0);                       // 节点实例未换，Runtime 不丢（Remove+Add 会丢）
+        host.StartNode("n2").IsSuccess.Should().BeTrue();
+        host.StopNode("n2").IsSuccess.Should().BeTrue();
+    }
+
     [Fact]
     public void Unknown_Name_Fails()
     {

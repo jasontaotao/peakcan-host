@@ -69,6 +69,35 @@ public sealed partial class NodeHostService : IDisposable
         return Result<Unit>.Ok(default);
     }
 
+    /// <summary>
+    /// 替换未运行节点的配置并重建行为引擎（<see cref="RuleBasedBehavior"/> 在 ctor 快照
+    /// messages/rules——更新配置必须重建，否则旧行为仍持旧快照）。节点实例保留：
+    /// <see cref="SimulatedNode.Runtime"/>（跨启停信号值表）不因更新丢失（Remove+Add 会丢）。
+    /// <para>运行中 → Error（<see cref="RemoveNode"/> 同款 "请先停止" 语义）；改名需未被
+    /// 其它节点占用。调用方须与 Start/Stop 同线程（WPF UI 线程）。</para>
+    /// </summary>
+    public Result<Unit> UpdateNode(string currentName, NodeConfig updated)
+    {
+        if (string.IsNullOrWhiteSpace(updated.Name))
+            return Result<Unit>.Fail(ErrorCode.InvalidArgument, "节点名称不能为空");
+        lock (_gate)
+        {
+            var node = _nodes.FirstOrDefault(n => n.Config.Name == currentName);
+            if (node is null)
+                return Result<Unit>.Fail(ErrorCode.NotFound, $"节点 '{currentName}' 不存在");
+            if (node.IsRunning)
+                return Result<Unit>.Fail(ErrorCode.InvalidState, $"节点 '{currentName}' 正在运行，请先停止");
+            if (!string.Equals(currentName, updated.Name, StringComparison.Ordinal)
+                && _nodes.Any(n => n != node && n.Config.Name == updated.Name))
+                return Result<Unit>.Fail(ErrorCode.InvalidArgument, $"节点 '{updated.Name}' 已存在");
+
+            node.Config = updated;
+            node.Behavior = _behaviorFactory(updated);   // 快照新配置（未运行，Behavior 无 Context 依赖）
+        }
+
+        return Result<Unit>.Ok(default);
+    }
+
     /// <summary>移除节点；运行中 → Error（先停）。</summary>
     public Result<Unit> RemoveNode(string name)
     {

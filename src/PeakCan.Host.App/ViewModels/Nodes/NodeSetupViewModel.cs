@@ -43,6 +43,7 @@ public sealed partial class NodeSetupViewModel : ObservableObject
         _library = library;
         _fileDialogs = fileDialogs;
         Editor.Bind(host, dbcService, _library);
+        Editor.ConfigApplied += OnConfigApplied;
         _host.Activity += OnActivity;
         // 模板播种（Step 5 裁定：放 NodeSetupViewModel ctor，避免新 hosted service）——
         // 把随应用分发的 GB/T 27930 模板复制进用户库；目录不存在时静默跳过（测试临时目录路径）。
@@ -102,6 +103,44 @@ public sealed partial class NodeSetupViewModel : ObservableObject
             return;
         if (_host.AddNode(file.Config).IsSuccess)
             RefreshFromHost();
+    }
+
+    /// <summary>
+    /// 删除选中节点（命令）。成功 → 刷新行集并显式收敛选中（列表空时为 null，否则首行——
+    /// 不依赖 DataGrid 绑定写 null 兜底，VM 自行维持 "SelectedNode 指向 Nodes 内行" 的不变量，
+    /// review MEDIUM）；失败（运行中 / 不存在）→ 经 Activity Error 呈现 host 的 Result 文案
+    /// （Task 18 绑定注 4 同款契约：命令丢弃 Result，活动日志是唯一可见面，不得静默——
+    /// 不预判文案，既消除双处硬编码漂移，也消灭静默失败分支，review 2×LOW）。
+    /// SelectedNode 为 null（列表空）时 no-op。删除的是 memo：角色档案文件
+    /// （<c>.node.json</c>）不受影响，需要时经 Open 重新导入。
+    /// </summary>
+    [RelayCommand]
+    private void DeleteSelected()
+    {
+        var config = SelectedNode?.Config;
+        if (config is null)
+            return;
+
+        var result = _host.RemoveNode(config.Name);
+        if (result.IsSuccess)
+        {
+            RefreshFromHost();
+            SelectedNode = Nodes.FirstOrDefault();   // 显式收敛（行集重建后为空或首行）
+            return;
+        }
+
+        OnActivity(new NodeActivity(config.Name, NodeActivityKind.Error, result.Error?.Message ?? "删除失败", DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// 编辑提交生效后：刷新节点列表（改名/改 SA 后行文本同步）并重选新名行——
+    /// 行 VM 与 SelectedNode 都持旧 record 引用（更新语义探索的引用陷阱），
+    /// 必须经 RefreshFromHost + 重选收敛，不得依赖于启动器。
+    /// </summary>
+    private void OnConfigApplied(NodeConfig config)
+    {
+        RefreshFromHost();
+        SelectedNode = Nodes.FirstOrDefault(n => n.Name == config.Name);
     }
 
     /// <summary>
