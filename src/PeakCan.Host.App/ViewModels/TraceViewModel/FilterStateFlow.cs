@@ -144,11 +144,6 @@ public sealed partial class TraceViewModel
     [ObservableProperty]
     private bool _statsExpanded;
 
-    /// <summary>统计面板刷新（T11 填充：Top20 重建 <see cref="StatsRows"/>）。</summary>
-    private void RefreshStats()
-    {
-    }
-
     // —— MaxRows 可调输入（spec §5.8）——
 
     /// <summary>MaxRows 文本（TwoWay 绑定工具栏输入框），初始同步当前 <see cref="MaxRows"/>。</summary>
