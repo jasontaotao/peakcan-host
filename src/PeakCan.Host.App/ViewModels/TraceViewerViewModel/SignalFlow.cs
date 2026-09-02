@@ -58,6 +58,22 @@ public sealed partial class TraceViewerViewModel
         var dbc = _dbcService.Current;
         var allowed = CanIdListParser.Parse(CanIdFilter).AllowList;
         var byId = BucketFramesByCanId(allowed);
+
+        // J1939 重组虚拟帧并入分组：多帧报文（BRM/BCP 等）在原始帧里只有 TP.CM/TP.DT，
+        // 完整载荷仅存在于重组虚拟帧——不并入则 watch 行 FrameCount/LatestValue 恒 0/NaN。
+        // SourceId 固定的 watch 天然忽略虚拟帧（虚拟帧不属于任何 registry 源，见下方过滤）。
+        foreach (var vf in _j1939VirtualFrames)
+        {
+            if (allowed is not null && !allowed.Contains(vf.Id)) continue;
+            var vfMasked = vf.Id & 0x7FFFFFFFu;
+            if (!byId.TryGetValue(vfMasked, out var vfList))
+            {
+                vfList = new List<ReplayFrame>();
+                byId[vfMasked] = vfList;
+            }
+            vfList.Add(vf);
+        }
+
         foreach (var row in WatchedSignals)
         {
             // Skip the placeholder row (no real canId to decode).

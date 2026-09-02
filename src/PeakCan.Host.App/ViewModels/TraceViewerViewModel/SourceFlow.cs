@@ -183,6 +183,9 @@ public sealed partial class TraceViewerViewModel
         // Master swap can change which signal rows have data (different
         // frame set); rebuild off-thread to avoid blocking the UI.
         _ = RebuildSignalsAsync();
+        // review F2: master 切换后 J1939 重组视图/虚拟帧缓存必须随新 master 重建，
+        // 否则旧 master 的虚拟帧污染新 master 的 watch/锚线取值（同 OnSessionRestored）。
+        RebuildJ1939ViewsCommand.Execute(null);
     }
 
     private void RebindMasterFromRegistry()

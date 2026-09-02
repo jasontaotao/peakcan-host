@@ -137,14 +137,21 @@ public sealed partial class TraceViewerViewModel
         var allFrames = masterSource is null
             ? null
             : _registry.GetFrames(masterSource.SourceId);
+        // J1939 重组虚拟帧并入取值帧源：多帧报文（BRM/BCP）完整载荷仅存在于虚拟帧，
+        // 不并入则多帧信号锚线值恒 NaN（与 RefreshFrameCounts 同款 L3 并入，见 SignalFlow）。
+        // OrderBy 保持升序：FilterFramesByCanId → BinarySearchNearest 二分要求输入有序
+        // （review F1——同一 maskedId 原始帧 + 虚拟帧混拼时无序会命中错误下标）。
+        var frames = allFrames is null || allFrames.Count == 0
+            ? _j1939VirtualFrames
+            : allFrames.Concat(_j1939VirtualFrames).OrderBy(f => f.Timestamp).ToList();
         foreach (var row in WatchedSignals)
         {
             if (row.IsPlaceholder) continue;
-            if (allFrames is null || allFrames.Count == 0) continue;
+            if (frames.Count == 0) continue;
             if (row.Signal is null) continue;
 
             // Fix #3: Filter frames by CAN ID before decoding
-            var filteredFrames = FilterFramesByCanId(allFrames, row.SignalKey);
+            var filteredFrames = FilterFramesByCanId(frames, row.SignalKey);
             if (filteredFrames.Count == 0) continue;
 
             // Fix #2: SNAP to nearest sample point

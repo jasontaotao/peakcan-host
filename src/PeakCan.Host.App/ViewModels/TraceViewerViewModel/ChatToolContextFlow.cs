@@ -233,5 +233,14 @@ public sealed partial class TraceViewerViewModel
     }
 
     IReadOnlyList<ReplayFrame> IChatToolContext.GetFrames(string sourceId)
-        => _registry.GetFrames(sourceId);
+    {
+        // J1939 重组虚拟帧并入：get_signal_overview / search_signal_trace / anomaly_scan /
+        // analyze_timing_sequence 均经此接口取帧解码。多帧报文（BRM/BCP）在原始帧里只有
+        // TP.CM/TP.DT，不并入则多帧信号按 DBC ID 过滤零命中 → AI Chat 报 "no frames"
+        //（与 RefreshFrameCounts / 锚线同款 L3 并入；虚拟帧无源概念，多源时并入各源，
+        // 与图表路径 Task 13 Finding 2 的同款已知限制）。
+        var raw = _registry.GetFrames(sourceId);
+        if (_j1939VirtualFrames.Count == 0) return raw;
+        return raw.Concat(_j1939VirtualFrames).ToList();
+    }
 }

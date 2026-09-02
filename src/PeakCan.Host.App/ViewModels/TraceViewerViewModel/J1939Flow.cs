@@ -13,6 +13,14 @@ public sealed partial class TraceViewerViewModel
     private readonly J1939ReassemblyService _j1939Reassembly;
     private IReadOnlyList<ReplayFrame>? _decodeFrames;
 
+    /// <summary>
+    /// 重组产出的虚拟帧（<see cref="J1939VirtualFrameMerger.ToVirtualFrames"/>）。
+    /// watch 值刷新（RefreshFrameCounts）并入此列表，否则多帧报文（BRM/BCP 等）在
+    /// 原始帧里只有 TP.CM/TP.DT、完整载荷仅存在于虚拟帧，watch 行 FrameCount 恒 0。
+    /// 生命周期与 <see cref="_decodeFrames"/> 同步（无源时随之一并清空）。
+    /// </summary>
+    private IReadOnlyList<ReplayFrame> _j1939VirtualFrames = Array.Empty<ReplayFrame>();
+
     /// <summary>L2 重组消息行（完成时间升序）。</summary>
     public ObservableCollection<ReassembledJ1939Message> ReassembledMessages { get; } = new();
 
@@ -38,6 +46,7 @@ public sealed partial class TraceViewerViewModel
         {
             ReassembledMessages.Clear();
             _decodeFrames = null;   // DecodeFrames 退化为原始帧序列（此处 master null → 空序列）
+            _j1939VirtualFrames = Array.Empty<ReplayFrame>();
             return;
         }
 
@@ -50,6 +59,7 @@ public sealed partial class TraceViewerViewModel
 
         // L3 解码帧序列（spec §9.3）：原始 ∪ 完整重组虚拟帧，同刻原始帧在前；
         // Task 13 注入点经 DecodeFrames 供给解码路径（SamplingTableFlow / ChartSeriesFlow）。
+        _j1939VirtualFrames = J1939VirtualFrameMerger.ToVirtualFrames(messages);
         _decodeFrames = J1939VirtualFrameMerger.Merge(raw, messages);
     }
 

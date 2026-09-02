@@ -15,14 +15,19 @@ public static class J1939VirtualFrameMerger
     private static readonly ConditionalWeakTable<DbcDocument, StrongBox<int>> MatchLevelCache = new();
 
     /// <summary>
+    /// 完整重组消息 → 虚拟帧列表（只有 <see cref="ReassemblyStatus.Complete"/> 产帧）。
+    /// <see cref="Merge"/> 与 Trace Viewer 的 watch 值刷新共用此入口，保证
+    /// 解码帧序列与 watch 取值看到同一批虚拟帧。
+    /// </summary>
+    public static IReadOnlyList<ReplayFrame> ToVirtualFrames(IReadOnlyList<ReassembledJ1939Message> messages)
+        => messages.Where(m => m.Status == ReassemblyStatus.Complete).Select(ToVirtualFrame).ToList();
+
+    /// <summary>
     /// 原始帧 ∪ 完整重组消息的虚拟帧，按 Timestamp 稳定归并（同刻原始帧在前）。
-    /// 只有 <see cref="ReassemblyStatus.Complete"/> 的消息产虚拟帧。
     /// </summary>
     public static IReadOnlyList<ReplayFrame> Merge(
         IReadOnlyList<ReplayFrame> raw, IReadOnlyList<ReassembledJ1939Message> messages)
-        => raw.Concat(messages.Where(m => m.Status == ReassemblyStatus.Complete).Select(ToVirtualFrame))
-              .OrderBy(f => f.Timestamp)
-              .ToList();
+        => raw.Concat(ToVirtualFrames(messages)).OrderBy(f => f.Timestamp).ToList();
 
     private static ReplayFrame ToVirtualFrame(ReassembledJ1939Message m)
     {

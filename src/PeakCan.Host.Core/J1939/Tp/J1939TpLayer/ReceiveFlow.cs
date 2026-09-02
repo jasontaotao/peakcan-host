@@ -123,8 +123,11 @@ public sealed partial class J1939TpLayer
         lock (_gate)
             isLocal = _options.AutoRespondToRts && id.PduSpecific != 0 && _localAddresses.Contains(id.PduSpecific);
 
-        if (!isLocal)
-            return;   // 纯监听：不建会话、不注入任何 TP.CM
+        if (!isLocal && !_options.OfflineMode)
+            return;   // 在线纯监听：不建会话、不注入任何 TP.CM；
+                      // 离线回放：仍建会话供重组——非标 27930 设备多帧走 RTS/CTS 点对点
+                      // （TP.DT 目标为实际对端地址而非 0xFF），若不建会话则整条会话被丢弃、
+                      // 无虚拟帧产出，多帧信号取不到（J1939ReassemblyServiceTests 回归钉住）。
 
         CreateOrReplaceSession(new SessionKey(id.SourceAddress, id.PduSpecific), id.Priority, cm, TpMode.RtsCts, ts);
 
