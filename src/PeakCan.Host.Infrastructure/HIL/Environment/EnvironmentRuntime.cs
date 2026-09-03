@@ -44,6 +44,9 @@ public sealed class EnvironmentRuntime
         Scan(null);
     }
 
+    /// <summary>Test helper: processes incoming frames without waiting for the 10ms timer.</summary>
+    public void ScanForTest() => ProcessIncoming();
+
     public void Stop()
     {
         lock (_gate)
@@ -133,7 +136,105 @@ public sealed class EnvironmentRuntime
         }
     }
 
-    private void ProcessIncoming() { /* Task 9 implements */ }
+    private void ProcessIncoming()
+    {
+        while (_incoming.TryDequeue(out var frame))
+        {
+            if (frame.FrameSource == FrameSource.Environment) continue;
+
+            List<(RestbusNode Node, ResponseRule Rule)>? matched = null;
+            lock (_gate)
+            {
+                foreach (var nodeState in _states)
+                {
+                    foreach (var rule in nodeState.Node.Rules)
+                    {
+                        if (!MatchesIncoming(rule.Trigger, frame)) continue;
+                        if (!MatchesCondition(rule.Condition, frame)) continue;
+                        (matched ??= []).Add((nodeState.Node, rule));
+                    }
+                }
+            }
+
+            if (matched is not null)
+                foreach (var (node, rule) in matched)
+                    ExecuteAction(node, rule.Action);
+        }
+    }
+
+    private void ExecuteAction(RestbusNode node, NodeAction action)
+    {
+        switch (action)
+        {
+            case SendMessageAction send: SendActionFrame(node, send); break;
+            case SetSignalAction set: /* DBC signal encode in M2 */ break;
+            case StartMessageAction start: SetMessageEnabled(node, start.Ref, true); break;
+            case StopMessageAction stop: SetMessageEnabled(node, stop.Ref, false); break;
+            case ScriptAction script:
+                _logger.LogWarning("ScriptAction '{Ref}' not supported in EnvironmentRuntime.", script.ScriptRef);
+                break;
+        }
+    }
+
+    private void SendActionFrame(RestbusNode node, SendMessageAction action)
+    {
+        if (action.Ref is not CanMessageRef canRef) return;
+        var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
+        byte[] payload = action.Payload switch
+        {
+            FixedHexSource hex => ParseHexStatic(hex.Hex),
+            _ => [],
+        };
+        var frame = new CanFrame(id, payload, FrameFlags.None, default, default, FrameSource.Environment);
+        _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
+    }
+
+    private void SetMessageEnabled(RestbusNode node, MessageRef target, bool enabled)
+    {
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == node.Name);
+            if (state is null) return;
+            foreach (var m in state.Messages)
+            {
+                if (MatchesRefStatic(target, m.Ref))
+                {
+                    m.Enabled = enabled;
+                    if (enabled) m.NextDueMs = System.Environment.TickCount64 + ScanIntervalMs;
+                }
+            }
+        }
+    }
+
+    private static bool MatchesIncoming(MessageRef ruleRef, CanFrame frame)
+    {
+        if (ruleRef is CanMessageRef canRef)
+            return frame.Id.Raw == canRef.Id && frame.Id.IsExtended == canRef.IsExtended;
+        return false;
+    }
+
+    private static bool MatchesCondition(BytePattern? cond, CanFrame frame)
+    {
+        if (cond is null) return true;
+        if (frame.Data.Length <= cond.Offset) return false;
+        return (frame.Data.Span[cond.Offset] & cond.Mask) == cond.Value;
+    }
+
+    private static byte[] ParseHexStatic(string hex)
+    {
+        var clean = hex.Replace(" ", "").Replace("-", "");
+        var bytes = new byte[clean.Length / 2];
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = Convert.ToByte(clean.Substring(i * 2, 2), 16);
+        return bytes;
+    }
+
+    private static bool MatchesRefStatic(MessageRef a, MessageRef b) => (a, b) switch
+    {
+        (CanMessageRef ca, CanMessageRef cb) => ca.Id == cb.Id && ca.IsExtended == cb.IsExtended,
+        (J1939MessageRef ja, J1939MessageRef jb) => ja.Pgn == jb.Pgn && ja.Priority == jb.Priority,
+        _ => false,
+    };
 
     private void ThrottleDropWarning()
     {
