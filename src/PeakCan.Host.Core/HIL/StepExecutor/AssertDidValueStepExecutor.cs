@@ -22,8 +22,8 @@ internal sealed class AssertDidValueStepExecutor : IStepExecutor
                 "Assertion context does not support IStepVariableStore", null, null, 0);
 
         // 轮询等键出现（ReadDid 若因 FailurePolicy 被跳过，本步骤超时失败并给出明确原因）
-        var deadline = Environment.TickCount64 + timeoutMs;
-        while (!ct.IsCancellationRequested && !store.Variables.ContainsKey(p.VarKey) && Environment.TickCount64 < deadline)
+        var deadline = System.Environment.TickCount64 + timeoutMs;
+        while (!ct.IsCancellationRequested && !store.Variables.ContainsKey(p.VarKey) && System.Environment.TickCount64 < deadline)
             await Task.Delay(50, ct);
 
         if (!store.Variables.TryGetValue(p.VarKey, out var raw) || raw is not byte[] actual)

@@ -7,7 +7,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// <summary>
 /// <see cref="IFrameStatistics"/> 实现：订阅 <see cref="ICanChannel.FrameReceived"/>，
 /// 按 CAN ID 索引 <see cref="ConcurrentQueue{T}"/>（弱一致，读安全）。单调时钟打点
-/// （<see cref="Environment.TickCount64"/>，ms）。
+/// （<see cref="System.Environment.TickCount64"/>，ms）。
 /// 查询时懒淘汰过期帧（同时裁剪到 since 边界与 retention 上限），防止长时间不查询时无限增长。
 /// </summary>
 public sealed class FrameStatisticsCollector : IFrameStatistics, IDisposable
@@ -22,11 +22,11 @@ public sealed class FrameStatisticsCollector : IFrameStatistics, IDisposable
     private int _disposed;
 
     /// <param name="channel">帧来源。</param>
-    /// <param name="now">单调时钟提供者（默认 <see cref="Environment.TickCount64"/>）。测试注入可控时钟。</param>
+    /// <param name="now">单调时钟提供者（默认 <see cref="System.Environment.TickCount64"/>）。测试注入可控时钟。</param>
     public FrameStatisticsCollector(ICanChannel channel, Func<long>? now = null)
     {
         _channel = channel;
-        _now = now ?? (() => Environment.TickCount64);
+        _now = now ?? (() => System.Environment.TickCount64);
         _subscription = new FrameReceivedSubscription(channel, OnFrame);
     }
 

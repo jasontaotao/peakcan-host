@@ -2,7 +2,7 @@ namespace PeakCan.HIL.Core.HIL.Contracts;
 
 /// <summary>
 /// 帧统计基础设施（Phase B）。按 CAN ID 统计 FrameReceived 事件，
-/// 时间基准为 collector 内部单调时钟（<c>Environment.TickCount64</c>，单位 ms），
+/// 时间基准为 collector 内部单调时钟（<c>System.Environment.TickCount64</c>，单位 ms），
 /// 不依赖帧的 <c>Timestamp</c> 字段——硬件/回放模式下语义一致。
 /// 窗口边界由调用方打点派生（前向语义），而非"最近 window"回看。
 /// </summary>

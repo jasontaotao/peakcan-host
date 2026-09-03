@@ -20,19 +20,19 @@ public sealed class SimpleCredentialStore : ICredentialStore
         // 2. Check environment variable (key-specific: HIL_{KEY_UPPER}_API_KEY)
         // Key format "PeakCan/deepseek/default" -> "HIL_PEAKCAN_DEEPSEEK_DEFAULT_API_KEY"
         var envVarName = $"HIL_{key.ToUpperInvariant().Replace("/", "_").Replace("-", "_")}_API_KEY";
-        var env = Environment.GetEnvironmentVariable(envVarName);
+        var env = System.Environment.GetEnvironmentVariable(envVarName);
         if (env is not null) return Task.FromResult<string?>(env);
 
         // 2b. Backward compat: old key name "deepseek-api-key" -> HIL_DEEPSEEK_API_KEY
         if (key == "PeakCan/deepseek/default")
         {
-            var legacyEnv = Environment.GetEnvironmentVariable("HIL_DEEPSEEK_API_KEY");
+            var legacyEnv = System.Environment.GetEnvironmentVariable("HIL_DEEPSEEK_API_KEY");
             if (legacyEnv is not null) return Task.FromResult<string?>(legacyEnv);
         }
 
         // 3. Check ~/.hil/credentials file
         var credPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
             ".hil", "credentials");
         if (File.Exists(credPath))
         {

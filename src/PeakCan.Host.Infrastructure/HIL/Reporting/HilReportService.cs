@@ -16,7 +16,7 @@ public sealed class HilReportService : IHilReportService
     public HilReportService(string? reportDirectory = null)
     {
         ReportDirectory = reportDirectory
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            ?? Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
                             "PeakCanHost", "hil-reports");
     }
 

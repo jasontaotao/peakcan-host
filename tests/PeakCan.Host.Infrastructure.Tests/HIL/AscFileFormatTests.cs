@@ -11,12 +11,12 @@ public class AscFileFormatTests
     {
         var sb = new StringBuilder();
         AscFileFormat.WriteHeader(sb);
-        // AppendLine emits Environment.NewLine; the literal must match the platform
+        // AppendLine emits System.Environment.NewLine; the literal must match the platform
         // newline exactly as FrameCaptureExporter's StringBuilder.AppendLine would.
-        var expected = $"date Fri Jan 01 00:00:00.000 {DateTime.Now:yyyy}{Environment.NewLine}"
-                     + $"base hex  timestamps absolute{Environment.NewLine}"
-                     + $"internal events logged{Environment.NewLine}"
-                     + $"// version 8.5.0{Environment.NewLine}";
+        var expected = $"date Fri Jan 01 00:00:00.000 {DateTime.Now:yyyy}{System.Environment.NewLine}"
+                     + $"base hex  timestamps absolute{System.Environment.NewLine}"
+                     + $"internal events logged{System.Environment.NewLine}"
+                     + $"// version 8.5.0{System.Environment.NewLine}";
         Assert.Equal(expected, sb.ToString());
     }
 
@@ -33,7 +33,7 @@ public class AscFileFormatTests
         //   {seconds,12:F6} 1  {idStr,-12}x       Rx d {dlc} {dataHex}
         // seconds=0.0 -> "    0.000000" (12 wide); idStr "0x123" -> "0x123       " (12 wide).
         var expected = "    0.000000 1  0x123       x       Rx d 3 01 02 03"
-                     + Environment.NewLine;
+                     + System.Environment.NewLine;
         Assert.Equal(expected, sb.ToString());
     }
 

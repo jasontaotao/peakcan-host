@@ -1,0 +1,207 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using PeakCan.HIL.Core;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Environment;
+
+namespace PeakCan.Host.Infrastructure.HIL.Environment;
+
+/// <summary>
+/// 统一环境执行器。10ms 单扫描定时器驱动周期帧和 pending 规则。
+/// spec §6.1: Start 后 enabled 周期帧先立即发送一次，后续按量化周期调度。
+/// </summary>
+public sealed class EnvironmentRuntime
+{
+    private const int ScanIntervalMs = 10;
+    private const int QueueCapacity = 256;
+    private const int MaxConsecutiveSendFailures = 10;
+
+    private readonly ICanChannel _channel;
+    private readonly ILogger<EnvironmentRuntime> _logger;
+    private readonly object _gate = new();
+    private readonly ConcurrentQueue<CanFrame> _incoming = new();
+    private ITimer? _scanTimer;
+    private List<NodeRuntimeState> _states = [];
+    private long _droppedFrames;
+    private long _lastDropWarningTicks;
+    private bool _running;
+
+    public EnvironmentRuntime(ICanChannel channel, ILogger<EnvironmentRuntime>? logger = null)
+    {
+        _channel = channel;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance;
+    }
+
+    public void Start(IReadOnlyList<RestbusNode> nodes, IReadOnlyList<ChannelConfig>? channels)
+    {
+        lock (_gate)
+        {
+            _states = nodes.Select(n => new NodeRuntimeState(n)).ToList();
+            _running = true;
+            _scanTimer = new Timer(Scan, null, 0, ScanIntervalMs);
+        }
+        // Synchronous first send: enabled periodic frames are sent once immediately.
+        Scan(null);
+    }
+
+    public void Stop()
+    {
+        lock (_gate)
+        {
+            _scanTimer?.Dispose();
+            _scanTimer = null;
+            _running = false;
+        }
+    }
+
+    public void UpdateFrameData(string nodeName, MessageRef msgRef, byte[] data)
+    {
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == nodeName);
+            state?.UpdateFixedHexData(msgRef, data);
+        }
+    }
+
+    public void InjectIncomingFrame(CanFrame frame)
+    {
+        if (_incoming.Count >= QueueCapacity)
+        {
+            _incoming.TryDequeue(out _);
+            Interlocked.Increment(ref _droppedFrames);
+            ThrottleDropWarning();
+        }
+        _incoming.Enqueue(frame);
+    }
+
+    private void Scan(object? state)
+    {
+        List<(NodeMessageRuntimeState MsgState, NodeMessage Msg)>? toSend = null;
+        lock (_gate)
+        {
+            if (!_running) return;
+            var now = System.Environment.TickCount64;
+
+            foreach (var nodeState in _states)
+            {
+                for (int i = 0; i < nodeState.Messages.Count; i++)
+                {
+                    var msgState = nodeState.Messages[i];
+                    if (!msgState.Enabled || now < msgState.NextDueMs) continue;
+
+                    var payload = msgState.BuildPayload();
+                    if (payload is not null)
+                        (toSend ??= []).Add((msgState, nodeState.Node.Messages[i]));
+
+                    var quantum = Math.Max(ScanIntervalMs,
+                        (nodeState.Node.Messages[i].IntervalMs + ScanIntervalMs - 1) / ScanIntervalMs * ScanIntervalMs);
+                    msgState.NextDueMs = now + quantum;
+                }
+            }
+        }
+
+        if (toSend is not null)
+            foreach (var (msgState, msg) in toSend)
+                SendFrame(msgState, msg);
+
+        ProcessIncoming();
+    }
+
+    private void SendFrame(NodeMessageRuntimeState msgState, NodeMessage msg)
+    {
+        if (msg.Ref is not CanMessageRef canRef) return;
+        var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
+        var payload = msgState.BuildPayload();
+        if (payload is null) return;
+        var flags = msg.Fd ? FrameFlags.Fd : FrameFlags.None;
+        var frame = new CanFrame(id, payload, flags, default, default, FrameSource.Environment);
+        var result = _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
+
+        if (result.IsSuccess)
+        {
+            msgState.ConsecutiveFailures = 0;
+            msgState.FramesSent++;
+        }
+        else
+        {
+            msgState.ConsecutiveFailures++;
+            if (msgState.ConsecutiveFailures >= MaxConsecutiveSendFailures)
+            {
+                _logger.LogError("Environment message {Ref}: stopped after {N} consecutive failures.", msg.Ref, MaxConsecutiveSendFailures);
+                msgState.Enabled = false;
+            }
+        }
+    }
+
+    private void ProcessIncoming() { /* Task 9 implements */ }
+
+    private void ThrottleDropWarning()
+    {
+        var now = System.Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastDropWarningTicks) < 5000) return;
+        Interlocked.Exchange(ref _lastDropWarningTicks, now);
+        _logger.LogWarning("Environment incoming queue overflow: {Dropped} frames dropped.", Interlocked.Read(ref _droppedFrames));
+    }
+}
+
+internal sealed class NodeRuntimeState
+{
+    public RestbusNode Node { get; }
+    public List<NodeMessageRuntimeState> Messages { get; } = [];
+
+    public NodeRuntimeState(RestbusNode node)
+    {
+        Node = node;
+        foreach (var msg in node.Messages) Messages.Add(new NodeMessageRuntimeState(msg));
+    }
+
+    public void UpdateFixedHexData(MessageRef msgRef, byte[] data)
+    {
+        foreach (var m in Messages)
+            if (m.Source is FixedHexSource && MatchesRef(m.Ref, msgRef))
+                m.FixedHexData = data;
+    }
+
+    private static bool MatchesRef(MessageRef a, MessageRef b) => (a, b) switch
+    {
+        (CanMessageRef ca, CanMessageRef cb) => ca.Id == cb.Id && ca.IsExtended == cb.IsExtended,
+        (J1939MessageRef ja, J1939MessageRef jb) => ja.Pgn == jb.Pgn && ja.Priority == jb.Priority,
+        _ => false,
+    };
+}
+
+internal sealed class NodeMessageRuntimeState
+{
+    public MessageRef Ref { get; }
+    public NodePayloadSource Source { get; }
+    public bool Enabled { get; set; }
+    public long NextDueMs { get; set; }
+    public int ConsecutiveFailures { get; set; }
+    public long FramesSent { get; set; }
+    public byte[]? FixedHexData { get; set; }
+    public ushort CounterValue { get; set; }
+
+    public NodeMessageRuntimeState(NodeMessage msg)
+    {
+        Ref = msg.Ref;
+        Source = msg.Payload;
+        Enabled = msg.Enabled;
+        FixedHexData = (msg.Payload as FixedHexSource) is { } hex ? ParseHex(hex.Hex) : null;
+        CounterValue = msg.AutoCounter is { } ac ? ac.StartValue : (ushort)0;
+    }
+
+    public byte[]? BuildPayload()
+    {
+        if (Source is FixedHexSource) return FixedHexData;
+        return null; // DbcSignalsSource in M2
+    }
+
+    private static byte[] ParseHex(string hex)
+    {
+        var clean = hex.Replace(" ", "").Replace("-", "");
+        var bytes = new byte[clean.Length / 2];
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = Convert.ToByte(clean.Substring(i * 2, 2), 16);
+        return bytes;
+    }
+}

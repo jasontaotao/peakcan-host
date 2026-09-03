@@ -92,7 +92,7 @@ public static class CliArgsParser
                 case "--help":
                 case "-h":
                     PrintHelp();
-                    Environment.Exit(0);
+                    System.Environment.Exit(0);
                     break;
             }
         }

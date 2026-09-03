@@ -263,13 +263,6 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
         // Background frames: sender + step executor
-        builder.Services.AddSingleton<BackgroundFrameSender>(sp =>
-        {
-            var channel = sp.GetRequiredService<ICanChannel>();
-            var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<BackgroundFrameSender>>();
-            return new BackgroundFrameSender(channel, logger);
-        });
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, StepExecutor.ModifyBackgroundFrameStepExecutor>();
         // Phase A: Variables 断言（纯本地读 IStepVariableStore，不依赖 UDS → 所有模式可用，含 trace-replay）
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertVariableStepExecutor>();
