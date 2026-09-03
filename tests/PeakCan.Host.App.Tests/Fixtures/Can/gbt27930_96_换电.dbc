@@ -1,0 +1,2333 @@
+VERSION ""
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: BMS
+
+
+BO_ 2556581620 B2S_SpecialRes: 8 BMS
+ SG_ ScenarioV2GResponse : 0|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ ChargeTypeResponse : 3|3@1+ (1,0) [0|7] "" Vector__XXX
+
+BO_ 2556556374 S2B_SpecialReq: 8 Vector__XXX
+ SG_ V2GSceneRecognition : 0|3@1+ (1,0) [0|7] ""  BMS
+ SG_ CanChannelRecognition : 3|3@1+ (1,0) [0|7] ""  BMS
+
+BO_ 2556032086 GunsCurr: 8 Vector__XXX
+ SG_ DGunCurr : 48|16@1+ (0.1,-400) [-3676.8|2876.7] ""  BMS
+ SG_ CGunCurr : 32|16@1+ (0.1,-400) [-3676.8|2876.7] ""  BMS
+ SG_ BGunCurr : 16|16@1+ (0.1,-400) [-400|6153.5] ""  BMS
+ SG_ AGunCurr : 0|16@1+ (0.1,-400) [-3676.8|2876.7] ""  BMS
+
+BO_ 2555926260 ChangeGunsState: 8 BMS
+ SG_ CC2_4St : 14|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CC2_3St : 12|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ DChgPosRlyErrSt : 36|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ DChgNegRlySt : 46|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ DChgPosRlySt : 44|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ DChgNegRlyErrSt : 38|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CChgPosRlySt : 40|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CChgPosRlyErrSt : 32|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CChgNegRlySt : 42|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CChgNegRlyErrSt : 34|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BChgPosRlySt : 20|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BChgPosRlyErrSt : 28|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BChgNegRlySt : 22|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BChgNegRlyErrSt : 30|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AChgPosRlySt : 16|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AChgPosRlyErrSt : 24|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AChgNegRlySt : 18|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AChgNegRlyErrSt : 26|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CC2_2St : 10|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CC2_1St : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ChangeStandbySt : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ PlugReqFeedback : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ PullReqFeedback : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2555901014 ChangeGunsRequest: 8 Vector__XXX
+ SG_ PlugGunReq2 : 6|2@1+ (1,0) [0|3] ""  BMS
+ SG_ PullGunReq2 : 4|2@1+ (1,0) [0|3] ""  BMS
+ SG_ PlugGunReq : 2|2@1+ (1,0) [0|3] ""  BMS
+ SG_ PullGunReq : 0|2@1+ (1,0) [0|3] ""  BMS
+
+BO_ 2555795188 PackInsuState: 8 BMS
+ SG_ InsuErrState : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ InsulCompleteFlg : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ InsuState : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2555769942 PackInsuRequest: 8 Vector__XXX
+ SG_ InsuDisableRequest : 0|2@1+ (1,0) [0|3] ""  BMS
+
+BO_ 2553345110 CFC: 8 Vector__XXX
+ SG_ Answer_signal_Chg : 12|2@1+ (1,0) [0|4] ""  BMS
+ SG_ Num_of_chg_guns_Chg : 8|4@1+ (1,0) [0|32] ""  BMS
+ SG_ Current_offset_Chg : 0|8@1+ (100,0) [0|10000] ""  BMS
+
+BO_ 2553370356 BFC: 8 BMS
+ SG_ Num_of_chg_guns_BMS : 8|4@1+ (1,0) [0|32] "" Vector__XXX
+ SG_ Answer_signal_BMS : 12|2@1+ (1,0) [0|4] "" Vector__XXX
+ SG_ Current_offset_BMS : 0|8@1+ (100,0) [0|10000] "" Vector__XXX
+
+BO_ 2553541718 CSDP: 8 Vector__XXX
+ SG_ CSDP_DCCHG_Num : 32|32@1+ (1,0) [0|4294967295] ""  BMS
+ SG_ CSDP_Discharge_energy : 16|16@1+ (1,0) [0|65535] ""  BMS
+ SG_ CSDP_Cumulative_discharge_time : 0|16@1+ (1,0) [0|65535] ""  BMS
+
+BO_ 2620675828 BCSP: 8 BMS
+ SG_ BCSP_reserved : 32|32@1+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ BCSP_Remaining_range : 16|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BCSP_Discharge_time : 0|16@1+ (1,0) [0|65535] "" Vector__XXX
+
+BO_ 2553476182 CCD: 3 Vector__XXX
+ SG_ CCD_Chg_Direction : 0|8@1+ (1,0) [0|255] ""  BMS
+ SG_ CCD_Min_Allow_Soc : 16|8@1+ (1,0) [0|255] ""  BMS
+ SG_ CCD_Max_Allow_Soc : 8|8@1+ (1,0) [0|255] ""  BMS
+
+BO_ 2553410646 CMLP: 8 Vector__XXX
+ SG_ CMLP_Min_DCCur : 48|16@1+ (0.1,-400) [-400|6153.5] ""  BMS
+ SG_ CMLP_Max_DCCur : 32|16@1+ (0.1,-400) [-400|6153.5] ""  BMS
+ SG_ CMLP_Min_DCV : 16|16@1+ (0.1,0) [0|6553.5] ""  BMS
+ SG_ CMLP_Max_DCV : 0|16@1+ (0.1,0) [0|6553.5] ""  BMS
+
+BO_ 2553304820 BCPP: 7 BMS
+ SG_ BCPP_Min_Allow_Soc : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BCPP_Min_Allow_CellV : 32|16@1+ (0.01,0) [0|655.35] "" Vector__XXX
+ SG_ BCPP_Max_Allow_DCV : 16|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BCPP_Max_Allow_DCCur : 0|16@1+ (0.1,-400) [-400|6153.5] "" Vector__XXX
+
+BO_ 2619954932 BDC: 28 BMS
+ SG_ BDC_Remainder_CruisingRange : 208|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BDC_Remainder_V2GCirculate : 192|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BDC_Current_V2GCirculate : 176|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BDC_Battery_energy : 160|16@1+ (0.1,0) [0|6553.5] "" Vector__XXX
+ SG_ BDC_Battery_capacity : 144|16@1+ (0.1,0) [0|6553.5] "ah" Vector__XXX
+ SG_ BDC_Soc : 136|8@1+ (1,0) [0|255] "%" Vector__XXX
+ SG_ BDC_Vin1_Copy_17 : 128|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_16 : 120|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_15 : 112|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_14 : 104|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_13 : 96|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_12 : 88|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_11 : 80|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_10 : 72|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_9 : 64|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_8 : 56|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_7 : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_6 : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_5 : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_4 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_3 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_2 : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BDC_Vin1_Copy_1 : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2552820822 CDC: 3 Vector__XXX
+ SG_ CDC_Dc_Chg_Version : 0|24@1+ (1,0) [0|16777215] ""  BMS
+
+BO_ 2283795542 CEM: 8 Vector__XXX
+ SG_ Timeout_BCF : 26|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_BDC : 32|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_BCPP : 34|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ResultOfSoftStart : 46|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ResultOfRelayWildDetect : 42|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ResultOfChargerIsoDetect : 40|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ResultOfBattVoltDetect : 44|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_BSD : 24|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BST : 20|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BSM : 18|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BCS : 16|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BRO : 10|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BCP : 8|2@1+ (1,0) [0|3] ""  BMS
+ SG_ Timeout_BRM : 0|2@1+ (1,0) [0|3] ""  BMS
+
+BO_ 2283689716 BEM: 8 BMS
+ SG_ Timeout_CFC : 26|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CSDP : 38|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CMLP : 34|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_ChrgConfig_NotSuit : 40|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CCD : 36|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_APlus_Broken : 32|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CSD : 24|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CST : 18|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CCS : 16|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CRO : 10|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CTS_CML : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CRM_Recognized : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ Timeout_CRM_Unrecognized : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2552099926 CSD: 8 Vector__XXX
+ SG_ ChargerNo : 32|32@1+ (1,1) [1|4294967296] ""  BMS
+ SG_ OutputEnergy : 16|16@1+ (0.1,0) [0|1000] "kWh"  BMS
+ SG_ CumulativeChargingTime : 0|16@1+ (1,0) [0|600] "min"  BMS
+
+BO_ 2551994100 BSD: 7 BMS
+ SG_ SingleBatteryMaxTemperature : 48|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ SingleBatteryMinTemperature : 40|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ SingleBatteryMaxVoltage : 24|16@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryMinVoltage : 8|16@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SuspendStateOfChargeSOC : 0|8@1+ (1,0) [0|100] "%" Vector__XXX
+
+BO_ 2417685590 CST: 4 Vector__XXX
+ SG_ CrgSuspError_AbnormalVoltage : 26|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspError_CurrentMismatch : 24|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_OtherFault : 18|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_SuddenStop : 16|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_CannotSupply : 14|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_CrgTempInt : 12|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_ChargeConn : 10|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspFault_CrgTemp : 8|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspCause_BmsActiveSusp : 6|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspCause_Fault : 4|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspCause_Artificial : 2|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CrgSuspCause_ChargerCond : 0|2@1+ (1,0) [0|3] ""  BMS
+
+BO_ 2417579764 BST: 4 BMS
+ SG_ BmsSuspError_AbnormalVoltage : 26|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspError_ExcessiveCurrent : 24|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_OtherFaults : 22|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_BmsTemp : 12|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_VoltageDetection : 20|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_VoltageRelay : 18|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_BatteryTemp : 16|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_ChargeConn : 14|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_OutputConnTemp : 10|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspFault_Insulation : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspCause_ActiveSuspend : 6|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspCause_SingleVoltage : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspCause_TotalVoltage : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BmsSuspCause_SOC : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2618775284 BSP: 16 BMS
+ SG_ BatteryReserved16 : 120|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved15 : 112|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved14 : 104|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved13 : 96|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved12 : 88|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved11 : 80|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved10 : 72|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved09 : 64|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved08 : 56|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved07 : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved06 : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved05 : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved04 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved03 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved02 : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryReserved01 : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2618709748 BMT: 18 BMS
+ SG_ BatteryTemperature018 : 136|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature017 : 128|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature016 : 120|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature015 : 112|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature014 : 104|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature013 : 96|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature012 : 88|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature011 : 80|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature010 : 72|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature009 : 64|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature008 : 56|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature007 : 48|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature006 : 40|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature005 : 32|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature004 : 24|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature003 : 16|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature002 : 8|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryTemperature001 : 0|8@1+ (1,-50) [-50|200] "" Vector__XXX
+
+BO_ 2618644212 BMV: 204 BMS
+ SG_ SingleBatteryGroup102 : 1628|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage102 : 1616|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup101 : 1612|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage101 : 1600|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryVoltage100 : 1584|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup100 : 1596|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryGroup099 : 1580|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage099 : 1568|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup098 : 1564|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage098 : 1552|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryVoltage097 : 1536|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup097 : 1548|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryGroup096 : 1532|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage096 : 1520|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup095 : 1516|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage095 : 1504|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup094 : 1500|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage094 : 1488|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup093 : 1484|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage093 : 1472|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup092 : 1468|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage092 : 1456|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup091 : 1452|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage091 : 1440|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup090 : 1436|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage090 : 1424|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup089 : 1420|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage089 : 1408|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup088 : 1404|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage088 : 1392|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup087 : 1388|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage087 : 1376|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup086 : 1372|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage086 : 1360|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup085 : 1356|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage085 : 1344|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup084 : 1340|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage084 : 1328|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup083 : 1324|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage083 : 1312|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup082 : 1308|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage082 : 1296|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup081 : 1292|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage081 : 1280|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup080 : 1276|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage080 : 1264|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup079 : 1260|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage079 : 1248|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup078 : 1244|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage078 : 1232|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup077 : 1228|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage077 : 1216|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup076 : 1212|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage076 : 1200|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup075 : 1196|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage075 : 1184|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup074 : 1180|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage074 : 1168|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup073 : 1164|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage073 : 1152|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup072 : 1148|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage072 : 1136|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup071 : 1132|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage071 : 1120|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup070 : 1116|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage070 : 1104|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup069 : 1100|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage069 : 1088|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup068 : 1084|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage068 : 1072|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup067 : 1068|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage067 : 1056|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup066 : 1052|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage066 : 1040|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup065 : 1036|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage065 : 1024|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup064 : 1020|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage064 : 1008|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup063 : 1004|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage063 : 992|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup062 : 988|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage062 : 976|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup061 : 972|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage061 : 960|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup060 : 956|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage060 : 944|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup059 : 940|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage059 : 928|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup058 : 924|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage058 : 912|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup057 : 908|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage057 : 896|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup056 : 892|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage056 : 880|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup055 : 876|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage055 : 864|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup054 : 860|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage054 : 848|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup053 : 844|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage053 : 832|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup052 : 828|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage052 : 816|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup051 : 812|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage051 : 800|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup050 : 796|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage050 : 784|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup049 : 780|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage049 : 768|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup048 : 764|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage048 : 752|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup047 : 748|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage047 : 736|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup046 : 732|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage046 : 720|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup045 : 716|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage045 : 704|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup044 : 700|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage044 : 688|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup043 : 684|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage043 : 672|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup042 : 668|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage042 : 656|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup041 : 652|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage041 : 640|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup040 : 636|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage040 : 624|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup039 : 620|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage039 : 608|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup038 : 604|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage038 : 592|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup037 : 588|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage037 : 576|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup036 : 572|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage036 : 560|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup035 : 556|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage035 : 544|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup034 : 540|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage034 : 528|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup033 : 524|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage033 : 512|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup032 : 508|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage032 : 496|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup031 : 492|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage031 : 480|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup030 : 476|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage030 : 464|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup029 : 460|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage029 : 448|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup028 : 444|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage028 : 432|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup027 : 428|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage027 : 416|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup026 : 412|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage026 : 400|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup025 : 396|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage025 : 384|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup024 : 380|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage024 : 368|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup023 : 364|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage023 : 352|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup022 : 348|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage022 : 336|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup021 : 332|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage021 : 320|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup020 : 316|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage020 : 304|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup019 : 300|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage019 : 288|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup018 : 284|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage018 : 272|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup017 : 268|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage017 : 256|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup016 : 252|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage016 : 240|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup015 : 236|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage015 : 224|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup014 : 220|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage014 : 208|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup013 : 204|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage013 : 192|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup012 : 188|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage012 : 176|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup011 : 172|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage011 : 160|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup010 : 156|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage010 : 144|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup009 : 140|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage009 : 128|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup008 : 124|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage008 : 112|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup007 : 108|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage007 : 96|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup006 : 92|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage006 : 80|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup005 : 76|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage005 : 64|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup004 : 60|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage004 : 48|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup003 : 44|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage003 : 32|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup002 : 28|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage002 : 16|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ SingleBatteryGroup001 : 12|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryVoltage001 : 0|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+
+BO_ 2551404276 BSM: 7 BMS
+ SG_ BsmChargingPermissible : 52|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BatteryOutputConnectorState : 50|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BatteryInsulationState : 48|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BatteryExcessTemperature : 46|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BatteryChargingOvercurrent : 44|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ VehicleBatteryUnusualChargeState : 42|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ SingleBatteryUnusualVoltage : 40|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BatteryLowestTempSerNo : 32|8@1+ (1,1) [1|256] "" Vector__XXX
+ SG_ BatteryLowestTemp : 24|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ BatteryHighestTempSerNo : 16|8@1+ (1,1) [1|256] "" Vector__XXX
+ SG_ BatteryHighestTemp : 8|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ SingleBatteryHighestVoltageSerNo : 0|8@1+ (1,1) [1|256] "" Vector__XXX
+
+BO_ 2551379030 CCS: 8 Vector__XXX
+ SG_ CrgChargingPermissible : 48|2@1+ (1,0) [0|3] ""  BMS
+ SG_ CumulativeChargingTime : 32|16@1+ (1,0) [0|600] "min"  BMS
+ SG_ CurrentOutputValue : 16|16@1+ (0.1,-400) [-400|6153.5] "A"  BMS
+ SG_ VoltageOutputValue : 0|16@1+ (0.1,0) [0|6553.5] "V"  BMS
+
+BO_ 2618382068 BCS: 9 BMS
+ SG_ EstimatedRemainingChargingTime : 56|16@1+ (1,0) [0|600] "min" Vector__XXX
+ SG_ CurrentChargeState : 48|8@1+ (1,0) [0|100] "%" Vector__XXX
+ SG_ SingleBatteryHighestVoltageGroup : 44|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SingleBatteryHighestVoltage : 32|12@1+ (0.01,0) [0|24] "V" Vector__XXX
+ SG_ MeasuredChargingCurrent : 16|16@1+ (0.1,-400) [-400|6153.5] "A" Vector__XXX
+ SG_ MeasuredChargingVoltage : 0|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+
+BO_ 2551207668 BCL: 5 BMS
+ SG_ ChargingMode : 32|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ CurrentDemand : 16|16@1+ (0.1,-400) [-400|6153.5] "A" Vector__XXX
+ SG_ VoltageDemand : 0|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+
+BO_ 2416637014 CRO: 1 Vector__XXX
+ SG_ ChargerReadyForCharging : 0|8@1+ (1,0) [0|255] ""  BMS
+
+BO_ 2416531188 BRO: 1 BMS
+ SG_ BmsReadyForCharging : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2550723670 CML: 8 Vector__XXX
+ SG_ MinOutputCurrent : 48|16@1+ (0.1,-400) [-400|6153.5] "A"  BMS
+ SG_ MaxOutputCurrent : 32|16@1+ (0.1,-400) [-400|6153.5] "A"  BMS
+ SG_ MinOutputVoltage : 16|16@1+ (0.1,0) [0|6553.5] "V"  BMS
+ SG_ MaxOutputVoltage : 0|16@1+ (0.1,0) [0|6553.5] "V"  BMS
+
+BO_ 2550658134 CTS: 7 Vector__XXX
+ SG_ ChargerTime_Year : 40|16@1+ (1,0) [0|39321] ""  BMS
+ SG_ ChargerTime_Month : 32|8@1+ (1,0) [0|18] ""  BMS
+ SG_ ChargerTime_Day : 24|8@1+ (1,0) [0|49] ""  BMS
+ SG_ ChargerTime_Hour : 16|8@1+ (1,0) [0|36] ""  BMS
+ SG_ ChargerTime_Minute : 8|8@1+ (1,0) [0|96] ""  BMS
+ SG_ ChargerTime_Second : 0|8@1+ (1,0) [0|96] ""  BMS
+
+BO_ 2617661172 BCP: 13 BMS
+ SG_ CurrentVehicleBatteryVoltage : 88|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+ SG_ StatusVehiclePowerStorageBattery : 72|16@1+ (0.1,0) [0|100] "%" Vector__XXX
+ SG_ MaxPermTemperature : 64|8@1+ (1,-50) [-50|200] "" Vector__XXX
+ SG_ TotalMaxPermChargingVoltage : 48|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+ SG_ TotalNominalEnergy : 32|16@1+ (0.1,0) [0|1000] "kWh" Vector__XXX
+ SG_ MaxPermChargingCurrent : 16|16@1+ (0.1,-400) [-400|6153.5] "A" Vector__XXX
+ SG_ MaxSingleBattChargingVoltage : 0|16@1+ (0.01,0) [0|24] "V" Vector__XXX
+
+BO_ 2617399028 BRM: 49 BMS
+ SG_ VIN_Copy_17 : 320|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_16 : 312|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_15 : 304|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_14 : 296|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_13 : 288|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_12 : 280|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_11 : 272|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_10 : 264|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_9 : 256|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_8 : 248|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_7 : 240|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_6 : 232|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_5 : 224|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_4 : 216|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_3 : 208|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_2 : 200|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Copy_1 : 192|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BmsSoftwareVersion_Reserved : 368|24@1+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ BmsSoftwareVersion_CompileYear : 352|16@1+ (1,0) [0|65534] "" Vector__XXX
+ SG_ BmsSoftwareVersion_CompileMonth : 344|8@1+ (1,0) [1|12] "" Vector__XXX
+ SG_ BmsSoftwareVersion_CompileDay : 336|8@1+ (1,0) [1|31] "" Vector__XXX
+ SG_ BmsSoftwareVersion_Serial : 328|8@1+ (1,0) [1|254] "" Vector__XXX
+ SG_ BRM_Reserved1 : 184|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Property : 176|8@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ ChargingFrequency : 152|24@1+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ ProductionDay : 144|8@1+ (1,0) [0|31] "Days" Vector__XXX
+ SG_ ProductionMonth : 136|8@1+ (1,0) [1|12] "" Vector__XXX
+ SG_ ProductionYear : 128|8@1+ (1,1985) [1985|2235] "Years" Vector__XXX
+ SG_ BatteryPackNumber : 96|32@1+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ ManufacturerName : 64|32@1+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ BatterySystemVoltage : 48|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+ SG_ BatterySystemCapacity : 32|16@1+ (0.1,0) [0|6553.5] "Ah" Vector__XXX
+ SG_ BmsVersion : 8|16@1+ (1,0) [0|65535] "" Vector__XXX
+ SG_ BmsRevision : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ BatteryType : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2550264918 CRM: 8 Vector__XXX
+ SG_ ChargerLocation : 40|24@1+ (1,0) [0|16777215] ""  BMS
+ SG_ ChargerNumber : 8|32@1+ (1,0) [0|4294967295] ""  BMS
+ SG_ RecognitionResult : 0|8@1+ (1,0) [0|170] ""  BMS
+
+BO_ 2552714996 BHM: 2 BMS
+ SG_ MaxChargingVoltage : 0|16@1+ (0.1,0) [0|6553.5] "V" Vector__XXX
+
+BO_ 2552689750 CHM: 3 Vector__XXX
+ SG_ ChargerVersion : 8|16@1+ (1,0) [0|65535] ""  BMS
+ SG_ ChargerRevision : 0|8@1+ (1,0) [0|255] ""  BMS
+
+
+
+CM_ SG_ 2556581620 ScenarioV2GResponse "特殊使用场景响应";
+CM_ SG_ 2556581620 ChargeTypeResponse "充电类型响应";
+CM_ SG_ 2556556374 V2GSceneRecognition "特殊场景识别";
+CM_ SG_ 2556556374 CanChannelRecognition "支持CAN通道数识别";
+CM_ SG_ 2556032086 DGunCurr "D枪电流";
+CM_ SG_ 2556032086 CGunCurr "C枪电流";
+CM_ SG_ 2556032086 BGunCurr "B枪电流";
+CM_ SG_ 2556032086 AGunCurr "A枪电流";
+CM_ SG_ 2555926260 CC2_4St "CC2-1插枪状态";
+CM_ SG_ 2555926260 CC2_3St "CC2-1插枪状态";
+CM_ SG_ 2555926260 DChgPosRlyErrSt "直流充电正继电器4故障状态";
+CM_ SG_ 2555926260 DChgNegRlySt "直流充电负继电器4触点状态";
+CM_ SG_ 2555926260 DChgPosRlySt "直流充电正继电器4触点状态";
+CM_ SG_ 2555926260 DChgNegRlyErrSt "直流充电负继电器4故障状态";
+CM_ SG_ 2555926260 CChgPosRlySt "直流充电正继电器3触点状态";
+CM_ SG_ 2555926260 CChgPosRlyErrSt "直流充电正继电器3故障状态";
+CM_ SG_ 2555926260 CChgNegRlySt "直流充电负继电器3触点状态";
+CM_ SG_ 2555926260 CChgNegRlyErrSt "直流充电负继电器3故障状态";
+CM_ SG_ 2555926260 BChgPosRlySt "直流充电正继电器2触点状态";
+CM_ SG_ 2555926260 BChgPosRlyErrSt "直流充电正继电器2故障状态";
+CM_ SG_ 2555926260 BChgNegRlySt "直流充电负继电器2触点状态";
+CM_ SG_ 2555926260 BChgNegRlyErrSt "直流充电负继电器2故障状态";
+CM_ SG_ 2555926260 AChgPosRlySt "直流充电正继电器1触点状态";
+CM_ SG_ 2555926260 AChgPosRlyErrSt "直流充电正继电器1故障状态";
+CM_ SG_ 2555926260 AChgNegRlySt "直流充电负继电器1触点状态";
+CM_ SG_ 2555926260 AChgNegRlyErrSt "直流充电负继电器1故障状态";
+CM_ SG_ 2555926260 CC2_2St "CC2-2插枪状态";
+CM_ SG_ 2555926260 CC2_1St "CC2-1插枪状态";
+CM_ SG_ 2555926260 ChangeStandbySt "换枪准备状态";
+CM_ SG_ 2555926260 PlugReqFeedback "插枪请求反馈";
+CM_ SG_ 2555926260 PullReqFeedback "拔枪请求反馈";
+CM_ SG_ 2555901014 PlugGunReq2 "插枪请求2";
+CM_ SG_ 2555901014 PullGunReq2 "拔枪请求2";
+CM_ SG_ 2555901014 PlugGunReq "插枪请求";
+CM_ SG_ 2555901014 PullGunReq "拔枪请求";
+CM_ SG_ 2555795188 InsuErrState "绝缘故障状态";
+CM_ SG_ 2555795188 InsulCompleteFlg "完成绝缘标识";
+CM_ SG_ 2555795188 InsuState "当前绝缘状态";
+CM_ SG_ 2555769942 InsuDisableRequest "请求关闭绝缘";
+CM_ SG_ 2553345110 Answer_signal_Chg "Answering signal";
+CM_ SG_ 2553345110 Num_of_chg_guns_Chg "Number of charging guns";
+CM_ SG_ 2553345110 Current_offset_Chg "Current offset";
+CM_ SG_ 2553370356 Num_of_chg_guns_BMS "Number of charging guns";
+CM_ SG_ 2553370356 Answer_signal_BMS "Answering signal";
+CM_ SG_ 2553370356 Current_offset_BMS "Current offset";
+CM_ SG_ 2283795542 Timeout_BCF "Receive timeout of  battery charging state message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BDC "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BCPP "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 ResultOfSoftStart "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 ResultOfRelayWildDetect "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 ResultOfChargerIsoDetect "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 ResultOfBattVoltDetect "Receive timeout of BDC message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BSD "Receive timeout of BMS's charging statistics message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BST "Receive timeout of BMS's charging suspension message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BSM "Receive timeout of battery charging requirement message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BCS "Receive timeout of overall battery charging state message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BRO "Receive timeout of BMS's charging preparation completion message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BCP "Receive timeout of battery charging parameter message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283795542 Timeout_BRM "Receive timeout of BMS and vehicle recognition message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CFC "Receive timeout of charger's charging statistics message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CSDP "Receive timeout of battery charging parameter message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CMLP "Receive timeout of CMLP message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_ChrgConfig_NotSuit "(<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CCD "Receive timeout of CCD message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_APlus_Broken "Receive timeout of battery charging parameter message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CSD "Receive timeout of charger's charging statistics message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CST "Receive timeout of charger's charging suspension message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CCS "Receive  timeout  of  charger's  charging  state  message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CRO "Receive  timeout  of  charger's  charging  preparation  completion message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CTS_CML "Receive  timeout  of  charger  time  synchronization  message  and charger  maximum  output  capacity  message  (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CRM_Recognized "Receive timeout of SPN2560=0譇A charger recognition message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2283689716 Timeout_CRM_Unrecognized "Receive timeout of SPN2560=0?0 charger recognition message (<00>:=normal; <01>:=timeout; <10>:=untrusted state)";
+CM_ SG_ 2552099926 ChargerNo "Charger No., 1/bit; 1 offset; data scope: 0~0xFFFFFFFF";
+CM_ SG_ 2552099926 OutputEnergy "Output energy (kW穐)";
+CM_ SG_ 2552099926 CumulativeChargingTime "Cumulative charging time (min)";
+CM_ SG_ 2551994100 SingleBatteryMaxTemperature "Maximum temperature of power storage battery (癈)";
+CM_ SG_ 2551994100 SingleBatteryMinTemperature "Minimum temperature of power storage battery (癈)";
+CM_ SG_ 2551994100 SingleBatteryMaxVoltage "Maximum voltage of single power storage battery (V)";
+CM_ SG_ 2551994100 SingleBatteryMinVoltage "Minimum voltage of single power storage battery (V)";
+CM_ SG_ 2551994100 SuspendStateOfChargeSOC "Suspend state-of-charge SOC (%)";
+CM_ SG_ 2417685590 CrgSuspError_AbnormalVoltage "Error cause for charger suspending chargingvoltage is abnormal";
+CM_ SG_ 2417685590 CrgSuspError_CurrentMismatch "Error cause for charger suspending chargingcurrent mismatching";
+CM_ SG_ 2417685590 CrgSuspFault_OtherFault "Fault cause for charger suspending chargingother fault";
+CM_ SG_ 2417685590 CrgSuspFault_SuddenStop "Fault cause for charger suspending chargingsudden stop of charger";
+CM_ SG_ 2417685590 CrgSuspFault_CannotSupply "Fault cause for charger suspending chargingthe required electric quantity cannot be transmitted";
+CM_ SG_ 2417685590 CrgSuspFault_CrgTempInt "Fault cause for charger suspending chargingcharger is over-temperature at the internal part";
+CM_ SG_ 2417685590 CrgSuspFault_ChargeConn "Fault cause for charger suspending chargingcharging connector fault";
+CM_ SG_ 2417685590 CrgSuspFault_CrgTemp "Fault cause for charger suspending chargingcharger over-temperature";
+CM_ SG_ 2417685590 CrgSuspCause_BmsActiveSusp "Cause for charger suspending charging - BMS actively suspends";
+CM_ SG_ 2417685590 CrgSuspCause_Fault "Cause for charger suspending charging - fault suspension";
+CM_ SG_ 2417685590 CrgSuspCause_Artificial "Cause for charger suspending charging - suspends artificially";
+CM_ SG_ 2417685590 CrgSuspCause_ChargerCond "Cause for charger suspending charging - suspends due to reaching the condition set by charger";
+CM_ SG_ 2417579764 BmsSuspError_AbnormalVoltage "Error cause for BMS suspending chargingvoltage is abnormal";
+CM_ SG_ 2417579764 BmsSuspError_ExcessiveCurrent "Error cause for BMS suspending chargingexcessive current";
+CM_ SG_ 2417579764 BmsSuspFault_OtherFaults "Fault cause for BMS suspending chargingother faults";
+CM_ SG_ 2417579764 BmsSuspFault_BmsTemp "Fault cause for BMS suspending chargingBMS component and output connector over-temperature";
+CM_ SG_ 2417579764 BmsSuspFault_VoltageDetection "Fault cause for BMS suspending chargingvoltage detection fault at check point 2";
+CM_ SG_ 2417579764 BmsSuspFault_VoltageRelay "Fault cause for BMS suspending charginghigh voltage relay fault";
+CM_ SG_ 2417579764 BmsSuspFault_BatteryTemp "Fault cause for BMS suspending chargingbattery set over-temperature";
+CM_ SG_ 2417579764 BmsSuspFault_ChargeConn "Fault cause for BMS suspending chargingcharging connector fault";
+CM_ SG_ 2417579764 BmsSuspFault_OutputConnTemp "Fault cause for BMS suspending chargingoutput connector over-temperature";
+CM_ SG_ 2417579764 BmsSuspFault_Insulation "Fault cause for BMS suspending charginginsulation fault";
+CM_ SG_ 2417579764 BmsSuspCause_ActiveSuspend "Cause for BMS suspending chargingcharger actively suspends";
+CM_ SG_ 2417579764 BmsSuspCause_SingleVoltage "Cause for BMS suspending chargingreach the setting value of single voltage";
+CM_ SG_ 2417579764 BmsSuspCause_TotalVoltage "Cause for BMS suspending chargingreach the setting value of total voltage ";
+CM_ SG_ 2417579764 BmsSuspCause_SOC "Cause for BMS suspending chargingreach the required SOC target value";
+CM_ SG_ 2618775284 BatteryReserved16 "Power storage battery reserved field 16";
+CM_ SG_ 2618775284 BatteryReserved15 "Power storage battery reserved field 15";
+CM_ SG_ 2618775284 BatteryReserved14 "Power storage battery reserved field 14";
+CM_ SG_ 2618775284 BatteryReserved13 "Power storage battery reserved field 13";
+CM_ SG_ 2618775284 BatteryReserved12 "Power storage battery reserved field 12";
+CM_ SG_ 2618775284 BatteryReserved11 "Power storage battery reserved field 11";
+CM_ SG_ 2618775284 BatteryReserved10 "Power storage battery reserved field 10";
+CM_ SG_ 2618775284 BatteryReserved09 "Power storage battery reserved field 9";
+CM_ SG_ 2618775284 BatteryReserved08 "Power storage battery reserved field 8";
+CM_ SG_ 2618775284 BatteryReserved07 "Power storage battery reserved field 7";
+CM_ SG_ 2618775284 BatteryReserved06 "Power storage battery reserved field 6";
+CM_ SG_ 2618775284 BatteryReserved05 "Power storage battery reserved field 5";
+CM_ SG_ 2618775284 BatteryReserved04 "Power storage battery reserved field 4";
+CM_ SG_ 2618775284 BatteryReserved03 "Power storage battery reserved field 3";
+CM_ SG_ 2618775284 BatteryReserved02 "Power storage battery reserved field 2";
+CM_ SG_ 2618775284 BatteryReserved01 "Power storage battery reserved field 1";
+CM_ SG_ 2618709748 BatteryTemperature018 "Power storage battery temperature 18";
+CM_ SG_ 2618709748 BatteryTemperature017 "Power storage battery temperature 17";
+CM_ SG_ 2618709748 BatteryTemperature016 "Power storage battery temperature 16";
+CM_ SG_ 2618709748 BatteryTemperature015 "Power storage battery temperature 15";
+CM_ SG_ 2618709748 BatteryTemperature014 "Power storage battery temperature 14";
+CM_ SG_ 2618709748 BatteryTemperature013 "Power storage battery temperature 13";
+CM_ SG_ 2618709748 BatteryTemperature012 "Power storage battery temperature 12";
+CM_ SG_ 2618709748 BatteryTemperature011 "Power storage battery temperature 11";
+CM_ SG_ 2618709748 BatteryTemperature010 "Power storage battery temperature 10";
+CM_ SG_ 2618709748 BatteryTemperature009 "Power storage battery temperature 9";
+CM_ SG_ 2618709748 BatteryTemperature008 "Power storage battery temperature 8";
+CM_ SG_ 2618709748 BatteryTemperature007 "Power storage battery temperature 7";
+CM_ SG_ 2618709748 BatteryTemperature006 "Power storage battery temperature 6";
+CM_ SG_ 2618709748 BatteryTemperature005 "Power storage battery temperature 5";
+CM_ SG_ 2618709748 BatteryTemperature004 "Power storage battery temperature 4";
+CM_ SG_ 2618709748 BatteryTemperature003 "Power storage battery temperature 3";
+CM_ SG_ 2618709748 BatteryTemperature002 "Power storage battery temperature 2";
+CM_ SG_ 2618709748 BatteryTemperature001 "Power storage battery temperature 1";
+CM_ SG_ 2618644212 SingleBatteryGroup102 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage102 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup101 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage101 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryVoltage100 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup100 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryGroup099 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage099 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup098 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage098 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryVoltage097 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup097 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryGroup096 "#96 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage096 "#96 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup095 "#95 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage095 "#95 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup094 "#94 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage094 "#94 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup093 "#93 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage093 "#93 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup092 "#92 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage092 "#92 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup091 "#91 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage091 "#91 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup090 "#90 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage090 "#90 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup089 "#89 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage089 "#89 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup088 "#88 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage088 "#88 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup087 "#87 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage087 "#87 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup086 "#86 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage086 "#86 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup085 "#85 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage085 "#85 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup084 "#84 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage084 "#84 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup083 "#83 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage083 "#83 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup082 "#82 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage082 "#82 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup081 "#81 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage081 "#81 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup080 "#80 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage080 "#80 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup079 "#79 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage079 "#79 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup078 "#78 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage078 "#78 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup077 "#77 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage077 "#77 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup076 "#76 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage076 "#76 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup075 "#75 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage075 "#75 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup074 "#74 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage074 "#74 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup073 "#73 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage073 "#73 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup072 "#72 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage072 "#72 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup071 "#71 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage071 "#71 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup070 "#70 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage070 "#70 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup069 "#69 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage069 "#69 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup068 "#68 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage068 "#68 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup067 "#67 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage067 "#67 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup066 "#66 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage066 "#66 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup065 "#65 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage065 "#65 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup064 "#64 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage064 "#64 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup063 "#63 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage063 "#63 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup062 "#62 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage062 "#62 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup061 "#61 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage061 "#61 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup060 "#60 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage060 "#60 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup059 "#59 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage059 "#59 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup058 "#58 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage058 "#58 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup057 "#57 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage057 "#57 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup056 "#56 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage056 "#56 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup055 "#55 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage055 "#55 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup054 "#54 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage054 "#54 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup053 "#53 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage053 "#53 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup052 "#52 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage052 "#52 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup051 "#51 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage051 "#51 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup050 "#50 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage050 "#50 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup049 "#49 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage049 "#49 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup048 "#48 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage048 "#48 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup047 "#47 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage047 "#47 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup046 "#46 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage046 "#46 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup045 "#45 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage045 "#45 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup044 "#44 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage044 "#44 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup043 "#43 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage043 "#43 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup042 "#42 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage042 "#42 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup041 "#41 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage041 "#41 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup040 "#40 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage040 "#40 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup039 "#39 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage039 "#39 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup038 "#38 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage038 "#38 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup037 "#37 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage037 "#37 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup036 "#36 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage036 "#36 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup035 "#35 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage035 "#35 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup034 "#34 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage034 "#34 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup033 "#33 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage033 "#33 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup032 "#32 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage032 "#32 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup031 "#31 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage031 "#31 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup030 "#30 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage030 "#30 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup029 "#29 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage029 "#29 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup028 "#28 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage028 "#28 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup027 "#27 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage027 "#27 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup026 "#26 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage026 "#26 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup025 "#25 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage025 "#25 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup024 "#24 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage024 "#24 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup023 "#23 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage023 "#23 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup022 "#22 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage022 "#22 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup021 "#21 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage021 "#21 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup020 "#20 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage020 "#20 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup019 "#19 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage019 "#19 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup018 "#18 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage018 "#18 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup017 "#17 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage017 "#17 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup016 "#16 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage016 "#16 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup015 "#15 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage015 "#15 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup014 "#14 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage014 "#14 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup013 "#13 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage013 "#13 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup012 "#12 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage012 "#12 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup011 "#11 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage011 "#11 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup010 "#10 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage010 "#10 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup009 "#9 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage009 "#9 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup008 "#8 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage008 "#8 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup007 "#7 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage007 "#7 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup006 "#6 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage006 "#6 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup005 "#5 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage005 "#5 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup004 "#4 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage004 "#4 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup003 "#3 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage003 "#3 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup002 "#2 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage002 "#2 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2618644212 SingleBatteryGroup001 "#1 single power storage battery voltagebattery grouping No.";
+CM_ SG_ 2618644212 SingleBatteryVoltage001 "#1 single power storage battery voltagesingle power storage battery voltage";
+CM_ SG_ 2551404276 BsmChargingPermissible "Charging permissible (<00>: = forbid ; <01>: = permit)";
+CM_ SG_ 2551404276 BatteryOutputConnectorState "Connection state of output connector of power storage battery set (<00>: = normal; <01>: = abnormal; <10>: = untrusted state)";
+CM_ SG_ 2551404276 BatteryInsulationState "Insulation state of power storage battery (<00>: = normal; <01>: = abnormal; <10>: = untrusted state)";
+CM_ SG_ 2551404276 BatteryExcessTemperature "Excess temperature of power storage battery (<00>: = normal;<01>: =over-high;<10>: untrusted state)";
+CM_ SG_ 2551404276 BatteryChargingOvercurrent "Charging overcurrent of power storage battery (<00>: = normal;<01>: =over-current;<10>: untrusted state)";
+CM_ SG_ 2551404276 VehicleBatteryUnusualChargeState "State-of-charge SOC of power storage battery for complete vehicle is over-high/over-low (<00> : = normal; <01> : = over-high; <10> : = over-low)";
+CM_ SG_ 2551404276 SingleBatteryUnusualVoltage "Voltage of single power storage battery is over-high/over-low (<00>: = normal; <01>: = over-high; <10>: = over-low)";
+CM_ SG_ 2551404276 BatteryLowestTempSerNo "Serial number of the lowest temperature detection point of power storage battery";
+CM_ SG_ 2551404276 BatteryLowestTemp "The lowest temperature of power storage battery";
+CM_ SG_ 2551404276 BatteryHighestTempSerNo "Serial number of the highest temperature detection point";
+CM_ SG_ 2551404276 BatteryHighestTemp "Highest temperature of power storage battery";
+CM_ SG_ 2551404276 SingleBatteryHighestVoltageSerNo "Serial number of the highest voltage of single power storage battery";
+CM_ SG_ 2551379030 CrgChargingPermissible "Charging permissible (<00>: = suspend; <01>: = permit)";
+CM_ SG_ 2551379030 CumulativeChargingTime "Cumulative charging time (min)";
+CM_ SG_ 2551379030 CurrentOutputValue "Current output value (A)";
+CM_ SG_ 2551379030 VoltageOutputValue "Voltage output value (V)";
+CM_ SG_ 2618382068 EstimatedRemainingChargingTime "Estimated remaining charging time (min)";
+CM_ SG_ 2618382068 CurrentChargeState "Current state-of-charge SOC (%)";
+CM_ SG_ 2618382068 SingleBatteryHighestVoltageGroup "Highest voltage of single power battery and its group number13~ 16 bits: group number in which the highest voltage of single power storage battery is located";
+CM_ SG_ 2618382068 SingleBatteryHighestVoltage "Highest voltage of single power battery and its group number1~  12  bits:  voltage  of  maximum  single  power  storage  battery";
+CM_ SG_ 2618382068 MeasuredChargingCurrent "Measured value of charging current (A)";
+CM_ SG_ 2618382068 MeasuredChargingVoltage "Measured value of charging voltage (V)";
+CM_ SG_ 2551207668 ChargingMode "Charging mode (0x01: constant voltage charge; 0x02: constant current charge)";
+CM_ SG_ 2551207668 CurrentDemand "Current demand (A)";
+CM_ SG_ 2551207668 VoltageDemand "Voltage demand (V)";
+CM_ SG_ 2416637014 ChargerReadyForCharging "Whether BMS is ready for charging (<0 x00>: = BMS is not ready for charging; < 0xAA>: = BMS has been ready for charging; <0xFF>: = invalid)";
+CM_ SG_ 2416531188 BmsReadyForCharging "Whether BMS is ready for charging (<0 x00>: = BMS is not ready for charging; < 0xAA>: = BMS has been ready for charging; <0xFF>: = invalid)";
+CM_ SG_ 2550723670 MinOutputCurrent "Minimum output current (A)";
+CM_ SG_ 2550723670 MaxOutputCurrent "Maximum output current (A)";
+CM_ SG_ 2550723670 MinOutputVoltage "Minimum output voltage (V)";
+CM_ SG_ 2550723670 MaxOutputVoltage "Maximum output voltage (V)";
+CM_ SG_ 2550658134 ChargerTime_Year "Year/month/day/h/min/sNo. 1 byte: second (compressed BCD code)";
+CM_ SG_ 2550658134 ChargerTime_Month "Year/month/day/h/min/sNo. 5 byte: month (compressed BCD code)";
+CM_ SG_ 2550658134 ChargerTime_Day "Year/month/day/h/min/sNo. 4 byte: day (compressed BCD code)";
+CM_ SG_ 2550658134 ChargerTime_Hour "Year/month/day/h/min/sNo. 3 byte: hour (compressed BCD code)";
+CM_ SG_ 2550658134 ChargerTime_Minute "Year/month/day/h/min/sNo. 2 byte: minute (compressed BCD code)";
+CM_ SG_ 2550658134 ChargerTime_Second "Year/month/day/h/min/sNo. 1 byte: second (compressed BCD code)";
+CM_ SG_ 2617661172 CurrentVehicleBatteryVoltage "Current battery voltage of power storage battery for complete vehicle";
+CM_ SG_ 2617661172 StatusVehiclePowerStorageBattery "Status-of-charge of power storage battery for complete vehicle";
+CM_ SG_ 2617661172 MaxPermTemperature "Maximum permissible temperature";
+CM_ SG_ 2617661172 TotalMaxPermChargingVoltage "Total maximum permissible charging voltage";
+CM_ SG_ 2617661172 TotalNominalEnergy "Total nominal energy of power storage battery";
+CM_ SG_ 2617661172 MaxPermChargingCurrent "Maximum permissible charging current";
+CM_ SG_ 2617661172 MaxSingleBattChargingVoltage "Maximum permissible charging voltage of single power storage battery";
+CM_ SG_ 2617399028 VIN_Copy_17 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_16 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_15 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_14 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_13 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_12 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_11 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_10 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_9 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_8 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_7 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_6 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_5 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_4 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_3 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_2 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 VIN_Copy_1 "Vehicle identification number (VIN)";
+CM_ SG_ 2617399028 BmsSoftwareVersion_Reserved "BMS software version number 8byte represents current BMS version information, determined according to hexadecimal coding. In which, Byte8, byte7, byte6-000001H~FFFFFEH, reserved, fill in FFFFFFH";
+CM_ SG_ 2617399028 BmsSoftwareVersion_CompileYear "BMS software version number, determined according to hexadecimal coding. In which, Byte5, Byte4 - 0001H~FFFEH represents compilation year (e.g. the year of 2015: fill in Byte5-DFH, byte4-07H)";
+CM_ SG_ 2617399028 BmsSoftwareVersion_CompileMonth "BMS software version number, determined according to hexadecimal coding. In which, Byte3 - 01H~0CH represents compilation month (e.g. November: fill in Byte 3 0BH)";
+CM_ SG_ 2617399028 BmsSoftwareVersion_CompileDay "BMS software version number, determined according to hexadecimal coding. In which, Byte2 - 01H~1FH represents compilation day (e.g. the 10the day: fill in Byte 2 0AH)";
+CM_ SG_ 2617399028 BmsSoftwareVersion_Serial "BMS software version number, determined according to hexadecimal coding. In which, Byte1 - 01H~FEH represents edition serial number (e.g. 16: fill in Byte 1-10H)";
+CM_ SG_ 2617399028 BRM_Reserved1 "Reserve";
+CM_ SG_ 2617399028 Property "Battery  set  property  right  mark  (<0>:  =  lease;  <1>: existing on vehicle)";
+CM_ SG_ 2617399028 ChargingFrequency "Battery set charging frequency: 1 time/bit, offset of 0 times, which is subject to BMS statistics.";
+CM_ SG_ 2617399028 ProductionDay "Battery  set  production  date:  days,  1  day/bit;  offset  of  0 day; data scope: the 1st day ~ the 31st day";
+CM_ SG_ 2617399028 ProductionMonth "Battery set production date: months, 1 month/bit; offset of 0 month; data scope: January~December";
+CM_ SG_ 2617399028 ProductionYear "Battery  set  production  date:  years,  1  year/bit;  offset  in 1985; data scope: 1985~2235";
+CM_ SG_ 2617399028 BatteryPackNumber "Battery pack No., which is reserved and will be defined by the manufacturer";
+CM_ SG_ 2617399028 ManufacturerName "Battery manufacturer name and standard ASCII code";
+CM_ SG_ 2617399028 BatterySystemVoltage "Power storage battery system of whole vehicle, with rated total voltage/V, 0.1 V/bit; 0V offset";
+CM_ SG_ 2617399028 BatterySystemCapacity "Power storage battery system of whole vehicle, with rated capacity/Ah, 0.1 Ah/bit; 0Ah offset";
+CM_ SG_ 2617399028 BmsVersion "In this standard, as for the charger communication protocol version No., its current version is specified as V1.1 and is expressed as: byte3, byte2 -- 0001H";
+CM_ SG_ 2617399028 BmsRevision "In this standard, as for the charger communication protocol version No., its current version is specified as V1.1 and is expressed as: byte 1 -- 01H";
+CM_ SG_ 2617399028 BatteryType "Battery type";
+CM_ SG_ 2550264918 ChargerLocation "Charger/charging  station  location  code,  standard  ASCII code";
+CM_ SG_ 2550264918 ChargerNumber "Charger No., 1/bit; 0 offset; data scope:0~0 xFFFFFFFF";
+CM_ SG_ 2550264918 RecognitionResult "Recognition  result,  (<0x00>:=BMS not recognizable; <0xAA>:=BMS recognizable)";
+CM_ SG_ 2552714996 MaxChargingVoltage "Total maximum permissible charging voltage";
+CM_ SG_ 2552689750 ChargerVersion "In this standard, as for the charger communication protocol version No., its current version is specified as V1.1 and is expressed as: byte3, byte2 -- 0001H";
+CM_ SG_ 2552689750 ChargerRevision "In this standard, as for the charger communication protocol version No., its current version is specified as V1.1 and is expressed as: byte 1 -- 01H";
+BA_DEF_ BO_  "TpJ1939VarDlc" ENUM  "No","Yes";
+BA_DEF_ SG_  "SigGroup" STRING ;
+BA_DEF_ SG_  "GenSigDataID" STRING ;
+BA_DEF_ SG_  "GenSigFuncType" ENUM  "NoFunction","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","n/a","CHK","CNTR","n/a","n/a","n/a","CNTR_AR_01","CRC_AR_01_BOTH","CRC_AR_01_ALT","CRC_AR_01_LOW","CRC_AR_01_NIBBLE","CNTR_AR_04","CRC_AR_04A","CNTR_AR_05","CRC_AR_05";
+BA_DEF_ SG_  "GenSigInactiveValue" INT 0 0;
+BA_DEF_ SG_  "SigType" ENUM  "Default","Range","RangeSigned","ASCII","Discrete","Control","ReferencePGN","DTC","StringDelimiter","StringLength","StringLengthControl","MessageCounter","MessageChecksum";
+BA_DEF_ SG_  "GenSigEVName" STRING ;
+BA_DEF_ SG_  "GenSigILSupport" ENUM  "No","Yes";
+BA_DEF_ SG_  "SPN" INT 0 524287;
+BA_DEF_ BO_  "NmAsrMessage" ENUM  "No","Yes";
+BA_DEF_ BO_  "GenMsgILSupport" ENUM  "No","Yes";
+BA_DEF_ BO_  "GenMsgDelayTime" INT 0 65536;
+BA_DEF_ BO_  "TpTxIndex" INT 0 255;
+BA_DEF_ BO_  "TpApplType" STRING ;
+BA_DEF_ BO_  "NmMessage" ENUM  "no","yes";
+BA_DEF_ BO_  "GenMsgFastOnStart" INT 0 65535;
+BA_DEF_ BO_  "XcpMessage" ENUM  "NO","YES";
+BA_DEF_ BO_  "PduRGateway" ENUM  "NO","YES";
+BA_DEF_ BO_  "CcpMessage" ENUM  "YES","NO";
+BA_DEF_ BO_  "GenMsgTimeoutValue" INT 0 65535;
+BA_DEF_ BO_  "GenMsgRequestable" INT 0 1;
+BA_DEF_ BO_  "CANFD_BRS" ENUM  "0","1";
+BA_DEF_ BO_  "DiagReqFun" ENUM  "No","Yes";
+BA_DEF_ BO_  "DiagReqPhy" ENUM  "No","Yes";
+BA_DEF_ BO_  "DiagResp" ENUM  "No","Yes";
+BA_DEF_ BU_  "ILused" ENUM  "No","Yes";
+BA_DEF_ BU_  "NmAsrNode" ENUM  "No","Yes";
+BA_DEF_ BU_  "NodeLayerModules" STRING ;
+BA_DEF_ BU_  "NmAsrNodeIdentifier" INT 0 255;
+BA_DEF_ BU_  "NmAsrCanMsgReducedTime" INT 0 65535;
+BA_DEF_ BU_  "NmAsrCanMsgCycleOffset" INT 0 65535;
+BA_DEF_ BU_  "ILUsed" ENUM  "no","yes";
+BA_DEF_ BU_  "NmJ1939SystemInstance" INT 0 15;
+BA_DEF_ BU_  "NmJ1939System" INT 0 127;
+BA_DEF_ BU_  "NmJ1939ManufacturerCode" INT 0 2047;
+BA_DEF_ BU_  "NmJ1939IndustryGroup" INT 0 7;
+BA_DEF_ BU_  "NmJ1939IdentityNumber" INT 0 2097151;
+BA_DEF_ BU_  "NmJ1939FunctionInstance" INT 0 7;
+BA_DEF_ BU_  "NmJ1939Function" INT 0 255;
+BA_DEF_ BU_  "NmJ1939ECUInstance" INT 0 3;
+BA_DEF_ BU_  "NmJ1939AAC" INT 0 1;
+BA_DEF_ BU_  "CANoeStartDelay" INT 0 0;
+BA_DEF_ BU_  "CANoeDrift" INT 0 0;
+BA_DEF_ BU_  "CANoeJitterMin" INT 0 0;
+BA_DEF_ BU_  "CANoeJitterMax" INT 0 0;
+BA_DEF_ BU_  "ECU" STRING ;
+BA_DEF_  "NmAsrMessageCount" INT 0 255;
+BA_DEF_  "NmAsrBaseAddress" HEX 0 536870911;
+BA_DEF_  "ProtocolType" STRING ;
+BA_DEF_  "Baudrate" INT 1000 1000000;
+BA_DEF_  "Manufacturer" STRING ;
+BA_DEF_  "NmAsrWaitBusSleepTime" INT 0 65535;
+BA_DEF_  "NmAsrTimeoutTime" INT 1 65535;
+BA_DEF_  "NmAsrRepeatMessageTime" INT 0 65535;
+BA_DEF_  "NmAsrCanMsgCycleTime" INT 1 65535;
+BA_DEF_  "ILTxTimeout" INT 0 65535;
+BA_DEF_ SG_  "GenSigSendType" ENUM  "NoSigSendType","OnWrite","OnWriteWithRepetition","OnChange","OnChangeWithRepetition","IfActive","IfActiveWithRepetition","vector_leerstring";
+BA_DEF_ SG_  "GenSigStartValue" INT -655350 6553500;
+BA_DEF_ SG_  "GenSigTimeoutValue" INT 0 0;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_  "GenMsgSendType" ENUM  "NoMsgSendType","Cyclic","Period","None";
+BA_DEF_ BO_  "FunReqGroup" INT 0 250;
+BA_DEF_ BO_  "GenMsgStartDelayTime" INT 0 65535;
+BA_DEF_ BO_  "Transmitters" STRING ;
+BA_DEF_ BO_  "Receivers" STRING ;
+BA_DEF_ BO_  "GenMsgNrOfRepetition" INT 0 65535;
+BA_DEF_ BO_  "GenMsgCycleTimeFast" INT 0 65535;
+BA_DEF_ BO_  "MsgType" ENUM  "CDD","COM","COM_LONG","COM_LONG_FC","CANNM","XCP_REQ","XCP_RESP","UDS_PHY_REQ","UDS_PHY_RESP","UDS_FUN_REQ";
+BA_DEF_ BU_  "NmCAN" INT 0 2;
+BA_DEF_ BU_  "NmNode" ENUM  "NO","YES";
+BA_DEF_ BU_  "NmStationAddress" HEX 0 255;
+BA_DEF_ BU_  "BitOrder" ENUM  "LSB","MSB";
+BA_DEF_  "NmBaseAddress" HEX 1024 1279;
+BA_DEF_  "NmMessageCount" INT 2 256;
+BA_DEF_  "NmType" STRING ;
+BA_DEF_  "BusType" STRING ;
+BA_DEF_  "DBName" STRING ;
+BA_DEF_ BO_  "VFrameFormat" ENUM  "StandardCAN","ExtendedCAN","reserved","J1939PG","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","StandardCAN_FD","ExtendedCAN_FD";
+BA_DEF_REL_ BU_SG_REL_  "GenSigTimeoutTime" INT 0 65535;
+BA_DEF_REL_ BU_SG_REL_  "GenSigSuprvRespSubValue" INT 0 65535;
+BA_DEF_DEF_  "TpJ1939VarDlc" "No";
+BA_DEF_DEF_  "SigGroup" "";
+BA_DEF_DEF_  "GenSigDataID" "";
+BA_DEF_DEF_  "GenSigFuncType" "NoFunction";
+BA_DEF_DEF_  "GenSigInactiveValue" 0;
+BA_DEF_DEF_  "SigType" "Default";
+BA_DEF_DEF_  "GenSigEVName" "Env@Nodename_@Signame";
+BA_DEF_DEF_  "GenSigILSupport" "Yes";
+BA_DEF_DEF_  "SPN" 0;
+BA_DEF_DEF_  "NmAsrMessage" "No";
+BA_DEF_DEF_  "GenMsgILSupport" "Yes";
+BA_DEF_DEF_  "GenMsgDelayTime" 0;
+BA_DEF_DEF_  "TpTxIndex" 0;
+BA_DEF_DEF_  "TpApplType" "";
+BA_DEF_DEF_  "NmMessage" "no";
+BA_DEF_DEF_  "GenMsgFastOnStart" 0;
+BA_DEF_DEF_  "XcpMessage" "NO";
+BA_DEF_DEF_  "PduRGateway" "NO";
+BA_DEF_DEF_  "CcpMessage" "NO";
+BA_DEF_DEF_  "GenMsgTimeoutValue" 0;
+BA_DEF_DEF_  "GenMsgRequestable" 1;
+BA_DEF_DEF_  "CANFD_BRS" "1";
+BA_DEF_DEF_  "DiagReqFun" "No";
+BA_DEF_DEF_  "DiagReqPhy" "No";
+BA_DEF_DEF_  "DiagResp" "No";
+BA_DEF_DEF_  "ILused" "Yes";
+BA_DEF_DEF_  "NmAsrNode" "No";
+BA_DEF_DEF_  "NodeLayerModules" "CANoeILNLSPA.dll";
+BA_DEF_DEF_  "NmAsrNodeIdentifier" 0;
+BA_DEF_DEF_  "NmAsrCanMsgReducedTime" 0;
+BA_DEF_DEF_  "NmAsrCanMsgCycleOffset" 0;
+BA_DEF_DEF_  "ILUsed" "no";
+BA_DEF_DEF_  "NmJ1939SystemInstance" 0;
+BA_DEF_DEF_  "NmJ1939System" 0;
+BA_DEF_DEF_  "NmJ1939ManufacturerCode" 0;
+BA_DEF_DEF_  "NmJ1939IndustryGroup" 0;
+BA_DEF_DEF_  "NmJ1939IdentityNumber" 0;
+BA_DEF_DEF_  "NmJ1939FunctionInstance" 0;
+BA_DEF_DEF_  "NmJ1939Function" 0;
+BA_DEF_DEF_  "NmJ1939ECUInstance" 0;
+BA_DEF_DEF_  "NmJ1939AAC" 0;
+BA_DEF_DEF_  "CANoeStartDelay" 0;
+BA_DEF_DEF_  "CANoeDrift" 0;
+BA_DEF_DEF_  "CANoeJitterMin" 0;
+BA_DEF_DEF_  "CANoeJitterMax" 0;
+BA_DEF_DEF_  "ECU" "";
+BA_DEF_DEF_  "NmAsrMessageCount" 256;
+BA_DEF_DEF_  "NmAsrBaseAddress" 1280;
+BA_DEF_DEF_  "ProtocolType" "";
+BA_DEF_DEF_  "Baudrate" 1000;
+BA_DEF_DEF_  "Manufacturer" "Geely";
+BA_DEF_DEF_  "NmAsrWaitBusSleepTime" 2000;
+BA_DEF_DEF_  "NmAsrTimeoutTime" 2000;
+BA_DEF_DEF_  "NmAsrRepeatMessageTime" 3200;
+BA_DEF_DEF_  "NmAsrCanMsgCycleTime" 640;
+BA_DEF_DEF_  "ILTxTimeout" 0;
+BA_DEF_DEF_  "GenSigSendType" "NoSigSendType";
+BA_DEF_DEF_  "GenSigStartValue" 0;
+BA_DEF_DEF_  "GenSigTimeoutValue" 0;
+BA_DEF_DEF_  "GenMsgCycleTime" 100;
+BA_DEF_DEF_  "GenMsgSendType" "None";
+BA_DEF_DEF_  "FunReqGroup" 0;
+BA_DEF_DEF_  "GenMsgStartDelayTime" 0;
+BA_DEF_DEF_  "Transmitters" "Default";
+BA_DEF_DEF_  "Receivers" "Default";
+BA_DEF_DEF_  "GenMsgNrOfRepetition" 0;
+BA_DEF_DEF_  "GenMsgCycleTimeFast" 0;
+BA_DEF_DEF_  "MsgType" "CDD";
+BA_DEF_DEF_  "NmCAN" 0;
+BA_DEF_DEF_  "NmNode" "NO";
+BA_DEF_DEF_  "NmStationAddress" 0;
+BA_DEF_DEF_  "BitOrder" "LSB";
+BA_DEF_DEF_  "NmBaseAddress" 419428864;
+BA_DEF_DEF_  "NmMessageCount" 256;
+BA_DEF_DEF_  "NmType" "None";
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "DBName" "CAN_Network";
+BA_DEF_DEF_  "VFrameFormat" "StandardCAN";
+BA_DEF_DEF_REL_ "GenSigTimeoutTime" 0;
+BA_DEF_DEF_REL_ "GenSigSuprvRespSubValue" 0;
+BA_ "NmAsrCanMsgCycleTime" 1600;
+BA_ "NmAsrRepeatMessageTime" 1600;
+BA_ "NmAsrTimeoutTime" 2000;
+BA_ "NmAsrWaitBusSleepTime" 2000;
+BA_ "NmAsrBaseAddress" 1024;
+BA_ "NmAsrMessageCount" 10;
+BA_ "NmBaseAddress" 1024;
+BA_ "DBName" "CAN_Network";
+BA_ "NmStationAddress" BU_ BMS 10;
+BA_ "GenMsgSendType" BO_ 2556581620 0;
+BA_ "MsgType" BO_ 2556581620 1;
+BA_ "VFrameFormat" BO_ 2556581620 1;
+BA_ "GenMsgCycleTime" BO_ 2556556374 250;
+BA_ "GenMsgSendType" BO_ 2556556374 0;
+BA_ "MsgType" BO_ 2556556374 1;
+BA_ "VFrameFormat" BO_ 2556556374 1;
+BA_ "GenMsgSendType" BO_ 2556032086 0;
+BA_ "MsgType" BO_ 2556032086 1;
+BA_ "VFrameFormat" BO_ 2556032086 1;
+BA_ "GenMsgSendType" BO_ 2555926260 0;
+BA_ "MsgType" BO_ 2555926260 1;
+BA_ "VFrameFormat" BO_ 2555926260 1;
+BA_ "GenMsgSendType" BO_ 2555901014 0;
+BA_ "MsgType" BO_ 2555901014 1;
+BA_ "VFrameFormat" BO_ 2555901014 1;
+BA_ "GenMsgSendType" BO_ 2555795188 0;
+BA_ "MsgType" BO_ 2555795188 1;
+BA_ "VFrameFormat" BO_ 2555795188 1;
+BA_ "GenMsgSendType" BO_ 2555769942 0;
+BA_ "MsgType" BO_ 2555769942 1;
+BA_ "VFrameFormat" BO_ 2555769942 1;
+BA_ "GenMsgSendType" BO_ 2553345110 0;
+BA_ "MsgType" BO_ 2553345110 1;
+BA_ "VFrameFormat" BO_ 2553345110 3;
+BA_ "GenMsgSendType" BO_ 2553370356 0;
+BA_ "MsgType" BO_ 2553370356 1;
+BA_ "VFrameFormat" BO_ 2553370356 3;
+BA_ "GenMsgSendType" BO_ 2553541718 0;
+BA_ "MsgType" BO_ 2553541718 1;
+BA_ "VFrameFormat" BO_ 2553541718 3;
+BA_ "GenMsgSendType" BO_ 2620675828 0;
+BA_ "MsgType" BO_ 2620675828 1;
+BA_ "VFrameFormat" BO_ 2620675828 3;
+BA_ "GenMsgSendType" BO_ 2553476182 0;
+BA_ "MsgType" BO_ 2553476182 1;
+BA_ "VFrameFormat" BO_ 2553476182 3;
+BA_ "GenMsgSendType" BO_ 2553410646 0;
+BA_ "MsgType" BO_ 2553410646 1;
+BA_ "VFrameFormat" BO_ 2553410646 3;
+BA_ "GenMsgSendType" BO_ 2553304820 0;
+BA_ "MsgType" BO_ 2553304820 1;
+BA_ "VFrameFormat" BO_ 2553304820 3;
+BA_ "GenMsgSendType" BO_ 2619954932 0;
+BA_ "MsgType" BO_ 2619954932 2;
+BA_ "VFrameFormat" BO_ 2619954932 3;
+BA_ "GenMsgSendType" BO_ 2552820822 0;
+BA_ "MsgType" BO_ 2552820822 1;
+BA_ "VFrameFormat" BO_ 2552820822 3;
+BA_ "GenMsgSendType" BO_ 2283795542 0;
+BA_ "MsgType" BO_ 2283795542 1;
+BA_ "VFrameFormat" BO_ 2283795542 3;
+BA_ "GenMsgSendType" BO_ 2283689716 0;
+BA_ "MsgType" BO_ 2283689716 1;
+BA_ "VFrameFormat" BO_ 2283689716 3;
+BA_ "GenMsgSendType" BO_ 2552099926 0;
+BA_ "MsgType" BO_ 2552099926 1;
+BA_ "VFrameFormat" BO_ 2552099926 3;
+BA_ "GenMsgSendType" BO_ 2551994100 0;
+BA_ "MsgType" BO_ 2551994100 1;
+BA_ "VFrameFormat" BO_ 2551994100 3;
+BA_ "GenMsgSendType" BO_ 2417685590 0;
+BA_ "MsgType" BO_ 2417685590 1;
+BA_ "VFrameFormat" BO_ 2417685590 3;
+BA_ "GenMsgSendType" BO_ 2417579764 0;
+BA_ "MsgType" BO_ 2417579764 1;
+BA_ "VFrameFormat" BO_ 2417579764 3;
+BA_ "GenMsgSendType" BO_ 2618775284 0;
+BA_ "MsgType" BO_ 2618775284 2;
+BA_ "VFrameFormat" BO_ 2618775284 3;
+BA_ "GenMsgSendType" BO_ 2618709748 0;
+BA_ "MsgType" BO_ 2618709748 2;
+BA_ "VFrameFormat" BO_ 2618709748 3;
+BA_ "GenMsgSendType" BO_ 2618644212 0;
+BA_ "MsgType" BO_ 2618644212 2;
+BA_ "VFrameFormat" BO_ 2618644212 3;
+BA_ "GenMsgSendType" BO_ 2551404276 0;
+BA_ "MsgType" BO_ 2551404276 1;
+BA_ "VFrameFormat" BO_ 2551404276 3;
+BA_ "GenMsgSendType" BO_ 2551379030 0;
+BA_ "MsgType" BO_ 2551379030 1;
+BA_ "VFrameFormat" BO_ 2551379030 3;
+BA_ "GenMsgSendType" BO_ 2618382068 0;
+BA_ "MsgType" BO_ 2618382068 2;
+BA_ "VFrameFormat" BO_ 2618382068 3;
+BA_ "GenMsgSendType" BO_ 2551207668 0;
+BA_ "MsgType" BO_ 2551207668 1;
+BA_ "VFrameFormat" BO_ 2551207668 3;
+BA_ "GenMsgSendType" BO_ 2416637014 0;
+BA_ "MsgType" BO_ 2416637014 1;
+BA_ "VFrameFormat" BO_ 2416637014 3;
+BA_ "GenMsgSendType" BO_ 2416531188 0;
+BA_ "MsgType" BO_ 2416531188 1;
+BA_ "VFrameFormat" BO_ 2416531188 3;
+BA_ "GenMsgSendType" BO_ 2550723670 0;
+BA_ "MsgType" BO_ 2550723670 1;
+BA_ "VFrameFormat" BO_ 2550723670 3;
+BA_ "GenMsgSendType" BO_ 2550658134 0;
+BA_ "MsgType" BO_ 2550658134 1;
+BA_ "VFrameFormat" BO_ 2550658134 3;
+BA_ "GenMsgSendType" BO_ 2617661172 0;
+BA_ "MsgType" BO_ 2617661172 2;
+BA_ "VFrameFormat" BO_ 2617661172 3;
+BA_ "GenMsgSendType" BO_ 2617399028 0;
+BA_ "MsgType" BO_ 2617399028 2;
+BA_ "VFrameFormat" BO_ 2617399028 3;
+BA_ "GenMsgSendType" BO_ 2550264918 0;
+BA_ "MsgType" BO_ 2550264918 1;
+BA_ "VFrameFormat" BO_ 2550264918 3;
+BA_ "GenMsgSendType" BO_ 2552714996 0;
+BA_ "MsgType" BO_ 2552714996 1;
+BA_ "VFrameFormat" BO_ 2552714996 3;
+BA_ "GenMsgSendType" BO_ 2552689750 0;
+BA_ "MsgType" BO_ 2552689750 1;
+BA_ "VFrameFormat" BO_ 2552689750 3;
+BA_ "GenSigSendType" SG_ 2556581620 ScenarioV2GResponse 0;
+BA_ "GenSigStartValue" SG_ 2556581620 ScenarioV2GResponse 0;
+BA_ "GenSigSendType" SG_ 2556581620 ChargeTypeResponse 0;
+BA_ "GenSigStartValue" SG_ 2556581620 ChargeTypeResponse 0;
+BA_ "GenSigSendType" SG_ 2556556374 V2GSceneRecognition 0;
+BA_ "GenSigStartValue" SG_ 2556556374 V2GSceneRecognition 0;
+BA_ "GenSigSendType" SG_ 2556556374 CanChannelRecognition 0;
+BA_ "GenSigStartValue" SG_ 2556556374 CanChannelRecognition 0;
+BA_ "GenSigSendType" SG_ 2556032086 DGunCurr 0;
+BA_ "GenSigStartValue" SG_ 2556032086 DGunCurr 4000;
+BA_ "GenSigSendType" SG_ 2556032086 CGunCurr 0;
+BA_ "GenSigStartValue" SG_ 2556032086 CGunCurr 4000;
+BA_ "GenSigSendType" SG_ 2556032086 BGunCurr 0;
+BA_ "GenSigStartValue" SG_ 2556032086 BGunCurr 4000;
+BA_ "GenSigSendType" SG_ 2556032086 AGunCurr 0;
+BA_ "GenSigStartValue" SG_ 2556032086 AGunCurr 4000;
+BA_ "GenSigSendType" SG_ 2555926260 CC2_4St 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CC2_4St 0;
+BA_ "GenSigSendType" SG_ 2555926260 CC2_3St 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CC2_3St 0;
+BA_ "GenSigSendType" SG_ 2555926260 DChgPosRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 DChgPosRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 DChgNegRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 DChgNegRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 DChgPosRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 DChgPosRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 DChgNegRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 DChgNegRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 CChgPosRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CChgPosRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 CChgPosRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CChgPosRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 CChgNegRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CChgNegRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 CChgNegRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CChgNegRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 BChgPosRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 BChgPosRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 BChgPosRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 BChgPosRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 BChgNegRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 BChgNegRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 BChgNegRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 BChgNegRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 AChgPosRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 AChgPosRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 AChgPosRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 AChgPosRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 AChgNegRlySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 AChgNegRlySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 AChgNegRlyErrSt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 AChgNegRlyErrSt 0;
+BA_ "GenSigSendType" SG_ 2555926260 CC2_2St 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CC2_2St 0;
+BA_ "GenSigSendType" SG_ 2555926260 CC2_1St 0;
+BA_ "GenSigStartValue" SG_ 2555926260 CC2_1St 0;
+BA_ "GenSigSendType" SG_ 2555926260 ChangeStandbySt 0;
+BA_ "GenSigStartValue" SG_ 2555926260 ChangeStandbySt 0;
+BA_ "GenSigSendType" SG_ 2555926260 PlugReqFeedback 0;
+BA_ "GenSigStartValue" SG_ 2555926260 PlugReqFeedback 0;
+BA_ "GenSigSendType" SG_ 2555926260 PullReqFeedback 0;
+BA_ "GenSigStartValue" SG_ 2555926260 PullReqFeedback 0;
+BA_ "GenSigSendType" SG_ 2555901014 PlugGunReq2 0;
+BA_ "GenSigStartValue" SG_ 2555901014 PlugGunReq2 0;
+BA_ "GenSigSendType" SG_ 2555901014 PullGunReq2 0;
+BA_ "GenSigStartValue" SG_ 2555901014 PullGunReq2 0;
+BA_ "GenSigSendType" SG_ 2555901014 PlugGunReq 0;
+BA_ "GenSigStartValue" SG_ 2555901014 PlugGunReq 0;
+BA_ "GenSigSendType" SG_ 2555901014 PullGunReq 0;
+BA_ "GenSigStartValue" SG_ 2555901014 PullGunReq 0;
+BA_ "GenSigSendType" SG_ 2555795188 InsuErrState 0;
+BA_ "GenSigStartValue" SG_ 2555795188 InsuErrState 0;
+BA_ "GenSigSendType" SG_ 2555795188 InsulCompleteFlg 0;
+BA_ "GenSigStartValue" SG_ 2555795188 InsulCompleteFlg 0;
+BA_ "GenSigSendType" SG_ 2555795188 InsuState 0;
+BA_ "GenSigStartValue" SG_ 2555795188 InsuState 0;
+BA_ "GenSigSendType" SG_ 2555769942 InsuDisableRequest 0;
+BA_ "GenSigStartValue" SG_ 2555769942 InsuDisableRequest 0;
+BA_ "GenSigSendType" SG_ 2553345110 Answer_signal_Chg 0;
+BA_ "GenSigStartValue" SG_ 2553345110 Answer_signal_Chg 0;
+BA_ "GenSigSendType" SG_ 2553345110 Num_of_chg_guns_Chg 0;
+BA_ "GenSigStartValue" SG_ 2553345110 Num_of_chg_guns_Chg 0;
+BA_ "GenSigSendType" SG_ 2553345110 Current_offset_Chg 0;
+BA_ "GenSigStartValue" SG_ 2553345110 Current_offset_Chg 0;
+BA_ "GenSigSendType" SG_ 2553370356 Num_of_chg_guns_BMS 0;
+BA_ "GenSigStartValue" SG_ 2553370356 Num_of_chg_guns_BMS 0;
+BA_ "GenSigSendType" SG_ 2553370356 Answer_signal_BMS 0;
+BA_ "GenSigStartValue" SG_ 2553370356 Answer_signal_BMS 0;
+BA_ "GenSigSendType" SG_ 2553370356 Current_offset_BMS 0;
+BA_ "GenSigStartValue" SG_ 2553370356 Current_offset_BMS 0;
+BA_ "GenSigSendType" SG_ 2553541718 CSDP_DCCHG_Num 0;
+BA_ "GenSigStartValue" SG_ 2553541718 CSDP_DCCHG_Num 0;
+BA_ "GenSigSendType" SG_ 2553541718 CSDP_Discharge_energy 0;
+BA_ "GenSigStartValue" SG_ 2553541718 CSDP_Discharge_energy 0;
+BA_ "GenSigSendType" SG_ 2553541718 CSDP_Cumulative_discharge_time 0;
+BA_ "GenSigStartValue" SG_ 2553541718 CSDP_Cumulative_discharge_time 0;
+BA_ "GenSigSendType" SG_ 2620675828 BCSP_reserved 0;
+BA_ "GenSigStartValue" SG_ 2620675828 BCSP_reserved 0;
+BA_ "GenSigSendType" SG_ 2620675828 BCSP_Remaining_range 0;
+BA_ "GenSigStartValue" SG_ 2620675828 BCSP_Remaining_range 0;
+BA_ "GenSigSendType" SG_ 2620675828 BCSP_Discharge_time 0;
+BA_ "GenSigStartValue" SG_ 2620675828 BCSP_Discharge_time 0;
+BA_ "GenSigSendType" SG_ 2553476182 CCD_Chg_Direction 0;
+BA_ "GenSigStartValue" SG_ 2553476182 CCD_Chg_Direction 0;
+BA_ "GenSigSendType" SG_ 2553476182 CCD_Min_Allow_Soc 0;
+BA_ "GenSigStartValue" SG_ 2553476182 CCD_Min_Allow_Soc 0;
+BA_ "GenSigSendType" SG_ 2553476182 CCD_Max_Allow_Soc 0;
+BA_ "GenSigStartValue" SG_ 2553476182 CCD_Max_Allow_Soc 0;
+BA_ "GenSigSendType" SG_ 2553410646 CMLP_Min_DCCur 0;
+BA_ "GenSigStartValue" SG_ 2553410646 CMLP_Min_DCCur 4000;
+BA_ "GenSigSendType" SG_ 2553410646 CMLP_Max_DCCur 0;
+BA_ "GenSigStartValue" SG_ 2553410646 CMLP_Max_DCCur 4000;
+BA_ "GenSigSendType" SG_ 2553410646 CMLP_Min_DCV 0;
+BA_ "GenSigStartValue" SG_ 2553410646 CMLP_Min_DCV 0;
+BA_ "GenSigSendType" SG_ 2553410646 CMLP_Max_DCV 0;
+BA_ "GenSigStartValue" SG_ 2553410646 CMLP_Max_DCV 0;
+BA_ "GenSigSendType" SG_ 2553304820 BCPP_Min_Allow_Soc 0;
+BA_ "GenSigStartValue" SG_ 2553304820 BCPP_Min_Allow_Soc 0;
+BA_ "GenSigSendType" SG_ 2553304820 BCPP_Min_Allow_CellV 0;
+BA_ "GenSigStartValue" SG_ 2553304820 BCPP_Min_Allow_CellV 0;
+BA_ "GenSigSendType" SG_ 2553304820 BCPP_Max_Allow_DCV 0;
+BA_ "GenSigStartValue" SG_ 2553304820 BCPP_Max_Allow_DCV 0;
+BA_ "GenSigSendType" SG_ 2553304820 BCPP_Max_Allow_DCCur 0;
+BA_ "GenSigStartValue" SG_ 2553304820 BCPP_Max_Allow_DCCur 4000;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Remainder_CruisingRange 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Remainder_CruisingRange 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Remainder_V2GCirculate 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Remainder_V2GCirculate 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Current_V2GCirculate 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Current_V2GCirculate 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Battery_energy 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Battery_energy 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Battery_capacity 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Battery_capacity 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Soc 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Soc 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_17 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_17 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_16 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_16 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_15 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_15 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_14 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_14 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_13 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_13 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_12 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_12 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_11 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_11 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_10 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_10 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_9 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_9 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_8 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_8 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_7 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_7 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_6 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_6 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_5 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_5 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_4 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_4 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_3 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_3 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_2 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_2 0;
+BA_ "GenSigSendType" SG_ 2619954932 BDC_Vin1_Copy_1 0;
+BA_ "GenSigStartValue" SG_ 2619954932 BDC_Vin1_Copy_1 0;
+BA_ "GenSigSendType" SG_ 2552820822 CDC_Dc_Chg_Version 0;
+BA_ "GenSigStartValue" SG_ 2552820822 CDC_Dc_Chg_Version 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BCF 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BCF 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BDC 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BDC 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BCPP 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BCPP 0;
+BA_ "GenSigSendType" SG_ 2283795542 ResultOfSoftStart 0;
+BA_ "GenSigStartValue" SG_ 2283795542 ResultOfSoftStart 0;
+BA_ "GenSigSendType" SG_ 2283795542 ResultOfRelayWildDetect 0;
+BA_ "GenSigStartValue" SG_ 2283795542 ResultOfRelayWildDetect 0;
+BA_ "GenSigSendType" SG_ 2283795542 ResultOfChargerIsoDetect 0;
+BA_ "GenSigStartValue" SG_ 2283795542 ResultOfChargerIsoDetect 0;
+BA_ "GenSigSendType" SG_ 2283795542 ResultOfBattVoltDetect 0;
+BA_ "GenSigStartValue" SG_ 2283795542 ResultOfBattVoltDetect 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BSD 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BSD 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BST 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BST 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BSM 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BSM 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BCS 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BCS 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BRO 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BRO 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BCP 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BCP 0;
+BA_ "GenSigSendType" SG_ 2283795542 Timeout_BRM 0;
+BA_ "GenSigStartValue" SG_ 2283795542 Timeout_BRM 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CFC 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CFC 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CSDP 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CSDP 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CMLP 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CMLP 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_ChrgConfig_NotSuit 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_ChrgConfig_NotSuit 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CCD 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CCD 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_APlus_Broken 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_APlus_Broken 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CSD 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CSD 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CST 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CST 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CCS 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CCS 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CRO 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CRO 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CTS_CML 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CTS_CML 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CRM_Recognized 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CRM_Recognized 0;
+BA_ "GenSigSendType" SG_ 2283689716 Timeout_CRM_Unrecognized 0;
+BA_ "GenSigStartValue" SG_ 2283689716 Timeout_CRM_Unrecognized 0;
+BA_ "GenSigSendType" SG_ 2552099926 ChargerNo 0;
+BA_ "GenSigStartValue" SG_ 2552099926 ChargerNo 0;
+BA_ "GenSigSendType" SG_ 2552099926 OutputEnergy 0;
+BA_ "GenSigStartValue" SG_ 2552099926 OutputEnergy 0;
+BA_ "GenSigSendType" SG_ 2552099926 CumulativeChargingTime 0;
+BA_ "GenSigStartValue" SG_ 2552099926 CumulativeChargingTime 0;
+BA_ "GenSigSendType" SG_ 2551994100 SingleBatteryMaxTemperature 0;
+BA_ "GenSigStartValue" SG_ 2551994100 SingleBatteryMaxTemperature 50;
+BA_ "GenSigSendType" SG_ 2551994100 SingleBatteryMinTemperature 0;
+BA_ "GenSigStartValue" SG_ 2551994100 SingleBatteryMinTemperature 50;
+BA_ "GenSigSendType" SG_ 2551994100 SingleBatteryMaxVoltage 0;
+BA_ "GenSigStartValue" SG_ 2551994100 SingleBatteryMaxVoltage 0;
+BA_ "GenSigSendType" SG_ 2551994100 SingleBatteryMinVoltage 0;
+BA_ "GenSigStartValue" SG_ 2551994100 SingleBatteryMinVoltage 0;
+BA_ "GenSigSendType" SG_ 2551994100 SuspendStateOfChargeSOC 0;
+BA_ "GenSigStartValue" SG_ 2551994100 SuspendStateOfChargeSOC 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspError_AbnormalVoltage 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspError_AbnormalVoltage 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspError_CurrentMismatch 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspError_CurrentMismatch 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_OtherFault 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_OtherFault 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_SuddenStop 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_SuddenStop 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_CannotSupply 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_CannotSupply 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_CrgTempInt 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_CrgTempInt 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_ChargeConn 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_ChargeConn 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspFault_CrgTemp 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspFault_CrgTemp 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspCause_BmsActiveSusp 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspCause_BmsActiveSusp 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspCause_Fault 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspCause_Fault 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspCause_Artificial 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspCause_Artificial 0;
+BA_ "GenSigSendType" SG_ 2417685590 CrgSuspCause_ChargerCond 0;
+BA_ "GenSigStartValue" SG_ 2417685590 CrgSuspCause_ChargerCond 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspError_AbnormalVoltage 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspError_AbnormalVoltage 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspError_ExcessiveCurrent 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspError_ExcessiveCurrent 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_OtherFaults 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_OtherFaults 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_BmsTemp 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_BmsTemp 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_VoltageDetection 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_VoltageDetection 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_VoltageRelay 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_VoltageRelay 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_BatteryTemp 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_BatteryTemp 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_ChargeConn 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_ChargeConn 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_OutputConnTemp 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_OutputConnTemp 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspFault_Insulation 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspFault_Insulation 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspCause_ActiveSuspend 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspCause_ActiveSuspend 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspCause_SingleVoltage 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspCause_SingleVoltage 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspCause_TotalVoltage 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspCause_TotalVoltage 0;
+BA_ "GenSigSendType" SG_ 2417579764 BmsSuspCause_SOC 0;
+BA_ "GenSigStartValue" SG_ 2417579764 BmsSuspCause_SOC 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved16 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved16 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved15 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved15 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved14 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved14 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved13 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved13 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved12 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved12 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved11 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved11 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved10 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved10 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved09 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved09 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved08 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved08 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved07 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved07 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved06 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved06 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved05 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved05 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved04 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved04 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved03 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved03 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved02 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved02 0;
+BA_ "GenSigSendType" SG_ 2618775284 BatteryReserved01 0;
+BA_ "GenSigStartValue" SG_ 2618775284 BatteryReserved01 0;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature018 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature018 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature017 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature017 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature016 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature016 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature015 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature015 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature014 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature014 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature013 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature013 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature012 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature012 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature011 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature011 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature010 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature010 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature009 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature009 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature008 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature008 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature007 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature007 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature006 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature006 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature005 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature005 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature004 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature004 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature003 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature003 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature002 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature002 50;
+BA_ "GenSigSendType" SG_ 2618709748 BatteryTemperature001 0;
+BA_ "GenSigStartValue" SG_ 2618709748 BatteryTemperature001 50;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup102 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup102 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage102 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage102 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup101 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup101 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage101 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage101 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage100 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage100 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup100 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup100 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup099 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup099 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage099 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage099 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup098 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup098 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage098 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage098 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage097 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage097 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup097 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup097 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup096 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup096 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage096 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage096 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup095 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup095 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage095 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage095 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup094 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup094 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage094 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage094 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup093 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup093 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage093 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage093 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup092 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup092 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage092 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage092 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup091 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup091 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage091 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage091 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup090 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup090 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage090 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage090 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup089 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup089 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage089 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage089 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup088 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup088 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage088 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage088 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup087 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup087 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage087 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage087 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup086 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup086 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage086 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage086 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup085 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup085 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage085 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage085 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup084 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup084 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage084 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage084 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup083 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup083 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage083 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage083 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup082 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup082 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage082 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage082 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup081 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup081 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage081 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage081 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup080 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup080 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage080 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage080 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup079 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup079 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage079 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage079 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup078 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup078 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage078 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage078 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup077 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup077 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage077 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage077 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup076 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup076 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage076 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage076 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup075 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup075 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage075 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage075 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup074 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup074 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage074 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage074 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup073 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup073 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage073 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage073 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup072 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup072 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage072 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage072 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup071 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup071 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage071 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage071 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup070 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup070 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage070 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage070 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup069 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup069 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage069 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage069 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup068 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup068 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage068 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage068 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup067 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup067 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage067 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage067 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup066 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup066 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage066 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage066 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup065 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup065 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage065 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage065 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup064 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup064 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage064 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage064 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup063 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup063 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage063 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage063 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup062 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup062 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage062 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage062 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup061 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup061 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage061 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage061 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup060 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup060 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage060 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage060 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup059 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup059 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage059 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage059 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup058 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup058 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage058 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage058 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup057 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup057 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage057 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage057 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup056 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup056 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage056 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage056 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup055 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup055 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage055 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage055 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup054 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup054 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage054 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage054 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup053 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup053 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage053 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage053 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup052 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup052 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage052 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage052 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup051 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup051 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage051 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage051 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup050 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup050 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage050 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage050 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup049 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup049 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage049 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage049 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup048 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup048 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage048 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage048 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup047 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup047 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage047 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage047 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup046 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup046 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage046 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage046 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup045 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup045 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage045 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage045 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup044 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup044 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage044 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage044 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup043 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup043 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage043 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage043 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup042 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup042 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage042 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage042 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup041 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup041 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage041 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage041 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup040 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup040 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage040 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage040 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup039 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup039 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage039 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage039 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup038 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup038 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage038 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage038 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup037 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup037 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage037 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage037 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup036 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup036 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage036 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage036 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup035 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup035 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage035 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage035 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup034 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup034 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage034 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage034 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup033 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup033 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage033 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage033 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup032 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup032 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage032 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage032 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup031 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup031 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage031 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage031 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup030 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup030 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage030 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage030 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup029 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup029 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage029 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage029 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup028 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup028 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage028 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage028 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup027 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup027 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage027 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage027 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup026 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup026 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage026 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage026 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup025 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup025 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage025 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage025 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup024 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup024 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage024 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage024 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup023 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup023 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage023 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage023 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup022 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup022 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage022 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage022 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup021 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup021 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage021 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage021 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup020 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup020 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage020 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage020 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup019 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup019 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage019 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage019 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup018 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup018 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage018 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage018 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup017 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup017 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage017 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage017 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup016 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup016 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage016 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage016 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup015 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup015 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage015 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage015 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup014 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup014 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage014 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage014 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup013 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup013 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage013 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage013 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup012 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup012 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage012 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage012 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup011 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup011 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage011 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage011 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup010 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup010 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage010 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage010 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup009 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup009 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage009 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage009 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup008 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup008 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage008 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage008 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup007 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup007 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage007 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage007 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup006 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup006 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage006 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage006 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup005 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup005 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage005 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage005 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup004 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup004 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage004 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage004 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup003 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup003 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage003 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage003 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup002 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup002 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage002 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage002 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryGroup001 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryGroup001 0;
+BA_ "GenSigSendType" SG_ 2618644212 SingleBatteryVoltage001 0;
+BA_ "GenSigStartValue" SG_ 2618644212 SingleBatteryVoltage001 0;
+BA_ "GenSigSendType" SG_ 2551404276 BsmChargingPermissible 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BsmChargingPermissible 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryOutputConnectorState 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryOutputConnectorState 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryInsulationState 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryInsulationState 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryExcessTemperature 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryExcessTemperature 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryChargingOvercurrent 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryChargingOvercurrent 0;
+BA_ "GenSigSendType" SG_ 2551404276 VehicleBatteryUnusualChargeState 0;
+BA_ "GenSigStartValue" SG_ 2551404276 VehicleBatteryUnusualChargeState 0;
+BA_ "GenSigSendType" SG_ 2551404276 SingleBatteryUnusualVoltage 0;
+BA_ "GenSigStartValue" SG_ 2551404276 SingleBatteryUnusualVoltage 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryLowestTempSerNo 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryLowestTempSerNo 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryLowestTemp 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryLowestTemp 50;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryHighestTempSerNo 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryHighestTempSerNo 0;
+BA_ "GenSigSendType" SG_ 2551404276 BatteryHighestTemp 0;
+BA_ "GenSigStartValue" SG_ 2551404276 BatteryHighestTemp 50;
+BA_ "GenSigSendType" SG_ 2551404276 SingleBatteryHighestVoltageSerNo 0;
+BA_ "GenSigStartValue" SG_ 2551404276 SingleBatteryHighestVoltageSerNo 0;
+BA_ "GenSigSendType" SG_ 2551379030 CrgChargingPermissible 0;
+BA_ "GenSigStartValue" SG_ 2551379030 CrgChargingPermissible 0;
+BA_ "GenSigSendType" SG_ 2551379030 CumulativeChargingTime 0;
+BA_ "GenSigStartValue" SG_ 2551379030 CumulativeChargingTime 0;
+BA_ "GenSigSendType" SG_ 2551379030 CurrentOutputValue 0;
+BA_ "GenSigStartValue" SG_ 2551379030 CurrentOutputValue 4000;
+BA_ "GenSigSendType" SG_ 2551379030 VoltageOutputValue 0;
+BA_ "GenSigStartValue" SG_ 2551379030 VoltageOutputValue 0;
+BA_ "GenSigSendType" SG_ 2618382068 EstimatedRemainingChargingTime 0;
+BA_ "GenSigStartValue" SG_ 2618382068 EstimatedRemainingChargingTime 0;
+BA_ "GenSigSendType" SG_ 2618382068 CurrentChargeState 0;
+BA_ "GenSigStartValue" SG_ 2618382068 CurrentChargeState 0;
+BA_ "GenSigSendType" SG_ 2618382068 SingleBatteryHighestVoltageGroup 0;
+BA_ "GenSigStartValue" SG_ 2618382068 SingleBatteryHighestVoltageGroup 0;
+BA_ "GenSigSendType" SG_ 2618382068 SingleBatteryHighestVoltage 0;
+BA_ "GenSigStartValue" SG_ 2618382068 SingleBatteryHighestVoltage 0;
+BA_ "GenSigSendType" SG_ 2618382068 MeasuredChargingCurrent 0;
+BA_ "GenSigStartValue" SG_ 2618382068 MeasuredChargingCurrent 4000;
+BA_ "GenSigSendType" SG_ 2618382068 MeasuredChargingVoltage 0;
+BA_ "GenSigStartValue" SG_ 2618382068 MeasuredChargingVoltage 0;
+BA_ "GenSigSendType" SG_ 2551207668 ChargingMode 0;
+BA_ "GenSigStartValue" SG_ 2551207668 ChargingMode 0;
+BA_ "GenSigSendType" SG_ 2551207668 CurrentDemand 0;
+BA_ "GenSigStartValue" SG_ 2551207668 CurrentDemand 4000;
+BA_ "GenSigSendType" SG_ 2551207668 VoltageDemand 0;
+BA_ "GenSigStartValue" SG_ 2551207668 VoltageDemand 0;
+BA_ "GenSigSendType" SG_ 2416637014 ChargerReadyForCharging 0;
+BA_ "GenSigStartValue" SG_ 2416637014 ChargerReadyForCharging 0;
+BA_ "GenSigSendType" SG_ 2416531188 BmsReadyForCharging 0;
+BA_ "GenSigStartValue" SG_ 2416531188 BmsReadyForCharging 0;
+BA_ "GenSigSendType" SG_ 2550723670 MinOutputCurrent 0;
+BA_ "GenSigStartValue" SG_ 2550723670 MinOutputCurrent 4000;
+BA_ "GenSigSendType" SG_ 2550723670 MaxOutputCurrent 0;
+BA_ "GenSigStartValue" SG_ 2550723670 MaxOutputCurrent 4000;
+BA_ "GenSigSendType" SG_ 2550723670 MinOutputVoltage 0;
+BA_ "GenSigStartValue" SG_ 2550723670 MinOutputVoltage 0;
+BA_ "GenSigSendType" SG_ 2550723670 MaxOutputVoltage 0;
+BA_ "GenSigStartValue" SG_ 2550723670 MaxOutputVoltage 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Year 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Year 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Month 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Month 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Day 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Day 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Hour 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Hour 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Minute 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Minute 0;
+BA_ "GenSigSendType" SG_ 2550658134 ChargerTime_Second 0;
+BA_ "GenSigStartValue" SG_ 2550658134 ChargerTime_Second 0;
+BA_ "GenSigSendType" SG_ 2617661172 CurrentVehicleBatteryVoltage 0;
+BA_ "GenSigStartValue" SG_ 2617661172 CurrentVehicleBatteryVoltage 0;
+BA_ "GenSigSendType" SG_ 2617661172 StatusVehiclePowerStorageBattery 0;
+BA_ "GenSigStartValue" SG_ 2617661172 StatusVehiclePowerStorageBattery 0;
+BA_ "GenSigSendType" SG_ 2617661172 MaxPermTemperature 0;
+BA_ "GenSigStartValue" SG_ 2617661172 MaxPermTemperature 50;
+BA_ "GenSigSendType" SG_ 2617661172 TotalMaxPermChargingVoltage 0;
+BA_ "GenSigStartValue" SG_ 2617661172 TotalMaxPermChargingVoltage 0;
+BA_ "GenSigSendType" SG_ 2617661172 TotalNominalEnergy 0;
+BA_ "GenSigStartValue" SG_ 2617661172 TotalNominalEnergy 0;
+BA_ "GenSigSendType" SG_ 2617661172 MaxPermChargingCurrent 0;
+BA_ "GenSigStartValue" SG_ 2617661172 MaxPermChargingCurrent 4000;
+BA_ "GenSigSendType" SG_ 2617661172 MaxSingleBattChargingVoltage 0;
+BA_ "GenSigStartValue" SG_ 2617661172 MaxSingleBattChargingVoltage 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_17 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_17 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_16 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_16 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_15 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_15 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_14 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_14 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_13 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_13 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_12 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_12 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_11 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_11 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_10 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_10 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_9 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_9 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_8 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_8 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_7 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_7 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_6 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_6 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_5 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_5 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_4 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_4 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_3 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_3 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_2 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_2 0;
+BA_ "GenSigSendType" SG_ 2617399028 VIN_Copy_1 0;
+BA_ "GenSigStartValue" SG_ 2617399028 VIN_Copy_1 0;
+BA_ "GenSigSendType" SG_ 2617399028 BmsSoftwareVersion_Reserved 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsSoftwareVersion_Reserved 16777215;
+BA_ "GenSigSendType" SG_ 2617399028 BmsSoftwareVersion_CompileYear 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsSoftwareVersion_CompileYear 0;
+BA_ "GenSigSendType" SG_ 2617399028 BmsSoftwareVersion_CompileMonth 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsSoftwareVersion_CompileMonth 1;
+BA_ "GenSigSendType" SG_ 2617399028 BmsSoftwareVersion_CompileDay 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsSoftwareVersion_CompileDay 1;
+BA_ "GenSigSendType" SG_ 2617399028 BmsSoftwareVersion_Serial 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsSoftwareVersion_Serial 1;
+BA_ "GenSigSendType" SG_ 2617399028 BRM_Reserved1 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BRM_Reserved1 255;
+BA_ "GenSigSendType" SG_ 2617399028 Property 0;
+BA_ "GenSigStartValue" SG_ 2617399028 Property 0;
+BA_ "GenSigSendType" SG_ 2617399028 ChargingFrequency 0;
+BA_ "GenSigStartValue" SG_ 2617399028 ChargingFrequency 0;
+BA_ "GenSigSendType" SG_ 2617399028 ProductionDay 0;
+BA_ "GenSigStartValue" SG_ 2617399028 ProductionDay 0;
+BA_ "GenSigSendType" SG_ 2617399028 ProductionMonth 0;
+BA_ "GenSigStartValue" SG_ 2617399028 ProductionMonth 1;
+BA_ "GenSigSendType" SG_ 2617399028 ProductionYear 0;
+BA_ "GenSigStartValue" SG_ 2617399028 ProductionYear 0;
+BA_ "GenSigSendType" SG_ 2617399028 BatteryPackNumber 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BatteryPackNumber 0;
+BA_ "GenSigSendType" SG_ 2617399028 ManufacturerName 0;
+BA_ "GenSigStartValue" SG_ 2617399028 ManufacturerName 0;
+BA_ "GenSigSendType" SG_ 2617399028 BatterySystemVoltage 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BatterySystemVoltage 0;
+BA_ "GenSigSendType" SG_ 2617399028 BatterySystemCapacity 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BatterySystemCapacity 0;
+BA_ "GenSigSendType" SG_ 2617399028 BmsVersion 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsVersion 0;
+BA_ "GenSigSendType" SG_ 2617399028 BmsRevision 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BmsRevision 0;
+BA_ "GenSigSendType" SG_ 2617399028 BatteryType 0;
+BA_ "GenSigStartValue" SG_ 2617399028 BatteryType 0;
+BA_ "GenSigSendType" SG_ 2550264918 ChargerLocation 0;
+BA_ "GenSigStartValue" SG_ 2550264918 ChargerLocation 0;
+BA_ "GenSigSendType" SG_ 2550264918 ChargerNumber 0;
+BA_ "GenSigStartValue" SG_ 2550264918 ChargerNumber 0;
+BA_ "GenSigSendType" SG_ 2550264918 RecognitionResult 0;
+BA_ "GenSigStartValue" SG_ 2550264918 RecognitionResult 0;
+BA_ "GenSigSendType" SG_ 2552714996 MaxChargingVoltage 0;
+BA_ "GenSigStartValue" SG_ 2552714996 MaxChargingVoltage 0;
+BA_ "GenSigSendType" SG_ 2552689750 ChargerVersion 0;
+BA_ "GenSigStartValue" SG_ 2552689750 ChargerVersion 0;
+BA_ "GenSigSendType" SG_ 2552689750 ChargerRevision 0;
+BA_ "GenSigStartValue" SG_ 2552689750 ChargerRevision 0;
+VAL_ 2556581620 ScenarioV2GResponse 7 "无效" 2 "储能V2G" 1 "矿卡送电车" 0 "预留" ;
+VAL_ 2556581620 ChargeTypeResponse 7 "无效" 2 "1路CAN通信" 1 "4路CAN通信" 0 "预留" ;
+VAL_ 2556556374 V2GSceneRecognition 7 "无效" 2 "储能V2G" 1 "矿卡送电车" 0 "预留" ;
+VAL_ 2556556374 CanChannelRecognition 7 "无效" 2 "1路CAN通信" 1 "多路CAN通信" 0 "预留" ;
+VAL_ 2555926260 CC2_4St 3 "无效" 2 "插枪" 1 "未插枪" 0 "预留" ;
+VAL_ 2555926260 CC2_3St 3 "无效" 2 "插枪" 1 "未插枪" 0 "预留" ;
+VAL_ 2555926260 DChgPosRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 DChgNegRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 DChgPosRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 DChgNegRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 CChgPosRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 CChgPosRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 CChgNegRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 CChgNegRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 BChgPosRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 BChgPosRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 BChgNegRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 BChgNegRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 AChgPosRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 AChgPosRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 AChgNegRlySt 3 "无效" 2 "闭合" 1 "断开" 0 "预留" ;
+VAL_ 2555926260 AChgNegRlyErrSt 3 "无效" 2 "开路" 1 "粘连" 0 "预留" ;
+VAL_ 2555926260 CC2_2St 3 "无效" 2 "插枪" 1 "未插枪" 0 "预留" ;
+VAL_ 2555926260 CC2_1St 3 "无效" 2 "插枪" 1 "未插枪" 0 "预留" ;
+VAL_ 2555926260 ChangeStandbySt 3 "无效" 2 "准备已完成" 1 "准备未完成" 0 "预留" ;
+VAL_ 2555926260 PlugReqFeedback 3 "无效" 2 "禁止插枪" 1 "允许插枪" 0 "预留" ;
+VAL_ 2555926260 PullReqFeedback 3 "无效" 2 "禁止拔枪" 1 "允许拔枪" 0 "预留" ;
+VAL_ 2555901014 PlugGunReq2 3 "无效" 2 "插上D枪" 1 "插上C枪" 0 "预留" ;
+VAL_ 2555901014 PullGunReq2 3 "无效" 2 "拔掉D枪" 1 "拔掉C枪" 0 "预留" ;
+VAL_ 2555901014 PlugGunReq 3 "无效" 2 "插上B枪" 1 "插上A枪" 0 "预留" ;
+VAL_ 2555901014 PullGunReq 3 "无效" 2 "拔掉B枪" 1 "拔掉A枪" 0 "预留" ;
+VAL_ 2555795188 InsuErrState 3 "无效" 2 "故障" 1 "正常" 0 "预留" ;
+VAL_ 2555795188 InsulCompleteFlg 3 "无效" 2 "已完成" 1 "未完成" 0 "预留" ;
+VAL_ 2555795188 InsuState 3 "无效" 2 "绝缘开启" 1 "绝缘关闭" 0 "预留" ;
+VAL_ 2555769942 InsuDisableRequest 3 "无效" 2 "请求关闭" 1 "无请求" 0 "预留" ;
+VAL_ 2283795542 Timeout_BCF 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BSD 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BST 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BSM 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BCS 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BRO 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BCP 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283795542 Timeout_BRM 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CFC 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CSD 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CST 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CCS 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CRO 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CTS_CML 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CRM_Recognized 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2283689716 Timeout_CRM_Unrecognized 3 "Not Available" 2 "Untrusted" 1 "Timeout" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspError_AbnormalVoltage 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspError_CurrentMismatch 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_OtherFault 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_SuddenStop 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_CannotSupply 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_CrgTempInt 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_ChargeConn 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspFault_CrgTemp 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspCause_BmsActiveSusp 3 "Not Available" 2 "Untrusted" 1 "BMS Suspension" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspCause_Fault 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspCause_Artificial 3 "Not Available" 2 "Untrusted" 1 "Artificial Suspension" 0 "Normal" ;
+VAL_ 2417685590 CrgSuspCause_ChargerCond 3 "Not Available" 2 "Untrusted" 1 "Condition Reached" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspError_AbnormalVoltage 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspError_ExcessiveCurrent 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_OtherFaults 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_BmsTemp 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_VoltageDetection 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_VoltageRelay 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_BatteryTemp 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_ChargeConn 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_OutputConnTemp 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspFault_Insulation 3 "Not Available" 2 "Untrusted" 1 "Fault" 0 "Normal" ;
+VAL_ 2417579764 BmsSuspCause_ActiveSuspend 3 "Not Available" 2 "Untrusted" 1 "Reached" 0 "Not Reached" ;
+VAL_ 2417579764 BmsSuspCause_SingleVoltage 3 "Not Available" 2 "Untrusted" 1 "Reached" 0 "Not Reached" ;
+VAL_ 2417579764 BmsSuspCause_TotalVoltage 3 "Not Available" 2 "Untrusted" 1 "Reached" 0 "Not Reached" ;
+VAL_ 2417579764 BmsSuspCause_SOC 3 "Not Available" 2 "Untrusted" 1 "Reached" 0 "Not Reached" ;
+VAL_ 2551404276 BsmChargingPermissible 3 "Not Available" 2 "Untrusted" 1 "Permit" 0 "Forbid" ;
+VAL_ 2551404276 BatteryOutputConnectorState 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2551404276 BatteryInsulationState 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2551404276 BatteryExcessTemperature 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2551404276 BatteryChargingOvercurrent 3 "Not Available" 2 "Untrusted" 1 "Abnormal" 0 "Normal" ;
+VAL_ 2551404276 VehicleBatteryUnusualChargeState 3 "Not Available" 2 "Over-Low" 1 "Over-High" 0 "Normal" ;
+VAL_ 2551404276 SingleBatteryUnusualVoltage 3 "Not Available" 2 "Over-Low" 1 "Over-High" 0 "Normal" ;
+VAL_ 2551379030 CrgChargingPermissible 3 "Not Available" 2 "Untrusted" 1 "Permit" 0 "Suspend" ;
+VAL_ 2551207668 ChargingMode 2 "Constant Current" 1 "Constant Voltage" ;
+VAL_ 2416637014 ChargerReadyForCharging 255 "Invalid" 170 "Ready" 0 "Not Ready" ;
+VAL_ 2416531188 BmsReadyForCharging 255 "Invalid" 170 "Ready" 0 "Not Ready" ;
+VAL_ 2617399028 BmsSoftwareVersion_CompileMonth 12 "December" 11 "November" 10 "October" 9 "September" 8 "August" 7 "July" 6 "June" 5 "May" 4 "April" 3 "March" 2 "February" 1 "January" ;
+VAL_ 2617399028 Property 1 "Existing On Vehicle" 0 "Lease" ;
+VAL_ 2617399028 ProductionMonth 12 "December" 11 "November" 10 "October" 9 "September" 8 "August" 7 "July" 6 "June" 5 "May" 4 "April" 3 "March" 2 "February" 1 "January" ;
+VAL_ 2617399028 BatteryType 255 "Other Batteries" 8 "Lithium Ion Battery" 7 "Polymer Lithium-Ion Battery" 6 "Ternary Material Battery" 5 "Cobalt Based Lithium Battery" 4 "Lithium Manganate Battery" 3 "Lithium Iron Phosphate Battery" 2 "Nickel Hydrogen Battery" 1 "Lead Acid Battery" ;
+VAL_ 2550264918 RecognitionResult 170 "BMS Recognizable" 0 "BMS Not Recognizable" ;
+

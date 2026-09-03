@@ -52,6 +52,14 @@
     <None Include="Fixtures/Can/pure_electric_v4.6.dbc" Link="Fixtures/Can/pure_electric_v4.6.dbc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- 闭环测试 (task: 真实 27930 log → 重组 → chat 工具取多帧):
+         从用户 log 截取前 1.3s (5 个完整 RTS/CTS BRM 会话) + 配套 DBC。 -->
+    <None Include="Fixtures/Can/gbt27930-charge-hiccup-1.3s.asc" Link="Fixtures/Can/gbt27930-charge-hiccup-1.3s.asc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Fixtures/Can/gbt27930_96_换电.dbc" Link="Fixtures/Can/gbt27930_96_换电.dbc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
