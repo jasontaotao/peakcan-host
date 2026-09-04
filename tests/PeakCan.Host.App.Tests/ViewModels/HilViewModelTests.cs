@@ -339,6 +339,31 @@ public sealed class HilViewModelTests
     }
     """;
 
+    // review 2026-08-29 P2 回归守卫：bus-a 只声明 udsRequestId（响应 ID 缺省），
+    // bus-b 无任何 per-channel 参数（回落全局 DBC）。守卫"0x7E0/0x"渲染不再出现。
+    private const string MultiChannelSuiteHalfUdsJson = """
+    {
+      "name": "MultiChannel",
+      "channels": [
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": "A.dbc", "udsRequestId": 2016, "udsResponseId": null },
+        { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null }
+      ],
+      "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
+    }
+    """;
+
+    // 重名声明：runner 按名 ToDictionary 会抛 → 映射清单清空、Run 回落单通道
+    private const string MultiChannelSuiteDuplicateNamesJson = """
+    {
+      "name": "MultiChannel",
+      "channels": [
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null },
+        { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null }
+      ],
+      "cases": [ { "id": "c1", "name": "TP", "steps": [ { "parameters": { "$kind": "delay", "Milliseconds": 10 } } ] } ]
+    }
+    """;
+
     [Fact]
     public async Task RunAsync_WithSuitePerChannelParams_PropagatesToHardwareChannels()
     {
@@ -569,6 +594,100 @@ public sealed class HilViewModelTests
             vm.ChannelBindings[0].Handle.Should().Be("USB1");
             vm.ChannelBindings[1].Handle.Should().Be("未绑定");
             vm.ChannelBindings[1].Detail.Should().Contain("不足");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_HalfDeclaredUds_ShowsRequestIdOnly()
+    {
+        // review 2026-08-29 P2 回归守卫：只声明 udsRequestId 未声明 udsResponseId 时
+        // 此前渲染成 "UDS 0x7E0/0x"（null 格式化为空）——守卫后只显示请求 ID；
+        // 无 per-channel 参数的声明回落 "(全局DBC)" 且不出现 UDS 字样。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteHalfUdsJson);
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+            vm.ChannelBindings.Should().HaveCount(2);
+
+            var half = vm.ChannelBindings[0].Detail;
+            half.Should().Contain("A.dbc");
+            half.Should().Contain("UDS 0x7E0");
+            half.Should().NotContain("/0x", "响应 ID 缺省时不得渲染 '0x7E0/0x'");
+
+            var plain = vm.ChannelBindings[1].Detail;
+            plain.Should().Contain("(全局DBC)");
+            plain.Should().NotContain("UDS", "未声明 UDS ID 时摘要不出现 UDS 字样");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public void RefreshAvailableChannels_DuplicateChannelNames_ClearsBindingList()
+    {
+        // 重名声明：runner 按名 ToDictionary 会抛 → 映射清单清空（UI 不显示与
+        // Run 单通道回落不一致的内容），防 UI 显示与实际行为脱节。
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteDuplicateNamesJson);
+        var vm = NewVm(() =>
+        [
+            new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+            new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+        ]);
+        vm.SuitePath = suitePath;
+        try
+        {
+            vm.RefreshAvailableChannels();
+
+            vm.ChannelBindings.Should().BeEmpty("重名声明清空映射清单");
+        }
+        finally
+        {
+            File.Delete(suitePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_PublishesBindingSummary_InStatusMessage()
+    {
+        // Run 状态栏绑定摘要与映射清单共用 FormatBindingDetail（防两处漂移）：
+        // " 绑定[bus-a: A.dbc UDS 0x7E0/0x7E8; bus-b: B.dbc UDS 0x6E0/0x6E8]"
+        var suitePath = Path.GetTempFileName();
+        File.WriteAllText(suitePath, MultiChannelSuiteWithPerChannelParamsJson);
+        var runner = Substitute.For<IHilRunnerService>();
+        runner.RunAsync(Arg.Any<HilRunRequest>(),
+                Arg.Any<IProgress<TestProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(AllPassedResult());
+        var vm = new HilViewModel(
+            runner, NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(),
+            Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>(),
+            connectedChannels: () =>
+            [
+                new HilViewModel.ConnectedChannel(0x51, BaudRate.Can500kbps, Fd: false),
+                new HilViewModel.ConnectedChannel(0x52, BaudRate.Can125kbps, Fd: false),
+            ]);
+        vm.SuitePath = suitePath;
+        vm.SelectedMode = HilMode.Hardware;
+        vm.HardwareChannel = "USB1";
+        try
+        {
+            await vm.RunCommand.ExecuteAsync(null);
+
+            vm.StatusMessage.Should().Contain(
+                "绑定[bus-a: A.dbc UDS 0x7E0/0x7E8; bus-b: B.dbc UDS 0x6E0/0x6E8]");
         }
         finally
         {

@@ -214,4 +214,33 @@ public sealed class UdsSessionTests
             r.Level == LogLevel.Debug && r.EventId.Id == 5002,
             "LogS3KeepAliveShutdown must emit a single Debug record with EventId 5002");
     }
+
+    // ========================================================================
+    // Communication-parameters panel: P2/P2* provenance flag.
+    // ========================================================================
+
+    [Fact]
+    public void HasNegotiatedTiming_False_Before_Any_Session_Control()
+    {
+        var session = new UdsSession();
+
+        session.HasNegotiatedTiming.Should().BeFalse(
+            "P2Timeout/P2StarTimeout still hold the 50/5000 ms construction defaults");
+        session.P2Timeout.Should().Be(50);
+        session.P2StarTimeout.Should().Be(5000);
+    }
+
+    [Fact]
+    public void SetSession_Flags_HasNegotiatedTiming_And_Updates_Timings()
+    {
+        var session = new UdsSession();
+
+        session.SetSession(0x03, p2: 25, p2Star: 5000);
+
+        session.HasNegotiatedTiming.Should().BeTrue(
+            "SetSession is only called from a DiagnosticSessionControl positive response");
+        session.P2Timeout.Should().Be(25);
+        session.P2StarTimeout.Should().Be(5000);
+        session.SessionType.Should().Be(0x03);
+    }
 }

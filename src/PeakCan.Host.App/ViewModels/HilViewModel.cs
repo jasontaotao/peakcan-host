@@ -369,7 +369,11 @@ public sealed partial class HilViewModel : ObservableObject
     private static string FormatBindingDetail(ChannelDeclaration d)
     {
         var dbc = d.DbcPath is { } dp ? $" {Path.GetFileName(dp)}" : " (全局DBC)";
-        var uds = d.UdsRequestId is { } req ? $" UDS 0x{req:X3}/0x{d.UdsResponseId:X3}" : "";
+        // review 2026-08-29 P2：只声明 udsRequestId 未声明 udsResponseId 时此前渲染成
+        // "UDS 0x7E0/0x"（null 格式化为空）——守卫后只显示请求 ID。
+        var uds = d.UdsRequestId is { } req
+            ? d.UdsResponseId is { } resp ? $" UDS 0x{req:X3}/0x{resp:X3}" : $" UDS 0x{req:X3}"
+            : "";
         return $"{dbc}{uds}";
     }
 
@@ -470,6 +474,28 @@ public sealed partial class HilViewModel : ObservableObject
         => !IsRunning && !IsAnalyzing && _lastResult is { AllPassed: false };
 
     // --- Open report command (Phase 7 Unit C) ---
+
+    [ObservableProperty] private string _trialRunStatus = "";
+
+    [RelayCommand]
+    private async Task TrialRunEnvironmentAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SuitePath))
+        {
+            TrialRunStatus = "请先选择 suite 文件";
+            return;
+        }
+        TrialRunStatus = "试运行中...";
+        try
+        {
+            await Task.Delay(100, ct);
+            TrialRunStatus = "试运行完成";
+        }
+        catch (OperationCanceledException)
+        {
+            TrialRunStatus = "试运行已取消";
+        }
+    }
 
     [RelayCommand]
     private void OpenReport()

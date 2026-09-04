@@ -49,6 +49,42 @@
             </StackPanel>
         </Border>
 
+        <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
+             Params 面板 500ms 轮询; 向后兼容 ctor 下为 Disabled 实例 (全部显示 —). -->
+        <Expander DockPanel.Dock="Top" Header="通信参数 (Communication Parameters)"
+                  IsExpanded="False" Padding="8,4" Background="{StaticResource SurfaceSubtle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                    <TextBlock Text="诊断栈 (Diagnostic)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagP2Star, StringFormat='P2*: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagStMin, StringFormat='STmin: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagBlockSize, StringFormat='BS: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagNBs, StringFormat='N_Bs (等FC超时): {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagNCr, StringFormat='N_Cr (等CF超时): {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败: {0}'}" Margin="0,1"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                    <TextBlock Text="Flash 副栈 (Programming)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashP2, StringFormat='P2: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashP2Star, StringFormat='P2*: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashStMin, StringFormat='STmin: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashBlockSize, StringFormat='BS: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashNBs, StringFormat='N_Bs (等FC超时): {0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashNCr, StringFormat='N_Cr (等CF超时): {0}'}" Margin="0,1"/>
+                </StackPanel>
+            </Grid>
+        </Expander>
+
         <!-- Bottom: Output Log -->
         <Border DockPanel.Dock="Bottom" Padding="8" Background="{StaticResource ConsoleBg}">
             <DockPanel>

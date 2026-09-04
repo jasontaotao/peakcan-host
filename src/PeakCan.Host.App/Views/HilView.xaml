@@ -146,6 +146,7 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Open ECU Editor" Command="{Binding OpenEcuEditorCommand}" Padding="16,4" Margin="0,0,8,0" />
             <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
+            <Button Content="试运行环境" Command="{Binding TrialRunEnvironmentCommand}" Padding="12,4" Margin="0,0,8,0" />
             <Button Content="Analyze" Command="{Binding AnalyzeCommand}" Padding="16,4" />
         </StackPanel>
 

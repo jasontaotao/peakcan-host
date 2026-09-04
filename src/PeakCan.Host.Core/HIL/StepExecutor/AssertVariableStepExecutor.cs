@@ -18,10 +18,10 @@ internal sealed class AssertVariableStepExecutor : IStepExecutor
         var timeoutMs = int.Parse(p.TimeoutMs, CultureInfo.InvariantCulture);
         // 轮询等键出现（前置步骤若因 FailurePolicy 被跳过, 变量永不出现 →
         // 超时失败并给出明确原因）。跟随 AssertDidValueStepExecutor 模式。
-        var deadline = Environment.TickCount64 + timeoutMs;
+        var deadline = System.Environment.TickCount64 + timeoutMs;
         while (!ct.IsCancellationRequested
                && !store.Variables.ContainsKey(p.VarKey)
-               && Environment.TickCount64 < deadline)
+               && System.Environment.TickCount64 < deadline)
             await Task.Delay(50, ct);
 
         if (!store.Variables.TryGetValue(p.VarKey, out var actual))

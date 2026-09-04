@@ -1072,4 +1072,96 @@ public sealed class IsoTpLayerTests
             "the malformed FF must not poison subsequent reassembly state");
         reassembled[1].Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22);
     }
+
+    // ========================================================================
+    // Communication-parameters panel: IsoTpTxSnapshot read-only accessors.
+    // ========================================================================
+
+    [Fact]
+    public void SnapshotTxState_Initially_Zero_Without_FlowControl()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        var snap = iso.SnapshotTxState();
+        snap.StMinRaw.Should().Be(0, "initial zeros before any FC — not ECU values");
+        snap.BlockSize.Should().Be(0);
+        snap.StMinDelay.Should().Be(TimeSpan.Zero);
+        snap.WaitingForFlowControl.Should().BeFalse();
+        snap.HasReceivedFlowControl.Should().BeFalse(
+            "distinguishes the initial zeros from a genuine BS=0/STmin=0 Flow Control");
+    }
+
+    [Fact]
+    public async Task SnapshotTxState_WaitingForFlowControl_True_While_Parked_After_FF()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        var payload = new byte[30];
+        var sendTask = iso.SendMessageAsync(payload, CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1); // FF out
+
+        var parked = iso.SnapshotTxState();
+        parked.WaitingForFlowControl.Should().BeTrue("multi-frame send is parked in the N_Bs window");
+        parked.HasReceivedFlowControl.Should().BeFalse();
+
+        InjectFlowControl(iso, blockSize: 0, stMin: 0);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+        iso.SnapshotTxState().WaitingForFlowControl.Should().BeFalse("FC accepted, transport finished");
+    }
+
+    [Fact]
+    public async Task SnapshotTxState_Reflects_Millisecond_StMin_And_BlockSize()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        var payload = new byte[30];
+        var sendTask = iso.SendMessageAsync(payload, CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1);
+
+        InjectFlowControl(iso, blockSize: 0, stMin: 0x0A); // 10 ms between CFs
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var snap = iso.SnapshotTxState();
+        snap.HasReceivedFlowControl.Should().BeTrue();
+        snap.StMinRaw.Should().Be(0x0A);
+        snap.StMinDelay.Should().Be(TimeSpan.FromMilliseconds(10));
+        snap.BlockSize.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task SnapshotTxState_Microsecond_StMin_Decoded_Per_6_5_5_4()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        var payload = new byte[10]; // FF(6) + 1 CF(4)
+        var sendTask = iso.SendMessageAsync(payload, CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1);
+
+        InjectFlowControl(iso, blockSize: 0, stMin: 0xF2); // 200 µs
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var snap = iso.SnapshotTxState();
+        snap.StMinRaw.Should().Be(0xF2);
+        snap.StMinDelay.Should().Be(TimeSpan.FromTicks(2), "0xF2-0xF0 = 2 ticks = 200 µs");
+    }
+
+    [Fact]
+    public void Config_Returns_The_Construction_CanIdConfig()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var config = new CanIdConfig
+        {
+            RequestId = 0x18FF10A2,
+            ResponseId = 0x18FF10A3,
+            FunctionalId = 0x18DB33F1,
+            IsExtendedFrame = true
+        };
+        var iso = NewLayer(sink, config);
+
+        iso.Config.Should().Be(config, "CanIdConfig is an immutable record — the exposed reference must equal it");
+    }
 }

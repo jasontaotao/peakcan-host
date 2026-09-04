@@ -109,6 +109,10 @@ public sealed partial class AppShellViewModel
             if (result.Ok)
             {
                 ChannelList = $"USB1 ({SelectedBaudRate.Name})";
+                // review 2026-08-29 P2: 探测成功即认领 ChannelInfo，连接资格的真源统一为
+                // SelectedChannel（多通道路径相同），取代 CanConnect 对 ChannelList 文案的
+                // "USB1" 字符串哨兵。v1.5.0 持久化语义不变（真实选中句柄落盘）。
+                SelectedChannel = new ChannelInfo(DefaultHandle, "USB1");
                 StatusMessage = result.Message;
                 LogProbeOk(_logger, DefaultHandle);
             }
@@ -124,17 +128,37 @@ public sealed partial class AppShellViewModel
 
     private bool CanEnumerateChannels() => !IsConnected;
 
-    // v0.4.0: CanConnect checks SelectedChannel when available, falling back
-    // to the legacy "USB1 ..." sentinel that only a successful single-channel
-    // probe writes. The default ChannelList ("(click Probe to detect)") and
-    // failure messages ("未检测到 PEAK 硬件") must NOT enable Connect —
-    // guarded by ConnectCommand_Is_Disabled_Before_Probe_Succeeds.
-    private bool CanConnect() => !IsConnected && (
-        SelectedChannel is not null
-        || ChannelList.StartsWith("USB1", StringComparison.Ordinal));
+    // v0.4.0: CanConnect requires a probed channel. review 2026-08-29 P2:
+    // the legacy "USB1 ..." string sentinel on ChannelList is gone — the
+    // legacy probe-success path now claims SelectedChannel, the same source
+    // of truth the multi-channel path uses, so failure/default status texts
+    // can never re-enable Connect.
+    private bool CanConnect() => !IsConnected && !_isConnecting && SelectedChannel is not null;
+
+    /// <summary>
+    /// review 2026-08-29 P2: Connect 多路循环进行中 IsConnected 会随首个成功槽位翻
+    /// true，从而放行 Disconnect 并发清空 ChannelConnections——Connect 收尾又把
+    /// SendService/"已连接 N 路" 写回，用户点了断开却以连接态收场。进行中双向互斥。
+    /// </summary>
+    private bool _isConnecting;
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
+    {
+        _isConnecting = true;
+        NotifyConnectionStateChanged();
+        try
+        {
+            await ConnectCoreAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _isConnecting = false;
+            NotifyConnectionStateChanged();
+        }
+    }
+
+    private async Task ConnectCoreAsync()
     {
         // Task 3 (phase 2 A-3): best-effort multi-channel connect. Walk the
         // pending configs (from IConnectSettingsSink.ApplyConnections); each
@@ -270,6 +294,7 @@ public sealed partial class AppShellViewModel
         // dead channel does not leave the rest connected. Method name kept as
         // DisconnectAsync so the generated DisconnectCommand binding is stable.
         if (!IsConnected) return;
+        if (_isConnecting) return; // review 2026-08-29 P2: 连接进行中不接受断开（CanExecute 兜底）
         StatusMessage = "正在断开所有通道";
         ConnectionState = "断开中...";
         var snapshot = ChannelConnections.ToList();
@@ -304,7 +329,7 @@ public sealed partial class AppShellViewModel
         NotifyConnectionStateChanged();
     }
 
-    private bool CanDisconnect() => IsConnected;
+    private bool CanDisconnect() => IsConnected && !_isConnecting;
 
     /// <summary>
     /// v3.16.9.4 PATCH: handler for <see cref="ICanChannel.ReadLoopError"/>.

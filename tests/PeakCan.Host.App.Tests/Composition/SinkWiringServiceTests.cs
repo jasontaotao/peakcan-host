@@ -82,6 +82,16 @@ public class SinkWiringServiceTests
             },
             _ => { }));
         builder.Services.AddSingleton<PeakCan.Host.App.Composition.IsoTpSinkAdapter>();
+        // Task 9: SinkWiringService now also wires the J1939TpSinkAdapter.
+        // Real OFFLINE layer instance (J1939TpLayer is sealed like IsoTpLayer,
+        // so NSubstitute cannot mock it; OfflineMode also skips the watchdog
+        // start, so no timer leaks in tests) with a no-op success send
+        // delegate — the tests below only exercise the router fan-out, not
+        // J1939 TP sends. The adapter wraps this same singleton layer.
+        builder.Services.AddSingleton(new PeakCan.HIL.Core.J1939.J1939TpLayer(
+            (_, _) => ValueTask.FromResult(Result<Unit>.Ok(default)),
+            PeakCan.HIL.Core.J1939.J1939TpOptions.Offline));
+        builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
         builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();
     }

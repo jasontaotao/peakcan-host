@@ -69,15 +69,12 @@ public class TraceViewModelTests
     }
 
     [Fact]
-    public void Default_MaxRows_Is_One_Thousand()
+    public void Default_MaxRows_Is_Five_Thousand()
     {
-        // v1.2.3: lowered from 10_000 to 1_000 because under sustained
-        // high frame rates the WPF DataGrid paint + collection mutation
-        // cost on the dispatcher thread becomes prohibitive. 1_000 rows
-        // × 20 px = 20 k px of virtualized content, well within the
-        // recycling virtualization budget.
+        // 2026-08-31 P1: raised from 1_000 to 5_000 (视图层过滤 + 工具栏可调输入框，
+        // 校验范围 [100, 50000])。
         var vm = new TraceViewModel();
-        vm.MaxRows.Should().Be(1_000);
+        vm.MaxRows.Should().Be(5_000);
     }
 
     [Theory]
@@ -262,7 +259,6 @@ public class TraceViewModelTests
         var vm = new TraceViewModel();
         vm.ClearCommand.Execute(null);
         vm.TotalFrameCount.Should().Be(0);
-        vm.FilteredCount.Should().Be(0);
         vm.GetMessageIdStats().Should().BeEmpty();
     }
 
@@ -293,42 +289,8 @@ public class TraceViewModelTests
         k1.Should().NotBe(k4, "different channel → different keys");
     }
 
-    // ── Task 7 (phase 2 A-5): Trace 通道过滤 ──────────────
-
-    [Fact]
-    public void PassesFilters_NoChannelFilter_ShowsAll_Channels()
-    {
-        // 零回归：ChannelFilter null → 所有通道帧都通过
-        var vm = new TraceViewModel();
-        var busA = MakeFrameOnChannel(0x51, id: 0x100);
-        var busB = MakeFrameOnChannel(0x52, id: 0x200);
-
-        vm.PassesFilters(busA).Should().BeTrue();
-        vm.PassesFilters(busB).Should().BeTrue();
-    }
-
-    [Fact]
-    public void PassesFilters_ChannelFilterSet_HidesOtherChannelFrames()
-    {
-        var vm = new TraceViewModel { ChannelFilter = new ChannelId(0x51) };
-        var busA = MakeFrameOnChannel(0x51, id: 0x100);
-        var busB = MakeFrameOnChannel(0x52, id: 0x200);
-
-        vm.PassesFilters(busA).Should().BeTrue("bus-a 匹配 ChannelFilter → 显示");
-        vm.PassesFilters(busB).Should().BeFalse("bus-b 不匹配 → 过滤");
-    }
-
-    [Fact]
-    public void PassesFilters_ChannelFilter_CombinesWith_HexPrefixFilter()
-    {
-        // 复合过滤：hex prefix + channel 都要满足
-        var vm = new TraceViewModel { FilterText = "1A", ChannelFilter = new ChannelId(0x51) };
-        var match = MakeFrameOnChannel(0x51, id: 0x1A3);   // 通道 + hex 都匹配
-        var wrongChannel = MakeFrameOnChannel(0x52, id: 0x1A3); // hex 匹配但通道不对
-        var wrongHex = MakeFrameOnChannel(0x51, id: 0x200);      // 通道对但 hex 不匹配
-
-        vm.PassesFilters(match).Should().BeTrue();
-        vm.PassesFilters(wrongChannel).Should().BeFalse("通道不匹配");
-        vm.PassesFilters(wrongHex).Should().BeFalse("hex 不匹配");
-    }
+    // ── Task 7 (phase 2 A-5) 原 PassesFilters_* 测试：2026-08-31 P1 移除 ──
+    // `PassesFilters` 方法消亡（入口过滤 → 视图层过滤）。通道/复合过滤语义改由
+    // `TraceFilterSpec.Matches`（TraceFilterSpecTests）与视图层断言
+    // （TraceViewModelFilterTests，见新文件）覆盖。
 }

@@ -8,5 +8,6 @@
     <Project Path="tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Infrastructure.Tests/PeakCan.Host.Infrastructure.Tests.csproj" />
+    <Project Path="tests/PromptCacheProbe.Tests/PromptCacheProbe.Tests.csproj" />
   </Folder>
 </Solution>

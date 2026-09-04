@@ -1,5 +1,6 @@
 using PeakCan.HIL.Core.Uds;
 using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.HIL.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 
@@ -19,6 +20,13 @@ internal interface ISecondaryFlashStack : IDisposable
 {
     /// <summary>The secondary UdsClient (programming-session IsoTp + injected key algo).</summary>
     UdsClient Client { get; }
+
+    /// <summary>
+    /// The secondary ISO-TP transport this stack was built with. Exposed read-only so the
+    /// communication-parameters panel can show the programming pair's live timing state
+    /// (STmin/BS snapshot, N_Bs/N_Cr) while a flash run is active.
+    /// </summary>
+    IsoTpLayer Transport { get; }
 
     /// <summary>Attach the ISO-TP receive adapter to the shared channel router.</summary>
     void AttachToRouter();

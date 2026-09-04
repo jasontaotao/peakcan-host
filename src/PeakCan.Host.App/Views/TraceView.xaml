@@ -6,38 +6,128 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d">
-    <DockPanel>
-        <!-- v0.6.0: ID filter bar -->
+    <DockPanel LastChildFill="False">
+        <!-- 工具栏1：过滤（spec §6） -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
-            <Button Content="清空" Command="{Binding ClearCommand}" Padding="8,2" Margin="0,0,4,0" />
-            <Button Content="导出 CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="0,0,8,0" />
-            <TextBlock Text="ID 过滤 (hex):" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding FilteredCount}" VerticalAlignment="Center" Margin="8,0,0,0" />
-            <TextBlock Text=" 帧已过滤" VerticalAlignment="Center" />
-            <TextBlock Text="  总数: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
-            <TextBlock Text="{Binding TotalFrameCount}" VerticalAlignment="Center" />
-            <TextBlock Text=" (上限: " VerticalAlignment="Center" Margin="4,0,0,0" Foreground="{StaticResource TextSecondary}" />
-            <TextBlock Text="{Binding MaxRows}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
-            <TextBlock Text=" 行)" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
-            <!-- Task 7 (phase 2 A-5): 通道过滤（留空=全部通道，零回归） -->
-            <TextBlock Text="  通道:" VerticalAlignment="Center" Margin="8,0,4,0" />
-            <ComboBox MinWidth="100"
+            <Button Content="清空帧" Command="{Binding ClearCommand}" Padding="8,2" Margin="0,0,4,0" />
+            <Button Content="导出 CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="0,0,4,0" />
+            <Button Content="导出全部" Command="{Binding ExportAllCsvCommand}" Padding="8,2" Margin="0,0,8,0" />
+
+            <TextBlock Text="ID列表" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox Text="{Binding IdListText, UpdateSourceTrigger=PropertyChanged}" Width="90" VerticalAlignment="Center" ToolTip="ID allow-list：无前缀=十进制，0x=hex（逗号/空格分隔）" />
+
+            <TextBlock Text="PGN(hex)" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <TextBox Text="{Binding PgnText, UpdateSourceTrigger=PropertyChanged}" Width="70" VerticalAlignment="Center" ToolTip="PGN 列表：hex，0x 可选（≤0x3FFFF）" />
+
+            <TextBlock Text="SA" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <TextBox Text="{Binding SaText, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" ToolTip="源地址：单 hex 字节（空=不过滤）" />
+
+            <TextBlock Text="DA" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <TextBox Text="{Binding DaText, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" ToolTip="目标地址：单 hex 字节，仅 PDU1 可匹配（空=不过滤）" />
+
+            <TextBlock Text="DBC消息" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <ComboBox Width="110"
+                      IsEditable="True"
+                      IsTextSearchEnabled="True"
+                      Text="{Binding DbcMessageName, UpdateSourceTrigger=PropertyChanged}"
+                      ItemsSource="{Binding DbcMessageNames}"
+                      VerticalAlignment="Center" ToolTip="DBC 消息名符号（可编辑，提交时解析并并入 ID allow-list）" />
+
+            <TextBlock Text="通道" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <ComboBox MinWidth="90"
                       ItemsSource="{Binding DataContext.ChannelConnections, RelativeSource={RelativeSource AncestorType=Window}}"
                       DisplayMemberPath="Name"
                       SelectedValuePath="Channel.Id"
                       SelectedValue="{Binding ChannelFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                       ToolTip="留空=显示全部通道" />
+
+            <CheckBox Content="仅错误帧" IsChecked="{Binding ShowErrorsOnly}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <CheckBox Content="排除" IsChecked="{Binding ExcludeMatch}" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="整体取反（黑名单语义）" />
+            <CheckBox Content="暂停" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="8,0,0,0" />
+
+            <Button Content="清除过滤" Command="{Binding ClearFiltersCommand}" Padding="8,2" Margin="8,0,0,0" />
         </StackPanel>
-        <!-- v0.9.2: highlight bar -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,4">
-            <TextBlock Text="高亮 (hex):" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <TextBox Text="{Binding HighlightText, UpdateSourceTrigger=PropertyChanged}" Width="100" VerticalAlignment="Center" />
-            <CheckBox Content="仅错误帧" IsChecked="{Binding ShowErrorsOnly}" VerticalAlignment="Center" Margin="16,0,0,0" />
-            <CheckBox Content="暂停" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="16,0,0,0" />
+
+        <!-- 工具栏1 第二行：payload 模式过滤 + 错误/状态文本 -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,4,2">
+            <TextBlock Text="Payload" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="字节模式过滤：(payload[offset] &amp; mask) == value；三字段全空=无条件，部分填=错误" />
+            <TextBlock Text="offset" VerticalAlignment="Center" />
+            <TextBox Text="{Binding PayloadOffsetText, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" Margin="2,0,0,0" />
+            <TextBlock Text="mask(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
+            <TextBox Text="{Binding PayloadMaskHex, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" />
+            <TextBlock Text="value(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
+            <TextBox Text="{Binding PayloadValueHex, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" />
+
+            <TextBlock Text="{Binding FilterErrorText}" Foreground="{StaticResource Error}" VerticalAlignment="Center" Margin="12,0,0,0" />
+            <TextBlock Text="{Binding MaxRowsErrorText}" Foreground="{StaticResource Error}" VerticalAlignment="Center" Margin="12,0,0,0" />
+
+            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextSecondary}" />
+            <TextBlock Text="上限" VerticalAlignment="Center" Margin="16,0,2,0" Foreground="{StaticResource TextSecondary}" />
+            <TextBox Text="{Binding MaxRowsText, UpdateSourceTrigger=PropertyChanged}" Width="50" VerticalAlignment="Center" ToolTip="MaxRows [100, 50000]" />
+            <TextBlock Text="行" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
         </StackPanel>
-        <DataGrid x:Name="TraceGrid"
-              ItemsSource="{Binding Entries}"
+
+        <!-- 工具栏2：高亮（spec §6） -->
+        <StackPanel DockPanel.Dock="Top" Margin="4,0,4,4">
+            <Expander HorizontalAlignment="Left">
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="高亮规则" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding HighlightSummaryText}" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource TextSecondary}" />
+                    </StackPanel>
+                </Expander.Header>
+                <StackPanel Margin="0,4,0,0">
+                    <DataGrid ItemsSource="{Binding HighlightRules}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              HeadersVisibility="Column"
+                              RowHeight="22"
+                              MaxHeight="140"
+                              AlternatingRowBackground="{StaticResource RowAlternate}">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="50" />
+                            <DataGridTemplateColumn Header="颜色" Width="90">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ComboBox SelectedIndex="{Binding ColorIndex, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                            <ComboBoxItem Content="1" />
+                                            <ComboBoxItem Content="2" />
+                                            <ComboBoxItem Content="3" />
+                                            <ComboBoxItem Content="4" />
+                                            <ComboBoxItem Content="5" />
+                                            <ComboBoxItem Content="6" />
+                                        </ComboBox>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="ID列表" Binding="{Binding IdListText, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+                            <DataGridTextColumn Header="PGN(hex)" Binding="{Binding PgnListText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
+                            <DataGridTemplateColumn Header="删除" Width="50">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="✕"
+                                                Padding="4,0"
+                                                HorizontalAlignment="Center"
+                                                Command="{Binding DataContext.RemoveHighlightRuleCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="+ 添加" Command="{Binding AddHighlightRuleCommand}" Padding="8,2" />
+                        <TextBlock Text="两文本全空 = 匹配全部（兜底规则放最后）" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource TextSecondary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+
+        <!-- DataGrid：ItemsSource=EntriesView（视图层过滤，非破坏性） -->
+        <DataGrid DockPanel.Dock="Top"
+              x:Name="TraceGrid"
+              ItemsSource="{Binding EntriesView}"
               AutoGenerateColumns="False"
               IsReadOnly="True"
               EnableRowVirtualization="True"
@@ -58,8 +148,24 @@
                     <DataTrigger Binding="{Binding IsFd}" Value="True">
                         <Setter Property="Background" Value="{StaticResource FrameBgFd}" />
                     </DataTrigger>
-                    <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                    <!-- 高亮规则色索引 0..5，排最后（高亮盖过 Error/Fd 底色） -->
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="0">
                         <Setter Property="Background" Value="{StaticResource FrameBgHighlight}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="1">
+                        <Setter Property="Background" Value="{StaticResource TraceHl1}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="2">
+                        <Setter Property="Background" Value="{StaticResource TraceHl2}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="3">
+                        <Setter Property="Background" Value="{StaticResource TraceHl3}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="4">
+                        <Setter Property="Background" Value="{StaticResource TraceHl4}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HighlightColorIndex}" Value="5">
+                        <Setter Property="Background" Value="{StaticResource TraceHl5}" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -73,6 +179,40 @@
             <DataGridTextColumn Header="数据" Binding="{Binding DataHex}" Width="*" />
             <DataGridTextColumn Header="解码" Binding="{Binding Decoded}" Width="200" />
         </DataGrid.Columns>
-    </DataGrid>
+        </DataGrid>
+
+        <!-- 底栏：报文统计（spec §6，可折叠） -->
+        <Expander DockPanel.Dock="Bottom"
+                  Margin="4,4,4,4"
+                  IsExpanded="{Binding StatsExpanded, Mode=TwoWay}">
+            <Expander.Header>
+                <TextBlock Text="报文统计（Top-20）" FontWeight="SemiBold" />
+            </Expander.Header>
+            <DataGrid ItemsSource="{Binding StatsRows}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      HeadersVisibility="Column"
+                      RowHeight="22"
+                      MaxHeight="180">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ID" Binding="{Binding IdHex}" Width="100" />
+                    <DataGridTextColumn Header="DBC 消息" Binding="{Binding DbcName}" Width="140" />
+                    <DataGridTextColumn Header="计数" Binding="{Binding Count}" Width="70" />
+                    <DataGridTextColumn Header="占比" Binding="{Binding Percent, StringFormat={}{0:F1}%}" Width="80" />
+                    <DataGridTemplateColumn Header="设为过滤" Width="80">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="设为过滤"
+                                        Padding="4,0"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding DataContext.SetFilterToIdCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Expander>
     </DockPanel>
 </UserControl>

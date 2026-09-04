@@ -1,16 +1,22 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- v1.1.0: ILogger<T> for DidDatabase / RoutineDatabase. Already
-         declared centrally in Directory.Packages.props; this just
-         references it. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <!-- Restbus unification M1: use sibling repo project reference when available (local dev).
+       Fall back to NuGet PackageReference for CI / standalone clones.
+       TODO: Remove ProjectReference and publish hil-core 0.18.0 before merging to main. -->
+  <ItemGroup Condition="Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
+    <ProjectReference Include="..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
     <PackageReference Include="PeakCan.HIL.Core" />
   </ItemGroup>
 

@@ -156,7 +156,7 @@ public class Sprint14Tests
     [Fact]
     public async Task CredentialStore_GetFromEnvVar_ReturnsValue()
     {
-        Environment.SetEnvironmentVariable("HIL_DEEPSEEK_API_KEY", "env-key");
+        System.Environment.SetEnvironmentVariable("HIL_DEEPSEEK_API_KEY", "env-key");
         try
         {
             var store = new SimpleCredentialStore();
@@ -165,7 +165,7 @@ public class Sprint14Tests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("HIL_DEEPSEEK_API_KEY", null);
+            System.Environment.SetEnvironmentVariable("HIL_DEEPSEEK_API_KEY", null);
         }
     }
 }

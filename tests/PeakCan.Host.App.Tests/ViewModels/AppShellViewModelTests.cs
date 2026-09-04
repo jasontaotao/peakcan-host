@@ -79,8 +79,7 @@ public class AppShellViewModelTests
 
     /// <summary>
     /// Test double for <see cref="PeakCan.HIL.Core.IChannelProbe"/>. Always returns
-    /// a successful probe so the <c>CanConnect</c> predicate string
-    /// ("USB1 ...") can be set by tests via <c>ChannelList = "..."</c>.
+    /// a successful probe (legacy path claims SelectedChannel on success).
     /// </summary>
     private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
     {
@@ -88,7 +87,16 @@ public class AppShellViewModelTests
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 
-    private static AppShellViewModel NewVm()
+    /// <summary>Legacy probe failure path (architect review 2026-08-29): exercises the
+    /// "未检测到 PEAK 硬件: ..." ChannelList branch, which must leave SelectedChannel
+    /// null so Connect stays locked.</summary>
+    private sealed class FailingChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    {
+        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
+            => new(false, "fake probe failed");
+    }
+
+    private static AppShellViewModel NewVm(PeakCan.HIL.Core.IChannelProbe? probe = null)
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
@@ -108,7 +116,7 @@ public class AppShellViewModelTests
             NullLogger<AppShellViewModel>.Instance,
             new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
-            new FakeChannelProbe(),
+            probe ?? new FakeChannelProbe(),
             new FakeChannelFactory(),
             new DbcViewModel(new FakeDbcService(),
                              new SignalViewModel(),
@@ -212,16 +220,30 @@ public class AppShellViewModelTests
     }
 
     [Fact]
-    public void ConnectCommand_Is_Enabled_After_Probe_Sets_Usb1_Sentinel()
+    public void ConnectCommand_Is_Enabled_After_Successful_Legacy_Probe()
     {
-        // STRING-COUPLED: the "USB1 ..." sentinel below mirrors the probe-
-        // success message emitted by EnumerateChannels (and the predicate
-        // in AppShellViewModel.CanConnect). The [ObservableProperty]
-        // ChannelList setter fires the ConnectCommand's CanExecute
-        // re-evaluation via [NotifyCanExecuteChangedFor].
+        // review 2026-08-29: the "USB1" string sentinel on ChannelList is gone —
+        // a successful legacy probe now claims SelectedChannel, the same source
+        // of truth the multi-channel path uses. Connect unlocks on the claimed
+        // channel, not on status-bar text.
         var vm = NewVm();
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.SelectedChannel.Should().NotBeNull("legacy probe success claims the default channel");
         vm.ConnectCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConnectCommand_Stays_Disabled_After_Failed_Probe()
+    {
+        // Regression guard for f4f250e (architect review 2026-08-29): the
+        // legacy probe-failure path writes "未检测到 PEAK 硬件: ..." into
+        // ChannelList and must NOT claim SelectedChannel — Connect stays
+        // locked until a probe actually succeeds.
+        var vm = NewVm(new FailingChannelProbe());
+        vm.EnumerateChannelsCommand.Execute(null);
+        vm.ChannelList.Should().Contain("未检测到 PEAK 硬件");
+        vm.SelectedChannel.Should().BeNull();
+        vm.ConnectCommand.CanExecute(null).Should().BeFalse();
     }
 
     // Task 15: the OpenDbcCommand stub behaviour (sets StatusMessage to
@@ -391,7 +413,7 @@ public class AppShellViewModelTests
         // successful Connect (fake factory) to flip IsConnected true, then the
         // Disconnect CanExecute must be enabled.
         var vm = NewVm();
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
@@ -472,6 +494,48 @@ public class AppShellViewModelTests
             LastCreated = new FakeCanChannel(id);
             return LastCreated;
         }
+    }
+
+    /// <summary>Two-slot factory for the mid-connect interleave regression test:
+    /// slot 1 connects immediately, slot 2 blocks on the gate until released —
+    /// reproducing the window where IsConnected is already true while
+    /// ConnectCoreAsync is still connecting the remaining channels.</summary>
+    private sealed class TwoSlotGatedChannelFactory(Task secondSlotGate) : PeakCan.HIL.Core.IChannelFactory
+    {
+        public int CreatedCount { get; private set; }
+        public ICanChannel Create(ChannelId id)
+        {
+            CreatedCount++;
+            return CreatedCount == 1 ? new FakeCanChannel(id) : new GatedCanChannel(id, secondSlotGate);
+        }
+    }
+
+    /// <summary>~FakeCanChannel, but <see cref="ConnectAsync"/> awaits a gate —
+    /// simulates a slow hardware slot mid-connect.</summary>
+    private sealed class GatedCanChannel : ICanChannel
+    {
+        private readonly Task _gate;
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; }
+#pragma warning disable CS0067 // test doubles never raise these
+        public event Action<CanFrame>? FrameReceived;
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
+        public GatedCanChannel(ChannelId id, Task gate) { Id = id; _gate = gate; }
+        public async Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        {
+            await _gate;
+            IsConnected = true;
+            return Result<Unit>.Ok(default);
+        }
+        public async Task DisconnectAsync(CancellationToken ct = default)
+        {
+            await Task.Yield();
+            IsConnected = false;
+        }
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => ValueTask.FromResult(Result<Unit>.Ok(default));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class FakeCanChannel : ICanChannel
@@ -555,7 +619,7 @@ public class AppShellViewModelTests
     {
         var factory = new FakeChannelFactory();
         var vm = NewVmWithFactory(factory);
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})"; // unlock CanConnect
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         factory.CreatedCount.Should().Be(1);
@@ -566,15 +630,48 @@ public class AppShellViewModelTests
     {
         var factory = new FakeChannelFactory();
         var vm = NewVmWithFactory(factory);
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         vm.DisconnectCommand.CanExecute(null).Should().BeTrue();
-
         await vm.DisconnectCommand.ExecuteAsync(null);
 
         vm.IsConnected.Should().BeFalse();
         factory.LastCreated!.IsConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DisconnectCommand_Locked_While_MultiChannel_Connect_In_Flight()
+    {
+        // review 2026-08-29 P2 regression: IsConnected flips true as soon as the
+        // first slot lands, while ConnectCoreAsync is still connecting the rest.
+        // Without the _isConnecting guard, Disconnect was enabled mid-connect —
+        // clearing the collection behind Connect's back and re-writing
+        // "已连接 N 路" + SendService afterwards (user pressed Disconnect but
+        // ended up connected). Slot 1 connects instantly, slot 2 blocks on a gate.
+        var gate = new TaskCompletionSource();
+        var vm = NewVmWithFactory(new TwoSlotGatedChannelFactory(gate.Task));
+        ((IConnectSettingsSink)vm).ApplyConnections(new[]
+        {
+            new ConnectionConfig(new ChannelInfo(0x51, "USB1"), BaudRate.Can500kbps, false),
+            new ConnectionConfig(new ChannelInfo(0x52, "USB2"), BaudRate.Can500kbps, false),
+        });
+
+        var connect = vm.ConnectCommand.ExecuteAsync(null);
+        for (var i = 0; i < 500 && !vm.IsConnected; i++) await Task.Delay(10);
+        vm.IsConnected.Should().BeTrue("slot 1 landed while slot 2 is still connecting");
+
+        vm.DisconnectCommand.CanExecute(null).Should().BeFalse(
+            "_isConnecting must lock Disconnect while ConnectCoreAsync is mid-loop");
+        vm.ConnectCommand.CanExecute(null).Should().BeFalse("no re-entrant connect mid-flight");
+
+        gate.SetResult();
+        await connect;
+        vm.IsConnected.Should().BeTrue("both slots land");
+        vm.DisconnectCommand.CanExecute(null).Should().BeTrue("guard released after connect completes");
+
+        await vm.DisconnectCommand.ExecuteAsync(null);
+        vm.IsConnected.Should().BeFalse();
     }
 
     /// <summary>
@@ -686,7 +783,7 @@ public class AppShellViewModelTests
                 // Phase 4: HilViewModel ctor arg
                 new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
                 new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue("preconditions for the test");
         GetRegisteredChannelCount(router).Should().Be(1, "Connect registers the channel");
@@ -774,7 +871,7 @@ public class AppShellViewModelTests
         var vm = NewVmWithFactory(factory);
         vm.IsFd = true;
         vm.SelectedBaudRate = BaudRate.CanFd2Mbps;
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
         // FakeCanChannel.ConnectAsync 不捕获参数，但连接成功证明了
@@ -788,7 +885,7 @@ public class AppShellViewModelTests
         var vm = NewVmWithFactory(factory);
         vm.IsFd = false;
         vm.SelectedBaudRate = BaudRate.Can500kbps;
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
         await vm.ConnectCommand.ExecuteAsync(null);
         vm.IsConnected.Should().BeTrue();
     }
@@ -857,7 +954,7 @@ public class AppShellViewModelTests
         // the channel must be disposed, not leaked until GC.
         var factory = new DisposeTrackingChannelFactory();
         var vm = NewVmWithFactory(factory);
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
 
         await vm.ConnectCommand.ExecuteAsync(null);
 
@@ -989,7 +1086,7 @@ public class AppShellViewModelTests
                 // Phase 4: HilViewModel ctor arg
                 new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
                 new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
-        vm.ChannelList = $"USB1 ({vm.SelectedBaudRate.Name})";
+        vm.SelectedChannel = new ChannelInfo(0x51, "USB1"); // unlock CanConnect — probed channel is the source of truth (review 2026-08-29)
 
         // ACT
         var act = async () => await vm.ConnectCommand.ExecuteAsync(null);

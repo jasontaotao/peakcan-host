@@ -114,6 +114,21 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private ObservableCollection<FirmwareFile>? _subscribedFirmwareFiles;
 
     /// <summary>
+    /// The <see cref="ISecondaryFlashStack"/> built for the in-flight flash run, or null
+    /// while idle. Written with Volatile semantics from <c>StartAsync</c> and cleared in
+    /// <c>RunFlashOnceAsync</c>'s finally BEFORE DetachFromRouter/Dispose, so the
+    /// communication-parameters panel (which polls from the UI thread) never observes a
+    /// disposed stack.
+    /// </summary>
+    private ISecondaryFlashStack? _activeStack;
+
+    /// <summary>Read-only view of the in-flight flash stack for the params panel; null while idle.</summary>
+    internal ISecondaryFlashStack? PeekActiveStack() => Volatile.Read(ref _activeStack);
+
+    /// <summary>Test seam: force the params-panel-visible active stack without a real flash run.</summary>
+    internal void SetActiveStackForTesting(ISecondaryFlashStack? stack) => Volatile.Write(ref _activeStack, stack);
+
+    /// <summary>
     /// internal ctor: <see cref="ISecondaryFlashStackFactory"/> / <see cref="ISecondaryFlashStack"/>
     /// are App-internal seam contracts (visible to tests via InternalsVisibleTo), and a public
     /// ctor taking internal params would violate CS0051 (accessibility-consistency).
@@ -368,6 +383,10 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // the same finally.teardown. This keeps the teardown order invariant uniform.
         ISecondaryFlashStack? stack = secStep is not null ? _stackFactory.Build(ToSnapshot(secStep), CurrentProfile) : null;
         stack?.AttachToRouter();
+        // Expose the run's stack to the transport-params panel (Volatile write — the panel
+        // polls from the UI thread while the run continues on thread-pool threads). Cleared
+        // in RunFlashOnceAsync's finally BEFORE teardown so a disposed stack is never visible.
+        Volatile.Write(ref _activeStack, stack);
 
         _runCts?.Dispose();
         _runCts = new CancellationTokenSource();
@@ -488,7 +507,9 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // Strict teardown order: detach the receive adapter BEFORE releasing the
             // client/isoTp/DllKey, so no late router frame is delivered to a disposing
             // IsoTpLayer (which would fault the SDK read thread). These are infrastructure
-            // calls — thread-safe and not UI-bound.
+            // calls — thread-safe and not UI-bound. The params panel is detached FIRST so
+            // it never observes a disposed stack.
+            Volatile.Write(ref _activeStack, null);
             stack?.DetachFromRouter();
             stack?.Dispose();
             // UI-bound state writes must go through the captured SynchronizationContext.

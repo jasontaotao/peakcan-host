@@ -31,6 +31,14 @@ public sealed partial class UdsSession : IDisposable
     /// <summary>P2* timeout (ms) — time after NRC 0x78.</summary>
     public int P2StarTimeout { get; private set; } = 5000;
 
+    /// <summary>
+    /// False while P2Timeout/P2StarTimeout still hold the 50/5000 ms construction
+    /// defaults; set true by <see cref="SetSession"/> once an ECU has actually
+    /// reported timings in a DiagnosticSessionControl positive response. Lets the
+    /// UI label the values' provenance (本地默认 vs ECU 0x10 协商).
+    /// </summary>
+    public bool HasNegotiatedTiming { get; private set; }
+
     /// <summary>True if in Default session.</summary>
     public bool IsDefault => SessionType == 0x01;
 
@@ -83,6 +91,7 @@ public sealed partial class UdsSession : IDisposable
             SessionType = sessionType;
             P2Timeout = p2;
             P2StarTimeout = p2Star;
+            HasNegotiatedTiming = true;
         }
     }
 

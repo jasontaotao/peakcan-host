@@ -13,6 +13,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
+using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
@@ -175,6 +176,10 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     private readonly WindowHostService _windowHost;
     private readonly IEnumerable<ICanDeviceProvider> _deviceProviders;
 
+    // Task 18: Nodes tab VM（DI singleton——运行状态跨 tab 切换保持）。可选注入：
+    // 既有测试构造（AppShellViewModelTests 等）不传即 null，MainTabs 不追加"节点" tab。
+    private readonly NodeSetupViewModel? _nodeSetupViewModel;
+
     /// <summary>
     /// Task 3 (phase 2 A-3): the multi-channel connection list. Each successful
     /// <see cref="ConnectAsync"/> group appends a <see cref="ChannelConnection"/>;
@@ -323,7 +328,10 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // P0-3: window-lifecycle host. DI wires the singleton; the null
         // fallback keeps existing test ctor sites compiling (each test VM
         // then gets its own isolated host instance).
-        WindowHostService? windowHost = null)
+        WindowHostService? windowHost = null,
+        // Task 18: Nodes tab VM（可选参数置于参数表末尾——既有测试构造点不受影响；
+        // 生产 DI 注入 NodeSetupViewModel singleton）。null = 不追加"节点" tab。
+        NodeSetupViewModel? nodeSetup = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -390,6 +398,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         _windowHost = windowHost ?? new WindowHostService();
         // P1-2: device providers for the connection-settings panel.
         _deviceProviders = deviceProviders ?? Array.Empty<ICanDeviceProvider>();
+        // Task 18: Nodes tab VM（null 安全——测试构造不传即不追加 tab）。
+        _nodeSetupViewModel = nodeSetup;
         // v1.5.0 MINOR: persist SelectedHandle across app restarts.
         // Configuration is optional for backwards compatibility with
         // existing test fixtures that build the VM without DI. The
@@ -415,13 +425,16 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         ChannelConnections.CollectionChanged += OnChannelConnectionsChanged;
 
         // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
-        MainTabs = new[]
+        var mainTabs = new List<TabSpec>
         {
-            new TabSpec("追踪", () => new TraceView { DataContext = _traceViewModel }),
-            new TabSpec("DBC", () => new DbcView { DataContext = _dbcViewModel }),
-            new TabSpec("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
-            new TabSpec("回放", () => new ReplayView { DataContext = _replayViewModel }),
+            new("追踪", () => new TraceView { DataContext = _traceViewModel }),
+            new("DBC", () => new DbcView { DataContext = _dbcViewModel }),
+            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
+            new("回放", () => new ReplayView { DataContext = _replayViewModel }),
         };
+        if (_nodeSetupViewModel is not null)
+            mainTabs.Add(new TabSpec("节点", () => new NodesView { DataContext = _nodeSetupViewModel }));   // 修订 11：MainTabs
+        MainTabs = mainTabs;
         RightTabs = new[]
         {
             new TabSpec("发送", () => new SendView { DataContext = _sendViewModel }),

@@ -54,8 +54,8 @@ internal sealed class ECUResetStepExecutor : IStepExecutor
 
     private async Task<bool> WaitForReconnectAsync(IUdsSession session, CancellationToken ct)
     {
-        var deadline = Environment.TickCount64 + _reconnectTimeoutMs;
-        while (!ct.IsCancellationRequested && Environment.TickCount64 < deadline)
+        var deadline = System.Environment.TickCount64 + _reconnectTimeoutMs;
+        while (!ct.IsCancellationRequested && System.Environment.TickCount64 < deadline)
         {
             try { await session.TesterPresentAsync(suppressPosResponse: true, ct); return true; }
             catch (UdsSessionException) { await Task.Delay(200, ct); }

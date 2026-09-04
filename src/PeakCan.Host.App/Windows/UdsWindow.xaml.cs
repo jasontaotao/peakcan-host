@@ -53,17 +53,16 @@ public partial class UdsWindow : Window
     /// first close (the reopened window bound the same disposed singleton →
     /// ObjectDisposedException on Start + a perpetually-greyed Start button).
     /// </para>
-    /// <para><b>Known follow-up (reviewer MEDIUM-1, not fixed in this PATCH — out of scope):</b>
+    /// <para><b>MEDIUM-1 (native-handle governance) — RESOLVED:</b>
     /// StopForWindowClose only SIGNALS cancellation of an in-flight flash run; the real
     /// secondary-stack teardown (Detach→Client→IsoTp→DllKey, which calls
     /// <c>NativeLibrary.Free</c> on the OEM DLL) runs asynchronously in the run's
-    /// <c>finally</c>. If the user closes the UDS window AND immediately exits the app
-    /// (so App.OnExit's <c>_host.StopAsync</c>/<c>_host.Dispose()</c> fires before the
-    /// finally completes), the native handle is NOT guaranteed released before process
-    /// exit (the OS reclaims it, but ungracefully). The clean fix is to thread an
-    /// <c>IHostApplicationLifetime.ApplicationStopping</c> token into
-    /// <c>PipelineExecutor.ExecuteAsync</c> so App.OnExit can cancel + await the flash
-    /// shutdown first. Tracked as a separate concurrency-governance PATCH.
+    /// <c>finally</c>. The original race — user closes the UDS window and immediately exits
+    /// the app, so App.OnExit's <c>_host.Dispose()</c> beat the finally — is closed by the
+    /// concurrency-governance PATCH: <c>FlashPanelViewModel</c> links the run's CT to
+    /// <c>IHostApplicationLifetime.ApplicationStopping</c> and exposes
+    /// <c>CurrentRunTask</c>, and App.OnExit awaits that task (5s cap) AFTER
+    /// <c>_host.StopAsync</c> and BEFORE <c>_host.Dispose()</c>.
     /// </para>
     /// <para><b>Event semantics note (reviewer LOW-2):</b> WPF <c>Unloaded</c> also fires
     /// on theme changes / re-templating, not only Close. StopForWindowClose is reversible
@@ -86,6 +85,8 @@ public partial class UdsWindow : Window
         // real Dispose on these singletons — native OEM-DLL handles release there, not here.
         udsVm.Session.StopForWindowClose();
         udsVm.Flash.StopForWindowClose();
+        // review 2026-08-29 P2: 停掉通信参数轮询（窗口重开时 DataContextChanged 再启动）。
+        udsVm.Params.StopPolling();
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -94,6 +95,9 @@ public partial class UdsWindow : Window
         if (e.NewValue is UdsViewModel vm)
         {
             vm.OutputLog.CollectionChanged += OnLogCollectionChanged;
+            // review 2026-08-29 P2: 通信参数面板的 2Hz 轮询随窗口打开启动
+            // （VM 是 DI 单例，不再 ctor 常驻轮询）。
+            vm.Params.StartPolling();
         }
     }
 

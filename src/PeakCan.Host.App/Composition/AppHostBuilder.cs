@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
@@ -215,6 +216,32 @@ public partial class AppHostBuilder
                 }
             }, isoLogger);
         });
+
+        // J1939TP stack：每应用一个 singleton（跟随 CoreSendService 的活动通道模型；
+        // 多通道扩展锚点保留——层角色无关，后续按通道建实例时移到 per-channel 注册点）。
+        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        {
+            var sendService = sp.GetRequiredService<CoreSendService>();
+            var j1939Logger = sp.GetRequiredService<ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>();
+            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+                async (frame, ct) =>
+                {
+                    try
+                    {
+                        return await sendService.SendAsync(frame, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        PeakCan.HIL.Core.J1939.J1939TpLayer.LogSendFailed(j1939Logger, ex, frame.Id.Raw);
+                        return PeakCan.HIL.Core.Result<Unit>.Fail(
+                            PeakCan.HIL.Core.ErrorCode.InvalidState, ex.Message);
+                    }
+                },
+                new PeakCan.HIL.Core.J1939.J1939TpOptions(),
+                j1939Logger);
+        });
+        builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
+
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.IKeyDerivationAlgorithm, PeakCan.HIL.Core.Uds.PlaceholderKeyAlgorithm>();
         // v1.1.0: DID + Routine databases (load from %APPDATA%\PeakCan.Host\ on construction).
@@ -285,6 +312,10 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
                 sp.GetRequiredService<IHostApplicationLifetime>(),
                 sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>()));
+        // Read-only communication-parameters panel: polls the diagnostic IsoTpLayer/UdsClient
+        // singletons + the FlashPanelViewModel's in-flight secondary stack. Public ctor, so
+        // plain registration suffices — UdsViewModel's optional ctor param auto-resolves to it.
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
@@ -356,7 +387,11 @@ public partial class AppHostBuilder
             // P1-2: all device providers for the connection-settings panel.
             deviceProviders: sp.GetServices<PeakCan.HIL.Core.Devices.ICanDeviceProvider>(),
             // P0-3: shared secondary-window host (DI singleton).
-            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
+            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>(),
+            // Task 18: Nodes tab VM（显式工厂必须显式传入——可选参数默认 null 不会被
+            // 工厂填补，漏传则"节点" tab 在生产 DI 下永不出现；单例注册在
+            // RegisterViewModelsBatch2）。
+            nodeSetup: sp.GetRequiredService<NodeSetupViewModel>()));
 
         // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
         RegisterViewModelsBatch2(builder.Services);

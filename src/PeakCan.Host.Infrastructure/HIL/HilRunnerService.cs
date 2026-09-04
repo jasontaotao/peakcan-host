@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Environment;
+using PeakCan.Host.Infrastructure.HIL.Environment;
 using PeakCan.HIL.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL;
@@ -28,7 +30,7 @@ public sealed class HilRunnerService : IHilRunnerService
     /// <summary>解析 case-log 目录：request 覆盖值 或 默认 %LocalAppData%\PeakCanHost\hil-reports\case-logs\。internal 便于测试。</summary>
     internal static string ResolveCaseLogDirectory(HilRunRequest request)
         => request.CaseLogDirectory
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            ?? Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
                             "PeakCanHost", "hil-reports", "case-logs");
 
     public async Task<TestSuiteResult> RunAsync(
@@ -53,7 +55,12 @@ public sealed class HilRunnerService : IHilRunnerService
         var engine = host.Services.GetRequiredService<TestSuiteEngine>();
         var channel = host.Services.GetRequiredService<ICanChannel>();
         var ctx = host.Services.GetRequiredService<IAssertionContext>();
-        var sender = host.Services.GetRequiredService<BackgroundFrameSender>();
+        var environmentRuntime = new EnvironmentRuntime(channel,
+            _logger as ILogger<EnvironmentRuntime> ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance,
+            host.Services.GetService<DbcDocument>(),
+            host.Services.GetService<PeakCan.HIL.Core.J1939.J1939TpLayer>());
+        var envHolder = host.Services.GetService<EnvironmentRuntimeHolder>();
+        if (envHolder is not null) envHolder.Runtime = environmentRuntime;
 
         var suiteJson = await File.ReadAllTextAsync(request.SuitePath, ct);
         var suite = System.Text.Json.JsonSerializer.Deserialize<TestSuite>(suiteJson, PeakCan.HIL.Core.HIL.Serialization.HILJsonOptions.Default)
@@ -92,8 +99,14 @@ public sealed class HilRunnerService : IHilRunnerService
         }
 
         // 启动后台帧
-        if (suite.BackgroundFrames is { Count: > 0 })
-            sender.Start(suite.BackgroundFrames);
+        if (suite.Environment is { Count: > 0 })
+        {
+            var envErrors = RestbusNodeValidator.Validate(suite.Environment, suite.Channels, null);
+            if (envErrors.Count > 0)
+                throw new InvalidOperationException(
+                    "Environment validation failed:\n" + string.Join("\n", envErrors));
+            environmentRuntime.Start(suite.Environment, suite.Channels);
+        }
 
         try
         {
@@ -121,11 +134,13 @@ public sealed class HilRunnerService : IHilRunnerService
             // 无法路由到非默认通道，导致 frameCount/frameSeen 表达式多通道失效。
             // DI 注册的 IFrameStatistics 由 host Dispose 负责释放（退订 FrameReceived），无需手动 Dispose。
             var frameStats = host.Services.GetService<IFrameStatistics>();
-            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+            var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+            var envStats = environmentRuntime.GetStats();
+            return result with { EnvironmentStats = envStats.Count > 0 ? envStats : null };
         }
         finally
         {
-            sender.Stop();
+            environmentRuntime.Stop();
             // Bug-1：多通道路径必须断开所有通道（非首通道 PCAN handle 否则泄漏 + 读循环空转）。
             // 单通道路径维持原样（只断 DI 默认 singleton）。
             if (ctx is MultiChannelAssertionContext multiCtx)

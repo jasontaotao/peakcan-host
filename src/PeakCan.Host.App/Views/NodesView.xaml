@@ -1,0 +1,494 @@
+<UserControl x:Class="PeakCan.Host.App.Views.NodesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Nodes">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="150" />
+        </Grid.RowDefinitions>
+
+        <!-- 工具栏 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="新建节点" Command="{Binding NewNodeCommand}" Margin="0,0,8,0" />
+            <Button Content="打开…" Command="{Binding OpenCommand}" Margin="0,0,8,0" />
+            <Button Content="另存为…" Command="{Binding SaveCommand}" Margin="0,0,8,0" />
+            <Button Content="删除选中" Command="{Binding DeleteSelectedCommand}" Margin="0,0,16,0" />
+            <Button Content="▶ 全部启动" Command="{Binding StartAllCommand}" Margin="0,0,8,0" />
+            <Button Content="■ 全部停止" Command="{Binding StopAllCommand}" />
+        </StackPanel>
+
+        <!-- 三栏主体 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <DataGrid Grid.Column="0" ItemsSource="{Binding Nodes}"
+                      SelectedItem="{Binding SelectedNode}"
+                      AutoGenerateColumns="False" IsReadOnly="True"
+                      HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                    <DataGridTextColumn Header="身份" Binding="{Binding IdentityDisplay}" Width="80" />
+                    <DataGridTemplateColumn Header="状态" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Ellipse Width="10" Height="10" Margin="4,0"
+                                         Fill="{Binding IsRunning, Converter={StaticResource BoolToGreenRedConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Width="36">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding StartStopLabel}" Command="{Binding StartStopCommand}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel IsEnabled="{Binding Editor.EditorEnabled}" Margin="8,0,0,0">
+                    <!-- 身份表单：Name + SA（随选中节点装载；随 ApplyConfig 提交） -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="名称:" VerticalAlignment="Center" />
+                        <TextBox Text="{Binding Editor.NodeName, UpdateSourceTrigger=PropertyChanged}" Width="140" Margin="4,0,16,0" />
+                        <TextBlock Text="SA(hex):" VerticalAlignment="Center" />
+                        <TextBox Text="{Binding Editor.NodeSaHex, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="4,0,0,0" />
+                    </StackPanel>
+
+                    <!-- 消息表 + 行按钮 -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="消息表" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Content="添加报文" Command="{Binding Editor.AddMessageCommand}" Margin="16,0,8,0" Padding="10,2" />
+                        <Button Content="删除报文" Command="{Binding Editor.DeleteMessageCommand}" Padding="10,2" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Editor.Messages}"
+                              SelectedItem="{Binding Editor.SelectedMessage}"
+                              AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              MinHeight="110">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="标识" Binding="{Binding Identifier}" Width="*" />
+                            <DataGridTextColumn Header="周期(ms)" Binding="{Binding IntervalMsText}" Width="70" />
+                            <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="110" />
+                            <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- 规则表 + 行按钮 -->
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                        <TextBlock Text="规则表" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Content="添加规则" Command="{Binding Editor.AddRuleCommand}" Margin="16,0,8,0" Padding="10,2" />
+                        <Button Content="删除规则" Command="{Binding Editor.DeleteRuleCommand}" Padding="10,2" />
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Editor.Rules}"
+                              SelectedItem="{Binding Editor.SelectedRule}"
+                              AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              MinHeight="110">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="触发" Binding="{Binding Trigger}" Width="*" />
+                            <DataGridTextColumn Header="条件" Binding="{Binding Condition}" Width="90" />
+                            <DataGridTextColumn Header="动作" Binding="{Binding Action}" Width="*" />
+                            <DataGridTextColumn Header="延迟(ms)" Binding="{Binding DelayMsText}" Width="70" />
+                            <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- 多态详情编辑器（spec §10.2 决策 1：行内只显示摘要，选中行后在此编辑）。
+                     三块互斥面板（占位 / 消息表单 / 规则表单）经 DataTrigger 显隐：
+                     DataTrigger 匹配 null 置 Collapsed（默认 Visible）= "非 null 才显示"，
+                     行选中互斥由 VM 保证（SelectedMessage/SelectedRule 互清）。 -->
+                    <GroupBox Header="详情编辑" Margin="0,12,0,8">
+                        <StackPanel>
+                            <!-- ===== 未选中行：占位提示 ===== -->
+                            <TextBlock Text="选中上方消息/规则行以编辑" Foreground="{StaticResource TextSecondary}" Margin="0,2">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Editor.SelectedMessage}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Editor.SelectedRule}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <!-- ===== 消息行编辑（选中消息时显示） ===== -->
+                            <Grid>
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Editor.SelectedMessage}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="64" /><ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="模式" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,2,4,2"
+                                          SelectedIndex="{Binding Editor.SelectedMessage.ModeIndex}">
+                                    <ComboBoxItem Content="单帧" /><ComboBoxItem Content="BAM" /><ComboBoxItem Content="RTS-CTS" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="PGN" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="0,2,0,2"
+                                         Text="{Binding Editor.SelectedMessage.PgnHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="PGN hex（如 100 / 0x0100）" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="优先级" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,4,2"
+                                         Text="{Binding Editor.SelectedMessage.PriorityText, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="DA(hex)" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="0,2,0,2"
+                                         Text="{Binding Editor.SelectedMessage.DaHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="目标地址（PDU1 必填；空=广播）" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="间隔(ms)" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Margin="0,2,4,2"
+                                         Text="{Binding Editor.SelectedMessage.IntervalMsText, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Content="启用" VerticalAlignment="Center"
+                                          IsChecked="{Binding Editor.SelectedMessage.Enabled}" Margin="0,2,0,2" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="载荷" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="3" Grid.Column="1" Margin="0,2,4,2"
+                                          SelectedIndex="{Binding Editor.SelectedMessage.PayloadKindIndex}">
+                                    <ComboBoxItem Content="FixedHex" /><ComboBoxItem Content="DBC 信号" /><ComboBoxItem Content="脚本" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="3" Grid.Column="2" Text="启用" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="3" Grid.Column="3" Foreground="{StaticResource TextSecondary}"
+                                           Text="载荷按类型填写" VerticalAlignment="Center" Margin="0,2,0,2" />
+                                <!-- 载荷三型互斥（PayloadKindIndex：0 FixedHex / 1 DBC / 2 Script） -->
+                                <TextBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedMessage.PayloadHexText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="hex 字节串（空格/连字符分隔）">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+                                <TextBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedMessage.PayloadDbcMessageName, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="DBC 消息名（发送时按当前信号值编码）">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+                                <TextBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedMessage.PayloadScriptRefText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="脚本引用（运行时降级报错，见 plan 修订 10）">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Editor.SelectedMessage.PayloadKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+                            </Grid>
+
+                            <!-- ===== 规则行编辑（选中规则时显示） ===== -->
+                            <Grid>
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Editor.SelectedRule}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="64" /><ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="触发 PGN" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,4,2"
+                                         Text="{Binding Editor.SelectedRule.TriggerPgnHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="触发 PGN hex（匹配键）" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="优先级" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="0,2,0,2"
+                                         Text="{Binding Editor.SelectedRule.TriggerPriorityText, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="DA(hex)" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,4,2"
+                                         Text="{Binding Editor.SelectedRule.TriggerDaHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="空=任意目标" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="触发模式" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="1" Grid.Column="3" Margin="0,2,0,2"
+                                          SelectedIndex="{Binding Editor.SelectedRule.TriggerModeIndex}">
+                                    <ComboBoxItem Content="通配" /><ComboBoxItem Content="单帧" /><ComboBoxItem Content="BAM" /><ComboBoxItem Content="RTS-CTS" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="条件偏移" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Margin="0,2,4,2"
+                                         Text="{Binding Editor.SelectedRule.ConditionOffsetText, UpdateSourceTrigger=PropertyChanged}" ToolTip="留空=无条件" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="掩码/值" VerticalAlignment="Center" />
+                                <StackPanel Grid.Row="2" Grid.Column="3" Orientation="Horizontal">
+                                    <TextBox Width="56" Margin="0,2,4,2"
+                                             Text="{Binding Editor.SelectedRule.ConditionMaskHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="掩码 hex，如 FF" />
+                                    <TextBox Width="56" Margin="0,2,0,2"
+                                             Text="{Binding Editor.SelectedRule.ConditionValueHex, UpdateSourceTrigger=PropertyChanged}" ToolTip="值 hex，如 EE" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="动作" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="3" Grid.Column="1" Margin="0,2,4,2"
+                                          SelectedIndex="{Binding Editor.SelectedRule.ActionKindIndex}">
+                                    <ComboBoxItem Content="send" /><ComboBoxItem Content="setSignal" /><ComboBoxItem Content="start" /><ComboBoxItem Content="stop" /><ComboBoxItem Content="script" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="3" Grid.Column="2" Text="延迟(ms)" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="3" Grid.Column="3" Margin="0,2,0,2"
+                                         Text="{Binding Editor.SelectedRule.DelayMsText, UpdateSourceTrigger=PropertyChanged}" />
+                                <!-- 动作引用（send/start/stop；ActionKindIndex 0/2/3 可见） -->
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="动作 PGN" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedRule.ActionRefPgnHex, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="动作目标 PGN（send/start/stop）">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+
+                                <!-- 动作 DA（send/start/stop） -->
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="动作 DA" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <TextBox Grid.Row="5" Grid.Column="1" Margin="0,2,4,0"
+                                         Text="{Binding Editor.SelectedRule.ActionRefDaHex, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+
+                                <!-- 脚本引用（script；ActionKindIndex 4 可见） -->
+                                <TextBlock Grid.Row="5" Grid.Column="2" Text="脚本引用" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <TextBox Grid.Row="5" Grid.Column="3" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedRule.ActionScriptRefText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="script 动作引用（运行时降级报错）">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+
+                                <!-- 动作载荷（send；ActionKindIndex 0 可见，按 ActionPayloadKindIndex 三选一） -->
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="动作载荷" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <ComboBox Grid.Row="6" Grid.Column="1" Margin="0,2,4,0"
+                                          SelectedIndex="{Binding Editor.SelectedRule.ActionPayloadKindIndex}">
+                                    <ComboBox.Style><Style TargetType="ComboBox"><Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></ComboBox.Style>
+                                    <ComboBoxItem Content="FixedHex" /><ComboBoxItem Content="DBC 信号" /><ComboBoxItem Content="脚本" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="6" Grid.Column="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextSecondary}" Text="send 动作的载荷">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <TextBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedRule.ActionPayloadHexText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="send 动作 hex 载荷">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="1" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="2" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+                                <TextBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedRule.ActionPayloadDbcMessageName, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="send 动作 DBC 消息名">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="2" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+                                <TextBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,2,0,0"
+                                         Text="{Binding Editor.SelectedRule.ActionPayloadScriptRefText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="send 动作脚本引用">
+                                    <TextBox.Style><Style TargetType="TextBox"><Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="0" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0" />
+                                                <Condition Binding="{Binding Editor.SelectedRule.ActionPayloadKindIndex}" Value="1" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </MultiDataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBox.Style>
+                                </TextBox>
+
+                                <!-- setSignal 动作（ActionKindIndex 1 可见） -->
+                                <TextBlock Grid.Row="8" Grid.Column="0" Text="消息/信号" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <TextBox Grid.Row="8" Grid.Column="1" Margin="0,2,4,0"
+                                         Text="{Binding Editor.SelectedRule.ActionSignalMessageName, UpdateSourceTrigger=PropertyChanged}" ToolTip="DBC 消息名" />
+                                <TextBlock Grid.Row="8" Grid.Column="2" Text="信号值" VerticalAlignment="Center">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="1"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="2"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="3"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Editor.SelectedRule.ActionKindIndex}" Value="4"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                    </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <StackPanel Grid.Row="8" Grid.Column="3" Orientation="Horizontal" Margin="0,2,0,0">
+                                    <TextBox Width="70" Margin="0,0,4,0"
+                                             Text="{Binding Editor.SelectedRule.ActionSignalName, UpdateSourceTrigger=PropertyChanged}" ToolTip="DBC 信号名" />
+                                    <TextBox Width="70"
+                                             Text="{Binding Editor.SelectedRule.ActionSignalValueText, UpdateSourceTrigger=PropertyChanged}" ToolTip="工程值" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- 应用条 -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="应用修改" Command="{Binding Editor.ApplyConfigCommand}" Padding="14,4" />
+                        <TextBlock Text="{Binding Editor.ApplyStatus}" Foreground="{StaticResource TextSecondary}"
+                                   VerticalAlignment="Center" Margin="8,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Text="活动日志" FontWeight="SemiBold" Margin="0,8,0,4" />
+        <DataGrid Grid.Row="3" ItemsSource="{Binding Activities}"
+                  AutoGenerateColumns="False" IsReadOnly="True"
+                  HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="时间" Binding="{Binding TimestampUtc, StringFormat=HH:mm:ss.fff}" Width="100" />
+                <DataGridTextColumn Header="节点" Binding="{Binding NodeName}" Width="120" />
+                <DataGridTextColumn Header="事件" Binding="{Binding Kind}" Width="90" />
+                <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

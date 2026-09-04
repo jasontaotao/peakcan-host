@@ -99,6 +99,10 @@ public sealed partial class TraceViewerViewModel
             StatusMessage = $"Loading {name}…";
             await _registry.LoadAsync(path).ConfigureAwait(true);
             StatusMessage = $"Loaded {name}";
+            // Task 12 (J1939 L2): trace 加载成功分支（brief：加载成功路径调用重组）——
+            // 重组 + 重建 L2/L3 视图。幂等；仍在 UI 线程（ConfigureAwait(true)，
+            // 加载流程本身已在 Dispatcher 上，与 brief 的线程注记一致）。
+            RebuildJ1939ViewsCommand.Execute(null);
         }
         catch (OperationCanceledException)
         {
@@ -179,6 +183,9 @@ public sealed partial class TraceViewerViewModel
         // Master swap can change which signal rows have data (different
         // frame set); rebuild off-thread to avoid blocking the UI.
         _ = RebuildSignalsAsync();
+        // review F2: master 切换后 J1939 重组视图/虚拟帧缓存必须随新 master 重建，
+        // 否则旧 master 的虚拟帧污染新 master 的 watch/锚线取值（同 OnSessionRestored）。
+        RebuildJ1939ViewsCommand.Execute(null);
     }
 
     private void RebindMasterFromRegistry()
@@ -259,6 +266,11 @@ public sealed partial class TraceViewerViewModel
             }
         }
         RebindMasterFromRegistry();
+        // Task 13 路由决策（stale-DecodeFrames）：源清空（最后一个源卸载）→ master null，
+        // 此后 RebuildJ1939Views 若无人调用将永远停在陈旧状态。经现有重建路径触发其
+        // 清空分支（L2 行 + 虚拟帧输入），使 DecodeFrames 退化为原始帧序列直至下次加载。
+        if (_masterService is null)
+            RebuildJ1939ViewsCommand.Execute(null);
         OnPropertyChanged(nameof(Sources));
         OnPropertyChanged(nameof(HasSources));
         LoadedTracePath = Sources.Count > 0 ? Sources[0].Path : "";

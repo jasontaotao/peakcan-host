@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -37,4 +37,11 @@
     <ProjectReference Include="..\..\src\PeakCan.Host.App\PeakCan.Host.App.csproj" />
   </ItemGroup>
 
+  <!-- Restbus M1: conditional hil-core reference (same pattern as Host.Core) -->
+  <ItemGroup Condition="Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
+    <ProjectReference Include="..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
+    <PackageReference Include="PeakCan.HIL.Core" />
+  </ItemGroup>
 </Project>

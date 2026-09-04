@@ -126,4 +126,13 @@
     <InternalsVisibleTo Include="PeakCan.Host.App.Tests" />
   </ItemGroup>
 
+  <!-- Task 17: ship GB/T 27930 node templates (charger + BMS) with the app.
+       Content (not None) so the items flow transitively through
+       ProjectReference into test/CLI outputs — NodeConfigLibrary loads them
+       from AppContext.BaseDirectory\Templates\Nodes at runtime and the
+       Gbt27930NodeTemplateTests exercise that exact path. -->
+  <ItemGroup>
+    <Content Include="Templates\Nodes\*.node.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

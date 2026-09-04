@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Replay;
 
@@ -89,6 +90,10 @@ public partial class AppHostBuilder
         // 转发属性——窗口关闭时 VM 由 TraceViewerView.Closed dispose 释放，重开窗口
         // 由 DI 工厂新建实例。窗口级状态（scrubber / chart / 聊天 / 锚点）随窗口
         // 销毁，不再依赖 Reset() 手工清理。
+        // Task 12 (J1939 L2): offline reassembly service backing the Trace
+        // Viewer "J1939 重组" panel. Stateless per-call Reassemble → singleton;
+        // resolved into the transient TraceViewerViewModel ctor below.
+        services.AddSingleton<PeakCan.Host.App.Services.J1939.J1939ReassemblyService>();
         services.AddTransient<TraceViewerViewModel>();
         // v3.5.0 MINOR: persists Trace Viewer multi-trace sessions to .tmtrace
         // bundle files. Consumed by TraceViewerViewModel.SaveSessionAsync /
@@ -144,7 +149,14 @@ public partial class AppHostBuilder
 
         // === Range B: TraceViewModel + SendViewModel + DbcViewModel + SignalChartViewModel + SignalViewModel + StatsViewModel + ScriptViewModel ===
 
-        services.AddSingleton<TraceViewModel>();
+        // 2026-08-31 P2: TraceViewModel 无参 ctor（DI 循环规避），DbcService 经
+        // BindDbc 属性注入——改用工厂完成接线（NodeEditorViewModel.Bind 同款模式）。
+        services.AddSingleton(sp =>
+        {
+            var vm = new TraceViewModel();
+            vm.BindDbc(sp.GetRequiredService<DbcService>());
+            return vm;
+        });
         // A4 orphan PATCH (v3.0.8): SendViewModel needs a
         // Func<long> that returns the current rate-limit rejected
         // frame count. Resolved by pattern-matching the registered
@@ -157,6 +169,11 @@ public partial class AppHostBuilder
         // pattern-match is future-proofing against a DI refactor that
         // might bypass the decorator for callers that opt out of rate
         // limiting.
+        // Task 19: J1939 send panel (spec §8.2)。CyclicSendService 走 Core 的
+        // ITimerFactory（CyclicTimerFactory，CoreInfrastructureFlow 已注册）；VM 与
+        // 服务均 singleton——运行状态跨 tab 切换保持（同 NodeSetupViewModel 先例）。
+        services.AddSingleton<PeakCan.Host.App.Services.J1939.J1939CyclicSendService>();
+        services.AddSingleton<J1939SendViewModel>();
         services.AddSingleton<SendViewModel>(sp =>
         {
             var sendSvc = sp.GetRequiredService<PeakCan.Host.App.Services.SendService>();
@@ -173,7 +190,10 @@ public partial class AppHostBuilder
                 rateLimitRejectedCountProvider: rejectedCountProvider,
                 // P0-3: shared secondary-window host (DI singleton — same
                 // instance as AppShellViewModel so Multi-frame is one window).
-                windowHost: sp.GetRequiredService<WindowHostService>());
+                windowHost: sp.GetRequiredService<WindowHostService>(),
+                // Task 19: J1939 send sub-panel (DI auto-resolves the VM +
+                // its J1939CyclicSendService dependency).
+                j1939Send: sp.GetRequiredService<J1939SendViewModel>());
         });
         // v1.2.12 PATCH Item 6: also register as IHostedService so the
         // host disposes it on shutdown (same rationale as RecordViewModel).
@@ -190,5 +210,9 @@ public partial class AppHostBuilder
         services.AddHostedService(sp => sp.GetRequiredService<SignalViewModel>());
         services.AddSingleton<StatsViewModel>();
         services.AddSingleton<ScriptViewModel>();
+        // Task 18: Nodes tab 宿主 VM（singleton——运行状态跨 tab 切换保持，spec §10.2）。
+        // 依赖 NodeHostService / NodeConfigLibrary / DbcService / IFileDialogService，
+        // 均已在 Flow C / AppHostBuilder.Build 注册。
+        services.AddSingleton<NodeSetupViewModel>();
     }
 }

@@ -76,4 +76,40 @@ public class TraceEntryTests
 
         Assert.Equal(0, fired);
     }
+
+    // --- 2026-08-31 P3: IsHighlighted(bool) → HighlightColorIndex(int) ---
+
+    [Fact]
+    public void HighlightColorIndex_Defaults_To_MinusOne()
+    {
+        // -1 = 无高亮（多色调色板外的哨兵值）。
+        var entry = new TraceEntry();
+        Assert.Equal(-1, entry.HighlightColorIndex);
+    }
+
+    [Fact]
+    public void HighlightColorIndex_Set_Fires_PropertyChanged()
+    {
+        var entry = new TraceEntry();
+        var fired = new List<string?>();
+        entry.PropertyChanged += (_, e) => fired.Add(e.PropertyName);
+
+        entry.HighlightColorIndex = 2;
+
+        Assert.Equal(2, entry.HighlightColorIndex);
+        Assert.Contains(nameof(TraceEntry.HighlightColorIndex), fired);
+    }
+
+    [Fact]
+    public void HighlightColorIndex_Set_Same_Value_Does_Not_Fire()
+    {
+        // 与 Decoded 一致：仅值变化触发，避免 DataGrid 无谓重绘。
+        var entry = new TraceEntry();
+        var fired = 0;
+        entry.PropertyChanged += (_, _) => fired++;
+
+        entry.HighlightColorIndex = -1; // 默认已 -1 → 不触发
+
+        Assert.Equal(0, fired);
+    }
 }

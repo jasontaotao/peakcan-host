@@ -145,7 +145,20 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
     // fallback new instance).
     private readonly WindowHostService _windowHost;
 
-    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null, Func<long>? rateLimitRejectedCountProvider = null, WindowHostService? windowHost = null)
+    // Task 19: J1939 sub-panel VM (singleton in DI). The SendView XAML
+    // binds its controls via {Binding J1939.*}. May be null in unit tests
+    // that pre-date Task 19; production DI always provides it (same
+    // pattern as dbcSend / multiFrameVm above).
+    private readonly J1939SendViewModel? _j1939;
+
+    /// <summary>
+    /// Task 19: J1939 send sub-panel (PGN / priority / SA / DA / mode /
+    /// payload / period + send-once / cyclic commands). Null in unit tests
+    /// that pre-date Task 19; production DI always provides it.
+    /// </summary>
+    public J1939SendViewModel? J1939 => _j1939;
+
+    public SendViewModel(SendService svc, ILogger<SendViewModel> logger, ICyclicSendService cyclic, SendFrameLibrary? library, DbcSendViewModel? dbcSend = null, MultiFrameSendViewModel? multiFrameVm = null, Func<long>? rateLimitRejectedCountProvider = null, WindowHostService? windowHost = null, J1939SendViewModel? j1939Send = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -161,6 +174,9 @@ public sealed partial class SendViewModel : ObservableObject, IHostedService, ID
         _multiFrameVm = multiFrameVm;
         // P0-3: window host (DI singleton in production; isolated per-test).
         _windowHost = windowHost ?? new WindowHostService();
+        // Task 19: J1939 sub-panel VM (null in pre-Task-19 unit tests;
+        // production DI always provides it).
+        _j1939 = j1939Send;
         // A4 orphan PATCH: rate-limit reject counter provider. Null in
         // test scenarios that pre-date the rate-limit decorator, or in
         // production when the decorator is disabled (MaxFramesPerSecond=0

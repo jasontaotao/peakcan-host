@@ -17,6 +17,7 @@
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.Host.App.Services.J1939;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -28,9 +29,6 @@ public sealed partial class TraceViewerViewModel
 
     [ObservableProperty]
     private ObservableCollection<SamplingTableRow> samplingRows = new();
-
-    // Deprecated debounce helper retained as a no-op scaffold (unused).
-    private CancellationTokenSource? _samplingRefreshCts;
 
     /// <summary>
     /// True 表示 SamplingRows 至少要有 1 行可见。XAML 右侧 panel 用这个
@@ -62,7 +60,10 @@ public sealed partial class TraceViewerViewModel
             return;
         }
 
-        var frames = _masterService.LoadedFrames;
+        // Task 13 L3 注入点 1/2：解码路径帧源 → DecodeFrames（原始 ∪ 完整重组虚拟帧，
+        // 同刻原始帧在前）。帧计数类用途仍走 LoadedFrames；未重组过时 DecodeFrames
+        // 退化为 master 原始帧序列，行为与本表旧实现一致。
+        var frames = DecodeFrames;
         if (frames.Count == 0)
         {
             SamplingRows.Clear();
@@ -71,6 +72,9 @@ public sealed partial class TraceViewerViewModel
 
         var targetTs = _masterService.CurrentTimestamp;
         int idx = BinarySearchLatestAtOrBefore(frames, targetTs);
+        // Task 10 L1: anchor 帧（CurrentTimestamp 前最近一帧）的 J1939 TP 注解 —
+        // 所有行采样同一个 anchor 帧，故 TP 列各行同值；非 TP/畸形帧为空串。
+        ReplayFrame? f = idx < 0 ? null : frames[idx];
 
         var rows = new List<SamplingTableRow>(capacity: WatchedSignals.Count);
         foreach (var watch in WatchedSignals)
@@ -82,7 +86,10 @@ public sealed partial class TraceViewerViewModel
                 MessageName: watch.MessageName,
                 SignalName: watch.SignalName,
                 Unit: watch.Unit,
-                Value: value?.ToString("F2") ?? "—"));
+                Value: value?.ToString("F2") ?? "—")
+            {
+                TpInfo = f is null ? "" : J1939TpAnnotation.Annotate(f) ?? "",
+            });
         }
         SamplingRows.Clear();
         foreach (var r in rows) SamplingRows.Add(r);
@@ -119,4 +126,11 @@ public sealed record SamplingTableRow(
     string MessageName,
     string SignalName,
     string Unit,
-    string Value);
+    string Value)
+{
+    /// <summary>
+    /// Task 10 L1 行内注解：anchor 帧（CurrentTimestamp 前最近一帧）为 J1939-21
+    /// TP 帧（PF=0xEB/0xEC）时的单行解码文本；非 TP/畸形帧为空串。
+    /// </summary>
+    public string TpInfo { get; init; } = "";
+}
