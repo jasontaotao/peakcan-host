@@ -24,10 +24,10 @@
 
 ## Execution Status (2026-09-04)
 
-- Tasks 1-6 implemented and committed.
+- Tasks 1-7 implemented and committed.
 - Focused tests: hil-core DBC generator 8/8; Host.Core Replay 136/136; recognizer 6/6; builder 5/5; suite writer 4/4; Trace-to-Environment VM 1/1.
 - Full verification: hil-core 298/298 PASS; Host App Release build PASS.
-- Task 7 formal review, dedicated end-to-end test, and ledger completion are still pending.
+- E2E test: TraceToEnvironmentEndToEndTests 1/1 PASS (periodic, irregular, J1939, multi-channel grouping, conflict preservation).
 
 ## M5 Rulings
 
@@ -60,7 +60,7 @@ public static NodeMessage CreateDbcNodeMessage(
 
 `DbcRestbusGenerator.Generate` must delegate to this method so single-message behavior and whole-node behavior stay identical.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 [Fact]
@@ -88,21 +88,21 @@ public void CreateDbcNodeMessage_Rejects_Interval_Below_Ten()
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.HIL.Core.Tests --filter "FullyQualifiedName~DbcRestbusGeneratorTests"`
 Expected: the two new tests fail because the public method does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Rename the private `CreateNodeMessage` body to `CreateDbcNodeMessage`, add argument checks for `message` and `intervalMs`, and update `Generate` to call it. Keep warning behavior unchanged.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `dotnet test tests/PeakCan.HIL.Core.Tests --filter "FullyQualifiedName~DbcRestbusGeneratorTests"`
 Expected: all DBC generator tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PeakCan.HIL.Core/HIL/Environment/DbcRestbusGenerator.cs tests/PeakCan.HIL.Core.Tests/HIL/Environment/DbcRestbusGeneratorTests.cs
@@ -138,7 +138,7 @@ public sealed record ReplayFrame(
 
 Existing callers continue to compile because `Channel` is optional.
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 ```csharp
 [Fact]
@@ -162,21 +162,21 @@ public void Blf_CanMessage_Preserves_Channel()
 
 Adapt fixture construction to the existing BLF parser tests.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~Replay"`
 Expected: new channel assertions fail.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add optional `Channel` to `ReplayFrame`. Parse ASC token 1 as `ushort.TryParse(..., NumberStyles.HexNumber, InvariantCulture)` and pass it to the record. Pass the BLF `channel` value in the three CAN message flows.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~Replay"`
 Expected: all replay parser and timeline tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PeakCan.Host.Core/Replay tests/PeakCan.Host.Core.Tests/Replay
@@ -230,7 +230,7 @@ public static class TraceRestbusRecognizer
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 [Fact]
@@ -293,12 +293,12 @@ public void Excludes_Selected_Ids_And_J1939_Source_Addresses()
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~TraceRestbusRecognizerTests"`
 Expected: compilation fails because recognizer types are missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Ignore error frames.
 - Group standard frames by `(Channel, Id, false)` and extended frames by `(Channel, Id, true)`.
@@ -309,17 +309,17 @@ Expected: compilation fails because recognizer types are missing.
 - Preserve FD from the first frame in the group as IsFd.
 - Use the last frame payload as RepresentativePayload in this task.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~TraceRestbusRecognizerTests"`
 Expected: all recognizer tests pass.
 
-- [ ] **Step 5: Run broader Host.Core tests**
+- [x] **Step 5: Run broader Host.Core tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests`
 Expected: all tests pass except already documented hardware/environment skips.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/PeakCan.Host.Core/HIL/Environment tests/PeakCan.Host.Core.Tests/HIL/Environment
@@ -360,7 +360,7 @@ public static class TraceRestbusNodeBuilder
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```csharp
 [Fact]
@@ -418,12 +418,12 @@ public void Copies_Requested_Channel_Verbatim()
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~TraceRestbusNodeBuilderTests"`
 Expected: compilation fails because builder is missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Build one `NodeMessage` per candidate.
 - For each DBC message matched by `(candidate.Id, candidate.IsExtended)`:
@@ -434,12 +434,12 @@ Expected: compilation fails because builder is missing.
 - Preserve FD on the built `NodeMessage`; if `candidate.IsFd` is true, return a copy with `Fd = true`.
 - Return null `Node` when zero messages can be built; list every blocking error.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~TraceRestbusNodeBuilderTests"`
 Expected: all builder tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PeakCan.Host.Core/HIL/Environment tests/PeakCan.Host.Core.Tests/HIL/Environment
@@ -469,7 +469,7 @@ public sealed class SuiteEnvironmentWriter
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Use temporary `.json` files with a minimal suite created through `TestSuite` serialization.
 
@@ -520,12 +520,12 @@ public void Rejects_Node_Channel_Missing_From_Multichannel_Suite()
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.App.Tests --filter "FullyQualifiedName~SuiteEnvironmentWriterTests"`
 Expected: compilation fails because writer is missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Load with `JsonSerializer.Deserialize<TestSuite>(json, HILJsonOptions.Default)`.
 - Build `Environment = existing + incoming` and run `RestbusNodeValidator.Validate`.
@@ -536,12 +536,12 @@ Expected: compilation fails because writer is missing.
 - Write to `suitePath + ".tmp"`, then `File.Move(temp, suitePath, overwrite: true)`.
 - On any failure, delete the temp file if it exists and return a specific error without changing the suite.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.App.Tests --filter "FullyQualifiedName~SuiteEnvironmentWriterTests"`
 Expected: all writer tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PeakCan.Host.App/Services/HIL tests/PeakCan.Host.App.Tests/Services
@@ -597,7 +597,7 @@ public sealed partial class TraceCandidateRowViewModel : ObservableObject
 }
 ```
 
-- [ ] **Step 1: Write failing VM tests**
+- [x] **Step 1: Write failing VM tests**
 
 ```csharp
 [Fact]
@@ -643,12 +643,12 @@ public async Task WriteSuite_Does_Not_Write_When_Node_Channel_Is_Invalid()
 }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.App.Tests --filter "FullyQualifiedName~TraceToEnvironmentViewModelTests"`
 Expected: compilation fails because VM is missing.
 
-- [ ] **Step 3: Implement VM**
+- [x] **Step 3: Implement VM**
 
 - Parse `.asc` with `AscParser.ParseAsync` and `.blf` with `BlfParser.ParseAsync`; show a specific error for unsupported extensions.
 - Build row identity: extended IDs become `J1939 SA 0x11` and group all messages from that source address; standard IDs are `CAN ID 0x123`.
@@ -658,7 +658,7 @@ Expected: compilation fails because VM is missing.
 - `RefreshNodes` builds one `RestbusNode` per included row group using `TraceRestbusNodeBuilder`.
 - `WriteSuiteAsync` calls `SuiteEnvironmentWriter.AppendNodes`; on success set `Status` with suite path and node count; on failure set `BlockingErrors` and do not close the dialog.
 
-- [ ] **Step 4: Add Recording panel entry**
+- [x] **Step 4: Add Recording panel entry**
 
 In `RecordView.xaml`, after the stop button:
 
@@ -674,7 +674,7 @@ In `RecordViewModel`, add:
 
 In `AppShellViewModel`, subscribe and open the dialog; use the existing dialog service pattern where practical. The handler sets `TracePath` from the recording output and `SuitePath` from `Hil.SuitePath`.
 
-- [ ] **Step 5: Add preview window XAML**
+- [x] **Step 5: Add preview window XAML**
 
 The window must include:
 - target trace `TextBox + 浏览`;
@@ -686,17 +686,17 @@ The window must include:
 
 Use `AutoGenerateColumns="False"`, `CanUserAddRows="False"`, and local read-only column bindings. Declare any converters locally; do not rely on app-level converter resources after the M4.2 XAML lesson.
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run: `dotnet test tests/PeakCan.Host.App.Tests --filter "FullyQualifiedName~TraceToEnvironmentViewModelTests"`
 Expected: all new VM tests pass.
 
-- [ ] **Step 7: Build Host App**
+- [x] **Step 7: Build Host App**
 
 Run: `dotnet build src/PeakCan.Host.App -c Release`
 Expected: build succeeds. Close running Host before Debug builds.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/PeakCan.Host.App tests/PeakCan.Host.App.Tests
@@ -715,7 +715,7 @@ git commit -m "feat(host): add trace-to-environment preview and suite writer"
 **Interfaces:**
 - Consumes all Task 1–6 interfaces unchanged.
 
-- [ ] **Step 1: Add ASC end-to-end test**
+- [x] **Step 1: Add ASC end-to-end test**
 
 Create a temporary trace with:
 - `0x123`, channel 1, every 20 ms, stable payload;
@@ -729,12 +729,12 @@ Assert:
 - writer appends both nodes to a two-channel suite and preserves original case/channel fields;
 - an existing-ID conflict produces a blocking error and leaves the suite file byte-for-byte unchanged.
 
-- [ ] **Step 2: Run focused E2E test**
+- [x] **Step 2: Run focused E2E test**
 
 Run: `dotnet test tests/PeakCan.Host.App.Tests --filter "FullyQualifiedName~TraceToEnvironmentEndToEndTests"`
 Expected: pass.
 
-- [ ] **Step 3: Run full verification**
+- [x] **Step 3: Run full verification**
 
 Run:
 
@@ -747,7 +747,7 @@ dotnet build src/PeakCan.Host.App -c Release
 
 Expected: hil-core and Host.Core all pass; Host App tests pass except the pre-existing Copilot/AppData environment failures already documented in M4.2; Release build passes.
 
-- [ ] **Step 4: Superpowers formal review**
+- [x] **Step 4: Superpowers formal review**
 
 Review all changed files and branches against this plan. At minimum verify:
 - no DUT frames are included unless the user selected them;
@@ -757,18 +757,18 @@ Review all changed files and branches against this plan. At minimum verify:
 - XAML resources used by the new window are locally declared;
 - no Studio or hardware dependency leaks into Host.Core.
 
-- [ ] **Step 5: Fix review findings**
+- [x] **Step 5: Fix review findings**
 
 Implement Critical/Important fixes before handoff. Re-run failing focused tests plus Task 7 full verification.
 
-- [ ] **Step 6: Update plan and ledger**
+- [x] **Step 6: Update plan and ledger**
 
 Mark every completed task checkbox. Add M5 rulings, commits, test counts, remaining risks, and merge order:
 1. hil-core M5 branch PR;
 2. host M5 branch PR;
 3. Studio has no required M5.1 code change unless review finds suite compatibility issues.
 
-- [ ] **Step 7: Commit docs**
+- [x] **Step 7: Commit docs**
 
 ```bash
 git add docs/superpowers/plans/2026-09-04-restbus-m5-trace-to-environment.md
@@ -787,4 +787,18 @@ Then update the sibling ledger.
 - No environment rules/UDS behavior are silently invented from trace data.
 
 
+
+
+## M5 Formal Review & Closure (2026-09-04)
+
+- E2E coverage added by commit `c9c4f62`; it verifies periodic/irregular recognition, J1939 node identity, suite write, multi-channel grouping, and conflict rejection without changing the suite.
+- Important fix 1: preview grouping now includes trace `Channel`, preventing the same raw ID or J1939 source on two physical channels from being merged into one node.
+- Important fix 2: preview `PayloadMode` now reports `DBC signals`, `fixed hex`, or `DBC + fixed hex` based on actual DBC message matches, satisfying the visual distinction requirement.
+- Full verification (2026-09-04):
+  - hil-core `298/298 PASS`.
+  - Host Core `1043 PASS / 5 pre-existing AppData permission failures`.
+  - Host App `1435 PASS / 13 pre-existing AppData permission failures`; no M5 failures.
+  - Host App Release build `PASS` (warnings only).
+- Studio has no required M5.1 code change; the existing Environment tab consumes the generated embedded suite nodes.
+- Merge order: hil-core M5 PR first, then host M5 PR.
 
