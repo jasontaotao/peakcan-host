@@ -4,6 +4,8 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 
@@ -187,6 +189,9 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         {
             if (frame.FrameSource == FrameSource.Environment) continue;
 
+            // UDS routing (spec S6.6)
+            ProcessUdsRequests(frame);
+
             List<(RestbusNode Node, ResponseRule Rule)>? matched = null;
             lock (_gate)
             {
@@ -281,6 +286,48 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         _ => false,
     };
 
+    private void ProcessUdsRequests(CanFrame frame)
+    {
+        List<(NodeRuntimeState State, byte[] Response)>? responses = null;
+        lock (_gate)
+        {
+            foreach (var nodeState in _states)
+            {
+                if (nodeState.StateMachine is not { } sm) continue;
+                if (nodeState.Node.UdsBehavior is not { } uds) continue;
+                if (frame.Id.Raw != uds.CanIds.RequestId) continue;
+
+                var request = ExtractUdsPayload(frame);
+                if (request.Length == 0) continue;
+                var (response, _) = sm.ProcessRequest(request);
+                nodeState.UdsResponses++;
+                (responses ??= []).Add((nodeState, response));
+            }
+        }
+        if (responses is null) return;
+        foreach (var (nodeState, response) in responses)
+        {
+            var uds = nodeState.Node.UdsBehavior!;
+            var respId = new CanId(uds.CanIds.ResponseId, uds.CanIds.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard);
+            var respFrame = new CanFrame(respId, response, FrameFlags.None, default, default, FrameSource.Environment);
+            _channel.WriteAsync(respFrame).AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private static byte[] ExtractUdsPayload(CanFrame frame)
+    {
+        // ISO-TP single frame: byte 0 high nibble = type (0), low nibble = length
+        var data = frame.Data.ToArray();
+        if (data.Length < 2) return [];
+        if ((data[0] >> 4) == 0)
+        {
+            var len = data[0] & 0x0F;
+            if (len == 0 || data.Length < 1 + len) return [];
+            return data[1..(1 + len)];
+        }
+        return data; // not ISO-TP, treat as raw
+    }
+
     private void ThrottleDropWarning()
     {
         var now = System.Environment.TickCount64;
@@ -293,11 +340,15 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 internal sealed class NodeRuntimeState
 {
     public RestbusNode Node { get; }
+    public EcuStateMachine? StateMachine { get; set; }
+    public long UdsResponses { get; set; }
     public List<NodeMessageRuntimeState> Messages { get; } = [];
 
     public NodeRuntimeState(RestbusNode node)
     {
         Node = node;
+        if (node.UdsBehavior is { } uds)
+            StateMachine = new EcuStateMachine(uds.Transitions, null, uds.InitialState);
         foreach (var msg in node.Messages) Messages.Add(new NodeMessageRuntimeState(msg));
     }
 

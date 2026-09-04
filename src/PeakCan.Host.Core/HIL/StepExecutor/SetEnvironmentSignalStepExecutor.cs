@@ -6,7 +6,7 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// Executes SetEnvironmentSignal steps (spec §6.3 signal-level primary form).
 /// Calls the environment runtime bridge to update the signal state.
 /// </summary>
-internal sealed class SetEnvironmentSignalStepExecutor(IEnvironmentRuntimeBridge bridge) : IStepExecutor
+internal sealed class SetEnvironmentSignalStepExecutor(Func<IEnvironmentRuntimeBridge?> bridgeFactory) : IStepExecutor
 {
     public TestCaseStepKind Kind => TestCaseStepKind.SetEnvironmentSignal;
 
@@ -17,7 +17,7 @@ internal sealed class SetEnvironmentSignalStepExecutor(IEnvironmentRuntimeBridge
                 "Parameters is not SetEnvironmentSignalStep.", null, null, 0));
         try
         {
-            bridge.SetSignalValue(p.NodeName, p.MessageName, p.SignalName, p.Value);
+            bridgeFactory()?.SetSignalValue(p.NodeName, p.MessageName, p.SignalName, p.Value);
             return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 $"Signal {p.NodeName}.{p.MessageName}.{p.SignalName} = {p.Value}", null, null, 0));
         }

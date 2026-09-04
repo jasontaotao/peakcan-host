@@ -6,7 +6,7 @@ namespace PeakCan.HIL.Core.HIL.StepExecutor;
 /// Executes ModifyEnvironmentFrame steps (spec §6.3 byte-level escape hatch).
 /// Only for FixedHexSource targets; does not change period or bypass counter/checksum.
 /// </summary>
-internal sealed class ModifyEnvironmentFrameStepExecutor(IEnvironmentRuntimeBridge bridge) : IStepExecutor
+internal sealed class ModifyEnvironmentFrameStepExecutor(Func<IEnvironmentRuntimeBridge?> bridgeFactory) : IStepExecutor
 {
     public TestCaseStepKind Kind => TestCaseStepKind.ModifyEnvironmentFrame;
 
@@ -17,7 +17,7 @@ internal sealed class ModifyEnvironmentFrameStepExecutor(IEnvironmentRuntimeBrid
                 "Parameters is not ModifyEnvironmentFrameStep.", null, null, 0));
         try
         {
-            bridge.UpdateFrameData(p.NodeName, p.Ref, p.Data);
+            bridgeFactory()?.UpdateFrameData(p.NodeName, p.Ref, p.Data);
             return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 $"Frame data updated for {p.NodeName}.{p.Ref}", null, null, 0));
         }

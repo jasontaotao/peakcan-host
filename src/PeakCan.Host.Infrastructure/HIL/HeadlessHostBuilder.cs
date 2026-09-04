@@ -289,6 +289,7 @@ public static class HeadlessHostBuilder
         // Task C (spec 2026-08-27 §3): 信号维度时间窗断言——窗口收集解码帧快照，依赖 IAssertionContext 订阅（通道路由经 ctx）
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
+        builder.Services.AddSingleton<Func<PeakCan.HIL.Core.HIL.StepExecutor.IEnvironmentRuntimeBridge?>>(sp => () => sp.GetRequiredService<EnvironmentRuntimeHolder>().Runtime);
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SetEnvironmentSignalStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ModifyEnvironmentFrameStepExecutor>();
         builder.Services.AddSingleton<EnvironmentRuntimeHolder>();
