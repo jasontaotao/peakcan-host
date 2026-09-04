@@ -6,6 +6,7 @@ using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.HIL.Core.J1939;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 
@@ -23,6 +24,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
     private readonly ILogger<EnvironmentRuntime> _logger;
     private readonly DbcDocument? _dbc;
     private readonly DbcEncodeService _encoder = new();
+    private readonly J1939TpLayer? _tpLayer;
     private readonly object _gate = new();
     private readonly ConcurrentQueue<CanFrame> _incoming = new();
     private ITimer? _scanTimer;
@@ -31,11 +33,12 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
     private long _lastDropWarningTicks;
     private bool _running;
 
-    public EnvironmentRuntime(ICanChannel channel, ILogger<EnvironmentRuntime>? logger = null, DbcDocument? dbc = null)
+    public EnvironmentRuntime(ICanChannel channel, ILogger<EnvironmentRuntime>? logger = null, DbcDocument? dbc = null, J1939TpLayer? tpLayer = null)
     {
         _channel = channel;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance;
         _dbc = dbc;
+        _tpLayer = tpLayer;
     }
 
     public void Start(IReadOnlyList<RestbusNode> nodes, IReadOnlyList<ChannelConfig>? channels)
@@ -159,6 +162,11 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private void SendFrame(NodeMessageRuntimeState msgState, NodeMessage msg)
     {
+        if (msg.Ref is J1939MessageRef jRef)
+        {
+            SendJ1939Frame(jRef, msgState, msg);
+            return;
+        }
         if (msg.Ref is not CanMessageRef canRef) return;
         var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
         var payload = msgState.BuildPayload(_encoder, _dbc);
@@ -326,6 +334,36 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
             return data[1..(1 + len)];
         }
         return data; // not ISO-TP, treat as raw
+    }
+
+    private void SendJ1939Frame(J1939MessageRef jRef, NodeMessageRuntimeState msgState, NodeMessage msg)
+    {
+        var payload = msgState.BuildPayload(_encoder, _dbc);
+        if (payload is null) return;
+        var sa = jRef.Sa ?? 0x00;
+        var priority = jRef.Priority;
+
+        if (payload.Length <= 8)
+        {
+            var id = J1939Id.Compose(priority, jRef.Pgn, sa, jRef.Da);
+            var frame = new CanFrame(new CanId(id, FrameFormat.Extended), payload, FrameFlags.None, default, default, FrameSource.Environment);
+            var result = _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
+            if (result.IsSuccess) { msgState.ConsecutiveFailures = 0; msgState.FramesSent++; }
+            else msgState.ConsecutiveFailures++;
+        }
+        else if (_tpLayer is { } tp)
+        {
+            var task = jRef.Mode == TpMode.RtsCts && jRef.Da is { } da
+                ? tp.SendRtsCtsAsync(jRef.Pgn, priority, sa, da, payload)
+                : tp.SendBamAsync(jRef.Pgn, priority, sa, payload);
+            var result = task.GetAwaiter().GetResult();
+            if (result.IsSuccess) { msgState.ConsecutiveFailures = 0; msgState.FramesSent++; }
+            else msgState.ConsecutiveFailures++;
+        }
+        else
+        {
+            _logger.LogWarning("J1939 TP message {Ref} >8B but no TpLayer provided.", msg.Ref);
+        }
     }
 
     private void ThrottleDropWarning()
