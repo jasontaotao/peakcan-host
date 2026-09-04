@@ -22,6 +22,13 @@
 - Suggested branches: hil-core `feat/restbus-m5-trace-to-environment`, host `feat/restbus-m5-trace-to-environment`.
 - hil-core must be merged before host because Host.Core has a local sibling ProjectReference.
 
+## Execution Status (2026-09-04)
+
+- Tasks 1-6 implemented and committed.
+- Focused tests: hil-core DBC generator 8/8; Host.Core Replay 136/136; recognizer 6/6; builder 5/5; suite writer 4/4; Trace-to-Environment VM 1/1.
+- Full verification: hil-core 298/298 PASS; Host App Release build PASS.
+- Task 7 formal review, dedicated end-to-end test, and ledger completion are still pending.
+
 ## M5 Rulings
 
 1. M5.1 covers ASC + BLF. CSV recording remains disabled in the current Recording UI and is out of scope.
@@ -778,5 +785,6 @@ Then update the sibling ledger.
 - Import writes only selected, validated nodes to the chosen suite and reports success/failure explicitly.
 - A saved suite can be reopened in Studio and edited through the existing Environment tab.
 - No environment rules/UDS behavior are silently invented from trace data.
+
 
 
