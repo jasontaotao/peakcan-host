@@ -57,6 +57,9 @@ public sealed class TrialRunner(ICanChannel channel)
                         continue;
                     }
 
+                    // Drain any stale frames from previous steps
+                    while (receivedQueue.TryDequeue(out _)) { }
+
                     // Full check: wait for ThenReceive frame
                     var expectedId = step.ThenReceive is not null ? lookup!(step.ThenReceive) : null;
                     if (expectedId is null)
