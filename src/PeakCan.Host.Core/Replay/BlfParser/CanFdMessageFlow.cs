@@ -45,6 +45,7 @@ public static partial class BlfParser
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
         if ((flags & 0x02) != 0) ff |= FrameFlags.BitRateSwitch;
         if ((flags & 0x04) != 0) ff |= FrameFlags.ErrorStateIndicator;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended, channel);
     }
 }
+

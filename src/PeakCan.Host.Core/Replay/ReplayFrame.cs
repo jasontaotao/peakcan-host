@@ -17,4 +17,6 @@ public sealed record ReplayFrame(
     byte Dlc,
     byte[] Data,
     FrameFlags Flags,
-    bool IsExtended = false);
+    bool IsExtended = false,
+    ushort Channel = 0);
+

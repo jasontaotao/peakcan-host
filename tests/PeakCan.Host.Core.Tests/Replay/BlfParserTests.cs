@@ -572,6 +572,28 @@ public class BlfParserTests
     // the AscParser contract. Then TotalDuration = _frames[^1].Timestamp = max.
 
     [Fact]
+    public async Task BlfParser_Preserves_Channel()
+    {
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage2, BlfFormat.CanMessage2DataSize, w =>
+        {
+            w.Write((ushort)0x52);
+            w.Write((byte)0);
+            w.Write((byte)1);
+            w.Write((uint)0x123);
+            w.Write(new byte[8]);
+            w.Write((uint)0);
+            w.Write((ushort)0);
+            w.Write((byte)0);
+            w.Write((byte)0);
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+        frames.Single().Channel.Should().Be((ushort)0x52);
+    }
+    [Fact]
     public async Task BlfParser_UnsortedFrames_SortedByTimestamp()
     {
         // Write frames in NON-monotonic absolute order: the largest
@@ -613,3 +635,4 @@ public class BlfParserTests
         return output.ToArray();
     }
 }
+

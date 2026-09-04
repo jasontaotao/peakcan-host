@@ -41,6 +41,7 @@ public static partial class BlfParser
         // which hard-codes Fd regardless of can_flags.
         var ff = FrameFlags.None;
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended, channel);
     }
 }
+

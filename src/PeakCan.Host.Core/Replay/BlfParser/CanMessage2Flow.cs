@@ -30,6 +30,7 @@ public static partial class BlfParser
         // (flags & 0x01) → Rtr. Sister of CanMessageFlow review fix.
         var ff = FrameFlags.None;
         if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended);
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended, channel);
     }
 }
+

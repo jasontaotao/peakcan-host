@@ -117,6 +117,12 @@ public static class AscFormat
             return false;
         }
 
+        if (!ushort.TryParse(tokens[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var channel))
+        {
+            reason = "invalid channel '" + tokens[1] + "'";
+            return false;
+        }
+
         var idToken = tokens[2];
         // Vector ASC spec: an `x` suffix marks the ID as 29-bit extended.
         var isExtended = idToken.EndsWith("x", StringComparison.OrdinalIgnoreCase);
@@ -237,7 +243,7 @@ public static class AscFormat
             return false;
         }
 
-        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended);
+        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended, channel);
         return true;
     }
 
@@ -274,3 +280,4 @@ public static class AscFormat
             || line.StartsWith("start of measurement", StringComparison.OrdinalIgnoreCase);
     }
 }
+

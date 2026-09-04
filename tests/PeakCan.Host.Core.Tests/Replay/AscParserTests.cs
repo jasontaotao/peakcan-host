@@ -601,6 +601,20 @@ End TriggerBlock
     /// throw or invent a fake origin.
     /// </summary>
     [Fact]
+    public async Task Parse_Preserves_Channel()
+    {
+        const string asc = @"
+ 0.000000 51  100  2  AA BB
+ 0.100000 52  200  1  CC
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(2);
+        frames[0].Channel.Should().Be((ushort)0x51);
+        frames[1].Channel.Should().Be((ushort)0x52);
+    }
+    [Fact]
     public async Task ParseAsync_NewOverload_WithoutDateHeader_ReturnsNullOrigin()
     {
         // No `date` line; only `base` and data lines. The data lines
@@ -623,4 +637,5 @@ base hex  timestamps relative
     }
 
 }
+
 
