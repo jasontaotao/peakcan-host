@@ -30,7 +30,7 @@ jobs:
         with:
           repository: jasontaotao/peakcan-hil-core
           token: ${{ secrets.HIL_CORE_PAT }}
-          path: ../peakcan-hil-core
+          path: peakcan-hil-core
 
       # Plan §19 specifies .NET 8.0.x but the project is built against
       # the .NET 10 SDK (verified in Task 1 �?`dotnet --list-sdks` on
@@ -46,9 +46,9 @@ jobs:
       # by default; creating it here keeps restore identical to the dev box.
       - name: Build + pack hil-core into local feed
         run: |
-          dotnet build ../peakcan-hil-core/PeakCan.HIL.Core.slnx -c Release
+          dotnet build peakcan-hil-core/PeakCan.HIL.Core.slnx -c Release
           New-Item -ItemType Directory -Force -Path D:\nuget-local | Out-Null
-          dotnet pack ../peakcan-hil-core/src/PeakCan.HIL.Core/PeakCan.HIL.Core.csproj -c Release -o D:\nuget-local --no-build
+          dotnet pack peakcan-hil-core/src/PeakCan.HIL.Core/PeakCan.HIL.Core.csproj -c Release -o D:\nuget-local --no-build
 
       - name: Restore
         run: dotnet restore PeakCan.Host.slnx
@@ -87,3 +87,4 @@ jobs:
         with:
           name: coverage
           path: coverage/
+
