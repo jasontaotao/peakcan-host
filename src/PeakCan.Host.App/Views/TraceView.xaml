@@ -148,6 +148,12 @@
                     <DataTrigger Binding="{Binding IsFd}" Value="True">
                         <Setter Property="Background" Value="{StaticResource FrameBgFd}" />
                     </DataTrigger>
+                    <!-- M2: sim 帧灰显（spec §4.3 + §6.5 FrameSource.Environment） -->
+                    <DataTrigger Binding="{Binding IsSim}" Value="True">
+                        <Setter Property="Background" Value="#F0F0F0" />
+                        <Setter Property="Foreground" Value="#999999" />
+                        <Setter Property="FontStyle" Value="Italic" />
+                    </DataTrigger>
                     <!-- 高亮规则色索引 0..5，排最后（高亮盖过 Error/Fd 底色） -->
                     <DataTrigger Binding="{Binding HighlightColorIndex}" Value="0">
                         <Setter Property="Background" Value="{StaticResource FrameBgHighlight}" />
@@ -175,6 +181,14 @@
             <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="60" />
             <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="100" />
             <DataGridTextColumn Header="类型" Binding="{Binding FrameType}" Width="50" />
+            <DataGridTemplateColumn Header="Sim" Width="36">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="sim" FontStyle="Italic" Foreground="#999999"
+                                   Visibility="{Binding IsSim, Converter={StaticResource BoolToVis}}"/>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="50" />
             <DataGridTextColumn Header="数据" Binding="{Binding DataHex}" Width="*" />
             <DataGridTextColumn Header="解码" Binding="{Binding Decoded}" Width="200" />
@@ -216,3 +230,4 @@
         </Expander>
     </DockPanel>
 </UserControl>
+

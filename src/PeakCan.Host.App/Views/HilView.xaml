@@ -154,6 +154,19 @@
         <ProgressBar DockPanel.Dock="Top" Height="16" Margin="0,0,0,4"
                      Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
         <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}" Margin="0,0,0,8" />
+        <!-- M2 gap: 环境节点运行状态指示（spec §4.6 + §5.5） -->
+        <Expander DockPanel.Dock="Top" Header="环境状态" IsExpanded="False" Margin="0,0,0,8"
+                  Visibility="{Binding HasEnvironmentStats, Converter={StaticResource BoolToVis}}">
+            <DataGrid ItemsSource="{Binding EnvironmentStats}" AutoGenerateColumns="False"
+                      IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" MaxHeight="120">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="节点" Binding="{Binding NodeName}" Width="*" />
+                    <DataGridTextColumn Header="发帧数" Binding="{Binding FramesSent}" Width="80" />
+                    <DataGridTextColumn Header="规则命中" Binding="{Binding RulesMatched}" Width="80" />
+                    <DataGridTextColumn Header="UDS响应" Binding="{Binding UdsResponses}" Width="80" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Expander>
 
         <!-- Phase 7 Unit C: 中部填充区改 TabControl —— Results(原 DataGrid+TreeView) / HTML Report(WebView2)。
              LLM Analysis TextBox 保留 DockPanel 底部（T3）。 -->
@@ -285,3 +298,5 @@
                  ToolTip="LLM failure analysis result" />
     </DockPanel>
 </UserControl>
+
+
