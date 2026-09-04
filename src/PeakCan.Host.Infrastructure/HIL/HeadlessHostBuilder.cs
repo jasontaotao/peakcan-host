@@ -13,6 +13,7 @@ using PeakCan.HIL.Core.HIL.Assertions;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
+using PeakCan.Host.Infrastructure.HIL.Environment;
 using PeakCan.HIL.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.CanChannels;
@@ -288,6 +289,9 @@ public static class HeadlessHostBuilder
         // Task C (spec 2026-08-27 §3): 信号维度时间窗断言——窗口收集解码帧快照，依赖 IAssertionContext 订阅（通道路由经 ctx）
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SetEnvironmentSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ModifyEnvironmentFrameStepExecutor>();
+        builder.Services.AddSingleton<EnvironmentRuntimeHolder>();
 
         // Engine
         // §3 dtcPresent 预查注入：IUdsSession 可选注入（trace-replay 模式未注册 → null → dtcPresent 不可用）
