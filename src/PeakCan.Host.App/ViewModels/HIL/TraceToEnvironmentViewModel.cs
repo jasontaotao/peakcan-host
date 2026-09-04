@@ -98,7 +98,7 @@ public sealed partial class TraceToEnvironmentViewModel : ObservableObject
                     FrameCount = candidates.Sum(c => c.FrameCount),
                     IntervalMs = candidates.Min(c => c.IntervalMs),
                     IntervalCv = candidates.Average(c => c.IntervalCv),
-                    PayloadMode = "fixed hex",
+                    PayloadMode = CreatePayloadMode(candidates, await GetDbcAsync(channel)),
                     IdentityModel = isJ1939 ? new J1939NodeIdentity(first.SourceAddress!.Value) : new RawCanNodeIdentity(),
                 };
                 row.Candidates.AddRange(candidates);
@@ -193,10 +193,28 @@ public sealed partial class TraceToEnvironmentViewModel : ObservableObject
         }
     }
 
-    private static (bool IsJ1939, uint Key) NodeKey(TraceFrameCandidate c)
+    private static (ushort Channel, bool IsJ1939, uint Key) NodeKey(TraceFrameCandidate c)
         => c.IsExtended && c.SourceAddress is { } sa
-            ? (true, sa)
-            : (false, c.Id);
+            ? (c.Channel, true, sa)
+            : (c.Channel, false, c.Id);
+
+    private static string CreatePayloadMode(
+        IReadOnlyList<TraceFrameCandidate> candidates,
+        DbcDocument? dbc)
+    {
+        if (dbc is null)
+            return "fixed hex";
+
+        var matched = candidates.Count(candidate => dbc.MessagesById.ContainsKey(
+            candidate.IsExtended ? candidate.Id | 0x80000000u : candidate.Id));
+        var total = candidates.Count;
+        return matched switch
+        {
+            0 => "fixed hex",
+            _ when matched == total => "DBC signals",
+            _ => "DBC + fixed hex",
+        };
+    }
 
     private string ResolveChannel(ushort traceChannel)
     {
@@ -226,5 +244,10 @@ public sealed partial class TraceToEnvironmentViewModel : ObservableObject
         return parsed.Value;
     }
 }
+
+
+
+
+
 
 
