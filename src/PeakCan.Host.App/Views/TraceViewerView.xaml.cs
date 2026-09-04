@@ -514,7 +514,7 @@ public partial class TraceViewerView : Window
     private void ShowTrackerTooltip(WpfPlot pv, TraceChartSeries series)
     {
         var plot = pv.Plot;
-        if (plot is null || series.ProgressiveSource?.IsCompleted != true || !plot.LastRender.DataRect.HasArea)
+        if (plot is null || series.ProgressiveSource?.IsCompleted != true || plot.LastRender.DataRect.HasArea)
         {
             HideTrackerTooltip();
             return;
@@ -542,10 +542,15 @@ public partial class TraceViewerView : Window
         EnsureTooltipPopup();
         if (_tooltipPopup is null || _tooltipName is null || _tooltipTime is null || _tooltipValue is null) return;
 
-        _tooltipName.Text = series.DisplayName;
-        _tooltipTime.Text = TraceTimeFormatter.Format(hit.Coordinates.X, series.Source?.WallClockOrigin);
-        _tooltipValue.Text = hit.Coordinates.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
-                             + (string.IsNullOrWhiteSpace(series.Unit) ? "" : " " + series.Unit);
+        var tooltip = TraceTooltipContent.Format(
+            series.DisplayName,
+            hit.Coordinates.X,
+            series.Source?.WallClockOrigin,
+            hit.Coordinates.Y,
+            series.Unit);
+        _tooltipName.Text = tooltip.DisplayName;
+        _tooltipTime.Text = tooltip.Time;
+        _tooltipValue.Text = tooltip.Value;
 
         _tooltipPopup.PlacementTarget = pv;
         _tooltipPopup.Placement = PlacementMode.RelativePoint;
