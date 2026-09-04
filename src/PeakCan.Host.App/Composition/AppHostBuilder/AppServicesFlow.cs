@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
-using PeakCan.Host.App.Services.Nodes;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
@@ -142,40 +141,6 @@ public partial class AppHostBuilder
         // shared by DbcSendViewModel.
         services.AddSingleton<DbcEncodeService>();
 
-        // J1939 节点仿真（spec §10，Task 18）。NodeHostService 为 app 生命周期 singleton
-        // （Dispose 后不可重启——Task 16 绑定注 1），容器关闭时随 host Dispose（停全部节点）。
-        // ChannelRouter 已由 CoreInfrastructureFlow 注册 singleton（brief 要求先 grep——已存在，
-        // 不重复注册）；J1939NodeContext 闭包按 Task 17 落地 ctor 形状补 dbcService/dbcEncoder
-        // （计划原稿写于其前，缺这两参）。单帧发送闭包直接转发 CoreSendService.SendAsync
-        // （返回 ValueTask<Result<Unit>>，与 J1939TpLayer 注册同款 try/catch → Fail 转译）。
-        services.AddSingleton<NodeConfigLibrary>();
-        services.AddSingleton<NodeHostService>(sp =>
-        {
-            var layer = sp.GetRequiredService<PeakCan.HIL.Core.J1939.J1939TpLayer>();
-            var sendService = sp.GetRequiredService<CoreSendService>();
-            var dbc = sp.GetRequiredService<DbcService>();
-            var encoder = sp.GetRequiredService<DbcEncodeService>();
-            var router = sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.ChannelRouter>();
-            var logger = sp.GetRequiredService<ILogger<NodeHostService>>();
-            return new NodeHostService(
-                (config, runtime) => new PeakCan.Host.App.Services.Nodes.J1939.J1939NodeContext(
-                    config, runtime, layer,
-                    (frame, ct) =>
-                    {
-                        try { return sendService.SendAsync(frame, ct); }
-                        catch (Exception ex) { return ValueTask.FromResult(PeakCan.HIL.Core.Result<Unit>.Fail(PeakCan.HIL.Core.ErrorCode.InvalidState, ex.Message)); }
-                    },
-                    dbc,
-                    encoder,
-                    router,
-                    sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Nodes.J1939.J1939NodeContext>>()),
-                router: router,
-                logger: logger,
-                // 终审修复（Important）：必须传入日志工厂——默认行为工厂据此给 RuleBasedBehavior
-                // 解析真实类别日志器（ScriptAction 逃生口降级告警 EventId 9441），缺省时落
-                // NullLogger，9441 在生产日志中永久静默（Task 16 第 5 参即为 wires 此处）。
-                loggerFactory: sp.GetRequiredService<ILoggerFactory>());
-        });
         // v1.5.1 PATCH Item 2 (Periodic DBC send): independent service
         // per Decision 7 — does NOT share code with CyclicSendService.
         // Register concrete type first so the IReplayService-style
@@ -254,3 +219,4 @@ public partial class AppHostBuilder
         });
     }
 }
+

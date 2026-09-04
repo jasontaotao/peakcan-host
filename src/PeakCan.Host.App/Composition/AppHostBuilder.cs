@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
@@ -387,11 +386,7 @@ public partial class AppHostBuilder
             // P1-2: all device providers for the connection-settings panel.
             deviceProviders: sp.GetServices<PeakCan.HIL.Core.Devices.ICanDeviceProvider>(),
             // P0-3: shared secondary-window host (DI singleton).
-            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>(),
-            // Task 18: Nodes tab VM（显式工厂必须显式传入——可选参数默认 null 不会被
-            // 工厂填补，漏传则"节点" tab 在生产 DI 下永不出现；单例注册在
-            // RegisterViewModelsBatch2）。
-            nodeSetup: sp.GetRequiredService<NodeSetupViewModel>()));
+            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
 
         // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
         RegisterViewModelsBatch2(builder.Services);
@@ -402,3 +397,4 @@ public partial class AppHostBuilder
         return builder.Build();
     }
 }
+
