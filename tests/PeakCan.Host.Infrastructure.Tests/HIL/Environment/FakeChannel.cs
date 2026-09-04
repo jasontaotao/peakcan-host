@@ -5,6 +5,7 @@ namespace PeakCan.Host.Infrastructure.Tests.HIL.Environment;
 public sealed class FakeChannel : ICanChannel
 {
     public Action<CanFrame>? OnWrite { get; set; }
+    private event Action<CanFrame>? _frameReceived;
     public ChannelId Id => default;
     public bool IsConnected => true;
 
@@ -19,7 +20,14 @@ public sealed class FakeChannel : ICanChannel
         return ValueTask.FromResult(Result<Unit>.Ok(default(Unit)));
     }
 
-    public event Action<CanFrame>? FrameReceived { add { } remove { } }
+    public event Action<CanFrame>? FrameReceived
+    {
+        add => _frameReceived += value;
+        remove => _frameReceived -= value;
+    }
+
+    public void RaiseFrameReceived(CanFrame frame) => _frameReceived?.Invoke(frame);
+
     public event Action<ReadLoopError>? ReadLoopError { add { } remove { } }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

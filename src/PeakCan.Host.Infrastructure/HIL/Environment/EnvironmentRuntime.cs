@@ -320,7 +320,8 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
                 var request = ExtractUdsPayload(frame);
                 if (request.Length == 0) continue;
-                // TODO(M3): honor delayMs — currently response sent immediately (spec §6.6)\n                var (response, _) = sm.ProcessRequest(request);
+                // TODO(M3): honor delayMs — currently response sent immediately (spec §6.6)
+                var (response, _) = sm.ProcessRequest(request);
                 nodeState.UdsResponses++;
                 (responses ??= []).Add((nodeState, response));
             }
