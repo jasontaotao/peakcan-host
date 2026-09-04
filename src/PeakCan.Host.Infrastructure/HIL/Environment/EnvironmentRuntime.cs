@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
+using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 
@@ -18,6 +19,8 @@ public sealed class EnvironmentRuntime
 
     private readonly ICanChannel _channel;
     private readonly ILogger<EnvironmentRuntime> _logger;
+    private readonly DbcDocument? _dbc;
+    private readonly DbcEncodeService _encoder = new();
     private readonly object _gate = new();
     private readonly ConcurrentQueue<CanFrame> _incoming = new();
     private ITimer? _scanTimer;
@@ -26,10 +29,11 @@ public sealed class EnvironmentRuntime
     private long _lastDropWarningTicks;
     private bool _running;
 
-    public EnvironmentRuntime(ICanChannel channel, ILogger<EnvironmentRuntime>? logger = null)
+    public EnvironmentRuntime(ICanChannel channel, ILogger<EnvironmentRuntime>? logger = null, DbcDocument? dbc = null)
     {
         _channel = channel;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance;
+        _dbc = dbc;
     }
 
     public void Start(IReadOnlyList<RestbusNode> nodes, IReadOnlyList<ChannelConfig>? channels)
@@ -66,6 +70,30 @@ public sealed class EnvironmentRuntime
         }
     }
 
+    /// <summary>设置节点+消息+信号的运行时值（SetEnvironmentSignalStep 调用点）。</summary>
+    public void SetSignalValue(string nodeName, string messageName, string signalName, double value)
+    {
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == nodeName);
+            var msgState = state?.Messages.FirstOrDefault(m =>
+                (m.Source as DbcSignalsSource)?.MessageName == messageName);
+            msgState?.Signals.Set(signalName, value);
+        }
+    }
+
+    /// <summary>获取 DbcSignalsSource 编码后的 payload 字节（测试/诊断用）。</summary>
+    public byte[]? GetEncodedPayload(string nodeName, string messageName)
+    {
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == nodeName);
+            var msgState = state?.Messages.FirstOrDefault(m =>
+                (m.Source as DbcSignalsSource)?.MessageName == messageName);
+            return msgState?.BuildPayload(_encoder, _dbc);
+        }
+    }
+
     public void InjectIncomingFrame(CanFrame frame)
     {
         if (_incoming.Count >= QueueCapacity)
@@ -92,7 +120,7 @@ public sealed class EnvironmentRuntime
                     var msgState = nodeState.Messages[i];
                     if (!msgState.Enabled || now < msgState.NextDueMs) continue;
 
-                    var payload = msgState.BuildPayload();
+                    var payload = msgState.BuildPayload(_encoder, _dbc);
                     if (payload is not null)
                         (toSend ??= []).Add((msgState, nodeState.Node.Messages[i]));
 
@@ -114,7 +142,7 @@ public sealed class EnvironmentRuntime
     {
         if (msg.Ref is not CanMessageRef canRef) return;
         var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var payload = msgState.BuildPayload();
+        var payload = msgState.BuildPayload(_encoder, _dbc);
         if (payload is null) return;
         var flags = msg.Fd ? FrameFlags.Fd : FrameFlags.None;
         var frame = new CanFrame(id, payload, flags, default, default, FrameSource.Environment);
@@ -281,6 +309,7 @@ internal sealed class NodeMessageRuntimeState
     public long FramesSent { get; set; }
     public byte[]? FixedHexData { get; set; }
     public ushort CounterValue { get; set; }
+    public NodeSignalState Signals { get; } = new();
 
     public NodeMessageRuntimeState(NodeMessage msg)
     {
@@ -291,10 +320,24 @@ internal sealed class NodeMessageRuntimeState
         CounterValue = msg.AutoCounter is { } ac ? ac.StartValue : (ushort)0;
     }
 
-    public byte[]? BuildPayload()
+    public byte[]? BuildPayload(DbcEncodeService encoder, DbcDocument? dbc)
     {
-        if (Source is FixedHexSource) return FixedHexData;
-        return null; // DbcSignalsSource in M2
+        switch (Source)
+        {
+            case FixedHexSource:
+                return FixedHexData;
+            case DbcSignalsSource dbcSource when dbc is not null:
+            {
+                var msg = dbc.Messages.FirstOrDefault(m => m.Name == dbcSource.MessageName);
+                if (msg is null) return null;
+                if (!Signals.HasValues)
+                    foreach (var s in msg.Signals)
+                        Signals.Set(s.Name, Signals.GetOrInit(s.Name, 0));
+                return encoder.Encode(msg, Signals.ToDictionary());
+            }
+            default:
+                return null;
+        }
     }
 
     private static byte[] ParseHex(string hex)
