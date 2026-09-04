@@ -1,8 +1,7 @@
 using System.Globalization;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.Replay;
-using PeakCan.Host.App.Services.Nodes;
-using PeakCan.Host.App.ViewModels.Nodes;
+using PeakCan.HIL.Core.HIL.Environment;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -134,3 +133,6 @@ internal static class TraceFilterParser
         return byte.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
     }
 }
+
+
+

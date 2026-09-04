@@ -1,6 +1,6 @@
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.Host.App.Services.Nodes;
+using PeakCan.HIL.Core.HIL.Environment;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -110,3 +110,4 @@ public sealed record TraceFilterSpec
         return true;
     }
 }
+

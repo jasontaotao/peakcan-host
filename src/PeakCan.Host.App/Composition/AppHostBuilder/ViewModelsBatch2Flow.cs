@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Replay;
 
@@ -213,6 +212,6 @@ public partial class AppHostBuilder
         // Task 18: Nodes tab 宿主 VM（singleton——运行状态跨 tab 切换保持，spec §10.2）。
         // 依赖 NodeHostService / NodeConfigLibrary / DbcService / IFileDialogService，
         // 均已在 Flow C / AppHostBuilder.Build 注册。
-        services.AddSingleton<NodeSetupViewModel>();
     }
 }
+
