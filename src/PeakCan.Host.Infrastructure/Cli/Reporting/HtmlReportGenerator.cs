@@ -56,6 +56,12 @@ public static class HtmlReportGenerator
         // Summary card
         sb.AppendLine(RenderSummaryCard(result));
 
+        // M2 gap: environment node stats section (spec §5.5)
+        if (result.EnvironmentStats is { Count: > 0 })
+        {
+            sb.AppendLine(RenderEnvironmentStats(result.EnvironmentStats));
+        }
+
         // 单元 C：搜索 + 状态筛选工具栏（纯前端，JS 驱动）
         sb.AppendLine(RenderSearchToolbar());
 
@@ -78,6 +84,19 @@ public static class HtmlReportGenerator
         return sb.ToString();
     }
 
+    /// <summary>M2 gap: render per-node environment stats table (spec §5.5).</summary>
+    private static string RenderEnvironmentStats(IReadOnlyList<PeakCan.HIL.Core.HIL.NodeRunStats> stats)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<details open><summary>Environment Nodes</summary>");
+        sb.AppendLine("<table><thead><tr><th>Node</th><th>Frames Sent</th><th>Rules Matched</th><th>UDS Responses</th></tr></thead><tbody>");
+        foreach (var s in stats)
+        {
+            sb.AppendLine($"<tr><td>{HtmlEncode(s.NodeName)}</td><td>{s.FramesSent}</td><td>{s.RulesMatched}</td><td>{s.UdsResponses}</td></tr>");
+        }
+        sb.AppendLine("</tbody></table></details>");
+        return sb.ToString();
+    }
     private static string RenderSummaryCard(TestSuiteResult result)
     {
         var rate = result.PassRate * 100.0;
@@ -727,3 +746,4 @@ public static class HtmlReportGenerator
             });
             """;
 }
+
