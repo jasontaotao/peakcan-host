@@ -45,6 +45,9 @@ public sealed partial class HilViewModel : ObservableObject
 
     // Web 报告 UI（Phase 7 Unit C）：最新报告文件路径 + 报告错误状态。
     [ObservableProperty] private string _latestReportPath = "";
+    // M2 gap: environment node stats (spec §4.6 + §5.5)
+    public ObservableCollection<HilEnvironmentStatViewModel> EnvironmentStats { get; } = new();
+    [ObservableProperty] private bool _hasEnvironmentStats;
     [ObservableProperty] private bool _showReportError = false;
     [ObservableProperty] private string _reportError = "";
 
@@ -601,6 +604,7 @@ public sealed partial class HilViewModel : ObservableObject
                     ? _reportService.Generate(result, dbcs, fallbackDbc: _runner.LastDbcDocument)
                     : _reportService.Generate(result, _runner.LastDbcDocument);
                 LatestReportPath = report.FilePath;
+            RefreshEnvironmentStats(result);
                 ShowReportError = false;
                 ReportError = "";
             }
@@ -686,6 +690,24 @@ public sealed partial class HilViewModel : ObservableObject
             ResultsTree.Add(caseNode);
         }
     }
+
+    private void RefreshEnvironmentStats(TestSuiteResult? result)
+    {
+        EnvironmentStats.Clear();
+        HasEnvironmentStats = false;
+        if (result?.EnvironmentStats is not { Count: > 0 } stats) return;
+        foreach (var s in stats)
+        {
+            EnvironmentStats.Add(new HilEnvironmentStatViewModel
+            {
+                NodeName = s.NodeName,
+                FramesSent = s.FramesSent,
+                RulesMatched = s.RulesMatched,
+                UdsResponses = s.UdsResponses,
+            });
+        }
+        HasEnvironmentStats = true;
+    }
 }
 
 public sealed partial class TestCaseResultViewModel : ObservableObject
@@ -711,3 +733,5 @@ public sealed partial class TestCaseSelection : ObservableObject
     public required string Id { get; init; }
     public required string Name { get; init; }
 }
+
+
