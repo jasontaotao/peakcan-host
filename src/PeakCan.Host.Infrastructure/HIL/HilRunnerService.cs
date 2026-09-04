@@ -131,7 +131,9 @@ public sealed class HilRunnerService : IHilRunnerService
             // 无法路由到非默认通道，导致 frameCount/frameSeen 表达式多通道失效。
             // DI 注册的 IFrameStatistics 由 host Dispose 负责释放（退订 FrameReceived），无需手动 Dispose。
             var frameStats = host.Services.GetService<IFrameStatistics>();
-            return await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+            var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+        var envStats = environmentRuntime.GetStats();
+        return result with { EnvironmentStats = envStats.Count > 0 ? envStats : null };
         }
         finally
         {

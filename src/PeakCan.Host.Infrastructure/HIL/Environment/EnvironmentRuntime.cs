@@ -116,6 +116,18 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         }
     }
 
+    public IReadOnlyList<NodeRunStats> GetStats()
+    {
+        lock (_gate)
+        {
+            return [.. _states.Select(s => new NodeRunStats(
+                s.Node.Name,
+                s.Messages.Sum(m => m.FramesSent),
+                s.RulesMatched,
+                s.UdsResponses))];
+        }
+    }
+
     public void InjectIncomingFrame(CanFrame frame)
     {
         if (_incoming.Count >= QueueCapacity)
@@ -380,6 +392,7 @@ internal sealed class NodeRuntimeState
     public RestbusNode Node { get; }
     public EcuStateMachine? StateMachine { get; set; }
     public long UdsResponses { get; set; }
+    public long RulesMatched { get; set; }
     public List<NodeMessageRuntimeState> Messages { get; } = [];
 
     public NodeRuntimeState(RestbusNode node)
