@@ -1,6 +1,6 @@
 # Restbus M4.1: Environment Node UX Patch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make generated Restbus nodes inspectable and editable in Studio: show message details, distinguish DBC-generated nodes from templates, support delete/message enable, and assign suite channels.
 
@@ -27,7 +27,7 @@
 - Plan file lives in: `D:\claude_proj2\peakcan-host\docs\superpowers\plans\2026-09-04-restbus-m4-1-environment-node-ux.md`
 - Start from clean `main`.
 
-- [ ] **Step 0.1: Verify branch and dependencies**
+- [x] **Step 0.1: Verify branch and dependencies**
 
 ```powershell
 git -C D:\claude_proj2\peakcan-studio status --short --branch
@@ -58,7 +58,7 @@ Expected: clean status, new `feat/restbus-env-node-ux` branch, and `True` for th
   - `bool Enabled`
 - `Enabled` setter must invoke `setEnabled(index, value)`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentNodeMessageViewModelTests.cs`:
 
@@ -123,7 +123,7 @@ public class EnvironmentNodeMessageViewModelTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~EnvironmentNodeMessageViewModelTests" --no-restore
@@ -131,7 +131,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Environm
 
 Expected: compile failure because `EnvironmentNodeMessageViewModel` does not exist.
 
-- [ ] **Step 3: Implement the presentation model**
+- [x] **Step 3: Implement the presentation model**
 
 Create `src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentNodeMessageViewModel.cs`:
 
@@ -204,7 +204,7 @@ public sealed class EnvironmentNodeMessageViewModel
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~EnvironmentNodeMessageViewModelTests" --no-restore
@@ -212,7 +212,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Environm
 
 Expected: 3/3 PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentNodeMessageViewModel.cs tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentNodeMessageViewModelTests.cs
@@ -238,7 +238,7 @@ git commit -m "feat(studio): format environment node message details"
   - `void SetMessageEnabled(int index, bool enabled)`
   - `RestbusNode ToNode()` returns the latest immutable node.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentNodeViewModelTests.cs`:
 
@@ -314,7 +314,7 @@ public class EnvironmentNodeViewModelTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~EnvironmentNodeViewModelTests" --no-restore
@@ -322,7 +322,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Environm
 
 Expected: compile failures for `SourceLabel`, `Messages`, `SetAvailableChannels`, and `SetMessageEnabled`.
 
-- [ ] **Step 3: Implement node mutation and presentation**
+- [x] **Step 3: Implement node mutation and presentation**
 
 Replace `src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentNodeViewModel.cs` with:
 
@@ -413,7 +413,7 @@ public sealed class EnvironmentNodeViewModel
 }
 ```
 
-- [ ] **Step 4: Run Restbus tests**
+- [x] **Step 4: Run Restbus tests**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Restbus" --no-restore
@@ -421,7 +421,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Restbus"
 
 Expected: all Restbus tests PASS. Existing generation tests must remain green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentNodeViewModel.cs tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentNodeViewModelTests.cs
@@ -444,7 +444,7 @@ git commit -m "feat(studio): expose environment node source and message toggles"
   - On generation/apply with channels, a node defaults to the first channel.
   - Generated status includes the save reminder: `Use Save/SaveAs to persist nodes in the suite.`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentTabChannelTests.cs`:
 
@@ -531,7 +531,7 @@ BA_ "GenMsgCycleTime" BO_ 512 250;
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~EnvironmentTabChannelTests" --no-restore
@@ -539,7 +539,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Environm
 
 Expected: compile failure for `SetAvailableChannels`; after adding only a stub, assertions for default channel/save reminder fail.
 
-- [ ] **Step 3: Implement channel wiring**
+- [x] **Step 3: Implement channel wiring**
 
 In `src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentTabViewModel.cs`:
 
@@ -601,7 +601,7 @@ if (result.Warnings.Count > 0)
 
 Keep the duplicate-name rejection unchanged.
 
-- [ ] **Step 4: Run Restbus tests**
+- [x] **Step 4: Run Restbus tests**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Restbus" --no-restore
@@ -609,7 +609,7 @@ dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Restbus"
 
 Expected: all Restbus tests PASS, including previous generation/template tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Studio.App/ViewModels/Restbus/EnvironmentTabViewModel.cs tests/PeakCan.Studio.App.Tests/Restbus/EnvironmentTabChannelTests.cs
@@ -627,7 +627,7 @@ git commit -m "feat(studio): assign suite channels to generated environment node
 - Consumes: `EnvironmentNodeViewModel.SourceLabel`, `Messages`, `AvailableChannels`, `Channel`; `EnvironmentTabViewModel.RemoveNode(string nodeName)`.
 - Produces: WPF bindings for expanded message rows, channel selection, and node deletion.
 
-- [ ] **Step 1: Replace the node card template**
+- [x] **Step 1: Replace the node card template**
 
 In `src/PeakCan.Studio.App/Views/EnvironmentTab.xaml`, replace the current `ItemsControl` under `已启用环境节点` with:
 
@@ -682,7 +682,7 @@ Also add this status text directly below the current generation status text:
            Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"/>
 ```
 
-- [ ] **Step 2: Build the app**
+- [x] **Step 2: Build the app**
 
 ```powershell
 dotnet build src/PeakCan.Studio.App --no-restore
@@ -690,7 +690,7 @@ dotnet build src/PeakCan.Studio.App --no-restore
 
 Expected: build PASS with 0 errors. Existing unrelated WPF warnings may remain.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git add src/PeakCan.Studio.App/Views/EnvironmentTab.xaml
@@ -701,7 +701,7 @@ git commit -m "feat(studio): add environment node details, channel selector, and
 
 ### Task 5: Regression and PR
 
-- [ ] **Step 1: Run all Restbus tests and full Studio app test filter**
+- [x] **Step 1: Run all Restbus tests and full Studio app test filter**
 
 ```powershell
 dotnet test tests/PeakCan.Studio.App.Tests --filter "FullyQualifiedName~Restbus" --no-restore
@@ -710,7 +710,7 @@ dotnet build src/PeakCan.Studio.App --no-restore
 
 Expected: all Restbus tests PASS and app build PASS.
 
-- [ ] **Step 2: Run host infrastructure regression**
+- [x] **Step 2: Run host infrastructure regression**
 
 From `D:\claude_proj2\peakcan-host`:
 
@@ -720,7 +720,7 @@ dotnet test tests/PeakCan.Host.Infrastructure.Tests --no-restore
 
 Expected: 612 passed / 2 hardware-specific skipped. This confirms Studio-only changes did not affect the runtime contract.
 
-- [ ] **Step 3: Commit any formatting-only fixes if required**
+- [x] **Step 3: Commit any formatting-only fixes if required**
 
 ```powershell
 git diff --check
@@ -730,7 +730,7 @@ git commit -m "chore(studio): final restbus ux patch verification"
 
 If `git status --porcelain` is empty, skip this commit.
 
-- [ ] **Step 4: Push and open PR**
+- [x] **Step 4: Push and open PR**
 
 ```powershell
 git -C D:\claude_proj2\peakcan-studio push -u origin feat/restbus-env-node-ux
