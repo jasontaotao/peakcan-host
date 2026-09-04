@@ -1,6 +1,6 @@
 # Trace Viewer 对齐 CANoe Graph 交互细节 — Design
 
-> 状态：设计定稿（2026-09-04），待执行 session 实施
+> 状态：设计定稿 v2；实现已落地（2026-09-05）
 > 触发条件：用户反馈 Trace Viewer 与 CANoe Graph 窗口在功能细节上有差距，
 > 经澄清确认为三个具体需求：hover tooltip、Y 轴交互 + Fit、X 轴交互时实时同步
 > 渲染栈前提：ScottPlot.Wpf 5.0.55（v3.62.0 已从 OxyPlot 迁移完成）
