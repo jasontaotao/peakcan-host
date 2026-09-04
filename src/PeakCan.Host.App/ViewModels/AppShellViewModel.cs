@@ -14,7 +14,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Views.HIL;
-using PeakCan.Host.App.ViewModels.HIL; origin/main
+using PeakCan.Host.App.ViewModels.HIL;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
@@ -543,6 +543,4 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // === Flow B methods moved to AppShellViewModel/ViewSwitchFlow.cs (W4 Task 3) ===
     // === Flow A methods moved to AppShellViewModel/ChannelFlow.cs (W4 Task 4) ===
 }
-
- origin/main
 
