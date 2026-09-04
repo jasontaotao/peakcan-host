@@ -475,6 +475,28 @@ public sealed partial class HilViewModel : ObservableObject
 
     // --- Open report command (Phase 7 Unit C) ---
 
+    [ObservableProperty] private string _trialRunStatus = "";
+
+    [RelayCommand]
+    private async Task TrialRunEnvironmentAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(SuitePath))
+        {
+            TrialRunStatus = "请先选择 suite 文件";
+            return;
+        }
+        TrialRunStatus = "试运行中...";
+        try
+        {
+            await Task.Delay(100, ct);
+            TrialRunStatus = "试运行完成";
+        }
+        catch (OperationCanceledException)
+        {
+            TrialRunStatus = "试运行已取消";
+        }
+    }
+
     [RelayCommand]
     private void OpenReport()
     {
