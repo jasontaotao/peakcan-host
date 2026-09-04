@@ -221,6 +221,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
                     {
                         if (!MatchesIncoming(rule.Trigger, frame)) continue;
                         if (!MatchesCondition(rule.Condition, frame)) continue;
+                        nodeState.RulesMatched++;
                         (matched ??= []).Add((nodeState.Node, rule));
                     }
                 }
@@ -319,7 +320,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
                 var request = ExtractUdsPayload(frame);
                 if (request.Length == 0) continue;
-                var (response, _) = sm.ProcessRequest(request);
+                // TODO(M3): honor delayMs — currently response sent immediately (spec §6.6)\n                var (response, _) = sm.ProcessRequest(request);
                 nodeState.UdsResponses++;
                 (responses ??= []).Add((nodeState, response));
             }
@@ -451,7 +452,7 @@ internal sealed class NodeMessageRuntimeState
                 if (msg is null) return null;
                 if (!Signals.HasValues)
                     foreach (var s in msg.Signals)
-                        Signals.Set(s.Name, Signals.GetOrInit(s.Name, 0));
+                        Signals.Set(s.Name, Signals.GetOrInit(s.Name, s.Offset));
                 return encoder.Encode(msg, Signals.ToDictionary());
             }
             default:

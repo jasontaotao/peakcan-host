@@ -17,7 +17,11 @@ internal sealed class SetEnvironmentSignalStepExecutor(Func<IEnvironmentRuntimeB
                 "Parameters is not SetEnvironmentSignalStep.", null, null, 0));
         try
         {
-            bridgeFactory()?.SetSignalValue(p.NodeName, p.MessageName, p.SignalName, p.Value);
+            var bridge = bridgeFactory();
+            if (bridge is null)
+                return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
+                    "Environment runtime not available (not started).", null, null, 0));
+            bridge.SetSignalValue(p.NodeName, p.MessageName, p.SignalName, p.Value);
             return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 $"Signal {p.NodeName}.{p.MessageName}.{p.SignalName} = {p.Value}", null, null, 0));
         }

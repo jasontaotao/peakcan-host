@@ -17,7 +17,11 @@ internal sealed class ModifyEnvironmentFrameStepExecutor(Func<IEnvironmentRuntim
                 "Parameters is not ModifyEnvironmentFrameStep.", null, null, 0));
         try
         {
-            bridgeFactory()?.UpdateFrameData(p.NodeName, p.Ref, p.Data);
+            var bridge = bridgeFactory();
+            if (bridge is null)
+                return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Failed,
+                    "Environment runtime not available (not started).", null, null, 0));
+            bridge.UpdateFrameData(p.NodeName, p.Ref, p.Data);
             return Task.FromResult(new StepResult(0, step.Kind, step.Label, StepStatus.Passed,
                 $"Frame data updated for {p.NodeName}.{p.Ref}", null, null, 0));
         }

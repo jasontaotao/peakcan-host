@@ -289,6 +289,28 @@ public static class HeadlessHostBuilder
         // Task C (spec 2026-08-27 §3): 信号维度时间窗断言——窗口收集解码帧快照，依赖 IAssertionContext 订阅（通道路由经 ctx）
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
+        // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
+        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        {
+            var ch = sp.GetRequiredService<ICanChannel>();
+            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.HIL.Core.J1939.J1939TpLayer>.Instance;
+            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+                (frame, ct) => ch.WriteAsync(frame, ct),
+                new PeakCan.HIL.Core.J1939.J1939TpOptions(), jLogger);
+        });
+
+        // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
+        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        {
+            var ch = sp.GetRequiredService<ICanChannel>();
+            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.HIL.Core.J1939.J1939TpLayer>.Instance;
+            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+                (frame, ct) => ch.WriteAsync(frame, ct),
+                new PeakCan.HIL.Core.J1939.J1939TpOptions(), jLogger);
+        });
+
         builder.Services.AddSingleton<Func<PeakCan.HIL.Core.HIL.StepExecutor.IEnvironmentRuntimeBridge?>>(sp => () => sp.GetRequiredService<EnvironmentRuntimeHolder>().Runtime);
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SetEnvironmentSignalStepExecutor>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ModifyEnvironmentFrameStepExecutor>();

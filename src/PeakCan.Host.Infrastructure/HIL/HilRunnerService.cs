@@ -55,7 +55,10 @@ public sealed class HilRunnerService : IHilRunnerService
         var engine = host.Services.GetRequiredService<TestSuiteEngine>();
         var channel = host.Services.GetRequiredService<ICanChannel>();
         var ctx = host.Services.GetRequiredService<IAssertionContext>();
-        var environmentRuntime = new EnvironmentRuntime(channel, _logger as ILogger<EnvironmentRuntime> ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance);
+        var environmentRuntime = new EnvironmentRuntime(channel,
+            _logger as ILogger<EnvironmentRuntime> ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance,
+            host.Services.GetService<DbcDocument>(),
+            host.Services.GetService<PeakCan.HIL.Core.J1939.J1939TpLayer>());
         var envHolder = host.Services.GetService<EnvironmentRuntimeHolder>();
         if (envHolder is not null) envHolder.Runtime = environmentRuntime;
 
@@ -132,8 +135,8 @@ public sealed class HilRunnerService : IHilRunnerService
             // DI 注册的 IFrameStatistics 由 host Dispose 负责释放（退订 FrameReceived），无需手动 Dispose。
             var frameStats = host.Services.GetService<IFrameStatistics>();
             var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
-        var envStats = environmentRuntime.GetStats();
-        return result with { EnvironmentStats = envStats.Count > 0 ? envStats : null };
+            var envStats = environmentRuntime.GetStats();
+            return result with { EnvironmentStats = envStats.Count > 0 ? envStats : null };
         }
         finally
         {
