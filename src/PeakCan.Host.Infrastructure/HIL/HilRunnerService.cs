@@ -33,6 +33,9 @@ public sealed class HilRunnerService : IHilRunnerService
             ?? Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
                             "PeakCanHost", "hil-reports", "case-logs");
 
+    internal static ILogger<EnvironmentRuntime> ResolveEnvironmentLogger(IServiceProvider serviceProvider)
+        => serviceProvider.GetService<ILogger<EnvironmentRuntime>>()
+           ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance;
     public async Task<TestSuiteResult> RunAsync(
         HilRunRequest request,
         IProgress<TestProgress>? progress = null,
@@ -56,7 +59,7 @@ public sealed class HilRunnerService : IHilRunnerService
         var channel = host.Services.GetRequiredService<ICanChannel>();
         var ctx = host.Services.GetRequiredService<IAssertionContext>();
         var environmentRuntime = new EnvironmentRuntime(channel,
-            _logger as ILogger<EnvironmentRuntime> ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance,
+            ResolveEnvironmentLogger(host.Services),
             host.Services.GetService<DbcDocument>(),
             host.Services.GetService<PeakCan.HIL.Core.J1939.J1939TpLayer>());
         var envHolder = host.Services.GetService<EnvironmentRuntimeHolder>();
@@ -150,3 +153,4 @@ public sealed class HilRunnerService : IHilRunnerService
         }
     }
 }
+

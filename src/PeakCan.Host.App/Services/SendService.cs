@@ -48,7 +48,7 @@ public partial class SendService
     /// instead of throwing. Thread-safe via
     /// <see cref="Interlocked.Exchange{T}(ref T, T)"/>.
     /// </summary>
-    public ICanChannel? ActiveChannel
+    public virtual ICanChannel? ActiveChannel
     {
         get => Volatile.Read(ref _activeChannel);
         set
@@ -80,7 +80,7 @@ public partial class SendService
     /// or disconnect (null). Volatile.Write for lock-free read in the T6
     /// <c>SendAsync(frame, ChannelId)</c> hot path.
     /// </summary>
-    public void SetChannels(IReadOnlyDictionary<ChannelId, ICanChannel>? channels)
+    public virtual void SetChannels(IReadOnlyDictionary<ChannelId, ICanChannel>? channels)
         => Volatile.Write(ref _channels, channels);
 
     /// <summary>

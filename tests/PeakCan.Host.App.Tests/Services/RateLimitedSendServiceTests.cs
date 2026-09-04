@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
@@ -180,6 +181,74 @@ public class RateLimitedSendServiceTests
     }
 
     [Fact]
+    public async Task Decorator_ChannelState_Is_Delegated_To_CoreSendService()
+    {
+        // Arrange: production DI wires CoreSendService as the decorator inner.
+        // AppShellViewModel sets ActiveChannel on the resolved SendService,
+        // which is the decorator; the inner CoreSendService must observe it.
+        var core = new CoreSendService(NullLogger<SendService>.Instance);
+        var sut = new RateLimitedSendService(core, 0, NullLogger<RateLimitedSendService>.Instance);
+        var channel = new RecordingChannel(new ChannelId(0x51));
+        sut.SetChannels(new Dictionary<ChannelId, ICanChannel> { [new ChannelId(0x51)] = channel });
+        sut.ActiveChannel = channel;
+
+        // Act: legacy 1-arg send path (used by SendViewModel, cyclic senders and scripts).
+        var result = await sut.SendAsync(BuildFrame(0x123));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        sut.ActiveChannel.Should().BeSameAs(channel);
+        channel.Written.Should().ContainSingle().Which.Id.Raw.Should().Be(0x123u);
+    }
+
+    [Fact]
+    public async Task Decorator_TargetedSend_Is_Delegated_To_CoreSendService()
+    {
+        var core = new CoreSendService(NullLogger<SendService>.Instance);
+        var sut = new RateLimitedSendService(core, 100, NullLogger<RateLimitedSendService>.Instance);
+        var channel = new RecordingChannel(new ChannelId(0x52));
+        sut.SetChannels(new Dictionary<ChannelId, ICanChannel> { [new ChannelId(0x52)] = channel });
+
+        var result = await sut.SendAsync(BuildFrame(0x123), new ChannelId(0x52));
+
+        result.IsSuccess.Should().BeTrue();
+        channel.Written.Should().ContainSingle().Which.Id.Raw.Should().Be(0x123u);
+    }
+
+    private sealed class RecordingChannel : ICanChannel
+    {
+        public ChannelId Id { get; }
+        public bool IsConnected { get; private set; } = true;
+        public List<CanFrame> Written { get; } = new();
+
+        public RecordingChannel(ChannelId id) => Id = id;
+
+#pragma warning disable CS0067
+        public event Action<CanFrame>? FrameReceived;
+        public event Action<ReadLoopError>? ReadLoopError;
+#pragma warning restore CS0067
+
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+        {
+            IsConnected = true;
+            return Task.FromResult(Result<Unit>.Ok(default));
+        }
+
+        public Task DisconnectAsync(CancellationToken ct = default)
+        {
+            IsConnected = false;
+            return Task.CompletedTask;
+        }
+
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+        {
+            Written.Add(frame);
+            return ValueTask.FromResult(Result<Unit>.Ok(default));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+    [Fact]
     public async Task SendAsync_Delegated_Path_Propagates_Result_Success_And_Failure()
     {
         // Arrange — inner SendService can return success or failure.
@@ -202,3 +271,4 @@ public class RateLimitedSendServiceTests
             "decorator must NOT rewrite the inner result's message");
     }
 }
+

@@ -117,13 +117,37 @@ internal sealed partial class RateLimitedSendService : SendService
     /// The caller's <see cref="CancellationToken"/> is preserved
     /// unchanged on both paths.
     /// </summary>
+    public override ICanChannel? ActiveChannel
+    {
+        get => _inner.ActiveChannel;
+        set => _inner.ActiveChannel = value;
+    }
+
+    public override void SetChannels(IReadOnlyDictionary<ChannelId, ICanChannel>? channels)
+        => _inner.SetChannels(channels);
+
     public override ValueTask<Result<Unit>> SendAsync(CanFrame frame, CancellationToken ct = default)
     {
-        // Opt-out: unlimited bypass when policy is disabled.
+        if (!TryAcquireToken(frame))
+            return ValueTask.FromResult(Result<Unit>.Fail(
+                ErrorCode.HardwareBusy,
+                $"rate limit ({_maxFramesPerSecond} fps); frame 0x{frame.Id.Raw:X} rejected"));
+        return _inner.SendAsync(frame, ct);
+    }
+
+    public override ValueTask<Result<Unit>> SendAsync(CanFrame frame, ChannelId channelId, CancellationToken ct = default)
+    {
+        if (!TryAcquireToken(frame))
+            return ValueTask.FromResult(Result<Unit>.Fail(
+                ErrorCode.HardwareBusy,
+                $"rate limit ({_maxFramesPerSecond} fps); frame 0x{frame.Id.Raw:X} rejected"));
+        return _inner.SendAsync(frame, channelId, ct);
+    }
+
+    private bool TryAcquireToken(CanFrame frame)
+    {
         if (_maxFramesPerSecond <= 0)
-        {
-            return _inner.SendAsync(frame, ct);
-        }
+            return true;
 
         lock (this)
         {
@@ -140,31 +164,17 @@ internal sealed partial class RateLimitedSendService : SendService
             if (_tokens >= 1.0)
             {
                 _tokens -= 1.0;
-                // Fall through to delegate after the lock is released.
+                return true;
             }
-            else
+
+            Interlocked.Increment(ref _rejectedFrameCount);
+            if (now - _lastLogTimestamp >= _stopwatchFrequency)
             {
-                Interlocked.Increment(ref _rejectedFrameCount);
-
-                // 1 Hz log throttle: only emit if at least one full
-                // second has elapsed since the last reject log. High-
-                // frequency reject storms are normal user-visible
-                // behavior, not errors; Information level is correct.
-                if (now - _lastLogTimestamp >= _stopwatchFrequency)
-                {
-                    _lastLogTimestamp = now;
-                    LogRateLimited(_logger, frame.Id.Raw, _maxFramesPerSecond);
-                }
-
-                return ValueTask.FromResult(Result<Unit>.Fail(
-                    ErrorCode.HardwareBusy,
-                    $"rate limit ({_maxFramesPerSecond} fps); frame 0x{frame.Id.Raw:X} rejected"));
+                _lastLogTimestamp = now;
+                LogRateLimited(_logger, frame.Id.Raw, _maxFramesPerSecond);
             }
+            return false;
         }
-
-        // Lock scope ends here. Dispatch inner after release so a slow
-        // channel cannot block other callers' token consumption.
-        return _inner.SendAsync(frame, ct);
     }
 
     [LoggerMessage(
@@ -172,3 +182,4 @@ internal sealed partial class RateLimitedSendService : SendService
         Message = "RateLimitedSendService rejected frame 0x{FrameId:X} (max {MaxFps:F0} fps)")]
     private static partial void LogRateLimited(ILogger logger, uint frameId, int maxFps);
 }
+

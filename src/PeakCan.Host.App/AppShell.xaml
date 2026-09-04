@@ -35,7 +35,6 @@
                 <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" />
                 <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" />
                 <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" />
-                <MenuItem Header="脚本(_C)" Command="{Binding ShowScriptCommand}" />
                 <MenuItem Header="UDS 诊断(_U)" Command="{Binding ShowUdsCommand}" />
                 <MenuItem Header="HIL 测试(_I)" Command="{Binding ShowHilCommand}" />
                 <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" />

@@ -65,30 +65,25 @@ public static class CliArgsParser
         {
             switch (args[i])
             {
-                case "--dbc": dbc = args[++i]; break;
-                case "--trace": trace = args[++i]; break;
-                case "--suite": suite = args[++i]; break;
-                case "--output": output = args[++i]; break;
-                case "--format": format = args[++i]; break;
-                case "--hw": hw = args[++i]; break;
-                case "--ecu": ecu = args[++i]; break;
-                case "--matrix": matrix = args[++i]; break;
+                case "--dbc": dbc = NextArg(args, ref i, "--dbc"); break;
+                case "--trace": trace = NextArg(args, ref i, "--trace"); break;
+                case "--suite": suite = NextArg(args, ref i, "--suite"); break;
+                case "--output": output = NextArg(args, ref i, "--output"); break;
+                case "--format": format = NextArg(args, ref i, "--format"); break;
+                case "--hw": hw = NextArg(args, ref i, "--hw"); break;
+                case "--ecu": ecu = NextArg(args, ref i, "--ecu"); break;
+                case "--matrix": matrix = NextArg(args, ref i, "--matrix"); break;
                 case "--enable-faults": enableFaults = true; break;
-                case "--uds-req": udsReq = ParseUdsId(args[++i]); break;
-                case "--uds-resp": udsResp = ParseUdsId(args[++i]); break;
-                // Phase 4 ODX import
-                case "--import-odx": importOdx = args[++i]; break;
-                case "--ecu-name": importEcuName = args[++i]; break;
-                case "--import-uds-req": importReq = ParseUdsId(args[++i]); break;
-                case "--import-uds-resp": importResp = ParseUdsId(args[++i]); break;
-                // Phase 5 Sprint 13 standalone simulator
+                case "--uds-req": udsReq = ParseUdsId(NextArg(args, ref i, "--uds-req"), "--uds-req"); break;
+                case "--uds-resp": udsResp = ParseUdsId(NextArg(args, ref i, "--uds-resp"), "--uds-resp"); break;
+                case "--import-odx": importOdx = NextArg(args, ref i, "--import-odx"); break;
+                case "--ecu-name": importEcuName = NextArg(args, ref i, "--ecu-name"); break;
+                case "--import-uds-req": importReq = ParseUdsId(NextArg(args, ref i, "--import-uds-req"), "--import-uds-req"); break;
+                case "--import-uds-resp": importResp = ParseUdsId(NextArg(args, ref i, "--import-uds-resp"), "--import-uds-resp"); break;
                 case "--simulate": simulate = true; break;
-                // Phase 6 Sprint 15 frame export
-                case "--export-frames": exportFramesDir = args[++i]; break;
-                // Phase 7 Unit B external generator plugin directory
-                case "--generator-dir": generatorDir = args[++i]; break;
-                // Phase 7 Unit D multi-bus gateway config
-                case "--gateway": gatewayPath = args[++i]; break;
+                case "--export-frames": exportFramesDir = NextArg(args, ref i, "--export-frames"); break;
+                case "--generator-dir": generatorDir = NextArg(args, ref i, "--generator-dir"); break;
+                case "--gateway": gatewayPath = NextArg(args, ref i, "--gateway"); break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -96,6 +91,10 @@ public static class CliArgsParser
                     break;
             }
         }
+
+        var allowedFormats = new[] { "console", "trx", "junit", "html", "html+junit", "json" };
+        if (!allowedFormats.Contains(format))
+            throw new ArgumentException($"Unsupported --format '{format}'. Expected: {string.Join(", ", allowedFormats)}.");
 
         // Validation: ODX import mode OR simulate mode OR normal mode
         if (importOdx is not null)
@@ -136,13 +135,31 @@ public static class CliArgsParser
     }
 
     /// <summary>
+    /// Read and consume the value that follows <paramref name="option"/>.
+    /// </summary>
+    private static string NextArg(string[] args, ref int i, string option)
+    {
+        if (i + 1 >= args.Length)
+            throw new ArgumentException($"Missing value for {option}.");
+        i++;
+        return args[i];
+    }
+
+    /// <summary>
     /// 解析 UDS CAN ID 字符串（支持十进制和 0x 前缀十六进制）。
     /// </summary>
-    private static uint ParseUdsId(string raw)
+    private static uint ParseUdsId(string raw, string option)
     {
-        if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToUInt32(raw[2..], 16);
-        return Convert.ToUInt32(raw);
+        var isHex = raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
+        var number = isHex ? raw[2..] : raw;
+        if (!uint.TryParse(number,
+                isHex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var id))
+        {
+            throw new ArgumentException($"Invalid CAN ID for {option}: '{raw}'.");
+        }
+        return id;
     }
 
     private static void PrintHelp()
@@ -170,3 +187,6 @@ public static class CliArgsParser
         Console.WriteLine("  --help, -h         Show this help");
     }
 }
+
+
+

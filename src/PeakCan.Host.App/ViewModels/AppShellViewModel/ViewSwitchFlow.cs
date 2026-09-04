@@ -12,7 +12,7 @@ public sealed partial class AppShellViewModel
     // ====================================================================
     // P1-6 (D5 入口语义规则): 需要与主界面持续并看 → 常驻面板/tab；独立生命周期
     // /高密度工作区/大工具 → 窗口。当前映射：
-    //   主区域 tab   : 追踪 / DBC / 脚本 / 回放（低频任务）
+    //   主区域 tab   : 追踪 / DBC / 回放（低频任务）
     //   右侧常驻面板  : 发送 / 信号 / 统计（高频实时，永远与追踪同屏）
     //   独立窗口      : Trace Viewer / UDS / Multi-frame / ECU 脚本编辑器 / HIL
     //   模态对话框    : DbcTreePicker（picker，不属窗口类）；连接设置（P1-2）
@@ -44,9 +44,6 @@ public sealed partial class AppShellViewModel
 
     [RelayCommand]
     private void ShowStats() => SelectedRightTabIndex = 2;
-
-    [RelayCommand]
-    private void ShowScript() => SelectedMainTabIndex = 2;
 
     [RelayCommand]
     private void ShowUds()
@@ -83,7 +80,7 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowReplay() => SelectedMainTabIndex = 3;
+    private void ShowReplay() => SelectedMainTabIndex = 2;
 
     [RelayCommand]
     private void OpenMultiFrame()
@@ -190,3 +187,4 @@ public sealed partial class AppShellViewModel
 
     private void OnOpenEcuEditorRequested() => ShowEcuScriptEditorCommand.Execute(null);
 }
+

@@ -1447,11 +1447,10 @@ public class AppShellViewModelTests
     public void MainTabs_RightTabs_ExposeExpectedHeaders()
     {
         var vm = NewVm();
-        vm.MainTabs.Should().HaveCount(4);
+        vm.MainTabs.Should().HaveCount(3);
         vm.MainTabs[0].Header.Should().Be("追踪");
         vm.MainTabs[1].Header.Should().Be("DBC");
-        vm.MainTabs[2].Header.Should().Be("脚本");
-        vm.MainTabs[3].Header.Should().Be("回放");
+        vm.MainTabs[2].Header.Should().Be("回放");
         vm.RightTabs.Should().HaveCount(3);
         vm.RightTabs[0].Header.Should().Be("发送");
         vm.RightTabs[1].Header.Should().Be("信号");
@@ -1459,10 +1458,10 @@ public class AppShellViewModelTests
     }
 
     [Fact]
-    public void ShowScriptCommand_SelectsMainTab2()
+    public void ShowReplayCommand_SelectsMainTab2()
     {
         var vm = NewVm();
-        vm.ShowScriptCommand.Execute(null);
+        vm.ShowReplayCommand.Execute(null);
         vm.SelectedMainTabIndex.Should().Be(2);
     }
 
@@ -1693,3 +1692,5 @@ public class AppShellViewModelTests
         shell.ConnectionState.Should().Be("已断开");
     }
 }
+
+

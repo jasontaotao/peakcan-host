@@ -163,6 +163,20 @@ public sealed class IsoTpLayerTests
     //      0xF1..0xF9 → 100..900 µs
     // ========================================================================
 
+    [Theory]
+    [InlineData(0xF1, 1_000)]
+    [InlineData(0xF9, 9_000)]
+    [InlineData(0x05, 50_000)]
+    [InlineData(0x80, 0)]
+    [InlineData(0xFA, 0)]
+    public void StMinToTimeSpan_Uses_Iso_Units(int raw, long expectedTicks)
+    {
+        var method = typeof(IsoTpLayer).GetMethod("StMinToTimeSpan",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        var actual = Assert.IsType<TimeSpan>(method!.Invoke(null, new object[] { raw }));
+        Assert.Equal(TimeSpan.FromTicks(expectedTicks), actual);
+    }
     [Fact]
     public async Task HandleFlowControl_StMin_0x05_Applies_5ms_Per_CF_Delay()
     {
@@ -1146,7 +1160,7 @@ public sealed class IsoTpLayerTests
 
         var snap = iso.SnapshotTxState();
         snap.StMinRaw.Should().Be(0xF2);
-        snap.StMinDelay.Should().Be(TimeSpan.FromTicks(2), "0xF2-0xF0 = 2 ticks = 200 µs");
+        snap.StMinDelay.Should().Be(TimeSpan.FromTicks(2_000), "0xF2-0xF0 = 2 × 100 µs = 200 µs = 2,000 ticks");
     }
 
     [Fact]
@@ -1165,3 +1179,4 @@ public sealed class IsoTpLayerTests
         iso.Config.Should().Be(config, "CanIdConfig is an immutable record — the exposed reference must equal it");
     }
 }
+

@@ -126,8 +126,8 @@ public sealed partial class IsoTpLayer
             return TimeSpan.FromMilliseconds(stMinRaw);
         if (stMinRaw >= 0xF1 && stMinRaw <= 0xF9)
         {
-            // 100 µs = 1 tick (TimeSpan tick = 100 ns).
-            return TimeSpan.FromTicks(stMinRaw - 0xF0);
+            // 100 µs = 1,000 ticks (TimeSpan tick = 100 ns).
+            return TimeSpan.FromTicks((stMinRaw - 0xF0) * 1_000);
         }
         return TimeSpan.Zero; // reserved range
     }

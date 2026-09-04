@@ -30,6 +30,8 @@
     <SolidColorBrush x:Key="ErrorBg" Color="#FDEBEC" />
     <SolidColorBrush x:Key="Info" Color="#0B5CAD" />
     <SolidColorBrush x:Key="FrameBgFd" Color="#E3F2FD" />
+    <SolidColorBrush x:Key="FrameBgSim" Color="#F0F0F0" />
+    <SolidColorBrush x:Key="FrameFgSim" Color="#999999" />
     <SolidColorBrush x:Key="FrameBgError" Color="#FFCDD2" />
     <SolidColorBrush x:Key="FrameBgHighlight" Color="#FFFDE7" />
     <!-- 高亮调色板 TraceHl1..5（spec §5.6：索引 0 复用 FrameBgHighlight，1..5 新增） -->
@@ -46,3 +48,4 @@
     <FontFamily x:Key="FontMono">Consolas</FontFamily>
     <FontFamily x:Key="FontUI">Segoe UI</FontFamily>
 </ResourceDictionary>
+

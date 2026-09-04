@@ -6,6 +6,46 @@ namespace PeakCan.Host.Cli.Tests;
 
 public class CliArgsParserTests
 {
+    [Theory]
+    [InlineData("--dbc")]
+    [InlineData("--trace")]
+    [InlineData("--suite")]
+    [InlineData("--output")]
+    [InlineData("--format")]
+    [InlineData("--hw")]
+    [InlineData("--ecu")]
+    [InlineData("--matrix")]
+    [InlineData("--uds-req")]
+    [InlineData("--uds-resp")]
+    [InlineData("--import-odx")]
+    [InlineData("--ecu-name")]
+    [InlineData("--import-uds-req")]
+    [InlineData("--import-uds-resp")]
+    [InlineData("--export-frames")]
+    [InlineData("--generator-dir")]
+    [InlineData("--gateway")]
+    public void Parse_ValueOption_AtEnd_ThrowsArgumentException_WithOptionName(string option)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(new[] { option }));
+        Assert.Contains(option, ex.Message);
+    }
+
+    [Fact]
+    public void Parse_InvalidFormat_ThrowsArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            CliArgsParser.Parse(With("--hw", "USB1", "--format", "htl")));
+        Assert.Contains("Unsupported --format", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_InvalidUdsId_ThrowsArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            CliArgsParser.Parse(With("--hw", "USB1", "--uds-req", "not-a-number")));
+        Assert.Contains("--uds-req", ex.Message);
+    }
+
     private static readonly string[] _baseArgs = { "--dbc", "x.dbc", "--suite", "y.json" };
 
     private static string[] With(params string[] extra) => _baseArgs.Concat(extra).ToArray();
@@ -116,3 +156,4 @@ public class CliArgsParserTests
         Assert.Null(cli.GatewayPath);
     }
 }
+
