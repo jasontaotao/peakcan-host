@@ -13,6 +13,8 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
+using PeakCan.Host.App.Views.HIL;
+using PeakCan.Host.App.ViewModels.HIL;
 using PeakCan.Host.App.ViewModels.Nodes;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
@@ -366,6 +368,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
                 .ToList());
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
+        // M5: Recording panel hands the recorded trace to the preview dialog.
+        _recordingPanel.TraceToEnvironmentRequested += OnTraceToEnvironmentRequested;
         // v3.6.0 MINOR T3: MRU list + file-dialog wiring. The
         // RecentSessionsService is a singleton; subscribing to its
         // PropertyChanged keeps the AppShell menu in sync with
@@ -519,6 +523,19 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     [ObservableProperty]
     private bool _isRecordingPanelOpen;
 
+    private void OnTraceToEnvironmentRequested(object? sender, string tracePath)
+    {
+        var vm = new TraceToEnvironmentViewModel(_fileDialogs, new SuiteEnvironmentWriter())
+        {
+            TracePath = System.IO.File.Exists(tracePath) ? tracePath : "",
+            SuitePath = _hilViewModel.SuitePath,
+        };
+        var win = new TraceToEnvironmentWindow { DataContext = vm };
+        if (Application.Current?.MainWindow is { } owner && owner != win)
+            win.Owner = owner;
+        win.ShowDialog();
+    }
+
     [RelayCommand]
     private void ToggleRecordingPanel()
     {
@@ -536,3 +553,4 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // === Flow B methods moved to AppShellViewModel/ViewSwitchFlow.cs (W4 Task 3) ===
     // === Flow A methods moved to AppShellViewModel/ChannelFlow.cs (W4 Task 4) ===
 }
+

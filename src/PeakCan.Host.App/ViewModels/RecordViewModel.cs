@@ -44,6 +44,8 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
     [ObservableProperty]
     private string _status = "";
 
+    public event EventHandler<string>? TraceToEnvironmentRequested;
+
     public RecordViewModel(RecordService record, ILogger<RecordViewModel> logger)
     {
         _record = record ?? throw new ArgumentNullException(nameof(record));
@@ -87,6 +89,7 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
     {
         IsRecording = _record.IsRecording;
         FrameCount = _record.FrameCount;
+        OpenTraceToEnvironmentCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -101,6 +104,12 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
         if (dlg.ShowDialog() == true) OutputPath = dlg.FileName;
     }
 
+    [RelayCommand(CanExecute = nameof(CanOpenTraceToEnvironment))]
+    private void OpenTraceToEnvironment()
+        => TraceToEnvironmentRequested?.Invoke(this, OutputPath);
+
+    private bool CanOpenTraceToEnvironment() => !IsRecording && !string.IsNullOrWhiteSpace(OutputPath);
+
     [RelayCommand]
     private void Start()
     {
@@ -114,6 +123,7 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
             var dir = Path.GetDirectoryName(OutputPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             _record.StartRecording(OutputPath, Format);
+            OpenTraceToEnvironmentCommand.NotifyCanExecuteChanged();
             Status = $"Recording → {OutputPath}";
             var formatName = Format.ToString();
             LogStart(_logger, OutputPath, formatName);
@@ -131,6 +141,7 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
         try
         {
             _record.StopRecording();
+            OpenTraceToEnvironmentCommand.NotifyCanExecuteChanged();
             Status = $"Stopped ({FrameCount} frames)";
             LogStop(_logger, FrameCount);
         }

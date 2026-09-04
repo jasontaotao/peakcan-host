@@ -1,0 +1,52 @@
+<Window x:Class="PeakCan.Host.App.Views.HIL.TraceToEnvironmentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="录制转为环境" Width="1000" Height="680" WindowStartupLocation="CenterOwner">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="80"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Trace:" VerticalAlignment="Center"/>
+            <TextBox Grid.Column="1" Text="{Binding TracePath, UpdateSourceTrigger=PropertyChanged}" Margin="4,0"/>
+            <Button Grid.Column="2" Content="浏览" Command="{Binding BrowseTraceCommand}"/>
+            <TextBlock Grid.Column="3" Text="Suite:" Margin="16,0,0,0" VerticalAlignment="Center"/>
+            <TextBox Grid.Column="4" Text="{Binding SuitePath, UpdateSourceTrigger=PropertyChanged}" Margin="4,0"/>
+            <Button Grid.Column="5" Content="浏览" Command="{Binding BrowseSuiteCommand}"/>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="分析 Trace" Command="{Binding LoadCommand}" Width="110"/>
+            <Button Content="写入 Suite" Command="{Binding WriteSuiteCommand}" Margin="8,0,0,0" Width="110"/>
+            <TextBlock Text="{Binding Status}" Margin="16,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"/>
+        </StackPanel>
+
+        <DataGrid Grid.Row="2" ItemsSource="{Binding Candidates}" AutoGenerateColumns="False" CanUserAddRows="False"
+                  IsReadOnly="False" HeadersVisibility="Column" Margin="0,0,0,8">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="导入" Binding="{Binding Include, UpdateSourceTrigger=PropertyChanged}" Width="48"/>
+                <DataGridTextColumn Header="节点名" Binding="{Binding NodeName}" Width="150"/>
+                <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="100"/>
+                <DataGridTextColumn Header="身份" Binding="{Binding Identity}" Width="130"/>
+                <DataGridTextColumn Header="报文" Binding="{Binding Message}" Width="220"/>
+                <DataGridTextColumn Header="帧数" Binding="{Binding FrameCount}" Width="60"/>
+                <DataGridTextColumn Header="周期(ms)" Binding="{Binding IntervalMs}" Width="80"/>
+                <DataGridTextColumn Header="抖动CV" Binding="{Binding IntervalCv, StringFormat=F3}" Width="80"/>
+                <DataGridTextColumn Header="载荷" Binding="{Binding PayloadMode}" Width="100"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <ItemsControl Grid.Row="3" ItemsSource="{Binding BlockingErrors}" Margin="0,0,0,8" Foreground="Firebrick"/>
+
+        <TextBlock Grid.Row="4" Text="说明：只导入勾选的周期组；不生成规则/UDS 行为。DBC 可匹配时使用信号载荷，否则使用固定字节。" TextWrapping="Wrap" Foreground="DimGray"/>
+    </Grid>
+</Window>
