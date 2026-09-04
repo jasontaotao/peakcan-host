@@ -53,6 +53,24 @@ public class TraceViewerViewXamlTests
         }
     }
 
+    [Fact]
+    public void TraceViewer_UsesFluentIcons_InsteadOfTextGlyphs()
+    {
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+
+        var traceViewer = File.ReadAllText(Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerView.xaml"));
+        var chatPanel = File.ReadAllText(Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewChatPanel.xaml"));
+
+        traceViewer.Should().NotContain("Content=\"● 当前\"");
+        traceViewer.Should().NotContain("Content=\"● 比较\"");
+        traceViewer.Should().NotContain("Content=\"[▼ Collapse]\"");
+        traceViewer.Should().Contain("icons:FluentIconGlyphs.Record");
+        traceViewer.Should().Contain("icons:FluentIconGlyphs.ChevronDown");
+
+        chatPanel.Should().NotContain("工具 ▼");
+        chatPanel.Should().Contain("icons:FluentIconGlyphs.ChevronDown");
+    }
     private static string? FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -75,6 +75,11 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    public bool TryGetPlot(string signalKey, out Plot plot)
+    {
+        return _activePlots.TryGetValue(signalKey, out plot!);
+    }
+
     /// <summary>v3.62.0 MINOR: View registers its WpfPlot.Plot so VM can add anchor lines.</summary>
     public void RegisterPlot(string signalKey, Plot plot)
     {
@@ -98,6 +103,22 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _loadedTracePath = "";
 
+    [ObservableProperty]
+    private bool _isXAxisSyncEnabled = true;
+
+    partial void OnIsXAxisSyncEnabledChanged(bool value)
+    {
+        if (!value) return;
+
+        var source = ChartViewModel.Series.FirstOrDefault(s => s.IsFocused && !s.IsCollapsed)
+                     ?? ChartViewModel.Series.FirstOrDefault(s => !s.IsCollapsed);
+        if (source is null) return;
+
+        var plot = ChartViewModel.PlotResolver?.Invoke(source.SignalKey);
+        if (plot is null) return;
+
+        ChartViewModel.SyncXAxis(plot.Axes.Bottom.Min, plot.Axes.Bottom.Max);
+    }
     [ObservableProperty]
     private string _loadedDbcPath = "";
 

@@ -259,6 +259,53 @@ public class TraceChartViewModelTests
         plotB.Axes.Left.Max.Should().BeApproximately(2.05, 0.001);
     }
 
+    [Fact]
+    public void SyncXAxis_ExcludeKey_SkipsOriginator()
+    {
+        var sut = new TraceChartViewModel();
+        var plots = new Dictionary<string, Plot> { ["A"] = new(), ["B"] = new(), ["C"] = new() };
+        sut.PlotResolver = key => plots.GetValueOrDefault(key);
+        sut.AddSeries(MakeSeries("A", (0, 1), (1, 2)));
+        sut.AddSeries(MakeSeries("B", (0, 1), (1, 2)));
+        sut.AddSeries(MakeSeries("C", (0, 1), (1, 2)));
+
+        sut.SyncXAxis(10, 20, excludeKey: "B");
+
+        plots["A"].Axes.Bottom.Min.Should().Be(10);
+        plots["A"].Axes.Bottom.Max.Should().Be(20);
+        plots["B"].Axes.Bottom.Min.Should().NotBe(10);
+        plots["C"].Axes.Bottom.Min.Should().Be(10);
+    }
+
+    [Fact]
+    public void SyncXAxis_ExcludeKeyNull_PreservesExistingBehavior()
+    {
+        var sut = new TraceChartViewModel();
+        var plots = new Dictionary<string, Plot> { ["A"] = new(), ["B"] = new() };
+        sut.PlotResolver = key => plots.GetValueOrDefault(key);
+        sut.AddSeries(MakeSeries("A", (0, 1), (1, 2)));
+        sut.AddSeries(MakeSeries("B", (0, 1), (1, 2)));
+
+        sut.SyncXAxis(10, 20);
+
+        plots["A"].Axes.Bottom.Min.Should().Be(10);
+        plots["B"].Axes.Bottom.Min.Should().Be(10);
+    }
+
+    [Fact]
+    public void SyncXAxis_SameLimits_ShortCircuits()
+    {
+        var sut = new TraceChartViewModel();
+        var plot = new Plot();
+        plot.Axes.SetLimitsX(10, 20);
+        sut.PlotResolver = _ => plot;
+        sut.AddSeries(MakeSeries("A", (0, 1), (1, 2)));
+
+        sut.SyncXAxis(10, 20);
+
+        plot.Axes.Bottom.Min.Should().Be(10);
+        plot.Axes.Bottom.Max.Should().Be(20);
+    }
     // ---------- v3.8.6 PATCH L1: ApplyViewports tolerates duplicate EffectiveKey ----------
 
     /// <summary>

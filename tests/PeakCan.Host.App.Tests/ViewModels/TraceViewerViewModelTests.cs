@@ -977,6 +977,36 @@ public class TraceViewerViewModelTests
             "the field defaults to null and is set later by the loader after ASC header parse");
     }
 
+    private static readonly double[] _xs = { 0d, 1d };
+    private static readonly double[] _ys = { 0d, 1d };
+
+    [Fact]
+    public void IsXAxisSyncEnabled_DefaultTrue()
+    {
+        var vm = NewVm();
+        vm.IsXAxisSyncEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsXAxisSyncEnabled_ToggleOn_AlignsToFocusedSeries()
+    {
+        var vm = NewVm();
+        var plots = new Dictionary<string, Plot> { ["A"] = new(), ["B"] = new() };
+        vm.ChartViewModel.PlotResolver = key => plots.GetValueOrDefault(key);
+        vm.ChartViewModel.AddSeries(new TraceChartSeries("A", "A", "", Colors.Blue, null,
+            _xs, _ys, 0, 1, true, false, SourceId: "S"));
+        vm.ChartViewModel.AddSeries(new TraceChartSeries("B", "B", "", Colors.Blue, null,
+            _xs, _ys, 0, 1, false, false, SourceId: "S"));
+        plots["A"].Axes.SetLimitsX(10, 20);
+        plots["B"].Axes.SetLimitsX(30, 40);
+
+        vm.IsXAxisSyncEnabled = false;
+        vm.IsXAxisSyncEnabled = true;
+
+        plots["A"].Axes.Bottom.Min.Should().Be(10);
+        plots["B"].Axes.Bottom.Min.Should().Be(10);
+        plots["B"].Axes.Bottom.Max.Should().Be(20);
+    }
     // v3.x (会话状态剥离 Task 3): Reset() 已删除——VM 改 transient 后窗口关闭即
     // 释放实例，无需手工清理窗口级状态。原 Reset_Clears_WatchedSignals_Collection /
     // Reset_Resets_Anchor_To_NaN / Reset_Clears_SamplingRows 用例随之删除。

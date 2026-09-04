@@ -100,14 +100,33 @@
                  — user reported "显示当前锚点/显示比较锚点 太占地方";
                  shorter labels fit in toolbar 1-screen at narrower window
                  widths. Tooltip preserves the full description. -->
-            <ToggleButton Content="● 当前"
-                          IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
+            <ToggleButton IsChecked="{Binding IsGreenLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="当前锚点: 绿线, 拖动设 anchor 时刻, watch list Latest 列读该时刻解码值" />
-            <ToggleButton Content="● 比较"
-                          IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
+                          ToolTip="当前锚点: 绿线, 拖动设 anchor 时刻, watch list Latest 列读该时刻解码值">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Record}"
+                               FontFamily="Segoe Fluent Icons" Foreground="Green" Margin="0,0,4,0" />
+                    <TextBlock Text="当前" />
+                </StackPanel>
+            </ToggleButton>
+            <ToggleButton IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, watch list Blue 列读该时刻解码值, Δ = Blue - 当前" />
+                          ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, watch list Blue 列读该时刻解码值, Δ = Blue - 当前">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Record}"
+                               FontFamily="Segoe Fluent Icons" Foreground="Blue" Margin="0,0,4,0" />
+                    <TextBlock Text="比较" />
+                </StackPanel>
+            </ToggleButton>
+            <ToggleButton IsChecked="{Binding IsXAxisSyncEnabled, Mode=TwoWay}"
+                          Padding="6,2" Margin="4,0,0,0"
+                          ToolTip="同步 X 轴：开启后任意子图缩放/平移会同步到其他子图">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Link}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="同步 X" />
+                </StackPanel>
+            </ToggleButton>
                     </StackPanel>
 
         <!-- v3.2.0 MINOR: per-source legend strip. Each entry shows a colored
@@ -218,7 +237,8 @@
                                     <StackPanel Orientation="Horizontal" Margin="8,0">
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
                                         <Button Content="[Focus]" Click="OnFocusSubplotClick" Margin="8,0,4,0" Padding="4,0" />
-                                        <Button Content="[▼ Collapse]" Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0" />
+                                        <Button Content="[Fit]" Click="OnFitSubplotClick" Margin="0,0,4,0" Padding="4,0" />
+                                        <Button Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0"><StackPanel Orientation="Horizontal"><TextBlock Text="{x:Static icons:FluentIconGlyphs.ChevronDown}" FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" /><TextBlock Text="Collapse" /></StackPanel></Button>
                                     </StackPanel>
                                     <!-- v3.50.0 MINOR T3: PlotView drag handler.
                                          Background=Transparent is REQUIRED so the
@@ -242,7 +262,8 @@
                                                      PreviewMouseLeftButtonDown="OnPlotViewMouseDown"
                                                      PreviewMouseLeftButtonUp="OnPlotViewMouseUp"
                                                      PreviewMouseMove="OnPlotViewMouseMove"
-                                                     PreviewMouseRightButtonDown="OnPlotViewRightButtonDown" />
+                                                     PreviewMouseRightButtonDown="OnPlotViewRightButtonDown"
+                                                     MouseLeave="OnPlotViewMouseLeave" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>

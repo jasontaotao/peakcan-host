@@ -11,10 +11,11 @@ public sealed partial class TraceChartViewModel
     public Func<string, Plot?>? PlotResolver { get; set; }
 
     /// <summary>Called by subplot's X-axis when user zooms/pans. Syncs all others.</summary>
-    public void SyncXAxis(double minimum, double maximum)
+    public void SyncXAxis(double minimum, double maximum, string? excludeKey = null)
     {
         foreach (var s in Series)
         {
+            if (excludeKey is not null && s.SignalKey == excludeKey) continue;
             var plot = PlotResolver?.Invoke(s.SignalKey);
             if (plot is null) continue;
             var xAxis = plot.Axes.Bottom;

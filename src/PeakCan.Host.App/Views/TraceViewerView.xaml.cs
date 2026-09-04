@@ -1,8 +1,13 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using Microsoft.Win32;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.HIL.Core.Analysis;
 using ScottPlot;
+using ScottPlot.Interactivity.UserActionResponses;
 using ScottPlot.WPF;
 
 namespace PeakCan.Host.App.Views;
@@ -11,6 +16,11 @@ public partial class TraceViewerView : Window
 {
     /// <summary>v3.62.0: 保存 OnCompleted 处理器引用以便取消订阅。</summary>
     private readonly Dictionary<string, Action<ProgressiveScatterSource>> _completedHandlers = new();
+
+    private Popup? _tooltipPopup;
+    private TextBlock? _tooltipName;
+    private TextBlock? _tooltipTime;
+    private TextBlock? _tooltipValue;
 
     public TraceViewerView()
     {
@@ -225,9 +235,11 @@ public partial class TraceViewerView : Window
             catch { /* 图表未就绪，忽略 */ }
         }
 
-        // 3) 绿线不存在 → 首次创建并拖拽
+        // 3) 绿线不存在 → 数据区首次创建并拖拽；轴区放行给 ScottPlot 平移
         if (!vm.IsGreenLineAnchorActive)
         {
+            if (!IsInsideDataArea(pv, pixel)) return;
+
             _isDraggingGreenLine = true;
             if (sender is System.Windows.IInputElement ie) ie.CaptureMouse();
             if (TryGetAnchorSeconds(sender, e, out var ts)) CommitAnchor(ts);
@@ -254,6 +266,11 @@ public partial class TraceViewerView : Window
             }
             e.Handled = true;
         }
+    }
+
+    private void OnPlotViewMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        HideTrackerTooltip();
     }
 
     private void OnPlotViewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -295,6 +312,13 @@ public partial class TraceViewerView : Window
                 CommitAnchorBlue(ts);
                 e.Handled = true;
             }
+            return;
+        }
+
+        // 拖拽平移中不显示 tooltip
+        if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed)
+        {
+            HideTrackerTooltip();
             return;
         }
 
@@ -344,6 +368,10 @@ public partial class TraceViewerView : Window
 
         // Let the VM populate the WpfPlot's Plot (scatter + axes + LabelFormatter)
         vm.PopulatePlot(plot.Plot, series);
+
+        // X-axis sync + wheel-axis behavior + double-click fit are all
+        // wired here because UserInputProcessor lives on WpfPlot/IPlotControl.
+        ConfigurePlotInteractivity(plot, series, vm);
 
         // Set up the RefreshCallback (VM → View bridge)
         series.RefreshCallback = () => plot.Refresh();
@@ -486,20 +514,158 @@ public partial class TraceViewerView : Window
     private void ShowTrackerTooltip(WpfPlot pv, TraceChartSeries series)
     {
         var plot = pv.Plot;
-        if (plot is null) return;
+        if (plot is null || series.ProgressiveSource?.IsCompleted != true || !plot.LastRender.DataRect.HasArea)
+        {
+            HideTrackerTooltip();
+            return;
+        }
 
         var pos = System.Windows.Input.Mouse.GetPosition(pv);
-        // Convert pixel to coordinates for GetNearest
-        var coordinates = plot.GetCoordinates(new ScottPlot.Pixel(pos.X, pos.Y));
+        double dpiScale = GetDpiScale(pv);
+        var pixel = new ScottPlot.Pixel((float)(pos.X * dpiScale), (float)(pos.Y * dpiScale));
+        var coordinates = plot.GetCoordinates(pixel);
 
         var scatter = plot.GetPlottables().OfType<ScottPlot.Plottables.Scatter>().FirstOrDefault();
-        if (scatter is null) return;
+        if (scatter is null)
+        {
+            HideTrackerTooltip();
+            return;
+        }
 
         var hit = scatter.GetNearest(coordinates, plot.LastRender, 15);
-        if (!hit.IsReal) return;
+        if (!hit.IsReal)
+        {
+            HideTrackerTooltip();
+            return;
+        }
 
-        // TODO: Display tooltip UI (Popup/Adorner) with:
-        //   series.DisplayName, time=hit.Coordinates.X, value=hit.Coordinates.Y
-        // For now, this is the data-layer hook.
+        EnsureTooltipPopup();
+        if (_tooltipPopup is null || _tooltipName is null || _tooltipTime is null || _tooltipValue is null) return;
+
+        _tooltipName.Text = series.DisplayName;
+        _tooltipTime.Text = TraceTimeFormatter.Format(hit.Coordinates.X, series.Source?.WallClockOrigin);
+        _tooltipValue.Text = hit.Coordinates.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                             + (string.IsNullOrWhiteSpace(series.Unit) ? "" : " " + series.Unit);
+
+        _tooltipPopup.PlacementTarget = pv;
+        _tooltipPopup.Placement = PlacementMode.RelativePoint;
+        _tooltipPopup.HorizontalOffset = 12;
+        _tooltipPopup.VerticalOffset = 16;
+        _tooltipPopup.IsOpen = true;
+    }
+
+    private void HideTrackerTooltip()
+    {
+        if (_tooltipPopup is not null) _tooltipPopup.IsOpen = false;
+    }
+
+    private void EnsureTooltipPopup()
+    {
+        if (_tooltipPopup is not null) return;
+
+        _tooltipName = new TextBlock { FontWeight = FontWeights.SemiBold };
+        _tooltipTime = new TextBlock { Opacity = 0.9 };
+        _tooltipValue = new TextBlock { Opacity = 0.95 };
+        var stack = new StackPanel { Margin = new Thickness(8, 6, 8, 6) };
+        stack.Children.Add(_tooltipName);
+        stack.Children.Add(_tooltipTime);
+        stack.Children.Add(_tooltipValue);
+        var border = new Border
+        {
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(220, 24, 24, 24)),
+            CornerRadius = new CornerRadius(4),
+            IsHitTestVisible = false,
+            Child = stack,
+        };
+
+        _tooltipPopup = new Popup
+        {
+            AllowsTransparency = true,
+            StaysOpen = true,
+            IsHitTestVisible = false,
+            Child = border,
+        };
+    }
+
+    private void ConfigurePlotInteractivity(WpfPlot plot, TraceChartSeries series, TraceViewerViewModel vm)
+    {
+        var responses = plot.UserInputProcessor.UserActionResponses;
+
+        // WPF Loaded can fire more than once; keep exactly one sync response per plot.
+        foreach (var old in responses.OfType<SharedXAxisSyncResponse>().ToList())
+            responses.Remove(old);
+        responses.Add(new SharedXAxisSyncResponse(
+            series.SignalKey,
+            vm.ChartViewModel.SyncXAxis,
+            () => vm.IsXAxisSyncEnabled));
+
+        var wheelZoom = responses.OfType<MouseWheelZoom>().FirstOrDefault();
+        if (wheelZoom is not null) wheelZoom.ZoomAxisUnderMouse = true;
+
+        // ScottPlot 5.0.55 defaults to DoubleClickBenchmark; replace it with Fit.
+        foreach (var oldBenchmark in responses.OfType<DoubleClickBenchmark>().ToList())
+            responses.Remove(oldBenchmark);
+        foreach (var oldFit in responses.OfType<DoubleClickResponse>().ToList())
+            responses.Remove(oldFit);
+        responses.Add(new DoubleClickResponse(
+            ScottPlot.Interactivity.StandardMouseButtons.Left,
+            (control, _) => FitSubplot(control.Plot, series, vm, control)));
+    }
+
+    private void OnFitSubplotClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe
+            && fe.DataContext is TraceChartSeries series
+            && DataContext is TraceViewerViewModel vm
+            && vm.TryGetPlot(series.SignalKey, out var plot))
+        {
+            FitSubplot(plot, series, vm);
+        }
+    }
+
+    private static void FitSubplot(Plot plot, TraceChartSeries series, TraceViewerViewModel vm, IPlotControl? control = null)
+    {
+        if (TryGetYFitRange(series, out var yMin, out var yMax))
+            plot.Axes.SetLimitsY(yMin, yMax);
+
+        var xMax = vm.TotalDuration > 0 ? vm.TotalDuration : 1.0;
+        plot.Axes.SetLimitsX(0, xMax);
+        vm.ChartViewModel.SyncXAxis(0, xMax);
+        series.RefreshCallback?.Invoke();
+    }
+
+    private static bool TryGetYFitRange(TraceChartSeries series, out double yMin, out double yMax)
+    {
+        yMin = double.NaN;
+        yMax = double.NaN;
+
+        if (series.ProgressiveSource is not null)
+        {
+            var (min, max) = series.ProgressiveSource.GetActualYRange();
+            if (max - min > 1e-9)
+            {
+                var pad = (max - min) * 0.1;
+                yMin = min - pad;
+                yMax = max + pad;
+                return true;
+            }
+        }
+
+        var sig = series.Signal;
+        if (sig is not null && sig.Min < sig.Max)
+        {
+            var pad = (sig.Max - sig.Min) * 0.05;
+            yMin = sig.Min - pad;
+            yMax = sig.Max + pad;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsInsideDataArea(WpfPlot pv, Pixel pixel)
+    {
+        if (pv.Plot?.LastRender is not { } render) return false;
+        return render.DataRect.Contains(pixel);
     }
 }

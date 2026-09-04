@@ -226,7 +226,7 @@
                                 <Expander.Header>
                                     <TextBlock>
                                         <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Search}"/>
-                                        <Run Text="{Binding Tools.Count, StringFormat=' 执行了 {0} 个工具 ▼'}"/>
+                                        <Run Text="{Binding Tools.Count, StringFormat=' 执行了 {0} 个工具'}"/><Run FontFamily="Segoe Fluent Icons" Text="{x:Static icons:FluentIconGlyphs.ChevronDown}"/>
                                     </TextBlock>
                                 </Expander.Header>
                                 <ItemsControl ItemsSource="{Binding Tools}">

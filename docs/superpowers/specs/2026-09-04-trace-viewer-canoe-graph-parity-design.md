@@ -73,6 +73,7 @@ EngineData.0x123.RPM          ← series.DisplayName（半透底白字）
   - 显示：非拖拽 hover 且 `GetNearest` 命中（`hit.IsReal`，15px 内）
   - 隐藏：拖拽锚点中 / 鼠标离开 plot / 未命中 / 渐进填充未完成（`IsCompleted == false` 时不显示，避免半个波形出误导值）
   - 移动：hover 移动时更新位置与内容（已命中点切换才更新文本，纯位移只挪 Popup）
+  - **Popup 属性**：code-behind 懒创建时设置 `StaysOpen="True"`、`IsHitTestVisible="False"`，避免 tooltip 抢输入或影响鼠标交互
 - **DPI**：`GetNearest` 的 pixel 入参要走现有 `GetDpiScale(pv)` 修正
   （`TryGetAnchorSeconds` 里的 Fix #1 同款），不得在 tooltip 路径漏掉
 
@@ -88,8 +89,7 @@ ScottPlot 5.0.55 的 `MouseWheelZoom.ZoomAxisUnderMouse`（XML 文档确认存�
 
 > "when the mouse zooms while hovered over an axis only that axis will be changed"
 
-- **Step 0 验证**：确认该属性默认值（5.0.55 默认应为 true）。若为 false，
-  在 `PopulatePlot` 里显式设为 true（见 2.3 接线方式）
+- **已核验**：`ZoomAxisUnderMouse` 在 5.0.55 默认为 true；实现仍显式设为 true（见 2.3 接线方式）
 - **预期行为**：鼠标悬停在 Y 轴刻度区滚轮 → 只缩该子图 Y 轴；
   悬停在 plot 数据区滚轮 → 缩 XY（X 变化经需求 3 的同步广播到其他子图，
   Y 变化只留本子图——**Y 轴不跨子图同步**，用户已明确）
@@ -100,7 +100,7 @@ ScottPlot 5.0.55 的 `MouseWheelZoom.ZoomAxisUnderMouse`（XML 文档确认存�
 左键拖拽也变成创建锚点。**修正**：按下时先判定像素是否落在数据区外（轴区），
 落在轴区则直接放行（`return`，不 `e.Handled`），让 ScottPlot 的轴拖拽平移接管。
 
-判定方法（Step 0 验证 API 存在性后定稿）：
+判定方法（已核验 `RenderDetails.DataRect` 存在；首帧前需判空）：
 
 ```csharp
 // 首选：RenderDetails.DataRect（ScottPlot 5 的 RenderDetails 公开数据区像素矩形）
@@ -113,9 +113,8 @@ bool inAxisZone = pixel.X < dataRect.Left;   // Y 轴区 = 数据区左侧
 
 #### 2.2.3 双击 fit + [Fit] 按钮
 
-**双击通道走 ScottPlot 的 `DoubleClickResponse.ResponseAction` 替换**
-（XML 文档确认可替换："Replace this action with your own logic to customize
-double-click behavior"），**不走** WPF `MouseDoubleClick` 事件——原因：
+**双击通道：移除默认 `DoubleClickBenchmark`，新增 `DoubleClickResponse`**
+ScottPlot 5.0.55 默认 `UserInputProcessor` 里存在的是 `DoubleClickBenchmark`，不是 `DoubleClickResponse`。执行时应在 `OnChartPlotLoaded` 移除/替换默认项，再添加 `DoubleClickResponse(MouseButton.Left, ...)`。`ResponseAction` 的实际委托签名已核验为 `Action<IPlotControl, ScottPlot.Pixel>`。仍**不走** WPF `MouseDoubleClick` 事件——原因：
 
 1. ScottPlot 内部已有双击判定（`MaximumTimeBetweenClicks`），行为与其他
    ScottPlot 交互一致
@@ -140,9 +139,8 @@ spec 评审时用户已知悉此副作用。
   `Click` handler 转发到同一个 `FitYToData` + X 广播路径。保底路径，
   不依赖双击手势的可发现性
 
-**改动**：`ChartSeriesFlow.cs`（PopulatePlot 里换 DoubleClickResponse）+
-`TraceViewerView.xaml`（按钮）+ `TraceViewerView.xaml.cs`
-（`OnFitSubplotClick` + 提取 `FitYToData`），~60 LoC。
+**改动**：`TraceViewerView.xaml.cs`（OnChartPlotLoaded 双击响应接线 + `OnFitSubplotClick` + 提取 `FitYToData`）+
+`TraceViewerView.xaml`（按钮），~60 LoC。
 
 ### 2.3 需求 3：X 轴交互时实时同步
 
@@ -158,7 +156,7 @@ spec 评审时用户已知悉此副作用。
 | `IPlotControl.UserInputProcessor` 属性 | `P:ScottPlot.IPlotControl.UserInputProcessor` |
 | `UserInputProcessor.UserActionResponses` 公开字段（List 语义，可 Add） | `F:ScottPlot.Interactivity.UserInputProcessor.UserActionResponses` |
 | `IUserActionResponse.Execute(IPlotControl, IUserAction, KeyboardState)` + `ResetState(IPlotControl)` | XML 文档签名 |
-| IUserAction 具体类型 `MouseWheelUp/MouseWheelDown/LeftClickDrag/LeftClick/MouseMove`（命名空间 `ScottPlot.Interactivity.UserActions`） | DLL 符号表 |
+| IUserAction 具体类型 `MouseWheelUp/MouseWheelDown/LeftMouseDown/MouseMove/LeftMouseUp`（命名空间 `ScottPlot.Interactivity.UserActions`） | DLL 符号表 |
 
 **新文件 `src/PeakCan.Host.App/Services/Trace/SharedXAxisSyncResponse.cs`**：
 
@@ -177,18 +175,23 @@ public sealed class SharedXAxisSyncResponse : IUserActionResponse
     private readonly TimeSpan _throttle = TimeSpan.FromMilliseconds(40);
 
     private DateTime _lastBroadcast = DateTime.MinValue;
+    private bool _isDragging;
     private (double Min, double Max)? _pending;
 
     public ResponseInfo Execute(IPlotControl control, IUserAction action, KeyboardState keys)
     {
-        if (!_isEnabled()) return ResponseInfo.NoActionTaken;   // 开关关 → 独立缩放
+        if (!_isEnabled()) return ResponseInfo.NoActionRequired;   // 开关关 → 独立缩放
 
-        bool isDiscrete = action is MouseWheelUp or MouseWheelDown;
-        bool isDragMove = action is LeftClickDrag;
-        bool isDragEnd  = action is LeftClick;   // 拖拽平移以左键松开收尾
+        bool isDiscrete  = action is MouseWheelUp or MouseWheelDown;
+        bool isDragStart = action is LeftMouseDown;
+        bool isDragMove  = action is MouseMove && _isDragging;
+        bool isDragEnd   = action is LeftMouseUp;
+
+        if (isDragStart)
+            _isDragging = true;
 
         if (!isDiscrete && !isDragMove && !isDragEnd)
-            return ResponseInfo.NoActionTaken;
+            return ResponseInfo.NoActionRequired;
 
         var xAxis = control.Plot.Axes.Bottom;
         _pending = (xAxis.Min, xAxis.Max);
@@ -199,16 +202,24 @@ public sealed class SharedXAxisSyncResponse : IUserActionResponse
             _pending = null;
             _lastBroadcast = DateTime.UtcNow;
         }
-        return ResponseInfo.NoActionTaken;   // 不消费事件，不影响 ScottPlot 默认缩放/平移
+
+        if (isDragEnd)
+            _isDragging = false;
+
+        return ResponseInfo.NoActionRequired;   // 不消费事件，不影响 ScottPlot 默认缩放/平移
     }
 
-    public void ResetState(IPlotControl control) { _pending = null; _lastBroadcast = DateTime.MinValue; }
+    public void ResetState(IPlotControl control)
+    {
+        _isDragging = false;
+        _pending = null;
+        _lastBroadcast = DateTime.MinValue;
+    }
 }
 ```
 
-> 注：`ResponseInfo.NoActionTaken` 的确切成员名以 5.0.55 编译为准
-> （备选 `ResponseInfo.None`）；`Execute` 返回值语义 = 是否已处理。
-> 本响应永远"不处理"，只做旁路观察 + 广播。
+> 注：5.0.55 实际成员是 `ResponseInfo.NoActionRequired`（不存在 `NoActionTaken` / `None`）。
+> 本响应追加在默认响应之后，永远"不处理"，只做旁路观察 + 广播。
 
 **`AxisSyncFlow.SyncXAxis` 加排除参数**：
 
@@ -234,13 +245,19 @@ public void SyncXAxis(double minimum, double maximum, string? excludeKey = null)
 **接线点**：`TraceViewerView.xaml.cs OnChartPlotLoaded`（每个 WpfPlot 创建时）：
 
 ```csharp
+// WPF Loaded 可能多次触发；接线前先移除旧实例，保证幂等。
+plot.UserInputProcessor.UserActionResponses
+    .OfType<SharedXAxisSyncResponse>()
+    .ToList()
+    .ForEach(old => plot.UserInputProcessor.UserActionResponses.Remove(old));
+
 plot.UserInputProcessor.UserActionResponses.Add(
     new SharedXAxisSyncResponse(series.SignalKey, vm.ChartViewModel.SyncXAxis,
                                 () => vm.IsXAxisSyncEnabled));
 // 签名适配：SyncXAxis(double, double, string?) 直接方法组匹配 Action<double,double,string>
 ```
 
-并在 `PopulatePlot`（或 OnChartPlotLoaded）里显式确认滚轮轴选择行为：
+并在 `OnChartPlotLoaded` 里显式确认滚轮轴选择行为：
 
 ```csharp
 var wheelZoom = plot.UserInputProcessor.UserActionResponses
@@ -252,8 +269,7 @@ if (wheelZoom is not null) wheelZoom.ZoomAxisUnderMouse = true;   // 幂等，�
 response 随之回收，无泄漏面。
 
 **改动**：新增 1 文件（~70 LoC）+ `AxisSyncFlow.cs`（+excludeKey，~3 LoC）+
-`TraceViewerView.xaml.cs`（接线 ~5 LoC）+ `ChartSeriesFlow.cs`
-（ZoomAxisUnderMouse ~4 LoC）。
+`TraceViewerView.xaml.cs`（幂等接线 + MouseWheelZoom 确认，~10 LoC）。
 
 #### 2.3.4 全局同步开关（"🔗 同步 X" toggle）
 
@@ -267,7 +283,7 @@ response 随之回收，无泄漏面。
   若用户反馈需要记忆再加，YAGNI）
 - **Response 侧**：`SharedXAxisSyncResponse` 构造函数多收一个
   `Func<bool> isEnabled`，`Execute` 入口先查——开关关则直接
-  `return ResponseInfo.NoActionTaken`，该子图独立缩放，其余子图不动
+  `return ResponseInfo.NoActionRequired`，该子图独立缩放，其余子图不动
 - **切 OFF → ON 的对齐策略（设计决策）**：开启瞬间**立即对齐一次**——以
   `Series` 中 focused 子图（无 focused 则第一个未 collapsed 子图）的当前 X 范围
   为基准，调 `SyncXAxis(min, max)`（不带 excludeKey，全量含基准自身，幂等短路
@@ -363,8 +379,9 @@ response 随之回收，无泄漏面。
 新增 `tests/PeakCan.Host.App.Tests/Services/Trace/SharedXAxisSyncResponseTests.cs`：
 
 - `Execute_MouseWheelUp_BroadcastsImmediately`（fake IPlotControl + 真 `Plot`）
-- `Execute_LeftClickDrag_ThrottlesTo40ms`（连续两次 <40ms 只广播一次；≥40ms 广播两次）
-- `Execute_LeftClick_BroadcastsPending`（拖拽中累积的 pending 在松手时兜底广播）
+- `Execute_LeftMouseDown_StartsDragTrackingWithoutBroadcast`（只置状态，不广播）
+- `Execute_MouseMove_WhileDragging_ThrottlesTo40ms`（连续两次 <40ms 只广播一次；≥40ms 广播两次）
+- `Execute_LeftMouseUp_BroadcastsPending`（拖拽中累积的 pending 在松手时兜底广播）
 - `Execute_UnrelatedAction_NoBroadcast`（MouseMove / 键盘事件不触发）
 - `Execute_SyncDisabled_NoBroadcast`（`_isEnabled` 返回 false 时，滚轮/拖拽/松手都不广播）
 - 广播 payload = 发起者 plot 的当前 `Axes.Bottom.Min/Max`，excludeKey = 构造传入 key
@@ -407,24 +424,26 @@ response 随之回收，无泄漏面。
 
 | 风险 | 等级 | 缓解 |
 |------|------|------|
-| `ResponseInfo.NoActionTaken` 成员名/签名以编译为准 | 低 | Step 0 编译验证；备选 `ResponseInfo.None` / 返回默认实例 |
-| `MouseWheelZoom.ZoomAxisUnderMouse` 默认值与预期不符 | 低 | PopulatePlot 显式赋值 true，幂等 |
+| `MouseWheelZoom.ZoomAxisUnderMouse` 默认值与预期不符 | 低 | OnChartPlotLoaded 显式赋值 true，幂等 |
 | `LastRender.DataRect` 在首帧前不可用导致空引用 | 低 | 判空后按轴区放行（安全方向） |
 | 拖拽节流 40ms 手感不佳 | 低 | 常量化，手动验证后调（20~60ms 区间） |
-| 双击单击副作用（锚点移动）被用户视为缺陷 | 中 | 设计评审已告知并接受；若反悔，降级方案 = 去掉双击通道只留 [Fit] 按钮（改动隔离在 PopulatePlot 一处） |
+| 双击单击副作用（锚点移动）被用户视为缺陷 | 中 | 设计评审已告知并接受；若反悔，降级方案 = 去掉双击通道只留 [Fit] 按钮（改动隔离在 OnChartPlotLoaded 一处） |
 | `UserActionResponses` 是 field 而非 property，序列化/Reset 时被替换 | 低 | `UserInputProcessor.Reset()` 会重建列表——若项目别处调用 Reset 需重新 Add；接线集中在 OnChartPlotLoaded 一处，随 plot 生命周期 |
+| WPF `Loaded` 多次触发导致重复接线 | 中 | `OnChartPlotLoaded` 幂等 guard：先移除旧 `SharedXAxisSyncResponse` 再 Add |
+| 默认 `DoubleClickBenchmark` 与新增双击响应冲突 | 中 | `OnChartPlotLoaded` 移除/替换默认响应后添加 `DoubleClickResponse` |
+| 多源相同 `SignalKey` 的 excludeKey 粒度 | 中 | 本期沿用既有 `SignalKey` / `PlotResolver` 限制；如需 `EffectiveKey` 级别重构，单独提 spec |
 
 ## 7. 文件清单
 
 | 文件 | 改动 |
 |------|------|
-| `src/PeakCan.Host.App/Views/TraceViewerView.xaml.cs` | tooltip Popup 补完（~70）；轴区放行分支（~10）；OnFitSubplotClick + FitYToData 提取（~30）；同步 response 接线（~5） |
+| `src/PeakCan.Host.App/Views/TraceViewerView.xaml.cs` | tooltip Popup 补完（~70）；轴区放行分支（~10）；OnChartPlotLoaded 接线/幂等/ZoomAxisUnderMouse/DoubleClickResponse（~15）；OnFitSubplotClick + FitYToData 提取（~30） |
 | `src/PeakCan.Host.App/Views/TraceViewerView.xaml` | 子图 header 加 [Fit] 按钮（~3）；工具栏加 `同步 X` toggle（~5）；`● 当前`/`● 比较`/`[▼ Collapse]` 换 Fluent Icons（~20） |
 | `src/PeakCan.Host.App/Views/TraceViewerViewChatPanel.xaml` | 工具计数行 ▼ 换 ChevronDown glyph（~5） |
 | `src/PeakCan.Host.App/Services/Trace/SharedXAxisSyncResponse.cs` | **新增**（~75，含 isEnabled 开关检查） |
 | `src/PeakCan.Host.App/ViewModels/TraceChartViewModel/AxisSyncFlow.cs` | SyncXAxis 加 excludeKey 参数（~3） |
 | `src/PeakCan.Host.App/ViewModels/TraceViewerViewModel.cs`（或对应 partial） | `IsXAxisSyncEnabled` 属性 + 开启时对齐 partial（~20） |
-| `src/PeakCan.Host.App/ViewModels/TraceViewerViewModel/ChartSeriesFlow.cs` | PopulatePlot 替换 DoubleClickResponse + ZoomAxisUnderMouse（~15） |
+
 | `tests/.../TraceChartViewModelTests.cs` | +3 测试 |
 | `tests/.../SharedXAxisSyncResponseTests.cs` | **新增** 5~6 测试 |
 | `tests/.../TraceViewerViewModelTests.cs` | 开关对齐 +3 测试 |
@@ -441,9 +460,10 @@ response 随之回收，无泄漏面。
 3. **需求 1（tooltip）** —— 补完已有半成品
 4. **需求 2（Y 轴 + Fit）** —— 纯新增交互
 
-## 8. Open Questions（执行前需 Step 0 验证定稿）
+## 8. API 核验结论（2026-09-04 review 后定稿）
 
-1. `ResponseInfo` 的"未处理"成员确切名称（`NoActionTaken` vs `None`）——编译验证
-2. `MouseWheelZoom.ZoomAxisUnderMouse` 5.0.55 默认值——运行时验证（无论结果都显式赋 true）
-3. `RenderDetails.DataRect` 属性名与首帧可用性——编译 + 运行时验证，降级方案已备（§2.2.2）
-4. `DoubleClickResponse.ResponseAction` 委托签名（`Action<IPlotControl>` vs 带 Pixel 参数）——编译验证；双击位置不需要用于 fit 逻辑，签名差异不影响设计
+- `ResponseInfo` 的未处理返回值是 `ResponseInfo.NoActionRequired`；不存在 `NoActionTaken` / `None`。
+- `MouseWheelZoom.ZoomAxisUnderMouse` 在 5.0.55 默认为 `true`；实现仍显式赋 `true` 防默认值漂移。
+- `RenderDetails.DataRect` 存在；首帧前 `Plot.LastRender` 可为 `null`，轴区判定必须判空。
+- `DoubleClickResponse.ResponseAction` 的实际签名是 `Action<IPlotControl, ScottPlot.Pixel>`；默认响应是 `DoubleClickBenchmark`，必须移除/替换后再添加新响应。
+- `UserInputProcessor.UserActionResponses` 是 `List<IUserActionResponse>` 公开字段，可在 `OnChartPlotLoaded` 幂等追加。
