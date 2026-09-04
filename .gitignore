@@ -55,3 +55,6 @@ tests/**/Fixtures/Odx/*.cdd
 
 build.rsp
 errors.sarif
+
+# Local NuGet config workaround
+NuGet.Local.config

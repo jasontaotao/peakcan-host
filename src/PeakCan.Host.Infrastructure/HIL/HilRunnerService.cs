@@ -55,7 +55,7 @@ public sealed class HilRunnerService : IHilRunnerService
         var engine = host.Services.GetRequiredService<TestSuiteEngine>();
         var channel = host.Services.GetRequiredService<ICanChannel>();
         var ctx = host.Services.GetRequiredService<IAssertionContext>();
-        var environmentRuntime = new EnvironmentRuntime(channel, Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance);
+        var environmentRuntime = new EnvironmentRuntime(channel, _logger as ILogger<EnvironmentRuntime> ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EnvironmentRuntime>.Instance);
 
         var suiteJson = await File.ReadAllTextAsync(request.SuitePath, ct);
         var suite = System.Text.Json.JsonSerializer.Deserialize<TestSuite>(suiteJson, PeakCan.HIL.Core.HIL.Serialization.HILJsonOptions.Default)
