@@ -12,7 +12,7 @@
 
   <!-- Restbus unification M1: use sibling repo project reference when available (local dev).
        Fall back to NuGet PackageReference for CI / standalone clones.
-       TODO: Remove ProjectReference and publish hil-core 0.17.0 before merging to main. -->
+       TODO: Remove ProjectReference and publish hil-core 0.18.0 before merging to main. -->
   <ItemGroup Condition="Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
     <ProjectReference Include="..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj" />
   </ItemGroup>
