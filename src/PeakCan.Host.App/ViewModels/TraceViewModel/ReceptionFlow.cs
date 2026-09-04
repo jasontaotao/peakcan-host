@@ -70,6 +70,7 @@ public sealed partial class TraceViewModel
                 // 原始载荷拷贝：payload 过滤与高亮重算都需要。
                 Data = data,
                 IsError = f.IsError,
+                IsSim = f.FrameSource == FrameSource.Environment,
                 IsFd = f.IsFd,
                 IsRtr = (f.Flags & FrameFlags.Rtr) != 0,
             };

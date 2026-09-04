@@ -60,6 +60,9 @@ public sealed class TraceEntry : INotifyPropertyChanged
     /// <summary>True iff this row is a hardware-reported bus error frame.</summary>
     public bool IsError { get; init; }
 
+    /// <summary>True when this frame was sent by the EnvironmentRuntime (sim node).</summary>
+    public bool IsSim { get; init; }
+
     /// <summary>True iff this row uses the CAN FD frame format (up to 64-byte payloads).</summary>
     public bool IsFd { get; init; }
 
