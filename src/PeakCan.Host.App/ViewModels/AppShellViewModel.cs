@@ -429,11 +429,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         {
             new("追踪", () => new TraceView { DataContext = _traceViewModel }),
             new("DBC", () => new DbcView { DataContext = _dbcViewModel }),
-            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
             new("回放", () => new ReplayView { DataContext = _replayViewModel }),
         };
-        if (_nodeSetupViewModel is not null)
-            mainTabs.Add(new TabSpec("节点", () => new NodesView { DataContext = _nodeSetupViewModel }));   // 修订 11：MainTabs
         MainTabs = mainTabs;
         RightTabs = new[]
         {
@@ -536,3 +533,5 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // === Flow B methods moved to AppShellViewModel/ViewSwitchFlow.cs (W4 Task 3) ===
     // === Flow A methods moved to AppShellViewModel/ChannelFlow.cs (W4 Task 4) ===
 }
+
+
