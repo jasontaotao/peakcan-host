@@ -41,6 +41,7 @@ public sealed class EnvironmentRuntime
         lock (_gate)
         {
             _states = nodes.Select(n => new NodeRuntimeState(n)).ToList();
+            ApplySignalOverrides();
             _running = true;
             _scanTimer = new Timer(Scan, null, 0, ScanIntervalMs);
         }
@@ -91,6 +92,22 @@ public sealed class EnvironmentRuntime
             var msgState = state?.Messages.FirstOrDefault(m =>
                 (m.Source as DbcSignalsSource)?.MessageName == messageName);
             return msgState?.BuildPayload(_encoder, _dbc);
+        }
+    }
+
+    private void ApplySignalOverrides()
+    {
+        foreach (var nodeState in _states)
+        {
+            if (nodeState.Node.SignalOverrides is not { } overrides) continue;
+            foreach (var (key, value) in overrides)
+            {
+                var parts = key.Split('.', 2);
+                if (parts.Length != 2) continue;
+                var msgState = nodeState.Messages.FirstOrDefault(m =>
+                    (m.Source as DbcSignalsSource)?.MessageName == parts[0]);
+                msgState?.Signals.Set(parts[1], value);
+            }
         }
     }
 
