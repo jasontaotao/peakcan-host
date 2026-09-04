@@ -1,6 +1,6 @@
 # Restbus M4: DbcRestbusGenerator — DBC 勾选生成
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement spec §9 — hil-core `DbcRestbusGenerator` 纯函数从 DBC 机械映射生成 RestbusNode；studio "从 DBC 生成节点" 入口；DBC parser 扩展 GenMsgCycleTime 属性解析。
 
@@ -53,7 +53,7 @@ Views/
 **Interfaces:**
 - Produces: `Message.GenMsgCycleTimeMs` (uint?, null = 未声明)
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```csharp
 [Fact]
@@ -72,9 +72,9 @@ BA_ "GenMsgCycleTime" BO_ 512 250;
 }
 ```
 
-- [ ] **Step 2: FAIL → extend ParseBaAttributes → PASS**
-- [ ] **Step 3: Full DBC parser regression → ALL PASS**
-- [ ] **Step 4: Commit** — `feat(hil-core): DBC parser GenMsgCycleTime attribute → Message.GenMsgCycleTimeMs`
+- [x] **Step 2: FAIL → extend ParseBaAttributes → PASS**
+- [x] **Step 3: Full DBC parser regression → ALL PASS**
+- [x] **Step 4: Commit** — `feat(hil-core): DBC parser GenMsgCycleTime attribute → Message.GenMsgCycleTimeMs`
 
 ---
 
@@ -91,7 +91,7 @@ BA_ "GenMsgCycleTime" BO_ 512 250;
 - `GeneratorOptions`: `CounterSignalPattern = "Cnt"`, `ChecksumSignalPattern = "CRC"`
 - `DbcRestbusGeneratorResult`: `RestbusNode? Node`, `IReadOnlyList<string> Errors`, `IReadOnlyList<string> Warnings`
 
-- [ ] **Step 1: Write failing tests (table-driven)**
+- [x] **Step 1: Write failing tests (table-driven)**
 
 Test cases:
 1. Simple node with 2 BO_ messages, both have GenMsgCycleTime → 2 NodeMessages, CanMessageRef, IntervalMs from attr
@@ -101,9 +101,9 @@ Test cases:
 5. Extended frame (id > 0x7FF) → CanMessageRef(IsExtended: true)
 6. Node not found in BU_ → Error "Node 'X' not found"
 
-- [ ] **Step 2: FAIL → implement → PASS**
-- [ ] **Step 3: Full hil-core suite → ALL PASS**
-- [ ] **Step 4: Commit** — `feat(hil-core): DbcRestbusGenerator pure function with counter/checksum detection`
+- [x] **Step 2: FAIL → implement → PASS**
+- [x] **Step 3: Full hil-core suite → ALL PASS**
+- [x] **Step 4: Commit** — `feat(hil-core): DbcRestbusGenerator pure function with counter/checksum detection`
 
 ---
 
@@ -118,15 +118,15 @@ Test cases:
 - Consumes: `DbcRestbusGenerator.Generate()`, `RestbusNodeValidator.Validate()`
 - Produces: `EnvironmentTabViewModel.GenerateFromDbc(DbcDocument dbc, string nodeName)` → adds node or reports errors
 
-- [ ] **Step 1: Write failing test**
-- [ ] **Step 2: FAIL → implement VM + XAML → PASS**
-- [ ] **Step 3: Commit** — `feat(studio): generate restbus node from DBC via DbcRestbusGenerator`
+- [x] **Step 1: Write failing test**
+- [x] **Step 2: FAIL → implement VM + XAML → PASS**
+- [x] **Step 3: Commit** — `feat(studio): generate restbus node from DBC via DbcRestbusGenerator`
 
 ---
 
 ### Task 4: 最终验证 + push
 
-- [ ] hil-core 全量 PASS
-- [ ] host 全量 PASS
-- [ ] studio build PASS
-- [ ] push 3 repos
+- [x] hil-core 全量 PASS
+- [x] host 全量 PASS
+- [x] studio build PASS
+- [x] push 3 repos
