@@ -26,7 +26,7 @@ public sealed partial class PeakCanChannel
     /// Gives up after <see cref="MaxConsecutiveReadFailures"/> consecutive
     /// iterations with no frames seen (bus-dead heuristic).
     /// </summary>
-    private async Task ReadLoopAsync(CancellationToken ct)
+    internal async Task ReadLoopAsync(CancellationToken ct)
     {
         int consecutiveIterationsWithFailure = 0;
         while (!ct.IsCancellationRequested)
@@ -90,6 +90,11 @@ public sealed partial class PeakCanChannel
                 // interpret LoopGivingUp as "channel is effectively dead,
                 // user must Disconnect+Connect to recover".
                 SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.LoopGivingUp, null));
+                // Mark the gate as failed so IsConnected returns false.
+                // Best-effort uninitialize so a future ConnectAsync can
+                // Initialize the handle cleanly.
+                try { PCANBasic.Uninitialize(_handle); } catch (Exception) { /* best-effort */ }
+                _gate.MarkFailed();
                 return;
             }
 

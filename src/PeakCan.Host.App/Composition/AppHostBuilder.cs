@@ -388,9 +388,6 @@ public partial class AppHostBuilder
             // P0-3: shared secondary-window host (DI singleton).
             windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
 
-        // === Flow E: ViewModels batch 2 (Range B: Trace/Send/Dbc/SignalChart/Signal/Stats/Script) extracted to AppHostBuilder/ViewModelsBatch2Flow.cs (W11 Task 5) ===
-        RegisterViewModelsBatch2(builder.Services);
-
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);
 

@@ -210,4 +210,46 @@ public class PeakCanChannelTests
             Entries.Add((logLevel, formatter(state, exception)));
         }
     }
+    [Fact]
+    public async Task ReadLoop_Gives_Up_Marks_Gate_Disconnected()
+    {
+        // When the read loop gives up after MaxConsecutiveReadFailures,
+        // IsConnected must return false so the UI does not show a
+        // "connected but dead" state. Before the fix, the gate stayed
+        // connected and the operator had no way to know the channel was dead.
+        var ch = new PeakCanChannel(new ChannelId(0x51), Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCanChannel>.Instance,
+            new ThrowingPcanReader());
+
+        // Use reflection to access the private _gate and set it to connected.
+        var gateField = typeof(PeakCanChannel).GetField("_gate",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var gate = (ChannelConnectGate)gateField!.GetValue(ch)!;
+        gate.TryEnter(CancellationToken.None).IsSuccess.Should().BeTrue();
+        ch.IsConnected.Should().BeTrue();
+
+        // Run the read loop with a reader that always throws.
+        // It will give up after MaxConsecutiveReadFailures iterations.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await ch.ReadLoopAsync(cts.Token);
+
+        ch.IsConnected.Should().BeFalse(
+            "read loop gave up; the gate must be marked disconnected");
+    }
+
+    private sealed class ThrowingPcanReader : IPcanReader
+    {
+        public TPCANStatus ReadClassic(ushort handle, out TPCANMsg msg, out TPCANTimestamp ts)
+        {
+            msg = default;
+            ts = default;
+            throw new InvalidOperationException("Simulated bus-off: reader always throws");
+        }
+
+        public TPCANStatus ReadFd(ushort handle, out TPCANMsgFD msg, out ulong tsMicroseconds)
+        {
+            msg = default;
+            tsMicroseconds = 0;
+            throw new InvalidOperationException("Simulated bus-off: reader always throws");
+        }
+    }
 }
