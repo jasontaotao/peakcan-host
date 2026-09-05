@@ -55,29 +55,19 @@ public sealed partial class RecordService
         if (!_isRecording) return;
         _isRecording = false;
 
-        // Drain remaining buffered frames synchronously. Channel.Reader.TryRead
-        // is thread-safe; the background drain task may race on individual
-        // TryRead calls, but each frame is atomically removed exactly once.
-        // A frame dequeued here but already held by the drain task is written
-        // by that task before Dispose (or caught if the writer is already
-        // disposed — WriteFrame exceptions are caught and logged upstream).
-        while (_frameChannel.Reader.TryRead(out var pending))
+        // The background drain task (ExecuteAsync) is the SOLE channel reader.
+        // Do NOT TryRead here: a frame dequeued by the drain task but not yet
+        // written would be silently lost when the writer is disposed. Instead,
+        // wait for the counters to converge: FrameEnqueuedCount counts frames
+        // that entered the channel; FrameCount counts frames written to disk.
+        // Equality guarantees the drain task has flushed everything (minus
+        // DropOldest losses, which never enter the enqueued counter).
+        var deadlineTicks = Environment.TickCount64 + 5000;
+        while (Interlocked.Read(ref _frameCount) < Interlocked.Read(ref _frameEnqueuedCount)
+               && Environment.TickCount64 < deadlineTicks)
         {
-            try
-            {
-                WriteFrame(pending);
-                Interlocked.Increment(ref _frameCount);
-            }
-            catch (Exception ex)
-            {
-                LogFrameWriteFailed(_logger, ex);
-            }
+            Thread.Sleep(1);
         }
-
-        // Brief grace period: the background drain task may hold one frame
-        // between dequeue and WriteFrame. Let it finish before disposing the
-        // writer so that frame is not silently dropped from the file + count.
-        Thread.Sleep(50);
 
         try
         {
