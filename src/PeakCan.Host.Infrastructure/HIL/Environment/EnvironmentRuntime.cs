@@ -141,7 +141,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private void Scan(object? state)
     {
-        List<(NodeMessageRuntimeState MsgState, NodeMessage Msg)>? toSend = null;
+        List<(RestbusNode Node, NodeMessageRuntimeState MsgState, NodeMessage Msg)>? toSend = null;
         lock (_gate)
         {
             if (!_running) return;
@@ -156,7 +156,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
                     var payload = msgState.BuildPayload(_encoder, _dbc);
                     if (payload is not null)
-                        (toSend ??= []).Add((msgState, nodeState.Node.Messages[i]));
+                        (toSend ??= []).Add((nodeState.Node, msgState, nodeState.Node.Messages[i]));
 
                     var quantum = Math.Max(ScanIntervalMs,
                         (nodeState.Node.Messages[i].IntervalMs + ScanIntervalMs - 1) / ScanIntervalMs * ScanIntervalMs);
@@ -166,17 +166,17 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         }
 
         if (toSend is not null)
-            foreach (var (msgState, msg) in toSend)
-                SendFrame(msgState, msg);
+            foreach (var (node, msgState, msg) in toSend)
+                SendFrame(node, msgState, msg);
 
         ProcessIncoming();
     }
 
-    private void SendFrame(NodeMessageRuntimeState msgState, NodeMessage msg)
+    private void SendFrame(RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg)
     {
         if (msg.Ref is J1939MessageRef jRef)
         {
-            SendJ1939Frame(jRef, msgState, msg);
+            SendJ1939Frame(jRef, node, msgState, msg);
             return;
         }
         if (msg.Ref is not CanMessageRef canRef) return;
@@ -249,16 +249,50 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private void SendActionFrame(RestbusNode node, SendMessageAction action)
     {
-        if (action.Ref is not CanMessageRef canRef) return;
-        var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
         byte[] payload = action.Payload switch
         {
             FixedHexSource hex => ParseHexStatic(hex.Hex),
             _ => [],
         };
-        var frame = new CanFrame(id, payload, FrameFlags.None, default, default, FrameSource.Environment);
-        _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
+        switch (action.Ref)
+        {
+            case CanMessageRef canRef:
+            {
+                var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
+                var frame = new CanFrame(id, payload, FrameFlags.None, default, default, FrameSource.Environment);
+                _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
+                break;
+            }
+            case J1939MessageRef jRef:
+                SendActionJ1939Frame(node, jRef, payload);
+                break;
+        }
     }
+
+    /// <summary>
+    /// 规则 send 动作的 J1939 帧。SA 回落顺序：Ref.Sa → 节点身份 Sa（修复前 Ref.Sa 为空时恒发 0x00）。
+    /// &gt;8 字节按 Ref.Mode 走 TP；发送计数计入命中的周期消息。
+    /// </summary>
+    private void SendActionJ1939Frame(RestbusNode node, J1939MessageRef jRef, byte[] payload)
+    {
+        if (payload.Length == 0)
+        {
+            _logger.LogWarning("J1939 send action {Ref}: no payload, skipped.", jRef);
+            return;
+        }
+        var sa = ResolveSa(node, jRef.Sa);
+        NodeMessageRuntimeState? msgState;
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == node.Name);
+            msgState = state?.Messages.FirstOrDefault(m => MatchesRefStatic(jRef, m.Ref));
+        }
+        // 阻塞发送在锁外执行（与周期 SendFrame 一致），命中周期消息时顺带计入 FramesSent
+        SendJ1939Payload(jRef, sa, payload, msgState);
+    }
+
+    private static byte ResolveSa(RestbusNode node, byte? refSa)
+        => refSa ?? (node.Identity as J1939NodeIdentity)?.Sa ?? 0x00;
 
     private void SetMessageEnabled(RestbusNode node, MessageRef target, bool enabled)
     {
@@ -279,9 +313,21 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private static bool MatchesIncoming(MessageRef ruleRef, CanFrame frame)
     {
-        if (ruleRef is CanMessageRef canRef)
-            return frame.Id.Raw == canRef.Id && frame.Id.IsExtended == canRef.IsExtended;
-        return false;
+        switch (ruleRef)
+        {
+            case CanMessageRef canRef:
+                return frame.Id.Raw == canRef.Id && frame.Id.IsExtended == canRef.IsExtended;
+            case J1939MessageRef jRef:
+                // 触发宽容匹配：PGN + 优先级必须相等，SA/DA 仅在 Ref 指定时比较
+                // （修复前 J1939 触发恒 false——GB/T 27930 等协议模板的规则链整体失效）。
+                var id = new J1939Id(frame.Id.Raw & J1939Id.Raw29Mask);
+                return id.Pgn == jRef.Pgn
+                    && id.Priority == jRef.Priority
+                    && (jRef.Sa is not { } sa || id.SourceAddress == sa)
+                    && (jRef.Da is not { } da || id.DestinationAddress == da);
+            default:
+                return false;
+        }
     }
 
     private static bool MatchesCondition(BytePattern? cond, CanFrame frame)
@@ -350,34 +396,43 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         return data; // not ISO-TP, treat as raw
     }
 
-    private void SendJ1939Frame(J1939MessageRef jRef, NodeMessageRuntimeState msgState, NodeMessage msg)
+    private void SendJ1939Frame(J1939MessageRef jRef, RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg)
     {
         var payload = msgState.BuildPayload(_encoder, _dbc);
         if (payload is null) return;
-        var sa = jRef.Sa ?? 0x00;
-        var priority = jRef.Priority;
+        // SA 回落：Ref.Sa → 节点身份 Sa（修复前 Ref.Sa 为空时恒发 0x00）
+        var sa = ResolveSa(node, jRef.Sa);
+        SendJ1939Payload(jRef, sa, payload, msgState);
+    }
 
+    /// <summary>J1939 发送公共路径（≤8B 单帧 / &gt;8B 按 Ref.Mode 走 TP）。返回是否发送成功。</summary>
+    private bool SendJ1939Payload(J1939MessageRef jRef, byte sa, byte[] payload, NodeMessageRuntimeState? msgState)
+    {
         if (payload.Length <= 8)
         {
-            var id = J1939Id.Compose(priority, jRef.Pgn, sa, jRef.Da);
+            var id = J1939Id.Compose(jRef.Priority, jRef.Pgn, sa, jRef.Da);
             var frame = new CanFrame(new CanId(id, FrameFormat.Extended), payload, FrameFlags.None, default, default, FrameSource.Environment);
             var result = _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
-            if (result.IsSuccess) { msgState.ConsecutiveFailures = 0; msgState.FramesSent++; }
-            else msgState.ConsecutiveFailures++;
+            return RecordJ1939Result(jRef, result.IsSuccess, msgState);
         }
-        else if (_tpLayer is { } tp)
+        if (_tpLayer is { } tp)
         {
             var task = jRef.Mode == TpMode.RtsCts && jRef.Da is { } da
-                ? tp.SendRtsCtsAsync(jRef.Pgn, priority, sa, da, payload)
-                : tp.SendBamAsync(jRef.Pgn, priority, sa, payload);
+                ? tp.SendRtsCtsAsync(jRef.Pgn, jRef.Priority, sa, da, payload)
+                : tp.SendBamAsync(jRef.Pgn, jRef.Priority, sa, payload);
             var result = task.GetAwaiter().GetResult();
-            if (result.IsSuccess) { msgState.ConsecutiveFailures = 0; msgState.FramesSent++; }
-            else msgState.ConsecutiveFailures++;
+            return RecordJ1939Result(jRef, result.IsSuccess, msgState);
         }
-        else
-        {
-            _logger.LogWarning("J1939 TP message {Ref} >8B but no TpLayer provided.", msg.Ref);
-        }
+        _logger.LogWarning("J1939 TP message {Ref} >8B but no TpLayer provided.", jRef);
+        return false;
+    }
+
+    private bool RecordJ1939Result(J1939MessageRef jRef, bool success, NodeMessageRuntimeState? msgState)
+    {
+        if (msgState is null) return success;
+        if (success) { msgState.ConsecutiveFailures = 0; msgState.FramesSent++; }
+        else msgState.ConsecutiveFailures++;
+        return success;
     }
 
     private void ThrottleDropWarning()
