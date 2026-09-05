@@ -29,6 +29,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
     private readonly ConcurrentQueue<CanFrame> _incoming = new();
     private ITimer? _scanTimer;
     private List<NodeRuntimeState> _states = [];
+    private readonly List<(NodeRuntimeState State, byte[] Response, long DueMs)> _pendingUdsResponses = new();
     private long _droppedFrames;
     private long _lastDropWarningTicks;
     private bool _running;
@@ -64,6 +65,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
             _scanTimer?.Dispose();
             _scanTimer = null;
             _running = false;
+            _pendingUdsResponses.Clear();
         }
     }
 
@@ -205,6 +207,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private void ProcessIncoming()
     {
+        FlushDueUdsResponses();
         while (_incoming.TryDequeue(out var frame))
         {
             if (frame.FrameSource == FrameSource.Environment) continue;
@@ -390,13 +393,20 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
                 var request = ExtractUdsPayload(frame);
                 if (request.Length == 0) continue;
-                // TODO(M3): honor delayMs — currently response sent immediately (spec §6.6)
-                var (response, _) = sm.ProcessRequest(request);
+                var (response, delayMs) = sm.ProcessRequest(request);
                 nodeState.UdsResponses++;
-                (responses ??= []).Add((nodeState, response));
+                // delayMs>0 的响应挂 pending 队列，由扫描 tick 到期发出（精度 = 扫描周期）
+                if (delayMs > 0)
+                    _pendingUdsResponses.Add((nodeState, response, System.Environment.TickCount64 + delayMs));
+                else
+                    (responses ??= []).Add((nodeState, response));
             }
         }
-        if (responses is null) return;
+        if (responses is not null) SendUdsResponses(responses);
+    }
+
+    private void SendUdsResponses(List<(NodeRuntimeState State, byte[] Response)> responses)
+    {
         foreach (var (nodeState, response) in responses)
         {
             var uds = nodeState.Node.UdsBehavior!;
@@ -404,6 +414,25 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
             var respFrame = new CanFrame(respId, response, FrameFlags.None, default, default, FrameSource.Environment);
             _channel.WriteAsync(respFrame).AsTask().GetAwaiter().GetResult();
         }
+    }
+
+    /// <summary>把到期的延迟 UDS 响应转出发送（延迟精度 = 扫描周期 10ms）。</summary>
+    private void FlushDueUdsResponses()
+    {
+        List<(NodeRuntimeState State, byte[] Response)>? due = null;
+        lock (_gate)
+        {
+            if (_pendingUdsResponses.Count == 0) return;
+            var now = System.Environment.TickCount64;
+            for (int i = _pendingUdsResponses.Count - 1; i >= 0; i--)
+            {
+                if (_pendingUdsResponses[i].DueMs > now) continue;
+                due ??= [];
+                due.Add((_pendingUdsResponses[i].State, _pendingUdsResponses[i].Response));
+                _pendingUdsResponses.RemoveAt(i);
+            }
+        }
+        if (due is not null) SendUdsResponses(due);
     }
 
     private static byte[] ExtractUdsPayload(CanFrame frame)
