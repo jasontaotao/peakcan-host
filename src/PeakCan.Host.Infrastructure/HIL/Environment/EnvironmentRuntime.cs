@@ -238,12 +238,36 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         switch (action)
         {
             case SendMessageAction send: SendActionFrame(node, send); break;
-            case SetSignalAction set: /* DBC signal encode in M2 */ break;
+            case SetSignalAction set: SetSignalValue(node, set); break;
             case StartMessageAction start: SetMessageEnabled(node, start.Ref, true); break;
             case StopMessageAction stop: SetMessageEnabled(node, stop.Ref, false); break;
             case ScriptAction script:
                 _logger.LogWarning("ScriptAction '{Ref}' not supported in EnvironmentRuntime.", script.ScriptRef);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// setSignal 规则原语：把信号值写入本节点同名 DBC 报文的运行时信号表，
+    /// 该报文下次到期发送时由 DbcSignalsSource 编码生效。
+    /// 目标报文不是 DbcSignalsSource 载荷（如 fixedHex）时无法编码信号，记警告跳过。
+    /// </summary>
+    private void SetSignalValue(RestbusNode node, SetSignalAction action)
+    {
+        lock (_gate)
+        {
+            var state = _states.FirstOrDefault(s => s.Node.Name == node.Name);
+            var target = state?.Messages.FirstOrDefault(m =>
+                m.Source is DbcSignalsSource src && src.MessageName == action.MessageName);
+            if (target is null)
+            {
+                _logger.LogWarning(
+                    "SetSignalAction: node '{Node}' has no DbcSignalsSource message '{Message}' — signal '{Signal}' ignored.",
+                    node.Name, action.MessageName, action.SignalName);
+                return;
+            }
+            target.EnsureSignalsInitialized(_dbc);
+            target.Signals.Set(action.SignalName, action.Value);
         }
     }
 
@@ -506,14 +530,25 @@ internal sealed class NodeMessageRuntimeState
             {
                 var msg = dbc.Messages.FirstOrDefault(m => m.Name == dbcSource.MessageName);
                 if (msg is null) return null;
-                if (!Signals.HasValues)
-                    foreach (var s in msg.Signals)
-                        Signals.Set(s.Name, Signals.GetOrInit(s.Name, s.Offset));
+                EnsureSignalsInitialized(dbc);
                 return encoder.Encode(msg, Signals.ToDictionary());
             }
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// 首次编码/setSignal 前按 DBC 信号定义预填信号表（初值取信号 offset）。
+    /// 预填后 setSignal 写入的值不会被覆盖，其余信号保持初值而非 0。
+    /// </summary>
+    public void EnsureSignalsInitialized(DbcDocument? dbc)
+    {
+        if (Source is not DbcSignalsSource dbcSource || dbc is null || Signals.HasValues) return;
+        var msg = dbc.Messages.FirstOrDefault(m => m.Name == dbcSource.MessageName);
+        if (msg is null) return;
+        foreach (var s in msg.Signals)
+            Signals.Set(s.Name, Signals.GetOrInit(s.Name, s.Offset));
     }
 
     private static byte[] ParseHex(string hex)

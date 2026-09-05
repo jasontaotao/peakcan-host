@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.J1939;
 using PeakCan.Host.Infrastructure.HIL.Environment;
 
@@ -245,6 +246,105 @@ public class EnvironmentJ1939RuleDispatchTests
         System.Threading.Thread.Sleep(15);
         runtime.ScanForTest(); // 到期后发出首个周期帧
         Assert.Contains(sent, f => f.Id.Raw == J1939Raw(6, 0x0100, 0x56, 0xF4));
+        runtime.Stop();
+    }
+}
+
+/// <summary>
+/// setSignal 规则原语（2026-09-05 实现，此前 case 分支为 no-op 占位）：
+/// 规则触发后信号值写入运行时信号表，目标 DbcSignalsSource 报文下次发送时按新值编码。
+/// </summary>
+public class EnvironmentSetSignalRuleDispatchTests
+{
+    private static CanFrame MakeFrame(uint id, byte[] data, FrameSource source = FrameSource.Bus) =>
+        new(new CanId(id, FrameFormat.Standard), data, FrameFlags.None, default, default, source);
+
+    private static DbcDocument CreateTestDbc()
+    {
+        var text = """
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: Charger BMS
+
+BO_ 512 CRM: 8 Charger
+ SG_ CRM_Signal : 0|16@1+ (1,0) [0|65535] "" BMS
+""";
+        var result = DbcParser.Parse(text);
+        Assert.True(result.IsSuccess, result.Error?.Message ?? "parse failed");
+        return result.Value!;
+    }
+
+    [Fact]
+    public void SetSignalRule_WritesRuntimeSignal_NextSendEncodesNewValue()
+    {
+        var sent = new List<CanFrame>();
+        var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
+        var node = new RestbusNode
+        {
+            Name = "Charger",
+            Identity = new RawCanNodeIdentity(),
+            Messages =
+            [
+                // 周期发送的 DBC 信号报文：规则触发前按 offset 初值编码
+                new NodeMessage(new CanMessageRef(512, false), 10, new DbcSignalsSource("CRM")),
+            ],
+            Rules =
+            [
+                new ResponseRule(
+                    new CanMessageRef(0x500, false), null,
+                    new SetSignalAction("CRM", "CRM_Signal", 100),
+                    0),
+            ],
+        };
+        var runtime = new EnvironmentRuntime(channel, NullLogger<EnvironmentRuntime>.Instance, CreateTestDbc());
+        runtime.Start([node], null);
+
+        var first = runtime.GetEncodedPayload("Charger", "CRM");
+        Assert.NotNull(first);
+        Assert.Equal(0x00, first[0]);
+
+        runtime.InjectIncomingFrame(MakeFrame(0x500, [0x01]));
+        runtime.ScanForTest(); // ScanForTest = ProcessIncoming：触发规则写入信号表
+
+        var after = runtime.GetEncodedPayload("Charger", "CRM");
+        Assert.NotNull(after);
+        Assert.Equal(0x64, after[0]); // 100 → 0x64 (little-endian)
+
+        // 周期发送由真实 10ms 定时器驱动（ScanForTest 不发帧）：
+        // 轮询等待下一个 tick，报文必须按新信号值编码发送
+        var deadline = DateTime.UtcNow.AddMilliseconds(500);
+        while (DateTime.UtcNow < deadline &&
+               !sent.Any(f => f.Id.Raw == 512 && f.Data.Length > 0 && f.Data.Span[0] == 0x64))
+            Thread.Sleep(5);
+        Assert.Contains(sent, f => f.Id.Raw == 512 && f.Data.Span[0] == 0x64);
+        runtime.Stop();
+    }
+
+    [Fact]
+    public void SetSignalRule_NonDbcPayload_LogsWarningAndDoesNotThrow()
+    {
+        var channel = new FakeChannel();
+        var node = new RestbusNode
+        {
+            Name = "A",
+            Identity = new RawCanNodeIdentity(),
+            Messages = [new NodeMessage(new CanMessageRef(0x600, false), 10, new FixedHexSource("FF"))],
+            Rules =
+            [
+                new ResponseRule(
+                    new CanMessageRef(0x500, false), null,
+                    new SetSignalAction("NotADbcMessage", "Sig", 1),
+                    0),
+            ],
+        };
+        var runtime = new EnvironmentRuntime(channel, NullLogger<EnvironmentRuntime>.Instance);
+        runtime.Start([node], null);
+        runtime.InjectIncomingFrame(MakeFrame(0x500, [0x01]));
+        runtime.ScanForTest();
         runtime.Stop();
     }
 }
