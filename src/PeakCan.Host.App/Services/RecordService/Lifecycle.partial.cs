@@ -55,18 +55,29 @@ public sealed partial class RecordService
         if (!_isRecording) return;
         _isRecording = false;
 
-        // Spin-wait for the writer thread to drain the channel. We do NOT
-        // call _frameChannel.Writer.TryComplete() because the channel
-        // outlives any individual recording — StartRecording may be
-        // called again on the same instance. Spin-waiting on the
-        // reader count is sufficient: it is decremented by the drain
-        // task as soon as each frame is consumed, so by the time the
-        // count hits 0 every queued frame has been passed to WriteFrame.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
+        // Drain remaining buffered frames synchronously. Channel.Reader.TryRead
+        // is thread-safe; the background drain task may race on individual
+        // TryRead calls, but each frame is atomically removed exactly once.
+        // A frame dequeued here but already held by the drain task is written
+        // by that task before Dispose (or caught if the writer is already
+        // disposed — WriteFrame exceptions are caught and logged upstream).
+        while (_frameChannel.Reader.TryRead(out var pending))
         {
-            Thread.Sleep(10);
+            try
+            {
+                WriteFrame(pending);
+                Interlocked.Increment(ref _frameCount);
+            }
+            catch (Exception ex)
+            {
+                LogFrameWriteFailed(_logger, ex);
+            }
         }
+
+        // Brief grace period: the background drain task may hold one frame
+        // between dequeue and WriteFrame. Let it finish before disposing the
+        // writer so that frame is not silently dropped from the file + count.
+        Thread.Sleep(50);
 
         try
         {

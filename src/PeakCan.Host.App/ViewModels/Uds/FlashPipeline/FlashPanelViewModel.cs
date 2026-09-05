@@ -262,7 +262,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// SecurityAccessMode values for the property panel ComboBox.
     /// </summary>
     public IReadOnlyList<SecurityAccessMode> SecurityAccessModes { get; } =
-        Enum.GetValues<SecurityAccessMode>();
+        Enum.GetValues<SecurityAccessMode>().Where(m => m != SecurityAccessMode.Auto).ToArray(); // Auto is a Phase-1 placeholder; exclude from UI.
 
     /// <summary>
     /// EcuResetType values for the property panel ComboBox.

@@ -78,14 +78,11 @@ public sealed partial class ScriptEngine
         _executionCts?.Cancel();
         InterruptEngine();
 
-        lock (_lock)
-        {
-            if (_executionTask is { IsCompleted: false } task)
-            {
-                // Wait briefly for graceful shutdown.
-                task.Wait(TimeSpan.FromMilliseconds(100));
-            }
-        }
+        // Do NOT block on task.Wait() here: Stop() is called from the UI
+        // thread (stop button) and blocking even 100 ms freezes the UI.
+        // Cancel + InterruptEngine are sufficient to signal the script;
+        // the task completes asynchronously and is cleaned up by the
+        // continuation set up in RunAsync.
     }
 
     /// <summary>
