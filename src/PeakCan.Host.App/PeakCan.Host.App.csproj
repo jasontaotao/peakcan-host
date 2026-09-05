@@ -135,4 +135,10 @@
     <Content Include="Templates\Nodes\*.node.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Ship the canonical GB/T 27930 DBC (HIL run 引用它做信号解码/TrialRunner 名字匹配).
+       Content 同上，随 ProjectReference 流入测试/CLI 输出。 -->
+  <ItemGroup>
+    <Content Include="Templates\Dbc\*.dbc" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
