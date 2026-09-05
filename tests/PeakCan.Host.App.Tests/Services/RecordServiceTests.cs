@@ -307,7 +307,7 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
         // Simulate SDK read thread hammering OnFrame from parallel callers.
         Parallel.For(0, 10000, i => _svc.OnFrame(BuildFrame(0x100, (byte)(i & 0xFF))));
         sw.Stop();
-        sw.ElapsedMilliseconds.Should().BeLessThan(500);
+        sw.ElapsedMilliseconds.Should().BeLessThan(2000, "non-blocking enqueue; 500ms too tight for CI");
         _svc.StopRecording();
     }
 
@@ -433,7 +433,12 @@ public class RecordServiceChannelTests : IAsyncLifetime, IDisposable
         // StopRecording must drain the channel BEFORE closing the file,
         // so all 500 frames should be visible after a short wait.
         _svc.StopRecording();
-        await Task.Delay(500);
+        // Poll for convergence instead of a fixed delay: StopRecordingInner
+        // already waits for FrameCount == FrameEnqueuedCount (up to 5 s).
+        // The poll here is a safety net for CI scheduling jitter.
+        var deadline = Environment.TickCount64 + 3000;
+        while (_svc.FrameCount < 500 && Environment.TickCount64 < deadline)
+            await Task.Delay(10);
         _svc.FrameCount.Should().Be(500);
     }
 

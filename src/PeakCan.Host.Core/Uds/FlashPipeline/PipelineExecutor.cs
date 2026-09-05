@@ -580,16 +580,18 @@ public static partial class PipelineExecutor
         var response = await client.RoutineControlAsync(StartRoutine, routineId, data, ct).ConfigureAwait(false);
 
         // M-2: Parse ECU-returned CRC from response. ISO 14229 does not mandate the
-        // routine result layout - this assumes the CRC occupies the LAST 4 bytes of the
-        // routine result (a common OEM convention where a status byte precedes the CRC).
-        // If the ECU returns CRC at a different offset, this comparison will mismatch and
-        // throw - the operator should verify the OEM's verify-routine response format.
-        if (response.Length < 4)
+        // routine result layout. CrcOffsetFromEnd (default 4 = last 4 bytes) makes the
+        // CRC position configurable for OEMs whose verify-routine response places the
+        // CRC at a non-default offset. A mismatched CRC still throws so the operator
+        // can correct the offset in the pipeline configuration.
+        var crcOffset = verify!.CrcOffsetFromEnd;
+        if (response.Length < crcOffset)
         {
             throw new UdsException("Verify routine returned invalid response (too short).");
         }
 
-        var actualCrc = (uint)((response[^4] << 24) | (response[^3] << 16) | (response[^2] << 8) | response[^1]);
+        var crcStart = response.Length - crcOffset;
+        var actualCrc = (uint)((response[crcStart] << 24) | (response[crcStart + 1] << 16) | (response[crcStart + 2] << 8) | response[crcStart + 3]);
         if (actualCrc != expectedCrc)
         {
             throw new UdsException(

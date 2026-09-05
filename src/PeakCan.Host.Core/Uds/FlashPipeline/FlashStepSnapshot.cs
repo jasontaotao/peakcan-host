@@ -33,7 +33,8 @@ public sealed record VerifySnapshot(
     uint ExpectedChecksum,
     uint StartAddress,
     uint EndAddress,
-    int SegmentIndex);  // M1: carried so the executor can distinguish "not configured" (index out of range) from "configured with checksum 0".
+    int SegmentIndex,
+    int CrcOffsetFromEnd = 4);  // M1: carried so the executor can distinguish "not configured" (index out of range) from "configured with checksum 0".
 
 public sealed record EcuResetSnapshot(
     EcuResetType ResetType);
