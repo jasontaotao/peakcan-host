@@ -113,15 +113,23 @@ public sealed partial class TraceViewModel : ObservableObject
     // from its own thread while the UI thread mutates (AppendBatchAsync
     // Register, Clear, FIFO trim). The original Dictionary had a
     // cross-thread race per the v1.2.11 code review.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<TraceEntryKey, TraceEntry> _pendingDecode = new();
+    // 2026-09-05 P1-3：value 从单条 TraceEntry 改为 FIFO 队列——同
+    // (id, channel) 在同一微秒的两帧不再互相覆盖（此前第二帧覆盖第一帧，
+    // 第一帧 Decoded 永不填充）。
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>> _pendingDecode = new();
+
+    // pending 出列（worker 完成）与 FIFO trim purge 必须原子互斥：
+    // 否则 purge 的 TryPeek→TryDequeue 间隙内 worker 出列同一队头，
+    // purge 会误删下一条 live 条目（其 Decoded 永不填充）。
+    private readonly object _pendingPurgeGate = new();
 
     /// <summary>
     /// Read-only view of entries awaiting DBC decode. Consumed by
     /// <see cref="Services.DbcDecodeBackgroundService"/> to fill
     /// <see cref="TraceEntry.Decoded"/> without taking a write dependency
-    /// on the trace VM.
+    /// on the trace VM. Key → pending 队列（同 key 多帧按 FIFO 逐个完成）。
     /// </summary>
-    public IReadOnlyDictionary<TraceEntryKey, TraceEntry> PendingDecode => _pendingDecode;
+    public IReadOnlyDictionary<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>> PendingDecode => _pendingDecode;
 
     /// <summary>
     // === Flow A methods moved to TraceViewModel/ReceptionFlow.cs (W19 Task 1) ===

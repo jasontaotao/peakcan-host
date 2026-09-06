@@ -13,7 +13,7 @@ public sealed partial class TraceViewModel
     /// threadpool with no WPF Application.
     /// </summary>
     internal void RegisterForTesting(TraceEntryKey key, TraceEntry entry)
-        => _pendingDecode[key] = entry;
+        => _pendingDecode.GetOrAdd(key, _ => new System.Collections.Concurrent.ConcurrentQueue<TraceEntry>()).Enqueue(entry);
 
     /// <summary>
     /// v1.2.11 PATCH review fix: atomic check-and-remove. The worker calls
@@ -21,9 +21,40 @@ public sealed partial class TraceViewModel
     /// the entry stops occupying the pending map. Returning false means
     /// another worker (or a Clear()) already removed it; the caller should
     /// not double-write Decoded in that case.
+    /// <para>
+    /// 2026-09-05 P1-3：value 为 FIFO 队列，同 key 多帧逐个出列；
+    /// 队列空时移除 key 防长跑内存泄漏。
+    /// </para>
     /// </summary>
     internal bool TryCompletePending(TraceEntryKey key, out TraceEntry? entry)
-        => _pendingDecode.TryRemove(key, out entry);
+    {
+        entry = null;
+        if (!_pendingDecode.TryGetValue(key, out var queue))
+            return false;
+        lock (_pendingPurgeGate)
+        {
+            // 与 FIFO trim purge（同锁）互斥：出列 + 移除原子化，
+            // 防止 purge 在间隙内误删后续 live 条目。
+            if (!queue.TryDequeue(out var dequeued))
+                return false;
+            entry = dequeued;
+            // 队列空则移除 key。TryRemove 与并发注册之间的竞态兜底：
+            // 移除后队列又非空（新条目刚入列）→ 把剩余条目并回当前队列。
+            if (queue.IsEmpty
+                && _pendingDecode.TryRemove(new KeyValuePair<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>>(key, queue))
+                && !queue.IsEmpty)
+            {
+                var current = _pendingDecode.GetOrAdd(key, _ => queue);
+                if (!ReferenceEquals(current, queue))
+                {
+                    // 并发注册已建新队列：把竞态窗口入列的条目并回，保序。
+                    while (queue.TryDequeue(out var late))
+                        current.Enqueue(late);
+                }
+            }
+        }
+        return true;
+    }
 
     /// <summary>
     /// Append a batch of frames to <see cref="Entries"/>, then trim to
@@ -83,7 +114,7 @@ public sealed partial class TraceViewModel
                 f.Id.Raw,
                 f.Timestamp.TotalMicroseconds,
                 f.Channel.Handle);
-            _pendingDecode[pendingKey] = Entries[^1];
+            _pendingDecode.GetOrAdd(pendingKey, _ => new System.Collections.Concurrent.ConcurrentQueue<TraceEntry>()).Enqueue(Entries[^1]);
         }
         while (Entries.Count > MaxRows)
         {
@@ -93,9 +124,21 @@ public sealed partial class TraceViewModel
                 removed.Timestamp.TotalMicroseconds,
                 removed.Channel.Handle);
             // FIFO 出列时同步清 pending map，避免长跑内存泄漏。
-            // 仅当 key 仍指向被移除行时才删，防止同 key 后续帧被误删。
-            if (_pendingDecode.TryGetValue(removedKey, out var pending) && ReferenceEquals(pending, removed))
-                _pendingDecode.TryRemove(removedKey, out _);
+            // 与 worker 的 TryCompletePending（同 _pendingPurgeGate 锁）互斥，
+            // 且仅当队头仍指向被移除行时才出列，防止同 key 后续帧被误删。
+            if (_pendingDecode.TryGetValue(removedKey, out var pendingQueue))
+            {
+                lock (_pendingPurgeGate)
+                {
+                    if (pendingQueue.TryPeek(out var pending) && ReferenceEquals(pending, removed))
+                    {
+                        pendingQueue.TryDequeue(out _);
+                        if (pendingQueue.IsEmpty)
+                            _pendingDecode.TryRemove(
+                                new KeyValuePair<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>>(removedKey, pendingQueue));
+                    }
+                }
+            }
             Entries.RemoveAt(0);
         }
 

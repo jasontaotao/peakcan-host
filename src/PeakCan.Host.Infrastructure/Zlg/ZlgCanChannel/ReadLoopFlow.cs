@@ -6,7 +6,7 @@ namespace PeakCan.Host.Infrastructure.Zlg;
 // 读循环：轮询 VCI_Receive / VCI_ReceiveFD，分发帧到 FrameReceived 事件。
 public sealed partial class ZlgCanChannel
 {
-    private async Task ReadLoopAsync(CancellationToken ct)
+    internal async Task ReadLoopAsync(CancellationToken ct)
     {
         var consecutiveFailures = 0;
         while (!ct.IsCancellationRequested)
@@ -62,6 +62,9 @@ public sealed partial class ZlgCanChannel
             {
                 LogReadLoopGivingUp(_logger, _devType, _devIdx, _canIdx, "giving-up", consecutiveFailures);
                 SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.LoopGivingUp, null));
+                // 对齐 PEAK 通道（commit c9fbaaa）：读循环放弃后标记断开，
+                // 避免 UI 显示"已连接但总线已死"、仍允许发送/录制。
+                MarkDisconnectedAfterReadLoopGiveUp();
                 return;
             }
 

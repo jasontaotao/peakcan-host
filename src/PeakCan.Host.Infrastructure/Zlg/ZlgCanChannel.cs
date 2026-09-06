@@ -162,6 +162,32 @@ public sealed partial class ZlgCanChannel : ICanChannel
         await DisconnectAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 读循环放弃（bus-dead heuristic 命中）后的状态收口。
+    /// 仅在"已连接且非主动断开"时生效——主动 DisconnectAsync 路径自己负责
+    /// 复位 + 释放设备。Best-effort 复位 CAN 通道 + 释放设备引用，使
+    /// 未来 ConnectAsync 可以干净地重新 Acquire。
+    /// </summary>
+    internal void MarkDisconnectedAfterReadLoopGiveUp()
+    {
+        CancellationTokenSource? staleCts;
+        lock (_connectLock)
+        {
+            if (!_connected || _disconnecting) return;
+            _connected = false;
+            staleCts = _cts;
+            _cts = null;
+            _readLoop = null;
+        }
+        // 读循环已自行退出（未 Cancel），安全释放。
+        try { staleCts?.Dispose(); } catch { /* best-effort */ }
+
+        try { ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
+        catch { /* best-effort：设备可能已不在（DLL 缺失/拔出），忽略 */ }
+
+        _deviceManager.ReleaseDevice(_devType, _devIdx);
+    }
+
     // 构建 ZLG 的 INIT_CONFIG 并调用 VCI_InitCAN。
     // FD 模式下额外调用 VCI_SetReference 配置数据段波特率。
     private uint InitCanChannel(BaudRate baud, bool fd)

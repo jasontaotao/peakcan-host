@@ -301,8 +301,28 @@ public class TraceViewModelTests
         vm.Entries.Should().ContainSingle("MaxRows=1 should keep only the newest row");
         vm.Entries[0].Id.Raw.Should().Be(0x200);
         vm.PendingDecode.Should().ContainSingle("the trimmed row pending entry must be removed");
-        vm.PendingDecode.Values.Single().Id.Raw.Should().Be(0x200);
+        vm.PendingDecode.Values.Single().Single().Id.Raw.Should().Be(0x200);
     }
+    [Fact]
+    public void PendingDecode_SameKeyCollision_BothEntriesCompletableInFifoOrder()
+    {
+        // 2026-09-04 审查 P1-3：同 (id, channel) 在同一微秒的两帧（CAN FD 高负载
+        // 下可能）此前共用一个 key，第二帧覆盖第一帧 → 第一帧 Decoded 永不填充。
+        // 修复后 key 下应保留两个 pending 条目，按 FIFO 顺序逐个完成。
+        var vm = new TraceViewModel();
+        vm.AppendBatchCore([MakeFrame(id: 0x100, dlc: 4), MakeFrame(id: 0x100, dlc: 6)]);
+
+        var key = new TraceEntryKey(0x100, 1_000_000UL, 0x51);
+        vm.TryCompletePending(key, out var first).Should().BeTrue();
+        first.Should().NotBeNull();
+        first!.Data.Length.Should().Be(4, "FIFO：先入列的帧先完成");
+        vm.TryCompletePending(key, out var second).Should().BeTrue();
+        second.Should().NotBeNull();
+        second!.Data.Length.Should().Be(6, "FIFO：后入列的帧后完成");
+        vm.TryCompletePending(key, out _).Should().BeFalse("队列清空后无更多 pending");
+        vm.PendingDecode.Should().BeEmpty("完成后 key 应被移除（防长跑泄漏）");
+    }
+
     // ── Task 7 (phase 2 A-5) 原 PassesFilters_* 测试：2026-08-31 P1 移除 ──
     // `PassesFilters` 方法消亡（入口过滤 → 视图层过滤）。通道/复合过滤语义改由
     // `TraceFilterSpec.Matches`（TraceFilterSpecTests）与视图层断言

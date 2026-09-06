@@ -6,11 +6,9 @@ namespace PeakCan.Host.App.ViewModels;
 /// Two frames share a key only if their (Id, Timestamp, Channel) match exactly.
 /// <para>
 /// The worker in <c>DbcDecodeBackgroundService</c> looks up pending entries by
-/// this key after looking the frame up in the DBC; collisions are vanishingly
-/// unlikely at &lt; 10 k fps but possible if the bus delivers two frames with
-/// identical (id, channel) in the same microsecond — in that case the second
-/// frame's Decoded would overwrite the first. This is acceptable for the PATCH;
-/// a finer-grained key (sequence number) can be added later if observed.
+/// this key after looking the frame up in the DBC. 2026-09-05 P1-3：同 key
+/// 的多帧不再互相覆盖——key 下挂 FIFO pending 队列，逐帧完成 decode
+/// （此前第二帧覆盖第一帧，第一帧 Decoded 永不填充）。
 /// </para>
 /// </summary>
 public readonly record struct TraceEntryKey(
