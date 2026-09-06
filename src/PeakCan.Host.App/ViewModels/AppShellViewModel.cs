@@ -160,17 +160,9 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // invocation (which always persists user intent).
     private bool _suppressNextPersist;
 
-    // View instances are created lazily on the first Show command so the
-    // shell's ctor stays STA-free (xunit runs on MTA). Production callers
-    // always resolve the VM from the WPF STA thread (App.OnStartup), so
-    // the first Show happens on STA and the WPF UserControl ctor succeeds.
-    private TraceView? _traceView;
-    private DbcView? _dbcView;
-    private SendView? _sendView;
-    private SignalView? _signalView;
-    private StatsView? _statsView;
-    private ScriptView? _scriptView;
-    private ReplayView? _replayView;
+    // View instances are created by the TabSpec factories on first tab
+    // activation, so the shell ctor stays STA-free. Secondary windows are
+    // cached by WindowHostService (DI singleton).
     // P0-3: the 5 secondary windows (Trace Viewer / UDS / ECU Script Editor /
     // Multi-frame / HIL) are cached by WindowHostService (DI singleton) — no
     // per-VM window cache fields remain.
@@ -543,4 +535,3 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // === Flow B methods moved to AppShellViewModel/ViewSwitchFlow.cs (W4 Task 3) ===
     // === Flow A methods moved to AppShellViewModel/ChannelFlow.cs (W4 Task 4) ===
 }
-
