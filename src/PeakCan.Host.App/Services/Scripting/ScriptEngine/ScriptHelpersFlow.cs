@@ -10,8 +10,9 @@ public sealed partial class ScriptEngine
     // field ownership per W14 D2.
 
     /// <summary>
-    /// Emit an output line to subscribers. Public as an
-    /// <see cref="IScriptOutputSink"/> implementation member.
+    /// Emit an output line to subscribers. P1-2（2026-09-06）：本类不再是
+    /// IScriptOutputSink 实现（由 ScriptOutputHub 承担），此方法保留为本类
+    /// 内部错误输出的直达通道。
     /// </summary>
     public void EmitOutput(ScriptOutputLine line)
     {

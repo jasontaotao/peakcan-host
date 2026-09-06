@@ -92,7 +92,7 @@ public sealed partial class ScriptEngine
         // Inject utility functions (if available).
         if (_utilities is not null)
         {
-            var utils = _utilities.Value;  // 延迟解析，打破 ctor 循环
+            var utils = _utilities;
             engine.AddHostObject("log", (Action<string>)((msg) => utils.Log(msg)));
             engine.AddHostObject("warn", (Action<string>)((msg) => utils.Warn(msg)));
             engine.AddHostObject("error", (Action<string>)((msg) => utils.Error(msg)));

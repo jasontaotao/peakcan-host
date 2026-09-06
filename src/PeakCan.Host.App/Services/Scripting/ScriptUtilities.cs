@@ -10,8 +10,8 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// <para>
 /// <b>Thread-safety:</b> All methods are thread-safe. Logging is
 /// forwarded to the <see cref="IScriptOutputSink"/> implementation
-/// (in production, <see cref="ScriptEngine"/> via its
-/// <c>OutputReceived</c> event).
+/// (in production, <see cref="ScriptOutputHub"/> — P1-2 2026-09-06；
+/// ScriptEngine 订阅 hub 转发到 OutputReceived).
 /// </para>
 /// </summary>
 public sealed partial class ScriptUtilities

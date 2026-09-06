@@ -44,18 +44,19 @@ public sealed class ScriptUtilitiesTests
             l => l.Level == ScriptOutputLevel.Error && l.Message == "boom"));
     }
 
-    // ScriptEngine 实现 IScriptOutputSink：ScriptUtilities 把输出交给
-    // engine（作为 sink），engine 再把它们路由到 OutputReceived 事件。
-    // 该路径是生产实际使用路径，锁定其行为。
+    // P1-2（2026-09-06，Lazy<T> 清零）：生产路径 = ScriptUtilities → ScriptOutputHub →
+    // ScriptEngine（ctor 订阅转发）→ OutputReceived。锁定该链路行为。
     [Fact]
     public void ScriptEngine_AsSink_RoutesOutput_ThroughEngine()
     {
+        var hub = new ScriptOutputHub();
         var engine = new ScriptEngine(
-            Substitute.For<ILogger<ScriptEngine>>(), null, null, null);
+            Substitute.For<ILogger<ScriptEngine>>(), null, null, null,
+            ScriptEngineOptions.Default, hub);
         ScriptOutputLine? got = null;
         engine.OutputReceived += l => got = l;
 
-        var utils = new ScriptUtilities(_logger, engine);
+        var utils = new ScriptUtilities(_logger, hub);
 
         utils.Log("hi");
 

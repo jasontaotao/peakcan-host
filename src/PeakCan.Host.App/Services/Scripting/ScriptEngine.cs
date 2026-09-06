@@ -23,7 +23,7 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// engine state.
 /// </para>
 /// </summary>
-public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
+public sealed partial class ScriptEngine : IDisposable
 {
     /// <summary>Default script execution timeout (60 seconds).</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
@@ -31,9 +31,12 @@ public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
     private readonly ILogger<ScriptEngine> _logger;
     private readonly CanApi? _canApi;
     private readonly DbcApi? _dbcApi;
-    // 循环依赖破环：ScriptUtilities 延迟解析，避免 ctor 直接持有对方实例。
-    private readonly Lazy<ScriptUtilities>? _utilities;
+    // P1-2（2026-09-06，Lazy<T> 清零）：ScriptUtilities 直接 ctor 注入——输出环已由
+    // ScriptOutputHub 解耦（ScriptUtilities → hub → 本类订阅转发），不再需要延迟解析。
+    private readonly ScriptUtilities? _utilities;
     private readonly ScriptEngineOptions _options;
+    private readonly ScriptOutputHub? _outputHub;
+    private readonly Action<ScriptOutputLine>? _hubForward;
 
     private V8ScriptEngine? _engine;
     private CancellationTokenSource? _executionCts;
@@ -60,16 +63,14 @@ public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
     /// <summary>
     /// Back-compat constructor. Equivalent to passing
     /// <see cref="ScriptEngineOptions.Default"/>; delegates to the
-    /// 5-arg ctor so existing callers and tests see no behavior change.
+    /// 6-arg ctor so existing callers and tests see no behavior change.
     /// </summary>
     public ScriptEngine(
         ILogger<ScriptEngine> logger,
         CanApi? canApi,
         DbcApi? dbcApi,
         ScriptUtilities? utilities)
-        : this(logger, canApi, dbcApi,
-               utilities is null ? null : new Lazy<ScriptUtilities>(() => utilities),
-               ScriptEngineOptions.Default)
+        : this(logger, canApi, dbcApi, utilities, ScriptEngineOptions.Default, outputHub: null)
     {
     }
 
@@ -84,13 +85,20 @@ public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
     /// the only entry point). Visible to test project via
     /// <c>InternalsVisibleTo PeakCan.Host.App.Tests</c>.
     /// </para>
+    /// <para>
+    /// P1-2（2026-09-06，Lazy&lt;T&gt; 清零）：<paramref name="utilities"/> 直接持有；
+    /// <paramref name="outputHub"/> 非空时订阅并转发到
+    /// <see cref="OutputReceived"/>（ScriptUtilities 的 log/warn/error 经 hub 抵达
+    /// 外部订阅者，行为与旧 IScriptOutputSink 直连一致）。
+    /// </para>
     /// </summary>
     internal ScriptEngine(
         ILogger<ScriptEngine> logger,
         CanApi? canApi,
         DbcApi? dbcApi,
-        Lazy<ScriptUtilities>? utilities,
-        ScriptEngineOptions options)
+        ScriptUtilities? utilities,
+        ScriptEngineOptions options,
+        ScriptOutputHub? outputHub = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -102,6 +110,12 @@ public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
         // (64 MB heap / 16 MiB new / 48 MiB old) — preserves pre-v1.7.0
         // behavior for direct-construction callers (unit tests).
         _options = options ?? ScriptEngineOptions.Default;
+        _outputHub = outputHub;
+        if (outputHub is not null)
+        {
+            _hubForward = line => OutputReceived?.Invoke(line);
+            outputHub.OutputReceived += _hubForward;
+        }
     }
 
     /// <summary>
@@ -130,6 +144,8 @@ public sealed partial class ScriptEngine : IDisposable, IScriptOutputSink
     public void Dispose()
     {
         Stop();
+        if (_outputHub is not null && _hubForward is not null)
+            _outputHub.OutputReceived -= _hubForward;
         _executionCts?.Dispose();
     }
 

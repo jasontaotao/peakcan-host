@@ -156,24 +156,25 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
-        // v1.0.0: Scripting engine. ScriptEngine → ScriptUtilities 是单向依赖
-        // (CreateEngineFlow 暴露 log/warn/error 给 JS)；反向通过 Lazy<ScriptUtilities>
-        // 延迟解析，从 ctor 层面打破循环，替代旧的反射 field 注入。
+        // v1.0.0: Scripting engine. P1-2（2026-09-06，Lazy<T> 清零）：输出走
+        // ScriptOutputHub 单向流（ScriptUtilities → hub → ScriptEngine 转发到
+        // OutputReceived），依赖图无环——ScriptEngine 直接 ctor 持有 ScriptUtilities。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptOutputHub>();
+        // IScriptOutputSink 由 hub 承担（ScriptUtilities 的输出通道）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.IScriptOutputSink>(sp =>
+            sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptOutputHub>());
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptEngine>(sp =>
             new PeakCan.Host.App.Services.Scripting.ScriptEngine(
                 sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Scripting.ScriptEngine>>(),
                 sp.GetService<PeakCan.Host.App.Services.Scripting.CanApi>(),
                 sp.GetService<PeakCan.Host.App.Services.Scripting.DbcApi>(),
-                new Lazy<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(
-                    () => sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptUtilities>()),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptUtilities>(),
                 // v1.7.0 MINOR Item 1: V8 isolate resource caps.
-                sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>()));
+                sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngineOptions>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptOutputHub>()));
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.CanApi>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.DbcApi>();
-        // IScriptOutputSink forward 到 ScriptEngine（单一实现）。
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.IScriptOutputSink>(sp =>
-            sp.GetRequiredService<PeakCan.Host.App.Services.Scripting.ScriptEngine>());
-        builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>();
 
         // v1.1.0: UDS diagnostic stack.
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsTimer>();
@@ -321,10 +322,20 @@ public partial class AppHostBuilder
 
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
         builder.Services.AddSingleton<PeakCan.Host.Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
-        // Spec v3 §3.4: HilViewModel 的 connectedChannels 提供者由 AppShellViewModel
-        // 构造时注入（AppShell 单例持有连接状态；DI factory 引 shell 会形成
-        // AppShell ⇄ HilViewModel 循环解析死锁——恢复普通 transient 注册）。
-        builder.Services.AddTransient<ViewModels.HilViewModel>();
+        // P1-2（2026-09-06）: 已连接通道快照源（无依赖 singleton，先于 shell/HilVM 解析，
+        // 打破 AppShell⇄HilViewModel DI 环——HilViewModel 恢复 singleton 注册）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.IConnectedChannelsSource,
+            PeakCan.Host.App.Services.ConnectedChannelsSource>();
+        // Spec v3 §3.4: HilViewModel 恢复 singleton 注册（P1-2 2026-09-06：原为规避
+        // AppShell⇄HilViewModel setter 注入环的 transient）。connectedChannels 工厂
+        // 从 IConnectedChannelsSource 快照源取值（AppShell publish），DI 无环。
+        builder.Services.AddSingleton<ViewModels.HilViewModel>(sp => new ViewModels.HilViewModel(
+            sp.GetRequiredService<PeakCan.Host.Core.HIL.IHilRunnerService>(),
+            sp.GetRequiredService<ILogger<ViewModels.HilViewModel>>(),
+            sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
+            sp.GetRequiredService<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService>(),
+            sp.GetRequiredService<PeakCan.Host.Infrastructure.HIL.Reporting.IHilReportService>(),
+            connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current));
         builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
         builder.Services.AddSingleton<Infrastructure.HIL.Reporting.IHilReportService,
@@ -388,7 +399,9 @@ public partial class AppHostBuilder
             // P1-2: all device providers for the connection-settings panel.
             deviceProviders: sp.GetServices<PeakCan.Host.Core.Devices.ICanDeviceProvider>(),
             // P0-3: shared secondary-window host (DI singleton).
-            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
+            windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>(),
+            // P1-2（2026-09-06）: 已连接通道快照源（HilViewModel 消费）。
+            connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);

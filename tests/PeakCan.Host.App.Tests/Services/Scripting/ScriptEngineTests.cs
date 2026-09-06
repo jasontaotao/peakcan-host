@@ -242,18 +242,25 @@ public sealed class ScriptEngineTests : IDisposable
     }
 
     /// <summary>
-    /// Scripting 循环依赖破环契约测试：ScriptEngine 实现 IScriptOutputSink。
-    /// 4-arg back-compat ctor 仍可用（末参 null → null Lazy）。
+    /// P1-2（2026-09-06，Lazy&lt;T&gt; 清零）契约测试：输出环由 ScriptOutputHub 解耦，
+    /// ScriptEngine 不再实现 IScriptOutputSink；ScriptUtilities → hub → 引擎
+    /// OutputReceived 的链路仍然可达（经 outputHub ctor 参数）。
     /// </summary>
     [Fact]
-    public void ScriptEngine_Implements_IScriptOutputSink()
+    public void ScriptOutput_Flows_Through_Hub_To_Engine_OutputReceived()
     {
-        // Act — 4-arg back-compat ctor 仍可用（末参 null → null Lazy）
-        using var engine = new ScriptEngine(_logger, null, null, null);
+        var hub = new ScriptOutputHub();
+        var utilities = new ScriptUtilities(
+            Substitute.For<ILogger<ScriptUtilities>>(), hub);
+        using var engine = new ScriptEngine(_logger, null, null, utilities,
+            ScriptEngineOptions.Default, hub);
 
-        // Assert — engine 可作为 IScriptOutputSink 使用
-        IScriptOutputSink sink = engine;
-        Assert.NotNull(sink);
+        ScriptOutputLine? received = null;
+        engine.OutputReceived += line => received = line;
+        utilities.Log("hello");
+
+        received.Should().NotBeNull();
+        received!.Message.Should().Be("hello");
     }
 
     public void Dispose()

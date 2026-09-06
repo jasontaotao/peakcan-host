@@ -148,14 +148,9 @@ public partial class AppHostBuilder
 
         // === Range B: TraceViewModel + SendViewModel + DbcViewModel + SignalChartViewModel + SignalViewModel + StatsViewModel + ScriptViewModel ===
 
-        // 2026-08-31 P2: TraceViewModel 无参 ctor（DI 循环规避），DbcService 经
-        // BindDbc 属性注入——改用工厂完成接线（NodeEditorViewModel.Bind 同款模式）。
-        services.AddSingleton(sp =>
-        {
-            var vm = new TraceViewModel();
-            vm.BindDbc(sp.GetRequiredService<DbcService>());
-            return vm;
-        });
+        // 2026-09-06 P1-2（Bind 模式清零）：TraceViewModel 改 ctor 注入 DbcService
+        // （参数less 重载保留给测试）。显式工厂确保解析到带 DBC 的单例。
+        services.AddSingleton(sp => new TraceViewModel(sp.GetRequiredService<DbcService>()));
         // A4 orphan PATCH (v3.0.8): SendViewModel needs a
         // Func<long> that returns the current rate-limit rejected
         // frame count. Resolved by pattern-matching the registered

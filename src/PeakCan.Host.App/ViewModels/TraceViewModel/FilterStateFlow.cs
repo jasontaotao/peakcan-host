@@ -22,7 +22,7 @@ public sealed partial class TraceViewModel
     /// </summary>
     public ListCollectionView EntriesView { get; }
 
-    /// <summary>DBC 服务（经 <see cref="BindDbc"/> 属性注入，规避 DI 循环；未绑=null 降级）。</summary>
+    /// <summary>DBC 服务（P1-2 2026-09-06：改 <see cref="TraceViewModel(DbcService?)"/> ctor 注入；null 降级）。</summary>
     private DbcService? _dbcService;
 
     // —— 过滤字段（UI 文本 / 开关，参与 spec 构建）——

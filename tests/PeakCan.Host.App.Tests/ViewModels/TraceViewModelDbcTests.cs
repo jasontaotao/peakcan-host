@@ -50,10 +50,9 @@ public class TraceViewModelDbcTests
     [Fact]
     public void DbcName_After_Bind_And_Load_Resolves()
     {
-        var vm = new TraceViewModel();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         dbc.SetCurrentForTests(Doc(ExtendedMsg(0x18EAFF00, "EEC1")));
-        vm.BindDbc(dbc);
+        var vm = new TraceViewModel(dbc);
 
         vm.AppendBatchCore(new[]
         {
@@ -73,10 +72,9 @@ public class TraceViewModelDbcTests
     [Fact]
     public void Bind_Populates_DbcMessageNames_Projection()
     {
-        var vm = new TraceViewModel();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         dbc.SetCurrentForTests(Doc(ExtendedMsg(0x18EAFF00, "EEC1"), ExtendedMsg(0x18FEF100, "CCVS")));
-        vm.BindDbc(dbc);
+        var vm = new TraceViewModel(dbc);
 
         vm.DbcMessageNames.Should().Contain("EEC1");
         vm.DbcMessageNames.Should().Contain("CCVS");
@@ -87,9 +85,8 @@ public class TraceViewModelDbcTests
     [Fact]
     public void DbcLoaded_Handler_Works_In_Mta_Without_Application()
     {
-        var vm = new TraceViewModel();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
-        vm.BindDbc(dbc);
+        var vm = new TraceViewModel(dbc);
 
         // 初始无 DBC → 空投影。
         vm.DbcMessageNames.Should().BeEmpty();

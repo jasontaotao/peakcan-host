@@ -132,9 +132,12 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // service，窗口关闭即丢弃窗口级状态）。
     private readonly ITraceSessionService _traceSessionService;
     private readonly Func<TraceViewerViewModel> _traceViewerFactory;
-    // Sprint 3: HIL testing panel VM (transient, created per navigation)
+    // Sprint 3: HIL testing panel VM（P1-2 2026-09-06：恢复 singleton 注册——
+    // 依赖环已由 IConnectedChannelsSource 消除，不再需要 transient + setter）
     private readonly HilViewModel _hilViewModel;
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
+    // P1-2（2026-09-06）: 已连接通道快照源（生产者：本类 publish；消费者 HilViewModel）
+    private readonly IConnectedChannelsSource? _connectedChannelsSource;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -320,7 +323,12 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // P0-3: window-lifecycle host. DI wires the singleton; the null
         // fallback keeps existing test ctor sites compiling (each test VM
         // then gets its own isolated host instance).
-        WindowHostService? windowHost = null)
+        WindowHostService? windowHost = null,
+        // P1-2（2026-09-06）: 已连接通道快照源。连接状态变化时由本类 publish，
+        // HilViewModel ctor 注入读取——取代旧 SetConnectedChannelsProvider setter
+        // 直连（消除 AppShell⇄HilViewModel 属性注入耦合）。可选参数保持测试
+        // 构造点零改动；null 时 HilViewModel 读到空快照（单通道零回归）。
+        IConnectedChannelsSource? connectedChannelsSource = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -345,14 +353,11 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
-        // Spec v3 §3.4: 把已连接通道提供者注入 HilViewModel（AppShell 单例持有
-        // 连接状态快照；DI factory 注入会形成 AppShell⇄HilViewModel 循环死锁，
-        // 故由 AppShell 构造时直连配置）。
-        _hilViewModel.SetConnectedChannelsProvider(() =>
-            ChannelConnections
-                .Where(c => c.State == "已连接")
-                .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd, c.Name))
-                .ToList());
+        // P1-2（2026-09-06）: 已连接通道快照源（IConnectedChannelsSource）。
+        // 本类是生产者：连接状态变化（NotifyConnectionStateChanged 统一入口）时
+        // publish 快照，HilViewModel 读 .Current——不再 setter 直连 HilViewModel。
+        _connectedChannelsSource = connectedChannelsSource;
+        PublishConnectedChannels();
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
         // M5: Recording panel hands the recorded trace to the preview dialog.

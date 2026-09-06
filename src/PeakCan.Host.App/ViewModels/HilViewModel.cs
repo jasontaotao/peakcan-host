@@ -87,8 +87,9 @@ public sealed partial class HilViewModel : ObservableObject
         IFileDialogService fileDialog,
         IHilAnalysisService analysisService,
         IHilReportService reportService,
-        // Spec v3 §3.4: 已连接通道提供者（AppShell 连接设置配的多路）。
-        // 默认 null = 无已连通道 → 走单通道路径（零回归）。测试注入 fake。
+        // Spec v3 §3.4: 已连接通道提供者（P1-2 2026-09-06：原 setter 注入已删；
+        // 生产 DI 工厂从 IConnectedChannelsSource 快照源取值——AppShell publish、
+        // DI 无环，本类恢复 singleton）。默认 null = 无已连通道 → 单通道路径（零回归）。
         Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null)
     {
         _runner = runner;
@@ -122,13 +123,6 @@ public sealed partial class HilViewModel : ObservableObject
 
     /// <summary>多通道绑定截断提示（Run 完成后拼接到 StatusMessage，防被结果覆盖）。</summary>
     private string? _truncationWarning;
-
-    /// <summary>
-    /// Spec v3 §3.4: 注入已连接通道提供者（AppShell 构造时调用——DI factory 注入会
-    /// 形成 AppShell⇄HilViewModel 循环死锁，用 setter 直连）。null 清除（单通道零回归）。
-    /// </summary>
-    public void SetConnectedChannelsProvider(Func<IReadOnlyList<ConnectedChannel>>? provider)
-        => _connectedChannels = provider;
 
     // --- Browse commands ---
 

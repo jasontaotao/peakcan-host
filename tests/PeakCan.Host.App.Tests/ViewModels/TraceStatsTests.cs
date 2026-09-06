@@ -78,10 +78,9 @@ public class TraceStatsTests
     [Fact]
     public void Stats_Resolves_DbcName_From_Loaded_Dbc()
     {
-        var vm = new TraceViewModel();
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         dbc.SetCurrentForTests(Doc(ExtendedMsg(0x18EAFF00, "EEC1")));
-        vm.BindDbc(dbc);
+        var vm = new TraceViewModel(dbc);
 
         vm.AppendBatchCore(new[] { Frame(0x18EAFF00, FrameFormat.Extended) });
         vm.StatsExpanded = true;

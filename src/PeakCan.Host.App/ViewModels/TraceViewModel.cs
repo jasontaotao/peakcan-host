@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.HIL.Core;
+using PeakCan.Host.App.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -52,13 +53,24 @@ public sealed record MessageIdStat(
 public sealed partial class TraceViewModel : ObservableObject
 {
     /// <summary>
-    /// 无参 ctor（DI 循环规避设计）：建 <see cref="EntriesView"/>（同线程）并初始化状态文本。
-    /// <c>DbcService</c> 经 <see cref="DbcBindingFlow.BindDbc"/> 属性注入。
+    /// 无参 ctor：建 <see cref="EntriesView"/>（同线程）并初始化状态文本，不绑定
+    /// DBC（<see cref="DbcBindingFlow._dbcService"/> 为 null → 名称投影/解码回退降级）。
+    /// 测试与"先建后绑"场景用；生产 DI 走 <see cref="TraceViewModel(DbcService?)"/>。
     /// </summary>
-    public TraceViewModel()
+    public TraceViewModel() : this(dbc: null)
+    {
+    }
+
+    /// <summary>
+    /// 2026-09-06 P1-2（Bind 模式清零）：ctor 注入 <see cref="DbcService"/>，
+    /// 取代旧 <c>BindDbc</c> 属性注入（消除构造后→Bind 前的半初始化窗口：
+    /// 期间 DbcLoaded 事件会丢，消息名列陈旧）。参数less 重载保留给测试。
+    /// </summary>
+    public TraceViewModel(DbcService? dbc)
     {
         EntriesView = new System.Windows.Data.ListCollectionView(Entries);
         UpdateStatusText();
+        if (dbc is not null) BindDbc(dbc);
     }
 
     /// <summary>

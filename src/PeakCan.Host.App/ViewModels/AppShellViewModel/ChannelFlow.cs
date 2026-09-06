@@ -277,6 +277,8 @@ public sealed partial class AppShellViewModel
     /// whenever ChannelConnections changes. Called at the end of Connect/
     /// Disconnect (and now also from per-slot StateChanged via H1 fix).
     /// Cheap (4 notifications).
+    /// P1-2（2026-09-06）: 本方法是连接状态变化的统一入口，在此一并向
+    /// <see cref="IConnectedChannelsSource"/> publish 快照（HilViewModel 消费）。
     /// </summary>
     private void NotifyConnectionStateChanged()
     {
@@ -284,6 +286,24 @@ public sealed partial class AppShellViewModel
         OnPropertyChanged(nameof(IsDisconnected));
         ConnectCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
+        PublishConnectedChannels();
+    }
+
+    /// <summary>
+    /// P1-2（2026-09-06）: 计算当前已连接通道快照并发布到
+    /// <see cref="IConnectedChannelsSource"/>（HilViewModel 读 .Current）。
+    /// source 为 null（测试构造点未传）时 no-op。
+    /// 线程约束：本方法枚举 ChannelConnections（UI 线程所有）——当前所有
+    /// NotifyConnectionStateChanged 调用点都在 UI 线程；若未来出现后台
+    /// StateChanged 发布者，必须先封送到 UI 线程再触发本路径。
+    /// </summary>
+    private void PublishConnectedChannels()
+    {
+        if (_connectedChannelsSource is null) return;
+        _connectedChannelsSource.Publish(ChannelConnections
+            .Where(c => c.State == "已连接")
+            .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd, c.Name))
+            .ToList());
     }
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]

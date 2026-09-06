@@ -7,12 +7,12 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class TraceViewModel
 {
     /// <summary>
-    /// 2026-08-31 P2：属性注入 <see cref="DbcService"/>（<c>NodeEditorViewModel.Bind</c>
-    /// 同款，规避 DI 循环——<c>TraceViewModel</c> 无参 ctor 是既有设计，不破坏）。
-    /// 由 <c>AppHostBuilder</c> 启动接线一次；未绑/未加载 DBC 时降级（符号解析报错、
-    /// DBC 名列空），其余功能不受影响。
+    /// 2026-09-06 P1-2（Bind 模式清零）：改为 <see cref="TraceViewModel(DbcService?)"/>
+    /// ctor 注入后，此方法降为 ctor 内部私有接线（不再有公开属性注入入口——
+    /// 消除构造后→Bind 前的半初始化窗口：期间 DbcLoaded 事件会丢，消息名列陈旧）。
+    /// 未绑/未加载 DBC 时降级（符号解析报错、DBC 名列空），其余功能不受影响。
     /// </summary>
-    internal void BindDbc(DbcService dbc)
+    private void BindDbc(DbcService dbc)
     {
         _dbcService = dbc;
         dbc.DbcLoaded += OnDbcLoaded;

@@ -90,7 +90,8 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     // 变化（并发 StartRecording 已换 writer），本次停止不得 footer/dispose 新 writer
     // （2026-09-06 review：pre-existing 竞态，一并守卫）。
     private int _recordingGeneration;
-    private volatile bool _drainConvergedDisposed;
+    // 语义由 Volatile.Read/Write 提供（volatile 关键字 + Volatile.* 传 ref 会触发 CS0420）。
+    private bool _drainConvergedDisposed;
 
     /// <summary>True when actively recording to a file.</summary>
     public bool IsRecording => _isRecording;
