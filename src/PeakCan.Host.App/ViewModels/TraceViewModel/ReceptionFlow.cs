@@ -85,7 +85,19 @@ public sealed partial class TraceViewModel
                 f.Channel.Handle);
             _pendingDecode[pendingKey] = Entries[^1];
         }
-        while (Entries.Count > MaxRows) Entries.RemoveAt(0);
+        while (Entries.Count > MaxRows)
+        {
+            var removed = Entries[0];
+            var removedKey = new TraceEntryKey(
+                removed.Id.Raw,
+                removed.Timestamp.TotalMicroseconds,
+                removed.Channel.Handle);
+            // FIFO 出列时同步清 pending map，避免长跑内存泄漏。
+            // 仅当 key 仍指向被移除行时才删，防止同 key 后续帧被误删。
+            if (_pendingDecode.TryGetValue(removedKey, out var pending) && ReferenceEquals(pending, removed))
+                _pendingDecode.TryRemove(removedKey, out _);
+            Entries.RemoveAt(0);
+        }
 
         // 批次末：统计面板若展开则刷；状态文本重算。
         if (StatsExpanded) RefreshStats();

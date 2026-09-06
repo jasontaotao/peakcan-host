@@ -289,6 +289,20 @@ public class TraceViewModelTests
         k1.Should().NotBe(k4, "different channel → different keys");
     }
 
+    [Fact]
+    public void FifoTrim_Removes_Old_Entry_From_PendingDecode()
+    {
+        // FIFO 出列时必须同步清 pending map，否则长跑 trace 会累积
+        // 已被移除行的 pending entry（内存泄漏 + 过期 decode 回填）。
+        var vm = new TraceViewModel { MaxRows = 1 };
+        vm.AppendBatchCore([MakeFrame(id: 0x100)]);
+        vm.AppendBatchCore([MakeFrame(id: 0x200)]);
+
+        vm.Entries.Should().ContainSingle("MaxRows=1 should keep only the newest row");
+        vm.Entries[0].Id.Raw.Should().Be(0x200);
+        vm.PendingDecode.Should().ContainSingle("the trimmed row pending entry must be removed");
+        vm.PendingDecode.Values.Single().Id.Raw.Should().Be(0x200);
+    }
     // ── Task 7 (phase 2 A-5) 原 PassesFilters_* 测试：2026-08-31 P1 移除 ──
     // `PassesFilters` 方法消亡（入口过滤 → 视图层过滤）。通道/复合过滤语义改由
     // `TraceFilterSpec.Matches`（TraceFilterSpecTests）与视图层断言
