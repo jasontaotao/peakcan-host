@@ -9,19 +9,17 @@ namespace PeakCan.HIL.Core.Tests.Uds.Database;
 
 public class DidDatabaseTests
 {
+    // 2026-09-06 PATCH: sandboxed CI/test hosts may not be able to write to
+    // %LOCALAPPDATA%. Keep the production allowlist contract intact by using
+    // a test-owned root and passing it explicitly to PathOptions.
+    private static readonly string TestRoot =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "TestUserData");
+
+    private static PathOptions TestOptions => new(new List<string> { TestRoot });
+
     private static string TempJson(string contents)
     {
-        // v1.6.4 PATCH: DidDatabase now routes user-JSON reads through
-        // PathNormalizer.NormalizeRestricted with the %LOCALAPPDATA%\PeakCan.Host
-        // allowlist. Test fixtures must therefore live under that root.
-        var path = System.IO.Path.Combine(
-            System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PeakCan.Host"),
-            $"uds-dids-{Guid.NewGuid():N}.json");
-        // v2.1.5 PATCH: ensure parent dir exists before write. CI runner
-        // has fresh %LOCALAPPDATA% — the app never ran so the dir is
-        // absent. CreateDirectory is a no-op if exists.
+        var path = System.IO.Path.Combine(TestRoot, $"uds-dids-{Guid.NewGuid():N}.json");
         var parentDir = System.IO.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
         File.WriteAllText(path, contents);
@@ -64,7 +62,7 @@ public class DidDatabaseTests
 
         try
         {
-            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance);
+            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance, TestOptions);
 
             var vin = sut.Find(0xF190);
             Assert.NotNull(vin);
@@ -92,7 +90,7 @@ public class DidDatabaseTests
 
         try
         {
-            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance);
+            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance, TestOptions);
 
             Assert.Equal(6, sut.All.Count); // 5 built-in + 1 custom
             Assert.NotNull(sut.Find(0x1234));
@@ -111,7 +109,7 @@ public class DidDatabaseTests
 
         try
         {
-            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance);
+            var sut = new DidDatabase(path, NullLogger<DidDatabase>.Instance, TestOptions);
 
             Assert.Equal(5, sut.All.Count);
             Assert.NotNull(sut.Find(0xF190));

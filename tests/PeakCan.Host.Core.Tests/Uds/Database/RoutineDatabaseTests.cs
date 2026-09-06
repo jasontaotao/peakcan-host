@@ -9,19 +9,17 @@ namespace PeakCan.HIL.Core.Tests.Uds.Database;
 
 public class RoutineDatabaseTests
 {
+    // 2026-09-06 PATCH: sandboxed CI/test hosts may not be able to write to
+    // %LOCALAPPDATA%. Keep the production allowlist contract intact by using
+    // a test-owned root and passing it explicitly to PathOptions.
+    private static readonly string TestRoot =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "TestUserData");
+
+    private static PathOptions TestOptions => new(new List<string> { TestRoot });
+
     private static string TempJson(string contents)
     {
-        // v1.6.4 PATCH: RoutineDatabase now routes user-JSON reads through
-        // PathNormalizer.NormalizeRestricted with the %LOCALAPPDATA%\PeakCan.Host
-        // allowlist. Test fixtures must therefore live under that root.
-        var path = System.IO.Path.Combine(
-            System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PeakCan.Host"),
-            $"uds-routines-{Guid.NewGuid():N}.json");
-        // v2.1.5 PATCH: ensure parent dir exists before write. CI runner
-        // has fresh %LOCALAPPDATA% — the app never ran so the dir is
-        // absent. CreateDirectory is a no-op if exists.
+        var path = System.IO.Path.Combine(TestRoot, $"uds-routines-{Guid.NewGuid():N}.json");
         var parentDir = System.IO.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
         File.WriteAllText(path, contents);
@@ -61,7 +59,7 @@ public class RoutineDatabaseTests
 
         try
         {
-            var sut = new RoutineDatabase(path, NullLogger<RoutineDatabase>.Instance);
+            var sut = new RoutineDatabase(path, NullLogger<RoutineDatabase>.Instance, TestOptions);
 
             Assert.Equal(2, sut.All.Count);
             Assert.Equal("EraseMemory", sut.Find(0xFF00)?.Name);
@@ -81,7 +79,7 @@ public class RoutineDatabaseTests
 
         try
         {
-            var sut = new RoutineDatabase(path, NullLogger<RoutineDatabase>.Instance);
+            var sut = new RoutineDatabase(path, NullLogger<RoutineDatabase>.Instance, TestOptions);
 
             Assert.Empty(sut.All);
         }
@@ -130,10 +128,9 @@ public class RoutineDatabaseTests
     public void RoutineDatabase_With_Custom_AllowedRoots_Rejects_Path_Outside_List()
     {
         // Arrange
-        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"peakcan-rt-allowlist-test-{Guid.NewGuid():N}.json");
+        var tempPath = TempJson("{ \"routines\": [] }");
         try
         {
-            File.WriteAllText(tempPath, "{ \"routines\": [] }");
             var customOptions = new PathOptions(new List<string> { @"C:\Nonexistent\Root" });
 
             // Act
