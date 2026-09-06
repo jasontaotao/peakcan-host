@@ -10,6 +10,7 @@ using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Core.Devices;
 using PeakCan.HIL.Core.Path;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Infrastructure.Composition;
 using PeakCan.Host.Infrastructure.Peak;
 using PeakCan.Host.Infrastructure.Zlg;
 using Polly;
@@ -194,19 +195,13 @@ public partial class AppHostBuilder
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("peakcan-host/3.61.0");
         })
-        .AddTransientHttpErrorPolicy(builder => builder
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
+        .AddPolicyHandler(LlmAnalysisComposition.GetRetryPolicy());
         // Sprint 19 Inc 8: HIL test failure analysis service (headless/CLI sibling).
-        services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
-            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
-        {
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
-        })
-        .AddPolicyHandler(Polly.Extensions.Http.HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .OrResult(r => (int)r.StatusCode == 429)
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
+        // P1-1（2026-09-06）：公共切片 LlmAnalysisComposition 单源（typed client +
+        // retry 策略唯一源）。LlmOptions 绑定在 AppHostBuilder.cs:130（传 configuration
+        // 会重复绑定，故此处不传）。ICredentialStore 上方已注册 Chained（WCM 优先），
+        // 扩展内 TryAdd 兜底跳过。
+        services.AddLlmAnalysis();
         // AI Chat: OpenAiCompatibleChatProvider, supports multi-vendor.
         services.AddSingleton<PeakCan.HIL.Core.Analysis.Chat.IChatProvider>(sp =>
         {

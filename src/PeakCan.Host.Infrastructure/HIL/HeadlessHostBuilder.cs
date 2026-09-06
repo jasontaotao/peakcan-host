@@ -20,6 +20,7 @@ using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Composite;
+using PeakCan.Host.Infrastructure.Composition;
 using PeakCan.Host.Infrastructure.Peak;
 using PeakCan.Host.Infrastructure.Zlg;
 using PeakCan.Host.Core;
@@ -311,19 +312,10 @@ public static class HeadlessHostBuilder
             sp.GetService<IUdsSession>()));
 
         // Sprint 19 Inc 8: LLM failure analysis service with Polly retry.
+        // P1-1（2026-09-06）：公共切片 LlmAnalysisComposition 单源（retry 策略 +
+        // 超时算术此前在此与 AppHostBuilder 各手写一份，已漂移）。
         // Credential store for headless/CLI runs (env var / ~/.hil/credentials).
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Analysis.ICredentialStore,
-            PeakCan.Host.Infrastructure.HIL.Analysis.SimpleCredentialStore>();
-        // Phase 1: bind Llm config section (same as WPF AppHostBuilder).
-        builder.Services.Configure<PeakCan.HIL.Core.Analysis.LlmOptions>(
-            builder.Configuration.GetSection("Llm"));
-        builder.Services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
-            PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
-        {
-            var opts = sp.GetRequiredService<IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds * 5);
-        })
-        .AddPolicyHandler(GetRetryPolicy());
+        builder.Services.AddLlmAnalysis(builder.Configuration);
 
         // Logging
         builder.Logging.AddSerilog(new LoggerConfiguration()
@@ -356,18 +348,7 @@ public static class HeadlessHostBuilder
     }
 
     /// <summary>
-    /// Sprint 19 Inc 8: Polly retry policy for HilAnalysisService — retries
-    /// transient HTTP errors and 429 rate limits up to 3 times with
-    /// exponential backoff (1s → 2s → 4s).
-    /// </summary>
-    private static Polly.IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-        => Polly.Extensions.Http.HttpPolicyExtensions
-            .HandleTransientHttpError()
-            .OrResult(r => (int)r.StatusCode == 429)
-            .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
-
-    /// <summary>
-    /// Register ISO-TP + UDS services (shared between hardware and virtual ECU modes).
+    /// 注册 ISO-TP + UDS services (shared between hardware and virtual ECU modes).
     /// </summary>
     private static void RegisterUdsServices(HostApplicationBuilder builder, CliArgs args)
     {
