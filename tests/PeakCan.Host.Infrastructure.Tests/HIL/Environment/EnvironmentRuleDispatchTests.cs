@@ -243,8 +243,10 @@ public class EnvironmentJ1939RuleDispatchTests
         runtime.Start([node], null);
         runtime.InjectIncomingFrame(MakeExtFrame(J1939Raw(6, 0x0200, 0xF4, 0x56), [0x01]));
         runtime.ScanForTest(); // 规则命中，消息启动（下次发送排在未来 10ms 量子）
-        System.Threading.Thread.Sleep(15);
-        runtime.ScanForTest(); // 到期后发出首个周期帧
+        // 周期发送在真实 10ms 定时器线程上，高负载下可能晚于固定 sleep——轮询等待
+        var deadline = System.Environment.TickCount64 + 500;
+        while (System.Environment.TickCount64 < deadline && !sent.Any(f => f.Id.Raw == J1939Raw(6, 0x0100, 0x56, 0xF4)))
+            System.Threading.Thread.Sleep(10);
         Assert.Contains(sent, f => f.Id.Raw == J1939Raw(6, 0x0100, 0x56, 0xF4));
         runtime.Stop();
     }
