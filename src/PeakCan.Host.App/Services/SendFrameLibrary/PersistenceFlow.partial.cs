@@ -51,7 +51,7 @@ public sealed partial class SendFrameLibrary
             var file = JsonSerializer.Deserialize<LibraryFile>(json, JsonOpts);
             return file?.Frames ?? new List<SavedFrame>();
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
             return Array.Empty<SavedFrame>();

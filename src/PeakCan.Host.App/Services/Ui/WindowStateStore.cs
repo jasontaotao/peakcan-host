@@ -127,7 +127,7 @@ public sealed partial class WindowStateStore
                 }
             }
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
         }

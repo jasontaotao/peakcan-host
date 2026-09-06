@@ -41,7 +41,7 @@ public sealed partial class SequenceLibrary
             var file = JsonSerializer.Deserialize<LibraryFile>(json, JsonOpts);
             return file?.Sequences ?? new List<SavedSequence>();
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
             return Array.Empty<SavedSequence>();

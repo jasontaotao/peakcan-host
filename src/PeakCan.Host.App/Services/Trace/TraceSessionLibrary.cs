@@ -118,7 +118,7 @@ public sealed partial class TraceSessionLibrary
             var dto = JsonSerializer.Deserialize<TraceSessionBundleDto>(json, JsonOpts);
             return dto;
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, normalized, ex);
             return null;

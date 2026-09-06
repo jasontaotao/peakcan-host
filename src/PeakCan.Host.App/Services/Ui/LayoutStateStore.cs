@@ -67,7 +67,7 @@ public sealed partial class LayoutStateStore
             var json = File.ReadAllText(_path);
             _state = JsonSerializer.Deserialize<Envelope>(json, JsonOpts)?.Layout;
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
         }

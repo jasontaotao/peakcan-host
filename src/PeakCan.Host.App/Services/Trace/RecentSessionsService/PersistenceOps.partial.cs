@@ -79,7 +79,7 @@ public sealed partial class RecentSessionsService
                 _items.AddRange(dto.Recent);
             }
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
             // _items already cleared above — corrupt-load leaves the

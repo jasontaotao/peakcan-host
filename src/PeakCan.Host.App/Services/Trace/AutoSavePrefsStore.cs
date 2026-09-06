@@ -97,7 +97,7 @@ public sealed partial class FileAutoSavePrefsStore : IAutoSavePrefsStore
                 return Task.FromResult(AutoSavePrefsDefaults.Default);
             return Task.FromResult(new AutoSavePrefs(dto.NeverRestore));
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             LogCorrupt(_logger, _path, ex);
             return Task.FromResult(AutoSavePrefsDefaults.Default);
