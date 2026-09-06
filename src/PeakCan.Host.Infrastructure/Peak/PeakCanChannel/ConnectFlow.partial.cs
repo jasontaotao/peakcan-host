@@ -15,10 +15,12 @@
 //   - DisconnectAsync reads _handle + _gate (in main); calls await + PCANBasic.
 //   - DisposeAsync calls DisconnectAsync (this partial).
 //
-// 4 [LoggerMessage] declarations (LogReadLoopException + LogReadLoopGivingUp +
-// LogReadLoopSubscriberThrew + the 4th implicit static partial) STAY on main
-// partial per W18+W22+W23+W25+W26+W27+W28+W29+W30+W31+W32+W33+W34+W35 sister
-// precedent (CS8795 mitigation). ConnectFlow does NOT call any logger partial
+// 读循环日志声明（LogReadLoopException / LogReadLoopGivingUp /
+// LogReadLoopSubscriberThrew）P2-1 2026-09-06 起收敛到 ChannelReadLoop 骨架
+// （main 里遗留的 LogReadLoopException/LogReadLoopSubscriberThrew 是丢失
+// [LoggerMessage] 属性的无实现 partial——调用点被编译器静默移除的死代码，
+// 已随骨架化删除；详见 ChannelReadLoop.cs 类注释）。
+// ConnectFlow does NOT call any logger partial
 // directly (no logger calls in ConnectAsync + DisconnectAsync + DisposeAsync
 // per main HEAD L109-L227 verification).
 //

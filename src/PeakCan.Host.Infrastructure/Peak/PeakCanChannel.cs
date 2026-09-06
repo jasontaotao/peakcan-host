@@ -63,67 +63,33 @@ namespace PeakCan.Host.Infrastructure.Peak;
 /// <c>PCAN_BAUD_*</c> enum via <see cref="ResolveClassicCode"/>.
 /// </para>
 /// </summary>
-public sealed partial class PeakCanChannel : ICanChannel
+public sealed partial class PeakCanChannel : ChannelReadLoop, ICanChannel
 {
     // Backoff schedule after consecutive read-loop failures. Resets to 0
     // whenever a read returns a non-error status (success or "queue empty").
-    private static readonly int[] ReadLoopBackoffMs = { 1, 10, 50 };
-
-    /// <summary>
-    /// After this many consecutive read-loop failures, the loop gives up
-    /// rather than busy-spinning on a dead bus / unloaded driver. The
-    /// channel stays in the connected state from the SDK's perspective
-    /// (so a future manual disconnect still works), but no frames will
-    /// be delivered until the user calls Disconnect + Connect again.
-    /// </summary>
-    internal const int MaxConsecutiveReadFailures = 100;
+    // P2-1 2026-09-06：调度/计数/give-up 收敛到 ChannelReadLoop 骨架（保留
+    // const 别名维持测试兼容）；此处仅保留厂商 hook（见 ReadLoopFlow.cs）。
+    internal new const int MaxConsecutiveReadFailures = ChannelReadLoop.MaxConsecutiveReadFailures;
 
     private readonly ushort _handle;
     private readonly ChannelConnectGate _gate = new();
-    private readonly ILogger<PeakCanChannel> _logger;
     private readonly IPcanReader _reader;
 
-    public ChannelId Id { get; }
     public bool IsConnected => _gate.IsConnected;
     public event Action<CanFrame>? FrameReceived;
-    /// <summary>
-    /// v3.16.9.4 PATCH: surface read-loop failures to the UI layer. Raised
-    /// on the SDK read thread (subscribers must marshal to UI). Fires
-    /// <i>in addition to</i> the existing ILogger.LogError / LogCritical
-    /// calls — the event is additive so production Serilog captures still
-    /// include the full stack trace for post-mortem.
-    /// </summary>
-    public event Action<ReadLoopError>? ReadLoopError;
 
     public PeakCanChannel(ChannelId id, ILogger<PeakCanChannel>? logger = null, IPcanReader? reader = null)
+        : base(id, logger ?? NullLogger<PeakCanChannel>.Instance)
     {
-        Id = id;
         _handle = id.Handle;
         // NullLogger keeps test paths that new up the channel directly
         // (no DI) free of logger plumbing while still letting production
         // capture read-loop failures via the registered ILogger.
-        _logger = (ILogger<PeakCanChannel>?)logger ?? NullLogger<PeakCanChannel>.Instance;
+        // P2-1 2026-09-06：读循环日志走骨架自身的 logger；本类的 _logger 字段
+        // 随之删除（原仅喂读循环日志）。
         // PcanReader is the production default; tests inject a fake.
         _reader = reader ?? new PcanReader();
     }
-
-
-
-
-
-    static partial void LogReadLoopException(ILogger logger, ushort handle, string kind, Exception error);
-
-    [LoggerMessage(Level = LogLevel.Critical, Message = "Read loop giving up on handle 0x{Handle:X2} after {Failures} consecutive failures — bus appears dead, call Disconnect+Connect to recover")]
-    private static partial void LogReadLoopGivingUp(ILogger logger, ushort handle, int failures);
-
-    /// <summary>
-    /// v3.16.9.4 PATCH: invoke <see cref="ReadLoopError"/> with a per-subscriber
-    /// try/catch so a misbehaving subscriber (e.g. a UI handler that throws on
-    /// a disposed Dispatcher) cannot crash the SDK read loop. Mirrors the
-    /// sink-OnError isolation pattern in <c>ChannelRouter</c>: the loop is
-    /// the high-priority thread, the subscriber is best-effort.
-    /// </summary>
-    static partial void LogReadLoopSubscriberThrew(ILogger logger, ushort handle, string subscriber, Exception ex);
 
     // === Flow B methods moved to PeakCanChannel/NativeBindings.cs (W18 Task 2) ===
 }

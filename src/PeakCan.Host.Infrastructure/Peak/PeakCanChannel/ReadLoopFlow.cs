@@ -1,132 +1,49 @@
-using Microsoft.Extensions.Logging;
 using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 
 public sealed partial class PeakCanChannel
 {
-    // Flow A: ReadLoopFlow (v3.16.9.4 PATCH + earlier).
-    // ReadLoopAsync (single largest method, 75 LoC) + SafeEmitReadLoopError (~16 LoC).
-    // Both share the read-loop's event-emission + per-subscriber try/catch isolation pattern.
-    // Sister of W14 D2 lifecycle-cluster (mutable-state coupling on _reader/_handle/_gate).
+    // Flow A: ReadLoopFlow — P2-1 2026-09-06 骨架化重写。
+    // 轮询调度 / 失败计数 / backoff / give-up 判定 / ReadLoopError 每订阅者隔离
+    // 收敛到 ChannelReadLoop 骨架；本文件只剩 3 个厂商 hook。
+    // （原 ReadLoopAsync 75 LoC + SafeEmitReadLoopError ~16 LoC 删除。）
     //
-    // Cross-flow callers (partial-class visible):
-    //   - ReadLoopAsync -> EmitClassic + EmitFd (Flow B NativeBindings)
-    //   - ReadLoopAsync -> LogReadLoopException + LogReadLoopGivingUp + LogReadLoopSubscriberThrew (Flow A also accesses these from elsewhere via cross-partial)
-    //   - SafeEmitReadLoopError -> ReadLoopError event (main) + LogReadLoopSubscriberThrew (main)
-    // 3 LoggerMessage partials (Flow-A-related) STAY IN MAIN per W10+W11+W12+W13+W14+W15+W17 sister-lesson (source-generator scope requirement).
+    // 注意：原先 main 文件里的 LogReadLoopException / LogReadLoopSubscriberThrew
+    // 是丢失 [LoggerMessage] 属性的无实现 partial——调用点被编译器静默移除
+    // （PEAK 读循环异常日志自 W18 拆分以来从未真正输出）。骨架持有带属性的
+    // 声明，此类日志恢复；本文件不再有 loop 日志声明。
 
-    /// <summary>
-    /// Read-loop body. Polls <c>PCANBasic.Read</c> + <c>PCANBasic.ReadFD</c>
-    /// each iteration under separate try/catch blocks (v3.16.9.4) so a
-    /// thrown subscriber on classic path doesn't drop FD frames. Surfaces
-    /// each kind of failure as a <see cref="ReadLoopError"/> via
-    /// <see cref="SafeEmitReadLoopError"/> (per-subscriber isolation).
-    /// Gives up after <see cref="MaxConsecutiveReadFailures"/> consecutive
-    /// iterations with no frames seen (bus-dead heuristic).
-    /// </summary>
-    internal async Task ReadLoopAsync(CancellationToken ct)
+    /// <inheritdoc cref="ChannelReadLoop.DrainClassicFrames"/>
+    protected override void DrainClassicFrames()
     {
-        int consecutiveIterationsWithFailure = 0;
-        while (!ct.IsCancellationRequested)
+        while (_reader.ReadClassic(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
         {
-            // Classic and FD reads each get their own try/catch. Previously
-            // they shared one try, so an exception thrown from a FrameReceived
-            // subscriber for a classic frame (e.g. a buggy decoder) would
-            // skip the FD read in the same iteration, silently dropping FD
-            // traffic until the next loop turn. This matches the per-sink
-            // isolation pattern in ChannelRouter.
-            bool gotAnyFrame = false;
-            bool iterationFailed = false;
-            try
-            {
-                while (_reader.ReadClassic(_handle, out var msg, out var ts) == TPCANStatus.PCAN_ERROR_OK)
-                {
-                    EmitClassic(msg, ts);
-                    gotAnyFrame = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogReadLoopException(_logger, Id.Handle, "classic", ex);
-                // v3.16.9.4 PATCH: surface to UI in addition to ILogger.
-                // Bus-off / driver unload typically throws on the classic
-                // path first; the FD path is rarely reached in that state.
-                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.ClassicReadException, ex));
-                iterationFailed = true;
-            }
-            try
-            {
-                while (_reader.ReadFd(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
-                {
-                    EmitFd(fdMsg, tsMicroseconds);
-                    gotAnyFrame = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogReadLoopException(_logger, Id.Handle, "FD", ex);
-                // v3.16.9.4 PATCH: surface to UI in addition to ILogger.
-                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.FdReadException, ex));
-                iterationFailed = true;
-            }
-            // Count per-iteration, not per-throw, so a worst-case iteration
-            // with both classic and FD failures still counts as 1 (matching
-            // the pre-split semantics). Reset on any successful frame.
-            if (iterationFailed && !gotAnyFrame) consecutiveIterationsWithFailure++;
-            if (gotAnyFrame) consecutiveIterationsWithFailure = 0;
+            EmitClassic(msg, ts);
+            MarkFrameEmitted();
+        }
+    }
 
-            if (consecutiveIterationsWithFailure >= MaxConsecutiveReadFailures)
-            {
-                // Don't busy-spin on a dead bus. Surface a single fatal
-                // log and exit the loop; the channel stays "connected"
-                // from the SDK's perspective so a manual disconnect
-                // (and a fresh Connect) can recover.
-                LogReadLoopGivingUp(_logger, Id.Handle, consecutiveIterationsWithFailure);
-                // v3.16.9.4 PATCH: notify UI the loop has abandoned. No
-                // Exception carried here — the per-iteration catch above
-                // already surfaced the underlying cause. Subscribers should
-                // interpret LoopGivingUp as "channel is effectively dead,
-                // user must Disconnect+Connect to recover".
-                SafeEmitReadLoopError(new ReadLoopError(Id.Handle, ReadLoopErrorKind.LoopGivingUp, null));
-                // Mark the gate as failed so IsConnected returns false.
-                // Best-effort uninitialize so a future ConnectAsync can
-                // Initialize the handle cleanly.
-                try { PCANBasic.Uninitialize(_handle); } catch (Exception) { /* best-effort */ }
-                _gate.MarkFailed();
-                return;
-            }
-
-            var delay = consecutiveIterationsWithFailure == 0
-                ? 1
-                : ReadLoopBackoffMs[Math.Min(consecutiveIterationsWithFailure - 1, ReadLoopBackoffMs.Length - 1)];
-            try { await Task.Delay(delay, ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
+    /// <inheritdoc cref="ChannelReadLoop.DrainFdFrames"/>
+    protected override void DrainFdFrames()
+    {
+        while (_reader.ReadFd(_handle, out var fdMsg, out var tsMicroseconds) == TPCANStatus.PCAN_ERROR_OK)
+        {
+            EmitFd(fdMsg, tsMicroseconds);
+            MarkFrameEmitted();
         }
     }
 
     /// <summary>
-    /// v3.16.9.4 PATCH: invoke <see cref="ReadLoopError"/> with a per-subscriber
-    /// try/catch so a misbehaving subscriber (e.g. a UI handler that throws on
-    /// a disposed Dispatcher) cannot crash the SDK read loop. Mirrors the
-    /// sink-OnError isolation pattern in <c>ChannelRouter</c>: the loop is
-    /// the high-priority thread, the subscriber is best-effort.
+    /// give-up 收口：best-effort Uninitialize（未来 ConnectAsync 可干净地重新
+    /// Initialize）+ 连接门 MarkFailed（IsConnected → false，UI 不再显示假连接）。
     /// </summary>
-    private void SafeEmitReadLoopError(ReadLoopError err)
+    protected override void OnReadLoopGiveUp()
     {
-        var handler = ReadLoopError;
-        if (handler is null) return;
-        // Invoke per-subscriber via GetInvocationList so one bad handler
-        // does not prevent the next from firing (ChannelRouter contract).
-        foreach (Action<ReadLoopError> sub in handler.GetInvocationList())
-        {
-            try { sub(err); }
-            catch (Exception ex)
-            {
-                LogReadLoopSubscriberThrew(_logger, Id.Handle, sub.Method.DeclaringType?.FullName ?? "?", ex);
-            }
-        }
+        try { PCANBasic.Uninitialize(_handle); } catch (Exception) { /* best-effort */ }
+        _gate.MarkFailed();
     }
 }

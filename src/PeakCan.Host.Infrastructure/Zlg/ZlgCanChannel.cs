@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 
@@ -11,13 +12,13 @@ namespace PeakCan.Host.Infrastructure.Zlg;
 /// <para>
 /// 设备生命周期通过 <see cref="ZlgDeviceManager"/> 管理（引用计数），
 /// 读循环通过 <see cref="IZlgReader"/> 抽象以支持测试。
+/// P2-1 2026-09-06：读循环调度/计数/give-up 收敛到 <see cref="ChannelReadLoop"/> 骨架。
 /// </para>
 /// </summary>
-public sealed partial class ZlgCanChannel : ICanChannel
+public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
 {
-    // 读循环 backoff 策略（与 PEAK 通道一致）。
-    private static readonly int[] ReadLoopBackoffMs = { 1, 10, 50 };
-    internal const int MaxConsecutiveReadFailures = 100;
+    // 读循环 backoff 策略（与 PEAK 通道一致）——骨架统一持有，此处保留 const 别名。
+    internal new const int MaxConsecutiveReadFailures = ChannelReadLoop.MaxConsecutiveReadFailures;
 
     private readonly uint _devType;
     private readonly uint _devIdx;
@@ -33,19 +34,17 @@ public sealed partial class ZlgCanChannel : ICanChannel
     private bool _connected;
     private bool _disconnecting;
 
-    public ChannelId Id { get; }
     public bool IsConnected => _connected;
 
     public event Action<CanFrame>? FrameReceived;
-    public event Action<ReadLoopError>? ReadLoopError;
 
     public ZlgCanChannel(
         ChannelId id,
         ZlgDeviceManager deviceManager,
         ILogger<ZlgCanChannel>? logger = null,
         IZlgReader? reader = null)
+        : base(id, logger ?? NullLogger<ZlgCanChannel>.Instance)
     {
-        Id = id;
         _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
         _logger = logger ?? NullLogger<ZlgCanChannel>.Instance;
         _reader = reader ?? new ZlgReader();
