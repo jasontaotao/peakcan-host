@@ -1,11 +1,12 @@
 using FluentAssertions;
+using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using Xunit;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.Core.HIL.StepExecutor;
+using Xunit;
 
 namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
@@ -14,20 +15,29 @@ namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 /// 窗口收集依赖 IAssertionContext.SubscribeDecodedFrames + GetSignalValue 缓存快照
 /// （样本口径与 WaitForSignalAsync 一致，见 AssertionPrimitives.cs:23-28）。
 /// 用 ManualAssertionContext 手动喂帧/设值精确控制窗口样本。
+/// <para>
+/// P2-3（2026-09-06）：时间依赖去墙钟化——executor 注入 <see cref="FakeTimeProvider"/>，
+/// 窗口闭合由 <c>time.Advance(windowMs)</c> 确定性驱动（此前每个用例真等
+/// ~200ms 墙钟 + Task.Delay(20) 节拍，CI 慢机下窗口时序全靠运气余量）。
+/// 订阅在 ExecuteAsync 首个 await 前同步注册，喂帧无需先行延时。
+/// 两个 InvalidParams fail-fast 用例保留无参构造（覆盖 DI 路径）。
+/// </para>
 /// </summary>
 public class TemporalAssertionExecutorTests
 {
     private static readonly CanFrame DummyFrame = new(
         new CanId(0x123, FrameFormat.Standard), new byte[] { 0x01 }, FrameFlags.None, default, default);
 
+    private const int WindowMs = 200;
+
     /// <summary>
     /// 可控 assertion context：EmitFrame 触发订阅回调，回调内 GetSignalValue 返回当前通道快照。
-    /// 通道感知（G1）：单通道版 GetSignalValue = DefaultChannel 的缓存；3 参数版按 channelName 查
+    /// 通道感知（G1）：单通道版 GetSignalValue = DefaultChannel 的缓存；3 参数版按 channelName 路由到
     /// _signalValues 字典——不同通道同名信号可设不同值，用于验证采样按 TargetChannel 路由。
     /// </summary>
     private sealed class ManualAssertionContext : IAssertionContext
     {
-        /// <summary>单通道版解析到的默认通道名（null/空 channelName → 该通道）。</summary>
+        /// <summary>单通道版解析到的默认通道名（null/空 = 该通道）。</summary>
         public string DefaultChannel { get; set; } = "default";
 
         /// <summary>兼容既有测试：读写默认通道的缓存值（= 2 参数版语义）。</summary>
@@ -57,7 +67,7 @@ public class TemporalAssertionExecutorTests
         public double? GetSignalValue(string signalName, int maxAgeMs = 5000)
             => _signalValues.TryGetValue(DefaultChannel, out var v) ? v : null;
 
-        /// <summary>按逻辑通道取快照：null/空 → DefaultChannel；未知通道名 → null（测试用，非 MultiChannel 抛异常语义）。</summary>
+        /// <summary>按逻辑通道取快照：null/空 = DefaultChannel；未知通道 = null（测试用，非 MultiChannel 抛异常语义）。</summary>
         public double? GetSignalValue(string? channelName, string signalName, int maxAgeMs = 5000)
             => _signalValues.TryGetValue(string.IsNullOrEmpty(channelName) ? DefaultChannel : channelName, out var v) ? v : null;
 
@@ -89,13 +99,14 @@ public class TemporalAssertionExecutorTests
     public async Task AssertSignalWithin_Any_OneHitWithinWindow_Passes()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 97; ctx.EmitFrame();
         ctx.SignalValue = 103; ctx.EmitFrame();   // 103 ∈ [95,105] → ≥1 命中
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -107,12 +118,13 @@ public class TemporalAssertionExecutorTests
         // G5（spec §6 裁决）: Tolerance 为空 = 精确匹配（不抛 FormatException），
         // ExpectedValue 只显示 Expected 不带 ±。
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "", "200")), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 100; ctx.EmitFrame();   // 精确命中（tolerance=0）
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -124,13 +136,14 @@ public class TemporalAssertionExecutorTests
     public async Task AssertSignalWithin_Any_NoHit_Fails()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 80; ctx.EmitFrame();
         ctx.SignalValue = 120; ctx.EmitFrame();   // 均超出 [95,105]
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
@@ -141,11 +154,14 @@ public class TemporalAssertionExecutorTests
     {
         // 窗口内无帧（无样本）→ Any 零命中自然 Failed
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
 
-        var result = await task;   // 不 EmitFrame
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));   // 不 EmitFrame
+
+        var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
     }
 
@@ -153,14 +169,15 @@ public class TemporalAssertionExecutorTests
     public async Task AssertSignalWithin_All_AllSamplesHit_Passes()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200",
                 MatchMode.All)), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 100; ctx.EmitFrame();
         ctx.SignalValue = 103; ctx.EmitFrame();   // 全部 ∈ [95,105]
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -170,14 +187,15 @@ public class TemporalAssertionExecutorTests
     public async Task AssertSignalWithin_All_OneMiss_Fails()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200",
                 MatchMode.All)), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 100; ctx.EmitFrame();
         ctx.SignalValue = 80; ctx.EmitFrame();   // 80 越界 → 非全部命中
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
@@ -188,12 +206,15 @@ public class TemporalAssertionExecutorTests
     {
         // 防空窗口（spec §3.3）：All 且零有效样本 → Failed，不得 vacuous pass
         var ctx = new ManualAssertionContext();
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200",
                 MatchMode.All)), ctx, default);
 
-        var result = await task;   // 不 EmitFrame
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));   // 不 EmitFrame
+
+        var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
     }
 
@@ -202,13 +223,14 @@ public class TemporalAssertionExecutorTests
     {
         // 报文整体缺失时快照为 null → 不计入样本（spec §3.3）；Any 下仅剩的命中样本仍应 Pass
         var ctx = new ManualAssertionContext { SignalValue = null };
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
 
-        await Task.Delay(20);
         ctx.EmitFrame();                          // null 快照 → 不计样本
         ctx.SignalValue = 100; ctx.EmitFrame();   // 命中样本
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -217,6 +239,7 @@ public class TemporalAssertionExecutorTests
     [Fact]
     public async Task AssertSignalWithin_InvalidWindow_FailsFast()
     {
+        // fail-fast 路径不经过时钟——保留无参构造，覆盖 DI 激活路径。
         var ctx = new ManualAssertionContext();
         var executor = new AssertSignalWithinStepExecutor();
         var result = await executor.ExecuteAsync(
@@ -231,15 +254,16 @@ public class TemporalAssertionExecutorTests
     {
         // fake 通道感知化后：值必须设到目标通道 bus-a（SignalValue 属性 = DefaultChannel 缓存）
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")
             {
                 TargetChannel = "bus-a",
             }), ctx, default);
 
-        await Task.Delay(20);
         ctx.SignalValue = 100; ctx.EmitFrame();
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -254,15 +278,16 @@ public class TemporalAssertionExecutorTests
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         ctx.SetChannelSignal("bus-a", 100);
         ctx.SetChannelSignal("bus-b", 200);
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "200", "5", "200")
             {
                 TargetChannel = "bus-b",
             }), ctx, default);
 
-        await Task.Delay(20);
         ctx.EmitFrame();   // 回调内采样 TargetChannel(bus-b) 快照
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);   // 未路由 → 取默认 bus-a=100 → 200±5 不命中 → RED
@@ -275,15 +300,16 @@ public class TemporalAssertionExecutorTests
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         ctx.SetChannelSignal("bus-a", 200);   // 默认通道命中 Expected=200
         ctx.SetChannelSignal("bus-b", 100);   // 目标通道未命中
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "200", "5", "200")
             {
                 TargetChannel = "bus-b",
             }), ctx, default);
 
-        await Task.Delay(20);
         ctx.EmitFrame();
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Failed);   // 路由错到默认通道 → 200 命中 → 假 Pass → 断言失败 = RED
@@ -295,15 +321,16 @@ public class TemporalAssertionExecutorTests
     public async Task AssertStable_WithinDelta_Passes()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
 
-        await Task.Delay(20);
         foreach (var v in new[] { 100.0, 101.0, 100.0, 99.0 })
         {
             ctx.SignalValue = v; ctx.EmitFrame();
         }   // max-min = 2 ≤ 5
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -313,15 +340,16 @@ public class TemporalAssertionExecutorTests
     public async Task AssertStable_ExceedsDelta_Fails()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
 
-        await Task.Delay(20);
         foreach (var v in new[] { 100.0, 120.0, 100.0 })
         {
             ctx.SignalValue = v; ctx.EmitFrame();
         }   // max-min = 20 > 5
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
@@ -331,15 +359,16 @@ public class TemporalAssertionExecutorTests
     public async Task AssertStable_InsufficientSamples_Fails()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "5")), ctx, default);
 
-        await Task.Delay(20);
         foreach (var v in new[] { 100.0, 101.0, 100.0 })
         {
             ctx.SignalValue = v; ctx.EmitFrame();
         }   // 3 样本 < MinSamples=5
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
@@ -350,17 +379,21 @@ public class TemporalAssertionExecutorTests
     public async Task AssertStable_ZeroSamples_Fails()
     {
         var ctx = new ManualAssertionContext();
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
 
-        var result = await task;   // 不 EmitFrame
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));   // 不 EmitFrame
+
+        var result = await task;
         result.Status.Should().Be(StepStatus.Failed);
     }
 
     [Fact]
     public async Task AssertStable_InvalidParams_FailsFast()
     {
+        // fail-fast 路径不经过时钟——保留无参构造，覆盖 DI 激活路径。
         var ctx = new ManualAssertionContext();
         var executor = new AssertStableStepExecutor();
         var result = await executor.ExecuteAsync(
@@ -375,18 +408,19 @@ public class TemporalAssertionExecutorTests
     {
         // fake 通道感知化后：值必须设到目标通道 bus-b（SignalValue 属性 = DefaultChannel 缓存）
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-b" };
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")
             {
                 TargetChannel = "bus-b",
             }), ctx, default);
 
-        await Task.Delay(20);
         foreach (var v in new[] { 100.0, 101.0, 100.0 })   // 3 样本 ≥ MinSamples=3
         {
             ctx.SignalValue = v; ctx.EmitFrame();
         }
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -402,19 +436,20 @@ public class TemporalAssertionExecutorTests
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         ctx.SetChannelSignal("bus-a", 100);
         ctx.SetChannelSignal("bus-b", 200);
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")
             {
                 TargetChannel = "bus-b",
             }), ctx, default);
 
-        await Task.Delay(20);
         ctx.EmitFrame();                    // 路由→bus-b=200；未路由→bus-a=100
         ctx.SetChannelSignal("bus-a", 160); // 默认通道抖动
         ctx.EmitFrame();                    // 未路由→bus-a=160
         ctx.SetChannelSignal("bus-a", 100);
         ctx.EmitFrame();                    // 未路由→bus-a=100 → max-min=60 > 5
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);   // 未路由 → Failed（max-min=60）→ 断言失败 = RED
@@ -428,12 +463,13 @@ public class TemporalAssertionExecutorTests
     {
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         ctx.SetChannelSignal("bus-a", 100);
-        var executor = new AssertSignalWithinStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertSignalWithinStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertSignalWithinStep("BMS.EngineRPM", "100", "5", "200")), ctx, default);
 
-        await Task.Delay(20);
         ctx.EmitFrame();   // 1 样本命中
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.Status.Should().Be(StepStatus.Passed);
@@ -447,12 +483,13 @@ public class TemporalAssertionExecutorTests
     {
         var ctx = new ManualAssertionContext { DefaultChannel = "bus-a" };
         ctx.SignalValue = 100;   // 默认通道有值 → 回调采样非 null
-        var executor = new AssertStableStepExecutor();
+        var time = new FakeTimeProvider();
+        var executor = new AssertStableStepExecutor(time);
         var task = executor.ExecuteAsync(
             TestCaseStep.Create(new AssertStableStep("BMS.EngineRPM", "200", "5", "3")), ctx, default);
 
-        await Task.Delay(20);
         for (int i = 0; i < 3; i++) ctx.EmitFrame();   // max-min=0
+        time.Advance(TimeSpan.FromMilliseconds(WindowMs));
 
         var result = await task;
         result.ActualValue.Should().Contain("max-min");

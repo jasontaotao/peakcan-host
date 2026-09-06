@@ -13,6 +13,20 @@ namespace PeakCan.Host.Core.HIL.StepExecutor;
 /// </summary>
 internal sealed class AssertStableStepExecutor : IStepExecutor
 {
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>DI 用无参构造（TimeProvider 未注册时源生 DI 只能解析此构造）。</summary>
+    public AssertStableStepExecutor() : this(TimeProvider.System) { }
+
+    /// <summary>
+    /// P2-3（2026-09-06）：时钟注入。测试注入 FakeTimeProvider 后，窗口
+    /// `Task.Delay` 由虚拟时钟确定性闭合——不再真等 windowMs 墙钟。
+    /// </summary>
+    internal AssertStableStepExecutor(TimeProvider timeProvider)
+    {
+        _timeProvider = timeProvider;
+    }
+
     public TestCaseStepKind Kind => TestCaseStepKind.AssertStable;
 
     public async Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
@@ -39,7 +53,7 @@ internal sealed class AssertStableStepExecutor : IStepExecutor
                 lock (gate) samples.Add(v);
         });
 
-        await Task.Delay(windowMs, ct);
+        await Task.Delay(TimeSpan.FromMilliseconds(windowMs), _timeProvider, ct);
 
         lock (gate)
         {
