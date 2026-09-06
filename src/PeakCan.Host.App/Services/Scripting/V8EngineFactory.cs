@@ -1,16 +1,45 @@
-using Microsoft.ClearScript;
 using Microsoft.ClearScript.V8;
 
 namespace PeakCan.Host.App.Services.Scripting;
 
-public sealed partial class ScriptEngine
+/// <summary>
+/// P2-1 真拆类（2026-09-06）：V8 沙箱构造从 <see cref="ScriptEngine"/> 的
+/// CreateEngineFlow partial 提升为独立类。此前的 partial 头注释即声明
+/// "ClearScript-specific knowledge isolated to this partial"——现在这个
+/// 边界从文件级升级为类级：所有 ClearScript API 知识（约束、受限主机对象、
+/// 沙箱全局注入）收敛到本类，<see cref="ScriptEngine"/> 只保留执行编排
+///（RunAsync/Stop/generation/异常分类）与输出转发。
+/// <para>
+/// <b>线程模型：</b><see cref="Create"/> 每次调用创建全新引擎实例
+///（per-run 生命周期不变，见 ScriptEngine 类文档 Lifecycle 段），本类自身
+/// 无可变状态、天然线程安全。取消令牌仅用于 <c>delay</c> 闭包绑定。
+/// </para>
+/// <para>
+/// <b>安全边界：</b>can.*/dbc.* 经
+/// <c>AddRestrictedHostObject&lt;T&gt;</c> 只暴露最小接口面（v3.5.5 加固），
+/// utilities 的 log/warn/error/delay/hex/toHex 为 lambda 注入。若改动
+/// 注入面，先跑 ScriptEngineTests 的 sandbox 逃逸用例。
+/// </para>
+/// </summary>
+internal sealed class V8EngineFactory
 {
-    // Flow B: CreateEngine (v1.7.0 MINOR Item 1 + v3.5.5 PATCH + earlier).
-    // V8 engine creation with sandboxed globals + AddRestrictedHostObject
-    // hardening. ClearScript-specific knowledge isolated to this partial.
-    //
-    // Cross-flow callers (partial-class visible):
-    //   - CreateEngine <- ExecuteScript (Flow A)
+    private readonly ScriptEngineOptions _options;
+    private readonly CanApi? _canApi;
+    private readonly DbcApi? _dbcApi;
+    private readonly ScriptUtilities? _utilities;
+
+    public V8EngineFactory(
+        ScriptEngineOptions options,
+        CanApi? canApi,
+        DbcApi? dbcApi,
+        ScriptUtilities? utilities)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options;
+        _canApi = canApi;
+        _dbcApi = dbcApi;
+        _utilities = utilities;
+    }
 
     /// <summary>
     /// Create a new V8 engine with sandboxed globals.
@@ -23,8 +52,13 @@ public sealed partial class ScriptEngine
     /// V8ScriptEngine owns its V8Runtime internally, so we apply
     /// constraints at construction + set the monitor cap afterward.
     /// </para>
+    /// <para>
+    /// 注意：本方法不再设置 <c>ScriptConsole.CurrentEngine</c>（原
+    /// CreateEngineFlow 内的赋值与 ExecuteScript 紧随其后的赋值重复，
+    /// 两次赋值之间没有任何脚本可以运行）。
+    /// </para>
     /// </summary>
-    private V8ScriptEngine CreateEngine(CancellationToken ct)
+    public V8ScriptEngine Create(CancellationToken ct)
     {
         // V8RuntimeConstraints properties are in MiB. Allocation
         // (new/old/exec) is requested as-is; negative or zero values
@@ -42,9 +76,6 @@ public sealed partial class ScriptEngine
         // triggers V8RuntimeViolationPolicy.Interrupt (default) when
         // exceeded, preventing process termination on runaway scripts.
         engine.MaxRuntimeHeapSize = (nuint)(_options.MaxHeapSizeMB * 1024L * 1024L);
-
-        // Set the current engine for ScriptConsole routing.
-        ScriptConsole.CurrentEngine = this;
 
         // Inject console.log/warn/error as host object with lambda functions.
         // ClearScript's AddHostType doesn't work well with static methods,

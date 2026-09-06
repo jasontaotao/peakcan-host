@@ -12,9 +12,8 @@ public sealed partial class ScriptEngine
     // _engine + _executionCts + _executionTask + _generation). State
     // ownership stays in main; this partial moves lifecycle methods only.
     //
-    // Cross-flow callers (partial-class visible):
-    //   - ExecuteScript -> CreateEngine (Flow B)
-    //   - ExecuteScript -> EmitOutput + IsResourceLimit (Flow C)
+    // Cross-callers (2026-09-06 P2-1 真拆类后):
+    //   - ExecuteScript -> V8EngineFactory.Create（沙箱构造已升级为独立类）
 
     /// <summary>
     /// Execute <paramref name="script"/> in a sandboxed V8 engine.
@@ -121,7 +120,7 @@ public sealed partial class ScriptEngine
         {
             // v3.5.8 PATCH: stale-task drop. If _generation has moved
             // past myGen (a newer RunAsync started after this task was
-            // scheduled), this task is stale — bail before CreateEngine
+            // scheduled), this task is stale — bail before V8EngineFactory.Create
             // and before the _engine write. Without this guard, a
             // Task.Run scheduling delay could let an old task's
             // Interlocked.Exchange (line below) overwrite the new task's
@@ -133,7 +132,7 @@ public sealed partial class ScriptEngine
             // drop pattern.
             if (Interlocked.Read(ref _generation) != myGen) return;
 
-            engine = CreateEngine(ct);
+            engine = _engineFactory.Create(ct);
             // v3.5.7 PATCH: Interlocked.Exchange for atomic publish of the
             // engine reference. The previous plain field write
             // (`_engine = engine`) had a race when Stop() raced against a

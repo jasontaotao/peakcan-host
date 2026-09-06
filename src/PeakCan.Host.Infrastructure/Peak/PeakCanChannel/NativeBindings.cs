@@ -9,7 +9,9 @@ public sealed partial class PeakCanChannel
     // Flow B: NativeBindings (v1.0.0 + v3.16.9.4 PATCH + earlier).
     // 4 helpers that bridge PEAK SDK native types (TPCAN*) to peakcan-host
     // managed types (CanFrame, Result<Unit>, TPCANBaudrate). Sister of W14
-    // CreateEngineFlow's V8 interop isolation pattern.
+    // V8EngineFactory's V8 interop isolation pattern (P2-1 2026-09-06: the
+// former ScriptEngine/CreateEngineFlow partial was promoted to a class;
+// the isolation pattern itself is unchanged).
     //
     // Cross-flow callers (partial-class visible):
     //   - EmitClassic + EmitFd <- ReadLoopAsync (Flow A)

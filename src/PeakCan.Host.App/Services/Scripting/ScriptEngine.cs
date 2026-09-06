@@ -29,11 +29,6 @@ public sealed partial class ScriptEngine : IDisposable
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
     private readonly ILogger<ScriptEngine> _logger;
-    private readonly CanApi? _canApi;
-    private readonly DbcApi? _dbcApi;
-    // P1-2（2026-09-06，Lazy<T> 清零）：ScriptUtilities 直接 ctor 注入——输出环已由
-    // ScriptOutputHub 解耦（ScriptUtilities → hub → 本类订阅转发），不再需要延迟解析。
-    private readonly ScriptUtilities? _utilities;
     private readonly ScriptEngineOptions _options;
     private readonly ScriptOutputHub? _outputHub;
     private readonly Action<ScriptOutputLine>? _hubForward;
@@ -41,6 +36,9 @@ public sealed partial class ScriptEngine : IDisposable
     private V8ScriptEngine? _engine;
     private CancellationTokenSource? _executionCts;
     private Task? _executionTask;
+    // P2-1 真拆类（2026-09-06）：V8 沙箱构造收敛到 V8EngineFactory（独立类，
+    // ClearScript 知识全部离开本类）；本类只保留执行编排 + 输出转发。
+    private readonly V8EngineFactory _engineFactory;
     // v3.5.8 PATCH: generation counter for stale-task drop. Mirrors the
     // CyclicSendService._generation + tickGen != generation pattern
     // (CyclicSendService.cs:41 + :180). RunAsync captures a generation
@@ -103,43 +101,25 @@ public sealed partial class ScriptEngine : IDisposable
         ArgumentNullException.ThrowIfNull(logger);
 
         _logger = logger;
-        _canApi = canApi;
-        _dbcApi = dbcApi;
-        _utilities = utilities;
+        // P2-1 真拆类（2026-09-06）：canApi/dbcApi/utilities 直通工厂——
+        // 本类不再持有（原先的 _canApi/_dbcApi/_utilities 字段随 CreateEngine
+        // partial 的类化一并删除，只读所有权移交 V8EngineFactory）。
         // v1.7.0 MINOR Item 1: V8 isolate resource caps. Null = Default
         // (64 MB heap / 16 MiB new / 48 MiB old) — preserves pre-v1.7.0
         // behavior for direct-construction callers (unit tests).
-        _options = options ?? ScriptEngineOptions.Default;
+        var effectiveOptions = options ?? ScriptEngineOptions.Default;
+        _options = effectiveOptions;
         _outputHub = outputHub;
         if (outputHub is not null)
         {
             _hubForward = line => OutputReceived?.Invoke(line);
             outputHub.OutputReceived += _hubForward;
         }
+        _engineFactory = new V8EngineFactory(effectiveOptions, canApi, dbcApi, utilities);
     }
 
-    /// <summary>
-    /// Execute <paramref name="script"/> in a sandboxed V8 engine.
-    /// Returns a <see cref="ScriptResult"/> indicating success or failure.
-    /// </summary>
-    /// <param name="script">JavaScript source code to execute.</param>
-    /// <param name="timeout">Maximum execution time. Pass null for <see cref="DefaultTimeout"/>.</param>
-    /// <param name="ct">Cancellation token for external abort.</param>
-
-    /// <summary>
-    /// Create a new V8 engine with sandboxed globals.
-    /// <para>
-    /// v1.7.0 MINOR Item 1: applies <see cref="ScriptEngineOptions"/>
-    /// resource caps via <c>V8RuntimeConstraints</c> (hard generation
-    /// caps in MiB) and <c>V8ScriptEngine.MaxRuntimeHeapSize</c> (soft
-    /// monitor cap in bytes). ClearScript 7.4.5 has no
-    /// <c>V8ScriptEngine(flags, V8Runtime)</c> overload — the
-    /// V8ScriptEngine owns its V8Runtime internally, so we apply
-    /// constraints at construction + set the monitor cap afterward.
-    /// </para>
-    /// </summary>
-
-
+    // RunAsync / Stop / ExecuteScript live in ExecutionLifecycleFlow.cs
+    //（W14 起；本文件只保留状态字段 + ctor + Dispose + LoggerMessage）。
 
     public void Dispose()
     {
@@ -213,7 +193,7 @@ public enum ScriptOutputLevel
     Info,
     Warning,
     Error
-    // === Flow A methods moved to ScriptEngine/ExecutionLifecycleFlow.cs (W14 Task 1) ===
-    // === Flow B methods moved to ScriptEngine/CreateEngineFlow.cs (W14 Task 2) ===
+    // === Flow A methods in ScriptEngine/ExecutionLifecycleFlow.cs (W14 Task 1) ===
+    // === Flow B: V8 沙箱构造 2026-09-06 P2-1 真拆类升级为独立类 V8EngineFactory（原 CreateEngineFlow partial 删除） ===
     // === Flow C methods moved to ScriptEngine/ScriptHelpersFlow.cs (W14 Task 3) ===
 }

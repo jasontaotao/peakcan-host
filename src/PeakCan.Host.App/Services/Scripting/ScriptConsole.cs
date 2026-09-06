@@ -13,7 +13,9 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// </summary>
 public static class ScriptConsole
 {
-    // The engine instance is set by ScriptEngine.CreateEngine().
+    // The engine instance is set by ScriptEngine.ExecuteScript
+    //（P2-1 2026-09-06：沙箱构造拆到 V8EngineFactory 后，CurrentEngine 的
+    // 唯一写点收敛到 ExecuteScript——原 CreateEngine 内的重复赋值已删除）。
     // This is a simple way to route console output without
     // requiring a DI-resolved instance.
     internal static ScriptEngine? CurrentEngine { get; set; }
