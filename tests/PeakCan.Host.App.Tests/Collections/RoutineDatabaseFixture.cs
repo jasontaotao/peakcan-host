@@ -1,5 +1,6 @@
 using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.HIL.Core.Path;
 using PeakCan.HIL.Core.Uds.Database;
 
 namespace PeakCan.Host.App.Tests.Collections;
@@ -12,29 +13,26 @@ namespace PeakCan.Host.App.Tests.Collections;
 /// </summary>
 public sealed class RoutineDatabaseFixture : IDisposable
 {
+    // 2026-09-06 PATCH: sandboxed CI/test hosts may not be able to write to
+    // %LOCALAPPDATA%. Keep the production allowlist contract intact by using
+    // a test-owned root and passing it explicitly to PathOptions.
+    private static readonly string TestRoot =
+        Path.Combine(AppContext.BaseDirectory, "TestUserData");
+
     public string TempJsonPath { get; }
     public RoutineDatabase Db { get; }
 
     public RoutineDatabaseFixture()
     {
-        // v1.6.4 PATCH: RoutineDatabase now routes user-JSON reads through
-        // PathNormalizer.NormalizeRestricted with the %LOCALAPPDATA%\PeakCan.Host
-        // allowlist. The collection fixture's shared temp file must therefore
-        // live under that root.
-        TempJsonPath = Path.Combine(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PeakCan.Host"),
-            $"uds-rt-collection-{Guid.NewGuid():N}.json");
-        // v2.1.5 PATCH: ensure parent dir exists before write. CI runner
-        // has fresh %LOCALAPPDATA% — the app never ran so the dir is
-        // absent. Local dev boxes usually have the dir from previous
-        // runs which masked this. CreateDirectory is a no-op if exists.
+        TempJsonPath = Path.Combine(TestRoot, $"uds-rt-collection-{Guid.NewGuid():N}.json");
         var parentDir = Path.GetDirectoryName(TempJsonPath);
         if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
         File.WriteAllText(TempJsonPath,
             "{\"routines\":[{\"id\":\"0xFF00\",\"name\":\"Erase\",\"description\":\"d\",\"startable\":true,\"stoppable\":true}]}");
-        Db = new RoutineDatabase(TempJsonPath, logger: NullLogger<RoutineDatabase>.Instance);
+        Db = new RoutineDatabase(
+            TempJsonPath,
+            logger: NullLogger<RoutineDatabase>.Instance,
+            options: new PathOptions(new List<string> { TestRoot }));
     }
 
     public void Dispose()
