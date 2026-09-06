@@ -30,6 +30,23 @@ namespace PeakCan.Host.App.Services;
 /// allow tests to swap in a no-op / canned-document stub without
 /// hitting the disk.
 /// </para>
+/// <para>
+/// <b>Subscription discipline（2026-09-06 设计层 MEDIUM 审计结论）：</b>
+/// <see cref="DbcLoaded"/> / <see cref="LoadFailed"/> 的订阅者分两类，各有
+/// 明确契约：
+/// <list type="bullet">
+///   <item><b>app 生命周期单例 VM</b>（DbcViewModel / DbcSendViewModel /
+///   TraceViewModel / TraceViewerViewModel / MultiFrameSendViewModel）：
+///   ctor 订阅、进程退出即随之消亡——<b>有意不退订</b>（见 DbcViewModel
+///   类文档的 footgun 备注：此前的 IDisposable 实现反而是隐患）。新增此类
+///   订阅者必须在类文档写明与 DbcViewModel 同款的"DI 单例、终身存活"论据。</item>
+///   <item><b>可释放的订阅者</b>（如 DbcApi）：ctor 订阅、<c>Dispose</c>
+///   必须退订两个事件（守护测试：DbcApiTests.Dispose_Unsubscribes_Both_Events）。
+///   新增 <c>IDisposable</c> 订阅者照此模式。</item>
+/// </list>
+/// <b>禁止</b>transient（非单例）组件无退订地订阅本服务事件——漏退订即跨
+/// 实例状态污染（事件持有旧实例闭包，旧实例不被 GC）。
+/// </para>
 /// </summary>
 public partial class DbcService
 {

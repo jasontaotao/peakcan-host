@@ -20,9 +20,9 @@ namespace PeakCan.Host.App.Services;
 /// frames every 50 ms.
 /// </para>
 /// <para>
-/// <b>Tick rate:</b> 1 Hz is intentionally slow. The bus-load
-/// heuristic in <see cref="BusStatisticsCollector.LoadPercent"/>
-/// already operates over a 1-second window, so faster sampling
+/// <b>Tick rate:</b> 1 Hz is intentionally slow. The bus-load bit-budget
+/// in <see cref="BusStatisticsCollector"/> already operates over a
+/// 1-second window, so faster sampling
 /// would just produce overlapping points. 1 Hz matches the rolling
 /// 60-point chart's 1-minute window (60 samples × 1 s = 1 min).
 /// </para>

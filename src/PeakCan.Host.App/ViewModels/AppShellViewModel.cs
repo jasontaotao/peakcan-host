@@ -20,6 +20,7 @@ using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.Statistics;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -138,6 +139,7 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
     // P1-2（2026-09-06）: 已连接通道快照源（生产者：本类 publish；消费者 HilViewModel）
     private readonly IConnectedChannelsSource? _connectedChannelsSource;
+    private readonly BusStatisticsCollector? _busStats;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -328,7 +330,11 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // HilViewModel ctor 注入读取——取代旧 SetConnectedChannelsProvider setter
         // 直连（消除 AppShell⇄HilViewModel 属性注入耦合）。可选参数保持测试
         // 构造点零改动；null 时 HilViewModel 读到空快照（单通道零回归）。
-        IConnectedChannelsSource? connectedChannelsSource = null)
+        IConnectedChannelsSource? connectedChannelsSource = null,
+        // 2026-09-06 设计层 MEDIUM：连接成功时把所选 BaudRate 预设的标称
+        // 波特率喂给统计收集器（总线负载 % 的分母）。可选注入，null 时
+        // 收集器保持默认 1 Mbps 口径（与旧行为一致）。
+        BusStatisticsCollector? busStats = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -357,6 +363,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // 本类是生产者：连接状态变化（NotifyConnectionStateChanged 统一入口）时
         // publish 快照，HilViewModel 读 .Current——不再 setter 直连 HilViewModel。
         _connectedChannelsSource = connectedChannelsSource;
+        // 2026-09-06 设计层 MEDIUM：可选统计收集器（连接成功时更新负载分母）。
+        _busStats = busStats;
         PublishConnectedChannels();
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;

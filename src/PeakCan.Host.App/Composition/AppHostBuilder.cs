@@ -401,7 +401,9 @@ public partial class AppHostBuilder
             // P0-3: shared secondary-window host (DI singleton).
             windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>(),
             // P1-2（2026-09-06）: 已连接通道快照源（HilViewModel 消费）。
-            connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>()));
+            connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>(),
+            // 2026-09-06 设计层 MEDIUM：连接成功时更新总线负载分母（标称波特率）。
+            busStats: sp.GetRequiredService<PeakCan.Host.Infrastructure.Statistics.BusStatisticsCollector>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);

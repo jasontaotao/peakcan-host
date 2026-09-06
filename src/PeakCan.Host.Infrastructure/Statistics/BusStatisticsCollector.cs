@@ -17,7 +17,7 @@ namespace PeakCan.Host.Infrastructure.Statistics;
 /// <param name="FramesPerSecond">Rolling 1-second window frame rate. Returns <c>0.0</c> when the window is empty.</param>
 /// <param name="TotalBytes">Total DLC bytes observed since collector creation.</param>
 /// <param name="BytesPerSecond">Rolling 1-second window byte rate. Returns <c>0.0</c> when the window is empty.</param>
-/// <param name="BusLoadPercent">Estimated bus load in percent, clamped to <c>[0, 100]</c> via the 8000-fps saturation heuristic.</param>
+/// <param name="BusLoadPercent">Estimated bus load in percent: real bit-budget <c>(frames × overhead bits + DLC bytes × 8) / nominal bitrate</c>, clamped to <c>[0, 100]</c>.</param>
 public sealed record BusStatistics(
     long TotalFrames,
     long ErrorFrames,
@@ -57,6 +57,43 @@ public sealed class BusStatisticsCollector : IFrameSink
     private readonly Queue<(long Ticks, int Bytes)> _recent = new();
     private readonly object _recentLock = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+    // 2026-09-06 设计层 MEDIUM 修复：总线负载从 "fps/80" 启发式改为真实
+    // 位预算（见 LoadPercent 文档）。标称波特率默认 1 Mbps（旧启发式的
+    // 隐含假设），由 AppShellViewModel 在连接成功时按所选 BaudRate 预设
+    // 更新（见 BaudRateMap）。多通道混合波特率时为"最后一路成功连接的
+    // 速率"——聚合口径本身是近似的，文档已注明。
+    private long _nominalBitrateBps;
+
+    /// <summary>
+    /// Construct the collector. <paramref name="nominalBitrateBps"/> is the
+    /// nominal (arbitration-phase) bitrate used as the load denominator;
+    /// the default of 1 Mbps matches the legacy fps-heuristic assumption,
+    /// so existing callers see a like-for-like basis (not identical
+    /// numbers — the formula changed — but the same default bus).
+    /// </summary>
+    public BusStatisticsCollector(long nominalBitrateBps = 1_000_000)
+    {
+        if (nominalBitrateBps <= 0)
+            throw new ArgumentOutOfRangeException(nameof(nominalBitrateBps));
+        _nominalBitrateBps = nominalBitrateBps;
+    }
+
+    /// <summary>
+    /// Update the nominal bitrate used as the load denominator (e.g. when
+    /// the shell connects a channel with a different <c>BaudRate</c>
+    /// preset). Takes <c>_recentLock</c> so <see cref="Snapshot"/> never
+    /// observes a torn read.
+    /// </summary>
+    public void SetBitrate(long nominalBitrateBps)
+    {
+        if (nominalBitrateBps <= 0)
+            throw new ArgumentOutOfRangeException(nameof(nominalBitrateBps));
+        lock (_recentLock)
+        {
+            _nominalBitrateBps = nominalBitrateBps;
+        }
+    }
 
     /// <summary>
     /// Records one received frame. MUST NOT throw — the
@@ -128,27 +165,44 @@ public sealed class BusStatisticsCollector : IFrameSink
                 fps,
                 _bytes,
                 bps,
-                LoadPercent(count));
+                LoadPercent(count, bytesInWindow, _nominalBitrateBps));
         }
     }
 
     /// <summary>
-    /// Crude bus-load heuristic: classic 1 Mbps CAN at 100% load sustains
-    /// ~8000 fps at an average 8-byte DLC, so we map 8000 fps → 100% via
-    /// <c>fps / 80</c> and clamp to <c>[0, 100]</c>.
+    /// Fixed per-frame overhead estimate, in bits, for a standard CAN
+    /// frame at the nominal (arbitration) bitrate: ~47 base bits
+    /// (SOF + arbitration + control + CRC + ACK + EOF + IFS) plus a
+    /// bit-stuffing margin. Deliberately conservative — the goal is an
+    /// honest ±20%-class estimate, not bus-analyzer precision.
+    /// </summary>
+    private const int FrameOverheadBits = 64;
+
+    /// <summary>
+    /// Real bit-budget bus load: <c>(frames × overhead + DLC bytes × 8) /
+    /// nominal bitrate × 100</c>, clamped to <c>[0, 100]</c>.
     /// <para>
-    /// <b>Caveats (documented per spec 6.1):</b>
+    /// 2026-09-06 设计层 MEDIUM 修复：替换旧的 <c>fps / 80</c> 启发式
+    ///（其文档自认 CAN FD 低估、500 kbps 高估、固定 8 字节 DLC——
+    /// 即显示值不可信）。新公式使用窗口内的真实 DLC 字节数 + 固定帧
+    /// 开销估计，除以标称波特率。
+    /// </para>
+    /// <para>
+    /// <b>Caveats:</b>
     /// <list type="bullet">
-    ///   <item>CAN FD with higher bitrate will under-report (FD can sustain ~30k fps at saturation).</item>
-    ///   <item>Non-1 Mbps buses (e.g. 500 kbps) will report inflated load.</item>
-    ///   <item>Variable DLC shifts the saturation point; we use 8 as the classic reference.</item>
+    ///   <item>CAN FD：数据段以更高数据相位速率传输，按标称速率折算会
+    ///   高估负载（方向与旧启发式相反，但同样存在）；FD 帧的固定开销
+    ///   也更高（EGA/CRC/动态填充）。按标称速率归一是有意的保守口径。</item>
+    ///   <item>多通道聚合：单个收集器跨所有已注册通道累加，混合波特率
+    ///   时分母取最后一路连接的速率——聚合负载本身即近似值。</item>
+    ///   <item>错误帧 payload 为 0 字节，按最小帧计 64 开销位进入位预算
+    ///（其真实长度协议未定义）；总帧数/FPS 口径不变。</item>
     /// </list>
-    /// A future revision can plumb the active bitrate + average DLC and
-    /// compute a real bit-budget percentage instead of this fps heuristic.
     /// </para>
     /// </summary>
-    private static double LoadPercent(int framesInWindow)
+    private static double LoadPercent(int framesInWindow, long bytesInWindow, long nominalBitrateBps)
     {
-        return Math.Min(100.0, framesInWindow / 80.0);
+        var bits = (long)framesInWindow * FrameOverheadBits + bytesInWindow * 8;
+        return Math.Clamp(bits * 100.0 / nominalBitrateBps, 0.0, 100.0);
     }
 }

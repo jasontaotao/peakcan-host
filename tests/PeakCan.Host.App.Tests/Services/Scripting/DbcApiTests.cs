@@ -315,4 +315,38 @@ public class DbcApiTests
         currentDocumentField.GetValue(api).Should().BeNull(
             "Dispose must clear _currentDocument (defensive state cleanup; mirrors v1.6.8 PATCH D4 success-side clearing)");
     }
+
+    // ===== 2026-09-06 设计层 MEDIUM（DbcService 事件退订纪律）守护 =====
+    // DbcService 契约（见 DbcService 类文档）：可释放订阅者 Dispose 必须
+    // 退订 DbcLoaded + LoadFailed 两个事件。本测试直接断言事件委托字段在
+    // Dispose 后为 null（委托字段为 public event 的底层存储，反射可读），
+    // 防止未来 Dispose 实现漂移漏掉任一 `-=`。
+    [Fact]
+    public void Dispose_Unsubscribes_Both_Events()
+    {
+        var fakeSvc = new FakeDbcService();
+        var api = new DbcApi(NullLogger<DbcApi>.Instance, fakeSvc);
+
+        static System.Reflection.FieldInfo? EventField(Type type, string name)
+            => type.GetEvent(name)!.DeclaringType!.GetField(
+                name,
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Public);
+
+        // Sanity：ctor 订阅后两个字段都非空。
+        EventField(typeof(DbcService), nameof(DbcService.DbcLoaded))!
+            .GetValue(fakeSvc).Should().NotBeNull("ctor subscribes DbcLoaded");
+        EventField(typeof(DbcService), nameof(DbcService.LoadFailed))!
+            .GetValue(fakeSvc).Should().NotBeNull("ctor subscribes LoadFailed");
+
+        // Act
+        api.Dispose();
+
+        // Assert：Dispose 后两个事件都必须退订（委托字段为 null）。
+        EventField(typeof(DbcService), nameof(DbcService.DbcLoaded))!
+            .GetValue(fakeSvc).Should().BeNull("Dispose must unsubscribe DbcLoaded");
+        EventField(typeof(DbcService), nameof(DbcService.LoadFailed))!
+            .GetValue(fakeSvc).Should().BeNull("Dispose must unsubscribe LoadFailed");
+    }
 }

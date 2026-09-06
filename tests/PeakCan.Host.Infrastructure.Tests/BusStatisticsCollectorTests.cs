@@ -100,23 +100,11 @@ public class BusStatisticsCollectorTests
     }
 
     [Fact]
-    public void BusLoadPercent_Clamped_To_OneHundred_Under_Sustained_Traffic()
+    public void BusLoadPercent_DefaultBitrate_BitBudget_Formula()
     {
-        // 10000 frames fast: way past the 8000-fps saturation point.
-        var s = new BusStatisticsCollector();
-        for (int i = 0; i < 10000; i++)
-        {
-            s.OnFrame(MakeFrame());
-        }
-        var snap = s.Snapshot();
-
-        snap.BusLoadPercent.Should().Be(100.0);
-    }
-
-    [Fact]
-    public void BusLoadPercent_Scales_Linearly_Below_Saturation()
-    {
-        // 400 frames fast: 400/80 = 5.0%.
+        // 2026-09-06 设计层 MEDIUM 修复：负载 = (帧数×64 开销位 + DLC×8) /
+        // 标称波特率。默认 1 Mbps：400 帧 × dlc1 → (400×64 + 400×8) / 1e6
+        // = 28800/1e6 = 2.88%。
         var s = new BusStatisticsCollector();
         for (int i = 0; i < 400; i++)
         {
@@ -124,7 +112,76 @@ public class BusStatisticsCollectorTests
         }
         var snap = s.Snapshot();
 
-        snap.BusLoadPercent.Should().Be(5.0);
+        snap.BusLoadPercent.Should().Be(2.88);
+    }
+
+    [Fact]
+    public void BusLoadPercent_Reflects_Real_Dlc_Not_Just_Fps()
+    {
+        // 旧 fps/80 启发式只看帧数；位预算公式对 DLC 敏感。
+        // 200 帧 × dlc8 = (200×64 + 200×64) = 25600 bits → 2.56%，
+        // 是 200 帧 × dlc1（14400 bits → 1.44%）的两倍弱。
+        var light = new BusStatisticsCollector();
+        var heavy = new BusStatisticsCollector();
+        for (int i = 0; i < 200; i++)
+        {
+            light.OnFrame(MakeFrame(dlc: 1));
+            heavy.OnFrame(MakeFrame(dlc: 8));
+        }
+        var l = light.Snapshot().BusLoadPercent;
+        var h = heavy.Snapshot().BusLoadPercent;
+
+        l.Should().Be(1.44);
+        h.Should().Be(2.56);
+        h.Should().BeGreaterThan(l);
+    }
+
+    [Fact]
+    public void SetBitrate_Changes_Load_Denominator()
+    {
+        // 500 kbps 总线上同样的 400×dlc1 流量：28800/5e5 = 5.76%。
+        var s = new BusStatisticsCollector();
+        s.SetBitrate(500_000);
+        for (int i = 0; i < 400; i++)
+        {
+            s.OnFrame(MakeFrame());
+        }
+        var snap = s.Snapshot();
+
+        snap.BusLoadPercent.Should().Be(5.76);
+    }
+
+    [Fact]
+    public void BusLoadPercent_Clamped_To_OneHundred_Under_Sustained_Traffic()
+    {
+        // 10000 帧 × dlc1 = 720000 bits = 72% @ 1 Mbps（旧启发式在此报
+        // 100%——正是"不可信"的表现）。压到 100% 需要更低波特率分母。
+        var s = new BusStatisticsCollector();
+        for (int i = 0; i < 10000; i++)
+        {
+            s.OnFrame(MakeFrame());
+        }
+        var snap = s.Snapshot();
+
+        snap.BusLoadPercent.Should().Be(72.0);
+
+        s.SetBitrate(500_000);
+        s.Snapshot().BusLoadPercent.Should().Be(100.0, "720000/500000 = 144% → clamp to 100");
+    }
+
+    [Fact]
+    public void SetBitrate_NonPositive_Throws()
+    {
+        var s = new BusStatisticsCollector();
+        var act = () => s.SetBitrate(0);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Ctor_NonPositive_Bitrate_Throws()
+    {
+        var act = () => new BusStatisticsCollector(0);
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]

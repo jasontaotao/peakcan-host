@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Infrastructure.Statistics;
 using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -201,6 +202,12 @@ public sealed partial class AppShellViewModel
                     // context to marshal back onto the UI thread).
                     channel.ReadLoopError += OnReadLoopError;
                     ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd));
+                    // 2026-09-06 设计层 MEDIUM：把该路所选预设的标称波特率喂给
+                    // 统计收集器——总线负载 % 从 "fps/80" 启发式升级为位预算
+                    // 公式后，分母必须跟随真实总线速率。多通道混合波特率时
+                    // 最后一路成功连接的速率生效（聚合口径本身是近似，收集器
+                    // 文档已注明）。收集器为 null（测试构造点）时 no-op。
+                    _busStats?.SetBitrate(BaudRateMap.NominalBps(rate));
                     LogConnectOk(_logger, handle);
                 }
                 else
