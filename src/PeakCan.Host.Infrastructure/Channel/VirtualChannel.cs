@@ -89,9 +89,9 @@ public sealed class VirtualChannel : ICanChannel
                     foreach (var subscriber in handler.GetInvocationList())
                     {
                         try { subscriber.DynamicInvoke(frame); }
-                        catch (Exception ex)
+                        catch
                         {
-                            // Log but do not re-throw — other subscribers must still receive frames
+                            // Swallow per-subscriber failures so other subscribers still receive frames.
                         }
                     }
                 }
