@@ -247,8 +247,6 @@ public class MultiChannelAssertionContextTests
     {
         var (multi, chA, chB) = CreateTwoChannelContext();
         var sink = new RecordingSink();
-        // 预热：确保 consumer 线程已启动
-        await Task.Delay(20);
 
         multi.SetFrameSink(null, sink);
 
@@ -258,10 +256,11 @@ public class MultiChannelAssertionContextTests
         chB.SimulateFrame(new CanFrame(new CanId(0x200, FrameFormat.Standard),
             new byte[] { 0x02 }, FrameFlags.None, new ChannelId(0x52), new Timestamp(1)));
 
-        // Use WaitForFrameDrainAsync to wait for consumer to drain
-        await multi.WaitForFrameDrainAsync(default);
+        // WaitForFrameDrainAsync 只保证队列出队，不保证 sink.Write 已执行
+        //（消费者可能在出队后、写 sink 前被观察）——改为轮询断言
+        await WaitUntilAsync(() => sink.Frames.Any(f => f.Id.Raw == 0x100)
+            && sink.Frames.Any(f => f.Id.Raw == 0x200));
 
-        // Both frames should be in the sink
         Assert.Contains(sink.Frames, f => f.Id.Raw == 0x100);
         Assert.Contains(sink.Frames, f => f.Id.Raw == 0x200);
     }
@@ -271,7 +270,6 @@ public class MultiChannelAssertionContextTests
     {
         var (multi, chA, chB) = CreateTwoChannelContext();
         var sink = new RecordingSink();
-        await Task.Delay(20);
         multi.SetFrameSink("bus-a", sink);
 
         // Send frame on bus-a (should reach sink)
@@ -281,10 +279,21 @@ public class MultiChannelAssertionContextTests
         chB.SimulateFrame(new CanFrame(new CanId(0x200, FrameFormat.Standard),
             new byte[] { 0x02 }, FrameFlags.None, new ChannelId(0x52), new Timestamp(1)));
 
-        await multi.WaitForFrameDrainAsync(default);
+        await WaitUntilAsync(() => sink.Frames.Any(f => f.Id.Raw == 0x100));
+        // 稳定期：确认 bus-b 的帧没有迟到的 sink 投递
+        await Task.Delay(50);
 
         Assert.Contains(sink.Frames, f => f.Id.Raw == 0x100);
         Assert.DoesNotContain(sink.Frames, f => f.Id.Raw == 0x200);
+    }
+
+    /// <summary>带超时的轮询等待，替代固定 Thread.Sleep/单次 drain 检查（高并发下偶发失败）。</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+        Assert.True(condition(), "condition not met within timeout");
     }
 
     // ── GetSignalValue channel routing (G1) ──
