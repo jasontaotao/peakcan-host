@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -78,6 +79,19 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     private volatile bool _isRecording;
     private volatile TextWriter? _writer;
 
+    // 2026-09-06 忙等修复（review HIGH）：StopRecordingInner 不再用 Thread.Sleep(1)
+    // 轮询计数收敛（UI 线程忙等最多 5s），改为事件驱动——drain task 每写完一帧检查
+    // 收敛条件并置位 _drainConverged；停止方 Reset 后等待该信号（有 5s 上限兜底，
+    // 覆盖 DropOldest 丢帧导致计数永不收敛的场景）。
+    private readonly ManualResetEventSlim _drainConverged = new(initialState: false);
+    private volatile bool _stopPending;
+
+    // 录制代次：StartRecording 每开新 writer 递增。StopRecordingInner 等待期间若代次
+    // 变化（并发 StartRecording 已换 writer），本次停止不得 footer/dispose 新 writer
+    // （2026-09-06 review：pre-existing 竞态，一并守卫）。
+    private int _recordingGeneration;
+    private volatile bool _drainConvergedDisposed;
+
     /// <summary>True when actively recording to a file.</summary>
     public bool IsRecording => _isRecording;
 
@@ -146,7 +160,15 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
                         {
                             WriteFrame(frame);
                             Interlocked.Increment(ref _frameCount);
-                        }
+                            // 停止等待方（StopRecordingInner）在等收敛信号：写完一帧后
+                            // 检查计数是否追平入队数，追平则置位事件（见 _drainConverged 注释）。
+                            if (_stopPending
+                                && Interlocked.Read(ref _frameCount) >= Interlocked.Read(ref _frameEnqueuedCount))
+                            {
+                                // Dispose 竞态兜底：宿主关停路径 Dispose 事件时 drain 可能仍在写最后一帧。
+                                try { _drainConverged.Set(); }
+                                catch (ObjectDisposedException) { /* host shutting down */ }
+                            }                        }
                         catch (Exception ex)
                         {
                             // Don't stop recording on a single write failure —

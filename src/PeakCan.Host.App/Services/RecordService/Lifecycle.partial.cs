@@ -28,6 +28,7 @@ public sealed partial class RecordService
             _writer = new StreamWriter(path, append: false, encoding: System.Text.Encoding.UTF8);
             WriteHeader();
             _isRecording = true;
+            Interlocked.Increment(ref _recordingGeneration);
             LogRecordingStarted(_logger, path, format switch
             {
                 RecordFormat.Asc => "ASC",
@@ -50,23 +51,68 @@ public sealed partial class RecordService
         StopRecordingInner();
     }
 
+    /// <summary>
+    /// 等待 drain task 把已入队帧全部写盘（计数收敛）。
+    /// 事件驱动：drain task 每写完一帧检查收敛条件并置位 _drainConverged；
+    /// 本方法先标记 _stopPending 再 Reset 事件（顺序防止漏信号），然后带
+    /// 5s 上限等待——上限兜底 DropOldest 丢帧（被丢帧仍计入入队计数，两计数
+    /// 永不收敛）、写盘失败与 drain task 已停止（宿主关停）等无法收敛的场景。
+    /// </summary>
+    private void WaitForDrainConvergence()
+    {
+        // 快路径：已收敛（或从未入队）→ 不等待。
+        if (Interlocked.Read(ref _frameCount) >= Interlocked.Read(ref _frameEnqueuedCount))
+            return;
+        // 宿主关停竞态：事件已 Dispose（另一线程正在收尾）→ 放弃等待，
+        // 走 5s 兜底语义之外的快速返回（此时代次守卫会阻止触碰新 writer）。
+        if (Volatile.Read(ref _drainConvergedDisposed))
+            return;
+        Volatile.Write(ref _stopPending, true);
+        try
+        {
+            _drainConverged.Reset();
+            // Reset 后复查：信号可能在标记 _stopPending 与 Reset 之间已被置位。
+            if (Interlocked.Read(ref _frameCount) >= Interlocked.Read(ref _frameEnqueuedCount))
+                return;
+            if (!_drainConverged.Wait(TimeSpan.FromMilliseconds(5000)))
+                LogDrainWaitTimedOut(_logger, _frameEnqueuedCount, _frameCount);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Dispose-vs-Wait 竞态兜底（review MEDIUM）：Dispose 在检查
+            // _drainConvergedDisposed 之后、Wait 之前发生。
+        }
+    }
+
+    /// <summary>StopRecording 的收尾（footer/flush/dispose）后清除等待标记，供下次录制复用事件。</summary>
+    private void ClearStopPending() => Volatile.Write(ref _stopPending, false);
+
     private void StopRecordingInner()
     {
         if (!_isRecording) return;
         _isRecording = false;
+        var gen = Volatile.Read(ref _recordingGeneration);
 
         // The background drain task (ExecuteAsync) is the SOLE channel reader.
         // Do NOT TryRead here: a frame dequeued by the drain task but not yet
         // written would be silently lost when the writer is disposed. Instead,
         // wait for the counters to converge: FrameEnqueuedCount counts frames
         // that entered the channel; FrameCount counts frames written to disk.
-        // Equality guarantees the drain task has flushed everything (minus
-        // DropOldest losses, which never enter the enqueued counter).
-        var deadlineTicks = Environment.TickCount64 + 5000;
-        while (Interlocked.Read(ref _frameCount) < Interlocked.Read(ref _frameEnqueuedCount)
-               && Environment.TickCount64 < deadlineTicks)
+        // Equality guarantees the drain task has flushed everything. Note:
+        // DropOldest-evicted frames DO enter the enqueued counter (OnFrame
+        // increments on the TryWrite==true branch), so sustained overload or
+        // write failures can make the counters never converge — the 5s cap
+        // bounds the wait in those cases.
+        // 2026-09-06：等待由 Thread.Sleep(1) 轮询改为事件驱动（_drainConverged），
+        // 零轮询；快路径（计数已收敛，绝大多数场景）完全不等待。
+        WaitForDrainConvergence();
+
+        // 代次守卫：等待期间有新录制开启（_writer 已被替换）→ 本次停止不得
+        // footer/dispose 新 writer，也不能把 _writer 置 null（会静默中断新录制）。
+        if (Volatile.Read(ref _recordingGeneration) != gen)
         {
-            Thread.Sleep(1);
+            ClearStopPending();
+            return;
         }
 
         try
@@ -83,6 +129,7 @@ public sealed partial class RecordService
         finally
         {
             _writer = null;
+            ClearStopPending();
         }
     }
     /// <summary>
@@ -121,6 +168,8 @@ public sealed partial class RecordService
     public override void Dispose()
     {
         StopRecordingInner();
+        Volatile.Write(ref _drainConvergedDisposed, true);
+        _drainConverged.Dispose();
         base.Dispose();
     }
 }

@@ -12,21 +12,22 @@ namespace PeakCan.Host.App.Services;
 
 /// <summary>
 /// <see cref="BackgroundService"/> that batches inbound frames into
-/// <see cref="TraceViewModel"/> every 50 ms. Implements
+/// <see cref="TraceViewModel"/> every 200 ms (2026-09-06 文档修正：早期版本为
+/// 50 ms，现实现为 200 ms，见下方 "Tick interval" 说明). Implements
 /// <see cref="IFrameSink"/> so the <see cref="ChannelRouter"/> can
 /// attach it as a fan-out target.
 /// <para>
 /// <b>Why batch?</b> a 1 Mbps CAN bus can sustain ~8 000 fps; updating
 /// an <c>ObservableCollection</c> per frame would flood the WPF
 /// dispatcher with <c>CollectionChanged</c> notifications and peg a
-/// CPU. Batching at 50 ms caps the UI work at 20 updates/sec,
+/// CPU. Batching at 200 ms caps the UI work at 5 updates/sec,
 /// independent of bus rate.
 /// </para>
 /// <para>
 /// <b>Why a bounded channel?</b> <see cref="OnFrame"/> is called on the
 /// SDK read thread; it must be non-blocking. A bounded
 /// <see cref="Channel{T}"/> with <see cref="BoundedChannelFullMode.DropOldest"/>
-/// gives us natural back-pressure: if the UI stalls for &gt;50 ms the
+/// gives us natural back-pressure: if the UI stalls for &gt;200 ms the
 /// oldest unread frames are dropped rather than ballooning memory.
 /// </para>
 /// <para>

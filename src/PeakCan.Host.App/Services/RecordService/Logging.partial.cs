@@ -19,6 +19,10 @@ public sealed partial class RecordService
     [LoggerMessage(Level = LogLevel.Warning, Message = "Frame write failed (recording continues)")]
     private static partial void LogFrameWriteFailed(ILogger logger, Exception ex);
 
+    // 2026-09-06：停止等待超时兜底（DropOldest 丢帧计数不收敛 / drain 已停止）。
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Recording stop drain wait timed out after 5s: enqueued {Enqueued}, written {Written}")]
+    private static partial void LogDrainWaitTimedOut(ILogger logger, long enqueued, long written);
+
     // v1.2.12 PATCH Item 11: sink OnError → ILogger. The previous
     // Debug.WriteLine was stripped in Release builds (DEBUG not defined),
     // leaving production with no record of forwarded errors. Per service

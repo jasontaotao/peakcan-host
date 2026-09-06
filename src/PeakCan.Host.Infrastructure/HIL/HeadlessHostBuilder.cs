@@ -116,14 +116,9 @@ public static class HeadlessHostBuilder
         // 报告解码需要 DbcDocument.ValueTables（查 VAL_ 枚举文本），但 IDbcLookup 只暴露
         // FindMessage/GetAllMessages，无 ValueTables —— 故必须把 DbcDocument 本身注册进 DI。
         // 两个独立 lambda（MS DI 的 provider 构建后集合只读，不能在 lambda 内 AddSingleton）。
-        builder.Services.AddSingleton(sp =>
-        {
-            var text = File.ReadAllText(args.DbcPath);
-            var doc = PeakCan.HIL.Core.Dbc.DbcParser.Parse(text);
-            if (!doc.IsSuccess)
-                throw new InvalidOperationException($"DBC parse failed for '{args.DbcPath}': {doc.Error?.Message}");
-            return doc.Value!;
-        });
+        // P0-3（2026-09-06）：解析走 DbcDocumentCache（path+mtime+size 缓存）——每次 run
+        // 重建 host 不再重复读盘 + 解析同一 DBC（大 OEM DBC 解析可达数百 ms）。
+        builder.Services.AddSingleton(sp => DbcDocumentCache.Load(args.DbcPath));
         builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>(sp =>
             new HeadlessDbcLookup(sp.GetRequiredService<DbcDocument>()));
 
@@ -181,12 +176,8 @@ public static class HeadlessHostBuilder
                     }
                     else
                     {
-                        var dbcPath = cfg.DbcPath ?? args.DbcPath;
-                        var dbcText = File.ReadAllText(dbcPath);
-                        var parsed = PeakCan.HIL.Core.Dbc.DbcParser.Parse(dbcText);
-                        if (!parsed.IsSuccess)
-                            throw new InvalidOperationException($"DBC parse failed for channel '{cfg.Name}' ('{dbcPath}'): {parsed.Error?.Message}");
-                        dbcDoc = parsed.Value!;
+                        // P0-3（2026-09-06）：per-channel DBC 也走缓存（多通道反复 run 同批 DBC）。
+                        dbcDoc = DbcDocumentCache.Load(cfg.DbcPath ?? args.DbcPath);
                     }
                     var dbcLookup = new HeadlessDbcLookup(dbcDoc);
                     // Per-channel DBC for report: map ChannelId → DbcDocument
@@ -295,17 +286,8 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
         builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
         // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
-        builder.Services.AddSingleton<PeakCan.Host.Core.J1939.J1939TpLayer>(sp =>
-        {
-            var ch = sp.GetRequiredService<ICanChannel>();
-            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.J1939.J1939TpLayer>>()
-                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.Core.J1939.J1939TpLayer>.Instance;
-            return new PeakCan.Host.Core.J1939.J1939TpLayer(
-                (frame, ct) => ch.WriteAsync(frame, ct),
-                new PeakCan.Host.Core.J1939.J1939TpOptions(), jLogger);
-        });
-
-        // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
+        // （2026-09-06：此处原先重复注册了两次相同的 J1939TpLayer 单例——MS DI 后注册
+        // 覆盖前注册，行为一致但属死代码，已删除第二份。）
         builder.Services.AddSingleton<PeakCan.Host.Core.J1939.J1939TpLayer>(sp =>
         {
             var ch = sp.GetRequiredService<ICanChannel>();
