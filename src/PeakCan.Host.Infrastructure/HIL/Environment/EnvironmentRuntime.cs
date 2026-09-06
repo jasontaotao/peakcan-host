@@ -143,7 +143,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
     private void Scan(object? state)
     {
-        List<(RestbusNode Node, NodeMessageRuntimeState MsgState, NodeMessage Msg)>? toSend = null;
+        List<(RestbusNode Node, NodeMessageRuntimeState MsgState, NodeMessage Msg, byte[] Payload)>? toSend = null;
         lock (_gate)
         {
             if (!_running) return;
@@ -158,7 +158,7 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
 
                     var payload = msgState.BuildPayload(_encoder, _dbc);
                     if (payload is not null)
-                        (toSend ??= []).Add((nodeState.Node, msgState, nodeState.Node.Messages[i]));
+                        (toSend ??= []).Add((nodeState.Node, msgState, nodeState.Node.Messages[i], payload));
 
                     var quantum = Math.Max(ScanIntervalMs,
                         (nodeState.Node.Messages[i].IntervalMs + ScanIntervalMs - 1) / ScanIntervalMs * ScanIntervalMs);
@@ -168,23 +168,21 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         }
 
         if (toSend is not null)
-            foreach (var (node, msgState, msg) in toSend)
-                SendFrame(node, msgState, msg);
+            foreach (var (node, msgState, msg, payload) in toSend)
+                SendFrame(node, msgState, msg, payload);
 
         ProcessIncoming();
     }
 
-    private void SendFrame(RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg)
+    private void SendFrame(RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg, byte[] payload)
     {
         if (msg.Ref is J1939MessageRef jRef)
         {
-            SendJ1939Frame(jRef, node, msgState, msg);
+            SendJ1939Frame(jRef, node, msgState, msg, payload);
             return;
         }
         if (msg.Ref is not CanMessageRef canRef) return;
         var id = new CanId(canRef.Id, canRef.IsExtended ? FrameFormat.Extended : FrameFormat.Standard);
-        var payload = msgState.BuildPayload(_encoder, _dbc);
-        if (payload is null) return;
         var flags = msg.Fd ? FrameFlags.Fd : FrameFlags.None;
         var frame = new CanFrame(id, payload, flags, default, default, FrameSource.Environment);
         var result = _channel.WriteAsync(frame).AsTask().GetAwaiter().GetResult();
@@ -449,10 +447,8 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
         return data; // not ISO-TP, treat as raw
     }
 
-    private void SendJ1939Frame(J1939MessageRef jRef, RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg)
+    private void SendJ1939Frame(J1939MessageRef jRef, RestbusNode node, NodeMessageRuntimeState msgState, NodeMessage msg, byte[] payload)
     {
-        var payload = msgState.BuildPayload(_encoder, _dbc);
-        if (payload is null) return;
         // SA 回落：Ref.Sa → 节点身份 Sa（修复前 Ref.Sa 为空时恒发 0x00）
         var sa = ResolveSa(node, jRef.Sa);
         SendJ1939Payload(jRef, sa, payload, msgState);
