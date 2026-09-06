@@ -1,6 +1,8 @@
+using PeakCan.Host.Core.HIL.Expressions;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// LoopStep 校验器（§5.8）。局部直接检查：

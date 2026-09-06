@@ -3,7 +3,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Path;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Path;
+namespace PeakCan.Host.Core.Tests.Path;
 
 public class PathNormalizerTests
 {

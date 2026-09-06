@@ -4,11 +4,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.J1939;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

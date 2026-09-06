@@ -7,6 +7,7 @@
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
 using Xunit;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Core.Tests.HIL.Multichannel;
 

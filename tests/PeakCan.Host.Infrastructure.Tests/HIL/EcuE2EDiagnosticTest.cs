@@ -7,6 +7,9 @@ using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using System.Text.Json;
 using Xunit;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
 

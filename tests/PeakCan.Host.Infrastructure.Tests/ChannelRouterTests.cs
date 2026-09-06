@@ -5,6 +5,7 @@ using NSubstitute.ExceptionExtensions;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests;
 

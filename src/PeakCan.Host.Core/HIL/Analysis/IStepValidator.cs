@@ -1,6 +1,8 @@
+using PeakCan.Host.Core.HIL.Expressions;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// 单步骤校验上下文：承载表达式解析器 + 步骤定位信息。

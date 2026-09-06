@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// Abstraction over wall-clock time, timers, and asynchronous delays,

@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.Host.Core.Uds.FlashPipeline;
 using PeakCan.HIL.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;

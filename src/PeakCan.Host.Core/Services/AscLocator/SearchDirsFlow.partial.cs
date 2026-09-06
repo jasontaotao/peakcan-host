@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace PeakCan.HIL.Core.Services;
+namespace PeakCan.Host.Core.Services;
 
 /// <summary>W37 god-class refactor (22nd overall): search-dirs cache +
 /// load + default path extracted from main. Sister of W34 DbcSendViewModel/

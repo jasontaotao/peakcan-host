@@ -7,7 +7,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.HIL.Analysis;
 using PeakCan.HIL.Core.Analysis;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

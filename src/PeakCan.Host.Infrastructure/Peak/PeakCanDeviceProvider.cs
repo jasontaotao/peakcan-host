@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 

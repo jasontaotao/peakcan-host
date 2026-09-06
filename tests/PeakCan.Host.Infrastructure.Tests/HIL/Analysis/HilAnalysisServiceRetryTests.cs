@@ -4,7 +4,7 @@ using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Options;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Infrastructure.HIL.Analysis;
 using Polly;
 using Polly.Extensions.Http;

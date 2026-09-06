@@ -1,6 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Zlg;
 using Xunit;
 

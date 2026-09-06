@@ -14,14 +14,18 @@ using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.HIL.Analysis;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.Database;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -78,25 +82,25 @@ public class AppShellViewModelTests
             NullLogger<TraceSessionLibrary>.Instance);
 
     /// <summary>
-    /// Test double for <see cref="PeakCan.HIL.Core.IChannelProbe"/>. Always returns
+    /// Test double for <see cref="PeakCan.Host.Core.IChannelProbe"/>. Always returns
     /// a successful probe (legacy path claims SelectedChannel on success).
     /// </summary>
-    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    private sealed class FakeChannelProbe : PeakCan.Host.Core.IChannelProbe
     {
-        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
+        public PeakCan.Host.Core.ProbeResult Probe(ushort handle)
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 
     /// <summary>Legacy probe failure path (architect review 2026-08-29): exercises the
     /// "未检测到 PEAK 硬件: ..." ChannelList branch, which must leave SelectedChannel
     /// null so Connect stays locked.</summary>
-    private sealed class FailingChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    private sealed class FailingChannelProbe : PeakCan.Host.Core.IChannelProbe
     {
-        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
+        public PeakCan.Host.Core.ProbeResult Probe(ushort handle)
             => new(false, "fake probe failed");
     }
 
-    private static AppShellViewModel NewVm(PeakCan.HIL.Core.IChannelProbe? probe = null)
+    private static AppShellViewModel NewVm(PeakCan.Host.Core.IChannelProbe? probe = null)
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
@@ -479,12 +483,12 @@ public class AppShellViewModelTests
     }
 
     /// <summary>
-    /// Test double for <see cref="PeakCan.HIL.Core.IChannelFactory"/> that hands out
+    /// Test double for <see cref="PeakCan.Host.Core.IChannelFactory"/> that hands out
     /// hand-rolled <see cref="FakeCanChannel"/> instances so
     /// <see cref="AppShellViewModel.ConnectAsync"/> / <c>DisconnectAsync</c>
     /// can run without PEAK hardware.
     /// </summary>
-    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public int CreatedCount { get; private set; }
         public FakeCanChannel? LastCreated { get; private set; }
@@ -500,7 +504,7 @@ public class AppShellViewModelTests
     /// slot 1 connects immediately, slot 2 blocks on the gate until released —
     /// reproducing the window where IsConnected is already true while
     /// ConnectCoreAsync is still connecting the remaining channels.</summary>
-    private sealed class TwoSlotGatedChannelFactory(Task secondSlotGate) : PeakCan.HIL.Core.IChannelFactory
+    private sealed class TwoSlotGatedChannelFactory(Task secondSlotGate) : PeakCan.Host.Core.IChannelFactory
     {
         public int CreatedCount { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -703,7 +707,7 @@ public class AppShellViewModelTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class ThrowingChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class ThrowingChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public ThrowingFakeCanChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -937,7 +941,7 @@ public class AppShellViewModelTests
         }
     }
 
-    private sealed class DisposeTrackingChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class DisposeTrackingChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public DisposeTrackingChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -1022,7 +1026,7 @@ public class AppShellViewModelTests
         }
     }
 
-    private sealed class FrameReceivedAddThrowingChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class FrameReceivedAddThrowingChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public FrameReceivedAddThrowingChannel? LastCreated { get; private set; }
         public ICanChannel Create(ChannelId id)
@@ -1113,7 +1117,7 @@ public class AppShellViewModelTests
     /// Test double for <see cref="IChannelEnumerator"/> that returns
     /// a configurable list of channels.
     /// </summary>
-    private sealed class FakeChannelEnumerator : PeakCan.HIL.Core.IChannelEnumerator
+    private sealed class FakeChannelEnumerator : PeakCan.Host.Core.IChannelEnumerator
     {
         // CA1859: concrete ChannelInfo[] avoids virtual dispatch through
         // IReadOnlyList<T> when callers iterate.
@@ -1135,7 +1139,7 @@ public class AppShellViewModelTests
             .Build();
 
     private static AppShellViewModel NewVmWithEnumerator(
-        PeakCan.HIL.Core.IChannelEnumerator enumerator,
+        PeakCan.Host.Core.IChannelEnumerator enumerator,
         IChannelFactory? factory = null,
         IConfiguration? config = null)
     {

@@ -1,6 +1,5 @@
 using NetArchTest.Rules;
 using PeakCan.Host.App.Composition;
-using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Peak;
 
 namespace PeakCan.Host.Infrastructure.Tests.Architecture;
@@ -41,7 +40,10 @@ public class LayeringRulesTests
     [Fact]
     public void Core_Should_Not_Depend_On_WPF()
     {
-        var result = Types.InAssembly(typeof(CanFrame).Assembly)
+        // P0-1 修复（2026-09-06）：用本地 Core 程序集的类型定位守卫目标。
+        // 旧写法 typeof(CanFrame).Assembly 定位到外部 PeakCan.HIL.Core.dll，
+        // 守卫检查的是 sibling 包而非本地 Core——架构守卫形同虚设。
+        var result = Types.InAssembly(typeof(PeakCan.Host.Core.HIL.Contracts.IAssertionContext).Assembly)
             .ShouldNot().HaveDependencyOn("System.Windows")
             .GetResult();
         Assert.True(result.IsSuccessful, Format(result));
@@ -50,7 +52,7 @@ public class LayeringRulesTests
     [Fact]
     public void Core_Should_Not_Depend_On_Peak_Can_Basic()
     {
-        var result = Types.InAssembly(typeof(CanFrame).Assembly)
+        var result = Types.InAssembly(typeof(PeakCan.Host.Core.HIL.Contracts.IAssertionContext).Assembly)
             .ShouldNot().HaveDependencyOn("Peak.Can.Basic")
             .GetResult();
         Assert.True(result.IsSuccessful, Format(result));

@@ -1,11 +1,11 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using System.Globalization;
 using System.Reflection;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 internal sealed class FakeReplayFrameSink : IReplayFrameSink
 {

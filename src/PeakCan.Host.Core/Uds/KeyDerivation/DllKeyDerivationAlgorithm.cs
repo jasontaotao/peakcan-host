@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PeakCan.HIL.Core.Uds.KeyDerivation;
+namespace PeakCan.Host.Core.Uds.KeyDerivation;
 
 /// <summary>
 /// OEM-supplied native DLL key derivation wrapper for UDS SecurityAccess

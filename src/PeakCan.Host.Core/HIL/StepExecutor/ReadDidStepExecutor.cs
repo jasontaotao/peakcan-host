@@ -1,7 +1,8 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Uds;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes ReadDid steps. Reads a DID via UDS and stores the bytes into

@@ -4,7 +4,7 @@
 using System;
 using ScottPlot;
 using ScottPlot.Plottables;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -154,8 +154,8 @@ public sealed partial class TraceViewerViewModel
     }
 
     /// <summary>Fix #3: Filter frames to only those matching the target signal's CAN ID.</summary>
-    private static List<global::PeakCan.HIL.Core.Replay.ReplayFrame> FilterFramesByCanId(
-        IReadOnlyList<global::PeakCan.HIL.Core.Replay.ReplayFrame> frames, string signalKey)
+    private static List<global::PeakCan.Host.Core.Replay.ReplayFrame> FilterFramesByCanId(
+        IReadOnlyList<global::PeakCan.Host.Core.Replay.ReplayFrame> frames, string signalKey)
     {
         var (idHex, _, _) = ParseSignalKey(signalKey);
         if (idHex is null) return frames.ToList();
@@ -166,7 +166,7 @@ public sealed partial class TraceViewerViewModel
     }
 
     private static int BinarySearchLatestAtOrBeforeAnchorFrames(
-        IReadOnlyList<global::PeakCan.HIL.Core.Replay.ReplayFrame> frames, double targetTs)
+        IReadOnlyList<global::PeakCan.Host.Core.Replay.ReplayFrame> frames, double targetTs)
     {
         int lo = 0, hi = frames.Count - 1, result = -1;
         while (lo <= hi)
@@ -180,7 +180,7 @@ public sealed partial class TraceViewerViewModel
 
     /// <summary>v3.62.0: binary search for the nearest frame index (closest timestamp).</summary>
     private static int BinarySearchNearestFrame(
-        IReadOnlyList<global::PeakCan.HIL.Core.Replay.ReplayFrame> frames, double target)
+        IReadOnlyList<global::PeakCan.Host.Core.Replay.ReplayFrame> frames, double target)
     {
         if (frames.Count == 0) return -1;
         if (frames.Count == 1) return 0;

@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// DBC 信号查找接口（规则 ③）。host 若无 DBC 加载机制，注入 null 跳过 ③。

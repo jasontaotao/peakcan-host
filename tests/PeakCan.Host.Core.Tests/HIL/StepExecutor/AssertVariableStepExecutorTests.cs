@@ -1,8 +1,11 @@
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
 /// <summary>
 /// AssertVariableStepExecutor 测试：变量断言（hex 字节精确比较 + 数值容差比较）。
@@ -146,7 +149,7 @@ public class AssertVariableStepExecutorTests
     public async Task ExecuteAsync_ContextNotStepVariableStore_Fails()
     {
         // Arrange - 上下文不实现 IStepVariableStore（e.g. 纯 FakeAssertionContext）
-        var ctx = new PeakCan.HIL.Core.Tests.HIL.Fakes.FakeAssertionContext();
+        var ctx = new PeakCan.Host.Core.Tests.HIL.Fakes.FakeAssertionContext();
 
         // Act
         var result = await _executor.ExecuteAsync(

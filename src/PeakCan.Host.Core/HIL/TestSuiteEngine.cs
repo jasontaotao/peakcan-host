@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Expressions;
+using PeakCan.Host.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
-using PeakCan.HIL.Core.HIL.Setup;
-using PeakCan.HIL.Core.HIL.StepExecutor;
 
-namespace PeakCan.HIL.Core.HIL;
+namespace PeakCan.Host.Core.HIL;
 
 /// <summary>
 /// Test suite execution engine. Orchestrates TestCase execution lifecycle:

@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v1.4.2 PATCH Item 3: event args for <see cref="IReplayService.PlaybackEnded"/>.

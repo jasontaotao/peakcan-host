@@ -3,7 +3,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// Sprint 18 Inc 5: RequestBasedMappers.ExtractRoutineResponses — builds the

@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds;
+namespace PeakCan.Host.Core.Uds;
 
 /// <summary>
 /// v1.3.0 MINOR Item 3/4: ISO 14229-1 §10.4 RoutineControl (0x31) sub-functions.

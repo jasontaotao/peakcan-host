@@ -3,11 +3,11 @@ using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using Xunit;
 using IOPath = System.IO.Path;
 
-namespace PeakCan.HIL.Core.Tests.Services;
+namespace PeakCan.Host.Core.Tests.Services;
 
 /// <summary>
 /// v3.6.4 PATCH: pins the four core behaviors of

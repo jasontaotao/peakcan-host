@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds;
+namespace PeakCan.Host.Core.Uds;
 
 /// <summary>
 /// OEM-specific key derivation algorithm for UDS SecurityAccess (0x27).

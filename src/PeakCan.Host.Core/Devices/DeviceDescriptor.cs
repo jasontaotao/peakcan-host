@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.Devices;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.Devices;
 
 /// <summary>One CAN channel offered by a device: raw handle + UI name.</summary>
 public sealed record ChannelDescriptor(ushort Handle, string Name);

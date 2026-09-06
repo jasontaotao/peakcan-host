@@ -1,5 +1,6 @@
 using PeakCan.HIL.Core.HIL;
 using Xunit;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests;
 

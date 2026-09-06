@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v3.9.0 MINOR P1: event args for <see cref="IReplayService.LoopRewound"/>.

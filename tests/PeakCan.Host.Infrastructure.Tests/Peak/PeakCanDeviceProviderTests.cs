@@ -2,9 +2,10 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Peak;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests.Peak;
 

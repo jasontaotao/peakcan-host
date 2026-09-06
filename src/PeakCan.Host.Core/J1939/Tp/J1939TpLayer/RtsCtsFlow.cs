@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.J1939;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.J1939;
 
 public sealed partial class J1939TpLayer
 {

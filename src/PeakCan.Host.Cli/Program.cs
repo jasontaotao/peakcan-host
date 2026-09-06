@@ -11,6 +11,8 @@ using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 using PeakCan.Host.Infrastructure.Peak;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Cli;
 
@@ -100,7 +102,7 @@ public static class Program
 
             var engine = host2.Services.GetRequiredService<TestSuiteEngine>();
             var channel2 = host2.Services.GetRequiredService<ICanChannel>();
-            var ctx = host2.Services.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>();
+            var ctx = host2.Services.GetRequiredService<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>();
 
             var suiteJson = await File.ReadAllTextAsync(cli.SuitePath);
             var suite = JsonSerializer.Deserialize<TestSuite>(suiteJson, HILJsonOptions.Default);

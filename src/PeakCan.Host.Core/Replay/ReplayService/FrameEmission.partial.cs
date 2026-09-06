@@ -23,7 +23,7 @@
 
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 public sealed partial class ReplayService
 {

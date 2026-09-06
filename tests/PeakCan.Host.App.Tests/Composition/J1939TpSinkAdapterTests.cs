@@ -4,6 +4,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
 using PeakCan.Host.App.Composition;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.Tests.Composition;
 

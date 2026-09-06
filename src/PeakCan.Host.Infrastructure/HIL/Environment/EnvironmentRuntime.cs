@@ -7,6 +7,8 @@ using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.HIL.Core.J1939;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 

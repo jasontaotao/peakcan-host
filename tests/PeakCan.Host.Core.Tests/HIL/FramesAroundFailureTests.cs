@@ -4,12 +4,15 @@ using System.Threading.Channels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using NSubstitute;
 using Xunit;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL;
 
-namespace PeakCan.HIL.Core.Tests.HIL;
+namespace PeakCan.Host.Core.Tests.HIL;
 
 /// <summary>
 /// Fake assertion context that implements IHasRecentFrames for testing FramesAroundFailure.
@@ -21,7 +24,7 @@ internal sealed class FakeAssertionContextWithRecent : IAssertionContext, IHasRe
     private readonly Dictionary<string, double> _signalValues = new();
 
     public double CurrentTimestamp { get; set; }
-    public System.Collections.Generic.IReadOnlyList<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame>();
+    public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
 
     public IDisposable SubscribeDecodedFrames(Action<DecodedFrame> onFrame)
     {

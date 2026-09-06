@@ -4,7 +4,7 @@ using PeakCan.HIL.Core.Dbc;
 using Xunit;
 using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
-namespace PeakCan.HIL.Core.Tests;
+namespace PeakCan.Host.Core.Tests;
 
 public class DbcParserTests
 {

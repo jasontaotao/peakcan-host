@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// 按逻辑通道名解析 UDS 会话（Task B 第二步，spec 2026-08-27 §Q1）。

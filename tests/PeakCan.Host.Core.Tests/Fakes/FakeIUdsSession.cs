@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
+using PeakCan.Host.Core.HIL.Contracts;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
+namespace PeakCan.Host.Core.Tests.HIL.Fakes;
 
 /// <summary>
 /// Hand-rolled fake IUdsSession for unit testing UDS executors.

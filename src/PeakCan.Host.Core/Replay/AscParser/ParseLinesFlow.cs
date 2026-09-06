@@ -4,7 +4,7 @@
 
 using System.Globalization;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 public static partial class AscParser
 {

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 public static partial class BlfParser
 {

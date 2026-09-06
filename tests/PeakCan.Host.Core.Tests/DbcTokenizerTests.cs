@@ -2,7 +2,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests;
+namespace PeakCan.Host.Core.Tests;
 
 public class DbcTokenizerTests
 {

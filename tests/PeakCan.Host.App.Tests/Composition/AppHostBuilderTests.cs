@@ -16,11 +16,12 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Views;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 using PeakCan.Host.App.Tests.Collections;
+using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.Tests.Composition;
 
@@ -187,7 +188,7 @@ public class AppHostBuilderTests
     public void Build_IsoTpLayer_Factory_Accepts_Async_Send_Callback()
     {
         using var host = new AppHostBuilder().Build();
-        var layer = host.Services.GetService<PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer>();
+        var layer = host.Services.GetService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
         layer.Should().NotBeNull(
             "IsoTpLayer factory must use the async send-callback overload (Item 2 fix)");
     }
@@ -250,7 +251,7 @@ public class AppHostBuilderTests
         // ILogger<UdsSession> through UdsClient into UdsSession so S3
         // keepalive failures are observable in production.
         using var host = new AppHostBuilder().Build();
-        var udsClient = host.Services.GetRequiredService<PeakCan.HIL.Core.Uds.UdsClient>();
+        var udsClient = host.Services.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
 
         udsClient.Session.SessionLogger.Should().NotBeNull(
             "AppHostBuilder must wire ILogger<UdsSession> into UdsClient so " +
@@ -321,8 +322,8 @@ public class AppHostBuilderTests
     /// <summary>
     /// v1.3.0 MINOR Item 5: <c>WithUdsSecurityLockoutConfig</c> on
     /// <see cref="AppHostBuilder"/> must thread a custom lockout policy
-    /// into <see cref="PeakCan.HIL.Core.Uds.UdsClient"/>'s
-    /// <see cref="PeakCan.HIL.Core.Uds.UdsSecurity.LockoutConfig"/>.
+    /// into <see cref="PeakCan.Host.Core.Uds.UdsClient"/>'s
+    /// <see cref="PeakCan.Host.Core.Uds.UdsSecurity.LockoutConfig"/>.
     /// <para>
     /// Regression: this is the production-side wiring for the v1.3.0
     /// SecurityAccess lockout feature (Task 1 state + Task 2 wire
@@ -335,12 +336,12 @@ public class AppHostBuilderTests
     public void WithUdsSecurityLockoutConfig_Injects_To_UdsSecurity()
     {
         var builder = new AppHostBuilder()
-            .WithUdsSecurityLockoutConfig(new PeakCan.HIL.Core.Uds.UdsSecurityLockoutConfig(
+            .WithUdsSecurityLockoutConfig(new PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig(
                 MaxAttempts: 5,
                 LockoutDuration: TimeSpan.FromSeconds(10)));
 
         using var host = builder.Build();
-        var udsClient = host.Services.GetRequiredService<PeakCan.HIL.Core.Uds.UdsClient>();
+        var udsClient = host.Services.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
 
         udsClient.Security.LockoutConfig.MaxAttempts.Should().Be(5);
         udsClient.Security.LockoutConfig.LockoutDuration.Should().Be(TimeSpan.FromSeconds(10));

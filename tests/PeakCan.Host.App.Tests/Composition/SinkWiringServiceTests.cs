@@ -8,6 +8,8 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.Tests.Composition;
 
@@ -74,7 +76,7 @@ public class SinkWiringServiceTests
         // no-op send callback + default 0x7E0/0x7E8 CAN IDs — the tests below
         // only exercise the router→sink fan-out, not ISO-TP send. The adapter
         // wraps this same singleton layer instance.
-        builder.Services.AddSingleton(new PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer(
+        builder.Services.AddSingleton(new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(
             new PeakCan.HIL.Core.Uds.IsoTp.CanIdConfig
             {
                 RequestId = 0x7E0,
@@ -88,9 +90,9 @@ public class SinkWiringServiceTests
         // start, so no timer leaks in tests) with a no-op success send
         // delegate — the tests below only exercise the router fan-out, not
         // J1939 TP sends. The adapter wraps this same singleton layer.
-        builder.Services.AddSingleton(new PeakCan.HIL.Core.J1939.J1939TpLayer(
+        builder.Services.AddSingleton(new PeakCan.Host.Core.J1939.J1939TpLayer(
             (_, _) => ValueTask.FromResult(Result<Unit>.Ok(default)),
-            PeakCan.HIL.Core.J1939.J1939TpOptions.Offline));
+            PeakCan.Host.Core.J1939.J1939TpOptions.Offline));
         builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
         builder.Services.AddHostedService<SinkWiringService>();
         return builder.Build();

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 public static partial class BlfParser
 {

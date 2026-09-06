@@ -1,6 +1,7 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertNrc steps. Sends a UDS request and checks if the ECU returns the expected NRC.

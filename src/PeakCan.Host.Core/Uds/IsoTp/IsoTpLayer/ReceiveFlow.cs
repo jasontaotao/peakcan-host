@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.Uds.IsoTp;
 
 public sealed partial class IsoTpLayer
 {

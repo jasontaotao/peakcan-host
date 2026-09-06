@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core;
+namespace PeakCan.Host.Core;
 
 /// <summary>
 /// Enumerates available CAN channels on the system. The MVP probes

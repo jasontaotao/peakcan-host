@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL;
+namespace PeakCan.Host.Core.HIL;
 
 public sealed record HilRunRequest(
     string DbcPath,

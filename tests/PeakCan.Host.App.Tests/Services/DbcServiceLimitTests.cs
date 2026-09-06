@@ -166,7 +166,7 @@ public class DbcServiceLimitTests
         // + ReadAllBytesAsync) doesn't reject the `..` segments.
         var fixturePath = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..",
-            "tests", "PeakCan.HIL.Core.Tests", "E51_PT_CAN-BMS.dbc"));
+            "tests", "PeakCan.Host.Core.Tests", "E51_PT_CAN-BMS.dbc"));
         if (!File.Exists(fixturePath))
         {
             // Skip if fixture not found (CI without fixture copy).

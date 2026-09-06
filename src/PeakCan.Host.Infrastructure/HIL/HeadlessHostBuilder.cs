@@ -9,12 +9,12 @@ using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.Host.Core.HIL.Assertions;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using PeakCan.Host.Infrastructure.HIL.Environment;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
@@ -22,6 +22,11 @@ using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.Composite;
 using PeakCan.Host.Infrastructure.Peak;
 using PeakCan.Host.Infrastructure.Zlg;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -51,7 +56,7 @@ public static class HeadlessHostBuilder
             // for per-step TargetChannel routing.
             var defaultHandle = ResolveChannelHandle(multiHw[0].Handle, index: 0);
             builder.Services.AddSingleton<ICanChannel>(sp =>
-                sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>().Create(new ChannelId(defaultHandle)));
+                sp.GetRequiredService<PeakCan.Host.Core.IChannelFactory>().Create(new ChannelId(defaultHandle)));
         }
         else if (args.HardwareChannel is not null)
         {
@@ -61,7 +66,7 @@ public static class HeadlessHostBuilder
             // 取代 ParseChannelHandle（仅 USB{n}）——否则单通道 ZLG 选不了。
             var handle = ResolveChannelHandle(args.HardwareChannel);
             builder.Services.AddSingleton<ICanChannel>(sp =>
-                sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>().Create(new ChannelId(handle)));
+                sp.GetRequiredService<PeakCan.Host.Core.IChannelFactory>().Create(new ChannelId(handle)));
         }
         else if (args.EcuScriptPath is not null)
         {
@@ -145,7 +150,7 @@ public static class HeadlessHostBuilder
             // IAssertionContext. The default ICanChannel singleton (first channel) is
             // already registered above for single-channel-default deps (UDS/stats/bg).
             // UDS multi-channel is deferred (§3.4): IsoTpLayer/UdsClient bind to default.
-            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
                 var contexts = new Dictionary<string, SingleChannelContext>(StringComparer.Ordinal);
@@ -158,7 +163,7 @@ public static class HeadlessHostBuilder
                 // 通常 null → 回落 args.DbcPath → 与全局同源；复用全局实例避免重复 ReadAllText
                 // + DbcParser.Parse。其余通道（DbcPath 非空或不同文件）各自解析。
                 var globalDbc = sp.GetService<DbcDocument>();
-                var factory = sp.GetRequiredService<PeakCan.HIL.Core.IChannelFactory>();
+                var factory = sp.GetRequiredService<PeakCan.Host.Core.IChannelFactory>();
                 for (int i = 0; i < multiCfg.Count; i++)
                 {
                     var cfg = multiCfg[i];
@@ -212,7 +217,7 @@ public static class HeadlessHostBuilder
         else if (args.HardwareChannel is not null)
         {
             // Hardware mode: PeakCanAssertionContext + ISO-TP bridge + UDS
-            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
@@ -224,7 +229,7 @@ public static class HeadlessHostBuilder
         else if (args.EcuScriptPath is not null || args.MatrixPath is not null)
         {
             // Virtual ECU / Matrix mode (Sprint 4/6): HILAssertionContext + UDS + VirtualEcu already registered
-            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
@@ -236,7 +241,7 @@ public static class HeadlessHostBuilder
         else
         {
             // Trace-replay mode: HILAssertionContext (no UDS — trace is read-only)
-            builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>(sp =>
+            builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
@@ -252,28 +257,28 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<AssertionPrimitives>();
 
         // Step executors (existing + Phase 3)
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SendFrameStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SendSequenceStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertRangeStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, WaitForSignalStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, DelayStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ExpectFrameStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertResponseTimeStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, SendFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, SendSequenceStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertRangeStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, WaitForSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, DelayStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ExpectFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertResponseTimeStepExecutor>();
         // Phase 3: fault injection executors
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, InjectFaultStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ClearFaultStepExecutor>();
         // Background frames: sender + step executor
         // Phase A: Variables 断言（纯本地读 IStepVariableStore，不依赖 UDS → 所有模式可用，含 trace-replay）
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertVariableStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertDidValueStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertVariableStepExecutor>();
         // Phase B: 帧统计基础设施 + 时序断言（所有模式注册，含 trace-replay；依赖 IFrameStatistics 而非 IAssertionContext）
         // 多通道模式（spec §3.4，Task 10）：按通道独立 collector（各订阅自己 channel），
         // MultiChannelFrameStatistics 按 channelName 路由。单通道模式直接注册单 collector。
         builder.Services.AddSingleton<IFrameStatistics>(sp =>
         {
             if (args.HardwareChannels is { Count: > 0 } mcCfg
-                && sp.GetService<PeakCan.HIL.Core.HIL.Contracts.IAssertionContext>() is MultiChannelAssertionContext multi)
+                && sp.GetService<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>() is MultiChannelAssertionContext multi)
             {
                 var collectors = new Dictionary<string, FrameStatisticsCollector>(StringComparer.Ordinal);
                 foreach (var name in multi.ChannelNames)
@@ -283,37 +288,37 @@ public static class HeadlessHostBuilder
             var channel = sp.GetRequiredService<ICanChannel>();
             return new FrameStatisticsCollector(channel);
         });
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertNoFrameStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertFrameCountStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertCycleTimeStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertNoFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertFrameCountStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertCycleTimeStepExecutor>();
         // Task C (spec 2026-08-27 §3): 信号维度时间窗断言——窗口收集解码帧快照，依赖 IAssertionContext 订阅（通道路由经 ctx）
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertSignalWithinStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertStableStepExecutor>();
         // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        builder.Services.AddSingleton<PeakCan.Host.Core.J1939.J1939TpLayer>(sp =>
         {
             var ch = sp.GetRequiredService<ICanChannel>();
-            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>()
-                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.HIL.Core.J1939.J1939TpLayer>.Instance;
-            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.J1939.J1939TpLayer>>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.Core.J1939.J1939TpLayer>.Instance;
+            return new PeakCan.Host.Core.J1939.J1939TpLayer(
                 (frame, ct) => ch.WriteAsync(frame, ct),
-                new PeakCan.HIL.Core.J1939.J1939TpOptions(), jLogger);
+                new PeakCan.Host.Core.J1939.J1939TpOptions(), jLogger);
         });
 
         // J1939TP for EnvironmentRuntime: singleton wired to DI ICanChannel.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        builder.Services.AddSingleton<PeakCan.Host.Core.J1939.J1939TpLayer>(sp =>
         {
             var ch = sp.GetRequiredService<ICanChannel>();
-            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>()
-                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.HIL.Core.J1939.J1939TpLayer>.Instance;
-            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+            var jLogger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.J1939.J1939TpLayer>>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.Core.J1939.J1939TpLayer>.Instance;
+            return new PeakCan.Host.Core.J1939.J1939TpLayer(
                 (frame, ct) => ch.WriteAsync(frame, ct),
-                new PeakCan.HIL.Core.J1939.J1939TpOptions(), jLogger);
+                new PeakCan.Host.Core.J1939.J1939TpOptions(), jLogger);
         });
 
         builder.Services.AddSingleton<Func<PeakCan.HIL.Core.HIL.StepExecutor.IEnvironmentRuntimeBridge?>>(sp => () => sp.GetRequiredService<EnvironmentRuntimeHolder>().Runtime);
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SetEnvironmentSignalStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ModifyEnvironmentFrameStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, SetEnvironmentSignalStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ModifyEnvironmentFrameStepExecutor>();
         builder.Services.AddSingleton<EnvironmentRuntimeHolder>();
 
         // Engine
@@ -330,7 +335,7 @@ public static class HeadlessHostBuilder
         // Phase 1: bind Llm config section (same as WPF AppHostBuilder).
         builder.Services.Configure<PeakCan.HIL.Core.Analysis.LlmOptions>(
             builder.Configuration.GetSection("Llm"));
-        builder.Services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
+        builder.Services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;
@@ -361,7 +366,7 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<ZlgDeviceManager>();
         builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
         builder.Services.AddSingleton<ZlgCanChannelFactory>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.IChannelFactory>(sp => new CompositeChannelFactory(
+        builder.Services.AddSingleton<PeakCan.Host.Core.IChannelFactory>(sp => new CompositeChannelFactory(
         [
             sp.GetRequiredService<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>(),
             sp.GetRequiredService<ZlgCanChannelFactory>(),
@@ -412,19 +417,19 @@ public static class HeadlessHostBuilder
             var isoTp = sp.GetRequiredService<IsoTpLayer>();
             return new HilIsoTpBridge(channel, isoTp);
         });
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertDtcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, AssertNrcStepExecutor>();
         // Phase A: UDS 结构化步骤 executors（依赖 UdsClient，仅 UDS 模式注册）
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ReadDidStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, WriteDidStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SessionControlStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ClearDtcStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, RoutineControlStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, SecurityAccessStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ReadDidStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, WriteDidStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, SessionControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ClearDtcStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, RoutineControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, SecurityAccessStepExecutor>();
         // ODX Phase 0 (Task 0.2): ECUReset / CommunicationControl / IOControl executors
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, ECUResetStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, CommunicationControlStepExecutor>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor, IOControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, ECUResetStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, CommunicationControlStepExecutor>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor, IOControlStepExecutor>();
 
         // Task B 第二步（spec 2026-08-27 §Q1）：resolver 默认分支——非多通道模式（或通道未配
         // UDS ID）时 per-channel 字典为空，恒回落默认栈。TryAdd 避免覆盖多通道分支已注册的

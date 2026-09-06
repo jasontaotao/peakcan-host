@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;

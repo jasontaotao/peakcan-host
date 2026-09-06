@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Expressions;
+using PeakCan.HIL.Core.HIL.Expressions;
+namespace PeakCan.Host.Core.HIL.Expressions;
 
 /// <summary>
 /// dtcPresent(code) 内置函数注册表（方案 B 预查注入，§3）。

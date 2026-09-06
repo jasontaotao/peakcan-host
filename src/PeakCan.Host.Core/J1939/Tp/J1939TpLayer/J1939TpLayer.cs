@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.HIL.Core.J1939;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>
 /// SAE J1939-21 传输协议层（BAM + RTS/CTS，角色无关——spec §4）。

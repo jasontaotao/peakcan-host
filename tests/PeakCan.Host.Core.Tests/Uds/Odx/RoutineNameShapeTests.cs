@@ -3,7 +3,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// v2.0.7 PATCH Bug-4 regression: SHORT-NAME on DIAG-SERVICE can

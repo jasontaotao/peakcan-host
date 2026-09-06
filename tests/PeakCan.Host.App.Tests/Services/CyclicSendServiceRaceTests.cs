@@ -2,8 +2,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Tests.Services;
 

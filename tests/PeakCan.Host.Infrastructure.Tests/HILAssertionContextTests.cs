@@ -6,6 +6,8 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL;
 using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 using Xunit;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.Tests;
 

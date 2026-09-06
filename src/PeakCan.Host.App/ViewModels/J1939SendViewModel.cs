@@ -4,9 +4,10 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.J1939;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.ViewModels;
 

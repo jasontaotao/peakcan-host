@@ -1,10 +1,12 @@
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.Host.Core.HIL.Assertions;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
 using Xunit;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
 public class StepExecutorTests
 {

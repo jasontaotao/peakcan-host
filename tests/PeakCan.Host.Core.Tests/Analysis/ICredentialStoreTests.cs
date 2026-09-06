@@ -3,7 +3,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Analysis;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Analysis;
+namespace PeakCan.Host.Core.Tests.Analysis;
 
 public class ICredentialStoreTests
 {

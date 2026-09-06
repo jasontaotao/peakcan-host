@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// Receives frames emitted by <see cref="IReplayService"/>. DI-injected

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using PeakCan.HIL.Core.HIL.Gateway;
+using PeakCan.Host.Core.HIL.Gateway;
 using PeakCan.HIL.Core.HIL.Serialization;
 
 namespace PeakCan.Host.Infrastructure.Channel.Gateway;

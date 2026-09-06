@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
+using PeakCan.Host.Core.Analysis;
 
 namespace PeakCan.Host.App.Services.ChatTools;
 

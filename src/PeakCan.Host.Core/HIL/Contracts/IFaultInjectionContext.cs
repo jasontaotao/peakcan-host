@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Contracts;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// Optional interface for IAssertionContext implementations that support fault injection.

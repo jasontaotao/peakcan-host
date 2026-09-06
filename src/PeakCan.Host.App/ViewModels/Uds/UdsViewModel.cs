@@ -3,9 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using CoreFlashPipeline = PeakCan.HIL.Core.Uds.FlashPipeline;
+using CoreFlashPipeline = PeakCan.Host.Core.Uds.FlashPipeline;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 

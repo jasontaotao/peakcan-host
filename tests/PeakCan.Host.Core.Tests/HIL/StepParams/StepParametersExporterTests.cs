@@ -3,7 +3,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepParams;
+namespace PeakCan.Host.Core.Tests.HIL.StepParams;
 
 public class StepParametersExporterTests
 {

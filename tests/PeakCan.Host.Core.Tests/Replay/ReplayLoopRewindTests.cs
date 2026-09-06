@@ -1,8 +1,9 @@
 using FluentAssertions;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 /// <summary>
 /// v3.9.0 MINOR P1: A/B loop-region auto-rewind. When playback reaches

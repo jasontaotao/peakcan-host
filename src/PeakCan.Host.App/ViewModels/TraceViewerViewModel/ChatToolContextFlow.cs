@@ -3,7 +3,7 @@ using System.Windows;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 

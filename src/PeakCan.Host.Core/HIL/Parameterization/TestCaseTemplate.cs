@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL;
+namespace PeakCan.Host.Core.HIL;
 
 /// <summary>
 /// A parameterized test case template. Expanded into concrete TestCase via TestCaseGenerator.

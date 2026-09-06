@@ -1,8 +1,8 @@
 using System.Reflection;
 using FluentAssertions;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 /// <summary>
 /// v3.12.0 MINOR H1: contract-drift guard for

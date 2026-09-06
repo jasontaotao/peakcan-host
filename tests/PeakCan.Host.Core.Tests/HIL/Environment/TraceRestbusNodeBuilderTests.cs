@@ -4,8 +4,9 @@ using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.HIL.Core.J1939;
 using Xunit;
+using PeakCan.Host.Core.HIL.Environment;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Environment;
+namespace PeakCan.Host.Core.Tests.HIL.Environment;
 
 public class TraceRestbusNodeBuilderTests
 {

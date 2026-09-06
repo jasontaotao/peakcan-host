@@ -3,9 +3,10 @@ using NSubstitute;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Xunit;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

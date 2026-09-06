@@ -1,6 +1,7 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Step executor strategy interface. Each StepKind maps to one implementation.

@@ -1,6 +1,9 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using StepParams = PeakCan.HIL.Core.HIL.StepParams;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.StepExecutor;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes SetEnvironmentSignal steps (spec §6.3 signal-level primary form).

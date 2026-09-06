@@ -5,6 +5,7 @@ using PeakCan.Host.App.Services.MultiFrame;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Tests.Services.MultiFrame;
 

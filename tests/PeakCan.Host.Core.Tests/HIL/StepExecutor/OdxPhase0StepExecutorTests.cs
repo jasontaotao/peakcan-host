@@ -2,10 +2,14 @@ using FluentAssertions;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.Uds.IsoTp;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
 /// <summary>
 /// ODX Phase 0 (Task 0.2) executor tests: ECUReset / CommunicationControl /

@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>
 /// J1939TP 层参数（spec §5.4；默认值实现时以 J1939-21 §5.10 核对）。

@@ -2,6 +2,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests.Channel;
 

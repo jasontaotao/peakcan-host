@@ -1,6 +1,8 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL.Expressions;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.HIL.Expressions;
+namespace PeakCan.Host.Core.HIL.Expressions;
 
 /// <summary>
 /// 纯 frame-statistics 白名单函数注册表（v11.1 Ruling B1-R1）。

@@ -1,8 +1,9 @@
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.ViewModels.Uds;
 

@@ -6,6 +6,9 @@ using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.Host.Infrastructure.HIL.Environment;
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -61,7 +64,7 @@ public sealed class HilRunnerService : IHilRunnerService
         var environmentRuntime = new EnvironmentRuntime(channel,
             ResolveEnvironmentLogger(host.Services),
             host.Services.GetService<DbcDocument>(),
-            host.Services.GetService<PeakCan.HIL.Core.J1939.J1939TpLayer>());
+            host.Services.GetService<PeakCan.Host.Core.J1939.J1939TpLayer>());
         var envHolder = host.Services.GetService<EnvironmentRuntimeHolder>();
         if (envHolder is not null) envHolder.Runtime = environmentRuntime;
 

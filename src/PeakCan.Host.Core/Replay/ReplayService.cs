@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
-using PeakCan.HIL.Core.Path;
+using PeakCan.Host.Core.Path;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// DI-singleton implementation of <see cref="IReplayService"/>. Owns a

@@ -1,7 +1,8 @@
 using System.Globalization;
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertNoFrame steps. Forward-looking silence check: records a

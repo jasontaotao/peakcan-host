@@ -1,10 +1,13 @@
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.Uds;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+using PeakCan.Host.Core.HIL.StepExecutor;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
 /// <summary>
 /// ReadDid / WriteDid executor 接口注入测试（spec 2026-08-27 Task B 第一步，Q1）：

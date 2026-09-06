@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL;
+namespace PeakCan.Host.Core.HIL;
 
 /// <summary>
 /// A template step with string fields for parameter substitution.

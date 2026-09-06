@@ -1,11 +1,13 @@
 using FluentAssertions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.HIL.Environment;
 using Xunit;
+using PeakCan.Host.Core.HIL.Environment;
+using PeakCan.Host.Core.J1939;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Environment;
+namespace PeakCan.Host.Core.Tests.HIL.Environment;
 
 public class TraceRestbusRecognizerTests
 {

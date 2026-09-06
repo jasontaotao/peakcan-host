@@ -4,8 +4,10 @@ using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using Xunit;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.StepExecutor;
 
-namespace PeakCan.HIL.Core.Tests.HIL.StepExecutor;
+namespace PeakCan.Host.Core.Tests.HIL.StepExecutor;
 
 /// <summary>
 /// Task C (spec 2026-08-27 §3.3): AssertSignalWithin / AssertStable executor 测试。

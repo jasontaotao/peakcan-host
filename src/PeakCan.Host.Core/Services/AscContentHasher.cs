@@ -2,7 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.HIL.Core.Services;
+namespace PeakCan.Host.Core.Services;
 
 /// <summary>
 /// v3.6.4 PATCH: streaming SHA-256 hash of an <c>.asc</c> recording's

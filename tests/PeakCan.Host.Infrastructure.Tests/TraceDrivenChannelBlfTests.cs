@@ -1,7 +1,7 @@
 using System.Text;
 using FluentAssertions;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.Infrastructure.Tests;

@@ -11,9 +11,10 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using ScottPlot;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
 namespace PeakCan.Host.App.Tests.ViewModels;

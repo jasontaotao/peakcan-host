@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// Default <see cref="IReplayClock"/> implementation that uses real

@@ -7,9 +7,10 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
 

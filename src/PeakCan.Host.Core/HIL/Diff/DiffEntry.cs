@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Diff;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Diff;
 
 /// <summary>
 /// Single diff entry describing one difference between golden and actual sequences.

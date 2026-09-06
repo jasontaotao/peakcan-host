@@ -1,7 +1,8 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Uds;
+using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Expressions;
+namespace PeakCan.Host.Core.HIL.Expressions;
 
 /// <summary>
 /// Host 端 DID 值解析器。将 DID 地址映射为 <see cref="IStepVariableStore.Variables"/> 中的存储值。

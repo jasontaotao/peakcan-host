@@ -1,11 +1,13 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using System.Reflection;
 using Xunit;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.Uds;
+namespace PeakCan.Host.Core.Tests.Uds;
 
 /// <summary>
 /// Tests for <see cref="UdsSession"/> S3 keepalive timer error handling

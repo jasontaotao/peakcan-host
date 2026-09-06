@@ -3,9 +3,10 @@ using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
 using Xunit;
-using static PeakCan.HIL.Core.Tests.J1939.J1939TpLayerRtsCtsReceiverTests;
+using PeakCan.Host.Core.J1939;
+using static PeakCan.Host.Core.Tests.J1939.J1939TpLayerRtsCtsReceiverTests;
 
-namespace PeakCan.HIL.Core.Tests.J1939;
+namespace PeakCan.Host.Core.Tests.J1939;
 
 public class J1939TpLayerRtsCtsSenderTests
 {

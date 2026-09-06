@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// 步骤间数据传递。Step executor 可写入读取结果，后续步骤引用。

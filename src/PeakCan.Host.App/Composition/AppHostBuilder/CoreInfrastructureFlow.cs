@@ -17,8 +17,8 @@ public partial class AppHostBuilder
         services.AddSingleton<ChannelRouter>(sp =>
             new ChannelRouter(sp.GetRequiredService<ILogger<ChannelRouter>>()));
         services.AddSingleton<BusStatisticsCollector>();
-        services.AddSingleton<PeakCan.HIL.Core.Services.ITimerFactory,
-                                      PeakCan.HIL.Core.Services.CyclicTimerFactory>();
+        services.AddSingleton<PeakCan.Host.Core.Services.ITimerFactory,
+                                      PeakCan.Host.Core.Services.CyclicTimerFactory>();
 
         // === PEAK 基础设施 ===
         services.AddSingleton<PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>();
@@ -34,25 +34,25 @@ public partial class AppHostBuilder
         services.AddSingleton<ZlgCanChannelFactory>();
 
         // === Composite（按具体类型解析，避免 GetServices<T>() 自引用递归）===
-        services.AddSingleton<PeakCan.HIL.Core.IChannelProbe>(
+        services.AddSingleton<PeakCan.Host.Core.IChannelProbe>(
             sp => new CompositeChannelProbe(
-                new PeakCan.HIL.Core.IChannelProbe[]
+                new PeakCan.Host.Core.IChannelProbe[]
                 {
                     sp.GetRequiredService<PeakCan.Host.Infrastructure.Peak.PeakChannelProbe>(),
                     sp.GetRequiredService<ZlgChannelProbe>(),
                 }));
 
-        services.AddSingleton<PeakCan.HIL.Core.IChannelEnumerator>(
+        services.AddSingleton<PeakCan.Host.Core.IChannelEnumerator>(
             sp => new CompositeChannelEnumerator(
-                new PeakCan.HIL.Core.IChannelEnumerator[]
+                new PeakCan.Host.Core.IChannelEnumerator[]
                 {
                     sp.GetRequiredService<PeakCan.Host.Infrastructure.Peak.PeakChannelEnumerator>(),
                     sp.GetRequiredService<ZlgChannelEnumerator>(),
                 }));
 
-        services.AddSingleton<PeakCan.HIL.Core.IChannelFactory>(
+        services.AddSingleton<PeakCan.Host.Core.IChannelFactory>(
             sp => new CompositeChannelFactory(
-                new PeakCan.HIL.Core.IChannelFactory[]
+                new PeakCan.Host.Core.IChannelFactory[]
                 {
                     sp.GetRequiredService<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>(),
                     sp.GetRequiredService<ZlgCanChannelFactory>(),

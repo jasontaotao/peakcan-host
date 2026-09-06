@@ -1,9 +1,9 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Analysis;
+namespace PeakCan.Host.Core.Tests.HIL.Analysis;
 
 /// <summary>
 /// B.4 控制流校验器测试（§5.8 规则 ①-⑥ + 语法）。

@@ -1,6 +1,6 @@
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
+using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Expressions;
 using Xunit;
 

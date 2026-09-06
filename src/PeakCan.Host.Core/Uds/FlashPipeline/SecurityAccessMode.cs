@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds.FlashPipeline;
+namespace PeakCan.Host.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// How a flashing-pipeline step of kind <see cref="FlashStepKind.SecurityAccess"/>

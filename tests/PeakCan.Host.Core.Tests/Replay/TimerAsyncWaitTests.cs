@@ -1,9 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 /// <summary>
 /// v3.14.0 MINOR A6 regression: a slow sink must not block the

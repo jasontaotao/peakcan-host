@@ -8,6 +8,8 @@ using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.Peak;
 using PeakCan.Host.Infrastructure.Zlg;
 using Xunit;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Multichannel;
 

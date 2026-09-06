@@ -1,6 +1,6 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
 
-namespace PeakCan.HIL.Core.Uds;
+namespace PeakCan.Host.Core.Uds;
 
 /// <summary>
 /// Wraps UdsClient to implement IUdsSession.

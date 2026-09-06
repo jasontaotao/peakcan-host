@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// Decoded frame with signal snapshot.

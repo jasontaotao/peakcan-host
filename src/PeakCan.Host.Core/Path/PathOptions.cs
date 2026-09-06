@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.Path;
+using PeakCan.HIL.Core.Path;
+namespace PeakCan.Host.Core.Path;
 
 /// <summary>
 /// v1.6.10 PATCH Item 2: opt-in extension of v1.6.4 PATCH's hardcoded

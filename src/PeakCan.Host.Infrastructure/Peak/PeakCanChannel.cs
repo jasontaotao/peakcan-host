@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Peak.Can.Basic.BackwardCompatibility;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Peak;
 

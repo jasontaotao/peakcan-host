@@ -6,14 +6,17 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.Host.Core.HIL.Assertions;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using Xunit;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.StepExecutor;
 
 namespace PeakCan.Host.Infrastructure.Tests;
 
@@ -175,7 +178,7 @@ base hex  timestamps absolute
 
             // Build real executor chain (mirrors HeadlessHostBuilder)
             var primitives = new AssertionPrimitives(ctx);
-            var executors = new PeakCan.HIL.Core.HIL.StepExecutor.IStepExecutor[]
+            var executors = new PeakCan.Host.Core.HIL.StepExecutor.IStepExecutor[]
             {
                 new WaitForSignalStepExecutor(primitives),
                 new AssertSignalStepExecutor(primitives),

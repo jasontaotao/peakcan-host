@@ -1,6 +1,8 @@
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Fakes;
+namespace PeakCan.Host.Core.Tests.HIL.Fakes;
 
 /// <summary>
 /// Hand-rolled fake IAssertionContext for unit testing.
@@ -14,7 +16,7 @@ internal sealed class FakeAssertionContext : IAssertionContext, IHasFrameSink
 
     public IReadOnlyList<CanFrame> SentFrames => _sentFrames;
     public double CurrentTimestamp { get; set; }
-    public System.Collections.Generic.IReadOnlyList<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.HIL.Core.HIL.Contracts.DecodedFrame>();
+    public System.Collections.Generic.IReadOnlyList<PeakCan.Host.Core.HIL.Contracts.DecodedFrame> GetRecentDecodedFrames() => Array.Empty<PeakCan.Host.Core.HIL.Contracts.DecodedFrame>();
 
     // IHasFrameSink: 记录挂载/排空调用，供 sink 生命周期测试断言
     public IHilFrameSink? ActiveSink { get; private set; }

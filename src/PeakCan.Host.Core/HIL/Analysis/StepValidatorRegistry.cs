@@ -1,7 +1,9 @@
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Expressions;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// 控制流校验器注册表（§5.8 入口）。聚合 4 per-kind validator + DataFlowScanner。

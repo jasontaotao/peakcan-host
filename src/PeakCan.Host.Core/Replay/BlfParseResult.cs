@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v3.17.0 PATCH (BLF playback fix): bundles the result of

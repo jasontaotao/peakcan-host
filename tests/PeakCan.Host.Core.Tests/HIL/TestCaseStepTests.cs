@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core.HIL;
 using Xunit;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL;
+namespace PeakCan.Host.Core.Tests.HIL;
 
 public class TestCaseStepTests
 {

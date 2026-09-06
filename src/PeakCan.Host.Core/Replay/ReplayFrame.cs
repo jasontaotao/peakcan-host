@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.Replay;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// One CAN frame parsed from an ASC or BLF trace file.

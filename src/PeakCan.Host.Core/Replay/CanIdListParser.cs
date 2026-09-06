@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>
 /// v3.4.4 PATCH: shared CAN-ID allow-list parser for the Trace Viewer

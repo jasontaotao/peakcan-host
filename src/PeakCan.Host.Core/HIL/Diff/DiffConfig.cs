@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Diff;
+namespace PeakCan.Host.Core.HIL.Diff;
 
 /// <summary>
 /// Three-layer orthogonal diff configuration.

@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

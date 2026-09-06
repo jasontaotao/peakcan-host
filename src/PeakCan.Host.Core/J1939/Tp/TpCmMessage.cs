@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>TP.CM 控制字节（J1939-21 §5.3）。</summary>
 public enum TpCmControl : byte

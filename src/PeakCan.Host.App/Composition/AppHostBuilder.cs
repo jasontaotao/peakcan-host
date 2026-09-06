@@ -11,11 +11,13 @@ using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.Path;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.Statistics;
 using Serilog;
+using PeakCan.Host.Core.Path;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -74,21 +76,21 @@ public partial class AppHostBuilder
     // Set via WithUdsSecurityLockoutConfig; null means use the default
     // (UdsSecurityLockoutConfig.Default = 3 attempts / 5 s) inside the
     // UdsClient ctor.
-    private PeakCan.HIL.Core.Uds.UdsSecurityLockoutConfig? _udsSecurityLockoutConfig;
+    private PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig? _udsSecurityLockoutConfig;
 
     /// <summary>
     /// v1.3.0 MINOR Item 5: configure the UDS SecurityAccess lockout
     /// policy. Must be called before <see cref="Build"/>.
     /// <para>
     /// When this builder method is not called, the default policy
-    /// (<see cref="PeakCan.HIL.Core.Uds.UdsSecurityLockoutConfig.Default"/>:
+    /// (<see cref="PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig.Default"/>:
     /// 3 attempts / 5 s) is used. This preserves backward compatibility
     /// with v1.2.x callers.
     /// </para>
     /// </summary>
     /// <param name="config">Lockout policy (MaxAttempts + LockoutDuration).</param>
     /// <returns>The same builder, for fluent chaining.</returns>
-    public AppHostBuilder WithUdsSecurityLockoutConfig(PeakCan.HIL.Core.Uds.UdsSecurityLockoutConfig config)
+    public AppHostBuilder WithUdsSecurityLockoutConfig(PeakCan.Host.Core.Uds.UdsSecurityLockoutConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         _udsSecurityLockoutConfig = config;
@@ -174,8 +176,8 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.ScriptUtilities>();
 
         // v1.1.0: UDS diagnostic stack.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.UdsTimer>();
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer>(sp =>
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsTimer>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>(sp =>
         {
             var config = new PeakCan.HIL.Core.Uds.IsoTp.CanIdConfig
             {
@@ -193,14 +195,14 @@ public partial class AppHostBuilder
             // the whole UDS diagnostic surface when SendService hung.
             // ConfigureAwait(false) avoids STA capture on the WPF UI thread;
             // exceptions are logged and swallowed inside the layer.
-            var isoLogger = sp.GetRequiredService<ILogger<PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer>>();
-            return new PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer(config, async frame =>
+            var isoLogger = sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>();
+            return new PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(config, async frame =>
             {
                 try
                 {
                     await sendService.SendAsync(frame).ConfigureAwait(false);
                 }
-                catch (Exception ex) when (!(ex is PeakCan.HIL.Core.Uds.IsoTp.IsoTpSendFailedException))
+                catch (Exception ex) when (!(ex is PeakCan.Host.Core.Uds.IsoTp.IsoTpSendFailedException))
                 {
                     // v1.2.13 PATCH Item 5: the layer's SendCanFrameAsync now
                     // throws IsoTpSendFailedException itself (after logging
@@ -210,7 +212,7 @@ public partial class AppHostBuilder
                     // (rare) case where SendService.SendAsync itself raises
                     // an IsoTpSendFailedException that the layer has not
                     // seen.
-                    PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer.LogIsoTpSendFailed(
+                    PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer.LogIsoTpSendFailed(
                         isoLogger, ex, frame.Id.Raw);
                 }
             }, isoLogger);
@@ -218,11 +220,11 @@ public partial class AppHostBuilder
 
         // J1939TP stack：每应用一个 singleton（跟随 CoreSendService 的活动通道模型；
         // 多通道扩展锚点保留——层角色无关，后续按通道建实例时移到 per-channel 注册点）。
-        builder.Services.AddSingleton<PeakCan.HIL.Core.J1939.J1939TpLayer>(sp =>
+        builder.Services.AddSingleton<PeakCan.Host.Core.J1939.J1939TpLayer>(sp =>
         {
             var sendService = sp.GetRequiredService<CoreSendService>();
-            var j1939Logger = sp.GetRequiredService<ILogger<PeakCan.HIL.Core.J1939.J1939TpLayer>>();
-            return new PeakCan.HIL.Core.J1939.J1939TpLayer(
+            var j1939Logger = sp.GetRequiredService<ILogger<PeakCan.Host.Core.J1939.J1939TpLayer>>();
+            return new PeakCan.Host.Core.J1939.J1939TpLayer(
                 async (frame, ct) =>
                 {
                     try
@@ -231,31 +233,31 @@ public partial class AppHostBuilder
                     }
                     catch (Exception ex)
                     {
-                        PeakCan.HIL.Core.J1939.J1939TpLayer.LogSendFailed(j1939Logger, ex, frame.Id.Raw);
+                        PeakCan.Host.Core.J1939.J1939TpLayer.LogSendFailed(j1939Logger, ex, frame.Id.Raw);
                         return PeakCan.HIL.Core.Result<Unit>.Fail(
                             PeakCan.HIL.Core.ErrorCode.InvalidState, ex.Message);
                     }
                 },
-                new PeakCan.HIL.Core.J1939.J1939TpOptions(),
+                new PeakCan.Host.Core.J1939.J1939TpOptions(),
                 j1939Logger);
         });
         builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
 
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.IKeyDerivationAlgorithm, PeakCan.HIL.Core.Uds.PlaceholderKeyAlgorithm>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();
         // v1.1.0: DID + Routine databases (load from %APPDATA%\PeakCan.Host\ on construction).
         // v1.6.10 PATCH Item 2: factory wires PathOptions so the 3-arg ctor
         // (Task 5) receives the config-driven allowlist instead of the
         // hardcoded Default.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.Database.DidDatabase>(sp =>
-            new PeakCan.HIL.Core.Uds.Database.DidDatabase(
-                PeakCan.HIL.Core.Uds.Database.DidDatabaseDefaults.DefaultJsonPath,
-                sp.GetRequiredService<ILogger<PeakCan.HIL.Core.Uds.Database.DidDatabase>>(),
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DidDatabase>(sp =>
+            new PeakCan.Host.Core.Uds.Database.DidDatabase(
+                PeakCan.Host.Core.Uds.Database.DidDatabaseDefaults.DefaultJsonPath,
+                sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.Database.DidDatabase>>(),
                 sp.GetRequiredService<PathOptions>()));
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.Database.RoutineDatabase>(sp =>
-            new PeakCan.HIL.Core.Uds.Database.RoutineDatabase(
-                PeakCan.HIL.Core.Uds.Database.RoutineDatabaseDefaults.DefaultJsonPath,
-                sp.GetRequiredService<ILogger<PeakCan.HIL.Core.Uds.Database.RoutineDatabase>>(),
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.RoutineDatabase>(sp =>
+            new PeakCan.Host.Core.Uds.Database.RoutineDatabase(
+                PeakCan.Host.Core.Uds.Database.RoutineDatabaseDefaults.DefaultJsonPath,
+                sp.GetRequiredService<ILogger<PeakCan.Host.Core.Uds.Database.RoutineDatabase>>(),
                 sp.GetRequiredService<PathOptions>()));
         // v1.1.0: UdsClient now requires an IKeyDerivationAlgorithm via the 3-arg ctor.
         // v1.2.13 PATCH Item 2: also pass ILogger<UdsSession> so S3 keepalive
@@ -264,18 +266,18 @@ public partial class AppHostBuilder
         // v1.3.0 MINOR Item 5: when WithUdsSecurityLockoutConfig was called,
         // thread the policy through the new lockout-config ctor overload;
         // otherwise fall through to the legacy 3-arg ctor (defaults preserved).
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.UdsClient>(sp =>
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsClient>(sp =>
         {
-            var isoTp = sp.GetRequiredService<PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer>();
-            var keyAlgorithm = sp.GetRequiredService<PeakCan.HIL.Core.Uds.IKeyDerivationAlgorithm>();
-            var sessionLogger = sp.GetService<ILogger<PeakCan.HIL.Core.Uds.UdsSession>>();
+            var isoTp = sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
+            var keyAlgorithm = sp.GetRequiredService<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm>();
+            var sessionLogger = sp.GetService<ILogger<PeakCan.Host.Core.Uds.UdsSession>>();
             if (_udsSecurityLockoutConfig is { } lockoutConfig)
             {
-                return new PeakCan.HIL.Core.Uds.UdsClient(
+                return new PeakCan.Host.Core.Uds.UdsClient(
                     isoTp, keyAlgorithm, lockoutConfig,
                     timer: null, sessionLogger: sessionLogger);
             }
-            return new PeakCan.HIL.Core.Uds.UdsClient(isoTp, keyAlgorithm, sessionLogger: sessionLogger);
+            return new PeakCan.Host.Core.Uds.UdsClient(isoTp, keyAlgorithm, sessionLogger: sessionLogger);
         });
         // v1.2.0: 4-panel orchestrator holds Session/Did/Routine/Dtc panel VMs;
         // each panel VM is registered as a singleton below and DI auto-resolves
@@ -300,9 +302,9 @@ public partial class AppHostBuilder
             new PeakCan.Host.App.Composition.SecondaryFlashStackFactory(
                 sp.GetRequiredService<PeakCan.Host.App.Composition.CoreSendService>(),
                 sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.ChannelRouter>(),
-                sp.GetRequiredService<PeakCan.HIL.Core.Uds.UdsTimer>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer>>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.HIL.Core.Uds.UdsSession>>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Uds.UdsTimer>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.UdsSession>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Composition.SecondaryFlashStack>>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel(
@@ -318,7 +320,7 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
-        builder.Services.AddSingleton<PeakCan.HIL.Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
         // Spec v3 §3.4: HilViewModel 的 connectedChannels 提供者由 AppShellViewModel
         // 构造时注入（AppShell 单例持有连接状态；DI factory 引 shell 会形成
         // AppShell ⇄ HilViewModel 循环解析死锁——恢复普通 transient 注册）。
@@ -330,7 +332,7 @@ public partial class AppHostBuilder
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
         // Core parser/persistence plus App-layer service + VM glue.
-        builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.Database.DtcDatabase>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.Database.DtcDatabase>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.Odx.OdxParser>();
         builder.Services.AddSingleton<PeakCan.HIL.Core.Uds.Odx.PdxReader>();
         builder.Services.AddSingleton<PeakCan.Host.App.Services.IOdxImportService,
@@ -381,10 +383,10 @@ public partial class AppHostBuilder
             // Sprint 3: HIL testing panel VM
             sp.GetRequiredService<ViewModels.HilViewModel>(),
             sp.GetRequiredService<ViewModels.EcuScriptEditorViewModel>(),
-            sp.GetService<PeakCan.HIL.Core.IChannelEnumerator>(),
+            sp.GetService<PeakCan.Host.Core.IChannelEnumerator>(),
             sp.GetRequiredService<IConfiguration>(),
             // P1-2: all device providers for the connection-settings panel.
-            deviceProviders: sp.GetServices<PeakCan.HIL.Core.Devices.ICanDeviceProvider>(),
+            deviceProviders: sp.GetServices<PeakCan.Host.Core.Devices.ICanDeviceProvider>(),
             // P0-3: shared secondary-window host (DI singleton).
             windowHost: sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>()));
 

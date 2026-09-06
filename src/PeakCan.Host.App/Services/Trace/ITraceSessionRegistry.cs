@@ -1,4 +1,4 @@
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.Services.Trace;
 

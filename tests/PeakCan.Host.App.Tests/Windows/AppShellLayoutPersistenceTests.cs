@@ -16,16 +16,20 @@ using PeakCan.Host.App.Tests.ViewModels;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.HIL.Analysis;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.Database;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Xunit;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.Tests.Windows;
 
@@ -121,7 +125,7 @@ public class AppShellLayoutPersistenceTests
             new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
     }
 
-    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public ICanChannel Create(ChannelId id) => new FakeCanChannel(id);
     }
@@ -149,7 +153,7 @@ public class AppShellLayoutPersistenceTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    private sealed class FakeChannelProbe : PeakCan.Host.Core.IChannelProbe
     {
         public ProbeResult Probe(ushort handle)
             => new(true, $"fake probe ok 0x{handle:X2}");

@@ -12,7 +12,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 

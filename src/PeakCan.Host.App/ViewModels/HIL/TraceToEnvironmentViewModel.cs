@@ -9,8 +9,9 @@ using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.HIL.Core.HIL.Serialization;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.Core.HIL.Environment;
 
 namespace PeakCan.Host.App.ViewModels.HIL;
 

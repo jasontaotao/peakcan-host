@@ -1,7 +1,7 @@
 using System.IO;
 using Microsoft.Extensions.Logging;
 
-namespace PeakCan.HIL.Core.Services;
+namespace PeakCan.Host.Core.Services;
 
 /// <summary>
 /// v3.6.4 PATCH: relocate a missing <c>.asc</c> by content hash.

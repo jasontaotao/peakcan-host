@@ -2,7 +2,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Contracts;
+namespace PeakCan.Host.Core.Tests.HIL.Contracts;
 
 public class FaultRuleTests
 {

@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.HIL.Gateway;
+using PeakCan.Host.Core.HIL.Gateway;
 using PeakCan.Host.Infrastructure.Channel.Gateway;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests.Channel.Gateway;
 

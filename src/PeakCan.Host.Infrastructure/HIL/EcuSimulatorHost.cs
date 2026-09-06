@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

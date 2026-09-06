@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// Base exception for all IUdsSession failures. Defined in Core/HIL/Contracts

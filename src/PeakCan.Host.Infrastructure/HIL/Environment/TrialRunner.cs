@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 

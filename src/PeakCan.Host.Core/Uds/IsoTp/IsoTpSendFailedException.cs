@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace PeakCan.HIL.Core.Uds.IsoTp;
+namespace PeakCan.Host.Core.Uds.IsoTp;
 
 /// <summary>
 /// v1.2.13 PATCH Item 5: thrown by <see cref="IsoTpLayer.SendCanFrameAsync"/>

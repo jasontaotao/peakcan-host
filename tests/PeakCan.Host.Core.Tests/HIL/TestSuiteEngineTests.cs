@@ -2,14 +2,18 @@ using System.Threading.Channels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.Uds.IsoTp;
 
-namespace PeakCan.HIL.Core.Tests.HIL;
+namespace PeakCan.Host.Core.Tests.HIL;
 
 public class TestSuiteEngineTests
 {

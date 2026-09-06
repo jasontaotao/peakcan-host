@@ -3,10 +3,11 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 public class AscParserTests
 {

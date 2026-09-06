@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace PeakCan.HIL.Core.Services;
+namespace PeakCan.Host.Core.Services;
 
 /// <summary>
 /// v3.5.4 PATCH: production <see cref="ITimerFactory.CreateCyclicTimer"/>

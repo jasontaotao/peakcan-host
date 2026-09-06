@@ -2,7 +2,8 @@ using System.Threading;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Channel;
 

@@ -18,7 +18,7 @@ using PeakCan.Host.App.Services.J1939;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.ViewModels;

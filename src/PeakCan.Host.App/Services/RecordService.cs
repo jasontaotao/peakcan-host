@@ -3,7 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using PeakCan.Host.Infrastructure.Channel;
 
 namespace PeakCan.Host.App.Services;

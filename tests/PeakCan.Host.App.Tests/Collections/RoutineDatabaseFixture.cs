@@ -2,6 +2,8 @@ using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core.Path;
 using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.App.Tests.Collections;
 

@@ -13,6 +13,7 @@
 
 using System.Collections.Immutable;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Channel;
 

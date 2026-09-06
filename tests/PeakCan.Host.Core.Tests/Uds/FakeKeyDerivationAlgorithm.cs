@@ -1,6 +1,6 @@
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.Uds;
 
-namespace PeakCan.HIL.Core.Tests.Uds;
+namespace PeakCan.Host.Core.Tests.Uds;
 
 /// <summary>
 /// Test double for <see cref="IKeyDerivationAlgorithm"/>. Echoes the seed

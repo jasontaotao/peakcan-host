@@ -1,4 +1,5 @@
 using PeakCan.HIL.Core.Analysis;
+using PeakCan.Host.Core.Analysis;
 
 namespace PeakCan.Host.App.Services.Trace;
 

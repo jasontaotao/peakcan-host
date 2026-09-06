@@ -1,7 +1,8 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL;
+namespace PeakCan.Host.Core.HIL;
 
 /// <summary>
 /// Expands a TestCaseTemplate with parameter values into a concrete TestCase.

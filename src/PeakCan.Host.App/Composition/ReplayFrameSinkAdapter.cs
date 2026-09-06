@@ -1,5 +1,5 @@
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.App.Services;
 
 namespace PeakCan.Host.App.Composition;

@@ -4,6 +4,7 @@ using PeakCan.HIL.Core.J1939;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

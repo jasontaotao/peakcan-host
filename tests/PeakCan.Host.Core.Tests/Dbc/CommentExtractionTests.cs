@@ -1,7 +1,7 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.Dbc;
 
-namespace PeakCan.HIL.Core.Tests.Dbc;
+namespace PeakCan.Host.Core.Tests.Dbc;
 
 public class CommentExtractionTests
 {

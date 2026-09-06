@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds;
+namespace PeakCan.Host.Core.Uds;
 
 /// <summary>
 /// Phase 2: ISO 14229-1 §10.5 CommunicationControl (0x28) sub-functions.

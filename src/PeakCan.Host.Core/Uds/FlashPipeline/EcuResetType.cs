@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds.FlashPipeline;
+namespace PeakCan.Host.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Maps 1:1 onto the UDS ECUReset (0x11) sub-function bytes per ISO 14229-1 §11.3.

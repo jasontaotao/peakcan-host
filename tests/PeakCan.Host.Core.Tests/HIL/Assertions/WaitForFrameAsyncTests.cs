@@ -1,7 +1,8 @@
-using PeakCan.HIL.Core.HIL.Assertions;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.HIL.Assertions;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Assertions;
+namespace PeakCan.Host.Core.Tests.HIL.Assertions;
 
 public class WaitForFrameAsyncTests
 {

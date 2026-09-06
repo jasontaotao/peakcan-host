@@ -6,7 +6,7 @@ namespace PeakCan.Host.App.Services.Trace;
 /// <summary>
 /// v3.2.0 MINOR: metadata for a single loaded trace in a multi-trace
 /// overlay session. The registry owns the underlying
-/// <see cref="PeakCan.HIL.Core.Replay.ITraceViewerService"/> for
+/// <see cref="PeakCan.Host.Core.Replay.ITraceViewerService"/> for
 /// each <see cref="TraceSource"/>; consumers should not hold direct
 /// references to the service — go through the registry.
 /// <para>

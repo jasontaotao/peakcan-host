@@ -1,7 +1,8 @@
-using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.J1939;
+using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.HIL.Environment;
+namespace PeakCan.Host.Core.HIL.Environment;
 
 /// <summary>
 /// Pure ASC/BLF trace analysis. Groups frames by raw CAN ID, derives stable

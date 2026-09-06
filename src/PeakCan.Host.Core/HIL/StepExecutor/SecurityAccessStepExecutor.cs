@@ -1,7 +1,8 @@
-using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core.Uds;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes SecurityAccess steps. Performs the full seed/key handshake via UDS.

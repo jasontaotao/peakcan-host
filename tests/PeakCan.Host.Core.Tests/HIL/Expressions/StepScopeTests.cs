@@ -6,8 +6,10 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL.Expressions;
 using PeakCan.HIL.Core.HIL.Uds;
 using Xunit;
+using PeakCan.Host.Core.HIL.Expressions;
+using PeakCan.Host.Core.HIL.Contracts;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Expressions;
+namespace PeakCan.Host.Core.Tests.HIL.Expressions;
 
 public class StepScopeTests
 {

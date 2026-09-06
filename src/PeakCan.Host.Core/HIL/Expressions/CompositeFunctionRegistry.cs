@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Expressions;
+using PeakCan.HIL.Core.HIL.Expressions;
+namespace PeakCan.Host.Core.HIL.Expressions;
 
 /// <summary>
 /// 复合函数注册表：包装多个 <see cref="IFunctionRegistry"/>，<see cref="TryInvoke"/> 顺序遍历，

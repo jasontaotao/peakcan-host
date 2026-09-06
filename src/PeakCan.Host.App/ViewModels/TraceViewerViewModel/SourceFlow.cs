@@ -2,8 +2,8 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 
 namespace PeakCan.Host.App.ViewModels;
 

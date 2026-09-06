@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core.HIL.Expressions;
 using Xunit;
+using PeakCan.Host.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Expressions;
+namespace PeakCan.Host.Core.Tests.HIL.Expressions;
 
 /// <summary>
 /// dtcPresent(code) 内置函数注册表单元测试（方案 B 预查注入）。

@@ -1,7 +1,7 @@
-using PeakCan.HIL.Core.HIL.Diff;
+using PeakCan.Host.Core.HIL.Diff;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Diff;
+namespace PeakCan.Host.Core.Tests.HIL.Diff;
 
 public class DiffConfigTests
 {

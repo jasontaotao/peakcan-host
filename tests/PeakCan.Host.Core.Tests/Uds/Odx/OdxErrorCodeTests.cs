@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 public class OdxErrorCodeTests
 {

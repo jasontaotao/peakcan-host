@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Services;
 

@@ -3,7 +3,7 @@ using PeakCan.HIL.Core.Dbc;
 using Xunit;
 using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
-namespace PeakCan.HIL.Core.Tests.Dbc;
+namespace PeakCan.Host.Core.Tests.Dbc;
 
 public class DbcEncodeServiceTests
 {

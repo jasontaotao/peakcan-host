@@ -17,14 +17,18 @@ using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.Views;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.HIL.Analysis;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.Database;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 
@@ -73,10 +77,10 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
 
     private string Track(string p) { _files.Add(p); return p; }
 
-    /// <summary>Test double for <see cref="PeakCan.HIL.Core.IChannelProbe"/>.</summary>
-    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    /// <summary>Test double for <see cref="PeakCan.Host.Core.IChannelProbe"/>.</summary>
+    private sealed class FakeChannelProbe : PeakCan.Host.Core.IChannelProbe
     {
-        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle) =>
+        public PeakCan.Host.Core.ProbeResult Probe(ushort handle) =>
             new(true, $"fake probe ok 0x{handle:X2}");
     }
 
@@ -183,7 +187,7 @@ public sealed class AppShellViewModelMessageBoxPromptTests : IDisposable
     /// <summary>Test double for <see cref="IChannelFactory"/>
     /// required by <see cref="AppShellViewModel"/> ctor. Never
     /// invoked by the missing-asc prompt tests.</summary>
-    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public ICanChannel Create(ChannelId id) => new FakeCanChannel(id);
     }

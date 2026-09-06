@@ -1,7 +1,8 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.Uds.Database;
+using PeakCan.Host.Core.Uds.Database;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Database;
+namespace PeakCan.Host.Core.Tests.Uds.Database;
 
 public class DatabaseAddRangeTests
 {

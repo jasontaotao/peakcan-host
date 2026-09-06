@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Environment;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests;
 

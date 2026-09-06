@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Services;
+namespace PeakCan.Host.Core.Services;
 
 /// <summary>
 /// v3.5.2 PATCH: abstraction over periodic timer creation so that

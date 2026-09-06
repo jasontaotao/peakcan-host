@@ -3,6 +3,7 @@ using NSubstitute;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Composite;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Tests.Composite;
 

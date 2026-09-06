@@ -3,6 +3,7 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL.Generators;
 

@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core.HIL;
 using Xunit;
+using PeakCan.Host.Core.HIL;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Parameterization;
+namespace PeakCan.Host.Core.Tests.HIL.Parameterization;
 
 public class TestCaseGeneratorTests
 {

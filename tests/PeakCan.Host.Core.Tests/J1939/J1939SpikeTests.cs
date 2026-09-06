@@ -4,7 +4,7 @@ using PeakCan.HIL.Core.Dbc;
 using Xunit;
 using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
 
-namespace PeakCan.HIL.Core.Tests.J1939;
+namespace PeakCan.Host.Core.Tests.J1939;
 
 /// <summary>
 /// spec §13 Task-0 spike：验证 L3 方案的两个复用假设。

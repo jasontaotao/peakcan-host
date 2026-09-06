@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 public sealed partial class J1939TpLayer
 {

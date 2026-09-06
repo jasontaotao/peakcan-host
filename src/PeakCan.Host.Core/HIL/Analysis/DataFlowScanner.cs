@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using PeakCan.HIL.Core.HIL.Expressions;
+using PeakCan.Host.Core.HIL.Expressions;
 using PeakCan.HIL.Core.HIL.Uds;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// 整树数据流扫描器（§5.8 ①-⑥ 树遍历规则）。

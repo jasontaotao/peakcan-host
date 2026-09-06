@@ -1,8 +1,9 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.J1939;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 
-namespace PeakCan.HIL.Core.Tests.J1939;
+namespace PeakCan.Host.Core.Tests.J1939;
 
 public class J1939IdTests
 {

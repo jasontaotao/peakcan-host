@@ -1,5 +1,6 @@
 using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

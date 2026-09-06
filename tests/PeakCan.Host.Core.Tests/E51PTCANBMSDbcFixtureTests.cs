@@ -2,7 +2,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests;
+namespace PeakCan.Host.Core.Tests;
 
 /// <summary>
 /// Integration smoke test for a real-world Vector-generated DBC file

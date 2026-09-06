@@ -6,6 +6,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
+using PeakCan.Host.Core.Uds.IsoTp;
 
 namespace PeakCan.Host.App.Tests.Composition;
 

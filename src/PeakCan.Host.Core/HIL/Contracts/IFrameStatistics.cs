@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// 帧统计基础设施（Phase B）。按 CAN ID 统计 FrameReceived 事件，

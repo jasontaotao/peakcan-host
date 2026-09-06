@@ -1,6 +1,8 @@
-using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core.HIL;
+using PeakCan.HIL.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.HIL.Expressions;
+namespace PeakCan.Host.Core.HIL.Expressions;
 
 /// <summary>
 /// Host 端 StepScope 工厂（v11.1 Ruling 1）。

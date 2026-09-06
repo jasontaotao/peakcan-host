@@ -1,12 +1,16 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.HIL.Setup;
+using PeakCan.Host.Core.HIL.Setup;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
 using Xunit;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL;
+namespace PeakCan.Host.Core.Tests.HIL;
 
 /// <summary>
 /// B.5 ${name} 插值端到端（spec §15 验收线）。

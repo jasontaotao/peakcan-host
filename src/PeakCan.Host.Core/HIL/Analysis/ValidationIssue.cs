@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// 静态校验严重度（§5.8 分级）。

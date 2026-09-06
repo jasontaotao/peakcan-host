@@ -6,6 +6,7 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Tests.Services.MultiFrame;
 

@@ -2,8 +2,10 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Uds.IsoTp;
+namespace PeakCan.Host.Core.Uds.IsoTp;
 
 /// <summary>
 /// ISO 15765-2 (ISO-TP) transport layer. Handles segmentation and

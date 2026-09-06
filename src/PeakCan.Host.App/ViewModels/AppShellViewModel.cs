@@ -18,8 +18,9 @@ using PeakCan.Host.App.ViewModels.HIL;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Channel;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 

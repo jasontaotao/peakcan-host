@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Devices;
+namespace PeakCan.Host.Core.Devices;
 
 /// <summary>
 /// Adapter-independent discovery of CAN hardware. Each supported device

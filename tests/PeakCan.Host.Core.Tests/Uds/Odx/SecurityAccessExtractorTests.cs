@@ -2,7 +2,7 @@ using System.Xml.Linq;
 using PeakCan.HIL.Core.Uds.Odx;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 public class SecurityAccessExtractorTests
 {

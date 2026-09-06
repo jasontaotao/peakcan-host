@@ -2,7 +2,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.Services.J1939;
 

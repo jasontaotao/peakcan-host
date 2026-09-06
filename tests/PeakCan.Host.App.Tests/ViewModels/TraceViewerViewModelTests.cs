@@ -11,7 +11,7 @@ using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 using FrameFlags = PeakCan.HIL.Core.FrameFlags;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
@@ -632,7 +632,7 @@ public class TraceViewerViewModelTests
     // canned SHA-256 hex string per request. Tests inject this to
     // pin BuildSnapshot's "populate contentHash when path exists"
     // contract without touching the disk.
-    private sealed class FakeAscHasher : PeakCan.HIL.Core.Services.IAscContentHasher
+    private sealed class FakeAscHasher : PeakCan.Host.Core.Services.IAscContentHasher
     {
         public List<string> Requests { get; } = new();
         public string Return { get; set; } = "deadbeef" + new string('0', 56);

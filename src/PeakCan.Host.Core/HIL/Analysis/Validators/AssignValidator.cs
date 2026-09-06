@@ -1,6 +1,7 @@
-using PeakCan.HIL.Core.HIL.Expressions;
+using PeakCan.Host.Core.HIL.Expressions;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.Analysis;
+namespace PeakCan.Host.Core.HIL.Analysis;
 
 /// <summary>
 /// AssignStep 校验器（§5.8）。局部直接检查：

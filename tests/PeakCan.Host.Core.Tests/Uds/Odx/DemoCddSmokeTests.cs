@@ -2,7 +2,7 @@ using System.Xml.Linq;
 using FluentAssertions;
 using PeakCan.HIL.Core.Uds.Odx;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 /// <summary>
 /// Smoke tests using a real OEM .odx-d file (Vector CANdelaStudio

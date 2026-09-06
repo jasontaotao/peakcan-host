@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Assertions;
+namespace PeakCan.Host.Core.HIL.Assertions;
 
 /// <summary>
 /// Result of a single assertion evaluation.

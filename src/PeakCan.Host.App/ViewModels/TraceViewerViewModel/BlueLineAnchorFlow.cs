@@ -4,7 +4,7 @@
 using System;
 using ScottPlot;
 using ScottPlot.Plottables;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -169,7 +169,7 @@ public sealed partial class TraceViewerViewModel
     }
 
     /// <summary>Binary search for the nearest frame index (closest timestamp).</summary>
-    private static int BinarySearchNearest(IReadOnlyList<global::PeakCan.HIL.Core.Replay.ReplayFrame> frames, double target)
+    private static int BinarySearchNearest(IReadOnlyList<global::PeakCan.Host.Core.Replay.ReplayFrame> frames, double target)
     {
         if (frames.Count == 0) return -1;
         if (frames.Count == 1) return 0;

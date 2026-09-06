@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>
 /// TP.DT 帧（PGN 0x00EB00，PDU1）编解码。Encode 将不足 7 字节的末帧以 0xFF 填充

@@ -18,10 +18,10 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.App.Services.J1939;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
 
-using PeakCan.HIL.Core.Replay;
 
 public sealed partial class TraceViewerViewModel
 {

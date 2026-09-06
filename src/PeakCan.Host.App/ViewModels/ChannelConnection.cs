@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 

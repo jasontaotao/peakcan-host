@@ -2,7 +2,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Dbc;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests;
+namespace PeakCan.Host.Core.Tests;
 
 /// <summary>
 /// v3.50.6 PATCH: verifies SignalFormatter.ResolveDecimalDigits + FormatValue.

@@ -3,6 +3,7 @@ using PeakCan.HIL.Core;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.Infrastructure.Channel;
 using Xunit;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.App.Tests.ViewModels;
 

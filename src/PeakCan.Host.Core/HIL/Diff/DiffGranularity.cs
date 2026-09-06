@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Diff;
+namespace PeakCan.Host.Core.HIL.Diff;
 
 /// <summary>
 /// Granularity level for diff comparison.

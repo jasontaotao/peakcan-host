@@ -1,10 +1,11 @@
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.Host.Core.HIL.Assertions;
 using PeakCan.HIL.Core.HIL.Contracts;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
 using Xunit;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Assertions;
+namespace PeakCan.Host.Core.Tests.HIL.Assertions;
 
 public class AssertionPrimitivesTests
 {

@@ -1,7 +1,8 @@
 using PeakCan.HIL.Core.HIL.Expressions;
 using Xunit;
+using PeakCan.Host.Core.HIL.Expressions;
 
-namespace PeakCan.HIL.Core.Tests.HIL.Expressions;
+namespace PeakCan.Host.Core.Tests.HIL.Expressions;
 
 /// <summary>
 /// CompositeFunctionRegistry 单元测试：包装多个 IFunctionRegistry，TryInvoke 遍历首个命中。

@@ -3,7 +3,7 @@ using FluentAssertions;
 using PeakCan.HIL.Core.Uds.Database;
 using PeakCan.HIL.Core.Uds.Odx;
 
-namespace PeakCan.HIL.Core.Tests.Uds.Odx;
+namespace PeakCan.Host.Core.Tests.Uds.Odx;
 
 public class DidDopMappingTests
 {

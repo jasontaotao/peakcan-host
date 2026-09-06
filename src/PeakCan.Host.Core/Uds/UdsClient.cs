@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using PeakCan.HIL.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.IsoTp;
 
-namespace PeakCan.HIL.Core.Uds;
+namespace PeakCan.Host.Core.Uds;
 
 /// <summary>
 /// UDS (Unified Diagnostic Services) client implementing ISO 14229.

@@ -1,5 +1,6 @@
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Zlg;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Composite;
 

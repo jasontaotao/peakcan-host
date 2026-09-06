@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Diff;
+﻿using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Diff;
 
 /// <summary>
 /// Frame-level diff engine implementation.
@@ -8,10 +9,10 @@ namespace PeakCan.HIL.Core.HIL.Diff;
 /// </summary>
 internal sealed class DiffEngine : IDiffEngine
 {
-    private readonly Contracts.IDbcLookup? _dbcLookup;
+    private readonly PeakCan.HIL.Core.HIL.Contracts.IDbcLookup? _dbcLookup;
 
     public DiffEngine() { }
-    public DiffEngine(Contracts.IDbcLookup dbcLookup) => _dbcLookup = dbcLookup;
+    public DiffEngine(PeakCan.HIL.Core.HIL.Contracts.IDbcLookup dbcLookup) => _dbcLookup = dbcLookup;
 
     public DiffResult Diff(
         IReadOnlyList<CanFrame> golden,
@@ -128,7 +129,7 @@ internal sealed class DiffEngine : IDiffEngine
     {
         if (a.Id.Raw != b.Id.Raw) return false;
         if (a.Data.Length != b.Data.Length) return false;
-        // No tolerance configured — exact match
+        // No tolerance configured 鈥?exact match
         if (tolerance is null || (tolerance.AbsoluteTolerance == 0 && tolerance.RelativeTolerance == 0))
             return a.Data.Span.SequenceEqual(b.Data.Span);
 

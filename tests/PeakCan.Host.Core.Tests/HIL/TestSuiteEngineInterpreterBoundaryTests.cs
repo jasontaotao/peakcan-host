@@ -2,11 +2,13 @@ using FluentAssertions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.StepExecutor;
-using PeakCan.HIL.Core.HIL.Setup;
-using PeakCan.HIL.Core.Tests.HIL.Fakes;
+using PeakCan.Host.Core.HIL.Setup;
+using PeakCan.Host.Core.Tests.HIL.Fakes;
 using Xunit;
+using PeakCan.Host.Core.HIL.StepExecutor;
+using PeakCan.Host.Core.HIL;
 
-namespace PeakCan.HIL.Core.Tests.HIL;
+namespace PeakCan.Host.Core.Tests.HIL;
 
 /// <summary>
 /// 解释器边界分支补测（对照 TestSuiteEngineInterpreterTests 已覆盖的常规路径）：

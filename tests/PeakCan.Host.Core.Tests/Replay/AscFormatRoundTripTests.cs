@@ -13,10 +13,10 @@ using System.Globalization;
 using System.Text;
 using FluentAssertions;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 public class AscFormatRoundTripTests
 {

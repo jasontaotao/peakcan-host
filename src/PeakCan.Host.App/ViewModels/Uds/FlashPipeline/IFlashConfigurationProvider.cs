@@ -1,4 +1,4 @@
-using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.Host.Core.Uds.FlashPipeline;
 using PeakCan.HIL.Core.Uds.Odx;
 
 namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;

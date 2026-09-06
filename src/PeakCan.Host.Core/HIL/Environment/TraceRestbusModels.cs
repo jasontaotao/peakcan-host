@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Environment;
+namespace PeakCan.Host.Core.HIL.Environment;
 
 public sealed record TraceRecognitionOptions(
     int MinFrames = 4,

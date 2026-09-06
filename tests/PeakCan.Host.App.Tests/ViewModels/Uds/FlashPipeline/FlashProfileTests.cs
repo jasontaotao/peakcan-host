@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using FluentAssertions;
 using PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
-using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.Host.Core.Uds.FlashPipeline;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
 

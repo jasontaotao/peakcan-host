@@ -3,7 +3,8 @@ using ScottPlot;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Analysis;
 
 namespace PeakCan.Host.App.ViewModels;
 

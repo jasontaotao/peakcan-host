@@ -1,8 +1,9 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.Analysis;
 using Xunit;
+using PeakCan.Host.Core.Analysis;
 
-namespace PeakCan.HIL.Core.Tests.Analysis;
+namespace PeakCan.Host.Core.Tests.Analysis;
 
 /// <summary>
 /// v12 Step 2: TDD tests for <see cref="LttbDownsampler"/>.

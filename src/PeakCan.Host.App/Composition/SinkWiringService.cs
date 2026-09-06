@@ -46,7 +46,7 @@ internal sealed class SinkWiringService : IHostedService
     /// P0 (flashing feature 2026-07-21): the <see cref="IsoTpSinkAdapter"/>
     /// closes the long-standing receive-wiring gap — the production UDS
     /// stack could send requests but never received ECU responses because
-    /// <see cref="PeakCan.HIL.Core.Uds.IsoTp.IsoTpLayer.ProcessFrame"/> had
+    /// <see cref="PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer.ProcessFrame"/> had
     /// no production call site and no <c>IFrameSink</c> adapter wired it to
     /// incoming router frames. Attaching the adapter here makes the three
     /// diagnostic tabs (DIDs / Routines / DTCs) finally receive ECU replies.
@@ -55,7 +55,7 @@ internal sealed class SinkWiringService : IHostedService
     /// Task 9: the <see cref="J1939TpSinkAdapter"/> does the same for the
     /// J1939 transport-protocol stack — the adapter feeds TP.CM/TP.DT
     /// frames (PGN 0x00EC00/0x00EB00) into
-    /// <see cref="PeakCan.HIL.Core.J1939.J1939TpLayer.ProcessFrame"/>,
+    /// <see cref="PeakCan.Host.Core.J1939.J1939TpLayer.ProcessFrame"/>,
     /// which otherwise also has no production call site.
     /// </para>
     /// </summary>

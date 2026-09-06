@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 

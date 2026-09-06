@@ -4,7 +4,7 @@
 // 'd'/'l' marker + Vector Rx/Tx + Length/BitCount/ID metadata 终止逻辑。
 // 现在 ≈ 30 LoC。
 
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 public static partial class AscParser
 {

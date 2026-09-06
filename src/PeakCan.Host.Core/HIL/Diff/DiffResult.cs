@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Diff;
+namespace PeakCan.Host.Core.HIL.Diff;
 
 /// <summary>
 /// Result of a diff comparison between two frame sequences.

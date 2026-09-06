@@ -7,12 +7,13 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
 using PeakCan.HIL.Core.Path;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Infrastructure.Peak;
 using PeakCan.Host.Infrastructure.Zlg;
 using Polly;
+using PeakCan.Host.Core.Path;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -196,7 +197,7 @@ public partial class AppHostBuilder
         .AddTransientHttpErrorPolicy(builder => builder
             .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))));
         // Sprint 19 Inc 8: HIL test failure analysis service (headless/CLI sibling).
-        services.AddHttpClient<PeakCan.HIL.Core.HIL.Analysis.IHilAnalysisService,
+        services.AddHttpClient<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService,
             PeakCan.Host.Infrastructure.HIL.Analysis.HilAnalysisService>((sp, client) =>
         {
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PeakCan.HIL.Core.Analysis.LlmOptions>>().Value;

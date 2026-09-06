@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Devices;
+using PeakCan.Host.Core.Devices;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 

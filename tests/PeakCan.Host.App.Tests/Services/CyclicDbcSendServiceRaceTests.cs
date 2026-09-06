@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Services;
 using Xunit;
 using ValueType = PeakCan.HIL.Core.Dbc.ValueType;
 

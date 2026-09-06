@@ -1,5 +1,5 @@
-namespace PeakCan.Host.App.ViewModels;
 using ScottPlot;
+namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class TraceChartViewModel
 {

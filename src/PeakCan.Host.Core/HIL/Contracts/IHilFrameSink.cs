@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>流式 CAN 帧记录器。Write 由 consumer 单线程调用；Dispose 后 Write 必须静默丢弃。
 /// Write 内部不得向调用方抛异常（会杀 consumer loop）。</summary>

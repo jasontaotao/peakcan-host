@@ -6,7 +6,7 @@ using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.Composition;
 
@@ -111,10 +111,10 @@ public partial class AppHostBuilder
         // hash match. The search-dir list lives at
         // %APPDATA%/PeakCan.Host/asc-search-dirs.json (a future MINOR
         // can add a Settings UI; this PATCH keeps the surface minimal).
-        services.AddSingleton<PeakCan.HIL.Core.Services.IAscContentHasher,
-                                       PeakCan.HIL.Core.Services.Sha256AscContentHasher>();
-        services.AddSingleton<PeakCan.HIL.Core.Services.IAscLocator,
-                                       PeakCan.HIL.Core.Services.FileSystemAscLocator>();
+        services.AddSingleton<PeakCan.Host.Core.Services.IAscContentHasher,
+                                       PeakCan.Host.Core.Services.Sha256AscContentHasher>();
+        services.AddSingleton<PeakCan.Host.Core.Services.IAscLocator,
+                                       PeakCan.Host.Core.Services.FileSystemAscLocator>();
         // v3.6.0 MINOR T3: most-recently-used list backing the AppShell
         // File ▸ Open Recent menu. Singleton so AppShell and any future
         // consumer (e.g. keyboard shortcut handler) observe the same

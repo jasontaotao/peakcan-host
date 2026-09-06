@@ -1,8 +1,9 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.Analysis;
 using Xunit;
+using PeakCan.Host.Core.Analysis;
 
-namespace PeakCan.HIL.Core.Tests.Analysis;
+namespace PeakCan.Host.Core.Tests.Analysis;
 
 /// <summary>
 /// TraceTimeFormatter 单元测试 - 验证统一秒数 F4 格式。

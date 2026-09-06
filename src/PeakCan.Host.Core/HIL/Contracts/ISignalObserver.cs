@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.HIL.Contracts;
+namespace PeakCan.Host.Core.HIL.Contracts;
 
 /// <summary>
 /// Real-time signal observation (push model). Used by assertion layer.

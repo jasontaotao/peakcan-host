@@ -4,8 +4,9 @@ using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
 using Xunit;
+using PeakCan.Host.Core.J1939;
 
-namespace PeakCan.HIL.Core.Tests.J1939;
+namespace PeakCan.Host.Core.Tests.J1939;
 
 /// <summary>
 /// BAM 接收重组矩阵（spec §13）。测试助手：手工构造 BAM 发送方的 TP 帧，

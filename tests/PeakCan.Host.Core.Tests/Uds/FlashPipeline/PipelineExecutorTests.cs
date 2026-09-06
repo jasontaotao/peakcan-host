@@ -1,11 +1,12 @@
 using System.Collections.Generic;
 using FluentAssertions;
-using PeakCan.HIL.Core.Uds;
-using PeakCan.HIL.Core.Uds.FlashPipeline;
+using PeakCan.Host.Core.Uds;
+using PeakCan.Host.Core.Uds.FlashPipeline;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
+using PeakCan.Host.Core.Uds.IsoTp;
 
-namespace PeakCan.HIL.Core.Tests.Uds.FlashPipeline;
+namespace PeakCan.Host.Core.Tests.Uds.FlashPipeline;
 
 /// <summary>
 /// Phase 1 C4 Task 2.1–2.3: <see cref="PipelineExecutor"/> walks the enabled

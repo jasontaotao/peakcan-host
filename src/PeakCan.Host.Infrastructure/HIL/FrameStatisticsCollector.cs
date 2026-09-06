@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
+using PeakCan.Host.Core.HIL.Contracts;
+using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 

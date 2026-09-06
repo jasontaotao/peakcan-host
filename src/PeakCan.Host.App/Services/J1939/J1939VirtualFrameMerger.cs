@@ -2,7 +2,8 @@ using System.Runtime.CompilerServices;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.J1939;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.J1939;
 
 namespace PeakCan.Host.App.Services.J1939;
 

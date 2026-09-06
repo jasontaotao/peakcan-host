@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Uds.FlashPipeline;
+namespace PeakCan.Host.Core.Uds.FlashPipeline;
 
 /// <summary>
 /// Phase 2: Parsed firmware file — one file yields one or more address-contiguous

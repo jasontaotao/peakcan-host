@@ -4,8 +4,8 @@ using System.Security;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.ViewModels;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
 using ScottPlot;
 
 namespace PeakCan.Host.App.Services.Trace;

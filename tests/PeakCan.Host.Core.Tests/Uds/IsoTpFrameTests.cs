@@ -1,8 +1,9 @@
 using FluentAssertions;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using Xunit;
+using PeakCan.Host.Core.Uds.IsoTp;
 
-namespace PeakCan.HIL.Core.Tests.Uds;
+namespace PeakCan.Host.Core.Tests.Uds;
 
 /// <summary>
 /// v1.2.12 PATCH Item 8: pin down the FF length-decoder behavior. The

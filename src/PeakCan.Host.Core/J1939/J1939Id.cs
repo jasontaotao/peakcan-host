@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>
 /// 29 位 J1939 标识符的分解与组合（spec §5.1）。

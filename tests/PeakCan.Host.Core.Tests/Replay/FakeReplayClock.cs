@@ -1,7 +1,7 @@
 using System.Threading;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 /// <summary>
 /// Deterministic <see cref="IReplayClock"/> for tests. Does NOT consume

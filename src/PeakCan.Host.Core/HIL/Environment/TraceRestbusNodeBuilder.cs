@@ -1,6 +1,7 @@
 using PeakCan.HIL.Core.Dbc;
+using PeakCan.HIL.Core.HIL.Environment;
 
-namespace PeakCan.HIL.Core.HIL.Environment;
+namespace PeakCan.Host.Core.HIL.Environment;
 
 public sealed record TraceNodeBuildRequest(
     string Name,

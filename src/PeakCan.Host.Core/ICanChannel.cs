@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core;
 
 /// <summary>
 /// One CAN channel (one PCAN-USB handle). Owns the connect/disconnect lifecycle

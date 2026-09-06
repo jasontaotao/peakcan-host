@@ -2,10 +2,11 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using FluentAssertions;
-using PeakCan.HIL.Core.Replay;
+using PeakCan.Host.Core.Replay;
 using Xunit;
+using PeakCan.HIL.Core;
 
-namespace PeakCan.HIL.Core.Tests.Replay;
+namespace PeakCan.Host.Core.Tests.Replay;
 
 /// <summary>
 /// v3.51.0 MINOR: verifies BlfParser.ParseAsync against synth BLF files

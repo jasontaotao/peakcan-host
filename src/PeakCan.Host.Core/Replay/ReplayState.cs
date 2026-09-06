@@ -1,4 +1,4 @@
-namespace PeakCan.HIL.Core.Replay;
+namespace PeakCan.Host.Core.Replay;
 
 /// <summary>Playback state of <see cref="IReplayService"/>.</summary>
 public enum ReplayState

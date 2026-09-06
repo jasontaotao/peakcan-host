@@ -1,6 +1,7 @@
 using System.Globalization;
+using PeakCan.HIL.Core.HIL;
 
-namespace PeakCan.HIL.Core.HIL.StepExecutor;
+namespace PeakCan.Host.Core.HIL.StepExecutor;
 
 /// <summary>
 /// Executes AssertSignal steps. Returns Passed when signal is within tolerance, Failed otherwise.

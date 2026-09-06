@@ -13,16 +13,20 @@ using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core.HIL;
-using PeakCan.HIL.Core.HIL.Analysis;
-using PeakCan.HIL.Core.Replay;
-using PeakCan.HIL.Core.Services;
-using PeakCan.HIL.Core.Uds;
+using PeakCan.Host.Core.HIL.Analysis;
+using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Core.Services;
+using PeakCan.Host.Core.Uds;
 using PeakCan.HIL.Core.Uds.Database;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.Core;
+using PeakCan.Host.Core.Uds.IsoTp;
+using PeakCan.Host.Core.Uds.Database;
+using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.Tests.Windows;
 
@@ -105,13 +109,13 @@ public class UdsWindowTests
     }
 
     /// <summary>
-    /// Hand-rolled <see cref="PeakCan.HIL.Core.IChannelFactory"/> stub. The production
+    /// Hand-rolled <see cref="PeakCan.Host.Core.IChannelFactory"/> stub. The production
     /// <see cref="AppShellViewModelTests"/> class declares the same shape
     /// as <c>private sealed class</c> — not visible here. Mirrored locally
     /// (duplication is the smaller cost vs the visibility surface change
     /// of promoting it to <c>internal</c> just for this PATCH).
     /// </summary>
-    private sealed class FakeChannelFactory : PeakCan.HIL.Core.IChannelFactory
+    private sealed class FakeChannelFactory : PeakCan.Host.Core.IChannelFactory
     {
         public ICanChannel Create(ChannelId id) => new FakeCanChannel(id);
     }
@@ -142,14 +146,14 @@ public class UdsWindowTests
     }
 
     /// <summary>
-    /// Hand-rolled <see cref="PeakCan.HIL.Core.IChannelProbe"/> stub. Same shape as
+    /// Hand-rolled <see cref="PeakCan.Host.Core.IChannelProbe"/> stub. Same shape as
     /// the <c>FakeChannelProbe</c> nested in <c>AppShellViewModelTests</c>
     /// (line 82); duplicated locally because the existing one is
     /// <c>private</c>.
     /// </summary>
-    private sealed class FakeChannelProbe : PeakCan.HIL.Core.IChannelProbe
+    private sealed class FakeChannelProbe : PeakCan.Host.Core.IChannelProbe
     {
-        public PeakCan.HIL.Core.ProbeResult Probe(ushort handle)
+        public PeakCan.Host.Core.ProbeResult Probe(ushort handle)
             => new(true, $"fake probe ok 0x{handle:X2}");
     }
 

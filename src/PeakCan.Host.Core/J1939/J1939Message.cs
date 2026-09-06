@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.J1939;
+using PeakCan.HIL.Core.J1939;
+namespace PeakCan.Host.Core.J1939;
 
 /// <summary>重组完成的应用消息。</summary>
 /// <remarks>
