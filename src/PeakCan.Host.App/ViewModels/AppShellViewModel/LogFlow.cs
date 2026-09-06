@@ -8,9 +8,12 @@ public sealed partial class AppShellViewModel
     // Flow D: Log helpers (v3.8.8 PATCH F1 + earlier).
     // Methods moved verbatim from AppShellViewModel.cs.
     //
-    // All 9 helpers are [LoggerMessage] source-gen declarations.
+    // All 3 remaining helpers are [LoggerMessage] source-gen declarations.
     // The methods are deliberately not called from hot paths; their
     // only call site is the VM commands (Flow A + Flow C).
+    // P2-1 真拆类（2026-09-06）：connect/disconnect 六个 Log* 随连接循环
+    // 移交 ChannelConnectionCoordinator（同类内重声明，同文本）；本类仅保留
+    // 探测/枚举路径的日志。
 
     // LoggerMessage source-generated helpers silence CA1848 (use LoggerMessage
     // source generators) and CA1873 (avoid expensive arg computation in
@@ -25,26 +28,4 @@ public sealed partial class AppShellViewModel
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Probe threw on handle 0x{Handle:X2}")]
     private static partial void LogProbeThrew(ILogger logger, ushort handle, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Connect OK on handle 0x{Handle:X2}")]
-    private static partial void LogConnectOk(ILogger logger, ushort handle);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Connect failed on handle 0x{Handle:X2}: {Code} {Message}")]
-    private static partial void LogConnectFailed(ILogger logger, ushort handle, ErrorCode code, string message);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Connect threw on handle 0x{Handle:X2}")]
-    private static partial void LogConnectThrew(ILogger logger, ushort handle, Exception ex);
-
-    // v3.8.8 PATCH F1: best-effort wrapper for the catch-arm
-    // UnregisterChannel call. If the router itself throws (e.g. lock
-    // contention or another sink's DisposeAsync propagating), we log
-    // and continue so the channel dispose still runs.
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Connect catch-arm UnregisterChannel threw on handle 0x{Handle:X2}")]
-    private static partial void LogUnregisterFailed(ILogger logger, ushort handle, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Disconnect OK on handle 0x{Handle:X2}")]
-    private static partial void LogDisconnectOk(ILogger logger, ushort handle);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Disconnect threw on handle 0x{Handle:X2}")]
-    private static partial void LogDisconnectThrew(ILogger logger, ushort handle, Exception ex);
 }

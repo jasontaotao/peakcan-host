@@ -96,12 +96,13 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     public static readonly IReadOnlyList<BaudRate> FdBaudRates =
         new[] { BaudRate.CanFd1Mbps, BaudRate.CanFd2Mbps, BaudRate.CanFd5Mbps };
 
-    private readonly ChannelRouter _router;
     private readonly ILogger<AppShellViewModel> _logger;
-    private readonly SendService _sendService;
     private readonly IChannelProbe _channelProbe;
-    private readonly IChannelFactory _channelFactory;
     private readonly IChannelEnumerator? _channelEnumerator;
+    // P2-1 真拆类（2026-09-06）：连接生命周期（connect/disconnect 循环、
+    // 路由注册、SendService 接线、波特率接线、行集合）移交给
+    // ChannelConnectionCoordinator；本类保留工具栏 UI（探测/枚举/文本/命令）。
+    private readonly ChannelConnectionCoordinator _coordinator;
     private readonly TraceViewModel _traceViewModel;
     private readonly DbcViewModel _dbcViewModel;
     private readonly SendViewModel _sendViewModel;
@@ -139,7 +140,6 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
     // P1-2（2026-09-06）: 已连接通道快照源（生产者：本类 publish；消费者 HilViewModel）
     private readonly IConnectedChannelsSource? _connectedChannelsSource;
-    private readonly BusStatisticsCollector? _busStats;
     // v3.6.0 MINOR T3: MRU list backing the File ▸ Open Recent menu.
     // Singleton so multiple consumers (AppShell today, future shortcuts)
     // observe the same ordering; persisted to
@@ -180,10 +180,12 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
 /// <summary>
     /// Task 3 (phase 2 A-3): the multi-channel connection list. Each successful
     /// <see cref="ConnectAsync"/> group appends a <see cref="ChannelConnection"/>;
-    /// <see cref="DisconnectAllAsync"/> clears it. <see cref="IsConnected"/> is
+    /// <see cref="DisconnectAsync"/> clears it. <see cref="IsConnected"/> is
     /// derived from this (any item with a connected channel).
+    /// P2-1 真拆类（2026-09-06）：委托至 <c>_coordinator.Connections</c>（同一
+    /// 对象身份，DataGrid/测试既有引用不变）；连接循环归属 coordinator。
     /// </summary>
-    public ObservableCollection<ChannelConnection> ChannelConnections { get; } = new();
+    public ObservableCollection<ChannelConnection> ChannelConnections => _coordinator.Connections;
 
     /// <summary>
     /// Task 2 (phase 2 A-1): pending multi-channel configs collected by
@@ -226,9 +228,10 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// channel. Replaces the v1.1 single bool <c>_isConnected</c>; the
     /// <c>[ObservableProperty]</c> source-gen CanExecute chain it carried
     /// (<c>ConnectCommand</c>/<c>DisconnectCommand</c>) + <c>IsDisconnected</c>
-    /// is now refreshed manually in <c>OnChannelConnectionsChanged</c> when
-    /// the collection changes (C6 ruling — a computed property has no setter
-    /// the source-gen can hook).
+    /// is now refreshed manually in <c>NotifyConnectionStateChanged</c> when
+    /// ChannelConnections changes（P2-1 真拆类后经 coordinator 的
+    /// ConnectionsChanged 事件汇入）(C6 ruling — a computed property has no
+    /// setter the source-gen can hook).
     /// </summary>
     public bool IsConnected => ChannelConnections.Any(c => c.State == "已连接");
 
@@ -279,8 +282,9 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     public IReadOnlyList<BaudRate> AvailableBaudRates => IsFd ? FdBaudRates : ClassicBaudRates;
 
 
-    /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).</summary>
-    public SendService SendService => _sendService;
+    /// <summary>Manual-send service for shell-to-send tab wiring (Task 14).
+    /// P2-1 真拆类后委托至 coordinator（同一实例）。</summary>
+    public SendService SendService => _coordinator.SendService;
 
     public AppShellViewModel(
         ChannelRouter router,
@@ -336,12 +340,9 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // 收集器保持默认 1 Mbps 口径（与旧行为一致）。
         BusStatisticsCollector? busStats = null)
     {
-        _router = router ?? throw new ArgumentNullException(nameof(router));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
-        _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
         _channelProbe = channelProbe ?? throw new ArgumentNullException(nameof(channelProbe));
-        _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
         _dbcViewModel = dbcViewModel ?? throw new ArgumentNullException(nameof(dbcViewModel));
         _sendViewModel = sendViewModel ?? throw new ArgumentNullException(nameof(sendViewModel));
         _signalViewModel = signalViewModel ?? throw new ArgumentNullException(nameof(signalViewModel));
@@ -359,12 +360,19 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
+        // P2-1 真拆类（2026-09-06）：连接生命周期（循环/路由/SendService/
+        // 波特率接线）移交 ChannelConnectionCoordinator——必须在 ctor 内
+        // PublishConnectedChannels() 之前构造（该方法读 ChannelConnections，
+        // 委托至 coordinator.Connections）。行集合同一对象身份，
+        // DataGrid/测试既有引用不变。行订阅内置于 coordinator，本类订阅其
+        // ConnectionsChanged 统一入口（对应旧 per-slot StateChanged →
+        // NotifyConnectionStateChanged 路径，订阅在下方 H1 注释处）。
+        _coordinator = new ChannelConnectionCoordinator(
+            channelFactory, router, sendService, busStats, OnReadLoopError, logger);
         // P1-2（2026-09-06）: 已连接通道快照源（IConnectedChannelsSource）。
         // 本类是生产者：连接状态变化（NotifyConnectionStateChanged 统一入口）时
         // publish 快照，HilViewModel 读 .Current——不再 setter 直连 HilViewModel。
         _connectedChannelsSource = connectedChannelsSource;
-        // 2026-09-06 设计层 MEDIUM：可选统计收集器（连接成功时更新负载分母）。
-        _busStats = busStats;
         PublishConnectedChannels();
         // ECU 编辑器接线：独立窗口仍可打开/编辑/保存（EcuScriptEditorViewModel 保持原样）
         _hilViewModel.OpenEcuEditorRequested += OnOpenEcuEditorRequested;
@@ -423,9 +431,10 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         }
 
         // Task 3 review H1 fix: per-slot StateChanged → re-evaluate
-        // IsConnected/CanExecute. Subscribe on Add, unsubscribe on
-        // Remove/Clear so a per-slot disconnect refreshes the toolbar.
-        ChannelConnections.CollectionChanged += OnChannelConnectionsChanged;
+        // IsConnected/CanExecute. P2-1 真拆类后：行订阅内置于 coordinator，
+        // 本类订阅其 ConnectionsChanged 统一入口（对应旧 per-slot
+        // StateChanged → NotifyConnectionStateChanged 路径）。
+        _coordinator.ConnectionsChanged += NotifyConnectionStateChanged;
 
         // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
         var mainTabs = new List<TabSpec>

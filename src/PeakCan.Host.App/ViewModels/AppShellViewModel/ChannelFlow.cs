@@ -14,14 +14,19 @@ public sealed partial class AppShellViewModel
     // Flow A: Channel lifecycle (v3.16.9.4 PATCH + earlier).
     // Methods moved verbatim from AppShellViewModel.cs.
     //
+    // P2-1 真拆类（2026-09-06）: connect/disconnect 循环 + 六个连接日志
+    // （LogConnectOk/LogConnectFailed/LogConnectThrew/LogUnregisterFailed/
+    // LogDisconnectOk/LogDisconnectThrew）移交 ChannelConnectionCoordinator
+    //（Services/ChannelConnectionCoordinator.cs，同文本重声明）；本 partial
+    // 保留探测/枚举、_isConnecting 守卫、UI 文本映射与 OnReadLoopError 处理器。
+    //
     // Cross-flow callers (stay as plain calls via partial-class visibility):
-    //   - ConnectAsync -> OnReadLoopError (intra-flow subscription)
-    //   - ConnectAsync -> LogProbeOk/LogProbeThrew/LogConnectOk/LogConnectFailed/LogConnectThrew/LogUnregisterFailed (Flow D + this file's 11th helper)
-    //   - DisconnectAsync -> LogDisconnectOk/LogDisconnectThrew (Flow D)
+    //   - ConnectAsync -> OnReadLoopError (intra-flow, passed to coordinator as sink)
+    //   - ConnectAsync -> LogProbeOk/LogProbeThrew (Flow D)
     //   - OnReadLoopError -> LogReadLoopError (the 11th helper, lives here with its caller)
     //
-    // Required usings: Microsoft.Extensions.Logging, PeakCan.HIL.Core (ErrorCode, ReadLoopError, ReadLoopErrorKind, BaudRate),
-    // PeakCan.Host.Infrastructure.Channel (ChannelRouter, ChannelId, IChannelProbe, IChannelFactory, IChannelEnumerator)
+    // Required usings: Microsoft.Extensions.Logging, PeakCan.HIL.Core (BaudRate, ChannelInfo),
+    // PeakCan.Host.Infrastructure.Statistics (BaudRateMap), PeakCan.Host.Core (DefaultHandle 等)
 
     /// <summary>
     /// IsFd 属性变更回调：切换模式时自动将 SelectedBaudRate 重置为对应列表首项，
@@ -168,6 +173,9 @@ public sealed partial class AppShellViewModel
         // continues, never blocking the rest. The legacy single-group path
         // (DIM default → 1-element list) is behaviorally equivalent to the
         // pre-T3 single-channel connect.
+        // P2-1 真拆类（2026-09-06）：连接循环本体移交
+        // ChannelConnectionCoordinator.ConnectAllAsync；本方法保留 UI 文本映射
+        //（开始文本 + 结束聚合文本，最终文本行为与拆分前逐字一致）。
         var configs = _pendingConfigs;
         // 零回归兜底：旧单通道路径（工具栏直接 Connect，未走 ApplyConnections）→
         // _pendingConfigs 空。回落到用 SelectedChannel（或 DefaultHandle 当未 probe）
@@ -183,98 +191,19 @@ public sealed partial class AppShellViewModel
             ? $"正在连接 {configs.Count} 路 CAN..."
             : $"正在连接 {SelectedChannel?.Name ?? "USB1"} ({SelectedBaudRate.Name})";
 
-        foreach (var cfg in configs)
-        {
-            if (cfg.Channel is null) continue; // null 组跳过
-            var handle = cfg.Channel.Handle;
-            var rate = cfg.BaudRate;
-            var channel = _channelFactory.Create(new ChannelId(handle));
-            try
-            {
-                var result = await channel.ConnectAsync(rate, fd: cfg.IsFd).ConfigureAwait(true);
-                if (result.IsSuccess)
-                {
-                    _router.RegisterChannel(channel);
-                    // v3.16.9.4 PATCH: subscribe to read-loop errors so bus-off /
-                    // driver unload / hardware faults surface on the UI status
-                    // bar. Event fires on the SDK read thread; the handler must
-                    // marshal to the UI thread itself (we use the captured sync
-                    // context to marshal back onto the UI thread).
-                    channel.ReadLoopError += OnReadLoopError;
-                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd));
-                    // 2026-09-06 设计层 MEDIUM：把该路所选预设的标称波特率喂给
-                    // 统计收集器——总线负载 % 从 "fps/80" 启发式升级为位预算
-                    // 公式后，分母必须跟随真实总线速率。多通道混合波特率时
-                    // 最后一路成功连接的速率生效（聚合口径本身是近似，收集器
-                    // 文档已注明）。收集器为 null（测试构造点）时 no-op。
-                    _busStats?.SetBitrate(BaudRateMap.NominalBps(rate));
-                    LogConnectOk(_logger, handle);
-                }
-                else
-                {
-                    // 尽力式：该组标红跳过，不阻塞其余组。
-                    var err = result.Error!;
-                    ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd)
-                        { State = $"连接失败: {err.Code}" });
-                    StatusMessage = $"通道 {cfg.Channel.Name} 连接失败: {err.Code} {err.Message}";
-                    LogConnectFailed(_logger, handle, err.Code, err.Message);
-                    // PeakCanChannel ctor allocates a CancellationTokenSource
-                    // (used by the read loop). On a failed Connect the channel
-                    // never acquires the hardware, so the safe teardown is to
-                    // dispose it now rather than wait for GC.
-                    await channel.DisposeAsync().ConfigureAwait(true);
-                }
-            }
-            catch (Exception ex)
-            {
-                // 尽力式：该组标红，继续其余组。
-                ChannelConnections.Add(new ChannelConnection(channel, cfg.Channel.Name, rate, cfg.IsFd)
-                    { State = $"连接异常: {ex.GetType().Name}" });
-                StatusMessage = $"通道 {cfg.Channel.Name} 连接异常: {ex.GetType().Name}";
-                LogConnectThrew(_logger, handle, ex);
-                // RegisterChannel 抛异常时硬件可能已连接但未注册——先
-                // 断开硬件连接再 Unregister + Dispose，避免 handle 泄漏
-                // （review M2 fix：DisposeAsync 不保证断开硬件连接）。
-                try { await channel.DisconnectAsync().ConfigureAwait(true); }
-                catch (Exception discEx) { LogDisconnectThrew(_logger, handle, discEx); }
-                try { _router.UnregisterChannel(channel); }
-                catch (Exception unregEx)
-                {
-                    LogUnregisterFailed(_logger, handle, unregEx);
-                }
-                await channel.DisposeAsync().ConfigureAwait(true);
-            }
-        }
+        var result = await _coordinator.ConnectAllAsync(configs).ConfigureAwait(true);
 
-        // Publish the connected set to SendService (default target = first
-        // connected channel) and refresh the derived IsConnected + CanExecute.
-        var connected = ChannelConnections.Where(c => c.State == "已连接").ToList();
-        _sendService.SetChannels(connected.ToDictionary(c => c.Channel.Id, c => c.Channel));
-        _sendService.ActiveChannel = connected.FirstOrDefault()?.Channel;
-        var count = connected.Count;
+        // 结束聚合文本（与拆分前等价）：
+        //   count>0 → StatusMessage="已连接 N 路"（覆盖 per-slot 失败文本）；
+        //   count==0 且有失败槽 → 保留最后一个失败槽的诊断文本；
+        //   count==0 且无失败槽（全 null 组）→ 不覆盖"正在连接..."。
+        var count = result.ConnectedCount;
         ConnectionState = count > 0 ? $"已连接 {count} 路" : "已断开";
-        // 仅在至少一路成功时覆盖 StatusMessage；全失败时保留 catch/else 块
-        // 已设的 per-channel 错误消息（避免抹掉"连接异常/连接失败"诊断信息）。
         if (count > 0)
             StatusMessage = $"已连接 {count} 路";
+        else if (result.LastFailureText is not null)
+            StatusMessage = result.LastFailureText;
         NotifyConnectionStateChanged();
-    }
-
-    /// <summary>
-    /// Task 3 review H1 fix: subscribe to each slot's StateChanged on Add,
-    /// unsubscribe on Remove/Clear. A per-slot disconnect changes State, which
-    /// fires StateChanged, which tells the shell to re-evaluate IsConnected +
-    /// refresh Connect/Disconnect CanExecute — so the toolbar buttons stay in
-    /// sync even when only one channel is disconnected via its own button.
-    /// </summary>
-    private void OnChannelConnectionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (e.NewItems is { } newItems)
-            foreach (ChannelConnection c in newItems)
-                c.StateChanged += NotifyConnectionStateChanged;
-        if (e.OldItems is { } oldItems)
-            foreach (ChannelConnection c in oldItems)
-                c.StateChanged -= NotifyConnectionStateChanged;
     }
 
     /// <summary>
@@ -286,6 +215,8 @@ public sealed partial class AppShellViewModel
     /// Cheap (4 notifications).
     /// P1-2（2026-09-06）: 本方法是连接状态变化的统一入口，在此一并向
     /// <see cref="IConnectedChannelsSource"/> publish 快照（HilViewModel 消费）。
+    /// P2-1 真拆类（2026-09-06）: per-slot StateChanged 经 coordinator 的
+    /// ConnectionsChanged 事件汇入本方法（行订阅内置，不再手动挂退）。
     /// </summary>
     private void NotifyConnectionStateChanged()
     {
@@ -321,37 +252,13 @@ public sealed partial class AppShellViewModel
         // collection. Per-channel failures are swallowed (best-effort) so one
         // dead channel does not leave the rest connected. Method name kept as
         // DisconnectAsync so the generated DisconnectCommand binding is stable.
+        // P2-1 真拆类（2026-09-06）：循环本体移交 coordinator.DisconnectAllAsync；
+        // 本方法保留守卫 + UI 文本。
         if (!IsConnected) return;
         if (_isConnecting) return; // review 2026-08-29 P2: 连接进行中不接受断开（CanExecute 兜底）
         StatusMessage = "正在断开所有通道";
         ConnectionState = "断开中...";
-        var snapshot = ChannelConnections.ToList();
-        foreach (var conn in snapshot)
-        {
-            try
-            {
-                await conn.Channel.DisconnectAsync().ConfigureAwait(true);
-                LogDisconnectOk(_logger, conn.Channel.Id.Handle);
-            }
-            catch (Exception ex)
-            {
-                // DisconnectAsync swallows hardware failures per its own
-                // contract; surface the exception as a per-channel state so
-                // the operator sees which channel failed to disconnect.
-                conn.State = $"断开异常: {ex.GetType().Name}";
-                LogDisconnectThrew(_logger, conn.Channel.Id.Handle, ex);
-            }
-            try { _router.UnregisterChannel(conn.Channel); }
-            catch (Exception unregEx) { LogUnregisterFailed(_logger, conn.Channel.Id.Handle, unregEx); }
-            // v3.16.9.4 PATCH: unsubscribe read-loop errors before dropping
-            // the reference — match the source-gen delegate equality so the
-            // old channel's event does not pin this VM.
-            conn.Channel.ReadLoopError -= OnReadLoopError;
-            conn.State = "已断开";
-        }
-        ChannelConnections.Clear();
-        _sendService.SetChannels(null);
-        _sendService.ActiveChannel = null;
+        await _coordinator.DisconnectAllAsync().ConfigureAwait(true);
         ConnectionState = "已断开";
         StatusMessage = "已断开";
         NotifyConnectionStateChanged();
