@@ -1,4 +1,5 @@
-namespace PeakCan.HIL.Core.HIL.Assertions;
+using PeakCan.HIL.Core;
+namespace PeakCan.Host.Core.HIL.Assertions;
 
 /// <summary>
 /// Assertion primitives for HIL testing. Instance class with injected IAssertionContext.
@@ -81,14 +82,9 @@ public sealed class AssertionPrimitives
     public async Task<AssertionResult> WaitForFrameAsync(
         CanId expectedId, byte[]? dataMask, int timeoutMs, string? channelName, CancellationToken ct)
     {
-        // 与单通道版同逻辑，但帧流按 channelName 路由
-        var recentFrames = _ctx.GetRecentDecodedFrames(channelName);
-        foreach (var f in recentFrames)
-        {
-            if (f.Frame.Id.Raw == expectedId.Raw && MatchesMask(f.Frame.Data, dataMask))
-                return AssertionResult.Pass($"frame 0x{expectedId.Raw:X} received (from buffer)");
-        }
-
+        // 与单通道版同逻辑，但帧流按 channelName 路由。
+        // 必须先订阅再查缓冲：消费者"入缓冲后、分发回调前"的窗口内到达的帧，
+        // 先查后订阅会两边都漏掉，只能空等超时。
         var tcs = new TaskCompletionSource<CanFrame>();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(timeoutMs);
@@ -98,6 +94,13 @@ public sealed class AssertionPrimitives
             if (frame.Frame.Id.Raw == expectedId.Raw && MatchesMask(frame.Frame.Data, dataMask))
                 tcs.TrySetResult(frame.Frame);
         });
+
+        var recentFrames = _ctx.GetRecentDecodedFrames(channelName);
+        foreach (var f in recentFrames)
+        {
+            if (f.Frame.Id.Raw == expectedId.Raw && MatchesMask(f.Frame.Data, dataMask))
+                return AssertionResult.Pass($"frame 0x{expectedId.Raw:X} received (from buffer)");
+        }
 
         using var registration = linkedCts.Token.Register(() => tcs.TrySetCanceled());
         try
