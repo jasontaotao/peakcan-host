@@ -6,7 +6,7 @@ namespace PeakCan.HIL.Core.HIL.Diff;
 public sealed record DiffConfig(
     DiffGranularity Granularity = DiffGranularity.Frame,
     AlignStrategy Alignment = AlignStrategy.Timestamp,
-    ToleranceSpec Tolerance = default,
+    ToleranceSpec? Tolerance = null,
     int NeighborWindowMs = 100)
 {
     /// <summary>
