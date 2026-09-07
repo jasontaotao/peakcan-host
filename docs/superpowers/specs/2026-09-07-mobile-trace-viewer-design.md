@@ -48,7 +48,7 @@ D = 用户提出的 CANoe 模式（点击回放后边加载边显示）+ SQLite 
 
 ### D3：项目放 peakcan-host repo 内，单独 slnx
 
-- 新增 `src/PeakCan.Host.Mobile/`（MAUI，`net10.0-android` + 纯 `net10.0` 双 target，后者供 VM 单测）
+- 新增 `src/PeakCan.Host.Mobile/`（MAUI，单 `net10.0-android` target）和 `src/PeakCan.Host.Mobile.Core/`（纯 `net10.0` VM/服务库，供 VM 单测）
 - 新增 `PeakCan.Host.Mobile.slnx`（含 Mobile + Host.Core + HIL.Core）
 - 主 `PeakCan.Host.slnx` **不收录** Mobile 项目——打开主解决方案的人不需要装 MAUI workload
 - Mobile 对 Host.Core / HIL.Core 用 **ProjectReference**（同 repo，改 Core 时同步编译验证）
@@ -70,12 +70,24 @@ public interface IStreamingTraceSource
     Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default);
 }
 
-public sealed record StreamingTraceOpenResult(
-    DateTime? WallClockOrigin,          // ASC date 行 / BLF 基准时间
-    bool TimestampsAbsolute,            // ASC base 行
-    IAsyncEnumerable<ReplayFrame> Frames,
-    StreamingParseStats Stats);         // 实时计数（SkippedLines 等），枚举过程中增长
+public sealed class StreamingTraceOpenResult : IAsyncDisposable
+{
+    public DateTime? WallClockOrigin { get; init; }   // ASC date 行 / BLF 基准时间
+    public bool TimestampsAreAbsolute { get; init; }  // ASC base 行
+    public required IAsyncEnumerable<ReplayFrame> Frames { get; init; }
+    public long? SourceLengthBytes { get; init; }     // SeekProgress 需要流长度
+    public required StreamingParseStats Stats { get; init; }
+    public Stream? SourceStream { get; init; }        // session 拥有该流
+
+    public async ValueTask DisposeAsync()
+    {
+        if (SourceStream is not null)
+            await SourceStream.DisposeAsync();
+    }
+}
 ```
+
+`OpenAsync()` 返回一个独立的 streaming session。session 结束、取消或异常时必须由消费者 `await using` 释放；`AscStreamingSource` 把底层 Stream 放入 `SourceStream`，由 session 统一负责关闭。
 
 ### 4.2 ASC 实现
 
@@ -84,7 +96,8 @@ public sealed record StreamingTraceOpenResult(
 public sealed class AscStreamingSource : IStreamingTraceSource
 {
     // 工厂注入：() => File.OpenRead(path)。移动端给 app 私有目录的缓存副本路径。
-    public AscStreamingSource(Func<Stream> streamFactory, ReplayOptions? options = null, ILogger? logger = null);
+    // 流式路径不使用 ReplayOptions.MaxFileSizeBytes；移动端 P1 不设硬 cap，UI 负责在 >500MB 时确认。
+    public AscStreamingSource(Func<Stream> streamFactory, ILogger? logger = null);
 }
 ```
 
@@ -119,9 +132,10 @@ public sealed class StreamingTracePlayer : IDisposable
 
 - **不提供 `Loop`**（YAGNI：手机端查看场景不需要 A/B 循环；桌面端该能力留在 `ReplayTimeline`）
 
-- **预读缓冲**：解析协程领先播放指针，缓冲上限 8192 帧（背压：满了就暂停解析）；解析速度 ≫ 1x 播放速度，缓冲常态是满的
-- **Seek(t)**：停当前枚举 → `source.OpenAsync()` 重开 → 快进扫描（解析但不 emit，直到 `frame.Timestamp >= t`）→ 从该帧恢复播放。100MB 文本快进约数秒，期间报 `SeekProgress`。Seek 完成后**回到进入前状态**（Playing→续播，Paused→停在该帧）
-- 暂停/恢复/倍速语义对齐 `ReplayTimeline`（时钟用 `IReplayClock`，测试注入假时钟）
+- **预读缓冲**：`StreamingTracePlayer` 为每次 streaming session 创建容量 8192 的 `Channel<ReplayFrame>`。一个后台 producer 调用 `session.Frames` 解析帧并写入 channel；播放 consumer 从 channel 读取后调速 emit。channel 满时 producer 因 backpressure 停止解析。session 通过 `await using` 释放。
+- **Seek(t)**：取消当前枚举 → `source.OpenAsync()` 重开 → 快进扫描（解析但不 emit，直到 `frame.Timestamp >= t`）→ 从该帧恢复播放。100MB 文本快进约数秒。快进扫描过程中上报 0..1 进度；遇到第一个目标帧或到达 EOF 时必须上报 `1.0`。Seek 完成后**回到进入前状态**（Playing→续播，Paused→停在该帧）。
+- **PlaybackEnded**：仅在 EOF 或播放失败时触发；用户调用 `Stop()` 不触发该事件。`State` 仍变为 `Stopped`。
+- 暂停/恢复/倍速语义对齐 `ReplayTimeline`（时钟用 `IReplayClock`，测试注入假时钟）。`SetSpeed` clamp 到 `[0.1, 100]`。
 
 ### 4.4 BLF（Phase 4）
 
@@ -143,22 +157,23 @@ public sealed class StreamingTracePlayer : IDisposable
 ### 5.2 项目结构与组件
 
 ```
-src/PeakCan.Host.Mobile/
-├── PeakCan.Host.Mobile.csproj        # net10.0-android;net10.0，UseMaui
-├── Views/    FilesPage(最近文件+打开) · TracePage(表格+控制条) · ChartPage(P3) · FrameDetailSheet(点行弹出)
-├── ViewModels/
-│   ├── FilesViewModel.cs             # 最近文件列表
-│   ├── TraceSessionViewModel.cs      # 状态机 + 环形缓冲 + UI 节流
-│   └── ChartViewModel.cs             # P3
-├── Services/
-│   ├── TraceFilePicker.cs            # FilePicker / intent 直开 → 拷贝到 app 缓存目录
-│   ├── DurationScanner.cs            # 打开后后台只读扫描总时长（P1）
-│   ├── TraceCacheStore.cs            # SQLite 回放缓存（P2）
-│   └── DbcLoader.cs                  # FilePicker → HIL.Core DbcParser（P2）
-└── Platform/                         # IUiDispatcher / IFilePickerGateway 的 MAUI 实现
+src/PeakCan.Host.Mobile.Core/         # net10.0 纯逻辑库，可独立单测
+├── Models/       FrameRow · FrameRingBuffer
+├── Services/     DurationScanner · TraceFileCache（P2 加 TraceCacheStore）
+├── Platform/     IUiDispatcher · IFilePickerGateway · IStreamingSourceFactory
+└── ViewModels/   TraceSessionViewModel
+
+src/PeakCan.Host.Mobile/              # net10.0-android MAUI app，薄 UI + Platform 实现
+├── Views/        FilesPage · TracePage · FrameDetailSheet（ChartPage 为 P3）
+├── Platform/     PlatformUiDispatcher · MauiFilePickerGateway · AscStreamingSourceFactory · TracePageFactory
+└── MauiProgram.cs
+
+PeakCan.Host.Mobile.Core.Tests/       # net10.0 xunit
 ```
 
-- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Seeking → Ended`。`Ready` = 已打开未播放，进入时**预读第一屏 ~200 帧**填表；`Seeking` 结束回到进入前状态；环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
+> v2 修订：不再让 MAUI app 双 target `net10.0-android;net10.0`。VM/服务放进 `Mobile.Core`，MAUI app 保持单 Android target。`Mobile.slnx` 包含 Mobile、Mobile.Core、Host.Core 和测试项目；当 sibling `peakcan-hil-core` 项目存在时也加入 HIL.Core，否则通过 `Host.Core` 的 NuGet fallback 解析。
+
+- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Ended/Failed`；Seek 过程用 `IsSeekBusy` 表达，结束后回到进入前状态。`Ready` = 已打开未播放，进入时**预读第一屏 ~200 帧**填表；从 Ready 开始正式播放时清空预读 ring，避免重复 ingest。播放中修改 ID filter 也清空 ring，保证表格只保留过滤后的新帧。环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
 - **UI 节流与渲染策略**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 50ms 窗口批量 marshal；表格只渲染可视区（~30 行），数据源为环形数组 + 批量 `Reset` 通知，禁止逐行 `NotifyCollectionChanged`（MAUI CollectionView 逐行快速更新在 Android 上必卡）
 - **可测性抽象层**：VM 不直接依赖 MAUI Essentials——`IUiDispatcher`（主线程 marshal）、`IFilePickerGateway`（选文件/缓存目录）定义在纯 net10.0 可见的位置，MAUI 实现放 `Platform/`。这是"net10.0 target 供 VM 单测"成立的前提
 - **播放跟随语义**：默认自动跟随最新帧；用户上滑脱离跟随，浮出"↓回到最新"按钮（IM 语义，零学习成本）
@@ -225,9 +240,9 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 ## 8. 测试策略
 
 - **Host.Core.Tests（xunit，现有 harness）**：
-  - 流式 vs 批量解析**结果一致性对拍**：全部现有 ASC fixture 过 `AscStreamingSource`，与 `AscParser.ParseAsync` 输出逐帧相等（时间戳/ID/Data/IsExtended）
-  - `StreamingTracePlayer`：注入假 `IReplayClock`，测调速/暂停/恢复/Seek 快进落点/EOF/循环外边界——确定性，不睡真时钟
-- **Mobile VM 单测**（纯 `net10.0` target）：状态机迁移、环形缓冲溢出淘汰、50ms 节流批量、SQLite 缓存读写（内存模式 `:memory:`）
+  - 流式 vs 批量解析**结果一致性对拍**：现有 ASC fixture（`tests/PeakCan.Host.App.Tests/Fixtures/Can/*.asc`，通过 linked content 引入 Core.Tests）加人工乱序 fixture。时间有序文件逐帧相等；乱序文件单独断言“流式按文件序、批量 parser 按时间排序”。
+  - `StreamingTracePlayer`：注入假 `IReplayClock` 和可控 source/channel，测调速、暂停/恢复、Seek 快进落点、SeekProgress=1、EOF、失败路径。测试不得使用 `Thread.Sleep` 或真实 `Task.Delay` 等待并发时序。
+- **Mobile VM 单测**（纯 `net10.0` target）：状态机迁移、环形缓冲溢出淘汰、过滤变更清空旧 ring、50ms 节流批量、SQLite 缓存读写（P2 内存模式 `:memory:`）。
 - **真机验收 checklist（手动）**：见 §10 验收标准
 - 覆盖率目标沿用仓库标准：Core 新增代码 ≥80%
 
@@ -236,7 +251,7 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 | Phase | 内容 | 出口标准 |
 |---|---|---|
 | **P0** 环境+骨架 | 装 maui-android workload + Android SDK + JDK17；建 Mobile 项目 + slnx；真机部署空壳 | 空 app 在真机跑起来，`adb` 可见 |
-| **P1** 核心闭环 | Core 流式 ASC API + StreamingTracePlayer；文件入口（FilePicker + intent-filter 直开）；播放/暂停/倍速/Seek；帧表格（环形缓冲+节流+跟随语义）；播放中 ID 过滤（emit 谓词）；后台总时长扫描 | 100MB ASC 首帧 <2s，1x 播放流畅 |
+| **P1** 核心闭环 | Core 流式 ASC API + StreamingTracePlayer；文件入口（FilePicker + intent-filter 直开）；播放/暂停/倍速/Seek；帧表格（环形缓冲+节流+跟随语义）；播放中 ID 过滤（emit 谓词 + 清空旧 ring）；后台总时长扫描 | 冷导入 <5s；缓存命中后点击播放首帧 <2s；1x 播放流畅 |
 | **P2** 分析能力 | DBC 加载 + 信号列；SQLite 回放缓存；暂停回看；播完后完整过滤浏览（SQL `WHERE can_id`） | 加载 DBC 后信号列正确；重开秒开 |
 | **P3** 图表 | LiveCharts2 集成；1-2 信号曲线随回放生长；降采样 | 曲线与表格时间游标同步 |
 | **P4** BLF | `BlfStreamingSource`（窗口重排缓冲） | .blf 可流式回放 |
@@ -247,8 +262,9 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 
 | 指标 | 目标 | 测量方式 |
 |---|---|---|
-| 首帧延迟（100MB ASC） | <2s | 点击文件到首行渲染，真机秒表 |
-| 1x 播放 | 不丢帧、不卡顿 | 目测 + 播放器统计（emit 数 vs 应有数） |
-| 内存 | 稳态 <300MB | `adb dumpsys meminfo` |
+| 冷导入耗时（首次 100MB ASC） | <5s | 点击文件到 TracePage 显示 ready；拷贝进度可见 |
+| 首帧延迟（缓存命中，点击播放到首行） | <2s | 真机秒表；不包含首次拷贝 |
+| 1x 播放 | 不丢帧、不卡顿 | 播放器 `FramesEmitted` vs 扫描 FrameCount + 目测 |
+| 内存 | 稳态 TOTAL PSS <300MB | `adb shell dumpsys meminfo <pkg>` 取 TOTAL PSS |
 | Seek 到文件中点（100MB） | <5s + 进度反馈 | 真机秒表 |
 | 表格滚动 | 播放中滚动不卡 | 目测 60fps 级 |

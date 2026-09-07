@@ -4,7 +4,7 @@
 
 **Goal:** 在 Android（.NET MAUI）上做 peakcan-host 的离线 trace viewer，P1 阶段实现流式 ASC 回放核心闭环——打开文件即流式首帧、播放/暂停/倍速/Seek、帧表格（环形缓冲+跟随语义）、播放中 ID 过滤、后台总时长扫描。
 
-**Architecture:** 流式回放为核心（CANoe 模型），SQLite 留到 P2 作回看缓存。新增 3 个项目：`PeakCan.Host.Mobile.Core`（net10.0 纯逻辑库，可单测，依赖 Host.Core/HIL.Core + CommunityToolkit.Mvvm）、`PeakCan.Host.Mobile`（net10.0-android MAUI app，薄 UI + Platform 实现）、`PeakCan.Host.Mobile.Core.Tests`。Core 解析/播放逻辑落在 `Host.Core/Replay/Streaming/`（additive，不动现有 14 个 `AscParser.ParseAsync` 调用点）。
+**Architecture:** 流式回放为核心（CANoe 模型），SQLite 留到 P2 作回看缓存。v2 修订后，streaming session 拥有并释放 Stream；播放器使用容量 8192 的 bounded channel 实现 backpressure；MAUI 页面通过 factory 创建并放在 NavigationPage 下。新增 3 个项目：`PeakCan.Host.Mobile.Core`（net10.0 纯逻辑库，可单测，依赖 Host.Core/HIL.Core + CommunityToolkit.Mvvm）、`PeakCan.Host.Mobile`（net10.0-android MAUI app，薄 UI + Platform 实现）、`PeakCan.Host.Mobile.Core.Tests`。Core 解析/播放逻辑落在 `Host.Core/Replay/Streaming/`（additive，不动现有 14 个 `AscParser.ParseAsync` 调用点）。
 
 > **架构偏差说明**：spec §5.2 把 VM/服务画进单一 MAUI app 项目 + multi-target `net10.0-android;net10.0`。实施时发现"MAUI app 双 target 纯 net10.0 供单测"有 rough edges（Platforms/ glob、OutputType=Exe、Essentials 类型仅平台 TFM 可见）。改为：VM/服务/纯逻辑进独立的 `Mobile.Core`（net10.0）类库，app 项目只留 Views + Platform impl + 接线。这更符合"可独立单测、边界清晰"原则，spec 的功能设计不变。
 
@@ -19,8 +19,10 @@
 - 中央包管理（`Directory.Packages.props`）：新 `PackageReference` 不带 `Version=`。
 - **Additive only**：`Host.Core` 现有 `AscParser.ParseAsync` 等 14 个调用点不动；只新增 `Host.Core/Replay/Streaming/` 目录。
 - 注释约定：业务逻辑/用户面向注释中文，类型与 API 的 xmldoc 英文（跟随仓库）。
-- 测试：xunit + FluentAssertions，确定性假时钟（复用 `FakeReplayClock`），禁止 `Thread.Sleep`/真时钟等待。
-- 既有可复用：`AscFormat.TryParseDataLine/TryParseDateHeader/LineIsSectionDelimiter`（public static）、`ReplayFrame`、`ReplayState{Stopped,Playing,Paused}`、`PlaybackEndedEventArgs(Exception?)`、`IReplayClock`/`FakeReplayClock`、`ReplayOptions`、`CanIdListParser.Parse(string?)→CanIdParseResult{AllowList,InvalidTokens}`、`WallClockReplayClock`。
+- 测试：xunit + FluentAssertions，确定性假时钟遵循 `FakeReplayClock` 的同步 advance 语义；需要断言 Delay 尺寸时使用 Task 4 的 `RecordingReplayClock`。禁止 `Thread.Sleep`/真实等待。
+- 既有可复用：`AscFormat.TryParseDataLine/TryParseDateHeader/LineIsSectionDelimiter`（public static）、`ReplayFrame`、`ReplayState{Stopped,Playing,Paused}`、`PlaybackEndedEventArgs(Exception?)`、`IReplayClock`/`FakeReplayClock`、`CanIdListParser.Parse(string?)→CanIdParseResult{AllowList,InvalidTokens}`、`WallClockReplayClock`。
+- Streaming session 生命周期：每个 `StreamingTraceOpenResult` 拥有 `SourceStream`，消费者必须 `await using`；不得只 dispose `StreamReader`。
+- Android FilePicker 按 MIME 过滤（`application/octet-stream`、`text/plain`），选择后校验扩展名；P1 拒绝 `.blf`。
 - 真机：Android 12+，开发者模式 + USB 调试已开（用户已确认）。
 
 ---
@@ -227,6 +229,9 @@ dotnet sln PeakCan.Host.Mobile.slnx add src/PeakCan.Host.Mobile/PeakCan.Host.Mob
 dotnet sln PeakCan.Host.Mobile.slnx add src/PeakCan.Host.Mobile.Core/PeakCan.Host.Mobile.Core.csproj
 dotnet sln PeakCan.Host.Mobile.slnx add src/PeakCan.Host.Core/PeakCan.Host.Core.csproj
 dotnet sln PeakCan.Host.Mobile.slnx add tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.csproj
+if (Test-Path '..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj') {
+  dotnet sln PeakCan.Host.Mobile.slnx add '..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj'
+}
 ```
 （`Host.Core` 本身 `ProjectReference` 到 `peakcan-hil-core` 兄弟 repo，条件引用已在 `Host.Core.csproj` 内处理。）
 
@@ -415,11 +420,12 @@ git commit -m "feat(mobile): add Mobile.Core lib + tests + FrameRingBuffer (TDD)
 - Create: `src/PeakCan.Host.Core/Replay/Streaming/StreamingTraceOpenResult.cs`
 - Create: `src/PeakCan.Host.Core/Replay/Streaming/IStreamingTraceSource.cs`
 - Create: `src/PeakCan.Host.Core/Replay/Streaming/AscStreamingSource.cs`
+- Modify: `tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj`（link 现有 ASC fixture）
 - Test: `tests/PeakCan.Host.Core.Tests/Replay/Streaming/AscStreamingSourceTests.cs`
 
 **Interfaces:**
-- Consumes: `AscFormat.TryParseDataLine(string, out ReplayFrame, out string reason)`、`AscFormat.TryParseDateHeader(string)`、`AscFormat.LineIsSectionDelimiter(string)`、`ReplayOptions`、`ReplayFrame`、`ReplayFormatException`
-- Produces: `IStreamingTraceSource.OpenAsync → StreamingTraceOpenResult{WallClockOrigin,TimestampsAreAbsolute,Frames:IAsyncEnumerable<ReplayFrame>,SourceLengthBytes:long?,Stats:StreamingParseStats}`、`StreamingParseStats.SkippedLines/BytesRead`（枚举期间增长）
+- Consumes: `AscFormat.TryParseDataLine(string, out ReplayFrame, out string reason)`、`AscFormat.TryParseDateHeader(string)`、`AscFormat.LineIsSectionDelimiter(string)`、`ReplayFrame`、`ReplayFormatException`
+- Produces: `IStreamingTraceSource.OpenAsync → IAsyncDisposable StreamingTraceOpenResult{WallClockOrigin,TimestampsAreAbsolute,Frames:IAsyncEnumerable<ReplayFrame>,SourceLengthBytes:long?,Stats:StreamingParseStats,SourceStream:Stream?}`、`StreamingParseStats.SkippedLines/BytesRead`（枚举期间增长）
 
 - [ ] **Step 1: 写流式类型 + 接口**
 
@@ -453,12 +459,21 @@ namespace PeakCan.Host.Core.Replay;
 /// lazily enumerated. Re-open (e.g. for <c>StreamingTracePlayer.Seek</c>) by
 /// calling <c>OpenAsync</c> again.
 /// </summary>
-public sealed record StreamingTraceOpenResult(
-    DateTime? WallClockOrigin,
-    bool TimestampsAreAbsolute,
-    IAsyncEnumerable<ReplayFrame> Frames,
-    long? SourceLengthBytes,
-    StreamingParseStats Stats);
+public sealed class StreamingTraceOpenResult : IAsyncDisposable
+{
+    public DateTime? WallClockOrigin { get; init; }
+    public bool TimestampsAreAbsolute { get; init; }
+    public required IAsyncEnumerable<ReplayFrame> Frames { get; init; }
+    public long? SourceLengthBytes { get; init; }
+    public required StreamingParseStats Stats { get; init; }
+    public Stream? SourceStream { get; init; }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (SourceStream is not null)
+            await SourceStream.DisposeAsync();
+    }
+}
 ```
 
 `src/PeakCan.Host.Core/Replay/Streaming/IStreamingTraceSource.cs`：
@@ -476,6 +491,15 @@ public interface IStreamingTraceSource
 {
     Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default);
 }
+```
+
+编辑 `tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj`，link 现有 ASC fixture 到测试输出：
+```xml
+<ItemGroup>
+  <Content Include="..\PeakCan.Host.App.Tests\Fixtures\Can\*.asc"
+           LinkBase="Fixtures\Can\"
+           CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
 ```
 
 - [ ] **Step 2: 写 AscStreamingSource 失败测试**
@@ -515,19 +539,47 @@ internal events logged
     private static (double Ts, uint Id, byte[] Data, bool IsExt) Of(ReplayFrame f)
         => (f.Timestamp, f.Id, f.Data, f.IsExtended);
 
-    [Fact]
-    public async Task Frames_Match_Batch_Parser_ForSameFixture()
+    public static TheoryData<string> ExistingAscFixtures() => new()
     {
-        using var batchStream = AscStream(ThreeFrames);
+        "Fixtures/Can/Logging.asc",
+        "Fixtures/Can/gbt27930-charge-hiccup-1.3s.asc"
+    };
+
+    [Theory]
+    [MemberData(nameof(ExistingAscFixtures))]
+    public async Task Frames_Match_Batch_Parser_ForExistingFixtures(string relativePath)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, relativePath);
+        await using var batchStream = File.OpenRead(path);
         var batch = await AscParser.ParseAsyncWithHeaderAsync(batchStream);
-        using var streamStream = AscStream(ThreeFrames);
-        var source = new AscStreamingSource(() => AscStream(ThreeFrames));
-        var result = await source.OpenAsync();
+
+        var source = new AscStreamingSource(() => File.OpenRead(path));
+        await using var result = await source.OpenAsync();
         var streamed = await ConsumeAll(result.Frames);
 
         streamed.Should().HaveCount(batch.Frames.Count);
         for (int i = 0; i < batch.Frames.Count; i++)
             Of(streamed[i]).Should().BeEquivalentTo(Of(batch.Frames[i]));
+    }
+
+    [Fact]
+    public async Task UnorderedFixture_StreamKeepsFileOrder_BatchSorts()
+    {
+        const string asc = """
+date Wed Jun 28 10:00:00.000 2026
+base 0x7e0 500k timestamps absolute
+ 1.000000 51  100  2  01 02
+ 0.000000 51  200  2  03 04
+ 2.000000 51  300  2  05 06
+""";
+        await using var batchStream = AscStream(asc);
+        var batch = await AscParser.ParseAsyncWithHeaderAsync(batchStream);
+        var source = new AscStreamingSource(() => AscStream(asc));
+        await using var result = await source.OpenAsync();
+        var streamed = await ConsumeAll(result.Frames);
+
+        streamed.Select(f => f.Timestamp).Should().Equal(new[] { 1.0, 0.0, 2.0 });
+        batch.Frames.Select(f => f.Timestamp).Should().Equal(new[] { 0.0, 1.0, 2.0 });
     }
 
     [Fact]
@@ -622,31 +674,49 @@ public sealed class AscStreamingSource : IStreamingTraceSource
 
     public async Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default)
     {
-        Stream stream = _streamFactory();
-        long? length = stream.CanSeek ? stream.Length : null;
-        var stats = new StreamingParseStats();
-        var reader = new StreamReader(stream, leaveOpen: true);
-
-        DateTime? origin = null;
-        bool absolute = false;
-        string? firstDataLine = null;
-
-        string? line;
-        while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
+        Stream? stream = null;
+        try
         {
-            AddBytes(stats, line);
-            var t = line.Trim();
-            if (t.Length == 0 || t.StartsWith("//", StringComparison.Ordinal)) continue;
-            if (t.StartsWith("date ", StringComparison.Ordinal)) { origin ??= AscFormat.TryParseDateHeader(t); continue; }
-            if (t.StartsWith("base ", StringComparison.Ordinal)) { absolute = t.Contains("absolute", StringComparison.OrdinalIgnoreCase); continue; }
-            if (t.StartsWith("internal events", StringComparison.Ordinal)) continue;
-            if (AscFormat.LineIsSectionDelimiter(t)) continue;
-            firstDataLine = t; // 第一个候选数据行（也可能畸形）
-            break;
-        }
+            stream = _streamFactory();
+            long? length = stream.CanSeek ? stream.Length : null;
+            var stats = new StreamingParseStats();
+            var reader = new StreamReader(stream, leaveOpen: true);
 
-        var frames = Enumerate(reader, firstDataLine, stats, ct);
-        return new StreamingTraceOpenResult(origin, absolute, frames, length, stats);
+            DateTime? origin = null;
+            bool absolute = false;
+            string? firstDataLine = null;
+
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
+            {
+                AddBytes(stats, line);
+                var t = line.Trim();
+                if (t.Length == 0 || t.StartsWith("//", StringComparison.Ordinal)) continue;
+                if (t.StartsWith("date ", StringComparison.Ordinal)) { origin ??= AscFormat.TryParseDateHeader(t); continue; }
+                if (t.StartsWith("base ", StringComparison.Ordinal)) { absolute = t.Contains("absolute", StringComparison.OrdinalIgnoreCase); continue; }
+                if (t.StartsWith("internal events", StringComparison.Ordinal)) continue;
+                if (AscFormat.LineIsSectionDelimiter(t)) continue;
+                firstDataLine = t; // 第一个候选数据行（也可能畸形）
+                break;
+            }
+
+            var frames = Enumerate(reader, firstDataLine, stats, ct);
+            return new StreamingTraceOpenResult
+            {
+                WallClockOrigin = origin,
+                TimestampsAreAbsolute = absolute,
+                Frames = frames,
+                SourceLengthBytes = length,
+                Stats = stats,
+                SourceStream = stream,
+            };
+        }
+        catch
+        {
+            if (stream is not null)
+                await stream.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async IAsyncEnumerable<ReplayFrame> Enumerate(
@@ -675,8 +745,13 @@ public sealed class AscStreamingSource : IStreamingTraceSource
                 if (AscFormat.LineIsSectionDelimiter(t)) continue;
 
                 dataLines++;
-                if (AscFormat.TryParseDataLine(t, out var frame, out _)) { emitted++; yield return frame; }
-                else { malformed++; stats.IncSkipped(); }
+                if (AscFormat.TryParseDataLine(t, out var frame, out var reason)) { emitted++; yield return frame; }
+                else
+                {
+                    malformed++;
+                    stats.IncSkipped();
+                    _logger.LogDebug("Skipped malformed ASC line: {Reason}", reason);
+                }
             }
         }
         finally
@@ -708,7 +783,7 @@ Run:
 ```bash
 dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~AscStreamingSourceTests"
 ```
-Expected: 5 passed。
+Expected: 7 passed（Theory 展开 2 个现有 fixture + 5 个其他 test）。
 
 - [ ] **Step 6: 跑 Core 全量回归确认无回归**
 
@@ -721,7 +796,7 @@ Expected: 全绿（additive，不应影响既有测试）。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/PeakCan.Host.Core/Replay/Streaming tests/PeakCan.Host.Core.Tests/Replay/Streaming
+git add src/PeakCan.Host.Core/Replay/Streaming tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj tests/PeakCan.Host.Core.Tests/Replay/Streaming
 git commit -m "feat(core): add streaming ASC source (additive, TDD parity with batch parser)"
 ```
 
@@ -756,12 +831,13 @@ public interface IStreamingTracePlayer : IDisposable
     ReplayState State { get; }
     double CurrentTimestamp { get; }
     double Speed { get; }
+    long FramesEmitted { get; }
 
     event Action<ReplayFrame>? FrameEmitted;
     event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
     event Action<double>? SeekProgress;
 
-    /// <summary>Start or resume playback. Completes when playback reaches EOF, is stopped, or fails.</summary>
+    /// <summary>Start or resume playback. Completes at EOF, failure, external cancellation, or user stop. <see cref="PlaybackEnded"/> fires only for EOF or failure.</summary>
     Task PlayAsync(CancellationToken ct = default);
     void Pause();
     void Resume();
@@ -847,13 +923,13 @@ public class StreamingTracePlayerTests
 
         captured.Should().HaveCount(3);
         captured.Select(f => f.Timestamp).Should().BeEquivalentTo(new[] { 0d, 0.5, 1.0 });
+        player.FramesEmitted.Should().Be(3);
         ended.Should().NotBeNull();
         ended!.Error.Should().BeNull();
-        player.State.Should().Be(ReplayState.Stopped);
     }
 
     [Fact]
-    public async Task Pacing_DelaysMatchTimestamps_At1x()
+    public async Task Delays_MatchTimestampDeltas_At1x()
     {
         var src = MakeSource((0, 0x100), (0.5, 0x200), (1.0, 0x300));
         var clock = new RecordingReplayClock();
@@ -862,8 +938,6 @@ public class StreamingTracePlayerTests
 
         await player.PlayAsync();
 
-        // 帧间 delta 0.5/0.5 秒，1x → delays 0.5/0.5（首帧 due=now → 不 delay）
-        // RecordingReplayClock 对 <=0 也记一条 zero（取决于实现）；断言存在 0.5s 两条
         clock.RecordedDelays.Where(d => d == TimeSpan.FromSeconds(0.5))
             .Should().HaveCountGreaterThanOrEqualTo(2);
     }
@@ -879,22 +953,24 @@ public class StreamingTracePlayerTests
 
         await player.PlayAsync();
 
-        // delta 1.0s / speed 2 → delay 0.5s
         clock.RecordedDelays.Should().Contain(TimeSpan.FromSeconds(0.5));
     }
 
     [Fact]
-    public async Task PauseBeforePlay_BlocksEmission_ThenResumeReleases()
+    public async Task Pause_DuringPlayback_BlocksUntilResume()
     {
         var src = MakeSource((0, 0x100), (0.5, 0x200));
         using var player = new StreamingTracePlayer(src, new RecordingReplayClock());
         var captured = Capture(player);
-        player.Pause();
+        player.FrameEmitted += f =>
+        {
+            if (f.Timestamp == 0)
+                player.Pause();
+        };
 
         var playTask = player.PlayAsync();
-        await Task.Delay(50); // 给 run loop 进到 pause gate
-
-        captured.Should().BeEmpty(); // 被 pause gate 挡住，没 emit
+        playTask.IsCompleted.Should().BeFalse();
+        player.State.Should().Be(ReplayState.Paused);
 
         player.Resume();
         await playTask;
@@ -903,19 +979,19 @@ public class StreamingTracePlayerTests
     }
 
     [Fact]
-    public async Task SeekAsync_FastForwardsToTarget_EmitsFromThere()
+    public async Task SeekFromStopped_FastForwardsToTarget()
     {
         var src = MakeSource((0, 0x100), (0.5, 0x200), (1.0, 0x300), (1.5, 0x400));
         using var player = new StreamingTracePlayer(src, new RecordingReplayClock());
         var captured = Capture(player);
+        var progress = new List<double>();
+        player.SeekProgress += progress.Add;
 
-        var playTask = player.PlayAsync();
-        await Task.Delay(50);
         await player.SeekAsync(1.0);
-        await playTask;
+        await player.PlayAsync();
 
-        // 跳到 1.0 → 只 emit >= 1.0 的帧（1.0, 1.5），跳过 0.0/0.5
         captured.Select(f => f.Timestamp).Should().BeEquivalentTo(new[] { 1.0, 1.5 });
+        progress.Should().Contain(1.0);
     }
 
     [Fact]
@@ -967,6 +1043,7 @@ Expected: 编译失败（`StreamingTracePlayer` 不存在）。
 ```csharp
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Threading.Channels;
 
 namespace PeakCan.Host.Core.Replay;
 
@@ -983,15 +1060,16 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
     private readonly IStreamingTraceSource _source;
     private readonly IReplayClock _clock;
     private readonly ILogger _logger;
-    private readonly SemaphoreSlim _pauseGate = new(1, 1);
+    private readonly SemaphoreSlim _pauseGate = new(0, 1);
     private readonly object _lifecycleLock = new();
 
     private CancellationTokenSource? _runCts;
     private double _speed = 1.0;
     private double _currentTimestamp;
-    private double? _seekTarget;     // pending seek position
+    private double? _seekTarget;
     private bool _reanchorRequested = true;
     private ReplayState _state = ReplayState.Stopped;
+    private long _framesEmitted;
     private bool _disposed;
 
     public StreamingTracePlayer(IStreamingTraceSource source, IReplayClock? clock = null, ILogger? logger = null)
@@ -1004,6 +1082,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
     public ReplayState State { get { lock (_lifecycleLock) return _state; } }
     public double CurrentTimestamp { get { lock (_lifecycleLock) return _currentTimestamp; } }
     public double Speed { get { lock (_lifecycleLock) return _speed; } }
+    public long FramesEmitted => Interlocked.Read(ref _framesEmitted);
 
     public event Action<ReplayFrame>? FrameEmitted;
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
@@ -1011,6 +1090,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
 
     public async Task PlayAsync(CancellationToken ct = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_lifecycleLock)
         {
             if (_state == ReplayState.Playing) return;
@@ -1034,15 +1114,12 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
                 }
 
                 var outcome = await RunLoopAsync(startFrom, runCts.Token).ConfigureAwait(false);
-
                 lock (_lifecycleLock) _runCts = null;
 
                 switch (outcome.Kind)
                 {
                     case RunOutcome.Eof:
-                    case RunOutcome.Stopped:
                         _state = ReplayState.Stopped;
-                        if (outcome.Kind == RunOutcome.Stopped) _currentTimestamp = 0;
                         PlaybackEnded?.Invoke(this, new PlaybackEndedEventArgs());
                         return;
                     case RunOutcome.Failed:
@@ -1050,33 +1127,64 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
                         PlaybackEnded?.Invoke(this, new PlaybackEndedEventArgs(outcome.Error));
                         return;
                     case RunOutcome.SeekRequested:
-                        continue; // 续：startFrom 在下一轮从 _seekTarget 取
+                        continue;
+                    case RunOutcome.Stopped:
+                    default:
+                        _state = ReplayState.Stopped;
+                        _currentTimestamp = 0;
+                        return;
                 }
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        finally { lock (_lifecycleLock) { if (_state == ReplayState.Playing) _state = ReplayState.Stopped; } }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            lock (_lifecycleLock) _state = ReplayState.Stopped;
+        }
+        finally
+        {
+            lock (_lifecycleLock)
+            {
+                if (_state == ReplayState.Playing) _state = ReplayState.Stopped;
+            }
+        }
     }
 
     public void Pause()
     {
-        bool wasPlaying;
-        lock (_lifecycleLock) { wasPlaying = _state == ReplayState.Playing; if (wasPlaying) _state = ReplayState.Paused; }
-        if (wasPlaying) _pauseGate.Wait(); // 取走 gate，run loop 将在下一帧阻塞
+        lock (_lifecycleLock)
+        {
+            if (_state != ReplayState.Playing) return;
+            _state = ReplayState.Paused;
+        }
+        _pauseGate.Wait(); // 取走 gate；run loop 在下一帧阻塞
     }
 
     public void Resume()
     {
-        bool wasPaused;
-        lock (_lifecycleLock) { wasPaused = _state == ReplayState.Paused; if (wasPaused) { _state = ReplayState.Playing; _reanchorRequested = true; } }
-        if (wasPaused) _pauseGate.Release();
+        lock (_lifecycleLock)
+        {
+            if (_state != ReplayState.Paused) return;
+            _state = ReplayState.Playing;
+            _reanchorRequested = true;
+        }
+        _pauseGate.Release();
     }
-    private void ResumeImpl() { _state = ReplayState.Playing; _reanchorRequested = true; _pauseGate.Release(); }
+
+    private void ResumeImpl()
+    {
+        _state = ReplayState.Playing;
+        _reanchorRequested = true;
+        _pauseGate.Release();
+    }
 
     public void SetSpeed(double multiplier)
     {
-        if (multiplier <= 0) throw new ArgumentOutOfRangeException(nameof(multiplier));
-        lock (_lifecycleLock) { _speed = multiplier; _reanchorRequested = true; }
+        if (double.IsNaN(multiplier)) throw new ArgumentOutOfRangeException(nameof(multiplier));
+        lock (_lifecycleLock)
+        {
+            _speed = Math.Clamp(multiplier, 0.1, 100.0);
+            _reanchorRequested = true;
+        }
     }
 
     public Task SeekAsync(double timestamp, CancellationToken ct = default)
@@ -1097,26 +1205,47 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
 
     public void Stop()
     {
-        lock (_lifecycleLock) { if (_state == ReplayState.Stopped) return; _state = ReplayState.Stopped; _seekTarget = null; }
+        lock (_lifecycleLock)
+        {
+            if (_state == ReplayState.Stopped) return;
+            _state = ReplayState.Stopped;
+            _seekTarget = null;
+        }
         _runCts?.Cancel();
-        try { _pauseGate.Release(); } catch (SemaphoreFullException) { }
     }
 
     private async Task<RunOutcome> RunLoopAsync(double startFrom, CancellationToken ct)
     {
         StreamingTraceOpenResult session;
-        try { session = await _source.OpenAsync(ct).ConfigureAwait(false); }
-        catch (OperationCanceledException) { return RunOutcome.SeekOrCancel(_seekTarget); }
-        catch (Exception ex) { return RunOutcome.Failed(ex); }
+        try
+        {
+            session = await _source.OpenAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return RunOutcome.SeekOrCancel(_seekTarget);
+        }
+        catch (Exception ex)
+        {
+            return RunOutcome.Failed(ex);
+        }
 
+        await using var ownedSession = session;
+        var channel = Channel.CreateBounded<ReplayFrame>(new BoundedChannelOptions(8192)
+        {
+            SingleReader = true,
+            SingleWriter = true,
+            FullMode = BoundedChannelFullMode.Wait,
+        });
+        var pumpTask = PumpFramesAsync(session, channel.Writer, ct);
+        var anchored = false;
+        bool fastForwarding = startFrom > 0;
         DateTime anchorClock = default;
         double anchorTs = 0;
-        bool anchored = false;
-        bool fastForwarding = startFrom > 0;
 
         try
         {
-            await foreach (var frame in session.Frames.WithCancellation(ct).ConfigureAwait(false))
+            await foreach (var frame in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
                 if (fastForwarding)
                 {
@@ -1127,10 +1256,10 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
                         continue;
                     }
                     fastForwarding = false;
-                    _reanchorRequested = true; // seek 后重新锚定
+                    _reanchorRequested = true;
+                    SeekProgress?.Invoke(1.0);
                 }
 
-                // Pause gate：paused 时阻塞在此
                 await _pauseGate.WaitAsync(ct).ConfigureAwait(false);
                 _pauseGate.Release();
 
@@ -1145,25 +1274,54 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
                     }
                 }
 
-                var due = anchorClock + TimeSpan.FromSeconds((frame.Timestamp - anchorTs) / Speed);
+                var due = anchorClock + TimeSpan.FromSeconds((frame.Timestamp - anchorTs) / _speed);
                 var remaining = due - _clock.Now;
                 if (remaining > TimeSpan.Zero)
                     await _clock.Delay(remaining, ct).ConfigureAwait(false);
 
                 lock (_lifecycleLock) _currentTimestamp = frame.Timestamp;
+                Interlocked.Increment(ref _framesEmitted);
                 FrameEmitted?.Invoke(frame);
             }
+
+            var pumpError = await pumpTask.ConfigureAwait(false);
+            if (pumpError is not null) throw pumpError;
+            if (fastForwarding) SeekProgress?.Invoke(1.0);
             return RunOutcome.Eof;
         }
         catch (OperationCanceledException)
         {
-            lock (_lifecycleLock)
-            {
-                if (_seekTarget.HasValue) return RunOutcome.SeekOrCancel(_seekTarget);
-            }
+            if (_seekTarget.HasValue) return RunOutcome.SeekOrCancel(_seekTarget);
             return RunOutcome.Stopped;
         }
-        catch (Exception ex) { return RunOutcome.Failed(ex); }
+        catch (Exception ex)
+        {
+            return RunOutcome.Failed(ex);
+        }
+    }
+
+    private static async Task<Exception?> PumpFramesAsync(
+        StreamingTraceOpenResult session,
+        ChannelWriter<ReplayFrame> writer,
+        CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var frame in session.Frames.WithCancellation(ct).ConfigureAwait(false))
+                await writer.WriteAsync(frame, ct).ConfigureAwait(false);
+            writer.TryComplete();
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            writer.TryComplete(new OperationCanceledException(ct));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            writer.TryComplete(ex);
+            return ex;
+        }
     }
 
     public void Dispose()
@@ -1171,7 +1329,6 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         if (_disposed) return;
         _disposed = true;
         Stop();
-        _pauseGate.Dispose();
     }
 
     private readonly record struct RunOutcome(RunOutcomeKind Kind, Exception? Error, double? Seek)
@@ -1181,6 +1338,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         public static RunOutcome Failed(Exception ex) => new(RunOutcomeKind.Failed, ex, null);
         public static RunOutcome SeekOrCancel(double? seek) => new(RunOutcomeKind.SeekRequested, null, seek);
     }
+
     private enum RunOutcomeKind { Eof, Stopped, Failed, SeekRequested }
 }
 ```
@@ -1191,7 +1349,7 @@ Run:
 ```bash
 dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~StreamingTracePlayerTests"
 ```
-Expected: 6 passed。若 `PauseBeforePlay`/`SeekAsync` 因异步时序 flaky，在 `await Task.Delay(50)` 处加注释说明或用 `await Task.Yield()` 重试；确定性优先于消除"给 run loop 一点时间"。
+Expected: 6 passed。测试通过“首帧 emit 时调用 Pause”和 `playTask.IsCompleted == false` 观察阻塞，不使用真实 `Task.Delay`。
 
 - [ ] **Step 7: 跑 Core 全量回归**
 
@@ -1377,7 +1535,7 @@ public interface IUiDispatcher
 ```csharp
 namespace PeakCan.Host.Mobile.Core.Platform;
 
-public sealed record PickedTraceFile(string DisplayName, long SizeBytes, Func<Stream> OpenRead);
+public sealed record PickedTraceFile(string DisplayName, long SizeBytes, Func<CancellationToken, Task<Stream>> OpenReadAsync);
 
 /// <summary>File picking + cache-directory provider. Abstracted so VM/tests
 /// don't depend on MAUI FilePicker/FileSystem APIs directly.</summary>
@@ -1407,7 +1565,7 @@ public class TraceFileCacheTests : IDisposable
     public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch { } }
 
     private static PickedTraceFile Pick(string name, byte[] content)
-        => new(name, content.Length, () => new MemoryStream(content));
+        => new(name, content.Length, _ => Task.FromResult<Stream>(new MemoryStream(content)));
 
     [Fact]
     public async Task ImportAsync_WritesFile_AndReturnsPath()
@@ -1423,7 +1581,7 @@ public class TraceFileCacheTests : IDisposable
     {
         var cache = new TraceFileCache(_dir);
         bool opened = false;
-        var pick = new PickedTraceFile("foo.asc", 3, () => { opened = true; return new MemoryStream(new byte[] { 1, 2, 3 }); });
+        var pick = new PickedTraceFile("foo.asc", 3, _ => { opened = true; return Task.FromResult<Stream>(new MemoryStream(new byte[] { 1, 2, 3 })); });
 
         var p1 = await cache.ImportAsync(pick);
         opened.Should().BeTrue("first import must copy");
@@ -1485,7 +1643,7 @@ public sealed class TraceFileCache
         if (File.Exists(path)) return path; // cache hit — 不再读流
 
         var tmp = path + ".partial";
-        await using (var src = file.OpenRead())
+        await using (var src = await file.OpenReadAsync(ct).ConfigureAwait(false))
         await using (var dst = File.Create(tmp))
         {
             var buffer = new byte[256 * 1024];
@@ -1543,7 +1701,7 @@ git commit -m "feat(mobile): add IUiDispatcher/IFilePickerGateway abstractions +
 
 **Interfaces:**
 - Consumes: `IStreamingTracePlayer`（Task 4）、`IStreamingTraceSource`（Task 3）、`IUiDispatcher`（Task 6）、`DurationScanner`（Task 5）、`FrameRingBuffer`/`FrameRow`（Task 2）、`CanIdListParser.Parse`（Core）
-- Produces: `TraceSessionViewModel`（`OpenAsync(path)`、`TogglePlay`、`SeekTo(double)`、`SetSpeed(double)`、`SetIdFilter(string)`、`VisibleRows`、`State`、`CurrentTimeText`、`DurationText`、`Progress01`、`IsSeekBusy`、`Stop`）
+- Produces: `TraceSessionViewModel`（`OpenAsync(path)`、`TogglePlay`、`SeekTo(double)`、`SetSpeed(double)`、`SetIdFilter(string)`、`VisibleRows`、`State`、`CurrentTimeText`、`DurationText`、`DurationScanProgress`、`DurationKnown`、`PlayPauseLabel`、`Progress01`、`IsSeekBusy`、`Stop`、`PauseForBackground()`）
 
 - [ ] **Step 1: 写 SessionState + fakes 骨架**
 
@@ -1587,6 +1745,7 @@ public sealed class FakeStreamingTracePlayer : IStreamingTracePlayer
     public ReplayState State { get; set; } = ReplayState.Stopped;
     public double CurrentTimestamp { get; set; }
     public double Speed { get; set; } = 1.0;
+    public long FramesEmitted { get; set; }
     public event Action<ReplayFrame>? FrameEmitted;
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
     public event Action<double>? SeekProgress;
@@ -1627,9 +1786,9 @@ public class TraceSessionViewModelTests
 
     private sealed class FakeSourceFactory : IStreamingSourceFactory
     {
-        public IStreamingTraceSource LastSource = null!;
-        public IStreamingTraceSource Create(string path)
-            => LastSource = Substitute.For<IStreamingTraceSource>();
+        public IStreamingTraceSource NextSource { get; } = Substitute.For<IStreamingTraceSource>();
+        public IStreamingTraceSource LastSource => NextSource;
+        public IStreamingTraceSource Create(string path) => NextSource;
     }
 
     private sealed class Env
@@ -1731,6 +1890,39 @@ public class TraceSessionViewModelTests
         env.Vm.SetSpeed(4.0);
         env.Player.Speed.Should().Be(4.0);
     }
+
+    [Fact]
+    public async Task TogglePlay_FromReady_ClearsPrefetchedRing()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 1), F(0.5, 2));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+
+        await env.Vm.OpenAsync("foo.asc");
+        env.Vm.VisibleRows.Should().HaveCount(2);
+
+        env.Vm.TogglePlayCommand.Execute(null);
+        env.Vm.State.Should().Be(SessionState.Playing);
+        env.Vm.VisibleRows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SetIdFilter_ClearsExistingRows_AndAppliesToFutureFrames()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit();
+        env.Player.Emit(F(0.0, 0x100));
+        env.Player.Emit(F(0.1, 0x200));
+        env.DrainTimer.Tick();
+        env.Vm.VisibleRows.Should().HaveCount(2);
+
+        env.Vm.SetIdFilter("100");
+        env.Vm.VisibleRows.Should().BeEmpty();
+
+        env.Player.Emit(F(0.2, 0x100));
+        env.DrainTimer.Tick();
+        env.Vm.VisibleRows.Should().ContainSingle().Which.Id.Should().Be(0x100u);
+    }
 }
 
 // 测试用：可控的惰性帧流
@@ -1739,7 +1931,11 @@ internal sealed class AsyncFrameSeq
     private readonly ReplayFrame[] _frames;
     public AsyncFrameSeq(params ReplayFrame[] frames) => _frames = frames;
     public StreamingTraceOpenResult OpenResult =>
-        new(null, false, Yield(), null, new StreamingParseStats());
+        new()
+        {
+            Frames = Yield(),
+            Stats = new StreamingParseStats()
+        };
     private async IAsyncEnumerable<ReplayFrame> Yield(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -1818,14 +2014,29 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory, ILogger? logger = null)
     {
-        _ui = ui; _sourceFactory = sourceFactory; _playerFactory = playerFactory;
+        _ui = ui;
+        _sourceFactory = sourceFactory;
+        _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
     }
 
-    public SessionState State { get => _state; private set { if (_state != value) { _state = value; OnPropertyChanged(); } } }
+    public SessionState State
+    {
+        get => _state;
+        private set
+        {
+            if (_state == value) return;
+            _state = value;
+            OnPropertyChanged();
+            PlayPauseLabel = value == SessionState.Playing ? "⏸" : "▶";
+        }
+    }
 
     [ObservableProperty] private string _currentTimeText = "00:00:00";
     [ObservableProperty] private string _durationText = "??:??";
+    [ObservableProperty] private double _durationScanProgress;
+    [ObservableProperty] private bool _durationKnown;
+    [ObservableProperty] private string _playPauseLabel = "▶";
     [ObservableProperty] private double _progress01;
     [ObservableProperty] private bool _isSeekBusy;
     [ObservableProperty] private string? _errorMessage;
@@ -1833,11 +2044,16 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     public IReadOnlyList<FrameRow> VisibleRows => _ring.Snapshot();
 
-    /// <summary>Open a cached file. Prefetch first screen (~200 frames) so the
-    /// table shows data immediately in Ready state; kick DurationScanner in the
-    /// background to populate the time-axis range.</summary>
+    /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
     public async Task OpenAsync(string cachedFilePath, CancellationToken ct = default)
     {
+        State = SessionState.Empty;
+        ErrorMessage = null;
+        DurationKnown = false;
+        DurationText = "??:??";
+        DurationScanProgress = 0;
+        ClearPlaybackBuffer();
+
         var source = _sourceFactory.Create(cachedFilePath);
         var open = await source.OpenAsync(ct);
         int prefetched = 0;
@@ -1846,6 +2062,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             _ring.Add(FrameRow.FromReplayFrame(f));
             if (++prefetched >= 200) break;
         }
+
         State = SessionState.Ready;
         RaiseRowsChanged();
         _player = _playerFactory(source);
@@ -1853,23 +2070,34 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _player.PlaybackEnded += OnPlaybackEnded;
         _player.SeekProgress += OnSeekProgress;
 
+        var progress = new Progress<double>(p => _ui.Post(() => DurationScanProgress = p));
         _ = Task.Run(async () =>
         {
             try
             {
                 await using var fs = new FileStream(cachedFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                var scan = await DurationScanner.ScanAsync(fs, null, ct);
+                var scan = await DurationScanner.ScanAsync(fs, progress, ct).ConfigureAwait(false);
                 _duration = scan.DurationSeconds;
                 _durationKnown = true;
-                _ui.Post(() => DurationText = FormatTime(_duration));
+                _ui.Post(() =>
+                {
+                    DurationKnown = true;
+                    DurationText = FormatTime(_duration);
+                });
             }
-            catch (Exception ex) { _logger.LogWarning(ex, "duration scan failed"); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "duration scan failed");
+            }
         }, ct);
     }
 
     private void OnFrameEmitted(ReplayFrame f)
     {
-        lock (_emitGate) { if (PassesFilter(f)) _pending.Add(f); }
+        lock (_emitGate)
+        {
+            if (PassesFilter(f)) _pending.Add(f);
+        }
     }
 
     private bool PassesFilter(ReplayFrame f) => _idFilter is null || _idFilter.Contains(f.Id);
@@ -1877,35 +2105,76 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private void Drain()
     {
         List<ReplayFrame> batch;
-        lock (_emitGate) { if (_pending.Count == 0) return; batch = new List<ReplayFrame>(_pending); _pending.Clear(); }
-        if (batch.Count == 0) return;
+        lock (_emitGate)
+        {
+            if (_pending.Count == 0) return;
+            batch = new List<ReplayFrame>(_pending);
+            _pending.Clear();
+        }
+
         foreach (var f in batch) _ring.Add(FrameRow.FromReplayFrame(f));
-        if (batch.Count > 0) CurrentTimeText = FormatTime(batch[^1].Timestamp);
-        if (_durationKnown && _duration > 0) Progress01 = batch[^1].Timestamp / _duration;
+        CurrentTimeText = FormatTime(batch[^1].Timestamp);
+        if (_durationKnown && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
         RaiseRowsChanged();
     }
 
     private void RaiseRowsChanged() => OnPropertyChanged(nameof(VisibleRows));
 
+    private void ClearPlaybackBuffer()
+    {
+        lock (_emitGate) _pending.Clear();
+        _ring.Clear();
+    }
+
     private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
     {
         _ui.Post(() =>
         {
-            if (e.Error is null) State = SessionState.Ended;
-            else { State = SessionState.Failed; ErrorMessage = e.Error.Message; }
-            _drainTimer?.Dispose(); _drainTimer = null;
+            IsSeekBusy = false;
+            if (e.Error is null)
+                State = SessionState.Ended;
+            else
+            {
+                State = SessionState.Failed;
+                ErrorMessage = e.Error.Message;
+            }
+            _drainTimer?.Dispose();
+            _drainTimer = null;
             Drain();
         });
     }
 
-    private void OnSeekProgress(double p) => _ui.Post(() => { IsSeekBusy = p < 1.0; Progress01 = p; });
+    private void OnSeekProgress(double p)
+    {
+        _ui.Post(() =>
+        {
+            IsSeekBusy = p < 1.0;
+            if (_durationKnown && _duration > 0) Progress01 = Math.Clamp(p, 0, 1);
+        });
+    }
 
     [RelayCommand]
     private void TogglePlay()
     {
         if (_player is null) return;
-        if (State == SessionState.Playing) { _player.Pause(); State = SessionState.Paused; return; }
-        _player.PlayAsync();
+
+        if (State == SessionState.Playing)
+        {
+            _player.Pause();
+            State = SessionState.Paused;
+            return;
+        }
+
+        // 预读首屏仅用于打开后 preview；正式播放从头开始，避免重复 ingest。
+        if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
+        {
+            ClearPlaybackBuffer();
+            CurrentTimeText = "00:00:00";
+            Progress01 = 0;
+            RaiseRowsChanged();
+        }
+
+        _ = _player.PlayAsync();
         State = SessionState.Playing;
         _drainTimer ??= _ui.StartTimer(TimeSpan.FromMilliseconds(50), Drain);
     }
@@ -1914,36 +2183,53 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private void Stop()
     {
         _player?.Stop();
-        _drainTimer?.Dispose(); _drainTimer = null;
-        State = SessionState.Ended;
-        Drain();
+        _drainTimer?.Dispose();
+        _drainTimer = null;
+        IsSeekBusy = false;
+        ClearPlaybackBuffer();
+        CurrentTimeText = "00:00:00";
+        Progress01 = 0;
+        State = SessionState.Ready;
+        RaiseRowsChanged();
     }
 
     [RelayCommand]
     private void SeekTo(double timestamp)
     {
-        if (_player is null) return;
+        if (_player is null || !_durationKnown) return;
         IsSeekBusy = true;
-        _player.SeekAsync(timestamp);
+        _ = _player.SeekAsync(Math.Clamp(timestamp, 0, _duration));
     }
 
     partial void OnIdFilterTextChanged(string? value)
     {
         var parsed = CanIdListParser.Parse(value);
         _idFilter = parsed.AllowList;
-        // 过滤变更后立即对现有 ring 重筛（P2 SQLite 路径在 P2 加；P1 仅 ring 内重筛不可能，
-        // ring 只保留最近 5000 帧 → 这里只影响后续 emit；接受此限制）
+
+        // 过滤变更必须满足验收语义：表格只保留匹配帧。P1 清空已有 ring，
+        // 后续只 ingest 匹配帧；SQLite 全量回看在 P2 实现。
+        ClearPlaybackBuffer();
+        RaiseRowsChanged();
     }
 
-    /// <summary>设置 ID 过滤（十六进制，逗号分隔；空串=清除）。</summary>
-    public void SetIdFilter(string text) { IdFilterText = string.IsNullOrWhiteSpace(text) ? null : text; }
+    /// <summary>Set CAN ID filter (hex IDs separated by commas; null/empty clears it).</summary>
+    public void SetIdFilter(string text)
+    {
+        IdFilterText = string.IsNullOrWhiteSpace(text) ? null : text;
+    }
 
-    // —— 测试 helper（internal，InternalsVisibleTo 测试项目）——
     internal void MarkReadyForEmit()
     {
         State = SessionState.Playing;
-        _ring.Clear();
+        ClearPlaybackBuffer();
         _drainTimer ??= _ui.StartTimer(TimeSpan.FromMilliseconds(50), Drain);
+    }
+
+    internal void PauseForBackground()
+    {
+        if (_player is null || State != SessionState.Playing) return;
+        _player.Pause();
+        State = SessionState.Paused;
     }
 
     private static string FormatTime(double seconds) =>
@@ -1976,7 +2262,7 @@ Run:
 ```bash
 dotnet test tests/PeakCan.Host.Mobile.Core.Tests --filter "FullyQualifiedName~TraceSessionViewModelTests"
 ```
-Expected: 8 passed。若 `FrameEmitted_AccumulatesInPending_NotVisibleUntilDrainTick` 依赖 ring 含内容判定——`MarkReadyForEmit` 已清 ring 并置 Playing，emit 后 drain 应见 1 行。
+Expected: 10 passed。`TogglePlay_FromReady_ClearsPrefetchedRing` 防止预读首屏和正式播放重复 ingest；`SetIdFilter_ClearsExistingRows_AndAppliesToFutureFrames` 锁定验收语义。
 
 - [ ] **Step 6: Commit**
 
@@ -2002,6 +2288,42 @@ git commit -m "feat(mobile): add TraceSessionViewModel (state machine + ring + t
 **Interfaces:**
 - Consumes: `TraceSessionViewModel`（Task 7）、`IUiDispatcher`/`IFilePickerGateway`/`IStreamingSourceFactory`（Task 6/7）、`TraceFileCache`（Task 6）、`AscStreamingSource`（Task 3）
 - Produces: 可运行的 Android UI：文件页 → 选 .asc → trace 页（控制条 + 帧表格 + 过滤 + 跟随语义 + 帧详情）
+
+- [ ] **Step 0: TracePageFactory（避免 Page 构造函数读取 Handler）**
+
+`src/PeakCan.Host.Mobile/Platform/ITracePageFactory.cs`：
+```csharp
+using Microsoft.Maui.Controls;
+
+namespace PeakCan.Host.Mobile.Platform;
+
+public interface ITracePageFactory
+{
+    ContentPage Create(string cachedFilePath);
+}
+```
+
+`src/PeakCan.Host.Mobile/Platform/TracePageFactory.cs`：
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using PeakCan.Host.Mobile.Core.Platform;
+using PeakCan.Host.Mobile.Views;
+
+namespace PeakCan.Host.Mobile.Platform;
+
+public sealed class TracePageFactory : ITracePageFactory
+{
+    private readonly IServiceProvider _services;
+
+    public TracePageFactory(IServiceProvider services) => _services = services;
+
+    public ContentPage Create(string cachedFilePath)
+        => new TracePage(
+            _services.GetRequiredService<IUiDispatcher>(),
+            _services.GetRequiredService<IStreamingSourceFactory>(),
+            cachedFilePath);
+}
+```
 
 - [ ] **Step 1: PlatformUiDispatcher（MAUI MainThread）**
 
@@ -2044,7 +2366,7 @@ public sealed class MauiFilePickerGateway : IFilePickerGateway
         var custom = new FilePickerFileType(
             new Dictionary<DevicePlatform, IEnumerable<string>>
             {
-                [DevicePlatform.Android] = new[] { ".asc", ".blf" }
+                [DevicePlatform.Android] = new[] { "application/octet-stream", "text/plain" }
             });
         var result = await FilePicker.Default.PickAsync(new PickOptions
         {
@@ -2053,11 +2375,13 @@ public sealed class MauiFilePickerGateway : IFilePickerGateway
         });
         if (result is null) return null;
 
-        long size = 0;
-        await using (var s = await result.OpenReadAsync())
-            size = s.Length;
+        if (!string.Equals(Path.GetExtension(result.FileName), ".asc", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("P1 仅支持 .asc 文件；.blf 将在后续版本支持。");
+
+        await using var stream = await result.OpenReadAsync(ct);
+        var size = stream.Length;
         var name = result.FileName;
-        return new PickedTraceFile(name, size, () => result.OpenReadAsync().GetAwaiter().GetResult());
+        return new PickedTraceFile(name, size, ct => result.OpenReadAsync(ct));
     }
 }
 ```
@@ -2114,6 +2438,7 @@ public sealed class AscStreamingSourceFactory : IStreamingSourceFactory
 ```csharp
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
+using PeakCan.Host.Mobile.Platform;
 
 namespace PeakCan.Host.Mobile.Views;
 
@@ -2121,32 +2446,48 @@ public partial class FilesPage : ContentPage
 {
     private readonly IFilePickerGateway _picker;
     private readonly TraceFileCache _cache;
+    private readonly ITracePageFactory _tracePageFactory;
 
     public record RecentItem(string DisplayName, string Subtitle, string CachedPath);
 
-    public FilesPage(IFilePickerGateway picker, TraceFileCache cache)
+    public FilesPage(IFilePickerGateway picker, TraceFileCache cache, ITracePageFactory tracePageFactory)
     {
         InitializeComponent();
         _picker = picker;
         _cache = cache;
-        // P1：最近文件列表暂用 cache 目录扫描填充（简单实现）
+        _tracePageFactory = tracePageFactory;
         RefreshRecent();
     }
 
     private void RefreshRecent()
     {
         var items = Directory.GetFiles(_cache.CacheDirectory, "*.asc")
-            .Select(p => new RecentItem(Path.GetFileNameWithoutExtension(p), $"{new FileInfo(p).Length / 1024} KB", p))
+            .Select(p =>
+            {
+                var info = new FileInfo(p);
+                var suffix = $".{info.Length}.asc";
+                var name = info.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                    ? info.Name[..^suffix.Length]
+                    : info.Name;
+                return new RecentItem(name, $"{info.Length / 1024} KB", p);
+            })
             .ToList();
         RecentList.ItemsSource = items;
     }
 
     private async void OnOpenClicked(object? sender, EventArgs e)
     {
-        var picked = await _picker.PickTraceFileAsync();
-        if (picked is null) return;
-        var path = await _cache.ImportAsync(picked);
-        await Navigation.PushAsync(new TracePage(path));
+        try
+        {
+            var picked = await _picker.PickTraceFileAsync();
+            if (picked is null) return;
+            var path = await _cache.ImportAsync(picked);
+            await Navigation.PushAsync(_tracePageFactory.Create(path));
+        }
+        catch (InvalidOperationException ex)
+        {
+            await DisplayAlert("无法打开文件", ex.Message, "确定");
+        }
     }
 }
 ```
@@ -2169,6 +2510,8 @@ public partial class FilesPage : ContentPage
             <Label Text="{Binding CurrentTimeText}" VerticalOptions="Center" />
             <Label Text="/" VerticalOptions="Center" />
             <Label Text="{Binding DurationText}" VerticalOptions="Center" />
+            <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}"
+                   FontSize="12" VerticalOptions="Center" />
         </HorizontalStackLayout>
 
         <Slider Grid.Row="1" Minimum="0" Maximum="1" Value="{Binding Progress01}"
@@ -2183,6 +2526,9 @@ public partial class FilesPage : ContentPage
                         <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnRowTapped" />
+                        </Grid.GestureRecognizers>
                     </Grid>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
@@ -2199,6 +2545,7 @@ public partial class FilesPage : ContentPage
 ```
 `Views/TracePage.xaml.cs`：
 ```csharp
+using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.ViewModels;
 
@@ -2209,11 +2556,9 @@ public partial class TracePage : ContentPage
     private readonly TraceSessionViewModel _vm;
     private bool _following = true;
 
-    public TracePage(string cachedFilePath)
+    public TracePage(IUiDispatcher ui, IStreamingSourceFactory sourceFactory, string cachedFilePath)
     {
         InitializeComponent();
-        var ui = (PlatformUiDispatcher)Handler?.MauiContext?.Services.GetService(typeof(IUiDispatcher))!;
-        var sourceFactory = (AscStreamingSourceFactory)Handler?.MauiContext?.Services.GetService(typeof(IStreamingSourceFactory))!;
         _vm = new TraceSessionViewModel(ui, sourceFactory, src =>
             new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null));
         BindingContext = _vm;
@@ -2223,7 +2568,7 @@ public partial class TracePage : ContentPage
         _vm.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName == nameof(TraceSessionViewModel.VisibleRows) && _following)
-                Device.BeginInvokeOnMainThread(() => Frames.ScrollTo(_vm.VisibleRows.Count - 1, position: ScrollToPosition.End, animate: false));
+                _ui.Post(() => Frames.ScrollTo(_vm.VisibleRows.Count - 1, position: ScrollToPosition.End, animate: false));
         };
         _ = _vm.OpenAsync(cachedFilePath);
     }
@@ -2246,9 +2591,15 @@ public partial class TracePage : ContentPage
         // 用户上滑脱离底部 → 取消跟随；到底 → 恢复
         _following = e.BottomItemIndex >= _vm.VisibleRows.Count - 2;
     }
+
+    private void OnRowTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is not BindableObject { BindingContext: FrameRow row }) return;
+        _ = Navigation.PushAsync(new FrameDetailSheet($"0x{row.IdText} @ {row.TimeText}", row.DataText));
+    }
 }
 ```
-注：`TraceSessionViewModel.DurationKnown` 属性（ObservableProperty `bool DurationKnown`）—— 在 Task 7 的 OpenAsync 完成时 setter 设 `DurationKnown = true`（补一行：`_ui.Post(() => { DurationText = FormatTime(_duration); DurationKnown = true; })`）。`PlayPauseLabel` 同理需 ObservableProperty（按 State 切 "▶"/"⏸"）—— 在 Task 7 实现 `partial void OnStateChanged` 或在 TogglePlay 里同步设 `PlayPauseLabel`。**实现者补这两个 ObservableProperty**（`DurationKnown`、`PlayPauseLabel`），代码模式与 `CurrentTimeText` 一致；不另起 Task。
+注：`DurationKnown`、`PlayPauseLabel`、`DurationScanProgress` 已在 Task 7 的 `TraceSessionViewModel` 中定义；播放器后续帧 drain 时会驱动它们，无需额外补丁。
 
 - [ ] **Step 6: FrameDetailSheet（P1：原始字节）**
 
@@ -2283,7 +2634,7 @@ public partial class FrameDetailSheet : ContentPage
     }
 }
 ```
-在 TracePage 的 `Frames.ItemTemplate` 里给 `<Grid>` 加 `GestureRecognizers` → `TapGestureRecognizer Tapped="OnRowTapped"`，`OnRowTapped` 弹出 `FrameDetailSheet`（取行数据）。**实现者补**：`OnRowTapped` + XAML 手势注册（约 10 行）。
+`TracePage` 的 `Frames.ItemTemplate` 已在上方注册 `TapGestureRecognizer`；`OnRowTapped` 已在上方实现，直接从 `BindingContext` 取 `FrameRow` 并 push 详情页。
 
 - [ ] **Step 7: AppShell + MauiProgram + OnSleep**
 
@@ -2301,7 +2652,7 @@ public partial class App : Application
     public App(FilesPage filesPage)
     {
         InitializeComponent();
-        MainPage = filesPage; // P1：单页 navigation（Push 到 TracePage）
+        MainPage = new NavigationPage(filesPage);
     }
 
     protected override void OnSleep()
@@ -2340,6 +2691,7 @@ public static class MauiProgram
         b.Services.AddSingleton<IStreamingSourceFactory, AscStreamingSourceFactory>();
         b.Services.AddSingleton<TraceFileCache>(_ => new TraceFileCache(FileSystem.CacheDirectory));
         b.Services.AddTransient<FilesPage>();
+        b.Services.AddSingleton<ITracePageFactory, TracePageFactory>();
         return b;
     }
 }
@@ -2389,26 +2741,42 @@ namespace PeakCan.Host.Mobile;
     ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode
         | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 [IntentFilter(
-    new[] { Intent.ActionView },
+    new[] { Intent.ActionView, Intent.ActionSend },
     Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
     DataSchemes = new[] { "content", "file" },
     DataMimeType = "application/octet-stream")]
 public class MainActivity : MauiAppCompatActivity
 {
+    public static Android.Net.Uri? PendingFileUri { get; private set; }
+
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
-        PendingFileUri = Intent?.Data;
+        PendingFileUri = ExtractTraceUri(Intent);
     }
+
     protected override void OnNewIntent(Intent? intent)
     {
         base.OnNewIntent(intent);
-        PendingFileUri = intent?.Data;
+        PendingFileUri = ExtractTraceUri(intent);
     }
-    public static Android.Net.Uri? PendingFileUri { get; private set; }
+
+    private static Android.Net.Uri? ExtractTraceUri(Intent? intent)
+    {
+        if (intent?.Data is not null) return intent.Data;
+        if (intent?.Action != Intent.ActionSend) return null;
+
+        // Android 13 introduces the typed overload; Android 12 uses the legacy API.
+        if (OperatingSystem.IsAndroidVersionAtLeast(33))
+            return intent.GetParcelableExtra(Intent.ExtraStream, Java.Lang.Class.FromType(typeof(Android.Net.Uri))) as Android.Net.Uri;
+
+#pragma warning disable CA1416 // Only reached below API 33.
+        return intent.GetParcelableExtra(Intent.ExtraStream) as Android.Net.Uri;
+#pragma warning restore CA1416
+    }
 }
 ```
-（`DataMimeType = application/octet-stream` 是微信 content:// URI 的常见 MIME，覆盖偏广但兼容性好；用户在"用其他应用打开"选择器里能选到本 app。）
+（`application/octet-stream` 是兼容性优先的 MIME；`ACTION_SEND` 覆盖微信“用其他应用打开”的常见路径。选择后仍校验 `.asc` 扩展名。如果特定厂商使用 `text/plain`，验收阶段把 MIME 加入此 IntentFilter。）
 
 - [ ] **Step 2: FilesPage 消费 pending URI**
 
@@ -2417,20 +2785,28 @@ public class MainActivity : MauiAppCompatActivity
 protected override async void OnAppearing()
 {
     base.OnAppearing();
-    var uri = Platform.App.Activity is MainActivity ma ? MainActivity.PendingFileUri : null;
-    if (uri is null) return;
-    MainActivity.PendingFileUri = null; // 消费一次
+    try
+    {
+        if (Platform.CurrentActivity is not MainActivity activity) return;
+        var uri = activity.PendingFileUri;
+        if (uri is null) return;
+        activity.PendingFileUri = null; // 消费一次
 
-    // content:// URI → 通过 ContentResolver 拷贝到 cache 目录再打开
-    var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
-    using var src = Platform.CurrentActivity?.ContentResolver?.OpenInputStream(uri);
-    if (src is null) return;
-    using var dst = File.Create(dest);
-    await src.CopyToAsync(dst);
-    await Navigation.PushAsync(new TracePage(dest));
+        // content:// URI → 通过 ContentResolver 拷贝到 cache 目录再打开。
+        var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
+        using var src = activity.ContentResolver?.OpenInputStream(uri);
+        if (src is null) return;
+        using var dst = File.Create(dest);
+        await src.CopyToAsync(dst);
+        await Navigation.PushAsync(_tracePageFactory.Create(dest));
+    }
+    catch (Exception ex)
+    {
+        await DisplayAlert("无法打开文件", ex.Message, "确定");
+    }
 }
 ```
-注：`Platform.App.Activity` 在 MAUI 下访问当前 activity；`Platform.CurrentActivity` 同义。`ContentResolver.OpenInputStream` 把微信的 content:// 流读成字节。
+注：`Platform.CurrentActivity` 取当前 Android Activity；`ContentResolver.OpenInputStream` 把微信/文件管理器的 content:// 流读成字节。读取失败会走 DisplayAlert，不会静默失败。
 
 - [ ] **Step 3: 构建部署 + 手动验证**
 
@@ -2457,22 +2833,31 @@ git commit -m "feat(mobile): android intent-filter for .asc direct-open from WeC
 
 PowerShell 脚本 `tools/gen-large-asc.ps1`（新建）：
 ```powershell
-$lines = @()
-$lines += "date Wed Jun 28 10:00:00.000 2026"
-$lines += "base 0x7e0 500k"
-$lines += "internal events logged"
-$ts = 0.0
-$count = 0
-# ~30 字节/行 × ~3.3M 行 ≈ 100MB；每帧间隔 0.001s → ~55 分钟
-$target = 3_300_000
-while ($count -lt $target) {
-  $id = 0x100 + ($count % 8)
-  $lines += (" {0:F6} 51  {1:X3}  8  01 02 03 04 05 06 07 08" -f $ts, $id)
-  $ts += 0.001
-  $count++
+param(
+    [string] $Path = "$PWD/large-100mb.asc",
+    [int] $Count = 2000000
+)
+
+# 每行约 47 bytes + newline；2,000,000 行约 100MB，时长约 2000 秒。
+$writer = [System.IO.StreamWriter]::new($Path, $false, [System.Text.Encoding]::ASCII, 1MB)
+try {
+  $writer.WriteLine("date Wed Jun 28 10:00:00.000 2026")
+  $writer.WriteLine("base 0x7e0 500k")
+  $writer.WriteLine("internal events logged")
+
+  $ts = 0.0
+  for ($count = 0; $count -lt $Count; $count++) {
+    $id = 0x100 + ($count % 8)
+    $line = " {0:F6} 51  {1:X3}  8  01 02 03 04 05 06 07 08" -f $ts, $id
+    $writer.WriteLine($line)
+    $ts += 0.001
+  }
 }
-[System.IO.File]::WriteAllLines("$PWD\large-100mb.asc", $lines)
-Write-Host "done: $count frames, $([math]::Round((Get-Item large-100mb.asc).Length/1MB,1)) MB"
+finally {
+  $writer.Dispose()
+}
+
+Write-Host "done: $Count frames, $([math]::Round((Get-Item $Path).Length / 1MB, 1)) MB"
 ```
 Run:
 ```bash
@@ -2493,15 +2878,15 @@ ADB="$LOCALAPPDATA/Android/sdk/platform-tools/adb.exe"
 
 | 指标 | 目标 | 实测 |
 |---|---|---|
-| 首帧渲染（点击文件 → 首行出现） | <2s | ____ |
-| 拷贝耗时（100MB） | <5s | ____ |
-| 总时长扫描完成（slider 从 ?? 变实数） | <30s | ____ |
+| 冷导入耗时（点击文件到 TracePage ready） | <5s | ____ |
+| 首帧渲染（缓存命中，点击播放到首行出现） | <2s | ____ |
+| 总时长扫描完成（slider 从 ?? 变实数并显示百分比） | <30s | ____ |
 | 1x 播放 5 分钟 | 不丢帧、不卡 | ____ |
-| 内存稳态（`adb shell dumpsys meminfo <pkg>` 取 Java Heap + Native） | <300MB | ____ |
+| 内存稳态（`adb shell dumpsys meminfo <pkg>` 取 TOTAL PSS） | <300MB | ____ |
 | Seek 到中点 | <5s + 进度反馈 | ____ |
-| ID 过滤 `0x103` | 表格只留匹配帧 | ____ |
+| ID 过滤 `0x103`（播放中设置） | ring 清空后表格只出现匹配帧 | ____ |
 | 切后台再回前台 | 暂停→续播 | ____ |
-| 微信直开 .asc | 进 app 并能播 | ____ |
+| 微信直开 .asc（ACTION_VIEW 和 ACTION_SEND 都验证） | 进 app 并能播 | ____ |
 
 - [ ] **Step 4: 若有指标不达标，回到对应 Task 修**
 
@@ -2516,8 +2901,12 @@ git commit -m "test(mobile): add 100MB ASC generator for P1 acceptance"
 
 ---
 
-## Self-Review（已自查）
+## Self-Review（v2 修订）
+
+- **v2 关键修订**：streaming session 统一释放 Stream；player 增加 8192 帧 bounded channel；MAUI Page 用 factory + NavigationPage；Android FilePicker 用 MIME 并校验 `.asc`；ID 过滤清空 ring；SeekProgress 在快进结束时强制 1.0；测试移除真实 `Task.Delay` 时序等待。
+- **Spec 覆盖**：§4 Core 流式 API（Task 3）、§4.3 StreamingTracePlayer（Task 4）、§5.1 UI 信息架构（Task 8）、§5.2 组件（Task 2/5/6/7/8）、§5 表格渲染策略 + 跟随语义 + 抽象层（Task 7/8）、§6 数据流（Task 7 OpenAsync 预读 + drain + DurationScanner 并行）、§7 错误处理（Task 4 PlaybackEnded Error；skipped lines 计数在 Core，P1 UI 摘要条可在 Task 8 XAML 中补一个 Label；SQLite 降级属 P2）、§9 P1 全部条目（Task 1-10）、§10 验收（Task 10）。§4.4 BLF = P4；P1 picker 明确拒绝。
+
 
 - **Spec 覆盖**：§4 Core 流式 API（Task 3）、§4.3 StreamingTracePlayer（Task 4）、§5.1 UI 信息架构（Task 8）、§5.2 组件（Task 2/5/6/7）、§5 表格渲染策略 + 跟随语义 + 抽象层（Task 7/8）、§6 数据流（Task 7 OpenAsync 预读 + drain + DurationScanner 并行）、§7 错误处理（Task 4 PlaybackEnded Error / Task 6 cache 降级路径暂未写——P2）、§9 P1 全部条目（Task 1-10）、§10 验收（Task 10）。§7 "SQLite 写失败降级"属 P2 不在本计划。§4.4 BLF 流式 = P4 不在。
-- **占位符**：无 TBD/TODO；TracePage 的 `DurationKnown`/`PlayPauseLabel`/`OnRowTapped` 三处明确标注"实现者补"，给了模式参照（同 `CurrentTimeText`），非空泛。
-- **类型一致**：`IStreamingTracePlayer`/`StreamingTracePlayer`、`IStreamingTraceSource`/`AscStreamingSource`、`StreamingTraceOpenResult`、`StreamingParseStats`、`RunOutcome` 在 Task 3-4 定义并被 Task 7-8 消费，签名一致。`TraceSessionViewModel` 的 `OpenAsync/TogglePlay/SetIdFilter/SeekTo/VisibleRows/State/DurationText/Progress01/IsSeekBusy` 在 Task 7 定义、Task 8 XAML 绑定引用，名称一致。
+- **无占位符**：`DurationKnown`、`PlayPauseLabel`、`DurationScanProgress`、`PauseForBackground`、`ITracePageFactory`、`OnRowTapped` 状态均在 Task 7/8 明确定义或标注为可选 UI 接线。
+- **类型一致**：`IStreamingTracePlayer`/`StreamingTracePlayer`、`IStreamingTraceSource`/`AscStreamingSource`、`IAsyncDisposable StreamingTraceOpenResult`、`StreamingParseStats`、`RunOutcome` 在 Task 3-4 定义并被 Task 7-8 消费。`TraceSessionViewModel` 的 `OpenAsync/TogglePlay/SetIdFilter/SeekTo/VisibleRows/State/DurationText/DurationScanProgress/DurationKnown/PlayPauseLabel/Progress01/IsSeekBusy` 在 Task 7 定义、Task 8 XAML 绑定引用，名称一致。
