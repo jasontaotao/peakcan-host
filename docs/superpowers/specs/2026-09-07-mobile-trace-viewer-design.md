@@ -1,7 +1,7 @@
 # 移动端 Trace Viewer（Android / .NET MAUI）设计
 
 - 日期：2026-09-07
-- 状态：已确认方向（用户 2026-09-07 口头批准设计六节）
+- 状态：已确认方向（用户 2026-09-07 批准设计六节）；v2 并入架构+产品双视角评审 5 项修订（UI 信息架构 / P1 范围 +3 / 可测性抽象层 / 状态机补全 / 表格渲染策略）
 - 分支：`feature/mobile-trace-viewer`（从 `main` 拉出）
 - 相关：[2026-09-04-trace-viewer-canoe-graph-parity-design.md](2026-09-04-trace-viewer-canoe-graph-parity-design.md)（桌面端 CANoe 图表对齐，与本项目交互模型一致）
 
@@ -120,7 +120,7 @@ public sealed class StreamingTracePlayer : IDisposable
 - **不提供 `Loop`**（YAGNI：手机端查看场景不需要 A/B 循环；桌面端该能力留在 `ReplayTimeline`）
 
 - **预读缓冲**：解析协程领先播放指针，缓冲上限 8192 帧（背压：满了就暂停解析）；解析速度 ≫ 1x 播放速度，缓冲常态是满的
-- **Seek(t)**：停当前枚举 → `source.OpenAsync()` 重开 → 快进扫描（解析但不 emit，直到 `frame.Timestamp >= t`）→ 从该帧恢复播放。100MB 文本快进约数秒，期间报 `SeekProgress`
+- **Seek(t)**：停当前枚举 → `source.OpenAsync()` 重开 → 快进扫描（解析但不 emit，直到 `frame.Timestamp >= t`）→ 从该帧恢复播放。100MB 文本快进约数秒，期间报 `SeekProgress`。Seek 完成后**回到进入前状态**（Playing→续播，Paused→停在该帧）
 - 暂停/恢复/倍速语义对齐 `ReplayTimeline`（时钟用 `IReplayClock`，测试注入假时钟）
 
 ### 4.4 BLF（Phase 4）
@@ -129,21 +129,40 @@ public sealed class StreamingTracePlayer : IDisposable
 
 ## 5. Mobile 项目组件
 
+### 5.1 UI 信息架构
+
+产品定位：**"快速确认 + 发现线索"工具**（现场收到微信发来的 trace，30 秒内确认"那个报文发没发出来"），深度分析回桌面。三个页面 + 一个下沉面板：
+
+1. **文件页**：最近文件列表（名称/大小/帧数/时长/上次播放到哪）+ "打开文件"按钮；微信/文件管理器"用其他应用打开"经 intent-filter 直接落进 app
+2. **表格 Tab**（核心）：顶部播放控制条（播放/暂停、倍速、时间轴 slider、当前时间/总时长）+ 过滤 chip 栏 + 帧表格（时间/ID/Data 3-4 列，等宽字体）
+3. **图表 Tab（P3）**：底部导航切换；信号选择抽屉（DBC 消息树选 1-2 个）；曲线随播放生长 + 时间游标；横屏自动全屏
+4. **帧详情面板**：点表格行 → 底部弹出该帧完整信息（原始字节 + DBC 全信号解码值）
+
+**时间轴量程**：流式模式下总时长初始未知 → 打开文件后**后台只读扫描**全部时间戳（不建帧对象，100MB 约几秒），扫完 slider 获得量程、显示进度百分比；扫描期间 slider 显示 "??:??" 且不可拖。
+
+### 5.2 项目结构与组件
+
 ```
 src/PeakCan.Host.Mobile/
 ├── PeakCan.Host.Mobile.csproj        # net10.0-android;net10.0，UseMaui
-├── Views/    MainPage(文件入口) · TracePage(表格+控制条) · ChartPage(P3)
+├── Views/    FilesPage(最近文件+打开) · TracePage(表格+控制条) · ChartPage(P3) · FrameDetailSheet(点行弹出)
 ├── ViewModels/
+│   ├── FilesViewModel.cs             # 最近文件列表
 │   ├── TraceSessionViewModel.cs      # 状态机 + 环形缓冲 + UI 节流
 │   └── ChartViewModel.cs             # P3
-└── Services/
-    ├── TraceFilePicker.cs            # FilePicker → 拷贝到 app 缓存目录
-    ├── TraceCacheStore.cs            # SQLite 回放缓存（P2）
-    └── DbcLoader.cs                  # FilePicker → HIL.Core DbcParser（P2）
+├── Services/
+│   ├── TraceFilePicker.cs            # FilePicker / intent 直开 → 拷贝到 app 缓存目录
+│   ├── DurationScanner.cs            # 打开后后台只读扫描总时长（P1）
+│   ├── TraceCacheStore.cs            # SQLite 回放缓存（P2）
+│   └── DbcLoader.cs                  # FilePicker → HIL.Core DbcParser（P2）
+└── Platform/                         # IUiDispatcher / IFilePickerGateway 的 MAUI 实现
 ```
 
-- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Seeking → Ended`；环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
-- **UI 节流**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 50ms 窗口批量 marshal 到主线程
+- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Seeking → Ended`。`Ready` = 已打开未播放，进入时**预读第一屏 ~200 帧**填表；`Seeking` 结束回到进入前状态；环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
+- **UI 节流与渲染策略**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 50ms 窗口批量 marshal；表格只渲染可视区（~30 行），数据源为环形数组 + 批量 `Reset` 通知，禁止逐行 `NotifyCollectionChanged`（MAUI CollectionView 逐行快速更新在 Android 上必卡）
+- **可测性抽象层**：VM 不直接依赖 MAUI Essentials——`IUiDispatcher`（主线程 marshal）、`IFilePickerGateway`（选文件/缓存目录）定义在纯 net10.0 可见的位置，MAUI 实现放 `Platform/`。这是"net10.0 target 供 VM 单测"成立的前提
+- **播放跟随语义**：默认自动跟随最新帧；用户上滑脱离跟随，浮出"↓回到最新"按钮（IM 语义，零学习成本）
+- **文件直开**：`MainActivity` 注册 `.asc`/`.blf` intent-filter（`pathPattern`），微信/文件管理器"用其他应用打开"直接进 app
 - **文件入口**：MAUI `FilePicker`（Android SAF）→ 拷贝到 `FileSystem.CacheDirectory` 一次（100MB 约 1-3s，显示进度）→ 之后用普通 seekable `FileStream`（支持 Seek 重开）。同名同尺寸文件直接复用缓存副本
 - **DBC**（P2）：选 .dbc 文件 → `DbcParser.Parse` → 可见帧用 `SignalDecoder.Decode` 按需解码（只解码屏幕上的行，不全量解码）
 - **图表**（P3）：LiveCharts2（SkiaSharp，MAUI 官方支持）；降采样 = min/max 桶（每像素列 1 桶），保留最近 30 万原始点供当前窗口
@@ -189,6 +208,7 @@ FilePicker → 拷贝到 app 缓存 → FileStream
       ├─→ min/max 桶降采样 → LiveCharts2 曲线实时生长      [P3]
       └─→ TraceCacheStore 后台批量写                       [P2]
 Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续播    [P1]
+打开文件后并行：DurationScanner 只读扫描全部时间戳（不建帧对象）→ slider 获得量程 [P1]
 ```
 
 ## 7. 错误处理
@@ -200,7 +220,7 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 | SQLite 写失败 | 降级：缓存停用、回放继续，不阻塞主链路 |
 | 超大文件 | 流式后内存与文件大小解耦，不设硬 cap；>500MB 弹确认（提示拷贝/扫描耗时） |
 | 播放中文件被外部删除 | 下一次 Read 抛 IO → 同上 Error 路径 |
-| 切后台/熄屏 | 播放暂停（保持状态），回前台可续播 |
+| 切后台/熄屏 | `App.OnSleep` 接线：暂停播放 + 冻结时钟基准，回前台可续播 |
 
 ## 8. 测试策略
 
@@ -216,10 +236,8 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 | Phase | 内容 | 出口标准 |
 |---|---|---|
 | **P0** 环境+骨架 | 装 maui-android workload + Android SDK + JDK17；建 Mobile 项目 + slnx；真机部署空壳 | 空 app 在真机跑起来，`adb` 可见 |
-| **P1** 核心闭环 | Core 流式 ASC API + StreamingTracePlayer；文件入口；播放/暂停/倍速/Seek；帧表格（环形缓冲+节流） | 100MB ASC 首帧 <2s，1x 播放流畅 |
-| **P2** 分析能力 | DBC 加载 + 信号列；SQLite 回放缓存；暂停回看；播完后完整过滤浏览；ID 过滤 | 加载 DBC 后信号列正确；重开秒开 |
-
-（ID 过滤双路径：播放中 = VM emit 谓词过滤；回看/播完 = SQL `WHERE can_id`。）
+| **P1** 核心闭环 | Core 流式 ASC API + StreamingTracePlayer；文件入口（FilePicker + intent-filter 直开）；播放/暂停/倍速/Seek；帧表格（环形缓冲+节流+跟随语义）；播放中 ID 过滤（emit 谓词）；后台总时长扫描 | 100MB ASC 首帧 <2s，1x 播放流畅 |
+| **P2** 分析能力 | DBC 加载 + 信号列；SQLite 回放缓存；暂停回看；播完后完整过滤浏览（SQL `WHERE can_id`） | 加载 DBC 后信号列正确；重开秒开 |
 | **P3** 图表 | LiveCharts2 集成；1-2 信号曲线随回放生长；降采样 | 曲线与表格时间游标同步 |
 | **P4** BLF | `BlfStreamingSource`（窗口重排缓冲） | .blf 可流式回放 |
 
