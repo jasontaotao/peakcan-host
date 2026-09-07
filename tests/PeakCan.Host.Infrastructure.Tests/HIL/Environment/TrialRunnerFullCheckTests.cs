@@ -19,7 +19,7 @@ public class TrialRunnerFullCheckTests
             Trial = new TrialContract("tpl",
                 [new HandshakeExpectation("CRM", "BRM", 500, ["cause"])], [])
         };
-        var result = await runner.RunTrialAsync([node], TimeSpan.FromSeconds(1), CancellationToken.None);
+        var result = await runner.RunTrialAsync([node], CancellationToken.None);
         Assert.True(result.Passed);
         Assert.False(result.IsFullHandshakeCheck);
         Assert.Single(result.Diagnostics);
@@ -29,7 +29,7 @@ public class TrialRunnerFullCheckTests
     public async Task RunTrial_WithLookup_FrameReceived_Passes()
     {
         var channel = new FakeChannel();
-        var runner = new TrialRunner(channel) { MessageIdLookup = name => name == "BRM" ? 0x100 : null };
+        var runner = new TrialRunner(channel) { MessageIdLookup = name => name == "BRM" ? new CanId(0x100, FrameFormat.Standard) : null };
 
         // Emit BRM frame after a short delay
         _ = Task.Run(async () =>
@@ -45,7 +45,7 @@ public class TrialRunnerFullCheckTests
             Trial = new TrialContract("tpl",
                 [new HandshakeExpectation("CRM", "BRM", 500, ["cause"])], [])
         };
-        var result = await runner.RunTrialAsync([node], TimeSpan.FromSeconds(2), CancellationToken.None);
+        var result = await runner.RunTrialAsync([node], CancellationToken.None);
         Assert.True(result.Passed);
         Assert.True(result.IsFullHandshakeCheck);
         Assert.True(result.Diagnostics[0].Passed);
@@ -55,7 +55,7 @@ public class TrialRunnerFullCheckTests
     public async Task RunTrial_WithLookup_Timeout_Fails()
     {
         var channel = new FakeChannel();
-        var runner = new TrialRunner(channel) { MessageIdLookup = name => name == "BRM" ? 0x100 : null };
+        var runner = new TrialRunner(channel) { MessageIdLookup = name => name == "BRM" ? new CanId(0x100, FrameFormat.Standard) : null };
         // No frame emitted → timeout
 
         var node = new RestbusNode
@@ -64,7 +64,7 @@ public class TrialRunnerFullCheckTests
             Trial = new TrialContract("tpl",
                 [new HandshakeExpectation("CRM", "BRM", 100, ["接线/通道选错"])], [])
         };
-        var result = await runner.RunTrialAsync([node], TimeSpan.FromSeconds(2), CancellationToken.None);
+        var result = await runner.RunTrialAsync([node], CancellationToken.None);
         Assert.False(result.Passed);
         Assert.False(result.Diagnostics[0].Passed);
         Assert.Contains("接线/通道选错", result.Diagnostics[0].PossibleCauses);

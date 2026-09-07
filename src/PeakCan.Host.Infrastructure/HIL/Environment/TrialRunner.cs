@@ -3,18 +3,11 @@ using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Environment;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
 
 namespace PeakCan.Host.Infrastructure.HIL.Environment;
 
-/// <summary>试运行诊断输出。</summary>
-public sealed record TrialDiagnostic(string Step, bool Passed, string? Detail, IReadOnlyList<string> PossibleCauses);
 
-/// <summary>试运行结果。</summary>
-public sealed record TrialRunResult(
-    bool Passed,
-    IReadOnlyList<TrialDiagnostic> Diagnostics,
-    /// <summary>True when frame subscription was wired (full check); false = frame-stream preview only.</summary>
-    bool IsFullHandshakeCheck = false);
 
 /// <summary>
 /// host 试运行器。订阅通道帧事件，按 TrialContract 握手链逐步检查 ThenReceive 是否在 timeout 内到达。
@@ -26,10 +19,10 @@ public sealed class TrialRunner(ICanChannel channel)
     /// 消息名→CAN ID 查找委托。由 HilRunnerService 注入（基于 DBC 或模板 FixedHex ID）。
     /// 返回 null 表示消息名不可解析（该步自动通过，不做超时判定）。
     /// </summary>
-    public Func<string, uint?>? MessageIdLookup { get; set; }
+    public Func<string, CanId?>? MessageIdLookup { get; set; }
 
     public async Task<TrialRunResult> RunTrialAsync(
-        IReadOnlyList<RestbusNode> nodes, TimeSpan timeout, CancellationToken ct)
+        IReadOnlyList<RestbusNode> nodes, CancellationToken ct)
     {
         var diagnostics = new List<TrialDiagnostic>();
         var allPassed = true;
@@ -76,7 +69,9 @@ public sealed class TrialRunner(ICanChannel channel)
                     var received = false;
                     while (System.Environment.TickCount64 < deadline && !ct.IsCancellationRequested)
                     {
-                        if (receivedQueue.TryDequeue(out var frame) && frame.Id.Raw == expectedId.Value)
+                        if (receivedQueue.TryDequeue(out var frame)
+                            && frame.Id.Raw == expectedId.Value.Raw
+                            && frame.Id.Format == expectedId.Value.Format)
                         {
                             received = true;
                             break;
