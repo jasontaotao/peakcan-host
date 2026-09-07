@@ -6,7 +6,7 @@
 
 <meta charset="UTF-8">
 
-<title>PeakCan Host — HIL 硬件在环测试指南 (v3.63.0)</title>
+<title>PeakCan Host — HIL 硬件在环测试指南 (v3.65.0)</title>
 
 <style>
 
@@ -148,17 +148,17 @@
 
   <h1>PeakCan Host — HIL 硬件在环测试指南</h1>
 
-  <div class="sub">基于真实 CAN 总线信号的自动化测试框架 · 支持 UI 交互与 CLI 无头运行</div>
+  <div class="sub">基于真实 CAN 总线信号的自动化测试框架 · PEAK / ZLG 双厂商 · 多通道 · 控制流与参数化 · UI 交互与 CLI 无头运行</div>
 
   <div class="meta">
 
-    <span>版本：<strong>v3.63.0</strong></span>
+    <span>版本：<strong>v3.65.0</strong></span>
 
     <span>框架：WPF · .NET 10</span>
 
     <span>平台：Windows 10 1809+ / Windows 11</span>
 
-    <span>更新日期：2026-07-31</span>
+    <span>更新日期：2026-09-06</span>
 
   </div>
 
@@ -244,6 +244,14 @@
 
         <li><a href="#step-comment">Comment — 注释</a></li>
 
+        <li><a href="#step-uds">UDS 诊断步骤</a></li>
+
+        <li><a href="#step-fault-env">故障注入与环境帧步骤</a></li>
+
+        <li><a href="#step-controlflow">控制流步骤 If / Repeat / Loop / Assign</a></li>
+
+        <li><a href="#step-params">参数化与 ${name} 插值</a></li>
+
       </ol>
 
     </li>
@@ -254,11 +262,13 @@
 
         <li><a href="#suite-model">TestSuite 数据结构</a></li>
 
-        <li><a href="#suite-engine">三阶段执行引擎 (Stage A/B/C)</a></li>
+        <li><a href="#suite-engine">套件执行引擎（Setup → Execute → Teardown）</a></li>
 
         <li><a href="#suite-fixtures">Fixture 机制</a></li>
 
         <li><a href="#suite-runner">HilRunnerService</a></li>
+
+        <li><a href="#suite-multichannel">多通道执行</a></li>
 
       </ol>
 
@@ -414,7 +424,7 @@
 
 <p><strong>HIL</strong>（Hardware-in-the-Loop，硬件在环）测试框架是 PeakCan Host 的核心测试能力之一，用于在<strong>真实 CAN 总线</strong>上编写、执行和验证自动化测试用例。</p>
 
-<p>与纯软件模拟测试不同，HIL 测试直接操作 PCAN-USB FD 硬件，向真实 ECU 发送 CAN 帧并验证其响应。这使得 HIL 测试特别适合：</p>
+<p>与纯软件模拟测试不同，HIL 测试直接操作真实 CAN 硬件（PEAK PCAN-USB FD 或 ZLG USBCAN FD 200U），向真实 ECU 发送 CAN 帧并验证其响应。这使得 HIL 测试特别适合：</p>
 
 <ul>
 
@@ -643,7 +653,7 @@
 │                                                               │
 │  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐  │
 │  │  TestSuite    │───▶│ TestSuiteEngine│───▶│  StepExecutor │  │
-│  │  (测试用例集)  │    │  (三阶段执行)  │    │  (步骤执行器)  │  │
+│  │  (测试用例集)  │    │ (递归解释器)  │    │  (步骤执行器)  │  │
 │  └───────────────┘    └───────────────┘    └───────────────┘  │
 │         │                      │                     │         │
 │         ▼                      ▼                     ▼         │
@@ -784,10 +794,10 @@
 <p>HIL 测试面板是 PeakCan Host 的主要测试操作界面，集成了模式选择、配置加载、用例编辑、执行控制和结果查看等全部功能。以下按操作区域逐一说明。</p>
 
 <blockquote class="warn">
-<strong>功能状态说明：</strong>以下标注 <span class="badge warn">待开发</span> 的功能是手册规划中的 UI 设计，当前版本尚未实现。标注 <span class="badge ok">已实现</span> 的功能已可用。
+<strong>功能状态说明：</strong>以下标注 <span class="badge info">由 peakcan-studio 承担</span> 的功能已由独立配置器 peakcan-studio 实现（suite 编辑 / 步骤编辑 / ODX 图形化导入 / 凭据管理），host 面板聚焦执行与结果查看。标注 <span class="badge ok">已实现</span> 的功能在 host 内可用。
 </blockquote>
 
-<p><strong>当前实现汇总：</strong>模式选择、路径浏览、ECU JSON 编辑器、运行/停止、进度显示、结果 DataGrid 和 TreeView、LLM 分析文本框 — 已实现。测试用例编辑器、步骤参数编辑器、导出按钮、ODX 导入对话框、凭据管理对话框 — 待开发。</p>
+<p><strong>当前实现汇总：</strong>模式选择、路径浏览、ECU JSON 编辑器、运行/停止、进度显示、结果 DataGrid 和 TreeView、LLM 分析文本框 — 已实现。suite/步骤编辑器、ODX 导入对话框、凭据管理对话框 — 由 peakcan-studio 承担。</p>
 
 
 
@@ -993,9 +1003,9 @@
 
 
 
-<h3 id="ui-config">2a.3 DBC 与套件加载 <span class="badge ok">已实现</span> <span class="badge warn">待开发</span></h3>
+<h3 id="ui-config">2a.3 DBC 与套件加载 <span class="badge ok">已实现</span></h3>
 
-<p>说明：DBC/Suite 文件浏览已实现；套件新建/保存/另存为、ECU 脚本加载摘要尚未实现。</p>
+<p>说明：DBC / Suite 文件浏览已实现；suite 的新建 / 编辑 / 保存由 <strong>peakcan-studio</strong> 承担，host 面板加载执行。</p>
 
 <p>Zone 2 配置区负责加载测试所需的 DBC 文件和测试套件：</p>
 
@@ -1029,9 +1039,11 @@
 
 
 
-<h3 id="ui-editor">2a.4 测试用例编辑器 <span class="badge warn">待开发</span></h3>
+<h3 id="ui-editor">2a.4 测试用例编辑器 <span class="badge info">由 peakcan-studio 承担</span></h3>
 
-<p>说明：当前版本尚未实现图形化用例编辑器。测试用例需通过 JSON 文件直接编辑，或通过编码方式创建（见 §3.3）。</p>
+<p>说明：host 内嵌面板聚焦<strong>执行与结果查看</strong>；suite 的图形化编辑（树编辑器 + 表格视图 + AI Copilot 自然语言生成）
+
+由独立配置器 <strong>peakcan-studio</strong> 提供，产物 suite.json 直接在 host 面板加载执行。</p>
 
 <p>Zone 4 是测试用例编辑器，分为左右两个面板：</p>
 
@@ -1069,9 +1081,9 @@
 
 
 
-<h3 id="ui-step-editor">2a.5 步骤参数编辑器 <span class="badge warn">待开发</span></h3>
+<h3 id="ui-step-editor">2a.5 步骤参数编辑器 <span class="badge info">由 peakcan-studio 承担</span></h3>
 
-<p>说明：当前版本尚未实现图形化步骤编辑器。步骤参数需通过 JSON 或 C# 代码定义。</p>
+<p>说明：host 面板不提供步骤编辑 UI。步骤参数通过 peakcan-studio 编辑，或手写 suite JSON / C# 代码定义。</p>
 
 <p>在用例属性下方，是步骤列表编辑器：</p>
 
@@ -1322,7 +1334,7 @@
 <ol>
   <li>测试运行完成后，勾选 <strong>Analyze</strong> 复选框且存在失败用例时，自动触发 LLM 分析</li>
   <li>分析进行中，底部文本框显示 <strong>"Analyzing..."</strong></li>
-  <li>分析完成后，显示 DeepSeek API 返回的失败根因分析文本</li>
+  <li>分析完成后，显示 LLM 返回的失败根因分析文本（多厂商：DeepSeek / GLM / Kimi / 自定义 OpenAI 兼容端点）</li>
   <li>如果 API Key 未配置，文本框显示 <strong>"API key not configured"</strong></li>
   <li>也可手动点击 <strong>[Analyze]</strong> 按钮重新分析（按钮仅在存在失败用例且未运行中时可用）</li>
 </ol>
@@ -1337,9 +1349,9 @@
 
 
 
-<h3 id="ui-odx">2a.9 ODX 导入 UI 操作 <span class="badge warn">待开发</span></h3>
+<h3 id="ui-odx">2a.9 ODX 导入 UI 操作 <span class="badge info">CLI + peakcan-studio</span></h3>
 
-<p>说明：当前版本不支持图形化 ODX 导入。ODX 导入功能仅可通过 CLI 参数 <code>--import-odx</code> 使用。</p>
+<p>说明：host 侧 ODX 导入通过 CLI 参数 <code>--import-odx</code> 使用；图形化导入在 <strong>peakcan-studio</strong> 中提供（ODX TestSuite 生成器）。</p>
 
 <p>ODX 导入功能在 <strong>Tools ▸ Import ODX to ECU Script</strong> 菜单中打开：</p>
 
@@ -1379,9 +1391,9 @@
 
 
 
-<h3 id="ui-credential">2a.10 凭据管理 UI <span class="badge warn">待开发</span></h3>
+<h3 id="ui-credential">2a.10 凭据管理 UI <span class="badge info">部分由 peakcan-studio 承担</span></h3>
 
-<p>说明：当前版本不支持图形化凭据管理。API Key 需通过环境变量 <code>DEEPSEEK_API_KEY</code> 或 Windows Credential Manager 手动配置。</p>
+<p>说明：host 侧 API Key 通过环境变量或 Windows Credential Manager 配置；图形化凭据管理在 <strong>peakcan-studio</strong> 的聊天设置面板中提供（多厂商：DeepSeek / GLM / Kimi / 自定义）。</p>
 
 <p>API Key 等凭据在 <strong>Settings ▸ HIL ▸ Credentials</strong> 中管理：</p>
 
@@ -1458,37 +1470,57 @@
 
 <h3 id="testcase-step">3.2 测试步骤类型</h3>
 
-<p>框架支持 11 种测试步骤，每种对应一个 <code>TestCaseStepKind</code>：</p>
+<p>框架支持 <strong>34 种可序列化步骤类型</strong>（JSON <code>$kind</code> 多态判别器，定义在共享模型包
+
+<strong>PeakCan.HIL.Core</strong> 中，与 peakcan-studio 共享同一份契约）。按功能分组如下：</p>
 
 
 
 <table>
 
-  <tr><th>步骤类型</th><th>标识</th><th>功能</th></tr>
+  <tr><th>分组</th><th>步骤类型（<code>$kind</code>）</th><th>功能</th></tr>
 
-  <tr><td><strong>SendFrame</strong></td><td><code>TestCaseStepKind.SendFrame</code></td><td>向总线发送一帧 CAN 消息</td></tr>
+  <tr><td rowspan="2"><strong>收发帧</strong></td><td><code>sendFrame</code> / <code>expectFrame</code></td><td>发送一帧 CAN 消息 / 等待期望帧到达</td></tr>
 
-  <tr><td><strong>SendSequence</strong></td><td><code>TestCaseStepKind.SendSequence</code></td><td>发送预定义的帧序列</td></tr>
+  <tr><td><code>waitForSignal</code></td><td>等待信号达到指定值</td></tr>
 
-  <tr><td><strong>ExpectFrame</strong></td><td><code>TestCaseStepKind.ExpectFrame</code></td><td>等待期望的 CAN 帧到达</td></tr>
+  <tr><td rowspan="4"><strong>信号 / 时序断言</strong></td><td><code>assertSignal</code> / <code>assertStable</code> / <code>assertSignalWithin</code></td><td>断言信号当前值在容差内 / 在时间窗内保持稳定 / 在时间窗内到达期望值</td></tr>
 
-  <tr><td><strong>WaitForSignal</strong></td><td><code>TestCaseStepKind.WaitForSignal</code></td><td>等待信号达到指定值</td></tr>
+  <tr><td><code>assertRange</code> / <code>assertNoFrame</code> / <code>assertFrameCount</code> / <code>assertCycleTime</code></td><td>断言信号范围 / 无帧窗口 / 帧计数 / 总线周期时间</td></tr>
 
-  <tr><td><strong>AssertSignal</strong></td><td><code>TestCaseStepKind.AssertSignal</code></td><td>断言信号当前值在容差内</td></tr>
+  <tr><td><code>assertResponseTime</code></td><td>断言 ECU 响应时间在阈值内</td></tr>
 
-  <tr><td><strong>AssertRange</strong></td><td><code>TestCaseStepKind.AssertRange</code></td><td>断言信号值在指定范围内</td></tr>
+  <tr><td><code>assertVariable</code></td><td>断言变量/表达式结果（配合控制流 <code>assign</code> 使用）</td></tr>
 
-  <tr><td><strong>AssertDtc</strong></td><td><code>TestCaseStepKind.AssertDtc</code></td><td>断言 ECU 的 DTC 状态</td></tr>
+  <tr><td rowspan="5"><strong>UDS 诊断</strong></td><td><code>sessionControl</code> / <code>securityAccess</code></td><td>诊断会话切换 / 安全访问解锁</td></tr>
 
-  <tr><td><strong>AssertNrc</strong></td><td><code>TestCaseStepKind.AssertNrc</code></td><td>断言 UDS 负响应码</td></tr>
+  <tr><td><code>readDid</code> / <code>writeDid</code> / <code>assertDidValue</code></td><td>DID 读取 / 写入 / 值断言</td></tr>
 
-  <tr><td><strong>AssertResponseTime</strong></td><td><code>TestCaseStepKind.AssertResponseTime</code></td><td>断言 ECU 响应时间在阈值内</td></tr>
+  <tr><td><code>routineControl</code></td><td>例程控制（启动/停止/查询结果）</td></tr>
 
-  <tr><td><strong>Delay</strong></td><td><code>TestCaseStepKind.Delay</code></td><td>等待指定时间（毫秒）</td></tr>
+  <tr><td><code>ecuReset</code> / <code>clearDtc</code> / <code>assertDtc</code> / <code>assertNrc</code></td><td>ECU 复位 / 清除 DTC / DTC 状态断言 / 负响应码断言</td></tr>
 
-  <tr><td><strong>Comment</strong></td><td><code>TestCaseStepKind.Comment</code></td><td>注释，不计入执行统计</td></tr>
+  <tr><td><code>communicationControl</code> / <code>ioControl</code></td><td>通信控制 / IO 控制</td></tr>
+
+  <tr><td><strong>故障注入</strong></td><td><code>injectFault</code> / <code>clearFault</code></td><td>注入总线/接收路径故障 / 清除故障</td></tr>
+
+  <tr><td><strong>环境帧</strong></td><td><code>modifyEnvironmentFrame</code> / <code>setEnvironmentSignal</code></td><td>修改 restbus 环境帧原始字节 / 直接设置环境帧信号值</td></tr>
+
+  <tr><td rowspan="2"><strong>控制流</strong></td><td><code>if</code> / <code>repeat</code> / <code>loop</code></td><td>条件分支（+Body/+Else）/ 固定次数重复 / 计数循环</td></tr>
+
+  <tr><td><code>assign</code></td><td>变量赋值（表达式求值，供 <code>assertVariable</code> / 条件使用）</td></tr>
+
+  <tr><td><strong>辅助</strong></td><td><code>delay</code> / <code>comment</code></td><td>延时等待（毫秒）/ 注释（不计入执行统计）</td></tr>
 
 </table>
+
+
+
+<blockquote class="tip">
+
+<strong>说明：</strong>枚举中的 <code>SendSequence</code> 为预留值，尚未开放序列化判别器；suite JSON 中的判别器一律使用上表的小驼峰字符串。
+
+</blockquote>
 
 
 
@@ -2042,6 +2074,88 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
 
 
+<h3 id="step-uds">4.12 UDS 诊断步骤 — 9 种诊断动作 <span class="badge ok">已实现</span></h3>
+
+<p>UDS 步骤复用主窗口 UDS 诊断栈（ISO 14229 / ISO-TP），在 HIL 步骤内完成会话切换、安全访问、DID 读写等动作：
+
+<code>sessionControl</code> / <code>securityAccess</code> / <code>readDid</code> / <code>writeDid</code> / <code>assertDidValue</code> /
+
+<code>routineControl</code> / <code>ecuReset</code> / <code>clearDtc</code> / <code>communicationControl</code> / <code>ioControl</code>。</p>
+
+<p>多通道 suite 中，UDS 步骤按 <code>TargetChannel</code> 声明中的通道级 UDS 请求/响应 ID 路由到对应 ECU。</p>
+
+
+
+<pre><code><span class="filename">示例 — 安全访问 + 读 DID</span>TestCaseStep.Create(new SessionControlParams(Session: 0x02), label: "切换扩展会话"),
+
+TestCaseStep.Create(new SecurityAccessParams(Level: 0x01), label: "请求种子"),
+
+TestCaseStep.Create(new SecurityAccessParams(Level: 0x02, Key: [0x4A, 0x2F, 0x19, 0x0E]), label: "发送密钥"),
+
+TestCaseStep.Create(new ReadDidParams(Did: 0xF190), label: "读取 VIN"),
+
+TestCaseStep.Create(new AssertDidValueParams(Did: 0xF190, Expected: "LVABCD1234567890"), label: "断言 VIN");</code></pre>
+
+
+
+<h3 id="step-fault-env">4.13 故障注入与环境帧步骤 <span class="badge ok">已实现</span></h3>
+
+<p><strong>故障注入</strong>（<code>injectFault</code> / <code>clearFault</code>）在步骤执行期间对总线收发路径注入异常
+
+（丢帧 / 延迟 / 数据损坏 / 重复帧），验证 ECU 容错行为；需配合面板 <strong>Faults</strong> 复选框或 CLI <code>--enable-faults</code> 开启。</p>
+
+<p><strong>环境帧</strong>步骤操作 suite 内嵌的 restbus 环境（<code>Environment</code> 节点）：
+
+<code>modifyEnvironmentFrame</code> 修改环境帧原始字节，<code>setEnvironmentSignal</code> 直接设置环境帧的 DBC 信号值——
+
+用于模拟"其他节点改变发送内容"的场景。</p>
+
+
+
+<h3 id="step-controlflow">4.14 控制流步骤 — If / Repeat / Loop / Assign <span class="badge ok">已实现</span></h3>
+
+<p>控制流步骤是容器步骤，其 <code>Body</code>（和 <code>if</code> 的 <code>ElseBody</code>）内可嵌套任意步骤，由引擎的递归解释器执行。
+
+<code>Path</code> / <code>Iteration</code> 会记录在 StepResult 中，HTML 报告按此分组展示。</p>
+
+
+
+<pre><code><span class="filename">示例 — 条件分支 + 计数循环</span>TestCaseStep.Create(new IfStepParams(
+
+    Condition: "signal.EngineSpeed &gt; 2000 &amp;&amp; did.CoolantTemp &gt; 90",
+
+    Body: [ new AssertSignalParams(...) ],
+
+    ElseBody: [ new CommentParams("工况未达到，跳过高负荷断言") ]), label: "高负荷检查");
+
+
+
+TestCaseStep.Create(new LoopStepParams(
+
+    From: 1, To: "${param.cycles}", Step: 1,
+
+    Body: [ new SendFrameParams(0x123, [0x01]), new DelayParams(100) ]), label: "循环施加负载");</code></pre>
+
+<blockquote class="tip">
+
+<strong>表达式规则：</strong><code>&amp;</code>（位与）优先级高于比较运算（刻意偏离 C）；<code>${name}</code> 插值在解析期完成、数据不重解析；
+
+<code>isUndefined()</code> 可安全判断变量是否未定义；<code>dtcPresent(0x050123)</code> 内置函数可查询 DTC 状态。
+
+</blockquote>
+
+
+
+<h3 id="step-params">4.15 参数化与 <code>${name}</code> 插值 <span class="badge ok">已实现</span></h3>
+
+<p>suite 级 <code>Parameters</code> 与 case 级参数在执行前绑定到 <code>StepScope</code>，
+
+所有步骤参数中的 <code>${name}</code> 占位符按 <code>param.*</code> / <code>signal.*</code> / <code>did.*</code> 来源解析——
+
+包括数值字段（插值先于类型校验，字符串 "2000" 会转为数值）。同一套件配合不同参数即可覆盖多组边界值。</p>
+
+
+
 <!-- =========================================================== -->
 
 <h2 id="suite">5. 测试套件与执行引擎 <span class="badge ok">已实现</span></h2>
@@ -2052,7 +2166,7 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
 <h3 id="suite-model">5.1 TestSuite 数据结构</h3>
 
-<p>测试套件是测试用例的集合，包含共享配置和 fixture：</p>
+<p>测试套件是测试用例的集合，包含共享配置、fixture、参数与多通道声明（定义在 PeakCan.HIL.Core 包）：</p>
 
 
 
@@ -2068,9 +2182,17 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <tr><td><code>SuiteFixtureKeys</code></td><td><code>IReadOnlyList&lt;string&gt;</code></td><td>套件级 fixture 键</td></tr>
 
-  <tr><td><code>Config</code></td><td><code>TestSuiteConfig</code></td><td>执行配置</td></tr>
+  <tr><td><code>Config</code></td><td><code>TestSuiteConfig</code></td><td>执行配置（<code>FailurePolicy</code> + <code>ContinueAfterSetupFailure</code>）</td></tr>
 
-  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>套件超时时间（毫秒）</td></tr>
+  <tr><td><code>TimeoutMs</code></td><td><code>int</code></td><td>套件超时时间（毫秒），0 表示不限制</td></tr>
+
+  <tr><td><code>Parameters</code> <span class="badge info">v0.9.0</span></td><td><code>IReadOnlyDictionary&lt;string, ParameterValue&gt;?</code></td><td>suite 级参数绑定表，供 <code>${param.x}</code> 插值；旧 JSON 无此字段时为 null</td></tr>
+
+  <tr><td><code>DataSource</code> <span class="badge info">v0.11.0</span></td><td><code>ReferenceIntegrity.DataSource?</code></td><td>引用完整性快照（CAN ID/信号引用），打开时对账</td></tr>
+
+  <tr><td><code>Channels</code> <span class="badge info">v0.12.0</span></td><td><code>IReadOnlyList&lt;ChannelConfig&gt;?</code></td><td>多通道声明（名称 / 波特率 / FD / 每通道 DBC / UDS ID）；null 表示单通道兼容</td></tr>
+
+  <tr><td><code>Environment</code> <span class="badge info">v0.17.0</span></td><td><code>IReadOnlyList&lt;RestbusNode&gt;?</code></td><td>restbus 环境节点（内嵌随 suite 文件走）</td></tr>
 
 </table>
 
@@ -2088,25 +2210,35 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
     Config: new TestSuiteConfig(
 
-        StopOnFirstFailure: false,
+        FailurePolicy: FailurePolicy.StopCaseOnFailure,  // 失败后跳过本 case 剩余步骤，继续后续 case
 
-        ParallelExecution:  false,
-
-        FixtureTimeoutMs:   10000,
-
-        CaseTimeoutMs:      5000
+        ContinueAfterSetupFailure: true                   // setup 失败仍尝试执行用例
 
     ),
 
-    TimeoutMs: 60000
+    TimeoutMs: 60000,
+
+    Parameters: new Dictionary&lt;string, ParameterValue&gt; { ["targetDid"] = ParameterValue.Number(0xF190) },
+
+    Channels: new[]
+
+    {
+
+        new ChannelConfig(Name: "powertrain", Handle: 0, BaudRate: ..., DbcPath: "engine.dbc"),
+
+        new ChannelConfig(Name: "chassis",    Handle: 1, BaudRate: ..., DbcPath: "chassis.dbc")
+
+    }
 
 );</code></pre>
 
 
 
-<h3 id="suite-engine">5.2 三阶段执行引擎 (Stage A/B/C)</h3>
+<h3 id="suite-engine">5.2 套件执行引擎（Setup → Execute → Teardown）</h3>
 
-<p>测试套件通过 <strong>TestSuiteEngine</strong> 执行，分为三个阶段：</p>
+<p>测试套件通过 <strong>TestSuiteEngine</strong> 执行：单路径递归解释器（<code>ExecuteStepListAsync</code> + <code>ExecuteLeafAsync</code>），
+
+每个步骤分发到 31+ 个独立 StepExecutor。整体生命周期分为三个阶段：</p>
 
 <div class="figure">
 
@@ -2114,13 +2246,13 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <rect x="2" y="2" width="1076" height="316" rx="6" fill="#f4f4f4" stroke="#888"/>
 
-  <text x="14" y="22" fill="#222" font-weight="600">TestSuiteEngine — 三阶段执行管线</text>
+  <text x="14" y="22" fill="#222" font-weight="600">TestSuiteEngine — Setup / Execute / Teardown 执行管线</text>
 
   <!-- Stage A -->
 
   <rect x="20" y="50" width="200" height="100" rx="8" fill="#ddf4ff" stroke="#1f77b4" stroke-width="2"/>
 
-  <text x="120" y="78" fill="#1f77b4" font-weight="600" text-anchor="middle">Stage A〉Setup</text>
+  <text x="120" y="78" fill="#1f77b4" font-weight="600" text-anchor="middle">Setup</text>
 
   <text x="120" y="98" fill="#444" text-anchor="middle" font-size="11">初始化 Fixture</text>
 
@@ -2128,7 +2260,7 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <text x="120" y="130" fill="#444" text-anchor="middle" font-size="11">加载 DBC / UDS 会话</text>
 
-  <text x="120" y="146" fill="#888" text-anchor="middle" font-size="11">失败 → 跳过 Stage B</text>
+  <text x="120" y="146" fill="#888" text-anchor="middle" font-size="11">失败 → 按 ContinueAfterSetupFailure 决定是否执行用例</text>
 
   <!-- Arrow A→B -->
 
@@ -2140,15 +2272,15 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <rect x="270" y="50" width="480" height="100" rx="8" fill="#fff8e1" stroke="#d4a72c" stroke-width="2"/>
 
-  <text x="510" y="78" fill="#7d4e00" font-weight="600" text-anchor="middle">Stage B〉Execute</text>
+  <text x="510" y="78" fill="#7d4e00" font-weight="600" text-anchor="middle">Execute</text>
 
   <text x="510" y="98" fill="#444" text-anchor="middle" font-size="11">按顺序执行每个 TestCase</text>
 
   <text x="510" y="114" fill="#444" text-anchor="middle" font-size="11">每个 Case 内按步骤顺序执行步骤</text>
 
-  <text x="510" y="130" fill="#444" text-anchor="middle" font-size="11">StopOnFirstFailure = true → 首个失败后停止</text>
+  <text x="510" y="130" fill="#444" text-anchor="middle" font-size="11">FailurePolicy = StopSuiteOnFailure → 首个失败 case 后停止</text>
 
-  <text x="510" y="146" fill="#888" text-anchor="middle" font-size="11">False → 继续执行剩余用例</text>
+  <text x="510" y="146" fill="#888" text-anchor="middle" font-size="11">ContinueAll / StopCaseOnFailure → 继续执行剩余用例</text>
 
   <!-- Arrow B→C -->
 
@@ -2160,7 +2292,7 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <rect x="800" y="50" width="240" height="100" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
 
-  <text x="920" y="78" fill="#1a7f37" font-weight="600" text-anchor="middle">Stage C〉Teardown</text>
+  <text x="920" y="78" fill="#1a7f37" font-weight="600" text-anchor="middle">Teardown</text>
 
   <text x="920" y="98" fill="#444" text-anchor="middle" font-size="11">释放 Fixture</text>
 
@@ -2174,7 +2306,7 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <rect x="20" y="180" width="1020" height="120" rx="6" fill="#ffffff" stroke="#cccccc" stroke-dasharray="4,2"/>
 
-  <text x="34" y="202" fill="#222" font-weight="600">Stage B 内部 — 每个 TestCase 的执行流程</text>
+  <text x="34" y="202" fill="#222" font-weight="600">Execute 内部 — 每个 TestCase 的执行流程</text>
 
   <g font-size="12">
 
@@ -2194,17 +2326,17 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
     <rect x="34" y="268" width="240" height="22" rx="4" fill="#f0f0f0" stroke="#aaa"/>
 
-    <text x="44" y="284" fill="#888">TC-003 读取 DTC → ⏭ 跳过（StopOnFailure）</text>
+    <text x="44" y="284" fill="#888">TC-003 读取 DTC → ⏭ 跳过（StopSuiteOnFailure）</text>
 
     <!-- Decision tree -->
 
-    <text x="340" y="232" fill="#888" font-weight="600">Stage B 失败时：</text>
+    <text x="340" y="232" fill="#888" font-weight="600">Execute 失败时：</text>
 
-    <text x="340" y="252" fill="#444">StopOnFirstFailure = true</text>
+    <text x="340" y="252" fill="#444">FailurePolicy = StopSuiteOnFailure</text>
 
-    <text x="340" y="270" fill="#444">→ 跳过剩余用例，直接进入 Stage C</text>
+    <text x="340" y="270" fill="#444">→ 跳过剩余用例，直接进入 Teardown</text>
 
-    <text x="340" y="290" fill="#444">StopOnFirstFailure = false</text>
+    <text x="340" y="290" fill="#444">FailurePolicy = ContinueAll / StopCaseOnFailure</text>
 
     <text x="340" y="308" fill="#444">→ 记录失败，继续执行后续用例</text>
 
@@ -2226,11 +2358,11 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <rect x="712" y="282" width="40" height="14" rx="2" fill="#f0f0f0" stroke="#aaa"/>
 
-  <text x="760" y="294" fill="#444" font-size="11">跳过 — 因 StopOnFirstFailure 跳过</text>
+  <text x="760" y="294" fill="#444" font-size="11">跳过 — 因 StopSuiteOnFailure 跳过</text>
 
 </svg>
 
-<div class="caption">图 2 — TestSuiteEngine 三阶段执行管线。Stage A 失败则跳过 Stage B，Stage C 总是执行。</div>
+<div class="caption">图 2 — TestSuiteEngine 执行管线。套件 Setup 失败时是否跳过用例由 <code>ContinueAfterSetupFailure</code> 决定，Teardown 总是执行。</div>
 
 </div>
 
@@ -2240,23 +2372,23 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
   <tr><th>阶段</th><th>说明</th><th>失败处理</th></tr>
 
-  <tr><td><strong>Stage A — Setup</strong></td>
+  <tr><td><strong>Setup</strong></td>
 
-      <td>初始化所有 fixture（硬件连接、DBC 加载、UDS 会话建立等）。如果 fixture 初始化失败，整个套件被标记为 SetupFailure。</td>
+      <td>初始化套件级 fixture（硬件连接、DBC 加载、UDS 会话建立等）。失败逐条记录到 <code>SetupFailures</code>。</td>
 
-      <td>Stage A 失败 → 跳过 Stage B，直接进入 Stage C</td></tr>
+      <td><code>ContinueAfterSetupFailure = true</code>（默认）→ 仍尝试执行用例；<code>false</code> → 全部用例跳过</td></tr>
 
-  <tr><td><strong>Stage B — Execute</strong></td>
+  <tr><td><strong>Execute</strong></td>
 
-      <td>按顺序执行每个测试用例。每个用例内部按步骤顺序执行，任何步骤失败导致该用例失败。</td>
+      <td>按顺序执行每个测试用例。用例内部由递归解释器按步骤顺序执行（含控制流 If/Repeat/Loop），每个 case 前后执行用例级 fixture。</td>
 
-      <td>根据 <code>StopOnFirstFailure</code> 配置决定是否继续执行后续用例</td></tr>
+      <td><code>FailurePolicy</code> 三态：<code>ContinueAll</code>（失败继续）/ <code>StopCaseOnFailure</code>（跳过本 case 剩余步骤，继续后续 case）/ <code>StopSuiteOnFailure</code>（整个套件停止）</td></tr>
 
-  <tr><td><strong>Stage C — Teardown</strong></td>
+  <tr><td><strong>Teardown</strong></td>
 
-      <td>清理所有 fixture（断开硬件、释放资源）。即使 Stage B 失败也强制执行。</td>
+      <td>按逆序清理所有 fixture（断开硬件、释放资源）。即使 Execute 失败也强制执行。</td>
 
-      <td>Teardown 失败记录到 <code>SetupFailures</code> 列表，不影响测试结果</td></tr>
+      <td>Teardown 失败仅记录日志，不影响测试结果</td></tr>
 
 </table>
 
@@ -2268,39 +2400,49 @@ TestCaseStep.Create(new CommentParams("期望 ECU 返回 0x67 01 + 4 字节种�
 
     var setupFailures = new List&lt;string&gt;();
 
-    // Stage A: Setup
+    // Setup: 套件级 fixture
 
-    try { await SetupFixtures(suite, ct); }
+    foreach (var fixture in ResolveFixtures(suite.SuiteFixtureKeys))
 
-    catch (Exception ex) { setupFailures.Add(ex.Message); return EarlyExit(suite, setupFailures); }
+        try { await fixture.SetupAsync(ctx, ct); }
+
+        catch (Exception ex) { setupFailures.Add($"Setup failed: {ex.Message}"); }
 
 
 
-    // Stage B: Execute
+    var suiteSetupFailed = setupFailures.Count &gt; 0 &amp;&amp; !suite.Config.ContinueAfterSetupFailure;
+
+
+
+    // Execute: 逐 case 递归解释（含控制流 If/Repeat/Loop/Assign）
 
     var results = new List&lt;TestCaseResult&gt;();
 
-    foreach (var @case in suite.Cases)
+    if (!suiteSetupFailed)
 
-    {
+        foreach (var @case in suite.Cases)
 
-        if (ct.IsCancellationRequested) break;
+        {
 
-        var result = await RunTestCase(@case, ctx, ct);
+            if (ct.IsCancellationRequested) break;
 
-        results.Add(result);
+            var result = await ExecuteCaseAsync(@case, ctx, suite.Config, ct);
 
-        if (!result.Passed &amp;&amp; suite.Config.StopOnFirstFailure) break;
+            results.Add(result);
 
-    }
+            if (!result.Passed &amp;&amp; suite.Config.FailurePolicy == FailurePolicy.StopSuiteOnFailure) break;
+
+        }
 
 
 
-    // Stage C: Teardown
+    // Teardown: 逆序清理（总是执行）
 
-    try { await TeardownFixtures(suite, ct); }
+    foreach (var fixture in ResolveFixtures(suite.SuiteFixtureKeys).Reverse())
 
-    catch (Exception ex) { setupFailures.Add($"Teardown: {ex.Message}"); }
+        try { await fixture.TeardownAsync(ctx, ct); }
+
+        catch (Exception ex) { /* log, don't mask */ }
 
 
 
@@ -2389,6 +2531,30 @@ public sealed class UdsConnectionFixture : ITestFixture
 
 
 <p>在 UI 中，HIL 面板调用 <code>HilRunnerService.RunAsync</code> 并订阅 <code>IProgress&lt;TestProgress&gt;</code> 实时更新进度条。</p>
+
+
+
+<h3 id="suite-multichannel">5.5 多通道执行 <span class="badge info">v3.65.0</span></h3>
+
+<p>suite 顶层声明 <code>Channels</code>（每通道：名称 / 波特率 / CAN FD / 独立 DBC / UDS 请求响应 ID），
+
+收发与 UDS 步骤通过 <code>TargetChannel</code> 指定目标通道；未声明通道的步骤走默认（首）通道。</p>
+
+
+
+<table>
+
+  <tr><th>机制</th><th>说明</th></tr>
+
+  <tr><td>硬件绑定</td><td><code>HardwareChannels</code> 按索引顺序绑定已连接设备（PEAK / ZLG 混插均可）</td></tr>
+
+  <tr><td>每通道 DBC</td><td>各通道独立加载 DBC，报告侧按通道解码信号</td></tr>
+
+  <tr><td>通道引用校验</td><td>执行前校验步骤 <code>TargetChannel</code> 与 suite 声明一致，不一致报 High 级问题</td></tr>
+
+  <tr><td>结果分组</td><td>StepResult 携带 <code>Channel</code>，HTML 报告按通道分组展示</td></tr>
+
+</table>
 
 
 
@@ -3774,13 +3940,9 @@ peakcan-hil ^
 
     Config: new TestSuiteConfig(
 
-        StopOnFirstFailure: false,
+        FailurePolicy: FailurePolicy.StopCaseOnFailure,
 
-        ParallelExecution:  false,
-
-        FixtureTimeoutMs:   10000,
-
-        CaseTimeoutMs:      5000
+        ContinueAfterSetupFailure: true
 
     )
 
@@ -4324,7 +4486,7 @@ var suite = new TestSuite(
 
 <footer>
 
-  PeakCan Host v3.63.0 — HIL 硬件在环测试指南 · 更新于 2026-07-31 ·
+  PeakCan Host v3.65.0 — HIL 硬件在环测试指南 · 更新于 2026-09-06 ·
 
   与 <code>docs/user-manual.html</code> 同步 ·
 
