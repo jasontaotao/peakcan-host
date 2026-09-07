@@ -58,6 +58,28 @@ public class CliArgsParserTests
         Assert.Null(cli.TracePath);
     }
 
+    // 2026-09-07 backlog §9 1.7.6：seed-key 算法 DLL 参数
+    [Fact]
+    public void Parse_KeyDll_RoundTrips()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1", "--key-dll", @"C:\oem\GenerateKey.dll"));
+        Assert.Equal(@"C:\oem\GenerateKey.dll", cli.KeyDllPath);
+    }
+
+    [Fact]
+    public void Parse_NoKeyDll_DefaultsNull()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1"));
+        Assert.Null(cli.KeyDllPath);
+    }
+
+    [Fact]
+    public void Parse_KeyDll_AtEnd_ThrowsArgumentException_WithOptionName()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(With("--key-dll")));
+        Assert.Contains("--key-dll", ex.Message);
+    }
+
     [Fact]
     public void Parse_TraceOnly_NoHw_Succeeds()
     {

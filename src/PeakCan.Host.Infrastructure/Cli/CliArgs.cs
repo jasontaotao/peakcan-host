@@ -36,7 +36,11 @@ public sealed record CliArgs(
     string? GatewayPath = null,
     // 2026-08-22: 多通道硬件声明（spec §3.4）。非空 = 多通道模式（每通道独立 handle/DBC/FD）；
     // null = 旧单通道 HardwareChannel 路径。CLI 不直接解析（多通道主要走 WPF HilRunRequest 路径）。
-    IReadOnlyList<ChannelConfig>? HardwareChannels = null);
+    IReadOnlyList<ChannelConfig>? HardwareChannels = null,
+    // 2026-09-07 backlog §9 1.7.6：seed-key 算法 DLL（OEM GenerateKey cdecl 导出）。
+    // 非空 = DllKeyDerivationAlgorithm 挂进 UdsClient（SecurityAccess 步骤可用）；
+    // null = 无算法（SecurityAccess fail-fast KeyAlgorithmNotConfiguredException）。
+    string? KeyDllPath = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -60,6 +64,8 @@ public static class CliArgsParser
         string? generatorDir = null;
         // Phase 7 Unit D multi-bus gateway config
         string? gatewayPath = null;
+        // 2026-09-07 backlog §9 1.7.6 seed-key 算法 DLL
+        string? keyDll = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -84,6 +90,7 @@ public static class CliArgsParser
                 case "--export-frames": exportFramesDir = NextArg(args, ref i, "--export-frames"); break;
                 case "--generator-dir": generatorDir = NextArg(args, ref i, "--generator-dir"); break;
                 case "--gateway": gatewayPath = NextArg(args, ref i, "--gateway"); break;
+                case "--key-dll": keyDll = NextArg(args, ref i, "--key-dll"); break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -101,7 +108,7 @@ public static class CliArgsParser
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll);
         }
 
         if (simulate)
@@ -114,7 +121,7 @@ public static class CliArgsParser
             if (dbc is null)
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -131,7 +138,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath);
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll);
     }
 
     /// <summary>
@@ -184,6 +191,7 @@ public static class CliArgsParser
         Console.WriteLine("  --import-uds-resp <id>  Response CAN ID for ODX import (default: 0x7E8)");
         Console.WriteLine("  --generator-dir <path>  Directory of external IEcuResponseGenerator plugin DLLs");
         Console.WriteLine("  --gateway <path>  Multi-bus gateway config JSON (bus-to-bus frame forwarding)");
+        Console.WriteLine("  --key-dll <path>  OEM seed-key DLL (cdecl GenerateKey(seed, seedLen, keyOut, keyOutLen, securityLevel)) for SecurityAccess steps");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

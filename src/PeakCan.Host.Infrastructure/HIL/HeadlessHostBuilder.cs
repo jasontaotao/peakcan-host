@@ -199,7 +199,11 @@ public static class HeadlessHostBuilder
                         // RegisterUdsServices 的 HilIsoTpBridge 语义）。bridge 订阅 channel 事件 →
                         // channel 持有 bridge 引用，不会被 GC；每通道独立桥接，互不串扰。
                         _ = new HilIsoTpBridge(channel, isoTp);
-                        udsSessions[cfg.Name] = new UdsSessionAdapter(new UdsClient(isoTp));
+                        // 1.7.6：per-channel UDS 栈同样可挂 --key-dll 算法（未配则无算法 fail-fast）
+                        var chanKeyAlgo = sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>();
+                        udsSessions[cfg.Name] = chanKeyAlgo is null
+                            ? new UdsSessionAdapter(new UdsClient(isoTp))
+                            : new UdsSessionAdapter(new UdsClient(isoTp, chanKeyAlgo));
                     }
                 }
                 return new MultiChannelAssertionContext(contexts, defaultChannelName: multiCfg[0].Name);
@@ -352,6 +356,12 @@ public static class HeadlessHostBuilder
     /// </summary>
     private static void RegisterUdsServices(HostApplicationBuilder builder, CliArgs args)
     {
+        // backlog §9 1.7.6（2026-09-07）：--key-dll 提供时把 DllKeyDerivationAlgorithm 注册为
+        // singleton（容器负责 Dispose native handle）；UdsClient 构造点经 GetService 可选取用。
+        if (args.KeyDllPath is not null)
+            builder.Services.AddSingleton<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>(
+                _ => new PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm(args.KeyDllPath));
+
         builder.Services.AddSingleton<IsoTpLayer>(sp =>
         {
             var config = new CanIdConfig
@@ -367,7 +377,9 @@ public static class HeadlessHostBuilder
         builder.Services.AddSingleton<UdsClient>(sp =>
         {
             var isoTp = sp.GetRequiredService<IsoTpLayer>();
-            return new UdsClient(isoTp);
+            // 1.7.6：--key-dll 未配时保持无算法 1 参构造（SecurityAccess fail-fast 不静默）
+            var keyAlgo = sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>();
+            return keyAlgo is null ? new UdsClient(isoTp) : new UdsClient(isoTp, keyAlgo);
         });
         builder.Services.AddSingleton<IUdsSession>(sp =>
         {
