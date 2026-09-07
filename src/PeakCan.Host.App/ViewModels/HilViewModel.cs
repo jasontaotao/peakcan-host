@@ -21,6 +21,7 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly IFileDialogService _fileDialog;
     private readonly IHilAnalysisService _analysisService;
     private readonly IHilReportService _reportService;
+    private CancellationTokenSource? _runCts;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -79,6 +80,14 @@ public sealed partial class HilViewModel : ObservableObject
         IsHardwareMode = value == HilMode.Hardware;
         IsVirtualEcuMode = value == HilMode.VirtualEcu;
         IsMatrixMode = value == HilMode.Matrix;
+    }
+
+
+
+    partial void OnIsRunningChanged(bool value)
+    {
+        StopCommand.NotifyCanExecuteChanged();
+        RunCommand.NotifyCanExecuteChanged();
     }
 
     public HilViewModel(
@@ -526,6 +535,11 @@ public sealed partial class HilViewModel : ObservableObject
 
     // --- Run command ---
 
+    [RelayCommand(CanExecute = nameof(CanStop))]
+    private void Stop() => _runCts?.Cancel();
+
+    private bool CanStop() => IsRunning;
+
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RunAsync()
     {
@@ -539,6 +553,7 @@ public sealed partial class HilViewModel : ObservableObject
 
         try
         {
+            _runCts = new CancellationTokenSource();
             var progress = new Progress<TestProgress>(p => ProgressPercent = p.PercentComplete);
             _truncationWarning = null; // 每次 Run 重置（防上一次残留）
 
@@ -565,7 +580,7 @@ public sealed partial class HilViewModel : ObservableObject
                 HardwareChannels: hardwareChannels,
                 CaptureCaseLogs: CaptureCaseLogs);
 
-            var result = await _runner.RunAsync(request, progress, default);
+            var result = await _runner.RunAsync(request, progress, _runCts.Token);
 
             _lastResult = result;
             AnalyzeCommand.NotifyCanExecuteChanged();
@@ -575,9 +590,11 @@ public sealed partial class HilViewModel : ObservableObject
 
             BuildResultsTree(result);
 
-            StatusMessage = result.AllPassed
-                ? $"All {result.TotalCases} cases passed"
-                : $"{result.FailedCases}/{result.TotalCases} cases failed";
+            StatusMessage = _runCts.IsCancellationRequested
+                ? $"已取消（完成 {result.CaseResults.Count}/{result.TotalCases}）"
+                : result.AllPassed
+                    ? $"All {result.TotalCases} cases passed"
+                    : $"{result.FailedCases}/{result.TotalCases} cases failed";
 
             // 2026-08-15: 每 case 报文 log 成功时在状态栏提示实际写入目录（case-log P11）。
             if (CaptureCaseLogs && _runner.LastCaseLogDirectory is { } caseLogDir)
@@ -616,6 +633,10 @@ public sealed partial class HilViewModel : ObservableObject
             if (EnableAnalyze && result.FailedCases > 0)
                 await AnalyzeAsync();
         }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "已取消";
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "HIL test execution failed");
@@ -627,6 +648,8 @@ public sealed partial class HilViewModel : ObservableObject
         finally
         {
             IsRunning = false;
+            _runCts?.Dispose();
+            _runCts = null;
             AnalyzeCommand.NotifyCanExecuteChanged();
         }
     }
