@@ -26,9 +26,9 @@
     </UserControl.Resources>
     <DockPanel Margin="16">
         <!-- Mode selector + DBC / Suite paths -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <ComboBox Width="150" Margin="0,0,16,0"
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="模式" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox MinWidth="150" Margin="0,0,16,0"
                       ItemsSource="{Binding Source={StaticResource HilModeValues}}"
                       SelectedItem="{Binding SelectedMode}">
                 <ComboBox.ItemTemplate>
@@ -43,7 +43,17 @@
             </ComboBox>
             <CheckBox Content="记录每 case 报文 (.asc)" IsChecked="{Binding CaptureCaseLogs}"
                       VerticalAlignment="Center" Margin="16,0,0,0" />
-            <Grid Width="220" Margin="12,0,0,0">
+            <Grid MinWidth="220" Margin="12,0,0,0">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CaptureCaseLogs}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <TextBox Text="{Binding CaseLogDirectory}" ToolTip="Case log directory" />
             </Grid>
             <Button Content="Open Logs" Command="{Binding OpenCaseLogDirectoryCommand}" Margin="4,0,0,0" />
@@ -51,36 +61,36 @@
                        ToolTip="{Binding SelectedMode, Converter={StaticResource HilModeDesc}}"
                        VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16"
                        FontFamily="Segoe Fluent Icons" />
-            <Grid Width="180" Margin="0,0,4,0">
+            <Grid MinWidth="180" Margin="0,0,4,0">
                 <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" />
                 <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=DbcPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
-            <Button Content="Browse..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
-            <Grid Width="180" Margin="0,0,4,0">
+            <Button Content="浏览..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
+            <Grid MinWidth="180" Margin="0,0,4,0">
                 <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="Test suite JSON path" />
                 <TextBlock Text="选择测试套件 JSON..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=SuitePathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
-            <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
-        </StackPanel>
+            <Button Content="浏览..." Command="{Binding BrowseSuiteCommand}" />
+        </WrapPanel>
 
-        <TextBlock DockPanel.Dock="Top" Text="{Binding PreflightWarning}" Foreground="OrangeRed"
+        <TextBlock DockPanel.Dock="Top" Text="{Binding PreflightWarning}" Foreground="{StaticResource Error}"
                    TextWrapping="Wrap" Margin="0,0,0,8"
                    Visibility="{Binding PreflightWarning, Converter={StaticResource EmptyStringToVisibilityConverter}, ConverterParameter=invert}" />
 
         <!-- Mode-specific path (按 Mode 切换显隐) -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsTraceMode, Converter={StaticResource BoolToVis}}">
-                <Grid Width="260" Margin="0,0,4,0">
+                <Grid MinWidth="260" Margin="0,0,4,0">
                     <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" />
                     <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=TracePathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
                 </Grid>
-                <Button Content="Browse..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
+                <Button Content="浏览..." Command="{Binding BrowseTraceCommand}" Margin="0,0,12,0" />
             </StackPanel>
 
             <StackPanel Visibility="{Binding IsHardwareMode, Converter={StaticResource BoolToVis}}">
@@ -90,7 +100,7 @@
                               SelectedValue="{Binding HardwareChannel}"
                               SelectedValuePath="Handle"
                               DisplayMemberPath="Display"
-                              Width="170" Margin="0,0,12,0"
+                              MinWidth="170" Margin="0,0,12,0"
                               ToolTip="PCAN hardware channel（已连接通道）">
                       <ComboBox.Style>
                         <Style TargetType="ComboBox">
@@ -125,38 +135,39 @@
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
-                <Grid Width="160" Margin="0,0,4,0">
+                <Grid MinWidth="160" Margin="0,0,4,0">
                     <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" />
                     <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=EcuScriptPathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
                 </Grid>
-                <Button Content="Browse..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
+                <Button Content="浏览..." Command="{Binding BrowseEcuCommand}" Margin="0,0,12,0" />
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsMatrixMode, Converter={StaticResource BoolToVis}}">
-                <Grid Width="160" Margin="0,0,4,0">
-                    <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" IsReadOnly="True" />
+                <Grid MinWidth="160" Margin="0,0,4,0">
+                    <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" />
                     <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=MatrixPathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
                 </Grid>
-                <Button Content="Browse..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
+                <Button Content="浏览..." Command="{Binding BrowseMatrixCommand}" Margin="0,0,12,0" />
             </StackPanel>
 
-            <CheckBox Content="Faults" IsChecked="{Binding EnableFaultInjection}"
+            <CheckBox Content="注入故障" IsChecked="{Binding EnableFaultInjection}"
                       VerticalAlignment="Center" Margin="0,0,12,0" />
-            <CheckBox Content="Analyze" IsChecked="{Binding EnableAnalyze}"
+            <CheckBox Content="分析" IsChecked="{Binding EnableAnalyze}"
                       VerticalAlignment="Center" Margin="0,0,12,0" />
-        </StackPanel>
+        </WrapPanel>
 
         <!-- ECU editor + Run / Analyze buttons -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Open ECU Editor" Command="{Binding OpenEcuEditorCommand}" Padding="16,4" Margin="0,0,8,0" />
-            <Button Content="Run" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Button Content="打开 ECU 编辑器" Command="{Binding OpenEcuEditorCommand}" Padding="16,4" Margin="0,0,8,0" />
+            <Button Content="运行" Command="{Binding RunCommand}" Padding="24,4" Margin="0,0,8,0" />
+            <Button Content="停止" Command="{Binding StopCommand}" Padding="16,4" Margin="0,0,8,0" />
             <Button Content="试运行环境" Command="{Binding TrialRunEnvironmentCommand}" Padding="12,4" Margin="0,0,8,0" />
-            <Button Content="Analyze" Command="{Binding AnalyzeCommand}" Padding="16,4" />
-        </StackPanel>
+            <Button Content="分析" Command="{Binding AnalyzeCommand}" Padding="16,4" />
+        </WrapPanel>
 
         <!-- Progress bar + status -->
         <ProgressBar DockPanel.Dock="Top" Height="16" Margin="0,0,0,4"
@@ -178,14 +189,26 @@
 
         <!-- Phase 7 Unit C: 中部填充区改 TabControl —— Results(原 DataGrid+TreeView) / HTML Report(WebView2)。
              LLM Analysis TextBox 保留 DockPanel 底部（T3）。 -->
+        <Expander DockPanel.Dock="Top" Header="试运行诊断" Margin="0,0,0,8">
+            <DataGrid ItemsSource="{Binding TrialDiagnostics}" AutoGenerateColumns="False" IsReadOnly="True"
+                      CanUserAddRows="False" CanUserDeleteRows="False" MaxHeight="160">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Step" Binding="{Binding Step}" Width="120" />
+                    <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="70" />
+                    <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*" />
+                    <DataGridTextColumn Header="Possible causes" Binding="{Binding PossibleCauses}" Width="2*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Expander>
+
         <TabControl>
             <!-- Test Cases: Browse Suite 后列出用例, 用户勾选要运行的用例 -->
-            <TabItem Header="Test Cases">
+            <TabItem Header="用例">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
                         <Button Content="Select All" Command="{Binding SelectAllCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
                         <Button Content="Select None" Command="{Binding SelectNoCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
-                        <TextBox Width="160" Text="{Binding CaseFilter, UpdateSourceTrigger=PropertyChanged, Delay=100}" ToolTip="Filter cases" />
+                        <TextBox MinWidth="160" Text="{Binding CaseFilter, UpdateSourceTrigger=PropertyChanged, Delay=100}" ToolTip="Filter cases" />
                         <TextBlock Text="{Binding AvailableCases.Count, StringFormat='{}{0} cases loaded'}"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
@@ -199,7 +222,7 @@
                     </DataGrid>
                 </DockPanel>
             </TabItem>
-            <TabItem Header="Results">
+            <TabItem Header="结果">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -277,11 +300,11 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="History">
+            <TabItem Header="历史">
                 <DataGrid ItemsSource="{Binding RunHistory}" AutoGenerateColumns="False" IsReadOnly="True"
                           CanUserAddRows="False" CanUserDeleteRows="False">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Time" Binding="{Binding CompletedAtUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="150" />
+                        <DataGridTextColumn Header="Time" Binding="{Binding CompletedAtUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" MinWidth="150" />
                         <DataGridTextColumn Header="Suite" Binding="{Binding SuitePath}" Width="*" />
                         <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="100" />
                         <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
@@ -292,7 +315,7 @@
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>
-            <TabItem Header="HTML Report">
+            <TabItem Header="报告">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                         <TextBlock Text="{Binding LatestReportPath}" VerticalAlignment="Center"

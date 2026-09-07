@@ -45,7 +45,7 @@ public sealed class HilViewModelExecutionFlowTests
         vm.SelectedMode = HilMode.TraceReplay;
         vm.TracePath = @"C:\trace.asc";
 
-        await vm.RunCommand.ExecuteAsync(null);
+        await vm.RunAsync();
 
         Assert.Equal("Case 1", vm.CurrentCaseName);
         Assert.Equal(1, vm.CompletedCases);

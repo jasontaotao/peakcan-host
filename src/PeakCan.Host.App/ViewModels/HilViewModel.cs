@@ -542,9 +542,9 @@ public sealed partial class HilViewModel : ObservableObject
         {
             // 绑定值：PEAK 用 USB{n}（下游 ParseChannelHandle 语义不变）；非 PEAK（ZLG，高位 0x8000+）
             // 用 raw hex（"0xC600"），host 单通道已走 CompositeChannelFactory 能解析。显示用设备名区分厂商。
-            var handle = (c.Handle & 0x8000) != 0
+            var handle = (c.Handle & PcanHandleConstants.ZlgVendorFlag) != 0
                 ? $"0x{c.Handle:X}"
-                : $"USB{c.Handle - 0x50}";
+                : $"USB{c.Handle - PcanHandleConstants.PeakUsbBase}";
             var displayName = string.IsNullOrEmpty(c.Name) ? handle : c.Name;
             AvailableChannels.Add(new HardwareChannelOption(handle, $"{displayName}（已连接·{c.BaudRate.Name}）"));
         }
@@ -583,7 +583,7 @@ public sealed partial class HilViewModel : ObservableObject
             var d = declared[i];
             var c = connected[i];
             // 设备名区分厂商（"USB1" / "USBCAN 0-1"）；Name 为空（测试直构造）回退 USB{handle-0x50}。
-            var deviceName = string.IsNullOrEmpty(c.Name) ? $"USB{c.Handle - 0x50}" : c.Name;
+            var deviceName = string.IsNullOrEmpty(c.Name) ? $"USB{c.Handle - PcanHandleConstants.PeakUsbBase}" : c.Name;
             var detail = $"{FormatBindingDetail(d).Trim()} · {c.BaudRate.Name}";
             ChannelBindings.Add(new ChannelBindingRow(d.Name, deviceName, detail));
         }
@@ -1157,6 +1157,15 @@ public sealed partial class HilViewModel : ObservableObject
         }
         HasEnvironmentStats = true;
     }
+}
+
+internal static class PcanHandleConstants
+{
+    /// <summary>ZLG CAN devices expose high bit set handles (0x8000+).</summary>
+    public const ushort ZlgVendorFlag = 0x8000;
+
+    /// <summary>PEAK USB1..USB16 are contiguous PCAN handles beginning at 0x50.</summary>
+    public const ushort PeakUsbBase = 0x50;
 }
 
 public sealed partial class TestCaseResultViewModel : ObservableObject
