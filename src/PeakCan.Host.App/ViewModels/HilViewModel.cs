@@ -17,6 +17,7 @@ using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.HilPreflight;
 using PeakCan.Host.App.Services.HilPanel;
+using PeakCan.Host.App.Services.HilHistory;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -32,6 +33,7 @@ public sealed partial class HilViewModel : ObservableObject
     private CancellationTokenSource? _runCts;
     private readonly ITrialRunService? _trialRunService;
     private readonly SuitePreflightService? _preflightService;
+    private readonly HilRunHistoryStore? _runHistoryStore;
     private CancellationTokenSource? _preflightCts;
     private bool _preflightHasCritical;
     private IReadOnlyList<string>? _rerunSelectedCaseNames;
@@ -92,6 +94,8 @@ public sealed partial class HilViewModel : ObservableObject
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
     public ObservableCollection<TrialDiagnostic> TrialDiagnostics { get; } = new();
     public ObservableCollection<PreflightIssue> PreflightIssues { get; } = new();
+    public ObservableCollection<HilRunHistoryDto> RunHistory { get; } = new();
+    public string LastSuiteName => _lastResult?.SuiteName ?? "";
     public ICollectionView FilteredCases { get; }
 
     /// <summary>PCAN 硬件通道下拉选项（G3）：动态刷新自已连接通道。Handle = "USB{n}" 值, Display = 显示文本。</summary>
@@ -255,7 +259,8 @@ public sealed partial class HilViewModel : ObservableObject
         Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null,
         IConnectedChannelsSource? connectedChannelsSource = null,
         ITrialRunService? trialRunService = null,
-        SuitePreflightService? preflightService = null)
+        SuitePreflightService? preflightService = null,
+        HilRunHistoryStore? runHistoryStore = null)
     {
         _runner = runner;
         FilteredCases = CollectionViewSource.GetDefaultView(AvailableCases);
@@ -268,6 +273,7 @@ public sealed partial class HilViewModel : ObservableObject
             (connectedChannelsSource is null ? null : () => connectedChannelsSource.Current);
         _trialRunService = trialRunService;
         _preflightService = preflightService;
+        _runHistoryStore = runHistoryStore;
         if (connectedChannelsSource is not null)
         {
             connectedChannelsSource.Changed += OnConnectedChannelsChanged;
@@ -794,10 +800,18 @@ public sealed partial class HilViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanOpenReport() => !string.IsNullOrEmpty(LatestReportPath);
+
+    [RelayCommand(CanExecute = nameof(CanOpenReport))]
     private void OpenReport()
     {
-        if (string.IsNullOrEmpty(LatestReportPath) || !File.Exists(LatestReportPath)) return;
+        if (string.IsNullOrEmpty(LatestReportPath)) return;
+        if (!File.Exists(LatestReportPath))
+        {
+            ReportError = "报告文件已被移动或删除。";
+            ShowReportError = true;
+            return;
+        }
         try
         {
             // MEDIUM-3: File.Exists 与 Process.Start 间有竞态（文件被删），且 UseShellExecute 在
@@ -851,7 +865,7 @@ public sealed partial class HilViewModel : ObservableObject
     private bool CanStop() => IsRunning;
 
     [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task RunAsync()
+    internal async Task RunAsync()
     {
         IsRunning = true;
         StartRunTimer();
@@ -861,6 +875,7 @@ public sealed partial class HilViewModel : ObservableObject
         ProgressPercent = 0;
         // LOW-2: 每次 Run 从空报告开始 —— 报告失败时不残留旧报告（WebView 不显示过期结果）。
         LatestReportPath = "";
+        HilRunRequest? request = null;
 
         try
         {
@@ -881,7 +896,7 @@ public sealed partial class HilViewModel : ObservableObject
             // 数量不一致按少的截断 + 状态栏提示。suite 无 Channels 或未连 → null（单通道零回归）。
             var hardwareChannels = BuildHardwareChannels();
 
-            var request = BuildRunRequest(hardwareChannels);
+            request = BuildRunRequest(hardwareChannels);
 
             var result = await _runner.RunAsync(request, progress, _runCts.Token);
 
@@ -931,6 +946,9 @@ public sealed partial class HilViewModel : ObservableObject
                 ShowReportError = true;
             }
 
+            RecordRunHistory(request, result, cancelled: _runCts.IsCancellationRequested,
+                error: result.CaseResults.Any(c => c.FailureReason == "套件超时") ? "套件超时" : null);
+
             // Phase 7 Unit A: EnableAnalyze=true 且有失败 -> 自动分析（复用 AnalyzeAsync）。
             // 插入点在结果填充和 StatusMessage 之后，确保 UI 先渲染测试结果。
             // AnalyzeAsync 方法体不检查 IsRunning（此时仍为 true），仅依赖 _lastResult。
@@ -940,11 +958,13 @@ public sealed partial class HilViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             StatusMessage = "已取消";
+            RecordRunHistory(request, null, _runCts?.IsCancellationRequested == true, "已取消");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "HIL test execution failed");
             StatusMessage = $"Error: {ex.Message}";
+            RecordRunHistory(request, null, false, ex.Message);
             // Review MEDIUM-3: 异常路径也带截断/预检警告（防信息丢失）。
             if (_truncationWarning is not null)
                 StatusMessage += $" {_truncationWarning}";
@@ -963,12 +983,37 @@ public sealed partial class HilViewModel : ObservableObject
 
 
 
+
+    internal void LoadHistory()
+    {
+        if (_runHistoryStore is null) return;
+        RunHistory.Clear();
+        foreach (var item in _runHistoryStore.Get().AsEnumerable().Reverse()) RunHistory.Add(item);
+    }
+
+    private void RecordRunHistory(HilRunRequest? request, TestSuiteResult? result, bool cancelled, string? error)
+    {
+        _runHistoryStore?.Append(new HilRunHistoryDto(
+            DateTime.UtcNow,
+            request?.SuitePath ?? "",
+            request?.Mode.ToString() ?? "",
+            result?.AllPassed ?? false,
+            result?.TotalCases ?? 0,
+            result?.PassedCases ?? 0,
+            result?.FailedCases ?? 0,
+            result?.SkippedCases ?? 0,
+            result?.ElapsedMs ?? 0,
+            cancelled,
+            error,
+            string.IsNullOrEmpty(LatestReportPath) ? null : LatestReportPath));
+        LoadHistory();
+    }
+
     internal void ApplyPanelState(HilPanelStateDto? state)
     {
         if (state is null) return;
-        if (Enum.TryParse<HilMode>(state.SelectedMode, out var mode)) SelectedMode = mode;
         DbcPath = state.DbcPath;
-        SuitePath = state.SuitePath;
+        if (Enum.TryParse<HilMode>(state.SelectedMode, out var mode)) SelectedMode = mode;
         TracePath = state.TracePath;
         EcuScriptPath = state.EcuScriptPath;
         MatrixPath = state.MatrixPath;

@@ -222,6 +222,11 @@
                             </HierarchicalDataTemplate>
                             <HierarchicalDataTemplate DataType="{x:Type vm:StepNode}" ItemsSource="{Binding Frames}">
                                 <StackPanel>
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="复制失败详情" Click="CopyFailureDetail_Click" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding Name}" Width="140" />
                                         <TextBlock Text="{Binding Status}" Width="70" />
@@ -272,6 +277,21 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="History">
+                <DataGrid ItemsSource="{Binding RunHistory}" AutoGenerateColumns="False" IsReadOnly="True"
+                          CanUserAddRows="False" CanUserDeleteRows="False">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time" Binding="{Binding CompletedAtUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="150" />
+                        <DataGridTextColumn Header="Suite" Binding="{Binding SuitePath}" Width="*" />
+                        <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="100" />
+                        <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
+                        <DataGridTextColumn Header="Result" Binding="{Binding TotalCases}" Width="80" />
+                        <DataGridTextColumn Header="Elapsed" Binding="{Binding ElapsedMs}" Width="80" />
+                        <DataGridCheckBoxColumn Header="Cancelled" Binding="{Binding Cancelled}" Width="80" />
+                        <DataGridTextColumn Header="Error" Binding="{Binding ErrorMessage}" Width="2*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
             <TabItem Header="HTML Report">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">

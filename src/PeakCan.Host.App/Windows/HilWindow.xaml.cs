@@ -27,6 +27,7 @@ public partial class HilWindow : Window
         if (_stateStore is null || DataContext is not HilViewModel vm) return;
         await _stateStore.LoadAsync(default);
         vm.ApplyPanelState(_stateStore.Get());
+        vm.LoadHistory();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
