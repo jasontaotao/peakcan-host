@@ -240,7 +240,7 @@ public sealed partial class AppShellViewModel
         if (_connectedChannelsSource is null) return;
         _connectedChannelsSource.Publish(ChannelConnections
             .Where(c => c.State == "已连接")
-            .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd, c.Name))
+            .Select(c => new HilViewModel.ConnectedChannel(c.Channel.Id.Handle, c.BaudRate, c.IsFd, c.Name, c.Channel))
             .ToList());
     }
 

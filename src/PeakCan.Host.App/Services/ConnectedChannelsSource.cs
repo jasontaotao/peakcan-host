@@ -15,6 +15,9 @@ public interface IConnectedChannelsSource
     /// <summary>最近一次发布的已连接通道快照（未发布过 = 空列表）。</summary>
     IReadOnlyList<HilViewModel.ConnectedChannel> Current { get; }
 
+    /// <summary>快照替换后触发，HilViewModel 刷新可用通道与命令状态。</summary>
+    event Action? Changed;
+
     /// <summary>发布新快照（整体替换，读方拿原子快照）。生产者：AppShellViewModel。</summary>
     void Publish(IReadOnlyList<HilViewModel.ConnectedChannel> snapshot);
 }
@@ -28,7 +31,13 @@ public sealed class ConnectedChannelsSource : IConnectedChannelsSource
     /// <inheritdoc/>
     public IReadOnlyList<HilViewModel.ConnectedChannel> Current => _current;
 
+    /// <inheritdoc/>
+    public event Action? Changed;
+
     /// <summary>发布新快照（整体替换，读方拿原子快照）。线程安全：volatile 引用替换。</summary>
     public void Publish(IReadOnlyList<HilViewModel.ConnectedChannel> snapshot)
-        => _current = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+    {
+        _current = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+        Changed?.Invoke();
+    }
 }

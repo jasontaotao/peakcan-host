@@ -335,7 +335,9 @@ public partial class AppHostBuilder
             sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
             sp.GetRequiredService<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService>(),
             sp.GetRequiredService<PeakCan.Host.Infrastructure.HIL.Reporting.IHilReportService>(),
-            connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current));
+            connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current,
+            connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>()));
+
         builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
         builder.Services.AddSingleton<Infrastructure.HIL.Reporting.IHilReportService,

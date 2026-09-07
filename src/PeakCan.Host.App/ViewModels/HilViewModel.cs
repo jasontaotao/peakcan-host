@@ -10,6 +10,8 @@ using PeakCan.HIL.Core.HIL;
 using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
+using PeakCan.Host.Core;
+using PeakCan.Host.App.Services;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -99,7 +101,8 @@ public sealed partial class HilViewModel : ObservableObject
         // Spec v3 §3.4: 已连接通道提供者（P1-2 2026-09-06：原 setter 注入已删；
         // 生产 DI 工厂从 IConnectedChannelsSource 快照源取值——AppShell publish、
         // DI 无环，本类恢复 singleton）。默认 null = 无已连通道 → 单通道路径（零回归）。
-        Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null)
+        Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null,
+        IConnectedChannelsSource? connectedChannelsSource = null)
     {
         _runner = runner;
         _logger = logger;
@@ -107,6 +110,15 @@ public sealed partial class HilViewModel : ObservableObject
         _analysisService = analysisService;
         _reportService = reportService;
         _connectedChannels = connectedChannels;
+        if (connectedChannelsSource is not null)
+            connectedChannelsSource.Changed += OnConnectedChannelsChanged;
+    }
+
+    private void OnConnectedChannelsChanged()
+    {
+        RefreshAvailableChannels();
+        RunCommand.NotifyCanExecuteChanged();
+        TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -114,7 +126,8 @@ public sealed partial class HilViewModel : ObservableObject
     /// Name 来自 ChannelInfo.Name（如 "USB1" / "USBCAN 0-1"），UI 用它区分厂商显示；
     /// Handle 是含厂商编码的 ushort（0x51-0x60 PEAK / 0x8000+ ZLG）。
     /// </summary>
-    public readonly record struct ConnectedChannel(ushort Handle, BaudRate BaudRate, bool Fd, string Name = "");
+    public sealed record ConnectedChannel(
+        ushort Handle, BaudRate BaudRate, bool Fd, string Name = "", ICanChannel? Channel = null);
 
     /// <summary>硬件通道下拉项（G3）：Handle = 绑定值（"USB{n}"，下游 ParseChannelHandle 语义不变），Display = 显示连接信息。</summary>
     public sealed record HardwareChannelOption(string Handle, string Display);
