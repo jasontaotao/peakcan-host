@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PeakCan.Host.Core/PeakCan.Host.Core.csproj" />
+    <Project Path="src/PeakCan.Host.Mobile.Core/PeakCan.Host.Mobile.Core.csproj" />
+    <Project Path="src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.csproj" />
+  </Folder>
+  <Project Path="../peakcan-hil-core/src/PeakCan.HIL.Core/PeakCan.HIL.Core.csproj" />
+</Solution>
