@@ -12,6 +12,8 @@ public sealed class TraceFileCache
 {
     private readonly string _cacheDir;
 
+    public string CacheDirectory => _cacheDir;
+
     public TraceFileCache(string cacheDir)
     {
         ArgumentException.ThrowIfNullOrEmpty(cacheDir);

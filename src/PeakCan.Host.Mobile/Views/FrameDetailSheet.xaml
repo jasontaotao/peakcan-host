@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PeakCan.Host.Mobile.Views.FrameDetailSheet"
+             Title="帧详情">
+    <ScrollView Padding="16">
+        <VerticalStackLayout Spacing="6">
+            <Label Text="{Binding Header}" FontAttributes="Bold" />
+            <Label Text="{Binding RawBytes}" FontFamily="Mono" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:PeakCan.Host.Mobile.Core.ViewModels;assembly=PeakCan.Host.Mobile.Core"
+             x:Class="PeakCan.Host.Mobile.Views.TracePage"
+             Title="Trace">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="8">
+        <HorizontalStackLayout Grid.Row="0" Spacing="8" VerticalOptions="Center">
+            <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
+            <Picker x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
+            <Label Text="{Binding CurrentTimeText}" VerticalOptions="Center" />
+            <Label Text="/" VerticalOptions="Center" />
+            <Label Text="{Binding DurationText}" VerticalOptions="Center" />
+            <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}"
+                   FontSize="12" VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
+        <Slider Grid.Row="1" Minimum="0" Maximum="1" Value="{Binding Progress01}"
+                DragCompleted="OnSeekCompleted" IsEnabled="{Binding DurationKnown}" />
+
+        <CollectionView Grid.Row="2" x:Name="Frames" ItemsSource="{Binding VisibleRows}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="2*,1.2*,1*,2.6*">
+                        <Label Grid.Column="0" Text="{Binding TimeText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnRowTapped" />
+                        </Grid.GestureRecognizers>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <HorizontalStackLayout Grid.Row="3" Spacing="8">
+            <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="200"
+                   Completed="OnFilterCompleted" />
+            <Button Text="↓ 最新" Clicked="OnJumpLatest" />
+        </HorizontalStackLayout>
+    </Grid>
+</ContentPage>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PeakCan.Host.Mobile.Views.FilesPage"
+             Title="PeakCan Mobile">
+    <Grid RowDefinitions="*,Auto" Padding="16">
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Spacing="8">
+                <Label Text="最近文件" FontSize="20" Margin="0,0,0,8" />
+                <CollectionView x:Name="RecentList" SelectionMode="Single">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Stroke="#22000000" StrokeShape="RoundRectangle 8" Padding="12" Margin="0,2">
+                                <VerticalStackLayout Spacing="2">
+                                    <Label Text="{Binding DisplayName}" FontAttributes="Bold" />
+                                    <Label Text="{Binding Subtitle}" FontSize="12" TextColor="Gray" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </VerticalStackLayout>
+        </ScrollView>
+        <Button Grid.Row="1" Text="打开文件" Margin="0,8,0,0"
+                Clicked="OnOpenClicked" />
+    </Grid>
+</ContentPage>

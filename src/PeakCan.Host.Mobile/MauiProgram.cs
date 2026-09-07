@@ -1,24 +1,35 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
+using PeakCan.Host.Mobile.Core.Platform;
+using PeakCan.Host.Mobile.Core.Services;
+using PeakCan.Host.Mobile.Platform;
+using PeakCan.Host.Mobile.Views;
 
 namespace PeakCan.Host.Mobile;
 
 public static class MauiProgram
 {
-	public static MauiApp CreateMauiApp()
-	{
-		var builder = MauiApp.CreateBuilder();
-		builder
-			.UseMauiApp<App>()
-			.ConfigureFonts(fonts =>
-			{
-				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
-			});
+    public static MauiApp CreateMauiApp()
+    {
+        var builder = MauiApp.CreateBuilder();
+        builder
+            .UseMauiApp<App>()
+            .ConfigureFonts(fonts =>
+            {
+                fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+            });
+
+        builder.Services.AddSingleton<IUiDispatcher, PlatformUiDispatcher>();
+        builder.Services.AddSingleton<IFilePickerGateway, MauiFilePickerGateway>();
+        builder.Services.AddSingleton<IStreamingSourceFactory, AscStreamingSourceFactory>();
+        builder.Services.AddSingleton<TraceFileCache>(_ => new TraceFileCache(FileSystem.CacheDirectory));
+        builder.Services.AddSingleton<ITracePageFactory, TracePageFactory>();
+        builder.Services.AddTransient<FilesPage>();
 
 #if DEBUG
-		builder.Logging.AddDebug();
+        builder.Logging.AddDebug();
 #endif
 
-		return builder.Build();
-	}
+        return builder.Build();
+    }
 }

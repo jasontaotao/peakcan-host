@@ -252,7 +252,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _drainTimer ??= _ui.StartTimer(TimeSpan.FromMilliseconds(50), Drain);
     }
 
-    internal void PauseForBackground()
+    public void PauseForBackground()
     {
         if (_player is null || State != SessionState.Playing) return;
         _player.Pause();
