@@ -9,6 +9,11 @@
   <ItemGroup>
     <ProjectReference Include="..\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PeakCan.Host.Mobile.Core.Tests" />
   </ItemGroup>
 
 </Project>
