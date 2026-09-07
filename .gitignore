@@ -58,3 +58,7 @@ errors.sarif
 
 # Local NuGet config workaround
 NuGet.Local.config
+
+# Generated mobile acceptance fixtures
+large-100mb.asc
+small-test.asc
