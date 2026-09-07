@@ -30,6 +30,11 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly SuitePreflightService? _preflightService;
     private CancellationTokenSource? _preflightCts;
     private bool _preflightHasCritical;
+    private IReadOnlyList<string>? _rerunSelectedCaseNames;
+    private (DateTime LastWriteTimeUtc, long Length)? _suiteFingerprint;
+    private System.Threading.Timer? _suiteChangeTimer;
+    private System.Threading.Timer? _runTimer;
+    private Stopwatch? _runStopwatch;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -43,6 +48,10 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private bool _enableFaultInjection = false;
     [ObservableProperty] private bool _captureCaseLogs = true; // 2026-08-15: 每 case 记录全量报文 (.asc)
     [ObservableProperty] private bool _isRunning = false;
+    [ObservableProperty] private string _runElapsedText = "00:00.0";
+    [ObservableProperty] private string _currentCaseName = "";
+    [ObservableProperty] private int _completedCases;
+    [ObservableProperty] private bool _suiteChangedExternally;
     [ObservableProperty] private double _progressPercent = 0;
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private HilMode _selectedMode = HilMode.TraceReplay;
@@ -105,11 +114,74 @@ public sealed partial class HilViewModel : ObservableObject
 
 
     partial void OnDbcPathChanged(string value) => QueuePreflight();
-    partial void OnSuitePathChanged(string value) => QueuePreflight();
+    partial void OnSuitePathChanged(string value)
+    {
+        QueuePreflight();
+        StartSuiteWatcher(value);
+    }
     partial void OnTracePathChanged(string value) => QueuePreflight();
     partial void OnEcuScriptPathChanged(string value) => QueuePreflight();
     partial void OnMatrixPathChanged(string value) => QueuePreflight();
     partial void OnCaptureCaseLogsChanged(bool value) => QueuePreflight();
+
+
+    private void StartSuiteWatcher(string path)
+    {
+        _suiteChangeTimer?.Dispose();
+        _suiteChangeTimer = null;
+        SuiteChangedExternally = false;
+        _suiteFingerprint = GetSuiteFingerprint(path);
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+        _suiteChangeTimer = new System.Threading.Timer(_ => CheckSuiteChange(), null, 2000, 2000);
+    }
+
+    internal void CheckSuiteChange()
+    {
+        if (string.IsNullOrEmpty(SuitePath)) return;
+        var current = GetSuiteFingerprint(SuitePath);
+        if (current is null || _suiteFingerprint is null) return;
+        SuiteChangedExternally = current.Value.LastWriteTimeUtc != _suiteFingerprint.Value.LastWriteTimeUtc
+            || current.Value.Length != _suiteFingerprint.Value.Length;
+    }
+
+    private static (DateTime LastWriteTimeUtc, long Length)? GetSuiteFingerprint(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? new(info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    [RelayCommand]
+    private void ReloadSuite()
+    {
+        LoadCaseList(SuitePath);
+        SuiteChangedExternally = false;
+        _suiteFingerprint = GetSuiteFingerprint(SuitePath);
+    }
+
+    private void StartRunTimer()
+    {
+        _runStopwatch = Stopwatch.StartNew();
+        _runTimer?.Dispose();
+        _runTimer = new System.Threading.Timer(_ =>
+        {
+            if (_runStopwatch is null) return;
+            RunElapsedText = $"{_runStopwatch.Elapsed.Minutes:00}:{_runStopwatch.Elapsed.Seconds:00}.{_runStopwatch.Elapsed.Milliseconds / 100:0}";
+        }, null, 1000, 1000);
+    }
+
+    private void StopRunTimer()
+    {
+        _runTimer?.Dispose();
+        _runTimer = null;
+        _runStopwatch?.Stop();
+    }
 
     private void QueuePreflight()
     {
@@ -253,6 +325,7 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>轻量解析 Suite JSON, 只提取 cases[].id + cases[].name.</summary>
     private void LoadCaseList(string suitePath)
     {
+        var checkedCaseIds = AvailableCases.Where(c => c.IsSelected).Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         AvailableCases.Clear();
         try
         {
@@ -268,7 +341,7 @@ public sealed partial class HilViewModel : ObservableObject
             {
                 var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
                 var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                AvailableCases.Add(new TestCaseSelection { Id = id, Name = name });
+                AvailableCases.Add(new TestCaseSelection { Id = id, Name = name, IsSelected = checkedCaseIds.Count == 0 || checkedCaseIds.Contains(id) });
             }
         }
         catch (Exception ex)
@@ -702,6 +775,26 @@ public sealed partial class HilViewModel : ObservableObject
 
     // --- Run command ---
 
+    internal void SetLastResult(TestSuiteResult result)
+    {
+        _lastResult = result;
+        RerunFailedCommand.NotifyCanExecuteChanged();
+        AnalyzeCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanRerunFailed() =>
+        !IsRunning && !IsTrialing && !IsAnalyzing && _lastResult is { FailedCases: > 0 };
+
+    [RelayCommand(CanExecute = nameof(CanRerunFailed))]
+    private async Task RerunFailedAsync()
+    {
+        _rerunSelectedCaseNames = _lastResult?.CaseResults
+            .Where(r => !r.Passed)
+            .Select(r => r.TestCaseName)
+            .ToList();
+        await RunAsync();
+    }
+
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop() => _runCts?.Cancel();
 
@@ -711,6 +804,7 @@ public sealed partial class HilViewModel : ObservableObject
     private async Task RunAsync()
     {
         IsRunning = true;
+        StartRunTimer();
         StatusMessage = "Running...";
         Results.Clear();
         ResultsTree.Clear();
@@ -721,7 +815,12 @@ public sealed partial class HilViewModel : ObservableObject
         try
         {
             _runCts = new CancellationTokenSource();
-            var progress = new Progress<TestProgress>(p => ProgressPercent = p.PercentComplete);
+            var progress = new Progress<TestProgress>(p =>
+            {
+                ProgressPercent = p.PercentComplete;
+                CompletedCases = p.CompletedCases;
+                CurrentCaseName = p.CurrentCaseName ?? CurrentCaseName;
+            });
             _truncationWarning = null; // 每次 Run 重置（防上一次残留）
 
             // G3: Run 前刷新通道下拉（provider 是拉模式，Run 时取最新已连状态）
@@ -741,15 +840,17 @@ public sealed partial class HilViewModel : ObservableObject
                 EnableFaultInjection: EnableFaultInjection,
                 Mode: SelectedMode,
                 EnableAnalyze: EnableAnalyze,
-                SelectedCaseNames: AvailableCases.Count > 0
-                    ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
-                    : null,
+                SelectedCaseNames: _rerunSelectedCaseNames
+                    ?? (AvailableCases.Count > 0
+                        ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
+                        : null),
                 HardwareChannels: hardwareChannels,
                 CaptureCaseLogs: CaptureCaseLogs);
 
             var result = await _runner.RunAsync(request, progress, _runCts.Token);
 
             _lastResult = result;
+            RerunFailedCommand.NotifyCanExecuteChanged();
             AnalyzeCommand.NotifyCanExecuteChanged();
 
             foreach (var cr in result.CaseResults)
@@ -815,6 +916,9 @@ public sealed partial class HilViewModel : ObservableObject
         finally
         {
             IsRunning = false;
+            StopRunTimer();
+            _rerunSelectedCaseNames = null;
+            RerunFailedCommand.NotifyCanExecuteChanged();
             _runCts?.Dispose();
             _runCts = null;
             AnalyzeCommand.NotifyCanExecuteChanged();
