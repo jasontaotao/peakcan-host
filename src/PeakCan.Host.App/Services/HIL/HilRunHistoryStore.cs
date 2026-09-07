@@ -18,7 +18,12 @@ public sealed record HilRunHistoryDto(
     [property: JsonPropertyName("elapsedMs")] int ElapsedMs,
     [property: JsonPropertyName("cancelled")] bool Cancelled,
     [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
-    [property: JsonPropertyName("reportPath")] string? ReportPath);
+    [property: JsonPropertyName("reportPath")] string? ReportPath,
+    [property: JsonPropertyName("caseLogDirectory")] string? CaseLogDirectory)
+{
+    public string SuiteName => Path.GetFileName(SuitePath);
+    public string ResultText => $"{PassedCases}/{TotalCases} 通过";
+}
 
 public sealed partial class HilRunHistoryStore
 {

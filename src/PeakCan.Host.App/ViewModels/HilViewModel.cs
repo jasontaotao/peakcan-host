@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.HIL.Core.Dbc;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL;
@@ -59,6 +60,7 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _runElapsedText = "00:00.0";
     [ObservableProperty] private string _currentCaseName = "";
     [ObservableProperty] private int _completedCases;
+    [ObservableProperty] private int _totalCases;
     [ObservableProperty] private bool _suiteChangedExternally;
     [ObservableProperty] private string _caseFilter = "";
     [ObservableProperty] private string _caseLogDirectory = "";
@@ -114,6 +116,7 @@ public sealed partial class HilViewModel : ObservableObject
         IsHardwareMode = value == HilMode.Hardware;
         IsVirtualEcuMode = value == HilMode.VirtualEcu;
         IsMatrixMode = value == HilMode.Matrix;
+        QueuePreflight();
     }
 
 
@@ -137,6 +140,7 @@ public sealed partial class HilViewModel : ObservableObject
     partial void OnEcuScriptPathChanged(string value) => QueuePreflight();
     partial void OnMatrixPathChanged(string value) => QueuePreflight();
     partial void OnCaptureCaseLogsChanged(bool value) => QueuePreflight();
+    partial void OnCaseLogDirectoryChanged(string value) => QueuePreflight();
     partial void OnCaseFilterChanged(string value) => QueueCaseFilterRefresh();
 
 
@@ -152,7 +156,7 @@ public sealed partial class HilViewModel : ObservableObject
 
     internal void CheckSuiteChange()
     {
-        if (string.IsNullOrEmpty(SuitePath)) return;
+        if (string.IsNullOrEmpty(SuitePath) || IsRunning) return;
         var current = GetSuiteFingerprint(SuitePath);
         if (current is null || _suiteFingerprint is null) return;
         SuiteChangedExternally = current.Value.LastWriteTimeUtc != _suiteFingerprint.Value.LastWriteTimeUtc
@@ -201,6 +205,7 @@ public sealed partial class HilViewModel : ObservableObject
     private void QueuePreflight()
     {
         _preflightHasCritical = false;
+        PreflightWarning = "";
         RunCommand.NotifyCanExecuteChanged();
         TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
         _ = DebouncedPreflightAsync();
@@ -221,6 +226,7 @@ public sealed partial class HilViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "HIL preflight failed");
+            PreflightWarning = "预检执行失败";
         }
     }
 
@@ -234,7 +240,9 @@ public sealed partial class HilViewModel : ObservableObject
             string.IsNullOrEmpty(EcuScriptPath) ? null : EcuScriptPath,
             string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath,
             CaptureCaseLogs
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PeakCanHost", "hil-reports", "case-logs")
+                ? (string.IsNullOrWhiteSpace(CaseLogDirectory)
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PeakCanHost", "hil-reports", "case-logs")
+                    : CaseLogDirectory)
                 : null,
             SelectedMode), ct);
         _preflightHasCritical = result.HasCritical;
@@ -350,6 +358,7 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var json = File.ReadAllText(suitePath);
             using var doc = JsonDocument.Parse(json);
+            _declaredChannelsValid = true;
             if (doc.RootElement.TryGetProperty("channels", out var channelsEl) && channelsEl.ValueKind == JsonValueKind.Array)
             {
                 DeclaredChannelCount = channelsEl.GetArrayLength();
@@ -375,7 +384,9 @@ public sealed partial class HilViewModel : ObservableObject
             {
                 var id = caseEl.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
                 var name = caseEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                AvailableCases.Add(new TestCaseSelection { Id = id, Name = name, IsSelected = checkedCaseIds.Count == 0 || checkedCaseIds.Contains(id) });
+                var selection = new TestCaseSelection { Id = id, Name = name, IsSelected = checkedCaseIds.Count == 0 || checkedCaseIds.Contains(id) };
+                selection.IsSelectedChanged += (_, _) => RunCommand.NotifyCanExecuteChanged();
+                AvailableCases.Add(selection);
             }
         }
         catch (Exception ex)
@@ -421,10 +432,7 @@ public sealed partial class HilViewModel : ObservableObject
     private void QueueCaseFilterRefresh()
     {
         _caseFilterTimer?.Dispose();
-        _caseFilterTimer = new System.Threading.Timer(_ =>
-        {
-            FilteredCases.Refresh();
-        }, null, 300, Timeout.Infinite);
+        _caseFilterTimer = new System.Threading.Timer(_ => FilteredCases.Refresh(), null, 300, Timeout.Infinite);
     }
 
     private bool IsCaseVisible(TestCaseSelection item) =>
@@ -611,12 +619,14 @@ public sealed partial class HilViewModel : ObservableObject
     private void SelectAllCases()
     {
         foreach (var c in AvailableCases.Where(IsCaseVisible)) c.IsSelected = true;
+        RunCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
     private void SelectNoCases()
     {
-        foreach (var c in AvailableCases) c.IsSelected = false;
+        foreach (var c in AvailableCases.Where(IsCaseVisible)) c.IsSelected = false;
+        RunCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -725,7 +735,22 @@ public sealed partial class HilViewModel : ObservableObject
         && !IsRunning && !IsTrialing && !IsAnalyzing;
 
 
-    private IReadOnlyList<TrialChannelContext> BuildTrialChannels()
+    private DbcDocument? TryLoadDbc(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        try
+        {
+            var result = DbcParser.Parse(File.ReadAllText(path));
+            return result.IsSuccess ? result.Value : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load HIL trial DBC {Path}", path);
+            return null;
+        }
+    }
+
+    private async Task<IReadOnlyList<TrialChannelContext>> BuildTrialChannelsAsync()
     {
         var connected = (_connectedChannels?.Invoke() ?? [])
             .Where(c => c.Channel is not null)
@@ -734,20 +759,32 @@ public sealed partial class HilViewModel : ObservableObject
 
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
+            var suiteJson = await File.ReadAllTextAsync(SuitePath);
+            using var doc = JsonDocument.Parse(suiteJson);
             if (!doc.RootElement.TryGetProperty("channels", out var channelsEl) ||
                 channelsEl.ValueKind != JsonValueKind.Array || channelsEl.GetArrayLength() == 0)
             {
-                return [new TrialChannelContext(connected[0].Name, connected[0].Name, connected[0].Channel!, null)];
+                var fallbackDbc = await Task.Run(() => TryLoadDbc(DbcPath));
+                return [new TrialChannelContext(connected[0].Name, connected[0].Name, connected[0].Channel!, fallbackDbc)];
             }
 
-            var logicalNames = channelsEl.EnumerateArray()
-                .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
-                .Where(n => !string.IsNullOrEmpty(n))
+            var globalDbc = await Task.Run(() => TryLoadDbc(DbcPath));
+            var logicalChannels = channelsEl.EnumerateArray()
+                .Select(e => new
+                {
+                    Name = e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                    DbcPath = e.TryGetProperty("dbcPath", out var d) ? d.GetString() : null,
+                })
+                .Where(e => !string.IsNullOrEmpty(e.Name))
+                .Zip(connected, (logical, channel) => (logical.Name, logical.DbcPath, channel))
                 .ToList();
-            return logicalNames
-                .Zip(connected, (logical, channel) => new TrialChannelContext(logical, channel.Name, channel.Channel!, null))
-                .ToList();
+
+            var channelTasks = logicalChannels.Select(async item =>
+            {
+                var dbc = await Task.Run(() => TryLoadDbc(item.DbcPath) ?? globalDbc);
+                return new TrialChannelContext(item.Name, item.channel.Name, item.channel.Channel!, dbc);
+            });
+            return await Task.WhenAll(channelTasks);
         }
         catch (Exception ex)
         {
@@ -755,6 +792,7 @@ public sealed partial class HilViewModel : ObservableObject
             return [];
         }
     }
+
     [RelayCommand(CanExecute = nameof(CanTrial))]
     private async Task TrialRunEnvironmentAsync(CancellationToken ct)
     {
@@ -764,7 +802,7 @@ public sealed partial class HilViewModel : ObservableObject
             return;
         }
 
-        var channels = BuildTrialChannels();
+        var channels = await BuildTrialChannelsAsync();
         if (channels.Count == 0)
         {
             TrialRunStatus = "请先连接通道";
@@ -873,6 +911,9 @@ public sealed partial class HilViewModel : ObservableObject
         Results.Clear();
         ResultsTree.Clear();
         ProgressPercent = 0;
+        CurrentCaseName = "";
+        CompletedCases = 0;
+        RunElapsedText = "00:00.0";
         // LOW-2: 每次 Run 从空报告开始 —— 报告失败时不残留旧报告（WebView 不显示过期结果）。
         LatestReportPath = "";
         HilRunRequest? request = null;
@@ -909,11 +950,15 @@ public sealed partial class HilViewModel : ObservableObject
 
             BuildResultsTree(result);
 
+            var suiteTimeout = result.CaseResults.Any(c => c.FailureReason == "套件超时");
             StatusMessage = _runCts.IsCancellationRequested
                 ? $"已取消（完成 {result.CaseResults.Count}/{result.TotalCases}）"
-                : result.AllPassed
-                    ? $"All {result.TotalCases} cases passed"
-                    : $"{result.FailedCases}/{result.TotalCases} cases failed";
+                : suiteTimeout
+                    ? $"套件超时（完成 {result.CaseResults.Count}/{result.TotalCases}）"
+                    : result.AllPassed
+                        ? $"全部 {result.TotalCases} 个用例通过"
+                        : $"{result.FailedCases}/{result.TotalCases} 个用例失败";
+            StatusMessage += $" · {result.ElapsedMs / 1000.0:0.0}s";
 
             // 2026-08-15: 每 case 报文 log 成功时在状态栏提示实际写入目录（case-log P11）。
             if (CaptureCaseLogs && _runner.LastCaseLogDirectory is { } caseLogDir)
@@ -957,14 +1002,15 @@ public sealed partial class HilViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            StatusMessage = "已取消";
-            RecordRunHistory(request, null, _runCts?.IsCancellationRequested == true, "已取消");
+            var cancelled = _runCts?.IsCancellationRequested == true;
+            StatusMessage = cancelled ? "已取消（未执行）" : "套件超时";
+            RecordRunHistory(request, null, cancelled, cancelled ? "已取消" : "套件超时", AvailableCases.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "HIL test execution failed");
             StatusMessage = $"Error: {ex.Message}";
-            RecordRunHistory(request, null, false, ex.Message);
+            RecordRunHistory(request, null, false, ex.Message, AvailableCases.Count);
             // Review MEDIUM-3: 异常路径也带截断/预检警告（防信息丢失）。
             if (_truncationWarning is not null)
                 StatusMessage += $" {_truncationWarning}";
@@ -991,22 +1037,55 @@ public sealed partial class HilViewModel : ObservableObject
         foreach (var item in _runHistoryStore.Get().AsEnumerable().Reverse()) RunHistory.Add(item);
     }
 
-    private void RecordRunHistory(HilRunRequest? request, TestSuiteResult? result, bool cancelled, string? error)
+    private void RecordRunHistory(HilRunRequest? request, TestSuiteResult? result, bool cancelled, string? error, int? totalCases = null)
     {
+        var parsedTotal = totalCases ?? 0;
         _runHistoryStore?.Append(new HilRunHistoryDto(
             DateTime.UtcNow,
             request?.SuitePath ?? "",
             request?.Mode.ToString() ?? "",
             result?.AllPassed ?? false,
-            result?.TotalCases ?? 0,
+            result?.TotalCases ?? parsedTotal,
             result?.PassedCases ?? 0,
-            result?.FailedCases ?? 0,
+            result?.FailedCases ?? (result is null ? parsedTotal : 0),
             result?.SkippedCases ?? 0,
             result?.ElapsedMs ?? 0,
             cancelled,
             error,
-            string.IsNullOrEmpty(LatestReportPath) ? null : LatestReportPath));
+            string.IsNullOrEmpty(LatestReportPath) ? null : LatestReportPath,
+            request?.CaseLogDirectory));
         LoadHistory();
+    }
+
+    [RelayCommand]
+    private void OpenHistoryReport(HilRunHistoryDto? record)
+    {
+        if (record?.ReportPath is not { Length: > 0 } path) return;
+        if (!File.Exists(path))
+        {
+            StatusMessage = $"报告文件不存在: {path}";
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open HIL history report {Path}", path);
+            StatusMessage = $"无法打开历史报告: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void LoadHistorySuite(HilRunHistoryDto? record)
+    {
+        if (string.IsNullOrWhiteSpace(record?.SuitePath)) return;
+        SuitePath = record.SuitePath;
+        LoadCaseList(SuitePath);
+        RefreshAvailableChannels();
+        QueuePreflight();
+        StatusMessage = "已从历史加载套件";
     }
 
     internal void ApplyPanelState(HilPanelStateDto? state)
@@ -1188,6 +1267,8 @@ public sealed partial class TestCaseResultViewModel : ObservableObject
 public sealed partial class TestCaseSelection : ObservableObject
 {
     [ObservableProperty] private bool _isSelected = true;
+    public event EventHandler? IsSelectedChanged;
+    partial void OnIsSelectedChanged(bool value) => IsSelectedChanged?.Invoke(this, EventArgs.Empty);
     public required string Id { get; init; }
     public required string Name { get; init; }
 }

@@ -86,17 +86,27 @@ public sealed class HilRunnerService : IHilRunnerService
             // Review HIGH-1: 连接失败明细显式上报——首通故障不再静默降级。
             multi.Failures.Clear();
             var cfgByName = hwCfgs.ToDictionary(c => c.Name, c => (c.BaudRate, c.Fd), StringComparer.Ordinal);
-            await multi.ConnectAllAsync(name =>
+            try
             {
-                // 已声明的通道用其 ChannelConfig；未找到（不应发生——ctx 与 cfgs 同源）回落默认。
-                if (cfgByName.TryGetValue(name, out var v) && v.BaudRate is not null)
-                    return (v.BaudRate, v.Fd);
-                return (BaudRate.CanFd1Mbps, true);
-            }, ct);
-            if (multi.Failures.Count > 0)
+                await multi.ConnectAllAsync(name =>
+                {
+                    // 已声明的通道用其 ChannelConfig；未找到（不应发生——ctx 与 cfgs 同源）回落默认。
+                    if (cfgByName.TryGetValue(name, out var v) && v.BaudRate is not null)
+                        return (v.BaudRate, v.Fd);
+                    return (BaudRate.CanFd1Mbps, true);
+                }, ct);
+
+                if (multi.Failures.Count > 0)
+                {
+                    var failed = string.Join(", ", multi.Failures.Select(f => $"{f.ChannelName}({f.ErrorCode})"));
+                    throw new InvalidOperationException($"CAN 通道连接失败: {failed}");
+                }
+            }
+            catch
             {
-                var failed = string.Join(", ", multi.Failures.Select(f => $"{f.ChannelName}({f.ErrorCode})"));
-                throw new InvalidOperationException($"CAN 通道连接失败: {failed}");
+                // ConnectAllAsync 可能已建立部分连接；失败路径必须清理，避免泄漏已打开 CAN 口。
+                await multi.DisconnectAllAsync(CancellationToken.None);
+                throw;
             }
         }
         else

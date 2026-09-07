@@ -13,6 +13,21 @@ namespace PeakCan.Host.Core.Tests.HIL;
 
 public class TestSuiteEngineCancellationTests
 {
+        [Fact]
+    public async Task UserCancel_AtCaseBoundary_DoesNotStartNextCase()
+    {
+        var fixture = new CancelOnExecuteFixture();
+        var engine = new TestSuiteEngine(new RecordingResolver(fixture), new IStepExecutor[] { new CancelAtBoundaryExecutor(fixture) });
+        var suite = MakeSuite();
+
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token);
+
+        Assert.Single(result.CaseResults);
+        Assert.Equal(1, result.PassedCases);
+        Assert.Equal(0, result.FailedCases);
+        Assert.Equal(1, result.SkippedCases);
+    }
+
     [Fact]
     public async Task UserCancel_DuringStep_ReturnsPartial_And_RunsTeardownsWithNone()
     {
@@ -148,6 +163,24 @@ public class TestSuiteEngineCancellationTests
         }
     }
 
+    private sealed class CancelAtBoundaryExecutor : IStepExecutor
+    {
+        private readonly CancelOnExecuteFixture _fixture;
+        private int _calls;
+
+        public CancelAtBoundaryExecutor(CancelOnExecuteFixture fixture) => _fixture = fixture;
+
+        public TestCaseStepKind Kind => TestCaseStepKind.AssertSignal;
+
+        public Task<StepResult> ExecuteAsync(TestCaseStep step, IAssertionContext ctx, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) > 1)
+                throw new Xunit.Sdk.XunitException("A cancelled boundary must not start the next case.");
+
+            _fixture.Cancel();
+            return Task.FromResult(new StepResult(0, Kind, step.Label, StepStatus.Passed, "ok", null, null, 0));
+        }
+    }
     private sealed class DelayingExecutor : IStepExecutor
     {
         public TestCaseStepKind Kind => TestCaseStepKind.AssertSignal;

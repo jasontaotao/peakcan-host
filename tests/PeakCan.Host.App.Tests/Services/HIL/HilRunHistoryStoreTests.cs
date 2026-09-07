@@ -14,7 +14,7 @@ public sealed class HilRunHistoryStoreTests
         new(NullLogger<HilRunHistoryStore>.Instance, path ?? TempPath());
 
     private static HilRunHistoryDto MakeHistory(string suitePath, bool cancelled = false, string? error = null) => new(
-        new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), suitePath, "Hardware", true, 1, 1, 0, 0, 10, cancelled, error, null);
+        new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), suitePath, "Hardware", true, 1, 1, 0, 0, 10, cancelled, error, null, @"C:\logs\hil");
 
     [Fact]
     public void Set_Then_Get_RoundTrips()

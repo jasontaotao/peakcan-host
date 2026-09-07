@@ -84,6 +84,9 @@ public sealed class TestSuiteEngine
             int caseIndex = 0;
             foreach (var caseModel in suite.Cases)
             {
+                if (caseIndex > 0 && (externalCt.IsCancellationRequested || linkedCt.IsCancellationRequested))
+                    break;
+
                 var caseResult = await ExecuteCaseAsync(
                     caseModel, ctx, config, linkedCt, externalCt, caseIndex,
                     sinkFactory, frameStats, suite.Parameters);

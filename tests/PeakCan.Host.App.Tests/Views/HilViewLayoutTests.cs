@@ -38,4 +38,17 @@ public sealed class HilViewLayoutTests
         xaml.Should().Contain("ItemsSource=\"{Binding TrialDiagnostics}\"");
         xaml.Should().Contain("Text=\"{Binding CaseLogDirectory}\"");
     }
+
+    [Fact]
+    public void HilView_HasHistoryRowActionsAndEmptyState()
+    {
+        var xaml = File.ReadAllText(ResolveHilViewPath());
+        xaml.Should().Contain("OpenHistoryReportCommand");
+        xaml.Should().Contain("LoadHistorySuiteCommand");
+        xaml.Should().Contain("尚无运行记录");
+        xaml.Should().Contain("{Binding CurrentCaseName");
+        xaml.Should().Contain("{Binding RunElapsedText");
+        xaml.Should().Contain("ContextMenuOpening=\"StepContextMenu_Opening\"");
+    }
+
 }

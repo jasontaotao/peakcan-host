@@ -78,6 +78,28 @@ public sealed class HilViewModelRunConfigurationTests
         Assert.Equal(@"C:\logs\hil", request.CaseLogDirectory);
     }
 
+    [Fact]
+    public void QueuePreflight_ClearsStaleCriticalWarningImmediately()
+    {
+        var vm = NewVm();
+        vm.PreflightWarning = "old critical";
+        vm.DbcPath = @"C:\changed.dbc";
+
+        Assert.Equal("", vm.PreflightWarning);
+    }
+
+    [Fact]
+    public void SelectNoCases_AffectsOnlyVisibleItems()
+    {
+        var (vm, _) = CreateConfiguredHardwareViewModel(cases: ["Alpha", "Beta"]);
+        vm.ReloadSuiteCommand.Execute(null);
+        vm.CaseFilter = "Alpha";
+        vm.SelectNoCasesCommand.Execute(null);
+
+        Assert.False(vm.AvailableCases.First(c => c.Name == "Alpha").IsSelected);
+        Assert.True(vm.AvailableCases.First(c => c.Name == "Beta").IsSelected);
+    }
+
     private static (HilViewModel Vm, string Path) CreateConfiguredHardwareViewModel(
         IReadOnlyList<string> cases,
         IReadOnlyList<string>? channels = null,
