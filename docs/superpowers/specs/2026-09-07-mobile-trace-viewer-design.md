@@ -1,0 +1,236 @@
+# 移动端 Trace Viewer（Android / .NET MAUI）设计
+
+- 日期：2026-09-07
+- 状态：已确认方向（用户 2026-09-07 口头批准设计六节）
+- 分支：`feature/mobile-trace-viewer`（从 `main` 拉出）
+- 相关：[2026-09-04-trace-viewer-canoe-graph-parity-design.md](2026-09-04-trace-viewer-canoe-graph-parity-design.md)（桌面端 CANoe 图表对齐，与本项目交互模型一致）
+
+## 1. 背景与目标
+
+peakcan-host 桌面端已有完整 Trace Viewer（ASC/BLF 加载、DBC 解码、回放、图表）。用户需求：**在 Android 手机上离线查看已录制的 trace 文件**，交互模型对齐 Vector CANoe——点击回放后**一边加载一边在表格/图表上显示**，而不是先全量导入再看。
+
+### 非目标（明确排除）
+
+- 直连 PCAN-USB FD 硬件（PEAK 无 Android 驱动，技术上不可行）
+- 实时数据（未来可做"PC 端 WebSocket 推送 + 手机远程显示"，独立项目）
+- iOS / Windows 目标（只 `net10.0-android`）
+- 桌面端 Trace Viewer 的完整功能平移（J1939 协议感知、Copilot 面板、会话库等）
+- 应用商店上架（APK 内网 sideload 分发）
+
+## 2. 关键约束（驱动架构的事实）
+
+1. **典型 trace 文件经常超 100MB**（用户确认）。Android 应用堆预算通常 256-512MB。
+2. 现有 Core 解析器是**全量物化**模式：`AscParser.ParseAsync` 先把整个文件读成 `List<string>` 再返回完整 `IReadOnlyList<ReplayFrame>`；`BlfParser` 同样全量累积后排序。100MB+ 文件照搬此模式在手机上必 OOM。
+3. 可复用资产（全部已验证为纯 `net10.0`，无 Windows 依赖）：
+   - `PeakCan.Host.Core/Replay/`：`AscParser`、`BlfParser` 的帧级解析逻辑、`ReplayFrame`、`ReplayState`、`IReplayClock`、`ReplayOptions`
+   - `PeakCan.HIL.Core`（net10.0）：`DbcParser`（`PeakCan.HIL.Core.Dbc`）、`SignalDecoder`
+4. 不可复用：`ReplayTimeline`（`internal`，绑定 `IReadOnlyList<ReplayFrame>` 全量列表）→ 移动端需要新的流式播放器。
+5. 开发环境从零开始：无 MAUI workload、无 Android SDK、无 adb（2026-09-07 实测）。有 Android 12+ 真机可 USB 调试。
+
+## 3. 架构决策（ADR 摘要）
+
+### D1：流式回放为核心，SQLite 为回放缓存（已确认）
+
+候选方案：
+
+| 方案 | 结论 |
+|---|---|
+| **A. SQLite 预索引**（解析全文件落库再开放浏览） | 否：首帧延迟 = 全量解析时间（100MB 约几十秒），不符合 CANoe 交互 |
+| **B. 内存全量**（照搬桌面） | 否：100MB+ 文件在 Android 上必 OOM（约束 2） |
+| **C. 字节偏移索引 + 懒解析** | 否：每次过滤/图表需重扫原文件；工程复杂度不低 |
+| **D. 流式回放 + SQLite 回放缓存** | **采用**：首帧 <1s；流过的帧后台落盘，支持回看/事后过滤 |
+
+D = 用户提出的 CANoe 模式（点击回放后边加载边显示）+ SQLite 作为流过数据的沉淀层。SQLite 的角色是**回放缓存**而非前置索引，用户无感知。
+
+### D2：Core 加 additive 流式 API，不动现有代码路径
+
+现有 `AscParser.ParseAsync` 等 14 个调用点全部不变。新增独立的流式入口。桌面端零影响。
+
+### D3：项目放 peakcan-host repo 内，单独 slnx
+
+- 新增 `src/PeakCan.Host.Mobile/`（MAUI，`net10.0-android` + 纯 `net10.0` 双 target，后者供 VM 单测）
+- 新增 `PeakCan.Host.Mobile.slnx`（含 Mobile + Host.Core + HIL.Core）
+- 主 `PeakCan.Host.slnx` **不收录** Mobile 项目——打开主解决方案的人不需要装 MAUI workload
+- Mobile 对 Host.Core / HIL.Core 用 **ProjectReference**（同 repo，改 Core 时同步编译验证）
+
+### D4：分期交付
+
+全功能集（加载/表格/过滤/跳转/DBC/回放/图表）一次做完约 2-3 周，拆为 5 期、每期可用（见 §9）。
+
+## 4. Core 新增 API（additive）
+
+### 4.1 流式解析源抽象
+
+```csharp
+// src/PeakCan.Host.Core/Replay/Streaming/IStreamingTraceSource.cs
+public interface IStreamingTraceSource
+{
+    // 打开（或重开）底层流，急切读完头部后返回惰性帧流。
+    // Seek 时由播放器再次调用本方法获得新枚举。
+    Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default);
+}
+
+public sealed record StreamingTraceOpenResult(
+    DateTime? WallClockOrigin,          // ASC date 行 / BLF 基准时间
+    bool TimestampsAbsolute,            // ASC base 行
+    IAsyncEnumerable<ReplayFrame> Frames,
+    StreamingParseStats Stats);         // 实时计数（SkippedLines 等），枚举过程中增长
+```
+
+### 4.2 ASC 实现
+
+```csharp
+// src/PeakCan.Host.Core/Replay/Streaming/AscStreamingSource.cs
+public sealed class AscStreamingSource : IStreamingTraceSource
+{
+    // 工厂注入：() => File.OpenRead(path)。移动端给 app 私有目录的缓存副本路径。
+    public AscStreamingSource(Func<Stream> streamFactory, ReplayOptions? options = null, ILogger? logger = null);
+}
+```
+
+- 逐行惰性解析，**不物化** `List<string>`；帧产出逻辑复用现有 `AscParser` 的行解析路径（`DataLineParserFlow.TryParseDataLine` 等，按需在 Core 内部提为共享 internal 助手）
+- 畸形行：沿用"跳过 + 计数 + 日志"语义，计数进 `StreamingParseStats.SkippedLines`
+- **帧序**：流式保持文件序，不重排。批量解析器的 `frames.Sort` 是防御性排序；一致性对拍（§8）仅对时间有序 fixture 断言逐帧相等，乱序 fixture 的流式行为单独约定为"按文件序产出"并在该测试里显式断言
+
+### 4.3 流式回放引擎
+
+```csharp
+// src/PeakCan.Host.Core/Replay/Streaming/StreamingTracePlayer.cs
+public sealed class StreamingTracePlayer : IDisposable
+{
+    public StreamingTracePlayer(IStreamingTraceSource source, IReplayClock? clock = null, ILogger? logger = null);
+
+    public ReplayState State { get; }              // 复用现有枚举
+    public double CurrentTimestamp { get; }
+    public double Speed { get; }                   // clamp [0.1, 100]；UI 档位 P1 实现时对齐桌面端现有档位
+
+    public event Action<ReplayFrame>? FrameEmitted;            // 播放器线程；UI 自行 marshal
+    public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;  // 复用现有 Args（含 Error）
+    public event Action<double>? SeekProgress;                 // 快进扫描进度 0..1（按流位置估算）
+
+    public Task PlayAsync(CancellationToken ct = default);
+    public void Pause();
+    public void Resume();
+    public void SetSpeed(double multiplier);
+    public Task SeekAsync(double timestamp, CancellationToken ct = default);
+    public void Stop();
+}
+```
+
+- **不提供 `Loop`**（YAGNI：手机端查看场景不需要 A/B 循环；桌面端该能力留在 `ReplayTimeline`）
+
+- **预读缓冲**：解析协程领先播放指针，缓冲上限 8192 帧（背压：满了就暂停解析）；解析速度 ≫ 1x 播放速度，缓冲常态是满的
+- **Seek(t)**：停当前枚举 → `source.OpenAsync()` 重开 → 快进扫描（解析但不 emit，直到 `frame.Timestamp >= t`）→ 从该帧恢复播放。100MB 文本快进约数秒，期间报 `SeekProgress`
+- 暂停/恢复/倍速语义对齐 `ReplayTimeline`（时钟用 `IReplayClock`，测试注入假时钟）
+
+### 4.4 BLF（Phase 4）
+
+`BlfStreamingSource`：顺序解压 LogContainer，**窗口重排缓冲**（2 秒时间窗内排序后产出），时间基准取**首帧时间戳**（批量解析器取全局最小值——语义有微小差异，对查看无影响，实现时在 xmldoc 记录）。Phase 4 前移动端不支持 BLF，UI 对 .blf 显示"后续版本支持"。
+
+## 5. Mobile 项目组件
+
+```
+src/PeakCan.Host.Mobile/
+├── PeakCan.Host.Mobile.csproj        # net10.0-android;net10.0，UseMaui
+├── Views/    MainPage(文件入口) · TracePage(表格+控制条) · ChartPage(P3)
+├── ViewModels/
+│   ├── TraceSessionViewModel.cs      # 状态机 + 环形缓冲 + UI 节流
+│   └── ChartViewModel.cs             # P3
+└── Services/
+    ├── TraceFilePicker.cs            # FilePicker → 拷贝到 app 缓存目录
+    ├── TraceCacheStore.cs            # SQLite 回放缓存（P2）
+    └── DbcLoader.cs                  # FilePicker → HIL.Core DbcParser（P2）
+```
+
+- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Seeking → Ended`；环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
+- **UI 节流**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 50ms 窗口批量 marshal 到主线程
+- **文件入口**：MAUI `FilePicker`（Android SAF）→ 拷贝到 `FileSystem.CacheDirectory` 一次（100MB 约 1-3s，显示进度）→ 之后用普通 seekable `FileStream`（支持 Seek 重开）。同名同尺寸文件直接复用缓存副本
+- **DBC**（P2）：选 .dbc 文件 → `DbcParser.Parse` → 可见帧用 `SignalDecoder.Decode` 按需解码（只解码屏幕上的行，不全量解码）
+- **图表**（P3）：LiveCharts2（SkiaSharp，MAUI 官方支持）；降采样 = min/max 桶（每像素列 1 桶），保留最近 30 万原始点供当前窗口
+
+### SQLite schema（P2）
+
+```sql
+CREATE TABLE traces (
+  trace_id INTEGER PRIMARY KEY,
+  source_name TEXT NOT NULL,
+  file_size  INTEGER NOT NULL,
+  imported_at TEXT NOT NULL,
+  frame_count INTEGER NOT NULL DEFAULT 0,
+  duration    REAL NOT NULL DEFAULT 0,
+  complete    INTEGER NOT NULL DEFAULT 0   -- 1 = 已流到文件尾
+);
+CREATE TABLE frames (
+  trace_id INTEGER NOT NULL REFERENCES traces(trace_id),
+  idx INTEGER NOT NULL,
+  timestamp REAL NOT NULL,
+  can_id INTEGER NOT NULL,
+  is_extended INTEGER NOT NULL,
+  dlc INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  PRIMARY KEY (trace_id, idx)
+) WITHOUT ROWID;
+CREATE INDEX idx_frames_ts ON frames(trace_id, timestamp);
+CREATE INDEX idx_frames_id ON frames(trace_id, can_id);
+```
+
+- 写入：后台队列批量 insert，5000 帧/事务
+- 匹配重开：`source_name + file_size` 相同且 `complete=1` → 跳过拷贝直接进"完整浏览"模式（冲突概率可接受，查看工具不要求强一致）
+- 用 `Microsoft.Data.Sqlite`（不用 EF Core，YAGNI）
+
+## 6. 数据流（播放主链路）
+
+```
+FilePicker → 拷贝到 app 缓存 → FileStream
+  → AscStreamingSource.OpenAsync → header + 惰性帧流
+  → StreamingTracePlayer（预读 8192 帧缓冲）
+      ├─→ 50ms 批量 marshal → 帧表格（环形 5000）          [P1]
+      ├─→ SignalDecoder 按需解码可见行 → 信号列            [P2]
+      ├─→ min/max 桶降采样 → LiveCharts2 曲线实时生长      [P3]
+      └─→ TraceCacheStore 后台批量写                       [P2]
+Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续播    [P1]
+```
+
+## 7. 错误处理
+
+| 场景 | 行为 |
+|---|---|
+| 畸形数据行 | 跳过 + 计数，UI 顶部"已跳过 N 行"摘要条（沿用桌面语义） |
+| 流中途 IO 错 / SAF 权限失效 | `PlaybackEndedEventArgs.Error` + 用户可读 Snackbar 提示 |
+| SQLite 写失败 | 降级：缓存停用、回放继续，不阻塞主链路 |
+| 超大文件 | 流式后内存与文件大小解耦，不设硬 cap；>500MB 弹确认（提示拷贝/扫描耗时） |
+| 播放中文件被外部删除 | 下一次 Read 抛 IO → 同上 Error 路径 |
+| 切后台/熄屏 | 播放暂停（保持状态），回前台可续播 |
+
+## 8. 测试策略
+
+- **Host.Core.Tests（xunit，现有 harness）**：
+  - 流式 vs 批量解析**结果一致性对拍**：全部现有 ASC fixture 过 `AscStreamingSource`，与 `AscParser.ParseAsync` 输出逐帧相等（时间戳/ID/Data/IsExtended）
+  - `StreamingTracePlayer`：注入假 `IReplayClock`，测调速/暂停/恢复/Seek 快进落点/EOF/循环外边界——确定性，不睡真时钟
+- **Mobile VM 单测**（纯 `net10.0` target）：状态机迁移、环形缓冲溢出淘汰、50ms 节流批量、SQLite 缓存读写（内存模式 `:memory:`）
+- **真机验收 checklist（手动）**：见 §10 验收标准
+- 覆盖率目标沿用仓库标准：Core 新增代码 ≥80%
+
+## 9. 分期计划
+
+| Phase | 内容 | 出口标准 |
+|---|---|---|
+| **P0** 环境+骨架 | 装 maui-android workload + Android SDK + JDK17；建 Mobile 项目 + slnx；真机部署空壳 | 空 app 在真机跑起来，`adb` 可见 |
+| **P1** 核心闭环 | Core 流式 ASC API + StreamingTracePlayer；文件入口；播放/暂停/倍速/Seek；帧表格（环形缓冲+节流） | 100MB ASC 首帧 <2s，1x 播放流畅 |
+| **P2** 分析能力 | DBC 加载 + 信号列；SQLite 回放缓存；暂停回看；播完后完整过滤浏览；ID 过滤 | 加载 DBC 后信号列正确；重开秒开 |
+
+（ID 过滤双路径：播放中 = VM emit 谓词过滤；回看/播完 = SQL `WHERE can_id`。）
+| **P3** 图表 | LiveCharts2 集成；1-2 信号曲线随回放生长；降采样 | 曲线与表格时间游标同步 |
+| **P4** BLF | `BlfStreamingSource`（窗口重排缓冲） | .blf 可流式回放 |
+
+实施计划（writing-plans）先做 P0+P1，后续 Phase 各自再出计划。
+
+## 10. 验收标准（性能预算）
+
+| 指标 | 目标 | 测量方式 |
+|---|---|---|
+| 首帧延迟（100MB ASC） | <2s | 点击文件到首行渲染，真机秒表 |
+| 1x 播放 | 不丢帧、不卡顿 | 目测 + 播放器统计（emit 数 vs 应有数） |
+| 内存 | 稳态 <300MB | `adb dumpsys meminfo` |
+| Seek 到文件中点（100MB） | <5s + 进度反馈 | 真机秒表 |
+| 表格滚动 | 播放中滚动不卡 | 目测 60fps 级 |
