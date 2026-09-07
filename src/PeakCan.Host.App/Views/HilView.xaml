@@ -48,14 +48,14 @@
                        VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16"
                        FontFamily="Segoe Fluent Icons" />
             <Grid Width="180" Margin="0,0,4,0">
-                <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" IsReadOnly="True" />
+                <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" />
                 <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=DbcPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="Browse..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
             <Grid Width="180" Margin="0,0,4,0">
-                <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="Test suite JSON path" IsReadOnly="True" />
+                <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="Test suite JSON path" />
                 <TextBlock Text="选择测试套件 JSON..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=SuitePathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -63,11 +63,15 @@
             <Button Content="Browse..." Command="{Binding BrowseSuiteCommand}" />
         </StackPanel>
 
+        <TextBlock DockPanel.Dock="Top" Text="{Binding PreflightWarning}" Foreground="OrangeRed"
+                   TextWrapping="Wrap" Margin="0,0,0,8"
+                   Visibility="{Binding PreflightWarning, Converter={StaticResource EmptyStringToVisibilityConverter}, ConverterParameter=invert}" />
+
         <!-- Mode-specific path (按 Mode 切换显隐) -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsTraceMode, Converter={StaticResource BoolToVis}}">
                 <Grid Width="260" Margin="0,0,4,0">
-                    <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" IsReadOnly="True" />
+                    <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" />
                     <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=TracePathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -118,7 +122,7 @@
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
                 <Grid Width="160" Margin="0,0,4,0">
-                    <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" IsReadOnly="True" />
+                    <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" />
                     <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=EcuScriptPathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />

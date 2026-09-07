@@ -337,7 +337,8 @@ public partial class AppHostBuilder
             sp.GetRequiredService<PeakCan.Host.Infrastructure.HIL.Reporting.IHilReportService>(),
             connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current,
             connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>(),
-            trialRunService: sp.GetRequiredService<PeakCan.Host.Core.HIL.Contracts.ITrialRunService>()));
+            trialRunService: sp.GetRequiredService<PeakCan.Host.Core.HIL.Contracts.ITrialRunService>(),
+            preflightService: sp.GetRequiredService<PeakCan.Host.App.Services.HilPreflight.SuitePreflightService>()));
 
         builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
@@ -345,6 +346,7 @@ public partial class AppHostBuilder
             Infrastructure.HIL.Reporting.HilReportService>();
         builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.ITrialRunService,
             Infrastructure.HIL.Environment.TrialRunService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.HilPreflight.SuitePreflightService>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
         // Core parser/persistence plus App-layer service + VM glue.

@@ -13,6 +13,7 @@ using PeakCan.Host.Infrastructure.HIL.Reporting;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.HilPreflight;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -26,6 +27,9 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly IHilReportService _reportService;
     private CancellationTokenSource? _runCts;
     private readonly ITrialRunService? _trialRunService;
+    private readonly SuitePreflightService? _preflightService;
+    private CancellationTokenSource? _preflightCts;
+    private bool _preflightHasCritical;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -69,6 +73,7 @@ public sealed partial class HilViewModel : ObservableObject
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
     public ObservableCollection<TrialDiagnostic> TrialDiagnostics { get; } = new();
+    public ObservableCollection<PreflightIssue> PreflightIssues { get; } = new();
 
     /// <summary>PCAN 硬件通道下拉选项（G3）：动态刷新自已连接通道。Handle = "USB{n}" 值, Display = 显示文本。</summary>
     public ObservableCollection<HardwareChannelOption> AvailableChannels { get; } = new();
@@ -98,6 +103,63 @@ public sealed partial class HilViewModel : ObservableObject
 
     partial void OnIsTrialingChanged(bool value) => TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
 
+
+    partial void OnDbcPathChanged(string value) => QueuePreflight();
+    partial void OnSuitePathChanged(string value) => QueuePreflight();
+    partial void OnTracePathChanged(string value) => QueuePreflight();
+    partial void OnEcuScriptPathChanged(string value) => QueuePreflight();
+    partial void OnMatrixPathChanged(string value) => QueuePreflight();
+    partial void OnCaptureCaseLogsChanged(bool value) => QueuePreflight();
+
+    private void QueuePreflight()
+    {
+        _preflightHasCritical = false;
+        RunCommand.NotifyCanExecuteChanged();
+        TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
+        _ = DebouncedPreflightAsync();
+    }
+
+    private async Task DebouncedPreflightAsync()
+    {
+        _preflightCts?.Cancel();
+        _preflightCts?.Dispose();
+        _preflightCts = new CancellationTokenSource();
+        var token = _preflightCts.Token;
+        try
+        {
+            await Task.Delay(500, token);
+            await RunPreflightAsync(token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "HIL preflight failed");
+        }
+    }
+
+    private async Task RunPreflightAsync(CancellationToken ct)
+    {
+        if (_preflightService is null) return;
+        var result = await _preflightService.RunAsync(new HilPreflightRequest(
+            SuitePath,
+            string.IsNullOrEmpty(DbcPath) ? null : DbcPath,
+            string.IsNullOrEmpty(TracePath) ? null : TracePath,
+            string.IsNullOrEmpty(EcuScriptPath) ? null : EcuScriptPath,
+            string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath,
+            CaptureCaseLogs
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PeakCanHost", "hil-reports", "case-logs")
+                : null,
+            SelectedMode), ct);
+        _preflightHasCritical = result.HasCritical;
+        PreflightIssues.Clear();
+        foreach (var issue in result.Issues) PreflightIssues.Add(issue);
+        PreflightWarning = result.HasCritical
+            ? string.Join("；", result.Issues.Where(i => i.Severity == PreflightSeverity.Critical).Select(i => i.Message))
+            : "";
+        RunCommand.NotifyCanExecuteChanged();
+        TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
+    }
+
     public HilViewModel(
         IHilRunnerService runner,
         ILogger<HilViewModel> logger,
@@ -109,7 +171,8 @@ public sealed partial class HilViewModel : ObservableObject
         // DI 无环，本类恢复 singleton）。默认 null = 无已连通道 → 单通道路径（零回归）。
         Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null,
         IConnectedChannelsSource? connectedChannelsSource = null,
-        ITrialRunService? trialRunService = null)
+        ITrialRunService? trialRunService = null,
+        SuitePreflightService? preflightService = null)
     {
         _runner = runner;
         _logger = logger;
@@ -119,6 +182,7 @@ public sealed partial class HilViewModel : ObservableObject
         _connectedChannels = connectedChannels ??
             (connectedChannelsSource is null ? null : () => connectedChannelsSource.Current);
         _trialRunService = trialRunService;
+        _preflightService = preflightService;
         if (connectedChannelsSource is not null)
         {
             connectedChannelsSource.Changed += OnConnectedChannelsChanged;
@@ -164,7 +228,11 @@ public sealed partial class HilViewModel : ObservableObject
     private void BrowseDbc()
     {
         var path = _fileDialog.ShowOpenDialog("DBC Files|*.dbc|All Files|*.*");
-        if (path is not null) DbcPath = path;
+        if (path is not null)
+        {
+            DbcPath = path;
+            QueuePreflight();
+        }
     }
 
     [RelayCommand]
@@ -178,6 +246,7 @@ public sealed partial class HilViewModel : ObservableObject
             // G3（spec §4.2）: 换套件后重算多通道置灰态 + 刷新下拉——否则从多通道切单通道
             // 下拉仍置灰（IsMultiChannelSuite 陈旧）直到下次 Run。
             RefreshAvailableChannels();
+            QueuePreflight();
         }
     }
 
@@ -425,7 +494,11 @@ public sealed partial class HilViewModel : ObservableObject
     private void BrowseTrace()
     {
         var path = _fileDialog.ShowOpenDialog("Trace Files|*.asc;*.blf|All Files|*.*");
-        if (path is not null) TracePath = path;
+        if (path is not null)
+        {
+            TracePath = path;
+            QueuePreflight();
+        }
     }
 
     [RelayCommand]
@@ -436,6 +509,7 @@ public sealed partial class HilViewModel : ObservableObject
         {
             EcuScriptPath = path;
             EcuScriptPathSetExternally?.Invoke(path);
+            QueuePreflight();
         }
     }
 
@@ -443,7 +517,11 @@ public sealed partial class HilViewModel : ObservableObject
     private void BrowseMatrix()
     {
         var path = _fileDialog.ShowOpenDialog("Matrix Config JSON|*.matrix.json|All Files|*.*");
-        if (path is not null) MatrixPath = path;
+        if (path is not null)
+        {
+            MatrixPath = path;
+            QueuePreflight();
+        }
     }
 
     // --- ECU editor integration ---
@@ -508,9 +586,11 @@ public sealed partial class HilViewModel : ObservableObject
     // --- Open report command (Phase 7 Unit C) ---
 
     [ObservableProperty] private string _trialRunStatus = "";
+    [ObservableProperty] private string _preflightWarning = "";
 
     private bool CanTrial() =>
-        !string.IsNullOrEmpty(SuitePath)
+        !_preflightHasCritical
+        && !string.IsNullOrEmpty(SuitePath)
         && SelectedMode == HilMode.Hardware
         && AvailableChannels.Count > 0
         && !IsRunning && !IsTrialing && !IsAnalyzing;
@@ -743,7 +823,7 @@ public sealed partial class HilViewModel : ObservableObject
 
     private bool CanRun()
     {
-        if (IsRunning) return false;
+        if (IsRunning || _preflightHasCritical) return false;
         if (string.IsNullOrEmpty(SuitePath) || string.IsNullOrEmpty(DbcPath)) return false;
 
         return SelectedMode switch
