@@ -52,4 +52,27 @@ public partial class FilesPage : ContentPage
             await DisplayAlertAsync("无法打开文件", ex.Message, "确定");
         }
     }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        try
+        {
+            if (Microsoft.Maui.ApplicationModel.Platform.CurrentActivity is not MainActivity activity) return;
+            var uri = MainActivity.TakePendingFileUri();
+            if (uri is null) return;
+
+            var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
+            using var src = activity.ContentResolver?.OpenInputStream(uri);
+            if (src is null) return;
+            using var dst = File.Create(dest);
+            await src.CopyToAsync(dst);
+            RefreshRecent();
+            await Navigation.PushAsync(_tracePageFactory.Create(dest));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("无法打开文件", ex.Message, "确定");
+        }
+    }
 }
