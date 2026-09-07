@@ -11,6 +11,7 @@ using PeakCan.Host.Core.HIL.Analysis;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.HIL.Reporting;
 using PeakCan.Host.Core;
+using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.Core.HIL;
 
@@ -24,6 +25,7 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly IHilAnalysisService _analysisService;
     private readonly IHilReportService _reportService;
     private CancellationTokenSource? _runCts;
+    private readonly ITrialRunService? _trialRunService;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -44,6 +46,7 @@ public sealed partial class HilViewModel : ObservableObject
     // LLM failure analysis (Sprint 16).
     [ObservableProperty] private string _analysisResult = "";
     [ObservableProperty] private bool _isAnalyzing = false;
+    [ObservableProperty] private bool _isTrialing = false;
     [ObservableProperty] private bool _enableAnalyze = false;
     private TestSuiteResult? _lastResult;
 
@@ -65,6 +68,7 @@ public sealed partial class HilViewModel : ObservableObject
 
     /// <summary>Hierarchical result tree for the TreeView detail panel.</summary>
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
+    public ObservableCollection<TrialDiagnostic> TrialDiagnostics { get; } = new();
 
     /// <summary>PCAN 硬件通道下拉选项（G3）：动态刷新自已连接通道。Handle = "USB{n}" 值, Display = 显示文本。</summary>
     public ObservableCollection<HardwareChannelOption> AvailableChannels { get; } = new();
@@ -92,6 +96,8 @@ public sealed partial class HilViewModel : ObservableObject
         RunCommand.NotifyCanExecuteChanged();
     }
 
+    partial void OnIsTrialingChanged(bool value) => TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
+
     public HilViewModel(
         IHilRunnerService runner,
         ILogger<HilViewModel> logger,
@@ -102,16 +108,22 @@ public sealed partial class HilViewModel : ObservableObject
         // 生产 DI 工厂从 IConnectedChannelsSource 快照源取值——AppShell publish、
         // DI 无环，本类恢复 singleton）。默认 null = 无已连通道 → 单通道路径（零回归）。
         Func<IReadOnlyList<ConnectedChannel>>? connectedChannels = null,
-        IConnectedChannelsSource? connectedChannelsSource = null)
+        IConnectedChannelsSource? connectedChannelsSource = null,
+        ITrialRunService? trialRunService = null)
     {
         _runner = runner;
         _logger = logger;
         _fileDialog = fileDialog;
         _analysisService = analysisService;
         _reportService = reportService;
-        _connectedChannels = connectedChannels;
+        _connectedChannels = connectedChannels ??
+            (connectedChannelsSource is null ? null : () => connectedChannelsSource.Current);
+        _trialRunService = trialRunService;
         if (connectedChannelsSource is not null)
+        {
             connectedChannelsSource.Changed += OnConnectedChannelsChanged;
+            RefreshAvailableChannels();
+        }
     }
 
     private void OnConnectedChannelsChanged()
@@ -497,23 +509,85 @@ public sealed partial class HilViewModel : ObservableObject
 
     [ObservableProperty] private string _trialRunStatus = "";
 
-    [RelayCommand]
-    private async Task TrialRunEnvironmentAsync(CancellationToken ct)
+    private bool CanTrial() =>
+        !string.IsNullOrEmpty(SuitePath)
+        && SelectedMode == HilMode.Hardware
+        && AvailableChannels.Count > 0
+        && !IsRunning && !IsTrialing && !IsAnalyzing;
+
+
+    private IReadOnlyList<TrialChannelContext> BuildTrialChannels()
     {
-        if (string.IsNullOrEmpty(SuitePath))
-        {
-            TrialRunStatus = "请先选择 suite 文件";
-            return;
-        }
-        TrialRunStatus = "试运行中...";
+        var connected = (_connectedChannels?.Invoke() ?? [])
+            .Where(c => c.Channel is not null)
+            .ToList();
+        if (connected.Count == 0) return [];
+
         try
         {
-            await Task.Delay(100, ct);
-            TrialRunStatus = "试运行完成";
+            using var doc = JsonDocument.Parse(File.ReadAllText(SuitePath));
+            if (!doc.RootElement.TryGetProperty("channels", out var channelsEl) ||
+                channelsEl.ValueKind != JsonValueKind.Array || channelsEl.GetArrayLength() == 0)
+            {
+                return [new TrialChannelContext(connected[0].Name, connected[0].Name, connected[0].Channel!, null)];
+            }
+
+            var logicalNames = channelsEl.EnumerateArray()
+                .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList();
+            return logicalNames
+                .Zip(connected, (logical, channel) => new TrialChannelContext(logical, channel.Name, channel.Channel!, null))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read HIL trial channel bindings from {SuitePath}", SuitePath);
+            return [];
+        }
+    }
+    [RelayCommand(CanExecute = nameof(CanTrial))]
+    private async Task TrialRunEnvironmentAsync(CancellationToken ct)
+    {
+        if (_trialRunService is null)
+        {
+            TrialRunStatus = "试运行服务不可用";
+            return;
+        }
+
+        var channels = BuildTrialChannels();
+        if (channels.Count == 0)
+        {
+            TrialRunStatus = "请先连接通道";
+            return;
+        }
+
+        IsTrialing = true;
+        TrialRunStatus = "试运行中...";
+        TrialDiagnostics.Clear();
+        try
+        {
+            var result = await _trialRunService.RunAsync(SuitePath, channels, ct);
+            foreach (var diagnostic in result.Diagnostics) TrialDiagnostics.Add(diagnostic);
+            TrialRunStatus = !result.IsFullHandshakeCheck
+                ? "试运行完成：preview（无法完整判定）"
+                : result.Passed
+                    ? $"试运行通过（{TrialDiagnostics.Count(d => d.Passed)}/{TrialDiagnostics.Count}）"
+                    : $"试运行失败（{TrialDiagnostics.Count(d => !d.Passed)}/{TrialDiagnostics.Count}）";
         }
         catch (OperationCanceledException)
         {
             TrialRunStatus = "试运行已取消";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "HIL trial run failed");
+            TrialRunStatus = $"试运行失败: {ex.Message}";
+        }
+        finally
+        {
+            IsTrialing = false;
+            TrialRunEnvironmentCommand.NotifyCanExecuteChanged();
         }
     }
 
