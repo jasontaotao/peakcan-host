@@ -10,22 +10,26 @@ using PeakCan.Host.Mobile.Core.Services;
 namespace PeakCan.Host.Mobile.Core.ViewModels;
 
 /// <summary>
-/// 单 trace session 的 UI 状态机。持有一个 <see cref="IStreamingTracePlayer"/>，
-/// 在 FrameEmitted（播放器线程）上收集到 pending 队列，由 50ms UI 定时器 drain
-/// 到环形缓冲并通知 VisibleRows 刷新。ID 过滤在 ingest 谓词处生效；过滤变化时清空
-/// 已有 ring，保证 UI 只显示过滤后的新帧。DurationText/Progress01 在 DurationScanner
-/// 后台扫完后填充。
+/// 单 trace session 的 UI 状态机。播放器线程写入有界 pending 队列；UI 定时器批量
+/// drain 到固定容量 FrameRingBuffer，并把最近 viewport 行写入稳定行槽。行槽用
+/// INPC in-place 更新，避免高频 CollectionView Insert/Remove/Reset 造成 native 膨胀。
 /// </summary>
 public sealed partial class TraceSessionViewModel : ObservableObject, IDisposable
 {
+    private const int MaxPendingFrames = 10_000;
+    private const int ViewportRowCount = 80;
+    private static readonly TimeSpan UiDrainInterval = TimeSpan.FromMilliseconds(100);
+
     private readonly IUiDispatcher _ui;
     private readonly IStreamingSourceFactory _sourceFactory;
     private readonly Func<IStreamingTraceSource, IStreamingTracePlayer> _playerFactory;
     private readonly ILogger _logger;
 
     private readonly object _emitGate = new();
-    private readonly List<ReplayFrame> _pending = new();
-    private readonly FrameRingBuffer _ring = new(5000);
+    private readonly Queue<ReplayFrame> _pending = new();
+    private readonly FrameRingBuffer _rows = new(5000);
+    private readonly FrameRowSlot[] _viewport = new FrameRowSlot[ViewportRowCount];
+    private readonly FrameRow[] _viewportSource = new FrameRow[ViewportRowCount];
 
     private IStreamingTracePlayer? _player;
     private IReadOnlySet<uint>? _idFilter;
@@ -33,6 +37,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private bool _durationKnownValue;
     private IDisposable? _drainTimer;
     private SessionState _state = SessionState.Empty;
+    private FrameRow? _latestVisibleRow;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory, ILogger? logger = null)
@@ -41,6 +46,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _sourceFactory = sourceFactory;
         _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
+        for (var i = 0; i < ViewportRowCount; i++)
+            _viewport[i] = new FrameRowSlot();
     }
 
     public SessionState State
@@ -65,7 +72,10 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string? _idFilterText;
 
-    public IReadOnlyList<FrameRow> VisibleRows => _ring.Snapshot();
+    /// <summary>Stable fixed-size slots; row values are updated in place.</summary>
+    public IReadOnlyList<FrameRowSlot> VisibleRows => _viewport;
+
+    public FrameRow? LatestVisibleRow => _latestVisibleRow;
 
     /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
     public async Task OpenAsync(string cachedFilePath, CancellationToken ct = default)
@@ -79,15 +89,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
         var source = _sourceFactory.Create(cachedFilePath);
         var open = await source.OpenAsync(ct);
-        int prefetched = 0;
+        var prefetched = 0;
         await foreach (var f in open.Frames.WithCancellation(ct))
         {
-            _ring.Add(FrameRow.FromReplayFrame(f));
+            _rows.Add(FrameRow.FromReplayFrame(f));
             if (++prefetched >= 200) break;
         }
 
+        UpdateViewport();
         State = SessionState.Ready;
-        RaiseRowsChanged();
         _player = _playerFactory(source);
         _player.FrameEmitted += OnFrameEmitted;
         _player.PlaybackEnded += OnPlaybackEnded;
@@ -119,7 +129,10 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     {
         lock (_emitGate)
         {
-            if (PassesFilter(f)) _pending.Add(f);
+            if (!PassesFilter(f)) return;
+            if (_pending.Count == MaxPendingFrames)
+                _pending.Dequeue(); // UI starvation guard; player FramesEmitted remains authoritative.
+            _pending.Enqueue(f);
         }
     }
 
@@ -127,26 +140,40 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     private void Drain()
     {
-        List<ReplayFrame> batch;
+        List<FrameRow> batch;
         lock (_emitGate)
         {
             if (_pending.Count == 0) return;
-            batch = new List<ReplayFrame>(_pending);
-            _pending.Clear();
+            batch = new List<FrameRow>(_pending.Count);
+            while (_pending.Count > 0)
+                batch.Add(FrameRow.FromReplayFrame(_pending.Dequeue()));
         }
 
-        foreach (var f in batch) _ring.Add(FrameRow.FromReplayFrame(f));
+        foreach (var row in batch) _rows.Add(row);
         CurrentTimeText = FormatTime(batch[^1].Timestamp);
         if (_durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
-        RaiseRowsChanged();
+        UpdateViewport();
     }
 
-    private void RaiseRowsChanged() => OnPropertyChanged(nameof(VisibleRows));
+    private void UpdateViewport()
+    {
+        var count = _rows.CopyLatest(_viewportSource);
+        var blankCount = ViewportRowCount - count;
+
+        for (var i = 0; i < blankCount; i++)
+            _viewport[i].Clear();
+
+        for (var i = 0; i < count; i++)
+            _viewport[blankCount + i].UpdateFrom(_viewportSource[i]);
+
+        _latestVisibleRow = count == 0 ? null : _viewportSource[count - 1];
+    }
 
     private void ClearPlaybackBuffer()
     {
         lock (_emitGate) _pending.Clear();
-        _ring.Clear();
+        _rows.Clear();
+        UpdateViewport();
     }
 
     private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
@@ -194,12 +221,11 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             ClearPlaybackBuffer();
             CurrentTimeText = "00:00:00";
             Progress01 = 0;
-            RaiseRowsChanged();
         }
 
         _ = _player.PlayAsync();
         State = SessionState.Playing;
-        _drainTimer ??= _ui.StartTimer(TimeSpan.FromMilliseconds(50), Drain);
+        _drainTimer ??= _ui.StartTimer(UiDrainInterval, Drain);
     }
 
     [RelayCommand]
@@ -213,7 +239,6 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         CurrentTimeText = "00:00:00";
         Progress01 = 0;
         State = SessionState.Ready;
-        RaiseRowsChanged();
     }
 
     [RelayCommand]
@@ -229,10 +254,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         var parsed = CanIdListParser.Parse(value);
         _idFilter = parsed.AllowList;
 
-        // 过滤变更必须满足验收语义：表格只保留匹配帧。P1 清空已有 ring，
+        // 过滤变更必须满足验收语义：viewport 只保留匹配帧。P1 清空已有 rows，
         // 后续只 ingest 匹配帧；SQLite 全量回看在 P2 实现。
         ClearPlaybackBuffer();
-        RaiseRowsChanged();
     }
 
     /// <summary>Forward playback speed multiplier to the active player.</summary>
@@ -249,7 +273,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _player.SeekProgress += OnSeekProgress;
         State = SessionState.Playing;
         ClearPlaybackBuffer();
-        _drainTimer ??= _ui.StartTimer(TimeSpan.FromMilliseconds(50), Drain);
+        _drainTimer ??= _ui.StartTimer(UiDrainInterval, Drain);
     }
 
     public void PauseForBackground()

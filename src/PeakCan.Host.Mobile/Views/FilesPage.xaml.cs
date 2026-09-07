@@ -53,6 +53,20 @@ public partial class FilesPage : ContentPage
         }
     }
 
+    private async void OnRecentSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        try
+        {
+            if (e.CurrentSelection.FirstOrDefault() is not RecentItem item) return;
+            RecentList.SelectedItem = null;
+            await Navigation.PushAsync(_tracePageFactory.Create(item.CachedPath));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("无法打开文件", ex.Message, "确定");
+        }
+    }
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -65,8 +79,30 @@ public partial class FilesPage : ContentPage
             var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
             using var src = activity.ContentResolver?.OpenInputStream(uri);
             if (src is null) return;
-            using var dst = File.Create(dest);
-            await src.CopyToAsync(dst);
+
+            // The ACTION_VIEW/SEND path bypasses FilePicker, so apply the same
+            // product size boundary here and fail before creating a huge cache file.
+            if (src.CanSeek) TraceFileCache.EnsureSupportedSize(src.Length);
+
+            long copied = 0;
+            try
+            {
+                using var dst = File.Create(dest);
+                var buffer = new byte[256 * 1024];
+                int n;
+                while ((n = await src.ReadAsync(buffer)) > 0)
+                {
+                    copied += n;
+                    TraceFileCache.EnsureSupportedSize(copied);
+                    await dst.WriteAsync(buffer.AsMemory(0, n));
+                }
+            }
+            catch
+            {
+                File.Delete(dest);
+                throw;
+            }
+
             RefreshRecent();
             await Navigation.PushAsync(_tracePageFactory.Create(dest));
         }

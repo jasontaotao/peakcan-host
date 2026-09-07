@@ -49,10 +49,38 @@ public class TraceFileCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task ImportAsync_RejectsFileOverLimit_WithoutOpeningStream()
+    {
+        var cache = new TraceFileCache(_dir);
+        bool opened = false;
+        var pick = new PickedTraceFile(
+            "too-large.asc",
+            TraceFileCache.MaxImportBytes + 1,
+            _ => { opened = true; return Task.FromResult<Stream>(new MemoryStream([1])); });
+
+        Func<Task> act = () => cache.ImportAsync(pick);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("文件超过 500MB，当前版本不支持。");
+        opened.Should().BeFalse();
+        Directory.GetFiles(_dir).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ImportAsync_AllowsFileAtLimit()
+    {
+        var cache = new TraceFileCache(_dir);
+        var path = await cache.ImportAsync(new PickedTraceFile(
+            "max.asc",
+            TraceFileCache.MaxImportBytes,
+            _ => Task.FromResult<Stream>(new MemoryStream(new byte[] { 1 }))));
+
+        File.Exists(path).Should().BeTrue();
+    }
+    [Fact]
     public void FindCached_ReturnsNull_WhenAbsent()
     {
         var cache = new TraceFileCache(_dir);
         cache.FindCached("missing.asc", 123).Should().BeNull();
     }
 }
-

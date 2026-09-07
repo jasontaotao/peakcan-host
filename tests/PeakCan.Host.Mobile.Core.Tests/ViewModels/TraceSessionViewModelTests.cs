@@ -1,5 +1,6 @@
 using FluentAssertions;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Tests.Fakes;
 using NSubstitute;
@@ -45,7 +46,8 @@ public class TraceSessionViewModelTests
     {
         var env = new Env();
         env.Vm.State.Should().Be(SessionState.Empty);
-        env.Vm.VisibleRows.Should().BeEmpty();
+        env.Vm.VisibleRows.Should().OnlyContain(r => r.IsEmpty);
+        env.Vm.LatestVisibleRow.Should().BeNull();
     }
 
     [Fact]
@@ -58,7 +60,8 @@ public class TraceSessionViewModelTests
         await env.Vm.OpenAsync("foo.asc");
 
         env.Vm.State.Should().Be(SessionState.Ready);
-        env.Vm.VisibleRows.Should().HaveCount(2);
+        env.Vm.LatestVisibleRow!.Timestamp.Should().Be(0.5);
+        env.Vm.VisibleRows.Should().Contain(r => !r.IsEmpty);
     }
 
     [Fact]
@@ -76,31 +79,70 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
-    public async Task FrameEmitted_AccumulatesInPending_NotVisibleUntilDrainTick()
+    public void FrameEmitted_AccumulatesInPending_NotVisibleUntilDrainTick()
     {
         var env = new Env();
         env.Vm.MarkReadyForEmit(env.Player);
         env.Player.Emit(F(0.0, 0x100));
 
-        env.Vm.VisibleRows.Should().BeEmpty();
+        env.Vm.LatestVisibleRow.Should().BeNull();
 
         DrainTimer(env.Vm).Tick();
-        env.Vm.VisibleRows.Should().HaveCount(1);
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x100u);
     }
 
     [Fact]
-    public async Task RingBuffer_KeepsLatestN_FramesOnly()
+    public void RingBuffer_KeepsLatestN_FramesOnly()
     {
         var env = new Env();
         env.Vm.MarkReadyForEmit(env.Player);
         for (int i = 0; i < 5500; i++) env.Player.Emit(F(i * 0.01, (uint)i));
 
         DrainTimer(env.Vm).Tick();
-        env.Vm.VisibleRows.Should().HaveCount(5000);
+
+        env.Vm.LatestVisibleRow!.Timestamp.Should().Be(54.99);
     }
 
     [Fact]
-    public async Task IdFilter_ExcludesNonMatchingFrames()
+    public void VisibleRows_AreStableSlots_AcrossDrains()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        var before = env.Vm.VisibleRows;
+
+        env.Player.Emit(F(0, 1));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.VisibleRows.Should().BeSameAs(before);
+        before.Should().Contain(r => !r.IsEmpty);
+    }
+
+    [Fact]
+    public void Drain_DoesNotRaiseVisibleRowsPropertyChanged()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        var changed = new List<string>();
+        env.Vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
+
+        env.Player.Emit(F(0, 1));
+        DrainTimer(env.Vm).Tick();
+
+        changed.Should().NotContain(nameof(TraceSessionViewModel.VisibleRows));
+        env.Vm.LatestVisibleRow.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void DrainTimer_UsesThrottledUiRefreshInterval()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        DrainTimer(env.Vm).Period.Should().Be(TimeSpan.FromMilliseconds(100));
+    }
+
+    [Fact]
+    public void IdFilter_ExcludesNonMatchingFrames()
     {
         var env = new Env();
         env.Vm.MarkReadyForEmit(env.Player);
@@ -109,7 +151,8 @@ public class TraceSessionViewModelTests
         env.Player.Emit(F(0.1, 0x200));
 
         DrainTimer(env.Vm).Tick();
-        env.Vm.VisibleRows.Should().ContainSingle().Which.Id.Should().Be(0x100u);
+
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x100u);
     }
 
     [Fact]
@@ -139,36 +182,38 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
-    public async Task TogglePlay_FromReady_ClearsPrefetchedRing()
+    public async Task TogglePlay_FromReady_ClearsPrefetchedViewport()
     {
         var env = new Env();
         var frames = new AsyncFrameSeq(F(0, 1), F(0.5, 2));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
 
         await env.Vm.OpenAsync("foo.asc");
-        env.Vm.VisibleRows.Should().HaveCount(2);
+        env.Vm.LatestVisibleRow.Should().NotBeNull();
 
         env.Vm.TogglePlayCommand.Execute(null);
         env.Vm.State.Should().Be(SessionState.Playing);
-        env.Vm.VisibleRows.Should().BeEmpty();
+        env.Vm.LatestVisibleRow.Should().BeNull();
+        env.Vm.VisibleRows.Should().OnlyContain(r => r.IsEmpty);
     }
 
     [Fact]
-    public async Task SetIdFilter_ClearsExistingRows_AndAppliesToFutureFrames()
+    public void SetIdFilter_ClearsExistingRows_AndAppliesToFutureFrames()
     {
         var env = new Env();
         env.Vm.MarkReadyForEmit(env.Player);
         env.Player.Emit(F(0.0, 0x100));
         env.Player.Emit(F(0.1, 0x200));
         DrainTimer(env.Vm).Tick();
-        env.Vm.VisibleRows.Should().HaveCount(2);
+        env.Vm.LatestVisibleRow.Should().NotBeNull();
 
         env.Vm.SetIdFilter("0x100");
-        env.Vm.VisibleRows.Should().BeEmpty();
+        env.Vm.LatestVisibleRow.Should().BeNull();
+        env.Vm.VisibleRows.Should().OnlyContain(r => r.IsEmpty);
 
         env.Player.Emit(F(0.2, 0x100));
         DrainTimer(env.Vm).Tick();
-        env.Vm.VisibleRows.Should().ContainSingle().Which.Id.Should().Be(0x100u);
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x100u);
     }
 }
 
@@ -191,5 +236,3 @@ internal sealed class AsyncFrameSeq(params ReplayFrame[] frames)
         }
     }
 }
-
-

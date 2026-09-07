@@ -7,7 +7,7 @@
         <ScrollView Grid.Row="0">
             <VerticalStackLayout Spacing="8">
                 <Label Text="最近文件" FontSize="20" Margin="0,0,0,8" />
-                <CollectionView x:Name="RecentList" SelectionMode="Single">
+                <CollectionView x:Name="RecentList" SelectionMode="Single" SelectionChanged="OnRecentSelected">
                     <CollectionView.ItemTemplate>
                         <DataTemplate>
                             <Border Stroke="#22000000" StrokeShape="RoundRectangle 8" Padding="12" Margin="0,2">

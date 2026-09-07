@@ -34,6 +34,25 @@ public sealed class FrameRingBuffer
         Array.Clear(_buffer);
     }
 
+    /// <summary>Copies the latest rows into <paramref name="destination"/> without allocating a snapshot.</summary>
+    /// <returns>The number of rows copied; destination slots beyond this count are stale.</returns>
+    public int CopyLatest(FrameRow[] destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (destination.Length == 0 || _count == 0) return 0;
+
+        var count = Math.Min(destination.Length, _count);
+        var firstLogical = _count - count;
+        for (var logical = firstLogical; logical < _count; logical++)
+        {
+            var physical = _count < _buffer.Length
+                ? logical
+                : (_head + logical) % _buffer.Length;
+            destination[logical - firstLogical] = _buffer[physical];
+        }
+
+        return count;
+    }
     /// <summary>当前内容的按插入序只读拷贝（最旧在前）。</summary>
     public IReadOnlyList<FrameRow> Snapshot()
     {

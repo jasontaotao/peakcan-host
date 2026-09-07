@@ -1,7 +1,7 @@
 # 移动端 Trace Viewer（Android / .NET MAUI）设计
 
 - 日期：2026-09-07
-- 状态：已确认方向（用户 2026-09-07 批准设计六节）；v2 并入架构+产品双视角评审 5 项修订（UI 信息架构 / P1 范围 +3 / 可测性抽象层 / 状态机补全 / 表格渲染策略）
+- 状态：已确认方向（用户 2026-09-07 批准设计六节）；v2 并入架构+产品双视角评审 5 项修订；v3 根据真机 P1 验收修订为 500MB 导入硬限制 + 固定 viewport 渲染
 - 分支：`feature/mobile-trace-viewer`（从 `main` 拉出）
 - 相关：[2026-09-04-trace-viewer-canoe-graph-parity-design.md](2026-09-04-trace-viewer-canoe-graph-parity-design.md)（桌面端 CANoe 图表对齐，与本项目交互模型一致）
 
@@ -96,7 +96,7 @@ public sealed class StreamingTraceOpenResult : IAsyncDisposable
 public sealed class AscStreamingSource : IStreamingTraceSource
 {
     // 工厂注入：() => File.OpenRead(path)。移动端给 app 私有目录的缓存副本路径。
-    // 流式路径不使用 ReplayOptions.MaxFileSizeBytes；移动端 P1 不设硬 cap，UI 负责在 >500MB 时确认。
+    // 流式路径不使用 ReplayOptions.MaxFileSizeBytes；导入/直开入口统一限制文件不超过 500MB，超过时直接拒绝。
     public AscStreamingSource(Func<Stream> streamFactory, ILogger? logger = null);
 }
 ```
@@ -158,7 +158,7 @@ public sealed class StreamingTracePlayer : IDisposable
 
 ```
 src/PeakCan.Host.Mobile.Core/         # net10.0 纯逻辑库，可独立单测
-├── Models/       FrameRow · FrameRingBuffer
+├── Models/       FrameRow · FrameRowSlot · FrameRingBuffer
 ├── Services/     DurationScanner · TraceFileCache（P2 加 TraceCacheStore）
 ├── Platform/     IUiDispatcher · IFilePickerGateway · IStreamingSourceFactory
 └── ViewModels/   TraceSessionViewModel
@@ -173,8 +173,8 @@ PeakCan.Host.Mobile.Core.Tests/       # net10.0 xunit
 
 > v2 修订：不再让 MAUI app 双 target `net10.0-android;net10.0`。VM/服务放进 `Mobile.Core`，MAUI app 保持单 Android target。`Mobile.slnx` 包含 Mobile、Mobile.Core、Host.Core 和测试项目；当 sibling `peakcan-hil-core` 项目存在时也加入 HIL.Core，否则通过 `Host.Core` 的 NuGet fallback 解析。
 
-- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Ended/Failed`；Seek 过程用 `IsSeekBusy` 表达，结束后回到进入前状态。`Ready` = 已打开未播放，进入时**预读第一屏 ~200 帧**填表；从 Ready 开始正式播放时清空预读 ring，避免重复 ingest。播放中修改 ID filter 也清空 ring，保证表格只保留过滤后的新帧。环形缓冲容量 5000 帧（≈1MB 内存）。UX 后果显式化：**P1 阶段表格只保留最近 5000 帧**，更早的帧随播放被淘汰；暂停回看完整数据要等 P2 的 SQLite 缓存
-- **UI 节流与渲染策略**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 50ms 窗口批量 marshal；表格只渲染可视区（~30 行），数据源为环形数组 + 批量 `Reset` 通知，禁止逐行 `NotifyCollectionChanged`（MAUI CollectionView 逐行快速更新在 Android 上必卡）
+- **TraceSessionViewModel** 状态机：`Empty → Ready → Playing ⇄ Paused → Ended/Failed`；Seek 过程用 `IsSeekBusy` 表达，结束后回到进入前状态。`Ready` = 已打开未播放，进入时**预读第一屏 ~200 帧**填表；从 Ready 开始正式播放时清空预读 ring，避免重复 ingest。播放中修改 ID filter 也清空 ring，保证表格只保留过滤后的新帧。环形数据缓冲容量 5000 帧（≈1MB 内存）；真机 v3 渲染窗口固定为最近 80 行，行槽在 UI 线程 in-place 更新。P1 UI 不保留 5000 行可滚动集合，避免 Android CollectionView 高频 Insert/Remove/Reset 造成 500MB+ native 膨胀；完整 5000 帧可滚动回看在 P2 结合 SQLite 索引实现
+- **UI 节流与渲染策略**：播放器帧率可达数千/秒，禁止逐帧刷 UI——按 100ms 窗口批量 marshal；表格只维护最近 ~80 行稳定行槽并 in-place 更新，禁止高频 `Insert/Remove/Reset` 或替换 `ItemsSource`（真机 PLR-AL30 验证：5000 行集合批量更新会使 native/Unknown PSS 在 2-3 分钟内超过 500MB）
 - **可测性抽象层**：VM 不直接依赖 MAUI Essentials——`IUiDispatcher`（主线程 marshal）、`IFilePickerGateway`（选文件/缓存目录）定义在纯 net10.0 可见的位置，MAUI 实现放 `Platform/`。这是"net10.0 target 供 VM 单测"成立的前提
 - **播放跟随语义**：默认自动跟随最新帧；用户上滑脱离跟随，浮出"↓回到最新"按钮（IM 语义，零学习成本）
 - **文件直开**：`MainActivity` 注册 `.asc`/`.blf` intent-filter（`pathPattern`），微信/文件管理器"用其他应用打开"直接进 app
@@ -233,7 +233,7 @@ Seek(t) → 停枚举 → 重开 stream → 快进扫描（报进度）→ 续�
 | 畸形数据行 | 跳过 + 计数，UI 顶部"已跳过 N 行"摘要条（沿用桌面语义） |
 | 流中途 IO 错 / SAF 权限失效 | `PlaybackEndedEventArgs.Error` + 用户可读 Snackbar 提示 |
 | SQLite 写失败 | 降级：缓存停用、回放继续，不阻塞主链路 |
-| 超大文件 | 流式后内存与文件大小解耦，不设硬 cap；>500MB 弹确认（提示拷贝/扫描耗时） |
+| 超大文件 | 流式后内存与文件大小解耦；>500MB 在导入/直开入口直接拒绝 |
 | 播放中文件被外部删除 | 下一次 Read 抛 IO → 同上 Error 路径 |
 | 切后台/熄屏 | `App.OnSleep` 接线：暂停播放 + 冻结时钟基准，回前台可续播 |
 

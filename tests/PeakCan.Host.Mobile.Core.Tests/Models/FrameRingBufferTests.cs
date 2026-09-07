@@ -32,6 +32,31 @@ public class FrameRingBufferTests
     }
 
     [Fact]
+    public void CopyLatest_CopiesInsertionOrderWithoutAllocatingSnapshot()
+    {
+        var buf = new FrameRingBuffer(4);
+        buf.Add(Row(1)); buf.Add(Row(2)); buf.Add(Row(3));
+        var destination = new FrameRow[2];
+
+        var copied = buf.CopyLatest(destination);
+
+        copied.Should().Be(2);
+        destination.Select(r => r.Timestamp).Should().Equal(2d, 3d);
+    }
+
+    [Fact]
+    public void CopyLatest_AfterWrap_ReturnsLatestRows()
+    {
+        var buf = new FrameRingBuffer(3);
+        for (var i = 1; i <= 5; i++) buf.Add(Row(i));
+        var destination = new FrameRow[4];
+
+        var copied = buf.CopyLatest(destination);
+
+        copied.Should().Be(3);
+        destination.Take(copied).Select(r => r.Timestamp).Should().Equal(3d, 4d, 5d);
+    }
+    [Fact]
     public void Clear_ResetsBuffer()
     {
         var buf = new FrameRingBuffer(4);

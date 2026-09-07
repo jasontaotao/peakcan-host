@@ -6,10 +6,11 @@ namespace PeakCan.Host.Mobile.Core.Tests.Fakes;
 public sealed class FakeUiDispatcher : IUiDispatcher
 {
     public void Post(Action action) => action();
-    public IDisposable StartTimer(TimeSpan period, Action tick) => new FakeTimer(tick);
+    public IDisposable StartTimer(TimeSpan period, Action tick) => new FakeTimer(period, tick);
 
-    public sealed class FakeTimer(Action tick) : IDisposable
+    public sealed class FakeTimer(TimeSpan period, Action tick) : IDisposable
     {
+        public TimeSpan Period { get; } = period;
         private bool _disposed;
         public void Tick()
         {

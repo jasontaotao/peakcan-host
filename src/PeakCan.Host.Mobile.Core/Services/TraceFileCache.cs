@@ -10,6 +10,8 @@ namespace PeakCan.Host.Mobile.Core.Services;
 /// </summary>
 public sealed class TraceFileCache
 {
+    public const long MaxImportBytes = 500L * 1024 * 1024;
+
     private readonly string _cacheDir;
 
     public string CacheDirectory => _cacheDir;
@@ -29,6 +31,7 @@ public sealed class TraceFileCache
 
     public async Task<string> ImportAsync(PickedTraceFile file, IProgress<double>? progress = null, CancellationToken ct = default)
     {
+        EnsureSupportedSize(file.SizeBytes);
         var path = PathOf(file.DisplayName, file.SizeBytes);
         if (File.Exists(path)) return path; // cache hit — 不再读流
 
@@ -50,6 +53,12 @@ public sealed class TraceFileCache
         return path;
     }
 
+    public static void EnsureSupportedSize(long sizeBytes)
+    {
+        if (sizeBytes > MaxImportBytes)
+            throw new InvalidOperationException("文件超过 500MB，当前版本不支持。");
+    }
+
     private string PathOf(string name, long size) =>
         Path.Combine(_cacheDir, $"{Sanitize(name)}.{size}.asc");
 
@@ -61,4 +70,3 @@ public sealed class TraceFileCache
         return sb.ToString();
     }
 }
-

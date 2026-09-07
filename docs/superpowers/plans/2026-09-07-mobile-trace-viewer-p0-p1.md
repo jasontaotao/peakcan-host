@@ -2878,11 +2878,11 @@ ADB="$LOCALAPPDATA/Android/sdk/platform-tools/adb.exe"
 
 | 指标 | 目标 | 实测 |
 |---|---|---|
-| 冷导入耗时（点击文件到 TracePage ready） | <5s | ____ |
-| 首帧渲染（缓存命中，点击播放到首行出现） | <2s | ____ |
-| 总时长扫描完成（slider 从 ?? 变实数并显示百分比） | <30s | ____ |
-| 1x 播放 5 分钟 | 不丢帧、不卡 | ____ |
-| 内存稳态（`adb shell dumpsys meminfo <pkg>` 取 TOTAL PSS） | <300MB | ____ |
+| 冷导入耗时（点击文件到 TracePage ready） | <5s | 通过（SAF 导入） |
+| 首帧渲染（缓存命中，点击播放到首行出现） | <2s | 通过 |
+| 总时长扫描完成（slider 从 ?? 变实数并显示百分比） | <30s | 通过（00:33:19 / 100%） |
+| 1x 播放 5 分钟 | 不丢帧、不卡 | 通过（播放推进至 00:05:27+） |
+| 内存稳态（`adb shell dumpsys meminfo <pkg>` 取 TOTAL PSS） | <300MB | 5 分钟 198–209MB 平台期 |
 | Seek 到中点 | <5s + 进度反馈 | ____ |
 | ID 过滤 `0x103`（播放中设置） | ring 清空后表格只出现匹配帧 | ____ |
 | 切后台再回前台 | 暂停→续播 | ____ |
@@ -2903,6 +2903,7 @@ git commit -m "test(mobile): add 100MB ASC generator for P1 acceptance"
 
 ## Self-Review（v2 修订）
 
+- **v3 真机性能修订**：Android CollectionView 5000 行批量/增量事件在 PLR-AL30 上造成 native/Unknown PSS 持续膨胀；P1 改为 5000 帧数据 ring + 最近 80 行固定 viewport in-place 更新（100ms），导入/直开统一拒绝 >500MB。真机 5 分钟 TOTAL PSS 为 198–209MB 平台期。
 - **v2 关键修订**：streaming session 统一释放 Stream；player 增加 8192 帧 bounded channel；MAUI Page 用 factory + NavigationPage；Android FilePicker 用 MIME 并校验 `.asc`；ID 过滤清空 ring；SeekProgress 在快进结束时强制 1.0；测试移除真实 `Task.Delay` 时序等待。
 - **Spec 覆盖**：§4 Core 流式 API（Task 3）、§4.3 StreamingTracePlayer（Task 4）、§5.1 UI 信息架构（Task 8）、§5.2 组件（Task 2/5/6/7/8）、§5 表格渲染策略 + 跟随语义 + 抽象层（Task 7/8）、§6 数据流（Task 7 OpenAsync 预读 + drain + DurationScanner 并行）、§7 错误处理（Task 4 PlaybackEnded Error；skipped lines 计数在 Core，P1 UI 摘要条可在 Task 8 XAML 中补一个 Label；SQLite 降级属 P2）、§9 P1 全部条目（Task 1-10）、§10 验收（Task 10）。§4.4 BLF = P4；P1 picker 明确拒绝。
 
