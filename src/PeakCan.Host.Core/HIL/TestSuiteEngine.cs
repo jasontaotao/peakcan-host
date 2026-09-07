@@ -84,11 +84,15 @@ public sealed class TestSuiteEngine
             int caseIndex = 0;
             foreach (var caseModel in suite.Cases)
             {
-                linkedCt.ThrowIfCancellationRequested();
-                var caseResult = await ExecuteCaseAsync(caseModel, ctx, config, linkedCt, caseIndex, sinkFactory, frameStats, suite.Parameters);
+                var caseResult = await ExecuteCaseAsync(
+                    caseModel, ctx, config, linkedCt, externalCt, caseIndex,
+                    sinkFactory, frameStats, suite.Parameters);
                 caseResults.Add(caseResult);
 
                 progress?.Report(new TestProgress(caseIndex + 1, suite.Cases.Count, caseModel.Name));
+
+                if (externalCt.IsCancellationRequested || linkedCt.IsCancellationRequested)
+                    break;
 
                 if (!caseResult.Passed && config.FailurePolicy == FailurePolicy.StopSuiteOnFailure)
                     break;
@@ -100,7 +104,7 @@ public sealed class TestSuiteEngine
         // Suite Teardown (always, reverse order)
         foreach (var fixture in suiteFixtures.Reverse())
         {
-            try { await fixture.TeardownAsync(ctx, linkedCt); }
+            try { await fixture.TeardownAsync(ctx, CancellationToken.None); }
             catch (Exception) { /* log, don't mask */ }
         }
 
@@ -119,8 +123,8 @@ public sealed class TestSuiteEngine
 
     private async Task<TestCaseResult> ExecuteCaseAsync(
         TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, CancellationToken ct,
-        int caseIndex, Contracts.IHilFrameSinkFactory? sinkFactory, IFrameStatistics? frameStats,
-        IReadOnlyDictionary<string, ParameterValue>? suiteParams)
+        CancellationToken externalCt, int caseIndex, Contracts.IHilFrameSinkFactory? sinkFactory,
+        IFrameStatistics? frameStats, IReadOnlyDictionary<string, ParameterValue>? suiteParams)
     {
         // 清空步骤间变量，防止上一 case 拋留值污染（review M-1）：
         // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
@@ -139,6 +143,11 @@ public sealed class TestSuiteEngine
         foreach (var fixture in allFixtures)
         {
             try { await fixture.SetupAsync(ctx, ct); }
+            catch (OperationCanceledException)
+            {
+                failure.Reason = externalCt.IsCancellationRequested ? "已取消" : "套件超时";
+                break;
+            }
             catch (Exception ex)
             {
                 failure.Reason = $"Setup failed: {ex.Message}";
@@ -179,13 +188,17 @@ public sealed class TestSuiteEngine
                     config, stepResults, iteration: null,
                     frameStats, caseStart, failure, dtcPresentSet);
             }
-        }
+            }
+            catch (OperationCanceledException)
+            {
+                failure.Reason ??= externalCt.IsCancellationRequested ? "已取消" : "套件超时";
+            }
         finally
         {
             // P3: 排空在途帧 → detach → Dispose，顺序不可颠倒
             if (ctx is Contracts.IHasFrameSink hasSink2 && sink is not null)
             {
-                await hasSink2.WaitForFrameDrainAsync(ct);
+                await hasSink2.WaitForFrameDrainAsync(CancellationToken.None);
                 hasSink2.SetFrameSink(null);
             }
             sink?.Dispose();
@@ -195,7 +208,7 @@ public sealed class TestSuiteEngine
         for (int i = allFixtures.Count - 1; i >= 0; i--)
         {
             var fixture = allFixtures[i];
-            try { await fixture.TeardownAsync(ctx, ct); }
+            try { await fixture.TeardownAsync(ctx, CancellationToken.None); }
             catch (Exception ex)
             {
                 failure.Reason = (failure.Reason ?? "") + $"; Teardown failed: {ex.Message}";
