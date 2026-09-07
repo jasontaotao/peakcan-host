@@ -16,6 +16,7 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.HilPreflight;
+using PeakCan.Host.App.Services.HilPanel;
 using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -44,7 +45,7 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
     [ObservableProperty] private string _tracePath = "";
-    [ObservableProperty] private string _hardwareChannel = "USB1";
+    [ObservableProperty] private string _hardwareChannel = "";
 
     /// <summary>G3: suite 声明多通道（declaredCount>1）→ Hardware 下拉置灰（通道由套件声明按序绑定）。</summary>
     [ObservableProperty] private bool _isMultiChannelSuite;
@@ -960,6 +961,44 @@ public sealed partial class HilViewModel : ObservableObject
         }
     }
 
+
+
+    internal void ApplyPanelState(HilPanelStateDto? state)
+    {
+        if (state is null) return;
+        if (Enum.TryParse<HilMode>(state.SelectedMode, out var mode)) SelectedMode = mode;
+        DbcPath = state.DbcPath;
+        SuitePath = state.SuitePath;
+        TracePath = state.TracePath;
+        EcuScriptPath = state.EcuScriptPath;
+        MatrixPath = state.MatrixPath;
+        CaseLogDirectory = state.CaseLogDirectory;
+        EnableFaultInjection = state.EnableFaultInjection;
+        CaptureCaseLogs = state.CaptureCaseLogs;
+        EnableAnalyze = state.EnableAnalyze;
+        if (!string.IsNullOrEmpty(SuitePath))
+        {
+            LoadCaseList(SuitePath);
+            var ids = state.SelectedCaseIds.ToHashSet(StringComparer.Ordinal);
+            foreach (var item in AvailableCases)
+                item.IsSelected = ids.Contains(item.Id);
+        }
+        RefreshAvailableChannels();
+        QueuePreflight();
+    }
+
+    internal HilPanelStateDto CapturePanelState() => new(
+        SelectedMode.ToString(),
+        DbcPath,
+        SuitePath,
+        TracePath,
+        EcuScriptPath,
+        MatrixPath,
+        CaseLogDirectory,
+        EnableFaultInjection,
+        CaptureCaseLogs,
+        EnableAnalyze,
+        AvailableCases.Where(c => c.IsSelected).Select(c => c.Id).ToList());
 
     internal HilRunRequest BuildRunRequest(IReadOnlyList<ChannelConfig>? hardwareChannels)
     {

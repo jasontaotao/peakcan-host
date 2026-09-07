@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.HilPanel;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Views.HIL;
@@ -137,6 +138,7 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     // Sprint 3: HIL testing panel VM（P1-2 2026-09-06：恢复 singleton 注册——
     // 依赖环已由 IConnectedChannelsSource 消除，不再需要 transient + setter）
     private readonly HilViewModel _hilViewModel;
+    private readonly HilPanelStateStore? _hilPanelStateStore;
     private readonly EcuScriptEditorViewModel _ecuScriptEditorViewModel;
     // P1-2（2026-09-06）: 已连接通道快照源（生产者：本类 publish；消费者 HilViewModel）
     private readonly IConnectedChannelsSource? _connectedChannelsSource;
@@ -338,7 +340,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // 2026-09-06 设计层 MEDIUM：连接成功时把所选 BaudRate 预设的标称
         // 波特率喂给统计收集器（总线负载 % 的分母）。可选注入，null 时
         // 收集器保持默认 1 Mbps 口径（与旧行为一致）。
-        BusStatisticsCollector? busStats = null)
+        BusStatisticsCollector? busStats = null,
+        HilPanelStateStore? hilPanelStateStore = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
@@ -359,6 +362,7 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         _traceViewerFactory = traceViewerFactory ?? throw new ArgumentNullException(nameof(traceViewerFactory));
         // Sprint 3: HIL testing panel VM
         _hilViewModel = hilViewModel ?? throw new ArgumentNullException(nameof(hilViewModel));
+        _hilPanelStateStore = hilPanelStateStore;
         _ecuScriptEditorViewModel = ecuScriptEditorViewModel ?? throw new ArgumentNullException(nameof(ecuScriptEditorViewModel));
         // P2-1 真拆类（2026-09-06）：连接生命周期（循环/路由/SendService/
         // 波特率接线）移交 ChannelConnectionCoordinator——必须在 ctor 内
