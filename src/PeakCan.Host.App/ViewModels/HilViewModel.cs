@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.ComponentModel;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -25,6 +27,7 @@ public sealed partial class HilViewModel : ObservableObject
     private readonly IFileDialogService _fileDialog;
     private readonly IHilAnalysisService _analysisService;
     private readonly IHilReportService _reportService;
+
     private CancellationTokenSource? _runCts;
     private readonly ITrialRunService? _trialRunService;
     private readonly SuitePreflightService? _preflightService;
@@ -34,6 +37,8 @@ public sealed partial class HilViewModel : ObservableObject
     private (DateTime LastWriteTimeUtc, long Length)? _suiteFingerprint;
     private System.Threading.Timer? _suiteChangeTimer;
     private System.Threading.Timer? _runTimer;
+    private System.Threading.Timer? _caseFilterTimer;
+    private bool _declaredChannelsValid = true;
     private Stopwatch? _runStopwatch;
 
     [ObservableProperty] private string _dbcPath = "";
@@ -52,6 +57,9 @@ public sealed partial class HilViewModel : ObservableObject
     [ObservableProperty] private string _currentCaseName = "";
     [ObservableProperty] private int _completedCases;
     [ObservableProperty] private bool _suiteChangedExternally;
+    [ObservableProperty] private string _caseFilter = "";
+    [ObservableProperty] private string _caseLogDirectory = "";
+    [ObservableProperty] private int _declaredChannelCount;
     [ObservableProperty] private double _progressPercent = 0;
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private HilMode _selectedMode = HilMode.TraceReplay;
@@ -83,6 +91,7 @@ public sealed partial class HilViewModel : ObservableObject
     public ObservableCollection<HilResultNode> ResultsTree { get; } = new();
     public ObservableCollection<TrialDiagnostic> TrialDiagnostics { get; } = new();
     public ObservableCollection<PreflightIssue> PreflightIssues { get; } = new();
+    public ICollectionView FilteredCases { get; }
 
     /// <summary>PCAN 硬件通道下拉选项（G3）：动态刷新自已连接通道。Handle = "USB{n}" 值, Display = 显示文本。</summary>
     public ObservableCollection<HardwareChannelOption> AvailableChannels { get; } = new();
@@ -123,6 +132,7 @@ public sealed partial class HilViewModel : ObservableObject
     partial void OnEcuScriptPathChanged(string value) => QueuePreflight();
     partial void OnMatrixPathChanged(string value) => QueuePreflight();
     partial void OnCaptureCaseLogsChanged(bool value) => QueuePreflight();
+    partial void OnCaseFilterChanged(string value) => QueueCaseFilterRefresh();
 
 
     private void StartSuiteWatcher(string path)
@@ -247,6 +257,8 @@ public sealed partial class HilViewModel : ObservableObject
         SuitePreflightService? preflightService = null)
     {
         _runner = runner;
+        FilteredCases = CollectionViewSource.GetDefaultView(AvailableCases);
+        FilteredCases.Filter = FilterCase;
         _logger = logger;
         _fileDialog = fileDialog;
         _analysisService = analysisService;
@@ -331,6 +343,21 @@ public sealed partial class HilViewModel : ObservableObject
         {
             var json = File.ReadAllText(suitePath);
             using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("channels", out var channelsEl) && channelsEl.ValueKind == JsonValueKind.Array)
+            {
+                DeclaredChannelCount = channelsEl.GetArrayLength();
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var channelEl in channelsEl.EnumerateArray())
+                {
+                    var name = channelEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                    if (string.IsNullOrWhiteSpace(name) || !names.Add(name)) _declaredChannelsValid = false;
+                }
+            }
+            else
+            {
+                DeclaredChannelCount = 0;
+                _declaredChannelsValid = true;
+            }
             // G4 内容硬校验：顶层无 cases 数组 → 明确提示（防选错文件静默——原静默 catch 吞掉）
             if (!doc.RootElement.TryGetProperty("cases", out var casesEl))
             {
@@ -349,8 +376,10 @@ public sealed partial class HilViewModel : ObservableObject
             // G4（spec §5.3）: 解析失败不静默——设明确提示（缺 cases 字段已在上文单独拦截，
             // 这里兜底 JSON 损坏/读取失败/字段类型异常；Run 时完整反序列化仍会报具体错误）。
             AvailableCases.Clear();
+            _declaredChannelsValid = false;
             StatusMessage = $"套件文件解析失败: {ex.Message}";
         }
+        RunCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -377,6 +406,24 @@ public sealed partial class HilViewModel : ObservableObject
         return null;
     }
 
+
+    private bool FilterCase(object item) =>
+        string.IsNullOrWhiteSpace(CaseFilter)
+        || ((TestCaseSelection)item).Name.Contains(CaseFilter, StringComparison.OrdinalIgnoreCase);
+
+    private void QueueCaseFilterRefresh()
+    {
+        _caseFilterTimer?.Dispose();
+        _caseFilterTimer = new System.Threading.Timer(_ =>
+        {
+            FilteredCases.Refresh();
+        }, null, 300, Timeout.Infinite);
+    }
+
+    private bool IsCaseVisible(TestCaseSelection item) =>
+        string.IsNullOrWhiteSpace(CaseFilter)
+        || item.Name.Contains(CaseFilter, StringComparison.OrdinalIgnoreCase);
+
     private IReadOnlyList<ChannelConfig>? BuildHardwareChannels()
     {
         if (string.IsNullOrEmpty(SuitePath) || _connectedChannels is null) return null;
@@ -396,6 +443,11 @@ public sealed partial class HilViewModel : ObservableObject
         }
         var declaredCount = declared.Count;
         if (declaredCount == 0) return null;
+        if (declaredCount > connected.Count)
+        {
+            _truncationWarning = $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，不能执行）";
+            return null;
+        }
 
         // 重名声明预检：studio 编辑器允许重复名，runner 按名 ToDictionary 会抛。
         var dup = declared.GroupBy(d => d.Name, StringComparer.Ordinal)
@@ -410,10 +462,7 @@ public sealed partial class HilViewModel : ObservableObject
         // G2: 状态栏提示各通道 DBC/UDS 绑定概况——明示 suite per-channel 配置覆盖界面全局 DBC（改配置回 studio）。
         var bindingSummary = string.Join("; ", Enumerable.Range(0, count)
             .Select(i => $"{declared[i].Name}:{FormatBindingDetail(declared[i])}"));
-        _truncationWarning = (declaredCount != connected.Count
-                ? $"（suite 声明 {declaredCount} 路，已连接 {connected.Count} 路，仅前 {count} 路参与执行）"
-                : "")
-            + $" 绑定[{bindingSummary}]（界面 DBC 已被 suite per-channel 覆盖，改配置回 studio）";
+        _truncationWarning = $" 绑定[{bindingSummary}]（界面 DBC 已被 suite per-channel 覆盖，改配置回 studio）";
 
         var list = new List<ChannelConfig>(count);
         for (int i = 0; i < count; i++)
@@ -554,7 +603,7 @@ public sealed partial class HilViewModel : ObservableObject
     [RelayCommand]
     private void SelectAllCases()
     {
-        foreach (var c in AvailableCases) c.IsSelected = true;
+        foreach (var c in AvailableCases.Where(IsCaseVisible)) c.IsSelected = true;
     }
 
     [RelayCommand]
@@ -831,21 +880,7 @@ public sealed partial class HilViewModel : ObservableObject
             // 数量不一致按少的截断 + 状态栏提示。suite 无 Channels 或未连 → null（单通道零回归）。
             var hardwareChannels = BuildHardwareChannels();
 
-            var request = new HilRunRequest(
-                DbcPath, SuitePath,
-                SelectedMode == HilMode.TraceReplay ? TracePath : null,
-                SelectedMode == HilMode.Hardware ? HardwareChannel : null,
-                EcuScriptPath: SelectedMode == HilMode.VirtualEcu ? (string.IsNullOrEmpty(EcuScriptPath) ? null : EcuScriptPath) : null,
-                MatrixPath: SelectedMode == HilMode.Matrix ? (string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath) : null,
-                EnableFaultInjection: EnableFaultInjection,
-                Mode: SelectedMode,
-                EnableAnalyze: EnableAnalyze,
-                SelectedCaseNames: _rerunSelectedCaseNames
-                    ?? (AvailableCases.Count > 0
-                        ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
-                        : null),
-                HardwareChannels: hardwareChannels,
-                CaptureCaseLogs: CaptureCaseLogs);
+            var request = BuildRunRequest(hardwareChannels);
 
             var result = await _runner.RunAsync(request, progress, _runCts.Token);
 
@@ -925,10 +960,51 @@ public sealed partial class HilViewModel : ObservableObject
         }
     }
 
+
+    internal HilRunRequest BuildRunRequest(IReadOnlyList<ChannelConfig>? hardwareChannels)
+    {
+        return new HilRunRequest(
+            DbcPath, SuitePath,
+            SelectedMode == HilMode.TraceReplay ? TracePath : null,
+            SelectedMode == HilMode.Hardware ? HardwareChannel : null,
+            EcuScriptPath: SelectedMode == HilMode.VirtualEcu ? (string.IsNullOrEmpty(EcuScriptPath) ? null : EcuScriptPath) : null,
+            MatrixPath: SelectedMode == HilMode.Matrix ? (string.IsNullOrEmpty(MatrixPath) ? null : MatrixPath) : null,
+            EnableFaultInjection: EnableFaultInjection,
+            Mode: SelectedMode,
+            EnableAnalyze: EnableAnalyze,
+            SelectedCaseNames: _rerunSelectedCaseNames
+                ?? (AvailableCases.Count > 0
+                    ? AvailableCases.Where(c => c.IsSelected).Select(c => c.Name).ToList()
+                    : null),
+            HardwareChannels: hardwareChannels,
+            CaptureCaseLogs: CaptureCaseLogs,
+            CaseLogDirectory: string.IsNullOrWhiteSpace(CaseLogDirectory)
+                ? null
+                : CaseLogDirectory);
+    }
+    [RelayCommand]
+    private void OpenCaseLogDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(CaseLogDirectory);
+            Process.Start(new ProcessStartInfo(CaseLogDirectory) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open HIL case log directory {Path}", CaseLogDirectory);
+            StatusMessage = $"无法打开 case log 目录: {ex.Message}";
+        }
+    }
+
+    internal bool CanRunForTest() => CanRun();
+
     private bool CanRun()
     {
-        if (IsRunning || _preflightHasCritical) return false;
+        if (IsRunning || _preflightHasCritical || !_declaredChannelsValid) return false;
         if (string.IsNullOrEmpty(SuitePath) || string.IsNullOrEmpty(DbcPath)) return false;
+        if (AvailableCases.Count > 0 && !AvailableCases.Any(c => c.IsSelected)) return false;
+        if (DeclaredChannelCount > (_connectedChannels?.Invoke().Count ?? 0)) return false;
 
         return SelectedMode switch
         {
