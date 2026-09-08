@@ -106,6 +106,12 @@ internal sealed partial class ChannelConnectionCoordinator
                 var result = await channel.ConnectAsync(rate, fd: cfg.IsFd).ConfigureAwait(true);
                 if (result.IsSuccess)
                 {
+                    // M2.4b（终审修复）：连接成功、注册读循环之前清空该 handle 的
+                    // verdict 桶——新通道的 _rxSequence 从 1 重启，旧会话残留条目
+                    // 会与新一轮 seq 撞键产生错误徽标。此清理与 DisconnectAll 的
+                    // 全表清理双保险；此处的时序（先清后 RegisterChannel）保证
+                    // 新会话 Record 不会出现在清空之前。
+                    _secOcVerdicts?.Clear(handle);
                     _router.RegisterChannel(channel);
                     // v3.16.9.4 PATCH: subscribe to read-loop errors so bus-off /
                     // driver unload / hardware faults surface on the UI status

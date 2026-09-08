@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """M2 demo asset generator (spec 2026-09-07 secoc-0x27, Phase 2 M2.5).
 
 Generates demo assets into --out-dir:
@@ -151,16 +151,19 @@ def main():
                         "$kind": "injectFault", "FaultType": "Corrupt", "Direction": "Receive",
                         "CanId": {"raw": can_id, "format": "Standard", "type": "Data"},
                         "Probability": "1.0", "DelayMs": "0",
-                        "CorruptByteIndices": [len(auth), len(auth) + 1, len(auth) + 2],
+                        # Pure BadMac: XOR the MAC region only (layout recipe:
+                        # indices [dlc-mac .. dlc-1] = auth+fv .. auth+fv+mac-1)
+                        "CorruptByteIndices": list(range(len(auth) + args.fv_len_bits // 8,
+                                                         len(auth) + args.fv_len_bits // 8 + args.mac_len_bits // 8)),
                         "CorruptXorMask": 255, "FaultId": "badmac"}},
                     {"parameters": {"$kind": "delay", "Milliseconds": 1300}},
                     {"parameters": {"$kind": "clearFault", "FaultId": "badmac"}},
                     {"parameters": {"$kind": "delay", "Milliseconds": 1300}},
                     {"parameters": {
-                        "$kind": "if", "Condition": "secocRejected(291)",
+                        "$kind": "if", "Condition": f"secocRejected({can_id})",
                         "Then": [pass_step], "Else": [fail_step]}},
                     {"parameters": {
-                        "$kind": "if", "Condition": "secocAccepted(291)",
+                        "$kind": "if", "Condition": f"secocAccepted({can_id})",
                         "Then": [pass_step], "Else": [fail_step]}},
                 ],
             }
@@ -185,10 +188,10 @@ def main():
                 "steps": [
                     {"parameters": {"$kind": "delay", "Milliseconds": 3200}},
                     {"parameters": {
-                        "$kind": "if", "Condition": "secocAccepted(291)",
+                        "$kind": "if", "Condition": f"secocAccepted({can_id})",
                         "Then": [pass_step], "Else": [fail_step]}},
                     {"parameters": {
-                        "$kind": "if", "Condition": "secocRejected(291)",
+                        "$kind": "if", "Condition": f"secocRejected({can_id})",
                         "Then": [fail_step], "Else": [pass_step]}},
                 ],
             }
@@ -213,7 +216,7 @@ def main():
                 "steps": [
                     {"parameters": {"$kind": "delay", "Milliseconds": 2400}},
                     {"parameters": {
-                        "$kind": "if", "Condition": "secocRejected(291)",
+                        "$kind": "if", "Condition": f"secocRejected({can_id})",
                         "Then": [pass_step], "Else": [fail_step]}},
                 ],
             }
