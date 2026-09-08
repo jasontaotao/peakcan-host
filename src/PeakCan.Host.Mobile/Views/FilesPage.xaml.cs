@@ -19,6 +19,12 @@ public partial class FilesPage : ContentPage
         _cache = cache;
         _tracePageFactory = tracePageFactory;
         RefreshRecent();
+        MainActivity.FileUriReceived += OnFileUriReceived;
+    }
+
+    private async void OnFileUriReceived(Android.Net.Uri uri)
+    {
+        await HandleIntentUriAsync(uri);
     }
 
     private void RefreshRecent()
@@ -70,11 +76,22 @@ public partial class FilesPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        var uri = MainActivity.TakePendingFileUri();
+        if (uri is null) return;
+        await HandleIntentUriAsync(uri);
+    }
+
+    private async Task HandleIntentUriAsync(Android.Net.Uri uri)
+    {
         try
         {
             if (Microsoft.Maui.ApplicationModel.Platform.CurrentActivity is not MainActivity activity) return;
-            var uri = MainActivity.TakePendingFileUri();
-            if (uri is null) return;
+            var ext = Path.GetExtension(uri.ToString());
+            if (!ext.Equals(".asc", StringComparison.OrdinalIgnoreCase))
+            {
+                await DisplayAlertAsync("不支持的文件", "仅支持 .asc 格式文件", "确定");
+                return;
+            }
 
             var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
             using var src = activity.ContentResolver?.OpenInputStream(uri);
@@ -112,3 +129,6 @@ public partial class FilesPage : ContentPage
         }
     }
 }
+
+
+

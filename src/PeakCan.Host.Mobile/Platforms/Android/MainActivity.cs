@@ -15,10 +15,13 @@ namespace PeakCan.Host.Mobile;
     new[] { Intent.ActionView, Intent.ActionSend },
     Categories = new[] { Intent.CategoryDefault, Intent.CategoryBrowsable },
     DataSchemes = new[] { "content", "file" },
-    DataMimeType = "application/octet-stream")]
+    DataMimeType = "*/*")]
 public class MainActivity : MauiAppCompatActivity
 {
     public static Android.Net.Uri? PendingFileUri { get; private set; }
+
+    /// <summary>Fired when a VIEW/SEND intent arrives while the app is already running.</summary>
+    public static event Action<Android.Net.Uri>? FileUriReceived;
 
     public static Android.Net.Uri? TakePendingFileUri()
     {
@@ -29,14 +32,17 @@ public class MainActivity : MauiAppCompatActivity
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
-        base.OnCreate(savedInstanceState);
+        // Must extract BEFORE base.OnCreate: it triggers MAUI page creation
+        // and FilesPage.OnAppearing consumes PendingFileUri.
         PendingFileUri = ExtractTraceUri(Intent);
+        base.OnCreate(savedInstanceState);
     }
 
     protected override void OnNewIntent(Intent? intent)
     {
         base.OnNewIntent(intent);
         PendingFileUri = ExtractTraceUri(intent);
+        if (PendingFileUri is not null) FileUriReceived?.Invoke(PendingFileUri);
     }
 
     private static Android.Net.Uri? ExtractTraceUri(Intent? intent)
@@ -44,12 +50,12 @@ public class MainActivity : MauiAppCompatActivity
         if (intent?.Data is not null) return intent.Data;
         if (intent?.Action != Intent.ActionSend) return null;
 
-        // Android 13 introduces the typed overload; Android 12 uses the legacy API.
         if (OperatingSystem.IsAndroidVersionAtLeast(33))
             return intent.GetParcelableExtra(Intent.ExtraStream, Java.Lang.Class.FromType(typeof(Android.Net.Uri))) as Android.Net.Uri;
 
-#pragma warning disable CA1416 // Only reached below API 33.
+#pragma warning disable CA1416
         return intent.GetParcelableExtra(Intent.ExtraStream) as Android.Net.Uri;
 #pragma warning restore CA1416
     }
 }
+
