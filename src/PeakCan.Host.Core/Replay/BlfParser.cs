@@ -318,7 +318,8 @@ public static partial class BlfParser
         return result;
     }
 
-    private static IReadOnlyList<ReplayFrame> ParseObjectBody(
+    /// <summary>Internal so <see cref="BlfStreamingSource"/> can reuse the same frame decoders without materializing an entire BLF file.</summary>
+    internal static IReadOnlyList<ReplayFrame> ParseObjectBody(
         uint objectType, ulong timestamp, ReadOnlySpan<byte> frameData)
     {
         return objectType switch
