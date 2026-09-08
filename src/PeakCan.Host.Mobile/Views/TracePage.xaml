@@ -50,13 +50,13 @@
         </Grid>
 
         <Grid x:Name="ChartGrid" Grid.Row="3" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="8">
-            <HorizontalStackLayout Grid.Row="0" Spacing="8">
-                <Button Text="选择信号" Clicked="OnSelectSignalClicked" />
-                <Label x:Name="SelectedSignalsLabel" VerticalOptions="Center" LineBreakMode="MiddleTruncation" />
-                <Button Grid.Column="1" x:Name="ZoomInButton" Text="＋" WidthRequest="44" Clicked="OnZoomInClicked" />
-                <Button x:Name="ZoomOutButton" Text="－" WidthRequest="44" Clicked="OnZoomOutClicked" />
-                <Button x:Name="ResetZoomButton" Text="复位" WidthRequest="64" Clicked="OnResetZoomClicked" />
-            </HorizontalStackLayout>
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
+                <Button Grid.Column="0" Text="选择信号" Clicked="OnSelectSignalClicked" />
+                <Label Grid.Column="1" x:Name="SelectedSignalsLabel" VerticalOptions="Center" LineBreakMode="MiddleTruncation" />
+                <Button Grid.Column="2" x:Name="ZoomInButton" Text="＋" WidthRequest="44" Clicked="OnZoomInClicked" />
+                <Button Grid.Column="3" x:Name="ZoomOutButton" Text="－" WidthRequest="44" Clicked="OnZoomOutClicked" />
+                <Button Grid.Column="4" x:Name="ResetZoomButton" Text="复位" WidthRequest="64" Clicked="OnResetZoomClicked" />
+            </Grid>
             <lvc:CartesianChart Grid.Row="1" x:Name="SignalChart" />
             <Label x:Name="ChartEmptyLabel" Grid.Row="2" Text="请选择 1–2 个 DBC 信号" HorizontalOptions="Center" TextColor="Gray" />
         </Grid>
@@ -78,6 +78,7 @@
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
+
 
 
 
