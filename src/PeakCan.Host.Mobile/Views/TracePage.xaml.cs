@@ -20,13 +20,14 @@ public partial class TracePage : ContentPage
         long fileSizeBytes,
         ILogger? logger = null,
         IDbcCatalogProvider? dbcProvider = null,
-        DbcCatalogHolder? dbcHolder = null)
+        DbcCatalogHolder? dbcHolder = null,
+        ITraceCacheSinkFactory? cacheSinkFactory = null)
     {
         InitializeComponent();
         _dbcProvider = dbcProvider ?? throw new ArgumentNullException(nameof(dbcProvider));
         _dbcHolder = dbcHolder ?? new DbcCatalogHolder();
         _vm = new TraceSessionViewModel(ui, sourceFactory,
-            src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger);
+            src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory);
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
