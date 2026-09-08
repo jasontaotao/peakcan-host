@@ -36,6 +36,27 @@ public sealed class SignalSeriesStore
         }
     }
 
+    /// <summary>
+    /// Atomically replaces buffered samples, discards non-finite input, sorts by
+    /// timestamp, and retains the most recent samples within capacity. Used by
+    /// file backfill so a late chart selection can display the complete trace
+    /// without mixing partially loaded input.
+    /// </summary>
+    public void ReplaceSamples(IEnumerable<SignalSample> samples)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        var ordered = samples
+            .Where(s => double.IsFinite(s.Timestamp) && double.IsFinite(s.Value))
+            .OrderBy(s => s.Timestamp)
+            .ToArray();
+
+        lock (_gate)
+        {
+            _samples.Clear();
+            foreach (var sample in ordered.Skip(Math.Max(0, ordered.Length - _capacity)))
+                _samples.Enqueue(sample);
+        }
+    }
     public void Clear()
     {
         lock (_gate) _samples.Clear();
@@ -124,6 +145,7 @@ public sealed class SignalSeriesStore
         return result;
     }
 }
+
 
 
 
