@@ -5,7 +5,7 @@
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Padding="8" RowSpacing="4">
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+        <Grid x:Name="ControlsRow" Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
             <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
             <Picker Grid.Column="1" x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
             <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
@@ -19,7 +19,7 @@
             <Button Grid.Column="3" Text="DBC" Clicked="OnLoadDbcClicked" />
         </Grid>
 
-        <Label Grid.Row="1" Text="{Binding DbcStatusText}" FontSize="12" LineBreakMode="TailTruncation" />
+        <Label x:Name="DbcStatusRow" Grid.Row="1" Text="{Binding DbcStatusText}" FontSize="12" LineBreakMode="TailTruncation" />
 
         <!-- Slider: NO Value binding; code-behind syncs one-way to avoid drag fighting -->
         <Slider x:Name="SeekSlider" Grid.Row="2" Minimum="0" Maximum="1"
@@ -69,10 +69,11 @@
             <Button Text="↓ 最新" Clicked="OnJumpLatest" />
         </HorizontalStackLayout>
 
-        <HorizontalStackLayout Grid.Row="6" Spacing="8">
+        <HorizontalStackLayout x:Name="TabRow" Grid.Row="6" Spacing="8">
             <Button x:Name="TableTabButton" Text="表格" Clicked="OnShowTableClicked" />
             <Button x:Name="ChartTabButton" Text="图表" Clicked="OnShowChartClicked" />
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
+
 

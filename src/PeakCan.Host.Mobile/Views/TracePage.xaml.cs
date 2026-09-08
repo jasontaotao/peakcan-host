@@ -17,6 +17,7 @@ public partial class TracePage : ContentPage
     private readonly TraceSessionViewModel _vm;
     private readonly IDbcCatalogProvider _dbcProvider;
     private readonly DbcCatalogHolder _dbcHolder;
+    private bool _isChartTab;
 
     public TracePage(
         IUiDispatcher ui,
@@ -41,6 +42,35 @@ public partial class TracePage : ContentPage
         SpeedPicker.SelectedIndex = 2;
         _vm.SetDbc(_dbcHolder.Current);
         _ = InitializeAsync(cachedFilePath, sourceName, fileSizeBytes);
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        DeviceDisplay.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
+        ApplyChartFullscreen();
+    }
+
+    protected override void OnDisappearing()
+    {
+        DeviceDisplay.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
+        base.OnDisappearing();
+    }
+
+    private void OnMainDisplayInfoChanged(object? sender, DisplayInfoChangedEventArgs e)
+    {
+        ApplyChartFullscreen();
+    }
+
+    private void ApplyChartFullscreen()
+    {
+        var isFullscreen = _isChartTab && DeviceDisplay.MainDisplayInfo.Orientation == DisplayOrientation.Landscape;
+        ControlsRow.IsVisible = !isFullscreen;
+        DbcStatusRow.IsVisible = !isFullscreen;
+        SeekSlider.IsVisible = !isFullscreen;
+        StatusRow.IsVisible = !isFullscreen && !_isChartTab;
+        FilterRow.IsVisible = !isFullscreen && !_isChartTab;
+        TabRow.IsVisible = !isFullscreen;
     }
 
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -118,19 +148,23 @@ public partial class TracePage : ContentPage
 
     private void ShowTableTab()
     {
+        _isChartTab = false;
         FramesGrid.IsVisible = true;
         ChartGrid.IsVisible = false;
         StatusRow.IsVisible = true;
         FilterRow.IsVisible = true;
+        ApplyChartFullscreen();
     }
 
     private void ShowChartTab()
     {
+        _isChartTab = true;
         FramesGrid.IsVisible = false;
         ChartGrid.IsVisible = true;
         StatusRow.IsVisible = false;
         FilterRow.IsVisible = false;
         RenderChart();
+        ApplyChartFullscreen();
     }
 
     private void OnChartRenderChanged(object? sender, EventArgs e) => RenderChart();
@@ -141,6 +175,9 @@ public partial class TracePage : ContentPage
         SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
             ? string.Empty
             : string.Join("  |  ", chart.SelectedSignals.Select(s => s.DisplayName));
+        ChartEmptyLabel.Text = chart.Messages.Count == 0
+            ? "请先加载 DBC"
+            : "请选择 1–2 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
         var series = new List<ISeries>();
@@ -203,5 +240,6 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
 
 
