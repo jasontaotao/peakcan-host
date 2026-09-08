@@ -37,6 +37,9 @@ public sealed class TraceChartViewModel : ObservableObject
 
     public event EventHandler? RenderChanged;
 
+    /// <summary>Raised after a signal becomes selected so hosts can backfill history.</summary>
+    public event EventHandler<SignalSelectionKey>? SignalSelected;
+
     /// <summary>Replace the DBC catalog, clear samples, and retain only valid selections.</summary>
     public void SetCatalog(DbcCatalog? catalog)
     {
@@ -67,6 +70,7 @@ public sealed class TraceChartViewModel : ObservableObject
     public bool Select(SignalSelectionKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        SignalSelectionKey? selectedKey = null;
         lock (_stateGate)
         {
             if (_stores.ContainsKey(key)) return true;
@@ -77,9 +81,12 @@ public sealed class TraceChartViewModel : ObservableObject
 
             SelectedSignals = [.. SelectedSignals, item];
             _stores.Add(key, new SignalSeriesStore());
+            selectedKey = key;
         }
 
         RaiseRenderChanged();
+        if (selectedKey is not null)
+            SignalSelected?.Invoke(this, selectedKey);
         return true;
     }
 
@@ -97,6 +104,18 @@ public sealed class TraceChartViewModel : ObservableObject
         RaiseRenderChanged();
     }
 
+    /// <summary>Atomically replaces one signal's samples with backfilled history.</summary>
+    public void ReplaceSamples(SignalSelectionKey key, IReadOnlyList<SignalSample> samples)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(samples);
+        lock (_stateGate)
+        {
+            if (_stores.TryGetValue(key, out var store)) store.ReplaceSamples(samples);
+        }
+
+        RaiseRenderChanged();
+    }
     /// <summary>Clear all samples and the cursor; selections remain.</summary>
     public void Clear()
     {
@@ -168,3 +187,4 @@ public sealed class TraceChartViewModel : ObservableObject
         _ui.Post(() => RenderChanged?.Invoke(this, EventArgs.Empty));
     }
 }
+

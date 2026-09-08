@@ -64,6 +64,30 @@ public class TraceChartViewModelTests
     }
 
     [Fact]
+    public void Select_Raises_SignalSelected()
+    {
+        SignalSelectionKey? selected = null;
+        var vm = Create();
+        vm.SignalSelected += (_, key) => selected = key;
+
+        vm.Select(Speed).Should().BeTrue();
+
+        selected.Should().Be(Speed);
+    }
+
+    [Fact]
+    public void ReplaceSamples_Replaces_Selected_Signal_History()
+    {
+        var vm = Create();
+        vm.Select(Speed);
+        vm.Ingest(new ReplayFrame(100, 0x100, 8, [0x01, 0x02], FrameFlags.None));
+
+        vm.ReplaceSamples(Speed, [new SignalSample(1, 10), new SignalSample(2, 20)]);
+        vm.RefreshRender();
+
+        vm.RenderPoints[Speed].Select(p => p.Timestamp).Should().Equal(1, 2);
+    }
+    [Fact]
     public void Deselect_Removes_Selected_Signal()
     {
         var vm = Create();
@@ -187,5 +211,6 @@ public class TraceChartViewModelTests
         raised.Should().Be(1);
     }
 }
+
 
 
