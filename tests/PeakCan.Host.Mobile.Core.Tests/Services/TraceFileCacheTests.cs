@@ -83,4 +83,21 @@ public class TraceFileCacheTests : IDisposable
         var cache = new TraceFileCache(_dir);
         cache.FindCached("missing.asc", 123).Should().BeNull();
     }
+    [Fact]
+    public async Task ImportAsync_Blf_PreservesExtension()
+    {
+        var cache = new TraceFileCache(_dir);
+        var path = await cache.ImportAsync(Pick("foo.blf", new byte[] { 1, 2, 3 }));
+        path.Should().EndWith(".blf");
+        File.Exists(path).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ImportAsync_RejectsUnsupportedExtension()
+    {
+        var cache = new TraceFileCache(_dir);
+        var act = () => cache.ImportAsync(Pick("foo.txt", new byte[] { 1 }));
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("仅支持 .asc 或 .blf 文件。");
+    }
 }

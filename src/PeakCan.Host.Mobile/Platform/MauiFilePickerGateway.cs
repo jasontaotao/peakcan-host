@@ -21,8 +21,12 @@ public sealed class MauiFilePickerGateway : IFilePickerGateway
         });
         if (result is null) return null;
 
-        if (!string.Equals(Path.GetExtension(result.FileName), ".asc", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("P1 仅支持 .asc 文件；.blf 将在后续版本支持。");
+        var extension = Path.GetExtension(result.FileName);
+        if (!extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) &&
+            !extension.Equals(".blf", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("仅支持 .asc 或 .blf 文件。");
+        }
 
         await using var stream = await result.OpenReadAsync();
         var size = stream.Length;

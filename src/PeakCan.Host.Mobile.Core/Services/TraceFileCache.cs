@@ -59,8 +59,19 @@ public sealed class TraceFileCache
             throw new InvalidOperationException("文件超过 500MB，当前版本不支持。");
     }
 
-    private string PathOf(string name, long size) =>
-        Path.Combine(_cacheDir, $"{Sanitize(name)}.{size}.asc");
+    private string PathOf(string name, long size)
+    {
+        var extension = Path.GetExtension(name);
+        if (!extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) &&
+            !extension.Equals(".blf", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("仅支持 .asc 或 .blf 文件。");
+        }
+
+        return Path.Combine(
+            _cacheDir,
+            $"{Sanitize(Path.GetFileNameWithoutExtension(name))}.{size}{extension.ToLowerInvariant()}");
+    }
 
     private static string Sanitize(string name)
     {
@@ -70,3 +81,4 @@ public sealed class TraceFileCache
         return sb.ToString();
     }
 }
+

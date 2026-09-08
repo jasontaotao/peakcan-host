@@ -25,7 +25,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton<IUiDispatcher, PlatformUiDispatcher>();
         builder.Services.AddSingleton<IFilePickerGateway, MauiFilePickerGateway>();
-        builder.Services.AddSingleton<IStreamingSourceFactory, AscStreamingSourceFactory>();
+        builder.Services.AddSingleton<IStreamingSourceFactory, StreamingSourceFactory>();
         builder.Services.AddSingleton<TraceFileCache>(_ => new TraceFileCache(FileSystem.CacheDirectory));
         builder.Services.AddSingleton<ITraceCacheStore>(_ =>
             new TraceCacheStore(Path.Combine(FileSystem.CacheDirectory, "trace-cache.sqlite3")));
@@ -42,6 +42,7 @@ public static class MauiProgram
         return builder.Build();
     }
 }
+
 
 
 

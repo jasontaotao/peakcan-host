@@ -62,18 +62,31 @@ public partial class FilesPage : ContentPage
         }
 
         var cachedIds = traces.Select(t => (t.SourceName, t.FileSizeBytes)).ToHashSet();
-        foreach (var path in Directory.GetFiles(_cache.CacheDirectory, "*.asc"))
+        foreach (var path in Directory.EnumerateFiles(_cache.CacheDirectory))
         {
+            var extension = Path.GetExtension(path);
+            if (!extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) &&
+                !extension.Equals(".blf", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var info = new FileInfo(path);
-            var suffix = $".{info.Length}.asc";
-            var name = info.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-                ? info.Name[..^suffix.Length]
-                : info.Name;
-            if (cachedIds.Contains((name, info.Length))) continue;
+            var name = ParseCachedDisplayName(info.Name, extension);
+            if (name is null || cachedIds.Contains((name, info.Length))) continue;
             items.Add(new RecentItem(name, $"{info.Length / 1024} KB", path, null, info.Length));
         }
 
         RecentList.ItemsSource = items;
+    }
+
+    /// <summary>Cache names are "{stem}.{size}{extension}"; restore the original display name.</summary>
+    private static string? ParseCachedDisplayName(string fileName, string extension)
+    {
+        if (!fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) return null;
+        var withoutExtension = fileName[..^extension.Length];
+        var lastDot = withoutExtension.LastIndexOf('.');
+        if (lastDot <= 0) return null;
+        if (!long.TryParse(withoutExtension[(lastDot + 1)..], out _)) return null;
+        return withoutExtension[..lastDot] + extension;
     }
 
     private async void OnOpenClicked(object? sender, EventArgs e)
@@ -122,14 +135,17 @@ public partial class FilesPage : ContentPage
         try
         {
             if (Microsoft.Maui.ApplicationModel.Platform.CurrentActivity is not MainActivity activity) return;
-            var ext = Path.GetExtension(uri.ToString());
-            if (!ext.Equals(".asc", StringComparison.OrdinalIgnoreCase))
+            var extension = Path.GetExtension(uri.ToString());
+            if (!extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) &&
+                !extension.Equals(".blf", StringComparison.OrdinalIgnoreCase))
             {
-                await DisplayAlertAsync("不支持的文件", "仅支持 .asc 格式文件", "确定");
+                await DisplayAlertAsync("不支持的文件", "仅支持 .asc 或 .blf 格式文件", "确定");
                 return;
             }
 
-            var dest = Path.Combine(_cache.CacheDirectory, $"shared-{DateTime.Now:yyyyMMdd-HHmmss}.asc");
+            var dest = Path.Combine(
+                _cache.CacheDirectory,
+                $"shared-{DateTime.Now:yyyyMMdd-HHmmss}{extension.ToLowerInvariant()}");
             using var src = activity.ContentResolver?.OpenInputStream(uri);
             if (src is null) return;
 

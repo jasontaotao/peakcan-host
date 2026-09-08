@@ -157,7 +157,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             try
             {
                 await using var fs = new FileStream(cachedFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                var scan = await DurationScanner.ScanAsync(fs, progress, ct).ConfigureAwait(false);
+                var scan = cachedFilePath.EndsWith(".blf", StringComparison.OrdinalIgnoreCase)
+                    ? await BlfDurationScanner.ScanAsync(fs, progress, ct).ConfigureAwait(false)
+                    : await DurationScanner.ScanAsync(fs, progress, ct).ConfigureAwait(false);
                 _duration = scan.DurationSeconds;
                 _durationKnownValue = true;
                 _ui.Post(() =>
@@ -396,6 +398,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         sink?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
+
 
 
 
