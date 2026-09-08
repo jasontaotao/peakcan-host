@@ -2867,7 +2867,7 @@ git commit -m "feat(mobile): expose skipped lines and cache health"
 - Consumes: Tasks 1–12 全部实现
 - Produces: P2 完成记录。
 
-- [ ] **Step 1: 全量测试**
+- [x] **Step 1: 全量测试**
 
 Run:
 ```bash
@@ -2877,7 +2877,7 @@ dotnet test PeakCan.Host.Mobile.slnx --nologo
 
 Expected: 两个 solution 0 failed。Core 新增代码覆盖率目标 ≥80%；若覆盖率低于 80%，先补测试再进入真机验收。
 
-- [ ] **Step 2: Android 构建**
+- [x] **Step 2: Android 构建**
 
 Run:
 ```bash
@@ -2886,7 +2886,7 @@ dotnet build src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj --nologo
 
 Expected: 0 error。
 
-- [ ] **Step 3: 真机缓存验收**
+- [x] **Step 3: 真机缓存验收**
 
 使用 100MB ASC（可用 `powershell -File tools/gen-large-asc.ps1` 生成）：
 
@@ -2898,7 +2898,7 @@ Expected: 0 error。
 6. Previous/Next 翻页顺序保持时间递增。
 7. `adb shell dumpsys meminfo com.zhengtaotao.peakcan.mobile`，TOTAL PSS <300MB。
 
-- [ ] **Step 4: SQLite 失败降级验收**
+- [x] **Step 4: SQLite 失败降级验收**
 
 1. 停止 app。
 2. 通过 `adb shell run-as com.zhengtaotao.peakcan.mobile` 将 `cache/trace-cache.sqlite3` 临时改名或加只读。
@@ -2906,7 +2906,7 @@ Expected: 0 error。
 4. 预期：回放继续，Trace 页显示“缓存不可用/缓存已停用”。
 5. 恢复 SQLite 文件，删除 app 数据后重测正常缓存。
 
-- [ ] **Step 5: DBC 验收**
+- [x] **Step 5: DBC 验收**
 
 1. 播放匹配 fixture DBC 的 ASC。
 2. 点击 DBC 选择 fixture。
@@ -2914,7 +2914,7 @@ Expected: 0 error。
 4. 点击帧，FrameDetailSheet 显示全部解码信号、单位、VAL_ 枚举文本。
 5. BrowsePage 复用当前 DBC，回看行同样显示信号摘要。
 
-- [ ] **Step 6: 勾选计划与提交**
+- [x] **Step 6: 勾选计划与提交**
 
 在本计划 Task 13 所有 checkbox 打勾后：
 
