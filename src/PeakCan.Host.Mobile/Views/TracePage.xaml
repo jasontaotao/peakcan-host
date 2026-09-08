@@ -3,34 +3,38 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Padding="8">
-        <HorizontalStackLayout Grid.Row="0" Spacing="8" VerticalOptions="Center">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Padding="8" RowSpacing="4">
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
             <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
-            <Picker x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
-            <Label Text="{Binding CurrentTimeText}" VerticalOptions="Center" />
-            <Label Text="/" VerticalOptions="Center" />
-            <Label Text="{Binding DurationText}" VerticalOptions="Center" />
-            <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}"
-                   FontSize="12" VerticalOptions="Center" />
-            <Button Text="DBC" Clicked="OnLoadDbcClicked" />
-            <Label Text="{Binding DbcStatusText}" FontSize="12" VerticalOptions="Center" />
-        </HorizontalStackLayout>
+            <Picker Grid.Column="1" x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
+            <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
+                <HorizontalStackLayout Spacing="4">
+                    <Label Text="{Binding CurrentTimeText}" VerticalOptions="Center" />
+                    <Label Text="/" VerticalOptions="Center" />
+                    <Label Text="{Binding DurationText}" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}" FontSize="12" LineBreakMode="TailTruncation" />
+            </VerticalStackLayout>
+            <Button Grid.Column="3" Text="DBC" Clicked="OnLoadDbcClicked" />
+        </Grid>
+
+        <Label Grid.Row="1" Text="{Binding DbcStatusText}" FontSize="12" LineBreakMode="TailTruncation" />
 
         <!-- Slider: NO Value binding; code-behind syncs one-way to avoid drag fighting -->
-        <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1"
+        <Slider x:Name="SeekSlider" Grid.Row="2" Minimum="0" Maximum="1"
                 DragStarted="OnSeekStarted" DragCompleted="OnSeekCompleted"
                 IsEnabled="{Binding DurationKnown}" />
 
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <CollectionView x:Name="Frames" ItemsSource="{Binding VisibleRows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
-                    <Grid ColumnDefinitions="1.5*,1*,0.5*,1.7*,2.2*">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8" RowSpacing="2" Padding="0,2">
                         <Label Grid.Column="0" Text="{Binding TimeText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
-                        <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
-                        <Label Grid.Column="4" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Label Grid.Column="3" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="CharacterWrap" />
+                        <Label Grid.Row="1" Grid.ColumnSpan="4" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="CharacterWrap" />
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnRowTapped" />
                         </Grid.GestureRecognizers>
@@ -44,12 +48,12 @@
                    BackgroundColor="#80000000" Padding="20,12" />
         </Grid>
 
-        <HorizontalStackLayout Grid.Row="3" Spacing="12" Margin="0,4">
+        <HorizontalStackLayout Grid.Row="4" Spacing="12" Margin="0,4">
             <Label Text="{Binding CacheStatusText}" FontSize="12" TextColor="Gray" />
             <Label Text="{Binding SkippedLinesText}" FontSize="12" TextColor="Orange" />
         </HorizontalStackLayout>
 
-        <HorizontalStackLayout Grid.Row="4" Spacing="8">
+        <HorizontalStackLayout Grid.Row="5" Spacing="8">
             <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="200"
                    Completed="OnFilterCompleted" />
             <Button Text="↓ 最新" Clicked="OnJumpLatest" />
