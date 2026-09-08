@@ -204,11 +204,18 @@ public partial class TracePage : ContentPage
 
         if (chart.Cursor is { } cursor)
         {
+            var values = chart.RenderPoints.Values
+                .SelectMany(points => points)
+                .Select(point => point.Value)
+                .ToArray();
+
             SignalChart.Sections = [new RectangularSection
             {
                 Xi = cursor.Timestamp,
                 Xj = cursor.Timestamp,
-                Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(48))
+                Yi = values.Length == 0 ? null : values.Min(),
+                Yj = values.Length == 0 ? null : values.Max(),
+                Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64))
             }];
         }
         else
@@ -240,6 +247,7 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
 
 
 

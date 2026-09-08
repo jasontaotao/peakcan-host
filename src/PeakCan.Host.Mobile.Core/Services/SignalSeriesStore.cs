@@ -46,7 +46,7 @@ public sealed class SignalSeriesStore
         lock (_gate)
         {
             if (_samples.Count == 0) return [];
-            return RenderLocked(_samples.Peek().Timestamp, _samples.Max(s => s.Timestamp), bucketCount);
+            return RenderLocked(_samples.Peek().Timestamp, _samples.Last().Timestamp, bucketCount);
         }
     }
 
@@ -117,3 +117,4 @@ public sealed class SignalSeriesStore
         return result;
     }
 }
+
