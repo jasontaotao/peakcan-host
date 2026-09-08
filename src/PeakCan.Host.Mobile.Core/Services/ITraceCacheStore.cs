@@ -10,4 +10,6 @@ public interface ITraceCacheStore : IAsyncDisposable
     Task UpdateLastPositionAsync(long traceId, double seconds, CancellationToken ct = default);
     Task<TraceCacheSummary?> FindCompletedAsync(string sourceName, long fileSizeBytes, CancellationToken ct = default);
     Task<TraceCacheSummary?> GetTraceAsync(long traceId, CancellationToken ct = default);
+    Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default);
+    Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default);
 }

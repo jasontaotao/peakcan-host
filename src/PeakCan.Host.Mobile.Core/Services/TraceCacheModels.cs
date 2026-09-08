@@ -25,3 +25,13 @@ public sealed record CachedFrame(
     public FrameRow ToFrameRow() =>
         new(Timestamp, CanId, IsExtended, Dlc, Data);
 }
+
+/// <summary>Keyset paged cache query. Forward paging uses AfterIndex; backward paging uses BeforeIndex.</summary>
+public sealed record FrameQuery(
+    long? AfterIndex = null,
+    long? BeforeIndex = null,
+    IReadOnlySet<uint>? CanIds = null,
+    int Limit = 80);
+
+/// <summary>One cache page. HasMore is true when Limit+1 rows were available.</summary>
+public sealed record FramePage(IReadOnlyList<CachedFrame> Frames, bool HasMore);

@@ -219,6 +219,103 @@ public sealed class TraceCacheStore : ITraceCacheStore
         }
     }
 
+    public async Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.Limit <= 0) throw new ArgumentOutOfRangeException(nameof(query.Limit));
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var where = "WHERE trace_id=$trace_id";
+            var parameters = new List<SqliteParameter> { new("$trace_id", traceId) };
+
+            if (query.CanIds is { Count: > 0 })
+            {
+                var names = query.CanIds.Select((_, i) => $"$can{i}").ToArray();
+                where += $" AND can_id IN ({string.Join(',', names)})";
+                parameters.AddRange(query.CanIds.Select((id, i) => new SqliteParameter(names[i], id)));
+            }
+
+            var forward = query.BeforeIndex is null;
+            if (forward)
+            {
+                parameters.Add(new("$cursor", query.AfterIndex ?? -1));
+                where += " AND idx > $cursor ORDER BY idx ASC";
+            }
+            else
+            {
+                parameters.Add(new("$cursor", query.BeforeIndex!.Value));
+                where += " AND idx < $cursor ORDER BY idx DESC";
+            }
+
+            var sql = $"""
+                SELECT idx,timestamp,can_id,is_extended,dlc,data
+                FROM frames {where}
+                LIMIT $limit
+                """;
+            parameters.Add(new("$limit", query.Limit + 1));
+
+            await using var command = _connection.CreateCommand();
+            command.CommandText = sql;
+            foreach (var parameter in parameters)
+                command.Parameters.Add(parameter);
+
+            var result = new List<CachedFrame>();
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                result.Add(new CachedFrame(
+                    reader.GetInt64(0),
+                    reader.GetDouble(1),
+                    (uint)reader.GetInt64(2),
+                    reader.GetInt64(3) != 0,
+                    reader.GetByte(4),
+                    (byte[])reader.GetValue(5)));
+            }
+
+            var hasMore = result.Count > query.Limit;
+            if (hasMore) result.RemoveAt(result.Count - 1);
+            if (!forward) result.Reverse();
+            return new FramePage(result, hasMore);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default)
+    {
+        if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var result = new List<TraceCacheSummary>();
+            await using var command = _connection.CreateCommand();
+            command.CommandText = "SELECT * FROM traces ORDER BY imported_at DESC LIMIT $limit";
+            command.Parameters.Add(new("$limit", limit));
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                result.Add(new TraceCacheSummary(
+                    reader.GetInt64(reader.GetOrdinal("trace_id")),
+                    reader.GetString(reader.GetOrdinal("source_name")),
+                    reader.GetInt64(reader.GetOrdinal("file_size")),
+                    DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("imported_at")), CultureInfo.InvariantCulture),
+                    reader.GetInt64(reader.GetOrdinal("frame_count")),
+                    reader.GetDouble(reader.GetOrdinal("duration")),
+                    reader.GetInt64(reader.GetOrdinal("complete")) != 0,
+                    reader.GetDouble(reader.GetOrdinal("last_position_seconds"))));
+            }
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
     private async Task ReadyAsync(CancellationToken ct)
     {
         ThrowIfDisposed();
