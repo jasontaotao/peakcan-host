@@ -1,0 +1,70 @@
+using System.Collections.Concurrent;
+using PeakCan.Security.SecOc;
+
+namespace PeakCan.Host.Infrastructure.Channel.SecOc;
+
+/// <summary>One frame verdict as written by the SecOcChannel RX path.</summary>
+public readonly record struct SecOcVerdict(uint CanId, bool Accepted, RejectReason? Reason);
+
+/// <summary>
+/// Bypass metadata channel (spec §5-D6.7): (sourceId, frameSeq) → verdict.
+/// ReplayFrame is a frozen type and must not carry verdict fields; the trace
+/// rendering layer joins against this table instead. Keyed by source bucket;
+/// the caller clears a bucket on disconnect / trace session rebuild.
+/// </summary>
+public sealed class SecOcVerdictTable
+{
+    private readonly ConcurrentDictionary<ushort, ConcurrentDictionary<long, SecOcVerdict>> _entries = new();
+
+    public void Record(ushort sourceHandle, long frameSeq, SecOcVerdict verdict)
+        => _entries.GetOrAdd(sourceHandle, _ => new())[frameSeq] = verdict;
+
+    public bool TryGet(ushort sourceHandle, long frameSeq, out SecOcVerdict verdict)
+    {
+        verdict = default;
+        return _entries.TryGetValue(sourceHandle, out var bucket) &&
+               bucket.TryGetValue(frameSeq, out verdict);
+    }
+
+    /// <summary>Drop all verdicts for one source (channel disconnect / session rebuild).</summary>
+    public void Clear(ushort sourceHandle) => _entries.TryRemove(sourceHandle, out _);
+
+    /// <summary>Drop everything (global teardown).</summary>
+    public void Clear() => _entries.Clear();
+
+    public int Count => _entries.Sum(b => b.Value.Count);
+}
+
+/// <summary>Per-canId verdict bucket (spec §5-D6.2).</summary>
+public sealed record SecOcStatsBucket(long Accepted, long Rejected, RejectReason? LastReason);
+
+/// <summary>
+/// Per-canId verdict aggregation for SecOC observability; global counters feed
+/// the HIL assertion layer (Phase 2: expression registry, M2.4).
+/// Thread-safe; RX path is the only writer.
+/// </summary>
+public sealed class SecOcStats
+{
+    private readonly ConcurrentDictionary<uint, (long Accepted, long Rejected, RejectReason? LastReason)> _buckets = new();
+
+    public void Record(uint canId, VerifyResult verdict)
+    {
+        _buckets.AddOrUpdate(canId,
+            _ => verdict.Accepted ? (1, 0, null) : (0, 1, verdict.Reason),
+            (_, b) => verdict.Accepted ? (b.Accepted + 1, b.Rejected, null) : (b.Accepted, b.Rejected + 1, verdict.Reason));
+    }
+
+    public bool TryGet(uint canId, out SecOcStatsBucket bucket)
+    {
+        if (_buckets.TryGetValue(canId, out var b))
+        {
+            bucket = new SecOcStatsBucket(b.Accepted, b.Rejected, b.LastReason);
+            return true;
+        }
+        bucket = new SecOcStatsBucket(0, 0, null);
+        return false;
+    }
+
+    public long TotalAccepted => _buckets.Values.Sum(b => b.Accepted);
+    public long TotalRejected => _buckets.Values.Sum(b => b.Rejected);
+}
