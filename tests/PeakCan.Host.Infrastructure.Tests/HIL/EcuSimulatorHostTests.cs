@@ -187,39 +187,32 @@ public class EcuSimulatorHostTests
     [Fact]
     public async Task Simulator_E2E_SecurityAccess_FullFlow()
     {
+        // M3.1（spec §6.3）: SID 0x27 由 host 侧 SecurityAccessServer 全状态机
+        // 接管——动态 seed + 默认 XOR 0xAA key 算法；脚本 StaticResponse 不再
+        // 是 0x27 响应来源（hil-core 冻结，host 侧权威）。
         var channel = new FakeCanChannel();
-        var sm = new EcuStateMachine(new[]
-        {
-            new EcuStateTransition
-            {
-                FromState = "default",
-                ServiceId = 0x27,
-                SubFunction = 0x01,
-                Response = new StaticResponse(new byte[] { 0x67, 0x01, 0x11, 0x22, 0x33, 0x44 }),
-                ToState = "seedSent",
-            },
-            new EcuStateTransition
-            {
-                FromState = "seedSent",
-                ServiceId = 0x27,
-                SubFunction = 0x02,
-                Response = new StaticResponse(new byte[] { 0x67, 0x02 }),
-                ToState = "unlocked",
-            },
-        });
+        var sm = new EcuStateMachine(Array.Empty<EcuStateTransition>());
         var host = new EcuSimulatorHost(channel, CreateEcuCanIds(), sm);
 
         using var cts = new CancellationTokenSource();
         var runTask = host.RunAsync(cts.Token);
         await Task.Delay(50);
 
-        // Step 1: request seed
+        // Step 1: request seed (dynamic, 4 bytes)
         var seedResponse = await SendRequestAndReceiveResponse(channel, new byte[] { 0x27, 0x01 });
-        Assert.Contains((byte)0x67, seedResponse.Data.ToArray());
-        Assert.Contains((byte)0x11, seedResponse.Data.ToArray());
+        var data = seedResponse.Data.ToArray();
+        var seedStart = Array.IndexOf(data, (byte)0x67);
+        Assert.True(seedStart >= 0, $"no positive seed response in {Convert.ToHexString(data)}");
+        Assert.Equal(0x01, data[seedStart + 1]);
+        var seed = data[(seedStart + 2)..(seedStart + 6)];
+        Assert.Equal(4, seed.Length);
 
-        // Step 2: send key
-        var keyResponse = await SendRequestAndReceiveResponse(channel, new byte[] { 0x27, 0x02, 0x11, 0x22, 0x33, 0x44 });
+        // Step 2: send key = seed XOR 0xAA (server default algorithm)
+        var key = seed.Select(b => (byte)(b ^ 0xAA)).ToArray();
+        var keyRequest = new byte[2 + key.Length];
+        keyRequest[0] = 0x27; keyRequest[1] = 0x02;
+        key.CopyTo(keyRequest, 2);
+        var keyResponse = await SendRequestAndReceiveResponse(channel, keyRequest);
         Assert.Contains((byte)0x67, keyResponse.Data.ToArray());
 
         cts.Cancel();
