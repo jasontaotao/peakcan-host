@@ -118,6 +118,35 @@ public class TraceBrowseViewModelTests
     }
 
     [Fact]
+    public async Task SetDbc_Affects_Subsequent_Loaded_Pages_Only()
+    {
+        var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("browse.asc", 100);
+        await store.AppendFramesAsync(id, Enumerable.Range(0, 81)
+            .Select(i => Frame(i))
+            .ToArray());
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+        vm.Rows.Where(r => !r.IsEmpty).Should().OnlyContain(r => r.SignalSummaryText == string.Empty);
+
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+        vm.SetDbc(catalog);
+
+        await vm.NextAsync();
+
+        vm.Rows.Should().Contain(r => r.SignalSummaryText == "EngineSpeed=128.25rpm");
+        vm.Rows.Should().OnlyContain(r => r.IsEmpty || r.SignalSummaryText == "EngineSpeed=128.25rpm");
+    }
+
+    [Fact]
     public async Task Clear_Filter_Restores_Unpaged_View()
     {
         var (store, id) = await CreateStoreAsync();

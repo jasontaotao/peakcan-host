@@ -283,6 +283,59 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public async Task SetDbc_SetsStatus_AndPrefetchesDecodedRows()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(0.5, 0x101));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+
+        env.Vm.SetDbc(catalog);
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+
+        env.Vm.DbcStatusText.Should().Be("DBC: engine.dbc");
+        env.Vm.VisibleRows.First(r => !r.IsEmpty).SignalSummaryText.Should().Be("EngineSpeed=128.25rpm");
+    }
+
+    [Fact]
+    public async Task SetDbc_ClearsStaleRows_AndAppliesToFutureReplayFrames()
+    {
+        var env = new Env();
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+        env.Vm.SetDbc(catalog);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.LatestVisibleRow!.SignalSummaryText.Should().Be("EngineSpeed=128.25rpm");
+
+        env.Vm.SetDbc(null);
+
+        env.Vm.Dbc.Should().BeNull();
+        env.Vm.DbcStatusText.Should().Be("未加载 DBC");
+        env.Vm.LatestVisibleRow.Should().BeNull();
+        env.Vm.VisibleRows.Should().OnlyContain(r => r.IsEmpty);
+        env.Player.Emit(F(1, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.LatestVisibleRow!.SignalSummaryText.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task TogglePlay_FromReady_ClearsPrefetchedViewport()
     {
         var env = new Env();

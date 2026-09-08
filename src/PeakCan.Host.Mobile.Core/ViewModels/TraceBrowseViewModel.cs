@@ -22,6 +22,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     private long _traceId;
     private long? _firstIndex;
     private long? _lastIndex;
+    private DbcCatalog? _dbc;
     private IReadOnlySet<uint>? _idFilter;
 
     public TraceBrowseViewModel(ITraceCacheStore store)
@@ -68,6 +69,9 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     }
 
     [RelayCommand]
+    /// <summary>Sets the catalog used only for pages loaded after this call.</summary>
+    public void SetDbc(DbcCatalog? catalog) => _dbc = catalog;
+
     public Task FirstAsync() =>
         LoadForwardAsync(new FrameQuery(AfterIndex: -1, CanIds: _idFilter, Limit: PageSize), hasContentBefore: false);
 
@@ -99,7 +103,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
             var frames = page.Frames;
-            var rows = frames.Select(f => f.ToFrameRow()).ToArray();
+            var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
 
@@ -128,7 +132,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
             var frames = page.Frames;
-            var rows = frames.Select(f => f.ToFrameRow()).ToArray();
+            var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
 

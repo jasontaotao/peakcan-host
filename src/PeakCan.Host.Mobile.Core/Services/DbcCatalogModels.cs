@@ -16,3 +16,12 @@ public sealed record DbcCatalogLoadResult(DbcCatalog? Catalog, string SourceName
 {
     public static DbcCatalogLoadResult Cancelled(string sourceName = "") => new(null, sourceName, null);
 }
+/// <summary>Formats the first visible decoded signals for a compact row summary.</summary>
+public static class SignalDisplayExtensions
+{
+    public static string ToSummary(this IReadOnlyList<SignalDisplay> signals, int maxCount = 2)
+    {
+        if (signals.Count == 0) return string.Empty;
+        return string.Join("  ", signals.Take(maxCount).Select(s => s.DisplayText));
+    }
+}

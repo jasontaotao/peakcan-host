@@ -22,8 +22,7 @@ public sealed record CachedFrame(
     byte Dlc,
     byte[] Data)
 {
-    public FrameRow ToFrameRow() =>
-        new(Timestamp, CanId, IsExtended, Dlc, Data);
+    public FrameRow ToFrameRow(DbcCatalog? dbc = null) => FrameRow.FromCached(this, dbc);
 }
 
 /// <summary>Keyset paged cache query. Forward paging uses AfterIndex; backward paging uses BeforeIndex.</summary>

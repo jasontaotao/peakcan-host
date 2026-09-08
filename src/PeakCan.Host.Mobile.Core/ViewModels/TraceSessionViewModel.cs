@@ -42,6 +42,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private FrameRow? _latestVisibleRow;
     private ITraceCacheSink? _cacheSink;
     private long? _traceId;
+    private DbcCatalog? _dbc;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory,
@@ -80,6 +81,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string? _idFilterText;
     [ObservableProperty] private string _cacheStatusText = string.Empty;
+    [ObservableProperty] private string _dbcStatusText = "未加载 DBC";
 
     public long? TraceId => _traceId;
 
@@ -87,6 +89,16 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     public IReadOnlyList<FrameRowSlot> VisibleRows => _viewport;
 
     public FrameRow? LatestVisibleRow => _latestVisibleRow;
+
+    public DbcCatalog? Dbc => _dbc;
+
+    /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
+    public void SetDbc(DbcCatalog? catalog)
+    {
+        _dbc = catalog;
+        DbcStatusText = catalog is null ? "未加载 DBC" : $"DBC: {catalog.SourceName}";
+        ClearPlaybackBuffer();
+    }
 
     /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
     public Task OpenAsync(string cachedFilePath, CancellationToken ct = default)
@@ -121,7 +133,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         var prefetched = 0;
         await foreach (var f in open.Frames.WithCancellation(ct))
         {
-            _rows.Add(FrameRow.FromReplayFrame(f));
+            _rows.Add(FrameRow.FromReplayFrame(f, _dbc));
             if (++prefetched >= 200) break;
         }
 
@@ -179,7 +191,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             if (_pending.Count == 0) return;
             batch = new List<FrameRow>(_pending.Count);
             while (_pending.Count > 0)
-                batch.Add(FrameRow.FromReplayFrame(_pending.Dequeue()));
+                batch.Add(FrameRow.FromReplayFrame(_pending.Dequeue(), _dbc));
         }
 
         foreach (var row in batch) _rows.Add(row);

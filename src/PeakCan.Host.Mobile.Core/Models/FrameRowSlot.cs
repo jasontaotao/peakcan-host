@@ -13,8 +13,10 @@ public sealed partial class FrameRowSlot : ObservableObject
     [ObservableProperty] private string _idText = string.Empty;
     [ObservableProperty] private byte _dlc;
     [ObservableProperty] private string _dataText = string.Empty;
+    [ObservableProperty] private string _signalSummaryText = string.Empty;
 
     public bool IsEmpty => string.IsNullOrEmpty(IdText);
+    public FrameRow? Source { get; private set; }
 
     public void UpdateFrom(FrameRow row)
     {
@@ -22,6 +24,8 @@ public sealed partial class FrameRowSlot : ObservableObject
         IdText = row.IdText;
         Dlc = row.Dlc;
         DataText = row.DataText;
+        SignalSummaryText = row.SignalSummaryText;
+        Source = row;
     }
 
     public void Clear()
@@ -30,5 +34,7 @@ public sealed partial class FrameRowSlot : ObservableObject
         IdText = string.Empty;
         Dlc = 0;
         DataText = string.Empty;
+        SignalSummaryText = string.Empty;
+        Source = null;
     }
 }
