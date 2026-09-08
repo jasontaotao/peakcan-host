@@ -9,16 +9,22 @@ public partial class TracePage : ContentPage
 {
     private readonly TraceSessionViewModel _vm;
 
-    public TracePage(IUiDispatcher ui, IStreamingSourceFactory sourceFactory, string cachedFilePath, ILogger? logger = null)
+    public TracePage(
+        IUiDispatcher ui,
+        IStreamingSourceFactory sourceFactory,
+        string cachedFilePath,
+        string sourceName,
+        long fileSizeBytes,
+        ILogger? logger = null)
     {
         InitializeComponent();
-        _vm = new TraceSessionViewModel(ui, sourceFactory, src =>
-            new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger);
+        _vm = new TraceSessionViewModel(ui, sourceFactory,
+            src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger);
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
-        _ = InitializeAsync(cachedFilePath);
+        _ = InitializeAsync(cachedFilePath, sourceName, fileSizeBytes);
     }
 
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -28,9 +34,9 @@ public partial class TracePage : ContentPage
             SeekSlider.Value = _vm.Progress01;
     }
 
-    private async Task InitializeAsync(string cachedFilePath)
+    private async Task InitializeAsync(string cachedFilePath, string sourceName, long fileSizeBytes)
     {
-        await _vm.OpenAsync(cachedFilePath);
+        await _vm.OpenAsync(cachedFilePath, sourceName, fileSizeBytes);
         ScrollToLatest();
     }
 
