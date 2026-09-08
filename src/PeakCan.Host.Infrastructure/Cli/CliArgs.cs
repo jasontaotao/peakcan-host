@@ -137,7 +137,7 @@ public static class CliArgsParser
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
                 ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
-                SecOcConfigPath: secocConfigPath);
+                SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
         }
 
         if (simulate)
@@ -151,7 +151,7 @@ public static class CliArgsParser
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
                 ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
-                SecOcConfigPath: secocConfigPath);
+                SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
         }
 
         if (dbc is null) throw new ArgumentException("Missing required --dbc argument.");
@@ -169,7 +169,7 @@ public static class CliArgsParser
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
             importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
-            SecOcConfigPath: secocConfigPath);
+            SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
     }
 
     /// <summary>
