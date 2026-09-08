@@ -59,7 +59,7 @@ public sealed class DbcCatalog
         return new FrameDecodeResult(message.Name, signals);
     }
 
-    private static bool IsSignalActive(Message message, Signal signal, ReadOnlySpan<byte> data)
+    internal static bool IsSignalActive(Message message, Signal signal, ReadOnlySpan<byte> data)
     {
         if (!message.IsMultiplexed || !signal.IsMultiplexed)
             return true;
