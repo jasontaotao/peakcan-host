@@ -22,6 +22,10 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
     // and the DI-injected ReplayOptions singleton was silently discarded —
     // the configurability goal in the ReplayOptions XML doc was unmet.
     private readonly ReplayOptions _options;
+    // M2.4b（spec §5-D6.7）：trace 会话卸载（重建）时清空 SecOC 旁路 verdict
+    // 表，防悬空标注。可选注入——离线源本身不产 verdict，此钩子按 spec
+    // "trace 会话重建时清空旁路表" 语义兜底。
+    private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
 
     private readonly Dictionary<string, Entry> _sources = new(StringComparer.Ordinal);
 
@@ -30,11 +34,13 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
     {
     }
 
-    public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory, ReplayOptions options)
+    public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory, ReplayOptions options,
+        PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null)
     {
         _palette = palette ?? throw new ArgumentNullException(nameof(palette));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _secOcVerdicts = secOcVerdicts;
     }
 
     public IReadOnlyList<TraceSource> Sources =>
@@ -115,6 +121,8 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         _sources.Remove(sourceId);
         if (entry.Service is IDisposable disposable)
             disposable.Dispose();
+        // M2.4b（spec §5-D6.7）：会话卸载 → 清空旁路 verdict 表（防悬空标注）。
+        _secOcVerdicts?.Clear();
         SourcesChanged?.Invoke();
         await Task.CompletedTask;
     }

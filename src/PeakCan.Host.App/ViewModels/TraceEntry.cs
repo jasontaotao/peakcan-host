@@ -91,6 +91,26 @@ public sealed class TraceEntry : INotifyPropertyChanged
     }
     private int _highlightColorIndex = -1;
 
+    /// <summary>
+    /// M2.4b（spec §5-D6.7 三态显式化）：SecOC 徽标——离线/回放源"离线不验"、
+    /// join 命中"✓"/"✗ reason"、SecOC 配置但 ID 未保护"未保护"。由
+    /// <see cref="TraceViewModel.AppendBatchCore"/> 在入列时解析（缺省
+    /// Offline），INPC 语义同 <see cref="Decoded"/>。
+    /// </summary>
+    public SecOcBadge SecOcBadge
+    {
+        get => _secOcBadge;
+        set
+        {
+            if (_secOcBadge != value)
+            {
+                _secOcBadge = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SecOcBadge)));
+            }
+        }
+    }
+    private SecOcBadge _secOcBadge = SecOcBadge.Offline;
+
     /// <summary>Fires when a mutable property (e.g. <see cref="Decoded"/>/<see cref="HighlightColorIndex"/>) changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 }

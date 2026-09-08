@@ -46,6 +46,9 @@ internal sealed partial class ChannelConnectionCoordinator
     // AppShellViewModel——review HIGH 修复：否则 NullLogger 静默吞掉全部
     // connect/disconnect 诊断日志）。LoggerMessage 源生成器本就接受 ILogger。
     private readonly ILogger _logger;
+    // M2.4b（spec §5-D6.7）：SecOC 旁路 verdict 表。断开时清空，防悬空标注
+    // （旧 handle 的 verdict 不得落到重连后的新帧上）。null = 测试构造点无 SecOC。
+    private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
 
     public ChannelConnectionCoordinator(
         IChannelFactory channelFactory,
@@ -53,7 +56,8 @@ internal sealed partial class ChannelConnectionCoordinator
         SendService sendService,
         BusStatisticsCollector? busStats = null,
         Action<ReadLoopError>? readLoopErrorSink = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null)
     {
         _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
         _router = router ?? throw new ArgumentNullException(nameof(router));
@@ -61,6 +65,7 @@ internal sealed partial class ChannelConnectionCoordinator
         _busStats = busStats;
         _readLoopErrorSink = readLoopErrorSink;
         _logger = logger ?? NullLogger<ChannelConnectionCoordinator>.Instance;
+        _secOcVerdicts = secOcVerdicts;
     }
 
     /// <summary>
@@ -202,6 +207,9 @@ internal sealed partial class ChannelConnectionCoordinator
         Connections.Clear();
         _sendService.SetChannels(null);
         _sendService.ActiveChannel = null;
+        // M2.4b（spec §5-D6.7）：全部通道断开 → 清空 SecOC 旁路 verdict 表，
+        // 防旧 verdict 悬空标注到重连后的新帧。
+        _secOcVerdicts?.Clear();
     }
 
     private void AddRow(ChannelConnection row)
