@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Security.Cryptography;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core;
 using PeakCan.Security.Cmac;
@@ -69,6 +70,14 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
     {
         public required SecOcPduConfig Config { get; init; }
         public required SecOcAuthenticator Authenticator { get; init; }
+
+        /// <summary>Serializes TX sign+send per PDU: Sign mutates the FV counter
+        /// and the signed frames must reach the wire in FV order.</summary>
+        public readonly SemaphoreSlim TxGate = new(1, 1);
+
+        /// <summary>Serializes RX verify per PDU: Verify mutates lastAcceptedFv.
+        /// The delay-fault path dispatches from thread-pool threads (spec D1).>/summary>
+        public readonly object VerifyGate = new();
     }
 
     public ChannelId Id => _inner.Id;
@@ -152,11 +161,19 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
         if (!ShouldSign(frame.Id.Raw, out var pdu))
             return await _inner.WriteAsync(frame, ct).ConfigureAwait(false);
 
-        var data = frame.Data.Span;
-        var secured = new byte[pdu.Authenticator.FrameLength(data.Length)];
-        var length = pdu.Authenticator.Sign(data, secured);
-        return await _inner.WriteAsync(frame with { Data = secured.AsMemory(0, length) }, ct)
-            .ConfigureAwait(false);
+        await pdu.TxGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var data = frame.Data.Span;
+            var secured = new byte[pdu.Authenticator.FrameLength(data.Length)];
+            var length = pdu.Authenticator.Sign(data, secured);
+            return await _inner.WriteAsync(frame with { Data = secured.AsMemory(0, length) }, ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            pdu.TxGate.Release();
+        }
     }
 
     private void OnInnerFrameReceived(CanFrame frame)
@@ -166,7 +183,11 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
         if (ShouldVerify(frame.Id.Raw, out var pdu))
         {
             var seq = Interlocked.Increment(ref _rxSequence);
-            var result = pdu.Authenticator.Verify(frame.Data.Span);
+            VerifyResult result;
+            lock (pdu.VerifyGate)
+            {
+                result = pdu.Authenticator.Verify(frame.Data.Span);
+            }
             _stats?.Record(frame.Id.Raw, result);
             _verdicts?.Record(_inner.Id.Handle, seq, new SecOcVerdict(frame.Id.Raw, result.Accepted, result.Reason));
             if (result.Accepted)
@@ -183,7 +204,18 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
     public Task DisconnectAsync(CancellationToken ct = default)
         => _inner.DisconnectAsync(ct);
 
-    public ValueTask DisposeAsync() => _inner.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        // Stop feeding frames into this decorator before inner disposal, and
+        // zeroize the per-PDU key copies (spec D4 hygiene).
+        _inner.FrameReceived -= OnInnerFrameReceived;
+        foreach (var pdu in _pdus.Values)
+        {
+            CryptographicOperations.ZeroMemory(pdu.Config.Key);
+            pdu.TxGate.Dispose();
+        }
+        await _inner.DisposeAsync().ConfigureAwait(false);
+    }
 
     [LoggerMessage(EventId = 6020, Level = LogLevel.Warning,
         Message = "SecOC RX rejected id=0x{CanId:X} reason={Reason}")]

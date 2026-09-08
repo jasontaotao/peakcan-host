@@ -39,6 +39,9 @@ public static class SecOcConfigLoader
             File.ReadAllText(configPath),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip })
             ?? throw new InvalidOperationException($"SecOC config '{configPath}' is empty.");
+        if (entries.Count == 0)
+            throw new InvalidOperationException(
+                $"SecOC config '{configPath}' declares no PDUs; remove --secoc-config instead of silently running unprotected.");
 
         var keyStore = new DpapiKeyStore(storeDir ?? SecOcKeyCommand.DefaultStoreDir, entropy);
         var result = new Dictionary<uint, SecOcPduConfig>();
@@ -51,29 +54,23 @@ public static class SecOcConfigLoader
                 throw new InvalidOperationException(
                     $"SecOC config: keyId '{entry.KeyId}' not found in KeyStore " +
                     "(import it via `peakcan-hil --secoc-key import` before running).");
-            var key = keyStore.GetKey(entry.KeyId);
-            SecOcPduConfig pduConfig;
-            try
+            var dataId = ParseNumber(entry.DataId, nameof(entry.DataId));
+            if (dataId > ushort.MaxValue)
+                throw new InvalidOperationException($"SecOC config: DataId '{entry.DataId}' exceeds 16 bits.");
+            // Key ownership transfers to SecOcPduConfig; SecOcChannel.BuildRuntime takes
+            // its own defensive clone for the authenticator. No zeroing here.
+            result[canId] = new SecOcPduConfig
             {
-                pduConfig = new SecOcPduConfig
+                Profile = new SecOcProfile
                 {
-                    Profile = new SecOcProfile
-                    {
-                        DataId = (ushort)ParseNumber(entry.DataId, nameof(entry.DataId)),
-                        FvLenBits = entry.FvLenBits,
-                        MacLenBits = entry.MacLenBits,
-                    },
-                    Key = key,
-                    Mode = ParseMode(entry.Mode),
-                    InitialFv = entry.InitialFv,
-                };
-            }
-            finally
-            {
-                // SecOcPduConfig/SecOcAuthenticator hold their own defensive copies.
-                CryptographicOperations.ZeroMemory(key);
-            }
-            result[canId] = pduConfig;
+                    DataId = (ushort)dataId,
+                    FvLenBits = entry.FvLenBits,
+                    MacLenBits = entry.MacLenBits,
+                },
+                Key = keyStore.GetKey(entry.KeyId),
+                Mode = ParseMode(entry.Mode),
+                InitialFv = entry.InitialFv,
+            };
         }
         return result;
     }

@@ -121,10 +121,16 @@ public static class SecOcKeyCommand
         return 0;
     }
 
-    /// <summary>Reads a hex text key file; whitespace and newlines are tolerated.</summary>
+    /// <summary>Reads a hex text key file; whitespace is tolerated, any other
+    /// non-hex character is rejected loudly (a silently stripped stray character
+    /// would import a different key than the user thinks).</summary>
     private static byte[] ReadKeyFile(string path)
     {
         var text = File.ReadAllText(path);
+        var invalid = text.Where(c => !char.IsWhiteSpace(c) && !char.IsAsciiHexDigit(c)).ToList();
+        if (invalid.Count > 0)
+            throw new FormatException(
+                $"key file contains {invalid.Count} non-hex character(s), e.g. '{invalid[0]}'.");
         var hex = string.Concat(text.Where(char.IsAsciiHexDigit));
         return Convert.FromHexString(hex);
     }

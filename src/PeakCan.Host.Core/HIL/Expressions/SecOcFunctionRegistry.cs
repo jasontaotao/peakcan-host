@@ -17,6 +17,11 @@ public sealed class SecOcFunctionRegistry : IFunctionRegistry
 
     public bool TryInvoke(string name, ExpressionValue[] args, out ExpressionValue result)
     {
+        if (name is not ("secocAccepted" or "secocRejected" or "secocLastReason"))
+        {
+            result = default;
+            return false; // let the composite/engine report UNKNOWN_FUNCTION
+        }
         if (args.Length != 1 || !TryParseCanId(args[0], out var id))
         {
             result = default;

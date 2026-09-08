@@ -14,10 +14,25 @@ public readonly record struct SecOcVerdict(uint CanId, bool Accepted, RejectReas
 /// </summary>
 public sealed class SecOcVerdictTable
 {
+    /// <summary>Max retained verdicts per source; oldest entries are evicted so a
+    /// long run cannot grow memory without bound (review HIGH fix).</summary>
+    private const int MaxEntriesPerSource = 4096;
+
     private readonly ConcurrentDictionary<ushort, ConcurrentDictionary<long, SecOcVerdict>> _entries = new();
 
     public void Record(ushort sourceHandle, long frameSeq, SecOcVerdict verdict)
-        => _entries.GetOrAdd(sourceHandle, _ => new())[frameSeq] = verdict;
+    {
+        var bucket = _entries.GetOrAdd(sourceHandle, _ => new());
+        bucket[frameSeq] = verdict;
+        if (bucket.Count > MaxEntriesPerSource)
+        {
+            // Evict the oldest quarter (seqs are monotonic per source).
+            var threshold = frameSeq - MaxEntriesPerSource + (MaxEntriesPerSource / 4);
+            foreach (var key in bucket.Keys)
+                if (key < threshold)
+                    bucket.TryRemove(key, out _);
+        }
+    }
 
     public bool TryGet(ushort sourceHandle, long frameSeq, out SecOcVerdict verdict)
     {

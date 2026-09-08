@@ -168,6 +168,13 @@ public static class HeadlessHostBuilder
                     ICanChannel channel = i == 0
                         ? defaultChannel
                         : factory.Create(new ChannelId(ResolveChannelHandle(cfg.Handle, index: i)));
+                    // SecOC per channel (review HIGH fix): --secoc-config must be honored
+                    // in multi-channel hardware mode, not silently dropped. Fault
+                    // injection stays un-wired here (pre-existing semantics).
+                    channel = ComposeChannel(channel, args, logger,
+                        sp.GetService<Channel.SecOc.SecOcVerdictTable>(),
+                        sp.GetService<Channel.SecOc.SecOcStats>(),
+                        enableFaultInjection: false);
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     DbcDocument dbcDoc;
                     if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
@@ -215,9 +222,10 @@ public static class HeadlessHostBuilder
             // Hardware mode: PeakCanAssertionContext + ISO-TP bridge + UDS
             builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
-                var channel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
+                var channel = ComposeChannel(sp.GetRequiredService<ICanChannel>(), args, logger,
+                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>());
                 return new PeakCanAssertionContext(channel, dbc, logger);
             });
             RegisterUdsServices(builder, args);
@@ -443,10 +451,13 @@ public static class HeadlessHostBuilder
     private static ICanChannel ComposeChannel(ICanChannel raw, CliArgs args,
         Microsoft.Extensions.Logging.ILogger? logger,
         Channel.SecOc.SecOcVerdictTable? verdictTable = null,
-        Channel.SecOc.SecOcStats? stats = null)
+        Channel.SecOc.SecOcStats? stats = null,
+        bool? enableFaultInjection = null)
     {
-        var secocPdus = SecOcConfigLoader.LoadOptional(args.SecOcConfigPath);
-        return HilChannelComposer.Compose(raw, args.EnableFaultInjection, secocPdus, verdictTable, stats, logger);
+        var secocPdus = SecOcConfigLoader.LoadOptional(args.SecOcConfigPath,
+            args.SecOcStoreDir, args.SecOcEntropy);
+        return HilChannelComposer.Compose(raw, enableFaultInjection ?? args.EnableFaultInjection,
+            secocPdus, verdictTable, stats, logger);
     }
 
     public static ushort ResolveChannelHandle(string handle, int index)
