@@ -335,11 +335,20 @@ public partial class AppHostBuilder
             sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
             sp.GetRequiredService<PeakCan.Host.Core.HIL.Analysis.IHilAnalysisService>(),
             sp.GetRequiredService<PeakCan.Host.Infrastructure.HIL.Reporting.IHilReportService>(),
-            connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current));
+            connectedChannels: () => sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>().Current,
+            connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>(),
+            trialRunService: sp.GetRequiredService<PeakCan.Host.Core.HIL.Contracts.ITrialRunService>(),
+            preflightService: sp.GetRequiredService<PeakCan.Host.App.Services.HilPreflight.SuitePreflightService>(),
+            runHistoryStore: sp.GetRequiredService<PeakCan.Host.App.Services.HilHistory.HilRunHistoryStore>()));
         builder.Services.AddSingleton<ViewModels.EcuScriptEditorViewModel>();
         // Phase 7 Unit C: HIL HTML report service (WPF 面板消费出口，单例无状态)。
         builder.Services.AddSingleton<Infrastructure.HIL.Reporting.IHilReportService,
             Infrastructure.HIL.Reporting.HilReportService>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.ITrialRunService,
+            Infrastructure.HIL.Environment.TrialRunService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.HilPreflight.SuitePreflightService>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.HilPanel.HilPanelStateStore>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.HilHistory.HilRunHistoryStore>();
 
         // v2.0.0 MINOR: ODX-D DIAG-LAYER importer. In-memory databases +
         // Core parser/persistence plus App-layer service + VM glue.
@@ -403,7 +412,8 @@ public partial class AppHostBuilder
             // P1-2（2026-09-06）: 已连接通道快照源（HilViewModel 消费）。
             connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>(),
             // 2026-09-06 设计层 MEDIUM：连接成功时更新总线负载分母（标称波特率）。
-            busStats: sp.GetRequiredService<PeakCan.Host.Infrastructure.Statistics.BusStatisticsCollector>()));
+            busStats: sp.GetRequiredService<PeakCan.Host.Infrastructure.Statistics.BusStatisticsCollector>(),
+            hilPanelStateStore: sp.GetRequiredService<PeakCan.Host.App.Services.HilPanel.HilPanelStateStore>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);

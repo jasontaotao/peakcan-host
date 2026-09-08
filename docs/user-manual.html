@@ -6,7 +6,7 @@
 
 <meta charset="UTF-8">
 
-<title>PeakCan Host 用户使用手册 (v3.63.0)</title>
+<title>PeakCan Host 用户使用手册 (v3.65.0)</title>
 
 <style>
 
@@ -126,17 +126,17 @@
 
   <h1>PeakCan Host — 用户使用手册</h1>
 
-  <div class="sub">PEAK PCAN-USB FD / Pro FD · CAN 总线监控 + UDS 诊断上位机 + AI 分析</div>
+  <div class="sub">PEAK PCAN-USB FD / Pro FD + ZLG USBCAN FD 200U 双厂商 · CAN 总线监控 + UDS 诊断上位机 + AI 分析 + HIL 测试</div>
 
   <div class="meta">
 
-    <span>版本：<strong>v3.63.0</strong></span>
+    <span>版本：<strong>v3.65.0</strong></span>
 
     <span>框架：WPF · .NET 10</span>
 
     <span>平台：Windows 10 1809+ / Windows 11</span>
 
-    <span>更新日期：2026-07-30</span>
+    <span>更新日期：2026-09-06</span>
 
   </div>
 
@@ -204,7 +204,7 @@
 
 <p><strong>PeakCan Host</strong> 是一款运行在 Windows 上的 WPF 桌面应用，用于对接
 
-<strong>PEAK PCAN-USB FD</strong>（或 Pro FD）CAN/CAN-FD 硬件，提供通用的
+<strong>PEAK PCAN-USB FD</strong>（或 Pro FD）与 <strong>ZLG USBCAN FD 200U</strong> CAN/CAN-FD 硬件，提供通用的
 
 CAN 总线监控、解码、手动发送、总线负载统计、AI 辅助分析、UDS 诊断与 HIL 测试能力。</p>
 
@@ -216,7 +216,7 @@ CAN 总线监控、解码、手动发送、总线负载统计、AI 辅助分析�
 
   <tr><th>能力</th><th>说明</th></tr>
 
-  <tr><td>多通道探测 &amp; 连接</td><td>枚举 PCAN-USB 1–16 通道，用户可选择任意通道连接</td></tr>
+  <tr><td>多设备连接 <span class="badge info">v3.65.0</span></td><td>连接设置弹窗一次配置/打开多台设备，<strong>PEAK / ZLG 可混插</strong>；尽力式连接（任一失败标红跳过，不阻塞其余）。Trace 按通道过滤、Stats 按通道聚合、发送按目标通道</td></tr>
 
   <tr><td>Trace 视图</td><td>虚拟化 DataGrid 滚动展示所有接收到的帧（时间戳 / 通道 / ID / DLC / 十六进制数据 / 解析结果），支持 ID 前缀过滤</td></tr>
 
@@ -240,7 +240,7 @@ CAN 总线监控、解码、手动发送、总线负载统计、AI 辅助分析�
 
   <tr><td><strong>AI Chat 聊天助手</strong> <span class="badge info">v3.62.0</span></td><td>LLM 驱动的聊天助手，支持信号搜索、时序分析、异常检测、分组管理等工具</td></tr>
 
-  <tr><td><strong>HIL 测试面板</strong> <span class="badge info">v3.63.0</span></td><td>硬件在环测试框架，支持测试用例编写、执行、断言与 CLI 自动化运行</td></tr>
+  <tr><td><strong>HIL 测试面板</strong> <span class="badge info">v3.63.0 / v3.65.0</span></td><td>硬件在环测试：suite JSON（与 peakcan-studio 共享格式）、34 种步骤类型、控制流（If/Repeat/Loop/Assign）、参数化 <code>${name}</code> 插值、多通道执行、HTML/JSON/JUnit 报告</td></tr>
 
   <tr><td>滚动日志</td><td>Serilog 按天滚动写入 <code>%LocalAppData%\PeakCan.Host\logs\</code>，保留 14 天</td></tr>
 
@@ -264,9 +264,11 @@ CAN 总线监控、解码、手动发送、总线负载统计、AI 辅助分析�
 
   <li>操作系统：<strong>Windows 10 (1809 及以上)</strong> 或 <strong>Windows 11</strong></li>
 
-  <li>PEAK PCAN 驱动（<a href="https://www.peak-system.com/PCAN-USB-FD.366.0.html" target="_blank">官方下载页</a>）</li>
+  <li>PEAK PCAN 驱动（<a href="https://www.peak-system.com/PCAN-USB-FD.366.0.html" target="_blank">官方下载页</a>）—— PEAK 硬件需要</li>
 
-  <li>PCAN-USB FD（或 Pro FD）硬件一台</li>
+  <li>ZLG 驱动（USBCAN FD 200U 厂商驱动）—— ZLG 硬件需要；<code>zlgcan.dll</code> 随发布包分发</li>
+
+  <li>PCAN-USB FD（或 Pro FD）/ USBCAN FD 200U 硬件一台或多台（可混插）</li>
 
 </ul>
 
@@ -2460,7 +2462,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <ul>
 
-  <li>AI Chat 需要连接的 LLM Provider 已配置 API Key（与 AI Analysis 共用 DeepSeek Provider）</li>
+  <li>AI Chat 需要连接的 LLM Provider 已配置 API Key（与 AI Analysis 共用多厂商 Provider：DeepSeek / GLM / Kimi / 自定义）</li>
 
   <li>工具调用结果不持久化——关闭 AI Chat 标签后会话历史丢失</li>
 
@@ -2472,13 +2474,17 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <!-- =========================================================== -->
 
-<h2 id="hil">15. HIL（硬件在环测试） <span class="badge info">v3.63.0</span></h2>
+<h2 id="hil">15. HIL（硬件在环测试） <span class="badge info">v3.63.0 / v3.65.0</span></h2>
 
 <!-- =========================================================== -->
 
 
 
-<p><strong>HIL 测试面板</strong>（View ▸ HIL）是 PeakCan Host 的硬件在环测试框架，用于编写、执行和验证自动化测试用例，确认 ECU 在真实 CAN 总线上的行为符合预期。</p>
+<p><strong>HIL 测试面板</strong>（View ▸ HIL）是 PeakCan Host 的硬件在环测试框架，用于执行
+
+<strong>测试套件（suite JSON）</strong>并验证 ECU 在真实 CAN 总线上的行为符合预期。
+
+suite 文件由 <strong>peakcan-studio</strong>（HIL Configurator，独立仓库）编辑生成，也可以手工编写 JSON。</p>
 
 
 
@@ -2490,6 +2496,8 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <li>面板集成在 AppShell 主窗口中，作为独立的 ContentControl 视图</li>
 
+  <li>无头执行：CLI 工具 <code>peakcan-hil</code>（见 15.4），适合 CI 集成</li>
+
 </ul>
 
 
@@ -2500,19 +2508,21 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><th>能力</th><th>说明</th></tr>
 
-  <tr><td><strong>测试用例管理</strong></td><td>创建、编辑、删除、组织测试用例</td></tr>
+  <tr><td><strong>suite JSON 契约</strong></td><td>测试套件持久化为 JSON（<code>$kind</code> 多态判别器，34 种步骤类型），与 peakcan-studio 格式冻结、版本 lockstep（共享模型包 <code>PeakCan.HIL.Core</code>）</td></tr>
 
-  <tr><td><strong>测试执行管道</strong></td><td>Stage A/B/C 三阶段执行引擎，支持顺序/并行执行</td></tr>
+  <tr><td><strong>步骤类型</strong></td><td>收发帧、信号/时序断言（含 <code>assertStable</code> / <code>assertSignalWithin</code>）、UDS 诊断（DID / DTC / 会话 / 安全访问 / 例程 / IO 控制）、故障注入、环境帧、变量断言</td></tr>
 
-  <tr><td><strong>断言原语</strong></td><td>帧级断言（FrameReceived、FrameNotReceived、Timeout 等）</td></tr>
+  <tr><td><strong>控制流</strong> <span class="badge info">v3.65.0</span></td><td><code>If</code> / <code>Repeat</code> / <code>Loop</code> / <code>Assign</code> 容器步骤 + 表达式求值器（<code>signal.</code> / <code>did.</code> / <code>param.</code> 引用、<code>dtcPresent()</code> 内置函数）</td></tr>
 
-  <tr><td><strong>TraceDrivenChannel</strong></td><td>基于录制数据的测试驱动通道</td></tr>
+  <tr><td><strong>参数化</strong> <span class="badge info">v3.65.0</span></td><td>suite / case 参数 + <code>${name}</code> 插值（数据不重解析），同一套件覆盖多组边界值</td></tr>
 
-  <tr><td><strong>DiffEngine</strong></td><td>帧级差异比较引擎，用于回归测试</td></tr>
+  <tr><td><strong>多通道执行</strong> <span class="badge info">v3.65.0</span></td><td>suite 声明 <code>Channels</code>，步骤 <code>TargetChannel</code> 指定发/监控哪路；每通道独立 DBC；报告按通道解码</td></tr>
 
-  <tr><td><strong>JUnit XML 输出</strong></td><td>测试结果导出为 JUnit XML 格式，供 CI 集成</td></tr>
+  <tr><td><strong>4 种执行模式</strong></td><td>Hardware（实车）/ TraceReplay（.asc/.blf 回放）/ VirtualEcu（虚拟 ECU 仿真）/ Matrix（多 ECU 并发模拟），CLI 互斥四选一</td></tr>
 
-  <tr><td><strong>CLI Runner</strong></td><td>命令行工具 <code>peakcan-hil</code>，支持无头自动化测试</td></tr>
+  <tr><td><strong>报告输出</strong></td><td>HTML（DBC 信号解码 + 否定断言 badge + SVG 时序图 + 按 Path/Iteration 分组 + 趋势记录）、JSON（供 Studio Copilot 分析）、JUnit XML、TRX</td></tr>
+
+  <tr><td><strong>步骤校验</strong></td><td>执行前自动校验通道引用、DBC ID/信号存在性、UDS Session/SecurityAccess 顺序等，结果分级（High/Medium/Low）</td></tr>
 
 </table>
 
@@ -2522,13 +2532,13 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <ol>
 
-  <li><strong>准备测试用例</strong>：定义测试步骤、预期帧、超时时间</li>
+  <li><strong>准备 suite</strong>：用 peakcan-studio 编辑测试套件（或手写 JSON），声明用例、步骤、参数与通道</li>
 
-  <li><strong>执行测试</strong>：点击 Run 按钮或通过 CLI 触发</li>
+  <li><strong>加载执行</strong>：HIL 面板选择 suite 并 Run，或 CLI 触发；引擎按单路径递归解释器执行步骤（含控制流）</li>
 
   <li><strong>实时监控</strong>：测试执行过程中显示进度、断言结果、失败信息</li>
 
-  <li><strong>查看报告</strong>：测试完成后生成详细报告（JUnit XML / 控制台输出）</li>
+  <li><strong>查看报告</strong>：HTML / JSON / JUnit XML 报告；每个 case 的全量报文可流式写入独立 .asc 文件（CaptureCaseLogs）</li>
 
 </ol>
 
@@ -2542,11 +2552,13 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <li>无头运行：无需 WPF UI，适合 CI 集成</li>
 
-  <li>HeadlessHostBuilder：DI 管道无头化，注入模拟依赖</li>
+  <li>执行模式互斥四选一：<code>--hw &lt;channel&gt;</code> / <code>--trace &lt;file.asc|.blf&gt;</code> / <code>--ecu &lt;script.json&gt;</code> / <code>--matrix &lt;config&gt;</code></li>
 
-  <li>HeadlessDbcLookup / FixtureResolver：测试 fixture 解析</li>
+  <li><code>--format console|trx|junit|html|html+junit|json</code> 多种报告格式；<code>--export-frames</code> 导出帧数据</li>
 
-  <li>JSON 序列化：测试结果以 JSON 格式输出</li>
+  <li>独立模拟器长跑：<code>--simulate</code>（配合 <code>--generator-dir</code> 插件热插拔、<code>--gateway</code> 总线桥接）</li>
+
+  <li>ODX 导入：<code>--import-odx</code> 从 ODX 生成 ECU 脚本 JSON</li>
 
 </ul>
 
@@ -2554,7 +2566,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <blockquote>
 
-<strong>提示：</strong>HIL 测试需要已连接 PCAN-USB FD 硬件。CLI 模式也需要硬件接入。
+<strong>提示：</strong>Hardware 模式需要已连接硬件（PEAK / ZLG）。TraceReplay / VirtualEcu / Matrix 模式<strong>不需要硬件</strong>，可在 CI 环境运行。
 
 </blockquote>
 
@@ -2564,11 +2576,11 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <ul>
 
-  <li>测试用例目前不支持持久化存储（运行中定义，运行后消失）</li>
+  <li>suite 编辑推荐使用 peakcan-studio；host 内嵌面板侧重执行与结果查看</li>
 
-  <li>多 ECU 矩阵测试尚在开发中</li>
+  <li>Matrix 模式的多 ECU 拓扑通过 JSON 配置文件声明，暂无图形化拓扑编辑器</li>
 
-  <li>故障注入（Fault Injection）模型尚在规划中</li>
+  <li>SecurityAccess 的 seed-to-key 算法因 OEM 而异，默认占位实现需客户替换（见 <a href="#uds-secauth">§11.6</a>）</li>
 
 </ul>
 
@@ -2696,7 +2708,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <h4>Q1: 能否连接多块 PCAN-USB FD 或多通道?</h4>
 
-<p>A: 可以。v1.1.0 起 <strong>Probe</strong> 枚举 PCAN-USB 1–16 通道，工具栏的通道下拉显示所有检测到的通道，可任意选择后 Connect。当前限制：同一时刻<strong>单连接</strong>（多通道并行收发不在 v3.x 范围）。</p>
+<p>A: <strong>可以</strong>。v3.65.0 起<strong>多连接会话</strong>：连接设置弹窗一次配置/打开多台设备，PEAK 与 ZLG 可混插；任一组连接失败标红跳过，不阻塞其余。Trace 按通道过滤、Stats 按通道聚合、发送按目标通道。HIL suite 亦支持多通道执行（步骤 <code>TargetChannel</code>）。</p>
 
 
 
@@ -2720,13 +2732,13 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <h4>Q5: AI 分析需要什么配置?</h4>
 
-<p>A: <strong>本地分析</strong>（无 LLM）不需要任何配置。如需 LLM 归因分析，需要在 AI Analysis 面板设置 DeepSeek API Key（通过 Windows Credential Manager 加密存储）。流式输出（v3.59.0）开箱即用。</p>
+<p>A: <strong>本地分析</strong>（无 LLM）不需要任何配置。如需 LLM 归因分析，需在设置中配置任一厂商的 API Key——v3.65.0 支持 <strong>DeepSeek / GLM / Kimi / 自定义（OpenAI 兼容）</strong>多厂商，可切换。API Key 通过 Windows Credential Manager 加密存储。流式输出（v3.59.0）开箱即用。</p>
 
 
 
 <h4>Q6: AI Chat 和 AI Analysis 有什么区别?</h4>
 
-<p>A: <strong>AI Chat</strong>（v3.62.0）是自然语言交互的聊天助手，通过工具调用查询信号信息、管理分组。<strong>AI Analysis</strong>（v3.52.0）是 Trace Viewer 内的故障分析面板，基于双锚（绿/蓝线）提取证据，可选 LLM 归因。两者共用 DeepSeek Provider。</p>
+<p>A: <strong>AI Chat</strong>（v3.62.0）是自然语言交互的聊天助手，内置 20+ 工具：信号搜索、时序分析、异常扫描、watch list 管理、信号别名与分组等。<strong>AI Analysis</strong>（v3.52.0）是 Trace Viewer 内的故障分析面板，基于双锚（绿/蓝线）提取证据，可选 LLM 归因。两者共用多厂商 LLM Provider（DeepSeek / GLM / Kimi / 自定义）。</p>
 
 
 
@@ -2744,7 +2756,7 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
 <h4>Q9: HIL 测试框架需要什么?</h4>
 
-<p>A: HIL 测试需要已连接的 PCAN-USB FD 硬件。CLI 模式（<code>peakcan-hil</code>）也需硬件接入，适合 CI 自动化。</p>
+<p>A: 取决于执行模式：<strong>Hardware</strong> 模式需要已连接硬件（PEAK / ZLG）；<strong>TraceReplay / VirtualEcu / Matrix</strong> 模式不需要硬件，可在 CI 环境无头运行（<code>peakcan-hil</code> CLI）。</p>
 
 
 
@@ -2760,15 +2772,15 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><th>类别</th><th>限制</th></tr>
 
-  <tr><td>多连接</td><td>同一时刻单连接（多通道并行收发未实现）</td></tr>
+  <tr><td>多连接</td><td>已支持（v3.65.0 多连接会话，PEAK / ZLG 混插，尽力式连接）</td></tr>
 
   <tr><td>UDS SecurityAccess</td><td>无默认实现（OEM 客户需实现 <code>IKeyDerivationAlgorithm</code>）</td></tr>
 
   <tr><td>AI Chat 会话</td><td>关闭 AI Chat 标签后会话历史丢失（不支持持久化）</td></tr>
 
-  <tr><td>LLM Provider</td><td>仅支持 DeepSeek；Azure / Ollama 尚未实现</td></tr>
+  <tr><td>LLM Provider</td><td>DeepSeek / GLM / Kimi / 自定义（OpenAI 兼容）；Azure / Ollama 专用端点尚未实现</td></tr>
 
-  <tr><td>HIL 测试用例持久化</td><td>测试用例不持久化存储（运行中定义，运行后消失）</td></tr>
+  <tr><td>HIL suite 编辑</td><td>host 面板侧重执行与结果查看；suite 编辑在 peakcan-studio（独立配置器）完成</td></tr>
 
   <tr><td>ODX DIAG-LAYER 子类型</td><td>仅支持 <code>BASE-VARIANT</code>；<code>CONDITIONAL</code> / <code>ECU-VARIANT</code> 推迟</td></tr>
 
@@ -2812,9 +2824,11 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
   <tr><td><strong>v3.62.0 ✅</strong></td><td>AI Chat 聊天助手 + Trace Viewer ScottPlot 5.x 迁移 + Shift+Click 范围选择</td></tr>
 
-  <tr><td><strong>v3.63.0 ✅</strong></td><td>HIL 测试面板（View ▸ HIL）</td></tr>
+  <tr><td><strong>v3.63.0 ✅</strong></td><td>HIL 测试面板（View ▸ HIL）+ peakcan-hil CLI</td></tr>
 
-  <tr><td><strong>v3.64.0 🔜</strong></td><td>多通道并行收发（可选）+ Azure / Ollama Provider</td></tr>
+  <tr><td><strong>v3.64.0 ✅</strong></td><td>HIL 帧时序断言 + counter/checksum 自动计算 + hil-core 抽包迁移（共享模型）</td></tr>
+
+  <tr><td><strong>v3.65.0 ✅</strong></td><td>ZLG USBCAN FD 200U 双厂商驱动 + 多连接会话 + HIL 控制流/参数化/多通道（hil-core 0.20.0）+ AI Chat 多厂商 LLM</td></tr>
 
 </table>
 
@@ -2836,19 +2850,25 @@ OEM 客户需要实现自己的 <code>IKeyDerivationAlgorithm</code>（接口在
 
             ▼  使用
 
-   PeakCan.Host.Infrastructure (PEAK SDK 适配器 · ChannelRouter · BusStatistics)
+   PeakCan.Host.Infrastructure (PEAK / ZLG SDK 适配器 · ChannelRouter · HIL 引擎组合 · 报告)
 
             │
 
             ▼  使用
 
-   PeakCan.Host.Core           (CanFrame · DBC parser · SignalDecoder · Result)</code></pre>
+   PeakCan.Host.Core           (CanFrame · DBC parser · SignalDecoder · TestSuiteEngine · UDS/ISO-TP)
+
+            │
+
+            ▼  使用
+
+   PeakCan.HIL.Core (NuGet)    (共享模型: TestSuite/步骤 $kind · 控制流 · 表达式求值器 · StepResult)</code></pre>
 
 
 
-<p>App 层被禁止直接引用 PEAK SDK（<code>LayeringRulesTests.App_Should_Not_Depend_On_Peak_Can_Basic</code>）；
+<p>App 层被禁止直接引用 PEAK / ZLG SDK（NetArchTest <code>LayeringRulesTests</code> 强制 5 条分层规则）；
 
-所有硬件调用经 <code>IChannelProbe</code> 与 <code>PeakCanChannel</code> 走 Infrastructure。
+所有硬件调用经 <code>IChannelProbe</code> 与 <code>PeakCanChannel</code> / <code>ZlgCanChannel</code> 走 Infrastructure。
 
 CI 会拒绝破坏此边界的 PR。</p>
 
@@ -2866,9 +2886,9 @@ CI 会拒绝破坏此边界的 PR。</p>
 
   <tr><td><strong>OxyPlot.Wpf → ScottPlot 5.x</strong> <span class="badge info">v3.62.0</span></td><td>Trace Viewer 图表渲染引擎从 OxyPlot 迁移至 ScottPlot 5.x，支持渐进填充引擎，渲染性能显著提升。Stats 视图仍使用 OxyPlot。</td></tr>
 
-  <tr><td><strong>DeepSeek LLM Provider</strong> <span class="badge info">v3.54.0</span></td><td>AI Analysis 和 AI Chat 共用 DeepSeek Provider 作为 LLM 后端。API Key 通过 Windows Credential Manager 加密存储。SSE 流式输出（v3.59.0）降低首 token 延迟。</td></tr>
+  <tr><td><strong>多厂商 LLM Provider</strong> <span class="badge info">v3.54.0 / v3.65.0</span></td><td>AI Analysis 和 AI Chat 共用 OpenAI 兼容 LLM Provider 后端：DeepSeek（v3.54.0 首选）/ GLM / Kimi / 自定义端点（v3.65.0 起）。API Key 通过 Windows Credential Manager 加密存储。SSE 流式输出（v3.59.0）降低首 token 延迟。</td></tr>
 
-  <tr><td><strong>多通道探测 + 单连接</strong></td><td>Probe 枚举 1–16 通道并填充下拉，但同一时刻仍只允许单连接。</td></tr>
+  <tr><td><strong>双厂商驱动 + 多连接会话</strong> <span class="badge info">v3.65.0</span></td><td>PEAK（<code>Peak.PCANBasic.NET</code>）与 ZLG（<code>zlgcan.dll</code> P/Invoke）在统一 <code>ICanChannel</code> 抽象下实现，经 Composite 工厂聚合支持混插；多连接会话尽力式连接，任一失败不阻塞其余。</td></tr>
 
   <tr><td><strong>VM 部分 IDisposable</strong></td><td>多数 VM 仍是 DI 单例不实现 <code>IDisposable</code>；但 <code>SessionPanelViewModel</code> 持有 TesterPresent 后台 CTS，实现 <code>IDisposable</code> 复位。当前 DI 容器不调用 <code>Dispose()</code>。</td></tr>
 
@@ -2888,11 +2908,11 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <ul>
 
-  <li><strong>~1228 pass + 5 SKIP + 0 fail</strong>：Core 421 + App 723 + Infrastructure 84</li>
+  <li><strong>~3146 pass</strong>（2026-09-06 实测）：Core 1053 + App 1412 + Infrastructure 627 + Cli 54</li>
 
-  <li>5 SKIP：3 个硬件条件（PCAN-USB FD 未插入）+ 2 个无关跳过</li>
+  <li>少量 SKIP：硬件条件跳过（PCAN-USB FD 未插入时自动跳过互操作用例）</li>
 
-  <li><strong>5 条架构规则</strong>（NetArchTest）—— 防止 App 层反向依赖 PEAK SDK</li>
+  <li><strong>5 条架构规则</strong>（NetArchTest）—— Core↛WPF/厂商 SDK、Infrastructure↛App 等分层边界</li>
 
   <li>每次 push 到 <code>main</code> 触发 CI（<code>dotnet build</code> + <code>dotnet test</code> + NetArchTest）</li>
 
@@ -2920,7 +2940,7 @@ CI 会拒绝破坏此边界的 PR。</p>
 
 <footer>
 
-  PeakCan Host v3.63.0 用户使用手册 · 更新于 2026-07-30 ·
+  PeakCan Host v3.65.0 用户使用手册 · 更新于 2026-09-06 ·
 
   与 <code>README.md</code>、<code>artifacts/README.md</code> 同步 ·
 

@@ -833,10 +833,10 @@ public sealed class HilViewModelTests
         vm.HardwareChannel = "USB1";
         try
         {
-            await vm.RunCommand.ExecuteAsync(null);
+            vm.ReloadSuiteCommand.Execute(null);
 
-            captured!.HardwareChannels.Should().HaveCount(1, "按少的截断");
-            vm.StatusMessage.Should().Contain("仅");
+            vm.RunCommand.CanExecute(null).Should().BeFalse("declared channels exceed connected channels");
+            captured.Should().BeNull("insufficient channels must be intercepted before execution");
         }
         finally
         {

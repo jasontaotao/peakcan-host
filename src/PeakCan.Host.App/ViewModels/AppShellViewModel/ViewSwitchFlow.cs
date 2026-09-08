@@ -117,7 +117,7 @@ public sealed partial class AppShellViewModel
         // Sprint 3: HIL testing panel (offline trace-replay + hardware-in-the-loop)
         // P0-3: HIL 迁独立窗口 —— 测试执行时需与主窗口 Trace 并排观察数据链路
         // 层通讯（user 2026-08-14 判定）。HilWindow 承载原 HilView。
-        var win = _windowHost.Show(WindowKey.Hil, () => new HilWindow { DataContext = _hilViewModel });
+        var win = _windowHost.Show(WindowKey.Hil, () => new HilWindow(_hilPanelStateStore) { DataContext = _hilViewModel });
         if (win is null) return;
 
         if (!win.IsVisible)
