@@ -27,7 +27,7 @@ public class SignalSeriesStoreReplaceTests
     }
 
     [Fact]
-    public void ReplaceSamples_Maintains_Capacity()
+    public void ReplaceSamples_Thins_While_Preserving_Range()
     {
         var store = new SignalSeriesStore(capacity: 3);
         store.ReplaceSamples(
@@ -38,7 +38,11 @@ public class SignalSeriesStoreReplaceTests
             new(2, 2),
         ]);
 
-        store.Count.Should().Be(3);
-        store.GetRenderPoints(10).Select(p => p.Timestamp).Should().Equal(2, 3, 4);
+        store.Count.Should().BeLessThanOrEqualTo(3);
+        var points = store.GetRenderPoints(10);
+        points[0].Timestamp.Should().Be(1);
+        points[^1].Timestamp.Should().Be(4);
     }
 }
+
+

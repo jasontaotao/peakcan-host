@@ -18,7 +18,7 @@ public class SignalSeriesStoreTests
     }
 
     [Fact]
-    public void Add_Evicts_Oldest_When_Capacity_Exceeded()
+    public void Add_Thins_History_When_Capacity_Exceeded()
     {
         var store = new SignalSeriesStore(capacity: 3);
         store.Add(1, 1);
@@ -26,11 +26,10 @@ public class SignalSeriesStoreTests
         store.Add(3, 3);
         store.Add(4, 4);
 
-        store.Count.Should().Be(3);
+        store.Count.Should().BeLessThanOrEqualTo(3);
         var points = store.GetRenderPoints(100);
-                points.Should().Contain(p => p.Timestamp == 2);
+        points.Should().Contain(p => p.Timestamp == 1);
         points.Should().Contain(p => p.Timestamp == 4);
-        points.Should().NotContain(p => p.Timestamp == 1);
     }
 
     [Fact]
@@ -132,9 +131,11 @@ public class SignalSeriesStoreTests
         start.Set();
         await Task.WhenAll(task1, task2);
 
-        store.Count.Should().Be(3_000);
+        store.Count.Should().BeLessThanOrEqualTo(3_000);
         var points = store.GetRenderPoints(10);
         points.Should().NotBeEmpty();
+        points.Should().Contain(p => p.Timestamp == 0);
+        points.Should().Contain(p => p.Timestamp >= 100_000);
             }
 
     [Fact]
@@ -150,6 +151,7 @@ public class SignalSeriesStoreTests
         store.GetRenderPoints(4).Should().BeEmpty();
     }
 }
+
 
 
 
