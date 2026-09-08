@@ -40,7 +40,14 @@ public sealed record CliArgs(
     // 2026-09-07 backlog §9 1.7.6：seed-key 算法 DLL（OEM GenerateKey cdecl 导出）。
     // 非空 = DllKeyDerivationAlgorithm 挂进 UdsClient（SecurityAccess 步骤可用）；
     // null = 无算法（SecurityAccess fail-fast KeyAlgorithmNotConfiguredException）。
-    string? KeyDllPath = null);
+    string? KeyDllPath = null,
+    // SecOC Phase 2 (spec D4)：密钥管理命令模式。非空 = key 管理模式（import/list/remove），
+    // 早退于常规 run 流程；null = 常规 HIL run。
+    string? SecOcKeyCommand = null,
+    string? SecOcKeyId = null,
+    string? SecOcKeyPath = null,
+    string? SecOcStoreDir = null,
+    string? SecOcEntropy = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -66,11 +73,19 @@ public static class CliArgsParser
         string? gatewayPath = null;
         // 2026-09-07 backlog §9 1.7.6 seed-key 算法 DLL
         string? keyDll = null;
+        // SecOC Phase 2 key management
+        string? secocKeyCommand = null, secocKeyId = null, secocKeyPath = null;
+        string? secocStoreDir = null, secocEntropy = null;
 
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
+                case "--secoc-key": secocKeyCommand = NextArg(args, ref i, "--secoc-key"); break;
+                case "--key-id": secocKeyId = NextArg(args, ref i, "--key-id"); break;
+                case "--key-file": secocKeyPath = NextArg(args, ref i, "--key-file"); break;
+                case "--store-dir": secocStoreDir = NextArg(args, ref i, "--store-dir"); break;
+                case "--entropy": secocEntropy = NextArg(args, ref i, "--entropy"); break;
                 case "--dbc": dbc = NextArg(args, ref i, "--dbc"); break;
                 case "--trace": trace = NextArg(args, ref i, "--trace"); break;
                 case "--suite": suite = NextArg(args, ref i, "--suite"); break;
@@ -102,6 +117,14 @@ public static class CliArgsParser
         var allowedFormats = new[] { "console", "trx", "junit", "html", "html+junit", "json" };
         if (!allowedFormats.Contains(format))
             throw new ArgumentException($"Unsupported --format '{format}'. Expected: {string.Join(", ", allowedFormats)}.");
+
+        // SecOc key management mode: standalone, no --dbc/--suite required
+        if (secocKeyCommand is not null)
+        {
+            return new CliArgs(dbc ?? "", suite ?? "", SecOcKeyCommand: secocKeyCommand,
+                SecOcKeyId: secocKeyId, SecOcKeyPath: secocKeyPath,
+                SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
+        }
 
         // Validation: ODX import mode OR simulate mode OR normal mode
         if (importOdx is not null)
@@ -192,6 +215,13 @@ public static class CliArgsParser
         Console.WriteLine("  --generator-dir <path>  Directory of external IEcuResponseGenerator plugin DLLs");
         Console.WriteLine("  --gateway <path>  Multi-bus gateway config JSON (bus-to-bus frame forwarding)");
         Console.WriteLine("  --key-dll <path>  OEM seed-key DLL (cdecl GenerateKey(seed, seedLen, keyOut, keyOutLen, securityLevel)) for SecurityAccess steps");
+        Console.WriteLine();
+        Console.WriteLine("SecOc key management (spec D4):");
+        Console.WriteLine("  --secoc-key <cmd>   import | list | remove (standalone mode, no --dbc/--suite)");
+        Console.WriteLine("  --key-id <id>       KeyStore key identifier");
+        Console.WriteLine("  --key-file <path>   128-bit hex key file (whitespace tolerated), import only");
+        Console.WriteLine("  --store-dir <path>  KeyStore directory (default: %LOCALAPPDATA%\\PeakCan\\SecOc\\KeyStore)");
+        Console.WriteLine("  --entropy <string>  Optional DPAPI additional entropy");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

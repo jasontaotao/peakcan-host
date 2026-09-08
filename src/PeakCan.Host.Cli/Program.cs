@@ -24,6 +24,12 @@ public static class Program
         {
             var cli = CliArgsParser.Parse(args);
 
+            // SecOc key management mode (spec D4): no DI container needed
+            if (cli.SecOcKeyCommand is not null)
+            {
+                return SecOcKeyCommand.Run(cli);
+            }
+
             // ODX import mode: no DI container needed
             if (cli.ImportOdxPath is not null)
             {
