@@ -293,3 +293,9 @@ AUTOSAR 不公开完整 SecOC PDU 测试向量，自造 crypto 必须交叉验�
   - **§6.1 补坐标基准**：所有 byteOffset/authLen/CorruptByteIndices 相对数据场 data[0]（CAN ID 不计），全阶段共用。
   - **D6.7 join 三态显式化**：受保护 ✓/✗、未保护、离线不验三态徽标，禁止"无标注"缺省（未 join 即"离线不验"）；旁路表按 sourceId 分桶。
   - **D6.8 呈现分两阶段**：Phase 2 帧级 Verdict 徽标（不逐信号剥离）；信号剥离为 Phase 4 SecurityBlock 引入后的能力。
+
+- Rev5（2026-09-08，M2 实施收尾合入）：
+  - **§6.1 钉死 v1 fvLen 上限**：`FvLenBits ∈ (0, 16]` 且 8 的倍数（`FvFullBits` 固定 32）——TruncatedFor/ReadTruncatedFv 基于 ushort，fvLen>16 会静默截断（Verify 假 BadMac）或 Sign 切片越界，`SecOcAuthenticator` 构造期 fail-fast。24 位 freshness（样例矩阵 VCU_ChrgCtrlCmd 行）为 v2 扩展。macLen 上限 128（位）。
+  - **D1 补充：组装点最终落位**。唯一组装点是**各模式的 DI `ICanChannel` 注册处**（headless：HeadlessHostBuilder 全部 5 个模式分支；多通道首通道复用 DI 默认单例，i>0 通道就地组装）——UDS/ISO-TP/J1939/FrameStatisticsCollector 与断言上下文共用同一包装通道，杜绝"诊断栈绕过 SecOC"的旁路视图；context 工厂只解析不再包装（双包由 `ISecureChannel` marker 兜底拒绝）。虚拟 ECU / matrix 内部 ECU 仍直连原始通道（模拟对端不签名，与真实对端语义一致，Phase 3 端到端时由 EcuStateMachine 接管签名）。
+  - **D3 落地补充**：布局配方文档交付为 `docs/secoc-fault-layout-recipe.md`（BadMac/ForgedFv → 裸 indices 计算 + 工作示例）；M2 demo 攻击 trace 的攻击帧时间戳须单调递增（回放调度按时间序分发，"旧帧"体现为 FV 回退而非时间戳回退）。
+  - **交付物 #6 落地**：M2 demo 走查脚本 = `docs/secoc-m2-demo-walkthrough.md` + `scripts/secoc-demo/gen_demo_assets.py`（资产生成器，密钥只经 stdin 参与 MAC 计算不落盘）；DoD ③ 全链路已在 headless 实跑验证（全绿基线 / BadMac 注入→计数+1→恢复 / Replay / FvRollback 分类全对）。

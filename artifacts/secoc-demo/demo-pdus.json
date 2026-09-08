@@ -1,0 +1,10 @@
+[
+  {
+    "CanId": "0x123",
+    "DataId": "0x321",
+    "FvLenBits": 16,
+    "MacLenBits": 24,
+    "KeyId": "demo-key",
+    "Mode": "both"
+  }
+]

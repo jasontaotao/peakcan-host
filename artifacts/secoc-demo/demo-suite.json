@@ -1,0 +1,118 @@
+{
+  "name": "SecOcM2Demo",
+  "cases": [
+    {
+      "id": "secoc_demo_badmac",
+      "name": "BadMacInjectAndRecover",
+      "description": "Replay-verified frames all green -> corrupt MAC bytes on RX -> secocRejected fires -> clear fault -> recovery accepted. Each if-step passes only when the SecOC verdict matches the phase.",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "delay",
+            "Milliseconds": 600
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "injectFault",
+            "FaultType": "Corrupt",
+            "Direction": "Receive",
+            "CanId": {
+              "raw": 291,
+              "format": "Standard",
+              "type": "Data"
+            },
+            "Probability": "1.0",
+            "DelayMs": "0",
+            "CorruptByteIndices": [
+              3,
+              4,
+              5
+            ],
+            "CorruptXorMask": 255,
+            "FaultId": "badmac"
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "delay",
+            "Milliseconds": 1300
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "clearFault",
+            "FaultId": "badmac"
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "delay",
+            "Milliseconds": 1300
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "if",
+            "Condition": "secocRejected(291)",
+            "Then": [
+              {
+                "parameters": {
+                  "$kind": "delay",
+                  "Milliseconds": 10
+                }
+              }
+            ],
+            "Else": [
+              {
+                "parameters": {
+                  "$kind": "expectFrame",
+                  "id": {
+                    "raw": 2042,
+                    "format": "Standard",
+                    "type": "Data"
+                  },
+                  "timeoutMs": 200
+                }
+              }
+            ]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "if",
+            "Condition": "secocAccepted(291)",
+            "Then": [
+              {
+                "parameters": {
+                  "$kind": "delay",
+                  "Milliseconds": 10
+                }
+              }
+            ],
+            "Else": [
+              {
+                "parameters": {
+                  "$kind": "expectFrame",
+                  "id": {
+                    "raw": 2042,
+                    "format": "Standard",
+                    "type": "Data"
+                  },
+                  "timeoutMs": 200
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}

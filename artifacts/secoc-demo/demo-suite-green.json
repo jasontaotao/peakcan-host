@@ -1,0 +1,79 @@
+{
+  "name": "SecOcM2DemoGreen",
+  "cases": [
+    {
+      "id": "secoc_demo_green",
+      "name": "AllFramesAccepted",
+      "description": "Baseline: all replayed frames verify; no rejection ever fires.",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "delay",
+            "Milliseconds": 3200
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "if",
+            "Condition": "secocAccepted(291)",
+            "Then": [
+              {
+                "parameters": {
+                  "$kind": "delay",
+                  "Milliseconds": 10
+                }
+              }
+            ],
+            "Else": [
+              {
+                "parameters": {
+                  "$kind": "expectFrame",
+                  "id": {
+                    "raw": 2042,
+                    "format": "Standard",
+                    "type": "Data"
+                  },
+                  "timeoutMs": 200
+                }
+              }
+            ]
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "if",
+            "Condition": "secocRejected(291)",
+            "Then": [
+              {
+                "parameters": {
+                  "$kind": "expectFrame",
+                  "id": {
+                    "raw": 2042,
+                    "format": "Standard",
+                    "type": "Data"
+                  },
+                  "timeoutMs": 200
+                }
+              }
+            ],
+            "Else": [
+              {
+                "parameters": {
+                  "$kind": "delay",
+                  "Milliseconds": 10
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}

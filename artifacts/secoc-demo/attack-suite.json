@@ -1,0 +1,52 @@
+{
+  "name": "SecOcM2DemoAttack",
+  "cases": [
+    {
+      "id": "secoc_demo_attack",
+      "name": "AttackRejected",
+      "description": "Attack trace (replay / FvRollback) must be rejected.",
+      "steps": [
+        {
+          "parameters": {
+            "$kind": "delay",
+            "Milliseconds": 2400
+          }
+        },
+        {
+          "parameters": {
+            "$kind": "if",
+            "Condition": "secocRejected(291)",
+            "Then": [
+              {
+                "parameters": {
+                  "$kind": "delay",
+                  "Milliseconds": 10
+                }
+              }
+            ],
+            "Else": [
+              {
+                "parameters": {
+                  "$kind": "expectFrame",
+                  "id": {
+                    "raw": 2042,
+                    "format": "Standard",
+                    "type": "Data"
+                  },
+                  "timeoutMs": 200
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "globalCaseFixtureKeys": [],
+  "suiteFixtureKeys": [],
+  "config": {
+    "failurePolicy": "ContinueAll",
+    "continueAfterSetupFailure": true
+  },
+  "timeoutMs": 0
+}
