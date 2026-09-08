@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core.Replay;
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
@@ -43,6 +44,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private ITraceCacheSink? _cacheSink;
     private long? _traceId;
     private DbcCatalog? _dbc;
+    private string? _cachedFilePath;
+    private CancellationTokenSource? _chartBackfillCts;
     private readonly TraceChartViewModel _chart;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
@@ -55,6 +58,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _logger = logger ?? NullLogger.Instance;
         _cacheSinkFactory = cacheSinkFactory;
         _chart = new TraceChartViewModel(null, ui);
+        _chart.SignalSelected += (_, _) => _ = BackfillSelectedSignalsAsync();
         for (var i = 0; i < ViewportRowCount; i++)
             _viewport[i] = new FrameRowSlot();
     }
@@ -105,6 +109,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         DbcStatusText = catalog is null ? "未加载 DBC" : $"DBC: {catalog.SourceName}";
         _chart.SetCatalog(catalog);
         ClearPlaybackBuffer();
+        StartChartBackfill();
     }
 
     /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
@@ -124,6 +129,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _traceId = null;
         lock (_cacheSinkGate) _cacheSink = null;
         CacheStatusText = string.Empty;
+        _cachedFilePath = cachedFilePath;
         ClearPlaybackBuffer();
 
         if (_cacheSinkFactory is not null)
@@ -146,6 +152,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
         UpdateViewport();
         State = SessionState.Ready;
+        StartChartBackfill();
         _player = _playerFactory(source);
         _player.FrameEmitted += OnFrameEmitted;
         _player.PlaybackEnded += OnPlaybackEnded;
@@ -228,8 +235,71 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _latestVisibleRow = count == 0 ? null : _viewportSource[count - 1];
     }
 
+    /// <summary>Backfills selected signal history from the source file so a late
+    /// selection still shows the complete trace instead of only future frames.</summary>
+    private void StartChartBackfill()
+    {
+        if (_cachedFilePath is null || _dbc is null || _chart.SelectedSignals.Count == 0)
+            return;
+
+        _ = BackfillSelectedSignalsAsync();
+    }
+
+    internal async Task BackfillSelectedSignalsAsync()
+    {
+        var path = _cachedFilePath;
+        var dbc = _dbc;
+        if (path is null || dbc is null || _chart.SelectedSignals.Count == 0)
+            return;
+
+        _chartBackfillCts?.Cancel();
+        _chartBackfillCts?.Dispose();
+        _chartBackfillCts = new CancellationTokenSource();
+        var ct = _chartBackfillCts.Token;
+
+        try
+        {
+            var source = _sourceFactory.Create(path);
+            await using var open = await source.OpenAsync(ct: ct).ConfigureAwait(false);
+            var samplesBySignal = _chart.SelectedSignals
+                .ToDictionary(i => i.Key, _ => new List<SignalSample>());
+
+            await foreach (var frame in open.Frames.WithCancellation(ct).ConfigureAwait(false))
+            {
+                if (!PassesFilter(frame)) continue;
+                var message = dbc.FindMessage(frame.Id, frame.IsExtended);
+                if (message is null) continue;
+
+                var payload = frame.Data.AsSpan(0, Math.Min(frame.Dlc, frame.Data.Length));
+                foreach (var selection in _chart.SelectedSignals)
+                {
+                    if (selection.Key.CanId != frame.Id || selection.Key.IsExtended != frame.IsExtended)
+                        continue;
+
+                    var signal = message.Signals.FirstOrDefault(s => s.Name == selection.Key.SignalName);
+                    if (signal is null || !DbcCatalog.IsSignalActive(message, signal, payload))
+                        continue;
+
+                    samplesBySignal[selection.Key]
+                        .Add(new SignalSample(frame.Timestamp, SignalDecoder.Decode(payload, signal)));
+                }
+            }
+
+            foreach (var (key, samples) in samplesBySignal)
+                _chart.ReplaceSamples(key, samples);
+        }
+        catch (OperationCanceledException)
+        {
+            // Selection, filtering, playback, or disposal replaced the backfill.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "chart history backfill failed");
+        }
+    }
     private void ClearPlaybackBuffer()
     {
+        _chartBackfillCts?.Cancel();
         lock (_emitGate) _pending.Clear();
         _rows.Clear();
         SkippedLinesText = string.Empty;
@@ -379,6 +449,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     public void Dispose()
     {
+        _chartBackfillCts?.Cancel();
         _drainTimer?.Dispose();
         if (_player is not null)
         {
@@ -398,6 +469,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         sink?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
+
+
+
 
 
 

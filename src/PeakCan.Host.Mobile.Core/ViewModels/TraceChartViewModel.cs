@@ -111,7 +111,11 @@ public sealed class TraceChartViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(samples);
         lock (_stateGate)
         {
-            if (_stores.TryGetValue(key, out var store)) store.ReplaceSamples(samples);
+            if (_stores.TryGetValue(key, out var store))
+            {
+                store.ReplaceSamples(samples);
+                _renderPoints[key] = store.GetRenderPoints(DefaultRenderBuckets);
+            }
         }
 
         RaiseRenderChanged();
@@ -187,4 +191,5 @@ public sealed class TraceChartViewModel : ObservableObject
         _ui.Post(() => RenderChanged?.Invoke(this, EventArgs.Empty));
     }
 }
+
 

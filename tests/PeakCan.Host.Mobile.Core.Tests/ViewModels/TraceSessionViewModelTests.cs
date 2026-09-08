@@ -466,6 +466,31 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public async Task OpenAsync_Backfills_Selected_Signal_From_File_Start()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100), F(9, 0x100));
+        env.SourceFactory.LastSource
+            .OpenAsync(default)
+            .ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        env.Vm.SetDbc(DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """).Catalog!);
+        env.Vm.Chart.Select(new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed"));
+
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.BackfillSelectedSignalsAsync();
+
+        var points = env.Vm.Chart.RenderPoints[new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed")];
+        points.Select(p => p.Timestamp).Should().Equal(0, 5, 9);
+    }
+    [Fact]
     public void Stop_Clears_Chart_Samples()
     {
         var env = new Env();
@@ -548,5 +573,6 @@ internal sealed class AsyncFrameSeq(params ReplayFrame[] frames)
         }
     }
 }
+
 
 
