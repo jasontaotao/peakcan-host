@@ -22,6 +22,15 @@ internal sealed class BlfReorderBuffer
             return Array.Empty<ReplayFrame>();
         }
 
+        // A frame older than the window start cannot be ordered without
+        // unbounded memory. Flush now and treat it as the next bounded window.
+        if (frame.Timestamp < _windowStart.Value - Epsilon)
+        {
+            var lateReady = Flush();
+            _windowStart = Math.Floor(frame.Timestamp);
+            _pending.Add(frame);
+            return lateReady;
+        }
         if (frame.Timestamp < _windowStart.Value + WindowSeconds - Epsilon)
         {
             _pending.Add(frame);
@@ -43,3 +52,4 @@ internal sealed class BlfReorderBuffer
         return ready;
     }
 }
+

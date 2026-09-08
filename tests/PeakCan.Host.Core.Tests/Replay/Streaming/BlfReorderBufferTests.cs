@@ -40,6 +40,20 @@ public class BlfReorderBufferTests
     }
 
     [Fact]
+    public void Push_BoundsFramesOlderThanWindowStart()
+    {
+        var buffer = new BlfReorderBuffer();
+        buffer.Push(Frame(2.0)).Should().BeEmpty();
+
+        var ready1 = buffer.Push(Frame(0.1));
+        ready1.Select(f => f.Timestamp).Should().Equal(2.0);
+
+        var ready2 = buffer.Push(Frame(0.2));
+        ready2.Should().BeEmpty();
+        buffer.Flush().Select(f => f.Timestamp).Should().Equal(0.1, 0.2);
+    }
+
+    [Fact]
     public void Flush_AfterFlush_RestartsWindow()
     {
         var buffer = new BlfReorderBuffer();
