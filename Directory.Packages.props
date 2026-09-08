@@ -14,6 +14,8 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Maui.Controls" Version="10.0.20" />
+    <!-- P3: mobile trace signal charts use LiveCharts2 (SkiaSharp-backed). -->
+    <PackageVersion Include="LiveChartsCore.SkiaSharpView.Maui" Version="2.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <!-- J1939TP: TimeProvider 测试替身（spec §5.4 单测确定性要求） -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.1.0" />

@@ -40,7 +40,9 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" />
+		<PackageReference Include="LiveChartsCore.SkiaSharpView.Maui" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" />
 	</ItemGroup>
 
 </Project>
+
