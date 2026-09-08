@@ -1,6 +1,6 @@
 # Mobile Trace Viewer P4 (BLF Streaming) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 让 Android 移动端像 ASC 一样流式打开并回放 `.blf` trace，不解压/物化整个文件。
 
@@ -35,7 +35,7 @@
   - `IReadOnlyList<ReplayFrame> Flush()` 返回并清空当前缓冲。
   - 顺序契约：窗口内按 `Timestamp` 升序；窗口结束后新帧开启新窗口。
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 using FluentAssertions;
@@ -90,12 +90,12 @@ public class BlfReorderBufferTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter BlfReorderBufferTests --nologo`
 Expected: FAIL，`BlfReorderBuffer` 不存在。
 
-- [ ] **Step 3: Implement the buffer**
+- [x] **Step 3: Implement the buffer**
 
 ```csharp
 namespace PeakCan.Host.Core.Replay;
@@ -145,12 +145,12 @@ internal sealed class BlfReorderBuffer
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter BlfReorderBufferTests --nologo`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PeakCan.Host.Core/Replay/Streaming/BlfReorderBuffer.cs tests/PeakCan.Host.Core.Tests/Replay/Streaming/BlfReorderBufferTests.cs
@@ -173,7 +173,7 @@ git commit -m "feat(mobile): add bounded blf reorder buffer"
   - `OpenAsync(double? skipUntil = null, CancellationToken ct = default)` 懒枚举帧。
   - 支持 `LOGG` 文件头和裸 `LOBJ` 流；直接 CAN 对象与 zlib `LOGG` 容器都能产出 `ReplayFrame`。
 
-- [ ] **Step 1: Change object body visibility**
+- [x] **Step 1: Change object body visibility**
 
 把 `BlfParser.ParseObjectBody` 的可见性从 `private static` 改为 `internal static`，注释补充：
 
@@ -184,7 +184,7 @@ internal static IReadOnlyList<ReplayFrame> ParseObjectBody(
     uint objectType, ulong timestamp, ReadOnlySpan<byte> frameData)
 ```
 
-- [ ] **Step 2: Write failing streaming tests**
+- [x] **Step 2: Write failing streaming tests**
 
 在 `BlfStreamingSourceTests` 中复制 `BlfParserTests` 的 `WriteFileHeader` / `WriteObject` 合成数据辅助方法（不要跨测试类调用 private helper），先覆盖：
 
@@ -216,12 +216,12 @@ public async Task OpenAsync_StreamsWithDirectCanObjects()
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter BlfStreamingSourceTests --nologo`
 Expected: FAIL，`BlfStreamingSource` 不存在。
 
-- [ ] **Step 4: Implement BlfStreamingSource**
+- [x] **Step 4: Implement BlfStreamingSource**
 
 实现要点（不使用 `BlfParser.ParseCoreAsync`，避免 `List<ReplayFrame>` 全量物化）：
 
@@ -284,12 +284,12 @@ public sealed class BlfStreamingSource : IStreamingTraceSource
 7. `errorCount * 2 > objectCount` 且 `objectCount > 0` 时抛 `ReplayFormatException`。
 8. `finally` 中 dispose `BinaryReader`（`leaveOpen: true` 时可只 dispose stream，由 `StreamingTraceOpenResult` 负责）。
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "BlfStreamingSourceTests|BlfReorderBufferTests" --nologo`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/PeakCan.Host.Core/Replay/BlfParser.cs src/PeakCan.Host.Core/Replay/Streaming/BlfStreamingSource.cs tests/PeakCan.Host.Core.Tests/Replay/Streaming/BlfStreamingSourceTests.cs
@@ -318,7 +318,7 @@ git commit -m "feat(mobile): add streaming blf source"
   - `IStreamingSourceFactory` 实现按扩展名分发：`.blf → BlfStreamingSource`，`.asc → AscStreamingSource`。
   - `BlfDurationScanner.ScanAsync(Stream, IProgress<double>?, CancellationToken)` 返回 `DurationScanResult`。
 
-- [ ] **Step 1: Write failing cache and duration tests**
+- [x] **Step 1: Write failing cache and duration tests**
 
 ```csharp
 [Fact]
@@ -338,12 +338,12 @@ result.DurationSeconds.Should().Be(2);
 result.FrameCount.Should().Be(3);
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.csproj --filter "TraceFileCacheTests|BlfDurationScannerTests" --nologo`
 Expected: FAIL
 
-- [ ] **Step 3: Implement extension and duration support**
+- [x] **Step 3: Implement extension and duration support**
 
 `TraceFileCache.PathOf` 改为：
 
@@ -389,12 +389,12 @@ public IStreamingTraceSource Create(string cachedFilePath)
 
 `FilesPage.RefreshRecentAsync` 使用两个扩展名枚举；`HandleIntentUriAsync` 接受 `.asc` 或 `.blf`，dest 扩展名跟随源文件。错误文案改为“仅支持 .asc 或 .blf 格式文件”。
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.csproj --nologo`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A src/PeakCan.Host.Mobile.Core src/PeakCan.Host.Mobile tests/PeakCan.Host.Mobile.Core.Tests
@@ -413,7 +413,7 @@ git commit -m "feat(mobile): open blf traces"
 - Consumes: `BlfStreamingSource`, `StreamingTracePlayer`, `FakeReplayClock`。
 - Produces: `.blf` 与 `StreamingTracePlayer` 的播放/暂停/倍速/Seek 契约。
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 至少覆盖：
 
@@ -422,21 +422,21 @@ git commit -m "feat(mobile): open blf traces"
 3. `StreamingTracePlayer.PlayAsync` 使用 fake clock 对 BLF source 播完所有帧。
 4. `SeekAsync(target)` 快进后下一帧 `Timestamp >= target`。
 
-- [ ] **Step 2: Run tests to verify expected failures**
+- [x] **Step 2: Run tests to verify expected failures**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "BlfStreamingSourceTests|StreamingTracePlayerTests" --nologo`
 Expected: 新增用例 FAIL（如 seek/container 行为未覆盖）。
 
-- [ ] **Step 3: Minimal fixes only**
+- [x] **Step 3: Minimal fixes only**
 
 优先调整 source；若 `StreamingTracePlayer` 有真实缺陷，修复并保持 ASC 测试不变。
 
-- [ ] **Step 4: Run Core streaming tests**
+- [x] **Step 4: Run Core streaming tests**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "BlfStreamingSourceTests|BlfReorderBufferTests|StreamingTracePlayerTests" --nologo`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/PeakCan.Host.Core.Tests src/PeakCan.Host.Core
@@ -447,7 +447,7 @@ git commit -m "feat(mobile): replay blf with seek support"
 
 ## Task 5: 全量验证
 
-- [ ] **Step 1: Run full test suites**
+- [x] **Step 1: Run full test suites**
 
 ```powershell
 dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --nologo
@@ -456,7 +456,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 
 Expected: 0 failed；不引入新的 nullable warning。
 
-- [ ] **Step 2: Android build**
+- [x] **Step 2: Android build**
 
 ```powershell
 dotnet build src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj --nologo
@@ -464,7 +464,7 @@ dotnet build src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj --nologo
 
 Expected: 0 error。
 
-- [ ] **Step 3: Commit fixes if any**
+- [x] **Step 3: Commit fixes if any**
 
 ```bash
 git add -A
@@ -477,13 +477,13 @@ git commit -m "fix(mobile): stabilize blf streaming"
 
 ## Task 6: 模拟器验收与评审
 
-- [ ] **Step 1: Build signed APK**
+- [x] **Step 1: Build signed APK**
 
 ```powershell
 dotnet build src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj -f net10.0-android -p:EmbedAssembliesIntoApk=true --nologo
 ```
 
-- [ ] **Step 2: Install and manually verify on emulator**
+- [x] **Step 2: Install and manually verify on emulator**
 
 ```powershell
 adb install -r src/PeakCan.Host.Mobile/bin/Debug/net10.0-android/com.zhengtaotao.peakcan.mobile-Signed.apk
@@ -499,8 +499,9 @@ Checklist：
 - DBC 信号列和图表 Tab 正常。
 - 重启后在 FilesPage 可重开同一 `.blf`。
 
-- [ ] **Step 3: Record acceptance artifacts in `.acceptance/` only（不提交）**
+- [x] **Step 3: Record acceptance artifacts in `.acceptance/` only（不提交）**
 
-- [ ] **Step 4: Run Superpowers code review and fix Critical/Important findings**
+- [x] **Step 4: Run Superpowers code review and fix Critical/Important findings**
 
-- [ ] **Step 5: Finish branch after explicit user confirmation**
+- [x] **Step 5: Finish branch after explicit user confirmation**
+
