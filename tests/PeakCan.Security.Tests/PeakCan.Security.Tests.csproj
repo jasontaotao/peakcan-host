@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- xUnit BDD 命名与异常构造负路径（对齐 Core.Tests 约定） -->
+    <NoWarn>$(NoWarn);CA1707;CA1014;CA1806</NoWarn>
+    <!-- Phase 1 DoD：覆盖率 >= 90% -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../../coverage/security-coverage</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FluentAssertions" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('..\..\src\PeakCan.Security\PeakCan.Security.csproj')">
+    <ProjectReference Include="..\..\src\PeakCan.Security\PeakCan.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 交叉验证向量：由 tools/secoc-vectors/gen_vectors.py 生成，
+         提交为 fixture（spec §7.3） -->
+    <None Include="..\..\tools\secoc-vectors\secoc_vectors.json"
+          Link="TestData\secoc_vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
