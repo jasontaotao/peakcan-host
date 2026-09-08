@@ -74,6 +74,9 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
     public ChannelId Id => _inner.Id;
     public bool IsConnected => _inner.IsConnected;
 
+    /// <summary>Inner channel for decorator-chain capability resolution (spec §5-D1).</summary>
+    internal ICanChannel Inner => _inner;
+
     private Action<CanFrame>? _frameReceived;
     public event Action<CanFrame>? FrameReceived
     {
@@ -90,8 +93,7 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
     public SecOcChannel(ICanChannel inner, SecOcChannelOptions options,
         SecOcVerdictTable? verdictTable = null, SecOcStats? stats = null,
         ILogger? logger = null)
-    {
-        ArgumentNullException.ThrowIfNull(inner);
+    {        ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(options);
         // Idempotency guard (spec D1): composing twice would double-sign frames.
         if (inner is ISecureChannel)

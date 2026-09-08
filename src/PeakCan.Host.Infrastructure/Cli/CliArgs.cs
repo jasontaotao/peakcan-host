@@ -47,7 +47,9 @@ public sealed record CliArgs(
     string? SecOcKeyId = null,
     string? SecOcKeyPath = null,
     string? SecOcStoreDir = null,
-    string? SecOcEntropy = null);
+    string? SecOcEntropy = null,
+    // SecOC Phase 2：headless 运行时的 PDU 配置（D4：keyId 引用，缺失即启动拦截）
+    string? SecOcConfigPath = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -76,6 +78,8 @@ public static class CliArgsParser
         // SecOC Phase 2 key management
         string? secocKeyCommand = null, secocKeyId = null, secocKeyPath = null;
         string? secocStoreDir = null, secocEntropy = null;
+        // SecOC Phase 2 headless PDU config
+        string? secocConfigPath = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -86,6 +90,7 @@ public static class CliArgsParser
                 case "--key-file": secocKeyPath = NextArg(args, ref i, "--key-file"); break;
                 case "--store-dir": secocStoreDir = NextArg(args, ref i, "--store-dir"); break;
                 case "--entropy": secocEntropy = NextArg(args, ref i, "--entropy"); break;
+                case "--secoc-config": secocConfigPath = NextArg(args, ref i, "--secoc-config"); break;
                 case "--dbc": dbc = NextArg(args, ref i, "--dbc"); break;
                 case "--trace": trace = NextArg(args, ref i, "--trace"); break;
                 case "--suite": suite = NextArg(args, ref i, "--suite"); break;
@@ -161,7 +166,8 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll);
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
+            SecOcConfigPath: secocConfigPath);
     }
 
     /// <summary>
@@ -222,6 +228,7 @@ public static class CliArgsParser
         Console.WriteLine("  --key-file <path>   128-bit hex key file (whitespace tolerated), import only");
         Console.WriteLine("  --store-dir <path>  KeyStore directory (default: %LOCALAPPDATA%\\PeakCan\\SecOc\\KeyStore)");
         Console.WriteLine("  --entropy <string>  Optional DPAPI additional entropy");
+        Console.WriteLine("  --secoc-config <path>  SecOC PDU config JSON for headless runs (keyId refs, D4)");
         Console.WriteLine("  --help, -h         Show this help");
     }
 }

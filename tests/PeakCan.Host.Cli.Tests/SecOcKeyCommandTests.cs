@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Text;
 using FluentAssertions;
 using PeakCan.Host.Infrastructure.Cli;
@@ -10,6 +11,7 @@ namespace PeakCan.Host.Cli.Tests;
 /// SecOc key management CLI command tests. Logic tests use InMemoryKeyStore via
 /// the factory seam; one integration test exercises the real DPAPI store.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public class SecOcKeyCommandTests : IDisposable
 {
     private readonly string _tempDir;

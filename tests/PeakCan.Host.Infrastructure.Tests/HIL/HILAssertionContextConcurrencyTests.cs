@@ -1,6 +1,7 @@
-using PeakCan.HIL.Core;
+﻿using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
+using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
@@ -17,7 +18,7 @@ public class HILAssertionContextConcurrencyTests
         // This test verifies that concurrent AddFault + ClearFaults doesn't throw.
         // We use a VirtualChannel and fault injection wrapper.
         var channel = new VirtualChannel();
-        var context = new HILAssertionContext(channel, new FakeDbcLookup(), enableFaultInjection: true);
+        var context = new HILAssertionContext(new ReceivePathFaultInjector(new FaultInjector(channel)), new FakeDbcLookup());
 
         var tasks = new List<Task>();
 
@@ -48,7 +49,7 @@ public class HILAssertionContextConcurrencyTests
     public void ClearFaults_TargetedClear_RemovesOnlyMatchingId()
     {
         var channel = new VirtualChannel();
-        var context = new HILAssertionContext(channel, new FakeDbcLookup(), enableFaultInjection: true);
+        var context = new HILAssertionContext(new ReceivePathFaultInjector(new FaultInjector(channel)), new FakeDbcLookup());
 
         var rule1 = new FaultRule { Type = FaultType.Drop, Probability = 1.0 };
         var rule2 = new FaultRule { Type = FaultType.Drop, Probability = 1.0 };
@@ -73,3 +74,5 @@ public class HILAssertionContextConcurrencyTests
             Array.Empty<PeakCan.HIL.Core.Dbc.Message>();
     }
 }
+
+

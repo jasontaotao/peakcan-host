@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using Polly;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Infrastructure.Channel.SecOc;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL;
@@ -37,8 +38,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// </summary>
 public static class HeadlessHostBuilder
 {
-    public static IHost Build(CliArgs args)
-    {
+    public static IHost Build(CliArgs args)    {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
@@ -227,10 +227,11 @@ public static class HeadlessHostBuilder
             // Virtual ECU / Matrix mode (Sprint 4/6): HILAssertionContext + UDS + VirtualEcu already registered
             builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
-                var channel = sp.GetRequiredService<ICanChannel>();
+                var rawChannel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
-                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
+                var channel = ComposeChannel(rawChannel, args, logger);
+                return new HILAssertionContext(channel, dbc, logger);
             });
             RegisterUdsServices(builder, args);
         }
@@ -239,10 +240,11 @@ public static class HeadlessHostBuilder
             // Trace-replay mode: HILAssertionContext (no UDS — trace is read-only)
             builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
-                var channel = sp.GetRequiredService<ICanChannel>();
+                var rawChannel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
-                return new HILAssertionContext(channel, dbc, args.EnableFaultInjection, logger);
+                var channel = ComposeChannel(rawChannel, args, logger);
+                return new HILAssertionContext(channel, dbc, logger);
             });
         }
 
@@ -422,7 +424,20 @@ public static class HeadlessHostBuilder
 /// Empty/blank handle maps by index to 0x51+index (Spec v3 §3.4: studio
 /// declares names only; the physical port is host-side, ordered by index).
 /// </summary>
-public static ushort ResolveChannelHandle(string handle, int index)
+    /// <summary>
+    /// Single assembly point for headless channel decoration (spec §5-D1):
+    /// fault injection + optional SecOC (from --secoc-config, D4 startup
+    /// interception — a missing keyId fails this call loudly).
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static ICanChannel ComposeChannel(ICanChannel raw, CliArgs args,
+        Microsoft.Extensions.Logging.ILogger? logger)
+    {
+        var secocPdus = SecOcConfigLoader.LoadOptional(args.SecOcConfigPath);
+        return HilChannelComposer.Compose(raw, args.EnableFaultInjection, secocPdus, logger: logger);
+    }
+
+    public static ushort ResolveChannelHandle(string handle, int index)
     => string.IsNullOrWhiteSpace(handle)
         ? (ushort)(0x51 + index)
         : ResolveChannelHandle(handle);
