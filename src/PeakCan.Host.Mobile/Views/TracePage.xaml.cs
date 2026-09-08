@@ -15,9 +15,17 @@ public partial class TracePage : ContentPage
         _vm = new TraceSessionViewModel(ui, sourceFactory, src =>
             new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger);
         BindingContext = _vm;
+        _vm.PropertyChanged += OnVmPropertyChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
         _ = InitializeAsync(cachedFilePath);
+    }
+
+    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // 拖拽期间不回写 Slider（防止 native SeekBar 重置拖拽手势）
+        if (e.PropertyName == nameof(TraceSessionViewModel.Progress01) && !_vm.IsSeekDragging)
+            SeekSlider.Value = _vm.Progress01;
     }
 
     private async Task InitializeAsync(string cachedFilePath)
@@ -49,7 +57,15 @@ public partial class TracePage : ContentPage
         if (sel is not null && double.TryParse(sel.TrimEnd('x'), out var m)) _vm.SetSpeed(m);
     }
 
-    private void OnSeekCompleted(object? sender, EventArgs e) => _vm.SeekToCommand.Execute(_vm.Progress01);
+    private void OnSeekStarted(object? sender, EventArgs e)
+    {
+        _vm.IsSeekDragging = true;
+    }
+
+    private void OnSeekCompleted(object? sender, EventArgs e)
+    {
+        _vm.SeekToCommand.Execute(SeekSlider.Value);
+    }
 
     private void OnJumpLatest(object? sender, EventArgs e) => ScrollToLatest();
 

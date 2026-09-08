@@ -175,7 +175,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         StreamingTraceOpenResult session;
         try
         {
-            session = await _source.OpenAsync(ct).ConfigureAwait(false);
+            session = await _source.OpenAsync(startFrom > 0 ? startFrom : null, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -195,7 +195,6 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         });
         var pumpTask = PumpFramesAsync(session, channel.Writer, ct);
         var anchored = false;
-        bool fastForwarding = startFrom > 0;
         DateTime anchorClock = default;
         double anchorTs = 0;
 
@@ -203,18 +202,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         {
             await foreach (var frame in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                if (fastForwarding)
-                {
-                    if (frame.Timestamp < startFrom)
-                    {
-                        if (session.SourceLengthBytes is > 0)
-                            SeekProgress?.Invoke((double)session.Stats.BytesRead / session.SourceLengthBytes.Value);
-                        continue;
-                    }
-                    fastForwarding = false;
-                    _reanchorRequested = true;
-                    SeekProgress?.Invoke(1.0);
-                }
+                if (startFrom > 0 && !anchored) SeekProgress?.Invoke(1.0);
 
                 await _pauseGate.WaitAsync(ct).ConfigureAwait(false);
                 _pauseGate.Release();
@@ -242,7 +230,6 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
 
             var pumpError = await pumpTask.ConfigureAwait(false);
             if (pumpError is not null) throw pumpError;
-            if (fastForwarding) SeekProgress?.Invoke(1.0);
             return RunOutcome.Eof;
         }
         catch (OperationCanceledException)
@@ -298,4 +285,8 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
 
     private enum RunOutcomeKind { Eof, Stopped, Failed, SeekRequested }
 }
+
+
+
+
 

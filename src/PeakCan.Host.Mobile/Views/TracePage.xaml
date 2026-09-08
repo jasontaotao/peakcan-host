@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:vm="clr-namespace:PeakCan.Host.Mobile.Core.ViewModels;assembly=PeakCan.Host.Mobile.Core"
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
     <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="8">
@@ -15,10 +14,13 @@
                    FontSize="12" VerticalOptions="Center" />
         </HorizontalStackLayout>
 
-        <Slider Grid.Row="1" Minimum="0" Maximum="1" Value="{Binding Progress01}"
-                DragCompleted="OnSeekCompleted" IsEnabled="{Binding DurationKnown}" />
+        <!-- Slider: NO Value binding; code-behind syncs one-way to avoid drag fighting -->
+        <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1"
+                DragStarted="OnSeekStarted" DragCompleted="OnSeekCompleted"
+                IsEnabled="{Binding DurationKnown}" />
 
-        <CollectionView Grid.Row="2" x:Name="Frames" ItemsSource="{Binding VisibleRows}">
+        <Grid Grid.Row="2">
+            <CollectionView x:Name="Frames" ItemsSource="{Binding VisibleRows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
                     <Grid ColumnDefinitions="2*,1.2*,1*,2.6*">
@@ -32,7 +34,12 @@
                     </Grid>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
-        </CollectionView>
+            </CollectionView>
+            <Label Text="{Binding SeekProgressText}" FontSize="24" FontAttributes="Bold"
+                   TextColor="Orange" IsVisible="{Binding IsSeekBusy}"
+                   HorizontalOptions="Center" VerticalOptions="Center"
+                   BackgroundColor="#80000000" Padding="20,12" />
+        </Grid>
 
         <HorizontalStackLayout Grid.Row="3" Spacing="8">
             <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="200"
@@ -41,3 +48,5 @@
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
+
+

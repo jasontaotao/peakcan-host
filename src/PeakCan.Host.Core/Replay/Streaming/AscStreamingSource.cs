@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Globalization;
 
 namespace PeakCan.Host.Core.Replay;
 
@@ -7,13 +8,9 @@ namespace PeakCan.Host.Core.Replay;
 /// Streaming ASC source: opens the stream, eagerly reads header lines
 /// (<c>date</c>/<c>base</c>) up to the first data line, then lazily yields
 /// <see cref="ReplayFrame"/>s line-by-line — never materializing the whole
-/// file. <c>date</c>/<c>base</c> lines appearing AFTER the first data line
-/// are ignored (batch parser catches them anywhere; pathological for real
-/// files — documented divergence). Malformed lines are skipped and counted
-/// in <see cref="StreamingParseStats.SkippedLines"/>. The ">50% malformed"
-/// and "no parseable frames" guards throw <see cref="ReplayFormatException"/>
-/// at enumeration end (timing-equivalent to batch, which also reads all
-/// lines before throwing).
+/// file. Supports binary-search seek: when <paramref name="skipUntil"/> is
+/// provided and the stream is seekable, O(log n) probes locate the first
+/// frame ≥ target, making seek near-instant regardless of file size.
 /// </summary>
 public sealed class AscStreamingSource : IStreamingTraceSource
 {
@@ -26,7 +23,7 @@ public sealed class AscStreamingSource : IStreamingTraceSource
         _logger = logger ?? NullLogger.Instance;
     }
 
-    public async Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default)
+    public async Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default)
     {
         Stream? stream = null;
         try
@@ -50,11 +47,28 @@ public sealed class AscStreamingSource : IStreamingTraceSource
                 if (t.StartsWith("base ", StringComparison.Ordinal)) { absolute = t.Contains("absolute", StringComparison.OrdinalIgnoreCase); continue; }
                 if (t.StartsWith("internal events", StringComparison.Ordinal)) continue;
                 if (AscFormat.LineIsSectionDelimiter(t)) continue;
-                firstDataLine = t; // 第一个候选数据行（也可能畸形）
+                firstDataLine = t;
                 break;
             }
 
-            var frames = Enumerate(reader, firstDataLine, stats, ct);
+            // 二分 seek：O(log n) 次探测定位，替代逐行线性跳过
+            if (skipUntil.HasValue && stream.CanSeek && firstDataLine is not null)
+            {
+                if (ShouldSkip(firstDataLine, skipUntil))
+                {
+                    var targetOffset = await BinarySeekAsync(stream, skipUntil.Value, ct).ConfigureAwait(false);
+                    if (targetOffset.HasValue)
+                    {
+                        reader.Dispose();
+                        stream.Seek(targetOffset.Value, SeekOrigin.Begin);
+                        reader = new StreamReader(stream, leaveOpen: true);
+                        firstDataLine = null;
+                    }
+                }
+                skipUntil = null; // 二分后或首帧已达标，不再线性过滤
+            }
+
+            var frames = Enumerate(reader, firstDataLine, stats, skipUntil, ct);
             return new StreamingTraceOpenResult
             {
                 WallClockOrigin = origin,
@@ -73,20 +87,104 @@ public sealed class AscStreamingSource : IStreamingTraceSource
         }
     }
 
+    /// <summary>
+    /// Binary search the stream for the byte offset of the first data line
+    /// with timestamp ≥ targetTs. ASC timestamps are monotonic → O(log n) probes.
+    /// Each probe reads ≤ ProbeBufferSize bytes from a seeked position.
+    /// </summary>
+    private const int ProbeBufferSize = 512;
+
+    private static async Task<long?> BinarySeekAsync(Stream stream, double targetTs, CancellationToken ct)
+    {
+        long lo = 0, hi = stream.Length;
+        long best = -1;
+        var buffer = new byte[ProbeBufferSize];
+
+        int iterations = 0;
+        while (lo < hi && ++iterations < 60)
+        {
+            long mid = lo + (hi - lo) / 2;
+            var probe = await ProbeTimestampAsync(stream, mid, buffer, ct).ConfigureAwait(false);
+            if (probe is null)
+            {
+                hi = mid; // Can't parse here → search left
+                continue;
+            }
+            var (offset, ts) = probe.Value;
+            if (ts >= targetTs)
+            {
+                best = offset;
+                hi = Math.Min(offset, hi); // Earlier match may exist to the left
+            }
+            else
+            {
+                lo = mid + 1;
+            }
+        }
+        return best > 0 ? best : null;
+    }
+
+    /// <summary>
+    /// Seek to <paramref name="from"/>, skip to next line boundary, read the
+    /// complete line, and parse its timestamp. Returns the line's byte offset.
+    /// </summary>
+    private static async Task<(long offset, double ts)?> ProbeTimestampAsync(
+        Stream stream, long from, byte[] buffer, CancellationToken ct)
+    {
+        if (from >= stream.Length) return null;
+        stream.Seek(from, SeekOrigin.Begin);
+        var bytesRead = await stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+        if (bytesRead == 0) return null;
+
+        // Skip partial line: find first newline
+        var nl = Array.IndexOf(buffer, (byte)'\n', 0, bytesRead);
+        if (nl < 0 || nl + 1 >= bytesRead) return null;
+        var lineStart = nl + 1;
+
+        // Handle \r\n
+        if (lineStart < bytesRead && buffer[lineStart] == (byte)'\r')
+        {
+            lineStart++;
+            if (lineStart >= bytesRead) return null;
+        }
+
+        // Find end of the complete line
+        var lineEnd = Array.IndexOf(buffer, (byte)'\n', lineStart, bytesRead - lineStart);
+        if (lineEnd < 0) lineEnd = bytesRead;
+        // Strip trailing \r
+        if (lineEnd > lineStart && buffer[lineEnd - 1] == (byte)'\r') lineEnd--;
+
+        var len = lineEnd - lineStart;
+        if (len <= 0) return null;
+
+        var text = System.Text.Encoding.UTF8.GetString(buffer, lineStart, len);
+        var trimmed = text.AsSpan().Trim();
+        var sp = trimmed.IndexOf(' ');
+        if (sp <= 0) return null;
+        if (!double.TryParse(trimmed.Slice(0, sp), NumberStyles.Float, CultureInfo.InvariantCulture, out var ts))
+            return null;
+
+        return (from + lineStart, ts);
+    }
+
     private async IAsyncEnumerable<ReplayFrame> Enumerate(
         StreamReader reader,
         string? firstDataLine,
         StreamingParseStats stats,
+        double? skipUntil,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         long emitted = 0, malformed = 0, dataLines = 0;
         try
         {
-            // 先处理 OpenAsync 已读到的首个候选数据行
             if (firstDataLine is not null)
             {
                 dataLines++;
-                if (AscFormat.TryParseDataLine(firstDataLine, out var f0, out _))
+                if (skipUntil.HasValue && ShouldSkip(firstDataLine, skipUntil))
+                {
+                    // 跳过首行（未达目标时间戳）
+                }
+                else if (AscFormat.TryParseDataLine(firstDataLine, out var f0, out _))
                 {
                     emitted++;
                     yield return f0;
@@ -110,6 +208,17 @@ public sealed class AscStreamingSource : IStreamingTraceSource
                 if (AscFormat.LineIsSectionDelimiter(t)) continue;
 
                 dataLines++;
+                // skipUntil fast-path: only extract timestamp (no binary seek case)
+                if (skipUntil.HasValue)
+                {
+                    var sp = t.IndexOf(' ');
+                    if (sp > 0 && double.TryParse(t.AsSpan(0, sp), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out var ts) && ts < skipUntil.Value)
+                    {
+                        continue;
+                    }
+                    skipUntil = null;
+                }
                 if (AscFormat.TryParseDataLine(t, out var frame, out var reason))
                 {
                     emitted++;
@@ -128,7 +237,6 @@ public sealed class AscStreamingSource : IStreamingTraceSource
             reader.Dispose();
         }
 
-        // 与批量解析器等价的尾部校验
         if (emitted == 0)
             throw new ReplayFormatException(
                 $"ASC file has no parseable frames (saw {dataLines} data lines, all malformed).");
@@ -137,9 +245,19 @@ public sealed class AscStreamingSource : IStreamingTraceSource
                 $"ASC file appears corrupted ({malformed}/{dataLines} = {100.0 * malformed / dataLines:F0}% malformed).");
     }
 
+    /// <summary>轻量时间戳检查：首个 token 是合法 double 且 &lt; skipUntil 则返回 true。</summary>
+    private static bool ShouldSkip(string line, double? skipUntil)
+    {
+        if (!skipUntil.HasValue) return false;
+        var sp = line.IndexOf(' ');
+        if (sp <= 0) return false;
+        return double.TryParse(line.AsSpan(0, sp), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out var ts) && ts < skipUntil.Value;
+    }
+
     private static void AddBytes(StreamingParseStats stats, string line)
     {
-        // UTF-8 字节近似：line.Length 是 UTF-16 char 数；多数 ASC 为 ASCII → 1B/char。
         stats.AddBytes(line.Length + 1);
     }
 }
+

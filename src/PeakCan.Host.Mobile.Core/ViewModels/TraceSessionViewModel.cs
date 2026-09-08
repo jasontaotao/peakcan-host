@@ -69,6 +69,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string _playPauseLabel = "▶";
     [ObservableProperty] private double _progress01;
     [ObservableProperty] private bool _isSeekBusy;
+    [ObservableProperty] private bool _isSeekDragging;
+    [ObservableProperty] private string _seekProgressText = string.Empty;
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string? _idFilterText;
 
@@ -88,7 +90,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         ClearPlaybackBuffer();
 
         var source = _sourceFactory.Create(cachedFilePath);
-        var open = await source.OpenAsync(ct);
+        var open = await source.OpenAsync(ct: ct);
         var prefetched = 0;
         await foreach (var f in open.Frames.WithCancellation(ct))
         {
@@ -151,7 +153,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
         foreach (var row in batch) _rows.Add(row);
         CurrentTimeText = FormatTime(batch[^1].Timestamp);
-        if (_durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
+        if (!IsSeekDragging && _durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
         UpdateViewport();
     }
 
@@ -199,7 +201,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _ui.Post(() =>
         {
             IsSeekBusy = p < 1.0;
-            if (_durationKnownValue && _duration > 0) Progress01 = Math.Clamp(p, 0, 1);
+            SeekProgressText = p < 1.0 ? $"快进 {p:P0}..." : string.Empty;
+            // 不覆盖 Progress01：快进扫描进度 ≠ 播放位置；
+            // seek 完成后 Drain 基于实际帧更新 Progress01
         });
     }
 
@@ -219,8 +223,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
         {
             ClearPlaybackBuffer();
-            CurrentTimeText = "00:00:00";
-            Progress01 = 0;
+            // 保留 seek 位置，不重置 Progress01/CurrentTimeText
         }
 
         _ = _player.PlayAsync();
@@ -242,11 +245,17 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     }
 
     [RelayCommand]
-    private void SeekTo(double timestamp)
+    private void SeekTo(double fraction)
     {
         if (_player is null || !DurationKnown) return;
         IsSeekBusy = true;
-        _ = _player.SeekAsync(Math.Clamp(timestamp, 0, _duration));
+        IsSeekDragging = false;
+        SeekProgressText = "快进...";
+        var ts = Math.Clamp(fraction, 0, 1) * _duration;
+        _ = _player.SeekAsync(ts);
+        CurrentTimeText = FormatTime(ts);
+        // Stopped 状态下 seek 不 emit 帧；清空旧数据让用户知道位置已变
+        if (State == SessionState.Ready) ClearPlaybackBuffer();
     }
 
     partial void OnIdFilterTextChanged(string? value)
@@ -298,3 +307,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         }
     }
 }
+
+
+
+
+
+

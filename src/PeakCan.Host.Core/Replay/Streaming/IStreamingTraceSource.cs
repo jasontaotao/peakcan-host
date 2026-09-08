@@ -9,5 +9,7 @@ namespace PeakCan.Host.Core.Replay;
 /// </summary>
 public interface IStreamingTraceSource
 {
-    Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default);
+    /// <summary>skipUntil: 只产出 timestamp >= skipUntil 的帧；之前的行仅做轻量时间戳检查。</summary>
+    Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default);
 }
+

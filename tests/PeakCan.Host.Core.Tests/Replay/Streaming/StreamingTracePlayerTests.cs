@@ -126,16 +126,19 @@ public class StreamingTracePlayerTests
 
     private sealed class FuncSource(Func<Stream> factory) : IStreamingTraceSource
     {
-        public Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default)
+        public Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default)
         {
             var source = new AscStreamingSource(factory);
-            return source.OpenAsync(ct);
+            return source.OpenAsync(skipUntil, ct);
         }
     }
 
     private sealed class ThrowingSource : IStreamingTraceSource
     {
-        public Task<StreamingTraceOpenResult> OpenAsync(CancellationToken ct = default)
+        public Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default)
             => throw new InvalidOperationException("boom");
     }
 }
+
+
+
