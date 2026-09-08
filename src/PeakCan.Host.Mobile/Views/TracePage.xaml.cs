@@ -47,24 +47,24 @@ public partial class TracePage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        DeviceDisplay.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
+        SizeChanged += OnPageSizeChanged;
         ApplyChartFullscreen();
     }
 
     protected override void OnDisappearing()
     {
-        DeviceDisplay.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
+        SizeChanged -= OnPageSizeChanged;
         base.OnDisappearing();
     }
 
-    private void OnMainDisplayInfoChanged(object? sender, DisplayInfoChangedEventArgs e)
+    private void OnPageSizeChanged(object? sender, EventArgs e)
     {
         ApplyChartFullscreen();
     }
 
     private void ApplyChartFullscreen()
     {
-        var isFullscreen = _isChartTab && DeviceDisplay.MainDisplayInfo.Orientation == DisplayOrientation.Landscape;
+        var isFullscreen = _isChartTab && Width > Height;
         ControlsRow.IsVisible = !isFullscreen;
         DbcStatusRow.IsVisible = !isFullscreen;
         SeekSlider.IsVisible = !isFullscreen;
@@ -240,6 +240,7 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
 
 
 
