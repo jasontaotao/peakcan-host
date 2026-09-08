@@ -15,7 +15,7 @@ public interface ITraceCacheSink : IAsyncDisposable
     void Enqueue(ReplayFrame frame);
 
     /// <summary>Drain queued frames. <paramref name="markComplete"/> is true only for clean EOF.</summary>
-    Task CloseAsync(bool markComplete, CancellationToken ct = default);
+    Task<bool> CloseAsync(bool markComplete, CancellationToken ct = default);
 }
 
 /// <summary>Creates a cache sink for one trace playback session.</summary>

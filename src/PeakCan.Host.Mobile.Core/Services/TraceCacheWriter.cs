@@ -72,12 +72,12 @@ public sealed class TraceCacheWriter : ITraceCacheSink
         }
     }
 
-    public async Task CloseAsync(bool markComplete, CancellationToken ct = default)
+    public async Task<bool> CloseAsync(bool markComplete, CancellationToken ct = default)
     {
         CloseStartedForTests?.Invoke();
         lock (_enqueueGate)
         {
-            if (Interlocked.Exchange(ref _closed, 1) != 0) return;
+            if (Interlocked.Exchange(ref _closed, 1) != 0) return false;
             _channel.Writer.TryComplete();
         }
         try
@@ -93,8 +93,10 @@ public sealed class TraceCacheWriter : ITraceCacheSink
         if (Failure is null && _lastTimestamp > 0)
             await _store.UpdateLastPositionAsync(_traceId, _lastTimestamp, ct).ConfigureAwait(false);
 
-        if (markComplete && Failure is null && Interlocked.Read(ref _dropped) == 0)
+        var markedComplete = markComplete && Failure is null && Interlocked.Read(ref _dropped) == 0;
+        if (markedComplete)
             await _store.MarkCompletedAsync(_traceId, ct).ConfigureAwait(false);
+        return markedComplete;
     }
 
     private async Task PumpAsync()

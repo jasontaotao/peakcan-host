@@ -38,16 +38,17 @@ public class TraceSessionViewModelTests
         public long DroppedFrames { get; private set; }
         public Exception? Failure { get; private set; }
         public List<bool> ClosedStates { get; } = [];
+        public bool CloseResult { get; set; } = true;
         public TaskCompletionSource ClosedCompletion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void Enqueue(ReplayFrame frame) => Frames.Add(frame);
 
-        public Task CloseAsync(bool markComplete, CancellationToken ct = default)
+        public Task<bool> CloseAsync(bool markComplete, CancellationToken ct = default)
         {
             ClosedStates.Add(markComplete);
             IsEnabled = false;
             ClosedCompletion.TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(CloseResult);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -165,6 +166,28 @@ public class TraceSessionViewModelTests
         env.Player.EmitEof();
         await env.CacheFactory.NextSink!.ClosedCompletion.Task;
         env.CacheFactory.NextSink.ClosedStates.Should().Equal([true]);
+    }
+
+    [Fact]
+    public async Task PlaybackEnded_Shows_Incomplete_When_Cache_Cannot_Mark_Complete()
+    {
+        var env = new Env();
+        env.CacheFactory.NextSink!.CloseResult = false;
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+
+        var statusPosted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Ui.PostExecuted += () =>
+        {
+            if (!string.IsNullOrEmpty(env.Vm.CacheStatusText))
+                statusPosted.TrySetResult();
+        };
+
+        env.Player.EmitEof();
+        await statusPosted.Task;
+
+        env.Vm.CacheStatusText.Should().Be("缓存未完成");
     }
 
     [Fact]

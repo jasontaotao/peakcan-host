@@ -239,8 +239,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             {
                 try
                 {
-                    await sink.CloseAsync(e.Error is null).ConfigureAwait(false);
-                    _ui.Post(() => CacheStatusText = e.Error is null ? "缓存完成" : "缓存未完成");
+                    var cacheComplete = await sink.CloseAsync(e.Error is null).ConfigureAwait(false);
+                    _ui.Post(() => CacheStatusText = cacheComplete ? "缓存完成" : "缓存未完成");
                 }
                 catch
                 {
