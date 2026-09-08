@@ -65,14 +65,18 @@ public partial class UdsClient : IDisposable
     /// Defaults to <c>null</c> for backward compatibility with v1.2.x
     /// callers.
     /// </param>
-    public UdsClient(IsoTpLayer isoTp, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
+    /// <param name="timeProvider">
+    /// M3.2（spec D5）：lockout 计时 TimeProvider（可选注入，缺省 System）。
+    /// 端到端测试与 server 共享虚拟时钟。
+    /// </param>
+    public UdsClient(IsoTpLayer isoTp, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null, TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(isoTp);
 
         _isoTp = isoTp;
         _timer = timer ?? new UdsTimer();
         Session = new UdsSession(sessionLogger);
-        Security = new UdsSecurity();
+        Security = new UdsSecurity(timeProvider);
 
         // Subscribe to ISO-TP messages
         _isoTp.MessageReceived += OnMessageReceived;
@@ -91,7 +95,7 @@ public partial class UdsClient : IDisposable
     /// Defaults to <c>null</c> for backward compatibility with v1.2.x
     /// callers.
     /// </param>
-    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null, TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(isoTp);
         ArgumentNullException.ThrowIfNull(keyAlgorithm);
@@ -100,7 +104,7 @@ public partial class UdsClient : IDisposable
         _keyAlgorithm = keyAlgorithm;
         _timer = timer ?? new UdsTimer();
         Session = new UdsSession(sessionLogger);
-        Security = new UdsSecurity();
+        Security = new UdsSecurity(timeProvider);
 
         // Subscribe to ISO-TP messages
         _isoTp.MessageReceived += OnMessageReceived;
@@ -128,8 +132,8 @@ public partial class UdsClient : IDisposable
     /// Optional logger threaded into <see cref="UdsSession"/>. Defaults
     /// to <c>null</c> for backward compatibility with v1.2.x callers.
     /// </param>
-    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsSecurityLockoutConfig lockoutConfig, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null)
-        : this(isoTp, keyAlgorithm, timer, sessionLogger)
+    public UdsClient(IsoTpLayer isoTp, IKeyDerivationAlgorithm keyAlgorithm, UdsSecurityLockoutConfig lockoutConfig, UdsTimer? timer = null, ILogger<UdsSession>? sessionLogger = null, TimeProvider? timeProvider = null)
+        : this(isoTp, keyAlgorithm, timer, sessionLogger, timeProvider)
     {
         ArgumentNullException.ThrowIfNull(lockoutConfig);
         Security.LockoutConfig = lockoutConfig;
