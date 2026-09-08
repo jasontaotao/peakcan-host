@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Mobile.Core.Platform;
+using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Core.ViewModels;
 using PeakCan.Host.Mobile.Views;
 
@@ -18,9 +19,10 @@ public sealed class TracePageFactory(IServiceProvider services) : ITracePageFact
             services.GetRequiredService<ILogger<TraceSessionViewModel>>());
 
     public ContentPage CreateBrowse(long traceId)
-        => new ContentPage
-        {
-            Title = "Trace",
-            Content = new Label { Text = $"Cached trace {traceId}" }
-        };
+        => new BrowsePage(
+            services.GetRequiredService<ITraceCacheStore>(),
+            traceId);
 }
+
+
+
