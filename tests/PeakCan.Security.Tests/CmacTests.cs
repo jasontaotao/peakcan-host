@@ -50,14 +50,17 @@ public sealed class CmacTests
     public static IEnumerable<object[]> VectorData =>
         NistVectors.Select(v => new object[] { v.KeyHex, v.MsgHex, v.MacHex });
 
-    [Fact]
-    public void rejects_wrong_length_key()
+    [Theory]
+    [InlineData(15)]
+    [InlineData(24)]
+    [InlineData(32)]
+    public void rejects_non_16_byte_key(int keyLength)
     {
-        // Arrange
+        // Arrange（spec §6.1 AES-128：密钥恒 16 字节）
         var provider = new BouncyCastleCmacProvider();
 
         // Act
-        var act = () => provider.Compute(new byte[15], ReadOnlySpan<byte>.Empty, new byte[16]);
+        var act = () => provider.Compute(new byte[keyLength], ReadOnlySpan<byte>.Empty, new byte[16]);
 
         // Assert
         act.Should().Throw<ArgumentException>();

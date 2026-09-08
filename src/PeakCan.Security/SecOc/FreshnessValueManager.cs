@@ -12,6 +12,8 @@ public sealed class FreshnessValueManager
     public FreshnessValueManager(uint initialFv = 0) => _current = initialFv;
 
     /// <summary>取当前完整 freshness 值并自增（首帧返回 0）。</summary>
+    /// <remarks>uint 在 2^32 帧后回绕到 0——v1 闭环场景不可达（2^32 帧 @10ms 周期 ≈ 1.3 年），
+    /// 不做处理；回绕后 RX 单调性判定会失效，属 v2（真实 FM 同步）职责。</remarks>
     public uint TakeNext() => _current++;
 
     /// <summary>

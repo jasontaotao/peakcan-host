@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 
 namespace PeakCan.Security.Keystore;
@@ -8,6 +9,7 @@ namespace PeakCan.Security.Keystore;
 /// suite 分享时对端需自行导入密钥。非 Windows 平台调用会抛
 /// <see cref="PlatformNotSupportedException"/>（ProtectedData 行为）。
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class DpapiKeyStore : IKeyStore
 {
     private readonly string _directory;
@@ -23,7 +25,8 @@ public sealed class DpapiKeyStore : IKeyStore
 
     public IReadOnlyCollection<string> KeyIds
         => Directory.EnumerateFiles(_directory, "*.bin")
-            .Select(Path.GetFileNameWithoutExtension!)
+            .Select(f => Path.GetFileNameWithoutExtension(f)!)
+            .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
 
     public bool Contains(string keyId) => File.Exists(PathFor(keyId));

@@ -63,4 +63,25 @@ public sealed class SecuredFrameVectorTests
         written.Should().Be(frame.Length);
         frame.Should().Equal(vec.SecuredFrame);
     }
+
+    [Fact]
+    public void verify_accepts_python_vectors_in_sequence()
+    {
+        // M-1：RX 解析（FV/MAC 偏移、截断方向）独立于 .NET Sign 交叉验证——
+        // 只喂 pycryptodome 生成的帧字节，断言逐个验收/拒绝分类。
+        // 顺序：fv65535（首帧）→ fv65536（k=+1 跨块）→ fv42（回退超窗）→ fv0
+        var profile = new SecOcProfile { DataId = 0x0001, FvLenBits = 16, MacLenBits = 24 };
+        var auth = new SecOcAuthenticator(profile, Vectors[0].Key, new BouncyCastleCmacProvider());
+
+        auth.Verify(Vectors[2].SecuredFrame).Accepted.Should().BeTrue("fv65535 首帧");
+        auth.Verify(Vectors[3].SecuredFrame).Accepted.Should().BeTrue("fv65536 跨块 k=+1");
+
+        var r1 = auth.Verify(Vectors[4].SecuredFrame);
+        r1.Accepted.Should().BeFalse();
+        r1.Reason.Should().Be(RejectReason.FvAnomaly);
+
+        var r2 = auth.Verify(Vectors[0].SecuredFrame);
+        r2.Accepted.Should().BeFalse();
+        r2.Reason.Should().Be(RejectReason.FvAnomaly);
+    }
 }

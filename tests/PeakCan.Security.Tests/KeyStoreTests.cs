@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using PeakCan.Security.Keystore;
 
 namespace PeakCan.Security.Tests;
@@ -81,6 +82,7 @@ public sealed class InMemoryKeyStoreTests
     }
 }
 
+[SupportedOSPlatform("windows")]
 public sealed class DpapiKeyStoreTests
 {
     [Fact]

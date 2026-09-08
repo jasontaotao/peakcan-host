@@ -171,6 +171,85 @@ public sealed class SecOcAuthenticatorVerifyTests
         result.Accepted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(24)]
+    [InlineData(32)]
+    public void rejects_fv_len_above_16(int fvLenBits)
+    {
+        // H-1：fvLen>16 在 v1 实现里 TX 崩溃 / RX 静默误判（ushort 截断、
+        // Sign 切片越界），必须 fail-fast 拒绝而非放行后烂掉。
+        // 24 位 freshness（样例矩阵 VCU_ChrgCtrlCmd 行）属 v2 扩展。
+        var profile = new SecOcProfile { DataId = 1, FvLenBits = fvLenBits, MacLenBits = 24 };
+
+        // Act
+        var act = () => new SecOcAuthenticator(profile, Key, new BouncyCastleCmacProvider());
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void rejects_fv_full_bits_not_32()
+    {
+        // H-1：ComputeMac 固定写 4 字节 FV，FvFullBits≠32 时字节序/长度不一致
+        var profile = new SecOcProfile { DataId = 1, FvLenBits = 16, MacLenBits = 24, FvFullBits = 64 };
+
+        // Act
+        var act = () => new SecOcAuthenticator(profile, Key, new BouncyCastleCmacProvider());
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void key_is_defensively_copied_on_construction()
+    {
+        // M-2：调用方构造后修改源数组不得影响已构造的加签器
+        // Arrange：构造后、签名前就变异调用方数组——只有构造时拍了快照才会免疫
+        var key = Convert.FromHexString("00112233445566778899aabbccddeeff");
+        var auth = new SecOcAuthenticator(Profile(), key, new BouncyCastleCmacProvider());
+        key[0] ^= 0xFF; // 模拟外部在 auth 存活期间改写了数组
+        var baseline = new SecOcAuthenticator(
+            Profile(), Convert.FromHexString("00112233445566778899aabbccddeeff"),
+            new BouncyCastleCmacProvider());
+        var f1 = Sign(auth, 0x01);       // fv=0
+        var f2 = Sign(baseline, 0x01);   // fv=0，原 key
+
+        // Assert：auth 用的是构造时快照（原 key）⇒ 与 baseline 的 MAC 逐字节一致
+        //（无防御拷贝时 auth 持有的就是被改的数组，f1 的 MAC 会不同）
+        f1.AsSpan(3).SequenceEqual(f2.AsSpan(3)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void classifies_window_boundary_and_previous_block_rollback()
+    {
+        // LOW 补全：窗口边界（diff==Window → FvRollback / diff==Window+1 → FvAnomaly）
+        // 与 k=−1 作为首个通过者（跨块旧帧）。
+        // fvLen=8 → Window=2^7=128；接受 0..260（含 256 跨块）
+        var profile = new SecOcProfile { DataId = 0x0001, FvLenBits = 8, MacLenBits = 24 };
+        var auth = new SecOcAuthenticator(profile, Key, new BouncyCastleCmacProvider());
+        var frames = new List<byte[]>();
+        for (var i = 0; i <= 260; i++)
+            frames.Add(Sign(auth, 0x01));
+        for (var i = 0; i < frames.Count; i++)
+            auth.Verify(frames[i]).Accepted.Should().BeTrue($"frame {i} 应被接受");
+
+        // last=260：132 → diff==128 恰在窗口内 → FvRollback
+        var rBoundary = auth.Verify(frames[132]);
+        rBoundary.Accepted.Should().BeFalse();
+        rBoundary.Reason.Should().Be(RejectReason.FvRollback);
+
+        // last=260：131 → diff==129 越出窗口 → FvAnomaly
+        var rBeyond = auth.Verify(frames[131]);
+        rBeyond.Accepted.Should().BeFalse();
+        rBeyond.Reason.Should().Be(RejectReason.FvAnomaly);
+
+        // 上一块旧帧：k=−1 作为首个通过者（recvLow=200 的高位组合）→ FvRollback
+        var rPrevBlock = auth.Verify(frames[200]);
+        rPrevBlock.Accepted.Should().BeFalse();
+        rPrevBlock.Reason.Should().Be(RejectReason.FvRollback);
+    }
+
     [Fact]
     public void rejects_malformed_frame()
     {

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using PeakCan.Security.Cmac;
 
 namespace PeakCan.Security.SecOc;
@@ -23,7 +24,8 @@ public sealed class SecOcAuthenticator
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(cmac);
         _profile = profile;
-        _key = key;
+        // M-2：防御性拷贝——不持有调用方数组引用，防外部变更静默换钥
+        _key = (byte[])key.Clone();
         _cmac = cmac;
         _txFv = new FreshnessValueManager(initialFv);
     }
@@ -31,12 +33,18 @@ public sealed class SecOcAuthenticator
     private static void ValidateProfile(SecOcProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        if (profile.FvLenBits <= 0 || profile.FvLenBits % 8 != 0)
-            throw new ArgumentException("FvLenBits 必须为正的 8 的倍数", nameof(profile));
+        // v1 实现边界（H-1 加固）：TruncatedFor/ReadTruncatedFv 基于 ushort，
+        // fvLen>16 会静默截断（Verify 假 BadMac）或 Sign 切片越界崩溃——
+        // 必须 fail-fast。24 位 freshness（样例矩阵 VCU_ChrgCtrlCmd 行）为 v2 扩展。
+        if (profile.FvLenBits <= 0 || profile.FvLenBits % 8 != 0 || profile.FvLenBits > 16)
+            throw new ArgumentException("FvLenBits 必须是 8 的倍数且 ≤ 16（v1）", nameof(profile));
         if (profile.MacLenBits <= 0 || profile.MacLenBits % 8 != 0 || profile.MacLenBits > 128)
             throw new ArgumentException("MacLenBits 必须是 8 的倍数且 ≤ 128", nameof(profile));
         if (profile.FvLenBits > profile.FvFullBits)
             throw new ArgumentException("FvLenBits 不能超过 FvFullBits", nameof(profile));
+        // ComputeMac 固定按 32bit 完整 FV 序列化；≠32 会破坏 MAC 输入字节序
+        if (profile.FvFullBits != 32)
+            throw new ArgumentException("FvFullBits v1 固定为 32", nameof(profile));
     }
 
     /// <summary>加签后帧长 = 数据区 + fvLen/8 + macLen/8。</summary>
@@ -142,8 +150,10 @@ public sealed class SecOcAuthenticator
     private bool TryVerifyMac(ReadOnlySpan<byte> authenticData, uint freshness,
         ReadOnlySpan<byte> receivedMac)
     {
+        // M-3：恒定时间比较，避免字节级 MAC 时序 oracle（候选至多 3 次）
         var fullMac = ComputeMac(authenticData, freshness);
-        return fullMac.AsSpan()[..(_profile.MacLenBits / 8)].SequenceEqual(receivedMac);
+        return CryptographicOperations.FixedTimeEquals(
+            fullMac.AsSpan()[..(_profile.MacLenBits / 8)], receivedMac);
     }
 
     private static ushort ReadTruncatedFv(ReadOnlySpan<byte> bytes, int byteCount)
