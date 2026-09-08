@@ -162,6 +162,19 @@ public class TraceChartViewModelTests
     }
 
     [Fact]
+    public void UpdateCursor_DoesNotRaise_RenderChanged()
+    {
+        var raised = 0;
+        var vm = Create();
+        vm.RenderChanged += (_, _) => raised++;
+
+        vm.UpdateCursor(1);
+
+        raised.Should().Be(0);
+        vm.Cursor!.Value.Timestamp.Should().Be(1);
+    }
+
+    [Fact]
     public void RefreshRender_Raises_RenderChanged_On_Ui_Thread()
     {
         var ui = new FakeUiDispatcher();
@@ -174,4 +187,5 @@ public class TraceChartViewModelTests
         raised.Should().Be(1);
     }
 }
+
 

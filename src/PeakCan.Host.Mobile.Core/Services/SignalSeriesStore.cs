@@ -46,7 +46,7 @@ public sealed class SignalSeriesStore
         lock (_gate)
         {
             if (_samples.Count == 0) return [];
-            return RenderLocked(_samples.Peek().Timestamp, _samples.Last().Timestamp, bucketCount);
+            return RenderLocked(_samples.Min(s => s.Timestamp), _samples.Max(s => s.Timestamp), bucketCount);
         }
     }
 
@@ -77,11 +77,18 @@ public sealed class SignalSeriesStore
         {
             if (!hasBucket) return;
             if (min == max)
+            {
                 result.Add(new ChartPoint(minAt, min));
-            else
+            }
+            else if (minAt <= maxAt)
             {
                 result.Add(new ChartPoint(minAt, min));
                 result.Add(new ChartPoint(maxAt, max));
+            }
+            else
+            {
+                result.Add(new ChartPoint(maxAt, max));
+                result.Add(new ChartPoint(minAt, min));
             }
         }
 
@@ -117,4 +124,6 @@ public sealed class SignalSeriesStore
         return result;
     }
 }
+
+
 

@@ -57,6 +57,22 @@ public class SignalSeriesStoreTests
     }
 
     [Fact]
+    public void GetRenderPoints_Emits_Min_Max_In_Timestamp_Order()
+    {
+        var store = new SignalSeriesStore(capacity: 4);
+        store.Add(0, 10);
+        store.Add(1, 0);
+
+        var points = store.GetRenderPoints(1);
+
+        points.Should().HaveCount(2);
+        points[0].Timestamp.Should().Be(0);
+        points[0].Value.Should().Be(10);
+        points[1].Timestamp.Should().Be(1);
+        points[1].Value.Should().Be(0);
+    }
+
+    [Fact]
     public void GetRenderPoints_Ignores_Outside_Time_Range()
     {
         var store = new SignalSeriesStore(capacity: 10);
@@ -134,6 +150,7 @@ public class SignalSeriesStoreTests
         store.GetRenderPoints(4).Should().BeEmpty();
     }
 }
+
 
 
 

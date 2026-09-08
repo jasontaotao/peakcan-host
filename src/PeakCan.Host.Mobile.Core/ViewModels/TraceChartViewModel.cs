@@ -127,7 +127,7 @@ public sealed class TraceChartViewModel : ObservableObject
         }
     }
 
-    /// <summary>Update the vertical playback cursor.</summary>
+    /// <summary>Update the vertical playback cursor; render with <see cref="RefreshRender"/>.</summary>
     public void UpdateCursor(double timestamp, double? minimum = null, double? maximum = null)
     {
         if (!double.IsFinite(timestamp)) return;
@@ -135,8 +135,6 @@ public sealed class TraceChartViewModel : ObservableObject
         {
             _cursor = new ChartCursor(timestamp, minimum ?? _cursor?.Minimum, maximum ?? _cursor?.Maximum);
         }
-
-        RaiseRenderChanged();
     }
 
     /// <summary>Regenerate downsampled render points for selected series.</summary>
