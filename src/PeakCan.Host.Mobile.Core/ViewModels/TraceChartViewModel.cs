@@ -13,10 +13,11 @@ public sealed class TraceChartViewModel : ObservableObject
 {
     private const int DefaultRenderBuckets = 512;
     private readonly IUiDispatcher _ui;
+    private readonly object _stateGate = new();
     private readonly Dictionary<SignalSelectionKey, SignalSeriesStore> _stores = new();
     private readonly Dictionary<SignalSelectionKey, IReadOnlyList<ChartPoint>> _renderPoints = new();
     private SignalCatalog? _catalog;
-    private SignalCursor? _cursor;
+    private ChartCursor? _cursor;
 
     public TraceChartViewModel(DbcCatalog? catalog, IUiDispatcher ui)
     {
@@ -32,8 +33,7 @@ public sealed class TraceChartViewModel : ObservableObject
     public IReadOnlyDictionary<SignalSelectionKey, IReadOnlyList<ChartPoint>> RenderPoints =>
         _renderPoints;
 
-    public ChartCursor? Cursor =>
-        _cursor is null ? null : new ChartCursor(_cursor.Value.Timestamp, _cursor.Value.Minimum, _cursor.Value.Maximum);
+    public ChartCursor? Cursor => _cursor;
 
     public event EventHandler? RenderChanged;
 
@@ -42,16 +42,22 @@ public sealed class TraceChartViewModel : ObservableObject
     {
         _catalog = catalog is null ? null : SignalCatalog.FromDbc(catalog);
         var previous = SelectedSignals.ToList();
-        _stores.Clear();
-        _renderPoints.Clear();
-        _cursor = null;
-        SelectedSignals = [];
 
-        foreach (var item in previous)
+        lock (_stateGate)
         {
-            if (FindItem(item.Key) is null) continue;
-            SelectedSignals = [.. SelectedSignals, item];
-            _stores.Add(item.Key, new SignalSeriesStore());
+            _stores.Clear();
+            _renderPoints.Clear();
+            _cursor = null;
+            SelectedSignals = [];
+
+            foreach (var item in previous)
+            {
+                var matched = FindItem(item.Key);
+                if (matched is null) continue;
+
+                SelectedSignals = [.. SelectedSignals, matched];
+                _stores.Add(matched.Key, new SignalSeriesStore());
+            }
         }
 
         RaiseRenderChanged();
@@ -61,16 +67,18 @@ public sealed class TraceChartViewModel : ObservableObject
     public bool Select(SignalSelectionKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        if (_stores.ContainsKey(key)) return true;
-        if (_stores.Count >= 2) return false;
+        lock (_stateGate)
+        {
+            if (_stores.ContainsKey(key)) return true;
+            if (_stores.Count >= 2) return false;
 
-        var item = FindItem(key);
-        if (item is null) return false;
+            var item = FindItem(key);
+            if (item is null) return false;
 
-        var selected = SelectedSignals.ToList();
-        selected.Add(item);
-        SelectedSignals = selected;
-        _stores.Add(key, new SignalSeriesStore());
+            SelectedSignals = [.. SelectedSignals, item];
+            _stores.Add(key, new SignalSeriesStore());
+        }
+
         RaiseRenderChanged();
         return true;
     }
@@ -79,19 +87,26 @@ public sealed class TraceChartViewModel : ObservableObject
     public void Deselect(SignalSelectionKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        if (!_stores.Remove(key)) return;
+        lock (_stateGate)
+        {
+            if (!_stores.Remove(key)) return;
+            SelectedSignals = SelectedSignals.Where(i => !i.Key.Equals(key)).ToArray();
+            _renderPoints.Remove(key);
+        }
 
-        SelectedSignals = SelectedSignals.Where(i => !i.Key.Equals(key)).ToArray();
-        _renderPoints.Remove(key);
         RaiseRenderChanged();
     }
 
     /// <summary>Clear all samples and the cursor; selections remain.</summary>
     public void Clear()
     {
-        foreach (var store in _stores.Values) store.Clear();
-        _renderPoints.Clear();
-        _cursor = null;
+        lock (_stateGate)
+        {
+            foreach (var store in _stores.Values) store.Clear();
+            _renderPoints.Clear();
+            _cursor = null;
+        }
+
         RaiseRenderChanged();
     }
 
@@ -99,13 +114,16 @@ public sealed class TraceChartViewModel : ObservableObject
     public void Ingest(ReplayFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        if (_catalog is null) return;
-
-        foreach (var (key, store) in _stores)
+        lock (_stateGate)
         {
-            if (key.CanId != frame.Id || key.IsExtended != frame.IsExtended) continue;
-            if (_catalog.TryDecodeSignal(frame.Id, frame.IsExtended, frame.Data, frame.Dlc, key.SignalName, out var value))
-                store.Add(frame.Timestamp, value);
+            if (_catalog is null) return;
+
+            foreach (var (key, store) in _stores)
+            {
+                if (key.CanId != frame.Id || key.IsExtended != frame.IsExtended) continue;
+                if (_catalog.TryDecodeSignal(frame.Id, frame.IsExtended, frame.Data, frame.Dlc, key.SignalName, out var value))
+                    store.Add(frame.Timestamp, value);
+            }
         }
     }
 
@@ -113,16 +131,23 @@ public sealed class TraceChartViewModel : ObservableObject
     public void UpdateCursor(double timestamp, double? minimum = null, double? maximum = null)
     {
         if (!double.IsFinite(timestamp)) return;
-        _cursor = new SignalCursor(timestamp, minimum ?? _cursor?.Minimum, maximum ?? _cursor?.Maximum);
+        lock (_stateGate)
+        {
+            _cursor = new ChartCursor(timestamp, minimum ?? _cursor?.Minimum, maximum ?? _cursor?.Maximum);
+        }
+
         RaiseRenderChanged();
     }
 
     /// <summary>Regenerate downsampled render points for selected series.</summary>
     public void RefreshRender()
     {
-        _renderPoints.Clear();
-        foreach (var (key, store) in _stores)
-            _renderPoints.Add(key, store.GetRenderPoints(DefaultRenderBuckets));
+        lock (_stateGate)
+        {
+            _renderPoints.Clear();
+            foreach (var (key, store) in _stores)
+                _renderPoints.Add(key, store.GetRenderPoints(DefaultRenderBuckets));
+        }
 
         RaiseRenderChanged();
     }
@@ -144,10 +169,4 @@ public sealed class TraceChartViewModel : ObservableObject
     {
         _ui.Post(() => RenderChanged?.Invoke(this, EventArgs.Empty));
     }
-
-    private readonly record struct SignalCursor(double Timestamp, double? Minimum, double? Maximum);
 }
-
-
-
-

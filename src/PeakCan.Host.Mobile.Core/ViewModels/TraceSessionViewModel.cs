@@ -43,6 +43,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private ITraceCacheSink? _cacheSink;
     private long? _traceId;
     private DbcCatalog? _dbc;
+    private readonly TraceChartViewModel _chart;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory,
@@ -53,6 +54,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
         _cacheSinkFactory = cacheSinkFactory;
+        _chart = new TraceChartViewModel(null, ui);
         for (var i = 0; i < ViewportRowCount; i++)
             _viewport[i] = new FrameRowSlot();
     }
@@ -93,11 +95,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     public DbcCatalog? Dbc => _dbc;
 
+    /// <summary>Chart-side selected signal state.</summary>
+    public TraceChartViewModel Chart => _chart;
+
     /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
     public void SetDbc(DbcCatalog? catalog)
     {
         _dbc = catalog;
         DbcStatusText = catalog is null ? "未加载 DBC" : $"DBC: {catalog.SourceName}";
+        _chart.SetCatalog(catalog);
         ClearPlaybackBuffer();
     }
 
@@ -173,6 +179,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         lock (_cacheSinkGate) cacheSink = _cacheSink;
         cacheSink?.Enqueue(f);
 
+        if (PassesFilter(f)) _chart.Ingest(f);
+
         lock (_emitGate)
         {
             if (!PassesFilter(f)) return;
@@ -199,6 +207,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         CurrentTimeText = FormatTime(batch[^1].Timestamp);
         if (!IsSeekDragging && _durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
         SkippedLinesText = _player?.SkippedLines > 0 ? $"已跳过 {_player.SkippedLines} 行" : string.Empty;
+        _chart.UpdateCursor(batch[^1].Timestamp);
+        _chart.RefreshRender();
         UpdateViewport();
     }
 
@@ -221,6 +231,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         lock (_emitGate) _pending.Clear();
         _rows.Clear();
         SkippedLinesText = string.Empty;
+        _chart.Clear();
         UpdateViewport();
     }
 
@@ -385,6 +396,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         sink?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
+
 
 
 

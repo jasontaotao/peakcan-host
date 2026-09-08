@@ -388,6 +388,110 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public void Chart_IsAvailable_After_Session_IsReady()
+    {
+        var env = new Env();
+
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Vm.Chart.Should().NotBeNull();
+        env.Vm.Chart.Messages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SetDbc_Syncs_Chart_Catalog_And_Clears_Chart()
+    {
+        var env = new Env();
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+        env.Vm.SetDbc(catalog);
+
+        env.Vm.Chart.Messages.Should().Contain(m => m.Name == "EngineData");
+        env.Vm.Chart.Cursor.Should().BeNull();
+    }
+
+    [Fact]
+    public void Drain_Accumulates_Selected_Signal_Samples_And_Cursor()
+    {
+        var env = new Env();
+        env.Vm.SetDbc(DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """).Catalog!);
+        env.Vm.Chart.Select(new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed")).Should().BeTrue();
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Player.Emit(F(1, 0x100));
+        env.Player.Emit(F(2, 0x200));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.Chart.SelectedSignals.Should().HaveCount(1);
+        env.Vm.Chart.Cursor!.Value.Timestamp.Should().Be(2);
+        env.Vm.Chart.RenderPoints.Should().ContainKey(new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed"));
+    }
+
+    [Fact]
+    public void IdFilter_Excludes_Chart_Samples()
+    {
+        var env = new Env();
+        env.Vm.SetDbc(DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """).Catalog!);
+        env.Vm.Chart.Select(new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed")).Should().BeTrue();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("0x100");
+
+        env.Player.Emit(F(1, 0x200));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.Chart.Cursor.Should().BeNull();
+    }
+
+    [Fact]
+    public void Stop_Clears_Chart_Samples()
+    {
+        var env = new Env();
+        env.Vm.SetDbc(DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """).Catalog!);
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(F(1, 0x100));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.StopCommand.Execute(null);
+
+        env.Vm.Chart.RenderPoints.Should().BeEmpty();
+        env.Vm.Chart.Cursor.Should().BeNull();
+        env.Vm.Chart.SelectedSignals.Should().ContainSingle(i => i.Key == key);
+    }
+
+    [Fact]
     public async Task TogglePlay_FromReady_ClearsPrefetchedViewport()
     {
         var env = new Env();
@@ -444,3 +548,5 @@ internal sealed class AsyncFrameSeq(params ReplayFrame[] frames)
         }
     }
 }
+
+
