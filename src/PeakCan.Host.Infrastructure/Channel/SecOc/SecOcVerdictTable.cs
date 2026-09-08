@@ -43,7 +43,7 @@ public sealed record SecOcStatsBucket(long Accepted, long Rejected, RejectReason
 /// the HIL assertion layer (Phase 2: expression registry, M2.4).
 /// Thread-safe; RX path is the only writer.
 /// </summary>
-public sealed class SecOcStats
+public sealed class SecOcStats : global::PeakCan.Host.Core.HIL.Contracts.ISecOcStats
 {
     private readonly ConcurrentDictionary<uint, (long Accepted, long Rejected, RejectReason? LastReason)> _buckets = new();
 
@@ -67,4 +67,17 @@ public sealed class SecOcStats
 
     public long TotalAccepted => _buckets.Values.Sum(b => b.Accepted);
     public long TotalRejected => _buckets.Values.Sum(b => b.Rejected);
+
+    bool global::PeakCan.Host.Core.HIL.Contracts.ISecOcStats.TryGet(uint canId,
+        out global::PeakCan.Host.Core.HIL.Contracts.SecOcVerdictBucket bucket)
+    {
+        if (TryGet(canId, out var b))
+        {
+            bucket = new global::PeakCan.Host.Core.HIL.Contracts.SecOcVerdictBucket(
+                b.Accepted, b.Rejected, b.LastReason?.ToString());
+            return true;
+        }
+        bucket = new global::PeakCan.Host.Core.HIL.Contracts.SecOcVerdictBucket(0, 0, null);
+        return false;
+    }
 }

@@ -230,8 +230,10 @@ public static class HeadlessHostBuilder
                 var rawChannel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
-                var channel = ComposeChannel(rawChannel, args, logger);
-                return new HILAssertionContext(channel, dbc, logger);
+                var channel = ComposeChannel(rawChannel, args, logger,
+                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>());
+                return new HILAssertionContext(channel, dbc, logger,
+                    sp.GetService<PeakCan.Host.Core.HIL.Contracts.ISecOcStats>());
             });
             RegisterUdsServices(builder, args);
         }
@@ -243,8 +245,10 @@ public static class HeadlessHostBuilder
                 var rawChannel = sp.GetRequiredService<ICanChannel>();
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<HILAssertionContext>>();
-                var channel = ComposeChannel(rawChannel, args, logger);
-                return new HILAssertionContext(channel, dbc, logger);
+                var channel = ComposeChannel(rawChannel, args, logger,
+                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>());
+                return new HILAssertionContext(channel, dbc, logger,
+                    sp.GetService<PeakCan.Host.Core.HIL.Contracts.ISecOcStats>());
             });
         }
 
@@ -273,6 +277,12 @@ public static class HeadlessHostBuilder
         // Phase B: 帧统计基础设施 + 时序断言（所有模式注册，含 trace-replay；依赖 IFrameStatistics 而非 IAssertionContext）
         // 多通道模式（spec §3.4，Task 10）：按通道独立 collector（各订阅自己 channel），
         // MultiChannelFrameStatistics 按 channelName 路由。单通道模式直接注册单 collector。
+        // SecOC 可观测性单例（spec §5-D6）：verdict 旁路表 + per-canId 统计，
+        // ComposeChannel 与断言上下文共用同一实例（ISecOcStatsSource 能力下穿）。
+        builder.Services.AddSingleton<Channel.SecOc.SecOcVerdictTable>();
+        builder.Services.AddSingleton<Channel.SecOc.SecOcStats>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.ISecOcStats>(sp =>
+            sp.GetRequiredService<Channel.SecOc.SecOcStats>());
         builder.Services.AddSingleton<IFrameStatistics>(sp =>
         {
             if (args.HardwareChannels is { Count: > 0 } mcCfg
@@ -431,10 +441,12 @@ public static class HeadlessHostBuilder
     /// </summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static ICanChannel ComposeChannel(ICanChannel raw, CliArgs args,
-        Microsoft.Extensions.Logging.ILogger? logger)
+        Microsoft.Extensions.Logging.ILogger? logger,
+        Channel.SecOc.SecOcVerdictTable? verdictTable = null,
+        Channel.SecOc.SecOcStats? stats = null)
     {
         var secocPdus = SecOcConfigLoader.LoadOptional(args.SecOcConfigPath);
-        return HilChannelComposer.Compose(raw, args.EnableFaultInjection, secocPdus, logger: logger);
+        return HilChannelComposer.Compose(raw, args.EnableFaultInjection, secocPdus, verdictTable, stats, logger);
     }
 
     public static ushort ResolveChannelHandle(string handle, int index)
