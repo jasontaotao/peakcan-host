@@ -135,6 +135,34 @@ public class StreamingTracePlayerTests
     }
 
     [Fact]
+    public async Task PlayAsync_SupportsBlfSource()
+    {
+        var src = new BlfSource(0, 0.5, 1.0);
+        using var player = new StreamingTracePlayer(src, new RecordingReplayClock());
+        var captured = Capture(player);
+
+        await player.PlayAsync();
+
+        captured.Select(f => f.Timestamp).Should().Equal(AllFrameTimestamps);
+        player.FramesEmitted.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task SeekAsync_SupportsBlfSource()
+    {
+        var src = new BlfSource(0, 0.5, 1.0, 1.5);
+        using var player = new StreamingTracePlayer(src, new RecordingReplayClock());
+        var captured = Capture(player);
+        var progress = new List<double>();
+        player.SeekProgress += progress.Add;
+
+        await player.SeekAsync(1.0);
+        await player.PlayAsync();
+
+        captured.Select(f => f.Timestamp).Should().Equal(1.0, 1.5);
+        progress.Should().Contain(1.0);
+    }
+    [Fact]
     public async Task SourceThrows_ReportsErrorViaPlaybackEnded()
     {
         var src = new ThrowingSource();
@@ -157,12 +185,42 @@ public class StreamingTracePlayerTests
         }
     }
 
+    private sealed class BlfSource(params double[] timestamps) : IStreamingTraceSource
+    {
+        public Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default)
+        {
+            var ms = new MemoryStream();
+            ms.Write(Encoding.ASCII.GetBytes(BlfFormat.FileSignature));
+            ms.Write(new byte[BlfFormat.FileHeaderSize - 4]);
+            foreach (var timestamp in timestamps)
+            {
+                ms.Write(Encoding.ASCII.GetBytes(BlfFormat.ObjSignature));
+                ms.Write(BitConverter.GetBytes((ushort)BlfFormat.ObjectHeaderSize));
+                ms.Write(BitConverter.GetBytes((ushort)1));
+                ms.Write(BitConverter.GetBytes((uint)(BlfFormat.ObjectHeaderSize + BlfFormat.CanMessageDataSize)));
+                ms.Write(BitConverter.GetBytes(BlfFormat.ObjTypeCanMessage));
+                ms.Write(BitConverter.GetBytes(0u));
+                ms.Write(BitConverter.GetBytes((ushort)0));
+                ms.Write(BitConverter.GetBytes((ushort)0));
+                ms.Write(BitConverter.GetBytes((long)(timestamp * BlfFormat.TimestampScale)));
+                using var writer = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
+                writer.Write((ushort)1);
+                writer.Write((byte)0);
+                writer.Write((byte)8);
+                writer.Write((uint)0x100);
+                writer.Write(new byte[8]);
+            }
+            ms.Position = 0;
+            return new BlfStreamingSource(() => ms).OpenAsync(skipUntil, ct);
+        }
+    }
     private sealed class ThrowingSource : IStreamingTraceSource
     {
         public Task<StreamingTraceOpenResult> OpenAsync(double? skipUntil = null, CancellationToken ct = default)
             => throw new InvalidOperationException("boom");
     }
 }
+
 
 
 

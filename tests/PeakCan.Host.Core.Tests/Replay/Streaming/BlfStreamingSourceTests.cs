@@ -136,6 +136,11 @@ public class BlfStreamingSourceTests
         (ms.Position - position).Should().Be(objectDataSize);
     }
 
+    private static void WriteLogContainer(MemoryStream ms, byte[] innerObjects)
+    {
+        var compressed = CompressZlib(innerObjects);
+        WriteObject(ms, BlfFormat.ObjTypeLogContainer, compressed.Length, w => w.Write(compressed), 0);
+    }
     private static byte[] CompressZlib(byte[] data)
     {
         using var output = new MemoryStream();
@@ -153,6 +158,7 @@ public class BlfStreamingSourceTests
         return result;
     }
 }
+
 
 
 
