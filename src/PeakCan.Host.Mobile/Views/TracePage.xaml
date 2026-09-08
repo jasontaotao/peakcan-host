@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.Maui;assembly=LiveChartsCore.SkiaSharpView.Maui"
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Padding="8" RowSpacing="4">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Padding="8" RowSpacing="4">
         <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
             <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
             <Picker Grid.Column="1" x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
@@ -25,7 +26,7 @@
                 DragStarted="OnSeekStarted" DragCompleted="OnSeekCompleted"
                 IsEnabled="{Binding DurationKnown}" />
 
-        <Grid Grid.Row="3">
+        <Grid x:Name="FramesGrid" Grid.Row="3">
             <CollectionView x:Name="Frames" ItemsSource="{Binding VisibleRows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
@@ -48,15 +49,30 @@
                    BackgroundColor="#80000000" Padding="20,12" />
         </Grid>
 
-        <HorizontalStackLayout Grid.Row="4" Spacing="12" Margin="0,4">
+        <Grid x:Name="ChartGrid" Grid.Row="3" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+            <HorizontalStackLayout Grid.Row="0" Spacing="8">
+                <Button Text="选择信号" Clicked="OnSelectSignalClicked" />
+                <Label x:Name="SelectedSignalsLabel" VerticalOptions="Center" LineBreakMode="MiddleTruncation" />
+            </HorizontalStackLayout>
+            <lvc:CartesianChart Grid.Row="1" x:Name="SignalChart" />
+            <Label x:Name="ChartEmptyLabel" Grid.Row="2" Text="请选择 1–2 个 DBC 信号" HorizontalOptions="Center" TextColor="Gray" />
+        </Grid>
+
+        <HorizontalStackLayout x:Name="StatusRow" Grid.Row="4" Spacing="12" Margin="0,4">
             <Label Text="{Binding CacheStatusText}" FontSize="12" TextColor="Gray" />
             <Label Text="{Binding SkippedLinesText}" FontSize="12" TextColor="Orange" />
         </HorizontalStackLayout>
 
-        <HorizontalStackLayout Grid.Row="5" Spacing="8">
+        <HorizontalStackLayout x:Name="FilterRow" Grid.Row="5" Spacing="8">
             <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="200"
                    Completed="OnFilterCompleted" />
             <Button Text="↓ 最新" Clicked="OnJumpLatest" />
         </HorizontalStackLayout>
+
+        <HorizontalStackLayout Grid.Row="6" Spacing="8">
+            <Button x:Name="TableTabButton" Text="表格" Clicked="OnShowTableClicked" />
+            <Button x:Name="ChartTabButton" Text="图表" Clicked="OnShowChartClicked" />
+        </HorizontalStackLayout>
     </Grid>
 </ContentPage>
+

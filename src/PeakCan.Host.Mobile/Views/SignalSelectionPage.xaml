@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PeakCan.Host.Mobile.Views.SignalSelectionPage"
+             Title="选择信号">
+    <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
+        <Label Grid.Row="0" Text="最多选择 2 个信号" FontAttributes="Bold" />
+
+        <CollectionView Grid.Row="1" x:Name="SignalList">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="*,Auto" Padding="0,6">
+                        <Label Grid.Column="0" Text="{Binding DisplayName}" FontSize="15" />
+                        <Label Grid.Column="1" Text="✓" TextColor="DodgerBlue" IsVisible="{Binding IsSelected}" />
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnSignalTapped" />
+                        </Grid.GestureRecognizers>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Button Grid.Row="2" Text="完成" Clicked="OnDoneClicked" />
+    </Grid>
+</ContentPage>

@@ -1,7 +1,13 @@
+using LiveChartsCore;
+using LiveChartsCore.Defaults;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
+using SkiaSharp;
 using PeakCan.Host.Mobile.Core.ViewModels;
 
 namespace PeakCan.Host.Mobile.Views;
@@ -30,6 +36,7 @@ public partial class TracePage : ContentPage
             src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory);
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
+        _vm.Chart.RenderChanged += OnChartRenderChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
         _vm.SetDbc(_dbcHolder.Current);
@@ -105,6 +112,79 @@ public partial class TracePage : ContentPage
         }
     }
 
+    private void OnShowTableClicked(object? sender, EventArgs e) => ShowTableTab();
+
+    private void OnShowChartClicked(object? sender, EventArgs e) => ShowChartTab();
+
+    private void ShowTableTab()
+    {
+        FramesGrid.IsVisible = true;
+        ChartGrid.IsVisible = false;
+        StatusRow.IsVisible = true;
+        FilterRow.IsVisible = true;
+    }
+
+    private void ShowChartTab()
+    {
+        FramesGrid.IsVisible = false;
+        ChartGrid.IsVisible = true;
+        StatusRow.IsVisible = false;
+        FilterRow.IsVisible = false;
+        RenderChart();
+    }
+
+    private void OnChartRenderChanged(object? sender, EventArgs e) => RenderChart();
+
+    private void RenderChart()
+    {
+        var chart = _vm.Chart;
+        SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
+            ? string.Empty
+            : string.Join("  |  ", chart.SelectedSignals.Select(s => s.DisplayName));
+        ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
+
+        var series = new List<ISeries>();
+        foreach (var selection in chart.SelectedSignals)
+        {
+            if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
+            series.Add(new LineSeries<ObservablePoint>
+            {
+                Name = selection.DisplayName,
+                Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
+                GeometrySize = 0,
+                Fill = null,
+                LineSmoothness = 0
+            });
+        }
+
+        SignalChart.Series = series;
+        SignalChart.XAxes = [new Axis
+        {
+            Name = "时间 (s)",
+            Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture)
+        }];
+        SignalChart.YAxes = [new Axis()];
+
+        if (chart.Cursor is { } cursor)
+        {
+            SignalChart.Sections = [new RectangularSection
+            {
+                Xi = cursor.Timestamp,
+                Xj = cursor.Timestamp,
+                Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(48))
+            }];
+        }
+        else
+        {
+            SignalChart.Sections = [];
+        }
+    }
+
+    private void OnSelectSignalClicked(object? sender, EventArgs e)
+    {
+        _ = Navigation.PushAsync(new SignalSelectionPage(_vm.Chart));
+    }
+
     private void OnRowTapped(object? sender, TappedEventArgs e)
     {
         if (sender is not BindableObject { BindingContext: FrameRowSlot row }
@@ -123,3 +203,5 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
+
