@@ -12,6 +12,11 @@ public interface IKeyStore
     bool Contains(string keyId);
 
     /// <exception cref="KeyNotFoundException">keyId 不存在。</exception>
+    /// <remarks>
+    /// 返回明文密钥材料的独立副本。调用方是唯一责任人：用完后必须调用
+    /// System.Security.Cryptography.CryptographicOperations.ZeroMemory 清零，
+    /// 不得缓存到长生命周期对象或落盘。
+    /// </remarks>
     byte[] GetKey(string keyId);
 
     /// <exception cref="ArgumentException">keyId 为空或含非法路径字符（防路径穿越）。</exception>

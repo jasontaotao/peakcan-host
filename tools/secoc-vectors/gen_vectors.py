@@ -18,7 +18,7 @@ import sys
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
 
-# ---- NIST SP 800-38B 官方 AES-128 测试向量（附录 D.1 / D2） ----
+# ---- NIST SP 800-38B 官方 AES-128 测试向量（附录 D.1 Example 1-4 = RFC 4493 TC1-TC4） ----
 NIST_KEY = bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c")
 NIST_VECTORS = [
     # (消息, 官方 MAC)
@@ -29,10 +29,8 @@ NIST_VECTORS = [
      "30c81c46a35ce411", "dfa66747de9ae63030ca32611497c827"),
     ("6bc1bee22e409f96e93d7e117393172a"
      "ae2d8a571e03ac9c9eb76fac45af8e51"
-     "30c81c46a35ce411e5fbc10e8f4f0c20"
-     "83c81d752881a533", "bc9c323b4a26144eaa4f42421a7bec56"),
-    # 注：64B 上 4 值经 pycryptodome 与 OpenSSL(3.x `openssl mac CMAC`) 双重
-    # 交叉确认，替代最初记忆值（51f0bebf... 为误记，生成时即断言失败暴露）。
+     "30c81c46a35ce411e5fbc1191a0a52ef"
+     "f69f2445df4f9b17ad2b417be66c3710", "51f0bebf7e3b9d92fc49741779363cfe"),
 ]
 
 

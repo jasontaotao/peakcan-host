@@ -34,9 +34,18 @@ public sealed class DpapiKeyStore : IKeyStore
     public byte[] GetKey(string keyId)
     {
         var path = PathFor(keyId);
-        if (!File.Exists(path))
+        byte[] cipher;
+        try
+        {
+            // 不做 File.Exists 预检：避免与并发 RemoveKey 的 TOCTOU 竞态，
+            // 统一把"文件消失"映射为 KeyNotFoundException
+            cipher = File.ReadAllBytes(path);
+        }
+        catch (FileNotFoundException)
+        {
             throw new KeyNotFoundException($"keyId '{keyId}' 不在 KeyStore 中");
-        return ProtectedData.Unprotect(File.ReadAllBytes(path), _entropy,
+        }
+        return ProtectedData.Unprotect(cipher, _entropy,
             DataProtectionScope.CurrentUser);
     }
 

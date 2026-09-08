@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 
 namespace PeakCan.Security.Keystore;
 
@@ -26,5 +27,11 @@ public sealed class InMemoryKeyStore : IKeyStore
         _keys[keyId] = (byte[])key.Clone();
     }
 
-    public bool RemoveKey(string keyId) => _keys.TryRemove(keyId, out _);
+    public bool RemoveKey(string keyId)
+    {
+        if (!_keys.TryRemove(keyId, out var key)) return false;
+        // 删除即销毁：清零移出的密钥材料，缩短明文在托管堆的暴露窗口
+        if (key is not null) CryptographicOperations.ZeroMemory(key);
+        return true;
+    }
 }
