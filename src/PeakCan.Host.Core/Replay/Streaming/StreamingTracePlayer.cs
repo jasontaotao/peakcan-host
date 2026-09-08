@@ -26,6 +26,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
     private bool _reanchorRequested = true;
     private ReplayState _state = ReplayState.Stopped;
     private long _framesEmitted;
+    private long _skippedLines;
     private bool _disposed;
 
     public StreamingTracePlayer(IStreamingTraceSource source, IReplayClock? clock = null, ILogger? logger = null)
@@ -39,6 +40,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
     public double CurrentTimestamp { get { lock (_lifecycleLock) return _currentTimestamp; } }
     public double Speed { get { lock (_lifecycleLock) return _speed; } }
     public long FramesEmitted => Interlocked.Read(ref _framesEmitted);
+    public long SkippedLines => Interlocked.Read(ref _skippedLines);
 
     public event Action<ReplayFrame>? FrameEmitted;
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
@@ -176,6 +178,7 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
         try
         {
             session = await _source.OpenAsync(startFrom > 0 ? startFrom : null, ct).ConfigureAwait(false);
+            Interlocked.Exchange(ref _skippedLines, session.Stats.SkippedLines);
         }
         catch (OperationCanceledException)
         {
@@ -224,11 +227,13 @@ public sealed class StreamingTracePlayer : IStreamingTracePlayer
                     await _clock.Delay(remaining, ct).ConfigureAwait(false);
 
                 lock (_lifecycleLock) _currentTimestamp = frame.Timestamp;
+                Interlocked.Exchange(ref _skippedLines, session.Stats.SkippedLines);
                 Interlocked.Increment(ref _framesEmitted);
                 FrameEmitted?.Invoke(frame);
             }
 
             var pumpError = await pumpTask.ConfigureAwait(false);
+            Interlocked.Exchange(ref _skippedLines, session.Stats.SkippedLines);
             if (pumpError is not null) throw pumpError;
             return RunOutcome.Eof;
         }

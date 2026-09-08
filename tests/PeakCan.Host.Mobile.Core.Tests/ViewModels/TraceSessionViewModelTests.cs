@@ -3,6 +3,7 @@ using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Tests.Fakes;
+using PeakCan.Host.Mobile.Core.Services;
 using NSubstitute;
 using PeakCan.Host.Mobile.Core.ViewModels;
 using Xunit;
@@ -28,17 +29,89 @@ public class TraceSessionViewModelTests
         public IStreamingTraceSource Create(string path) => NextSource;
     }
 
+    private sealed class FakeCacheSink : ITraceCacheSink
+    {
+        public List<ReplayFrame> Frames { get; } = [];
+        public long TraceId { get; } = 42;
+        public bool IsEnabled { get; private set; } = true;
+        public long WrittenFrames => Frames.Count;
+        public long DroppedFrames { get; private set; }
+        public Exception? Failure { get; private set; }
+        public List<bool> ClosedStates { get; } = [];
+        public bool CloseResult { get; set; } = true;
+        public TaskCompletionSource ClosedCompletion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Enqueue(ReplayFrame frame) => Frames.Add(frame);
+
+        public Task<bool> CloseAsync(bool markComplete, CancellationToken ct = default)
+        {
+            ClosedStates.Add(markComplete);
+            IsEnabled = false;
+            ClosedCompletion.TrySetResult();
+            return Task.FromResult(CloseResult);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FakeCacheSinkFactory : ITraceCacheSinkFactory
+    {
+        public FakeCacheSink? NextSink { get; set; } = new();
+        public List<string> SourceNames { get; } = [];
+
+        public Task<ITraceCacheSink?> StartAsync(string sourceName, long fileSizeBytes, CancellationToken ct = default)
+        {
+            SourceNames.Add(sourceName);
+            return Task.FromResult<ITraceCacheSink?>(NextSink);
+        }
+    }
+
     private sealed class Env
     {
         public FakeUiDispatcher Ui { get; } = new();
         public FakeStreamingTracePlayer Player { get; } = new();
         public FakeSourceFactory SourceFactory { get; } = new();
+        public FakeCacheSinkFactory CacheFactory { get; } = new();
         public TraceSessionViewModel Vm { get; }
 
-        public Env()
+        public TraceSessionViewModel CreateVm() =>
+            new(Ui, SourceFactory, _ => Player, cacheSinkFactory: CacheFactory);
+
+        public Env(bool useCache = true)
         {
-            Vm = new TraceSessionViewModel(Ui, SourceFactory, _ => Player);
+            Vm = useCache
+                ? CreateVm()
+                : new TraceSessionViewModel(Ui, SourceFactory, _ => Player);
         }
+    }
+
+    [Fact]
+    public void Drain_Shows_Skipped_Lines_From_Player()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.SkippedLines = 7;
+
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.SkippedLinesText.Should().Be("已跳过 7 行");
+    }
+
+    [Fact]
+    public void ClearPlaybackBuffer_Clears_Skipped_Lines_Text()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.SkippedLines = 7;
+
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.SkippedLinesText.Should().NotBeEmpty();
+
+        env.Vm.SetIdFilter("0x100");
+
+        env.Vm.SkippedLinesText.Should().BeEmpty();
     }
 
     [Fact]
@@ -57,11 +130,91 @@ public class TraceSessionViewModelTests
         var frames = new AsyncFrameSeq(F(0, 1), F(0.5, 2));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
 
-        await env.Vm.OpenAsync("foo.asc");
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
 
         env.Vm.State.Should().Be(SessionState.Ready);
         env.Vm.LatestVisibleRow!.Timestamp.Should().Be(0.5);
         env.Vm.VisibleRows.Should().Contain(r => !r.IsEmpty);
+    }
+
+    [Fact]
+    public async Task OpenAsync_Starts_Cache_And_Emits_Unfiltered_Frames()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(0.1, 0x200));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+        env.Vm.TraceId.Should().Be(42);
+
+        env.Vm.SetIdFilter("0x100");
+        env.Player.Emit(F(0.2, 0x100));
+        env.Player.Emit(F(0.3, 0x200));
+
+        env.CacheFactory.NextSink!.Frames.Select(f => f.Id).Should().Equal([0x100u, 0x200u]);
+        env.Vm.CacheStatusText.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaybackEnded_Closes_Cache_As_Complete()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+
+        env.Player.EmitEof();
+        await env.CacheFactory.NextSink!.ClosedCompletion.Task;
+        env.CacheFactory.NextSink.ClosedStates.Should().Equal([true]);
+    }
+
+    [Fact]
+    public async Task PlaybackEnded_Shows_Incomplete_When_Cache_Cannot_Mark_Complete()
+    {
+        var env = new Env();
+        env.CacheFactory.NextSink!.CloseResult = false;
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+
+        var statusPosted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Ui.PostExecuted += () =>
+        {
+            if (!string.IsNullOrEmpty(env.Vm.CacheStatusText))
+                statusPosted.TrySetResult();
+        };
+
+        env.Player.EmitEof();
+        await statusPosted.Task;
+
+        env.Vm.CacheStatusText.Should().Be("缓存未完成");
+    }
+
+    [Fact]
+    public async Task Cache_Factory_Returning_Null_Sets_Unavailable_But_Keeps_Playback()
+    {
+        var env = new Env();
+        env.CacheFactory.NextSink = null;
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+
+        env.Vm.State.Should().Be(SessionState.Ready);
+        env.Vm.CacheStatusText.Should().Be("缓存不可用");
+    }
+
+    [Fact]
+    public async Task OpenAsync_Disposes_OpenResult()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        var openResult = frames.OpenResult;
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(openResult));
+
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+
+        openResult.SourceStream!.CanRead.Should().BeFalse();
     }
 
     [Fact]
@@ -70,7 +223,7 @@ public class TraceSessionViewModelTests
         var env = new Env();
         var frames = new AsyncFrameSeq(F(0, 1));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
-        await env.Vm.OpenAsync("foo.asc");
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
 
         env.Vm.TogglePlayCommand.Execute(null);
 
@@ -161,7 +314,7 @@ public class TraceSessionViewModelTests
         var env = new Env();
         var frames = new AsyncFrameSeq(F(0, 1));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
-        await env.Vm.OpenAsync("foo.asc");
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
 
         env.Vm.TogglePlayCommand.Execute(null);
         env.Player.EmitEof();
@@ -175,10 +328,63 @@ public class TraceSessionViewModelTests
         var env = new Env();
         var frames = new AsyncFrameSeq(F(0, 1));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
-        await env.Vm.OpenAsync("foo.asc");
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
 
         env.Vm.SetSpeed(4.0);
         env.Player.Speed.Should().Be(4.0);
+    }
+
+    [Fact]
+    public async Task SetDbc_SetsStatus_AndPrefetchesDecodedRows()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(0.5, 0x101));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+
+        env.Vm.SetDbc(catalog);
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+
+        env.Vm.DbcStatusText.Should().Be("DBC: engine.dbc");
+        env.Vm.VisibleRows.First(r => !r.IsEmpty).SignalSummaryText.Should().Be("EngineSpeed=128.25rpm");
+    }
+
+    [Fact]
+    public async Task SetDbc_ClearsStaleRows_AndAppliesToFutureReplayFrames()
+    {
+        var env = new Env();
+        var catalog = DbcCatalog.Parse("""
+            VERSION ""
+            NS_ :
+            BS_:
+            BU_: ECM
+
+            BO_ 256 EngineData: 8 ECM
+             SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+            """, "engine.dbc").Catalog!;
+        env.Vm.SetDbc(catalog);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.LatestVisibleRow!.SignalSummaryText.Should().Be("EngineSpeed=128.25rpm");
+
+        env.Vm.SetDbc(null);
+
+        env.Vm.Dbc.Should().BeNull();
+        env.Vm.DbcStatusText.Should().Be("未加载 DBC");
+        env.Vm.LatestVisibleRow.Should().BeNull();
+        env.Vm.VisibleRows.Should().OnlyContain(r => r.IsEmpty);
+        env.Player.Emit(F(1, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.LatestVisibleRow!.SignalSummaryText.Should().BeEmpty();
     }
 
     [Fact]
@@ -188,7 +394,7 @@ public class TraceSessionViewModelTests
         var frames = new AsyncFrameSeq(F(0, 1), F(0.5, 2));
         env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
 
-        await env.Vm.OpenAsync("foo.asc");
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
         env.Vm.LatestVisibleRow.Should().NotBeNull();
 
         env.Vm.TogglePlayCommand.Execute(null);
@@ -222,11 +428,13 @@ internal sealed class AsyncFrameSeq(params ReplayFrame[] frames)
 {
     public StreamingTraceOpenResult OpenResult => new()
     {
-        Frames = Yield(),
+        Frames = Yield(frames),
         Stats = new StreamingParseStats(),
+        SourceStream = new MemoryStream([1, 2], writable: false),
     };
 
-    private async IAsyncEnumerable<ReplayFrame> Yield(
+    private static async IAsyncEnumerable<ReplayFrame> Yield(
+        ReplayFrame[] frames,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var f in frames)

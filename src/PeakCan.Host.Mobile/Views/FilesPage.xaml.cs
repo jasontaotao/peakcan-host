@@ -9,16 +9,26 @@ public partial class FilesPage : ContentPage
     private readonly IFilePickerGateway _picker;
     private readonly TraceFileCache _cache;
     private readonly ITracePageFactory _tracePageFactory;
+    private readonly ITraceCacheStore _cacheStore;
 
-    public record RecentItem(string DisplayName, string Subtitle, string CachedPath);
+    public record RecentItem(
+        string DisplayName,
+        string Subtitle,
+        string? CachedPath,
+        long? TraceId,
+        long FileSizeBytes);
 
-    public FilesPage(IFilePickerGateway picker, TraceFileCache cache, ITracePageFactory tracePageFactory)
+    public FilesPage(
+        IFilePickerGateway picker,
+        TraceFileCache cache,
+        ITracePageFactory tracePageFactory,
+        ITraceCacheStore cacheStore)
     {
         InitializeComponent();
         _picker = picker;
         _cache = cache;
         _tracePageFactory = tracePageFactory;
-        RefreshRecent();
+        _cacheStore = cacheStore;
         MainActivity.FileUriReceived += OnFileUriReceived;
     }
 
@@ -27,19 +37,42 @@ public partial class FilesPage : ContentPage
         await HandleIntentUriAsync(uri);
     }
 
-    private void RefreshRecent()
+    protected override async void OnAppearing()
     {
-        var items = Directory.GetFiles(_cache.CacheDirectory, "*.asc")
-            .Select(p =>
-            {
-                var info = new FileInfo(p);
-                var suffix = $".{info.Length}.asc";
-                var name = info.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-                    ? info.Name[..^suffix.Length]
-                    : info.Name;
-                return new RecentItem(name, $"{info.Length / 1024} KB", p);
-            })
-            .ToList();
+        base.OnAppearing();
+        await RefreshRecentAsync();
+        var uri = MainActivity.TakePendingFileUri();
+        if (uri is not null)
+            await HandleIntentUriAsync(uri);
+    }
+
+    private async Task RefreshRecentAsync()
+    {
+        var items = new List<RecentItem>();
+        var traces = await _cacheStore.ListTracesAsync();
+        foreach (var trace in traces)
+        {
+            var state = trace.Complete ? "完整" : "部分";
+            items.Add(new RecentItem(
+                trace.SourceName,
+                $"{trace.FileSizeBytes / 1024} KB · {trace.FrameCount} 帧 · {TimeSpan.FromSeconds(trace.Duration):hh\\:mm\\:ss} · {state} · 上次 {TimeSpan.FromSeconds(trace.LastPositionSeconds):hh\\:mm\\:ss}",
+                null,
+                trace.TraceId,
+                trace.FileSizeBytes));
+        }
+
+        var cachedIds = traces.Select(t => (t.SourceName, t.FileSizeBytes)).ToHashSet();
+        foreach (var path in Directory.GetFiles(_cache.CacheDirectory, "*.asc"))
+        {
+            var info = new FileInfo(path);
+            var suffix = $".{info.Length}.asc";
+            var name = info.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                ? info.Name[..^suffix.Length]
+                : info.Name;
+            if (cachedIds.Contains((name, info.Length))) continue;
+            items.Add(new RecentItem(name, $"{info.Length / 1024} KB", path, null, info.Length));
+        }
+
         RecentList.ItemsSource = items;
     }
 
@@ -49,9 +82,17 @@ public partial class FilesPage : ContentPage
         {
             var picked = await _picker.PickTraceFileAsync();
             if (picked is null) return;
+
+            var completed = await _cacheStore.FindCompletedAsync(picked.DisplayName, picked.SizeBytes);
+            if (completed is not null)
+            {
+                await Navigation.PushAsync(_tracePageFactory.CreateBrowse(completed.TraceId));
+                return;
+            }
+
             var path = await _cache.ImportAsync(picked);
-            RefreshRecent();
-            await Navigation.PushAsync(_tracePageFactory.Create(path));
+            await RefreshRecentAsync();
+            await Navigation.PushAsync(_tracePageFactory.Create(path, picked.DisplayName, picked.SizeBytes));
         }
         catch (InvalidOperationException ex)
         {
@@ -65,20 +106,15 @@ public partial class FilesPage : ContentPage
         {
             if (e.CurrentSelection.FirstOrDefault() is not RecentItem item) return;
             RecentList.SelectedItem = null;
-            await Navigation.PushAsync(_tracePageFactory.Create(item.CachedPath));
+            if (item.TraceId is long traceId)
+                await Navigation.PushAsync(_tracePageFactory.CreateBrowse(traceId));
+            else if (item.CachedPath is string path)
+                await Navigation.PushAsync(_tracePageFactory.Create(path, item.DisplayName, item.FileSizeBytes));
         }
         catch (Exception ex)
         {
             await DisplayAlertAsync("无法打开文件", ex.Message, "确定");
         }
-    }
-
-    protected override async void OnAppearing()
-    {
-        base.OnAppearing();
-        var uri = MainActivity.TakePendingFileUri();
-        if (uri is null) return;
-        await HandleIntentUriAsync(uri);
     }
 
     private async Task HandleIntentUriAsync(Android.Net.Uri uri)
@@ -120,8 +156,9 @@ public partial class FilesPage : ContentPage
                 throw;
             }
 
-            RefreshRecent();
-            await Navigation.PushAsync(_tracePageFactory.Create(dest));
+            var importedInfo = new FileInfo(dest);
+            await RefreshRecentAsync();
+            await Navigation.PushAsync(_tracePageFactory.Create(dest, importedInfo.Name, importedInfo.Length));
         }
         catch (Exception ex)
         {
@@ -129,6 +166,3 @@ public partial class FilesPage : ContentPage
         }
     }
 }
-
-
-

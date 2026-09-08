@@ -13,6 +13,9 @@ public interface IStreamingTracePlayer : IDisposable
     double Speed { get; }
     long FramesEmitted { get; }
 
+    /// <summary>Skipped malformed lines reported by the current open session.</summary>
+    long SkippedLines { get; }
+
     event Action<ReplayFrame>? FrameEmitted;
     event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
     event Action<double>? SeekProgress;

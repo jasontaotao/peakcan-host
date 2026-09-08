@@ -24,6 +24,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private readonly IStreamingSourceFactory _sourceFactory;
     private readonly Func<IStreamingTraceSource, IStreamingTracePlayer> _playerFactory;
     private readonly ILogger _logger;
+    private readonly ITraceCacheSinkFactory? _cacheSinkFactory;
+    private readonly object _cacheSinkGate = new();
 
     private readonly object _emitGate = new();
     private readonly Queue<ReplayFrame> _pending = new();
@@ -38,14 +40,19 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private IDisposable? _drainTimer;
     private SessionState _state = SessionState.Empty;
     private FrameRow? _latestVisibleRow;
+    private ITraceCacheSink? _cacheSink;
+    private long? _traceId;
+    private DbcCatalog? _dbc;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
-        Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory, ILogger? logger = null)
+        Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory,
+        ILogger? logger = null, ITraceCacheSinkFactory? cacheSinkFactory = null)
     {
         _ui = ui;
         _sourceFactory = sourceFactory;
         _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
+        _cacheSinkFactory = cacheSinkFactory;
         for (var i = 0; i < ViewportRowCount; i++)
             _viewport[i] = new FrameRowSlot();
     }
@@ -73,28 +80,61 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string _seekProgressText = string.Empty;
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string? _idFilterText;
+    [ObservableProperty] private string _cacheStatusText = string.Empty;
+    [ObservableProperty] private string _skippedLinesText = string.Empty;
+    [ObservableProperty] private string _dbcStatusText = "未加载 DBC";
+
+    public long? TraceId => _traceId;
 
     /// <summary>Stable fixed-size slots; row values are updated in place.</summary>
     public IReadOnlyList<FrameRowSlot> VisibleRows => _viewport;
 
     public FrameRow? LatestVisibleRow => _latestVisibleRow;
 
+    public DbcCatalog? Dbc => _dbc;
+
+    /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
+    public void SetDbc(DbcCatalog? catalog)
+    {
+        _dbc = catalog;
+        DbcStatusText = catalog is null ? "未加载 DBC" : $"DBC: {catalog.SourceName}";
+        ClearPlaybackBuffer();
+    }
+
     /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
-    public async Task OpenAsync(string cachedFilePath, CancellationToken ct = default)
+    public Task OpenAsync(string cachedFilePath, CancellationToken ct = default)
+    {
+        var info = new FileInfo(cachedFilePath);
+        return OpenAsync(cachedFilePath, info.Name, info.Length, ct);
+    }
+
+    public async Task OpenAsync(string cachedFilePath, string sourceName, long fileSizeBytes, CancellationToken ct = default)
     {
         State = SessionState.Empty;
         ErrorMessage = null;
         DurationKnown = false;
         DurationText = "??:??";
         DurationScanProgress = 0;
+        _traceId = null;
+        lock (_cacheSinkGate) _cacheSink = null;
+        CacheStatusText = string.Empty;
         ClearPlaybackBuffer();
 
+        if (_cacheSinkFactory is not null)
+        {
+            var sink = await _cacheSinkFactory.StartAsync(sourceName, fileSizeBytes, ct).ConfigureAwait(false);
+            _traceId = sink?.TraceId;
+            lock (_cacheSinkGate) _cacheSink = sink;
+            if (sink is null)
+                _ui.Post(() => CacheStatusText = "缓存不可用");
+        }
+
         var source = _sourceFactory.Create(cachedFilePath);
-        var open = await source.OpenAsync(ct: ct);
+        await using var open = await source.OpenAsync(ct: ct).ConfigureAwait(false);
         var prefetched = 0;
         await foreach (var f in open.Frames.WithCancellation(ct))
         {
-            _rows.Add(FrameRow.FromReplayFrame(f));
+            _rows.Add(FrameRow.FromReplayFrame(f, _dbc));
             if (++prefetched >= 200) break;
         }
 
@@ -129,6 +169,10 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     private void OnFrameEmitted(ReplayFrame f)
     {
+        ITraceCacheSink? cacheSink;
+        lock (_cacheSinkGate) cacheSink = _cacheSink;
+        cacheSink?.Enqueue(f);
+
         lock (_emitGate)
         {
             if (!PassesFilter(f)) return;
@@ -148,12 +192,13 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             if (_pending.Count == 0) return;
             batch = new List<FrameRow>(_pending.Count);
             while (_pending.Count > 0)
-                batch.Add(FrameRow.FromReplayFrame(_pending.Dequeue()));
+                batch.Add(FrameRow.FromReplayFrame(_pending.Dequeue(), _dbc));
         }
 
         foreach (var row in batch) _rows.Add(row);
         CurrentTimeText = FormatTime(batch[^1].Timestamp);
         if (!IsSeekDragging && _durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
+        SkippedLinesText = _player?.SkippedLines > 0 ? $"已跳过 {_player.SkippedLines} 行" : string.Empty;
         UpdateViewport();
     }
 
@@ -175,11 +220,35 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     {
         lock (_emitGate) _pending.Clear();
         _rows.Clear();
+        SkippedLinesText = string.Empty;
         UpdateViewport();
     }
 
     private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
     {
+        ITraceCacheSink? sink;
+        lock (_cacheSinkGate)
+        {
+            sink = _cacheSink;
+            _cacheSink = null;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            if (sink is not null)
+            {
+                try
+                {
+                    var cacheComplete = await sink.CloseAsync(e.Error is null).ConfigureAwait(false);
+                    _ui.Post(() => CacheStatusText = cacheComplete ? "缓存完成" : "缓存未完成");
+                }
+                catch
+                {
+                    _ui.Post(() => CacheStatusText = "缓存已停用");
+                }
+            }
+        });
+
         _ui.Post(() =>
         {
             IsSeekBusy = false;
@@ -305,6 +374,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             _player.SeekProgress -= OnSeekProgress;
             _player.Dispose();
         }
+
+        ITraceCacheSink? sink;
+        lock (_cacheSinkGate)
+        {
+            sink = _cacheSink;
+            _cacheSink = null;
+        }
+
+        sink?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
 

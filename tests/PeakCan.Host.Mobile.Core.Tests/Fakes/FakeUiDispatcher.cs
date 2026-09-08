@@ -5,7 +5,13 @@ namespace PeakCan.Host.Mobile.Core.Tests.Fakes;
 /// <summary>Inline dispatcher + controllable timer. Post runs immediately; StartTimer fires tick only on Tick().</summary>
 public sealed class FakeUiDispatcher : IUiDispatcher
 {
-    public void Post(Action action) => action();
+    public event Action? PostExecuted;
+
+    public void Post(Action action)
+    {
+        action();
+        PostExecuted?.Invoke();
+    }
     public IDisposable StartTimer(TimeSpan period, Action tick) => new FakeTimer(period, tick);
 
     public sealed class FakeTimer(TimeSpan period, Action tick) : IDisposable

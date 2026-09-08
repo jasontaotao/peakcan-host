@@ -1,5 +1,6 @@
 using System.Globalization;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Mobile.Core.Services;
 
 namespace PeakCan.Host.Mobile.Core.Models;
 
@@ -8,7 +9,13 @@ namespace PeakCan.Host.Mobile.Core.Models;
 /// Display strings are cached because CollectionView may re-read them during
 /// layout; formatting on every getter would add avoidable allocation churn.
 /// </summary>
-public sealed record FrameRow(double Timestamp, uint Id, bool IsExtended, byte Dlc, byte[] Data)
+public sealed record FrameRow(
+    double Timestamp,
+    uint Id,
+    bool IsExtended,
+    byte Dlc,
+    byte[] Data,
+    string SignalSummaryText = "")
 {
     public string TimeText { get; } = Timestamp.ToString("F6", CultureInfo.InvariantCulture);
 
@@ -19,7 +26,17 @@ public sealed record FrameRow(double Timestamp, uint Id, bool IsExtended, byte D
     public string DataText { get; } = BuildDataText(Dlc, Data);
 
     /// <summary>Project a parsed frame into a display row.</summary>
-    public static FrameRow FromReplayFrame(ReplayFrame f) => new(f.Timestamp, f.Id, f.IsExtended, f.Dlc, f.Data);
+    public static FrameRow FromReplayFrame(ReplayFrame f, DbcCatalog? dbc = null)
+    {
+        var summary = dbc?.Decode(f.Id, f.IsExtended, f.Data, f.Dlc)?.Signals.ToSummary();
+        return new(f.Timestamp, f.Id, f.IsExtended, f.Dlc, f.Data, summary ?? string.Empty);
+    }
+
+    public static FrameRow FromCached(CachedFrame f, DbcCatalog? dbc = null)
+    {
+        var summary = dbc?.Decode(f.CanId, f.IsExtended, f.Data, f.Dlc)?.Signals.ToSummary();
+        return new(f.Timestamp, f.CanId, f.IsExtended, f.Dlc, f.Data, summary ?? string.Empty);
+    }
 
     private static string BuildDataText(byte dlc, byte[] data)
     {

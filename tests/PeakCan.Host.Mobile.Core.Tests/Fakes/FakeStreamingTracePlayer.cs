@@ -9,6 +9,7 @@ public sealed class FakeStreamingTracePlayer : IStreamingTracePlayer
     public double CurrentTimestamp { get; set; }
     public double Speed { get; set; } = 1.0;
     public long FramesEmitted { get; set; }
+    public long SkippedLines { get; set; }
     public event Action<ReplayFrame>? FrameEmitted;
     public event EventHandler<PlaybackEndedEventArgs>? PlaybackEnded;
     public event Action<double>? SeekProgress;

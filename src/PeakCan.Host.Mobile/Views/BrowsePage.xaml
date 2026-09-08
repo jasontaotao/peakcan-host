@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PeakCan.Host.Mobile.Views.BrowsePage"
+             Title="回看">
+    <Grid RowDefinitions="Auto,*,Auto" Padding="8">
+        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+            <Button Text="⏮" Clicked="OnFirst" />
+            <Button Text="←" Clicked="OnPrevious" IsEnabled="{Binding HasPrevious}" />
+            <Button Text="→" Clicked="OnNext" IsEnabled="{Binding HasNext}" />
+            <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="180" />
+            <Button Text="过滤" Clicked="OnApplyFilter" />
+        </HorizontalStackLayout>
+
+        <CollectionView Grid.Row="1" ItemsSource="{Binding Rows}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="1.5*,1*,0.5*,1.7*,2.2*">
+                        <Label Grid.Column="0" Text="{Binding TimeText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Label Grid.Column="4" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <VerticalStackLayout Grid.Row="2" Spacing="4">
+            <Label Text="{Binding PageStatus}" FontSize="12" />
+            <ActivityIndicator IsRunning="{Binding IsLoading}" IsVisible="{Binding IsLoading}" />
+            <Label Text="{Binding ErrorMessage}" TextColor="Red" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
