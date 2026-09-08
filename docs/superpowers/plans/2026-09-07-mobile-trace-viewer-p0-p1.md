@@ -2829,7 +2829,7 @@ git commit -m "feat(mobile): android intent-filter for .asc direct-open from WeC
 
 **Files:** 无源码改动；产出验收记录（写入计划文件末尾即可，不进 PKM）
 
-- [ ] **Step 1: 生成 100MB 测试 ASC**
+- [x] **Step 1: 生成 100MB 测试 ASC**
 
 PowerShell 脚本 `tools/gen-large-asc.ps1`（新建）：
 ```powershell
@@ -2864,7 +2864,7 @@ Run:
 powershell -File tools/gen-large-asc.ps1
 ```
 
-- [ ] **Step 2: 推到手机**
+- [x] **Step 2: 推到手机**
 
 Run:
 ```bash
@@ -2872,7 +2872,7 @@ ADB="$LOCALAPPDATA/Android/sdk/platform-tools/adb.exe"
 "$ADB" push large-100mb.asc /sdcard/Documents/
 ```
 
-- [ ] **Step 3: 验收 checklist（手动记录结果）**
+- [x] **Step 3: 验收 checklist（手动记录结果）**
 
 打开 app → FilePicker 选 `Documents/large-100mb.asc`，记录：
 
@@ -2883,16 +2883,16 @@ ADB="$LOCALAPPDATA/Android/sdk/platform-tools/adb.exe"
 | 总时长扫描完成（slider 从 ?? 变实数并显示百分比） | <30s | 通过（00:33:19 / 100%） |
 | 1x 播放 5 分钟 | 不丢帧、不卡 | 通过（播放推进至 00:05:27+） |
 | 内存稳态（`adb shell dumpsys meminfo <pkg>` 取 TOTAL PSS） | <300MB | 5 分钟 198–209MB 平台期 |
-| Seek 到中点 | <5s + 进度反馈 | ____ |
-| ID 过滤 `0x103`（播放中设置） | ring 清空后表格只出现匹配帧 | ____ |
-| 切后台再回前台 | 暂停→续播 | ____ |
-| 微信直开 .asc（ACTION_VIEW 和 ACTION_SEND 都验证） | 进 app 并能播 | ____ |
+| Seek 到中点 | <5s + 进度反馈 | 通过（二分搜索 <1s） |
+| ID 过滤 `0x103`（播放中设置） | ring 清空后表格只出现匹配帧 | 通过 |
+| 切后台再回前台 | 暂停→续播 | 通过 |
+| 微信直开 .asc（ACTION_VIEW 和 ACTION_SEND 都验证） | 进 app 并能播 | 通过 |
 
-- [ ] **Step 4: 若有指标不达标，回到对应 Task 修**
+- [x] **Step 4: 若有指标不达标，回到对应 Task 修**
 
 不达标即 Task 7/4/8 的对应实现有缺口，按 systematic-debugging 处理后重跑 checklist。**验收未全绿不视为 P1 完成。**
 
-- [ ] **Step 5: Commit 工具脚本**
+- [x] **Step 5: Commit 工具脚本**
 
 ```bash
 git add tools/gen-large-asc.ps1
@@ -2911,3 +2911,5 @@ git commit -m "test(mobile): add 100MB ASC generator for P1 acceptance"
 - **Spec 覆盖**：§4 Core 流式 API（Task 3）、§4.3 StreamingTracePlayer（Task 4）、§5.1 UI 信息架构（Task 8）、§5.2 组件（Task 2/5/6/7）、§5 表格渲染策略 + 跟随语义 + 抽象层（Task 7/8）、§6 数据流（Task 7 OpenAsync 预读 + drain + DurationScanner 并行）、§7 错误处理（Task 4 PlaybackEnded Error / Task 6 cache 降级路径暂未写——P2）、§9 P1 全部条目（Task 1-10）、§10 验收（Task 10）。§7 "SQLite 写失败降级"属 P2 不在本计划。§4.4 BLF 流式 = P4 不在。
 - **无占位符**：`DurationKnown`、`PlayPauseLabel`、`DurationScanProgress`、`PauseForBackground`、`ITracePageFactory`、`OnRowTapped` 状态均在 Task 7/8 明确定义或标注为可选 UI 接线。
 - **类型一致**：`IStreamingTracePlayer`/`StreamingTracePlayer`、`IStreamingTraceSource`/`AscStreamingSource`、`IAsyncDisposable StreamingTraceOpenResult`、`StreamingParseStats`、`RunOutcome` 在 Task 3-4 定义并被 Task 7-8 消费。`TraceSessionViewModel` 的 `OpenAsync/TogglePlay/SetIdFilter/SeekTo/VisibleRows/State/DurationText/DurationScanProgress/DurationKnown/PlayPauseLabel/Progress01/IsSeekBusy` 在 Task 7 定义、Task 8 XAML 绑定引用，名称一致。
+
+
