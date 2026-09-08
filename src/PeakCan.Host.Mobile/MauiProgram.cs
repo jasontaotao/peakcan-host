@@ -1,5 +1,6 @@
 using LiveChartsCore.SkiaSharpView.Maui;
 using Microsoft.Extensions.Logging;
+using SkiaSharp.Views.Maui.Controls.Hosting;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Platform;
@@ -13,6 +14,7 @@ public static class MauiProgram
     {
         var builder = MauiApp.CreateBuilder();
         builder
+            .UseSkiaSharp()
             .UseMauiApp<App>()
             .UseLiveCharts()
             .ConfigureFonts(fonts =>
@@ -40,6 +42,7 @@ public static class MauiProgram
         return builder.Build();
     }
 }
+
 
 
 
