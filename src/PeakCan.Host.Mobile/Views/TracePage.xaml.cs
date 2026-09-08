@@ -181,16 +181,37 @@ public partial class TracePage : ContentPage
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
         var series = new List<ISeries>();
-        foreach (var selection in chart.SelectedSignals)
+        var yAxes = new List<Axis>();
+        var seriesColors = new[] { SKColors.MediumBlue, SKColors.IndianRed };
+
+        for (var index = 0; index < chart.SelectedSignals.Count; index++)
         {
+            var selection = chart.SelectedSignals[index];
             if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
+
+            var paint = new SolidColorPaint(seriesColors[index % seriesColors.Length]);
             series.Add(new LineSeries<ObservablePoint>
             {
                 Name = selection.DisplayName,
                 Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
-                GeometrySize = 0,
+                GeometrySize = 6,
+                GeometryFill = paint,
+                GeometryStroke = paint,
                 Fill = null,
-                LineSmoothness = 0
+                LineSmoothness = 0,
+                ScalesYAt = yAxes.Count
+            });
+
+            yAxes.Add(new Axis
+            {
+                Name = selection.DisplayName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
+                NamePaint = paint,
+                LabelsPaint = paint,
+                Position = yAxes.Count == 0
+                    ? LiveChartsCore.Measure.AxisPosition.Start
+                    : LiveChartsCore.Measure.AxisPosition.End,
+                Labeler = value => value.ToString("0.###", CultureInfo.InvariantCulture),
+                SeparatorsPaint = new SolidColorPaint(SKColors.LightGray.WithAlpha(64))
             });
         }
 
@@ -200,21 +221,15 @@ public partial class TracePage : ContentPage
             Name = "时间 (s)",
             Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture)
         }];
-        SignalChart.YAxes = [new Axis()];
+        SignalChart.YAxes = yAxes;
 
         if (chart.Cursor is { } cursor)
         {
-            var values = chart.RenderPoints.Values
-                .SelectMany(points => points)
-                .Select(point => point.Value)
-                .ToArray();
-
             SignalChart.Sections = [new RectangularSection
             {
                 Xi = cursor.Timestamp,
                 Xj = cursor.Timestamp,
-                Yi = values.Length == 0 ? null : values.Min(),
-                Yj = values.Length == 0 ? null : values.Max(),
+                ScalesYAt = 0,
                 Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64))
             }];
         }
@@ -247,6 +262,7 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
 
 
 
