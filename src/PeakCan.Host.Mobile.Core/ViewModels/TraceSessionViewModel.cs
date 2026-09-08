@@ -81,6 +81,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string? _errorMessage;
     [ObservableProperty] private string? _idFilterText;
     [ObservableProperty] private string _cacheStatusText = string.Empty;
+    [ObservableProperty] private string _skippedLinesText = string.Empty;
     [ObservableProperty] private string _dbcStatusText = "未加载 DBC";
 
     public long? TraceId => _traceId;
@@ -197,6 +198,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         foreach (var row in batch) _rows.Add(row);
         CurrentTimeText = FormatTime(batch[^1].Timestamp);
         if (!IsSeekDragging && _durationKnownValue && _duration > 0) Progress01 = Math.Clamp(batch[^1].Timestamp / _duration, 0, 1);
+        SkippedLinesText = _player?.SkippedLines > 0 ? $"已跳过 {_player.SkippedLines} 行" : string.Empty;
         UpdateViewport();
     }
 
@@ -218,6 +220,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     {
         lock (_emitGate) _pending.Clear();
         _rows.Clear();
+        SkippedLinesText = string.Empty;
         UpdateViewport();
     }
 

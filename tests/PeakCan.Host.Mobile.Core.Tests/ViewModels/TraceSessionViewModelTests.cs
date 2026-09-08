@@ -85,6 +85,35 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public void Drain_Shows_Skipped_Lines_From_Player()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.SkippedLines = 7;
+
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.SkippedLinesText.Should().Be("已跳过 7 行");
+    }
+
+    [Fact]
+    public void ClearPlaybackBuffer_Clears_Skipped_Lines_Text()
+    {
+        var env = new Env();
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.SkippedLines = 7;
+
+        env.Player.Emit(F(0, 0x100));
+        DrainTimer(env.Vm).Tick();
+        env.Vm.SkippedLinesText.Should().NotBeEmpty();
+
+        env.Vm.SetIdFilter("0x100");
+
+        env.Vm.SkippedLinesText.Should().BeEmpty();
+    }
+
+    [Fact]
     public void InitialState_IsEmpty()
     {
         var env = new Env();

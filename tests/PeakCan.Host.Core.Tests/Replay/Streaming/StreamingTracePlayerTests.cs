@@ -111,6 +111,30 @@ public class StreamingTracePlayerTests
     }
 
     [Fact]
+    public async Task PlayAsync_RefreshesSkippedLines_DuringEnumeration()
+    {
+        var asc = string.Join('\n', [
+            " 0.000000 51  100  2  01 02",
+            "not-a-frame",
+            "still-not-a-frame",
+            " 0.500000 51  200  2  03 04",
+        ]);
+        var src = new FuncSource(() => AscStream(asc));
+        using var player = new StreamingTracePlayer(src, new RecordingReplayClock());
+        long? skippedAtSecondFrame = null;
+        player.FrameEmitted += f =>
+        {
+            if (f.Timestamp == 0.5)
+                skippedAtSecondFrame = player.SkippedLines;
+        };
+
+        await player.PlayAsync();
+
+        skippedAtSecondFrame.Should().Be(2);
+        player.SkippedLines.Should().Be(2);
+    }
+
+    [Fact]
     public async Task SourceThrows_ReportsErrorViaPlaybackEnded()
     {
         var src = new ThrowingSource();
