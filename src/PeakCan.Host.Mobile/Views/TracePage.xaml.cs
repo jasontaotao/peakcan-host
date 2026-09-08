@@ -1,4 +1,6 @@
 using LiveChartsCore;
+using LiveChartsCore.Drawing;
+using LiveChartsCore.Measure;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
@@ -38,6 +40,8 @@ public partial class TracePage : ContentPage
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.Chart.RenderChanged += OnChartRenderChanged;
+        SignalChart.ZoomMode = ZoomAndPanMode.X;
+        SignalChart.ZoomingSpeed = 0.8;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
         _vm.SetDbc(_dbcHolder.Current);
@@ -239,6 +243,18 @@ public partial class TracePage : ContentPage
         }
     }
 
+    private void OnZoomInClicked(object? sender, EventArgs e) => ZoomChart(ZoomDirection.ZoomIn);
+
+    private void OnZoomOutClicked(object? sender, EventArgs e) => ZoomChart(ZoomDirection.ZoomOut);
+
+    private void OnResetZoomClicked(object? sender, EventArgs e) => RenderChart();
+
+    private void ZoomChart(ZoomDirection direction)
+    {
+        if (SignalChart.CoreChart is not CartesianChartEngine chart || SignalChart.Width <= 0) return;
+        var center = new LvcPoint(SignalChart.Width / 2, SignalChart.Height / 2);
+        chart.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
+    }
     private void OnSelectSignalClicked(object? sender, EventArgs e)
     {
         _ = Navigation.PushAsync(new SignalSelectionPage(_vm.Chart));
@@ -262,6 +278,7 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
 
 
 
