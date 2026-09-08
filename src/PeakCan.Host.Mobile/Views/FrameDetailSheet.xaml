@@ -7,6 +7,14 @@
         <VerticalStackLayout Spacing="6">
             <Label Text="{Binding Header}" FontAttributes="Bold" />
             <Label Text="{Binding RawBytes}" FontFamily="Mono" />
+            <Label Text="信号" FontAttributes="Bold" Margin="0,12,0,0" />
+            <CollectionView ItemsSource="{Binding Signals}">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding DisplayText}" FontFamily="Mono" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

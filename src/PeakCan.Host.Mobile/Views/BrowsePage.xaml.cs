@@ -7,10 +7,11 @@ public partial class BrowsePage : ContentPage
 {
     private readonly TraceBrowseViewModel _vm;
 
-    public BrowsePage(ITraceCacheStore cacheStore, long traceId)
+    public BrowsePage(ITraceCacheStore cacheStore, DbcCatalogHolder dbcHolder, long traceId)
     {
         InitializeComponent();
         _vm = new TraceBrowseViewModel(cacheStore);
+        _vm.SetDbc(dbcHolder.Current);
         BindingContext = _vm;
         _ = InitializeAsync(traceId);
     }
@@ -27,7 +28,10 @@ public partial class BrowsePage : ContentPage
         }
     }
 
-    private void OnFirst(object? sender, EventArgs e) => _vm.FirstCommand.Execute(null);
+    private void OnFirst(object? sender, EventArgs e)
+    {
+        _ = _vm.FirstAsync();
+    }
     private void OnPrevious(object? sender, EventArgs e) => _vm.PreviousCommand.Execute(null);
     private void OnNext(object? sender, EventArgs e) => _vm.NextCommand.Execute(null);
 
@@ -37,4 +41,6 @@ public partial class BrowsePage : ContentPage
         _vm.ApplyFilterCommand.Execute(null);
     }
 }
+
+
 

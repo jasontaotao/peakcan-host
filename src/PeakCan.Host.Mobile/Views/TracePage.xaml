@@ -12,6 +12,8 @@
             <Label Text="{Binding DurationText}" VerticalOptions="Center" />
             <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}"
                    FontSize="12" VerticalOptions="Center" />
+            <Button Text="DBC" Clicked="OnLoadDbcClicked" />
+            <Label Text="{Binding DbcStatusText}" FontSize="12" VerticalOptions="Center" />
         </HorizontalStackLayout>
 
         <!-- Slider: NO Value binding; code-behind syncs one-way to avoid drag fighting -->
@@ -23,11 +25,12 @@
             <CollectionView x:Name="Frames" ItemsSource="{Binding VisibleRows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
-                    <Grid ColumnDefinitions="2*,1.2*,1*,2.6*">
+                    <Grid ColumnDefinitions="1.5*,1*,0.5*,1.7*,2.2*">
                         <Label Grid.Column="0" Text="{Binding TimeText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Label Grid.Column="4" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnRowTapped" />
                         </Grid.GestureRecognizers>
@@ -48,5 +51,3 @@
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
-
-

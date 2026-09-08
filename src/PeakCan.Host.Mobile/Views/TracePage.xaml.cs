@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
+using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Core.ViewModels;
 
 namespace PeakCan.Host.Mobile.Views;
@@ -8,6 +9,8 @@ namespace PeakCan.Host.Mobile.Views;
 public partial class TracePage : ContentPage
 {
     private readonly TraceSessionViewModel _vm;
+    private readonly IDbcCatalogProvider _dbcProvider;
+    private readonly DbcCatalogHolder _dbcHolder;
 
     public TracePage(
         IUiDispatcher ui,
@@ -15,15 +18,20 @@ public partial class TracePage : ContentPage
         string cachedFilePath,
         string sourceName,
         long fileSizeBytes,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IDbcCatalogProvider? dbcProvider = null,
+        DbcCatalogHolder? dbcHolder = null)
     {
         InitializeComponent();
+        _dbcProvider = dbcProvider ?? throw new ArgumentNullException(nameof(dbcProvider));
+        _dbcHolder = dbcHolder ?? new DbcCatalogHolder();
         _vm = new TraceSessionViewModel(ui, sourceFactory,
             src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger);
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
+        _vm.SetDbc(_dbcHolder.Current);
         _ = InitializeAsync(cachedFilePath, sourceName, fileSizeBytes);
     }
 
@@ -75,9 +83,42 @@ public partial class TracePage : ContentPage
 
     private void OnJumpLatest(object? sender, EventArgs e) => ScrollToLatest();
 
+    private async void OnLoadDbcClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var result = await _dbcProvider.PickAndLoadAsync();
+            if (result.Error is not null)
+            {
+                await DisplayAlertAsync("DBC 加载失败", result.Error, "确定");
+                return;
+            }
+            if (result.Catalog is null) return;
+
+            _dbcHolder.Set(result.Catalog);
+            _vm.SetDbc(result.Catalog);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("DBC 加载失败", ex.Message, "确定");
+        }
+    }
+
     private void OnRowTapped(object? sender, TappedEventArgs e)
     {
-        if (sender is not BindableObject { BindingContext: FrameRowSlot row } || row.IsEmpty) return;
-        _ = Navigation.PushAsync(new FrameDetailSheet($"0x{row.IdText} @ {row.TimeText}", row.DataText));
+        if (sender is not BindableObject { BindingContext: FrameRowSlot row }
+            || row.IsEmpty || row.Source is null)
+            return;
+
+        var decoded = _vm.Dbc?.Decode(
+            row.Source.Id,
+            row.Source.IsExtended,
+            row.Source.Data,
+            row.Source.Dlc)?.Signals ?? [];
+
+        _ = Navigation.PushAsync(new FrameDetailSheet(
+            $"0x{row.IdText} @ {row.TimeText}",
+            row.DataText,
+            decoded));
     }
 }

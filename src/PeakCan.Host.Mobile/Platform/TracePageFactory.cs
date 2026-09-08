@@ -16,13 +16,13 @@ public sealed class TracePageFactory(IServiceProvider services) : ITracePageFact
             cachedFilePath,
             sourceName,
             fileSizeBytes,
-            services.GetRequiredService<ILogger<TraceSessionViewModel>>());
+            services.GetRequiredService<ILogger<TraceSessionViewModel>>(),
+            services.GetRequiredService<IDbcCatalogProvider>(),
+            services.GetRequiredService<DbcCatalogHolder>());
 
     public ContentPage CreateBrowse(long traceId)
         => new BrowsePage(
             services.GetRequiredService<ITraceCacheStore>(),
+            services.GetRequiredService<DbcCatalogHolder>(),
             traceId);
 }
-
-
-
