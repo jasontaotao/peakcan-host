@@ -200,6 +200,7 @@ public partial class TracePage : ContentPage
             SKColors.DarkOrange,
         };
 
+        var renderableCount = chart.SelectedSignals.Count(s => chart.RenderPoints.ContainsKey(s.Key));
         for (var index = 0; index < chart.SelectedSignals.Count; index++)
         {
             var selection = chart.SelectedSignals[index];
@@ -234,7 +235,7 @@ public partial class TracePage : ContentPage
                 Name = "时间 (s)",
                 Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture),
                 MinStep = 1,
-                IsVisible = index == chart.SelectedSignals.Count - 1,
+                IsVisible = _charts.Count == renderableCount - 1,
             };
 
             var plot = new CartesianChart
