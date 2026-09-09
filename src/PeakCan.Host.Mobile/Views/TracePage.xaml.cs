@@ -250,8 +250,10 @@ public partial class TracePage : ContentPage
             {
                 Name = selection.DisplayName,
                 Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
-                // 512 桶密线不画几何点：缩放/播放时省掉每点一个圆的 Skia 开销。
-                GeometrySize = 0,
+                // min-max 包络需要点标记辅助读图；点径 6 是既有视觉基线。
+                GeometrySize = 6,
+                GeometryFill = paint,
+                GeometryStroke = paint,
                 Stroke = paint,
                 Fill = null,
                 LineSmoothness = 0,
@@ -291,9 +293,9 @@ public partial class TracePage : ContentPage
                 Sections = chart.Cursor is { } cursor
                     ? [new RectangularSection
                        {
-                           Xi = cursor.Timestamp,
-                           Xj = cursor.Timestamp,
-                ScalesYAt = 0,
+                       Xi = cursor.Timestamp,
+                       Xj = cursor.Timestamp,
+                       ScalesYAt = 0,
                        Fill = _cursorPaint,
                        }]
                     : [],
@@ -376,6 +378,8 @@ public partial class TracePage : ContentPage
     private void OnResetZoomClicked(object? sender, EventArgs e)
     {
         _xViewport.Reset();
+        // 就地更新路径不清轴限位；强制结构重建以恢复自动缩放。
+        _renderedKeys.Clear();
         RenderChart();
     }
 
@@ -415,7 +419,5 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
-
-
 
 
