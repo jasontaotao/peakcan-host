@@ -10,6 +10,10 @@ public partial class FilesPage : ContentPage
     private readonly TraceFileCache _cache;
     private readonly ITracePageFactory _tracePageFactory;
     private readonly ITraceCacheStore _cacheStore;
+    private readonly DbcCatalogHolder _dbcHolder;
+
+    /// <summary>DBC 是纯文本；超过该上限按异常文件拒绝，避免整读爆内存。</summary>
+    private const long MaxDbcFileBytes = 10 * 1024 * 1024;
 
     public record RecentItem(
         string DisplayName,
@@ -22,13 +26,15 @@ public partial class FilesPage : ContentPage
         IFilePickerGateway picker,
         TraceFileCache cache,
         ITracePageFactory tracePageFactory,
-        ITraceCacheStore cacheStore)
+        ITraceCacheStore cacheStore,
+        DbcCatalogHolder dbcHolder)
     {
         InitializeComponent();
         _picker = picker;
         _cache = cache;
         _tracePageFactory = tracePageFactory;
         _cacheStore = cacheStore;
+        _dbcHolder = dbcHolder;
         MainActivity.FileUriReceived += OnFileUriReceived;
     }
 
@@ -135,11 +141,16 @@ public partial class FilesPage : ContentPage
         try
         {
             if (Microsoft.Maui.ApplicationModel.Platform.CurrentActivity is not MainActivity activity) return;
-            var extension = Path.GetExtension(uri.ToString());
+            var extension = Path.GetExtension(uri.ToString()) ?? string.Empty;
+            if (extension.Equals(".dbc", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleSharedDbcAsync(activity, uri);
+                return;
+            }
             if (!extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) &&
                 !extension.Equals(".blf", StringComparison.OrdinalIgnoreCase))
             {
-                await DisplayAlertAsync("不支持的文件", "仅支持 .asc 或 .blf 格式文件", "确定");
+                await DisplayAlertAsync("不支持的文件", "仅支持 .asc/.blf 日志或 .dbc 文件", "确定");
                 return;
             }
 
@@ -175,6 +186,39 @@ public partial class FilesPage : ContentPage
             var importedInfo = new FileInfo(dest);
             await RefreshRecentAsync();
             await Navigation.PushAsync(_tracePageFactory.Create(dest, importedInfo.Name, importedInfo.Length));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("无法打开文件", ex.Message, "确定");
+        }
+    }
+
+    /// <summary>
+    /// WeChat/open-with shares a .dbc directly: parse and mount it on the
+    /// app-wide holder so the next trace session picks it up automatically.
+    /// </summary>
+    private async Task HandleSharedDbcAsync(MainActivity activity, Android.Net.Uri uri)
+    {
+        try
+        {
+            var name = uri.LastPathSegment ?? "shared.dbc";
+            using var src = activity.ContentResolver?.OpenInputStream(uri);
+            if (src is null) return;
+            if (src.CanSeek && src.Length > MaxDbcFileBytes)
+            {
+                await DisplayAlertAsync("DBC 过大", $"DBC 文件超过 {MaxDbcFileBytes / 1024 / 1024} MB 上限。", "确定");
+                return;
+            }
+            using var reader = new StreamReader(src);
+            var text = await reader.ReadToEndAsync();
+            var result = DbcCatalog.Parse(text, name);
+            if (result.Catalog is null)
+            {
+                await DisplayAlertAsync("DBC 加载失败", result.Error ?? "未知错误", "确定");
+                return;
+            }
+            _dbcHolder.Set(result.Catalog);
+            await DisplayAlertAsync("DBC 已就绪", $"{name} 已加载，打开 trace 文件后自动生效。", "确定");
         }
         catch (Exception ex)
         {
