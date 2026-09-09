@@ -190,6 +190,29 @@
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="50" />
+            <!-- M2.4b（spec §5-D6.7）：SecOC 三态徽标（禁止无标注缺省） -->
+            <DataGridTemplateColumn Header="SecOC" Width="80">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding SecOcBadge.Text}" Margin="2,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource FrameFgSim}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="Accepted">
+                                            <Setter Property="Foreground" Value="{StaticResource Ok}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="Rejected">
+                                            <Setter Property="Foreground" Value="{StaticResource Error}"/>
+                                            <Setter Property="FontWeight" Value="Bold"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="数据" Binding="{Binding DataHex}" Width="*" />
             <DataGridTextColumn Header="解码" Binding="{Binding Decoded}" Width="200" />
         </DataGrid.Columns>

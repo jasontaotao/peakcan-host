@@ -80,6 +80,28 @@ public class CliArgsParserTests
         Assert.Contains("--key-dll", ex.Message);
     }
 
+    // M3.4（spec Phase 3）：--key-algorithm 内置算法选择
+    [Fact]
+    public void Parse_KeyAlgorithm_Builtin_RoundTrips()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1", "--key-algorithm", "builtin"));
+        Assert.Equal("builtin", cli.KeyAlgorithm);
+    }
+
+    [Fact]
+    public void Parse_NoKeyAlgorithm_DefaultsNull()
+    {
+        var cli = CliArgsParser.Parse(With("--hw", "USB1"));
+        Assert.Null(cli.KeyAlgorithm);
+    }
+
+    [Fact]
+    public void Parse_KeyAlgorithm_AtEnd_ThrowsArgumentException_WithOptionName()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => CliArgsParser.Parse(With("--key-algorithm")));
+        Assert.Contains("--key-algorithm", ex.Message);
+    }
+
     [Fact]
     public void Parse_TraceOnly_NoHw_Succeeds()
     {

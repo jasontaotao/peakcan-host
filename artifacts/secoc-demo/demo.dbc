@@ -1,0 +1,10 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: DEMO_ECU
+
+BO_ 291 DEMO_SECOC: 8 DEMO_ECU
+ SG_ Payload : 0|24@1+ (1,0) [0|0] ""  DEMO_ECU

@@ -1,6 +1,7 @@
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
+using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
@@ -11,7 +12,9 @@ public class HILAssertionContextFaultInjectionTests
     public async Task SendFrameAsync_goes_through_FaultInjector_when_enabled()
     {
         var channel = new VirtualChannel();
-        var ctx = new HILAssertionContext(channel, new FakeDbcLookup(), enableFaultInjection: true);
+        // Spec §5-D1: the chain is composed at the assembly point, not by the context.
+        var composed = new ReceivePathFaultInjector(new FaultInjector(channel));
+        var ctx = new HILAssertionContext(composed, new FakeDbcLookup());
 
         // Add a Drop fault for CAN ID 0x123
         ctx.AddFault(new FaultRule { Type = FaultType.Drop, TargetCanId = 0x123 });
@@ -35,7 +38,7 @@ public class HILAssertionContextFaultInjectionTests
     public async Task SendFrameAsync_bypasses_FaultInjector_when_disabled()
     {
         var channel = new VirtualChannel();
-        var ctx = new HILAssertionContext(channel, new FakeDbcLookup(), enableFaultInjection: false);
+        var ctx = new HILAssertionContext(channel, new FakeDbcLookup());
 
         var received = new List<CanFrame>();
         channel.FrameReceived += f => received.Add(f);

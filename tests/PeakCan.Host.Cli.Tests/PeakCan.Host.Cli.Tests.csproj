@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PeakCan.Host.Cli\PeakCan.Host.Cli.csproj" />
+    <ProjectReference Include="..\..\src\PeakCan.Security\PeakCan.Security.csproj" />
   </ItemGroup>
 
   <ItemGroup>

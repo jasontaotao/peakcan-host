@@ -31,6 +31,9 @@ public sealed class FaultInjector : ICanChannel
 
     public FaultInjector(ICanChannel inner) => _inner = inner;
 
+    /// <summary>Inner channel for decorator-chain capability resolution (spec §5-D1).</summary>
+    internal ICanChannel Inner => _inner;
+
     /// <summary>Add a fault rule. Returns a disposable handle for removal.</summary>
     public FaultHandle AddFault(FaultRule fault)
     {

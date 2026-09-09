@@ -52,13 +52,19 @@ public static class StepScopeFactory
         IFunctionRegistry? dtcReg = dtcPresentSet is null
             ? null
             : new DtcPresenceFunctionRegistry(dtcPresentSet);
-        IFunctionRegistry? functionRegistry = (frameReg, dtcReg) switch
+        // §5-D6.2：SecOC verdict 函数（secocAccepted/secocRejected/secocLastReason）——
+        // 经能力接口从 ctx 解析（ISecOcStatsSource），引擎与 hil-core 零改动。
+        var secocReg = (ctx as global::PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource)?.SecOcStats is { } secocStats
+            ? new SecOcFunctionRegistry(secocStats)
+            : null;
+        IFunctionRegistry? functionRegistry = null;
+        foreach (var reg in new[] { frameReg, dtcReg, secocReg })
         {
-            (null, null) => null,
-            (not null, null) => frameReg,
-            (null, not null) => dtcReg,
-            _ => new CompositeFunctionRegistry(frameReg!, dtcReg!),
-        };
+            if (reg is null) continue;
+            functionRegistry = functionRegistry is null
+                ? reg
+                : new CompositeFunctionRegistry(functionRegistry, reg);
+        }
 
         // 转换 Variables（store=null → null，${name} 解析退化为 Undefined）
         var variables = ConvertVariables(store?.Variables);

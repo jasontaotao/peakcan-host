@@ -22,6 +22,9 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
     // and the DI-injected ReplayOptions singleton was silently discarded —
     // the configurability goal in the ReplayOptions XML doc was unmet.
     private readonly ReplayOptions _options;
+    // M2.4b（spec §5-D6.7）：保留注入点（Phase 3 App 侧 SecOC 接线时使用）。
+    // 注意：离线源不产 verdict，UnloadAsync 不做全局 Clear（见 UnloadAsync 注释）。
+    private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
 
     private readonly Dictionary<string, Entry> _sources = new(StringComparer.Ordinal);
 
@@ -30,11 +33,13 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
     {
     }
 
-    public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory, ReplayOptions options)
+    public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory, ReplayOptions options,
+        PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null)
     {
         _palette = palette ?? throw new ArgumentNullException(nameof(palette));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _secOcVerdicts = secOcVerdicts;
     }
 
     public IReadOnlyList<TraceSource> Sources =>
@@ -115,6 +120,11 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         _sources.Remove(sourceId);
         if (entry.Service is IDisposable disposable)
             disposable.Dispose();
+        // M2.4b（spec §5-D6.7）：离线 trace 源本身不产 verdict（离线不验），且
+        // registry 不知道源与通道 handle 的映射——此处做全局 Clear 会误清其它
+        // 在线源的 verdict（终审 MEDIUM 修复）。旁路表清理的权威钩子在
+        // ChannelConnectionCoordinator（断开清全表 + 连接前按 handle 清桶），
+        // per-source 清理随 Phase 3 App 侧 SecOC 接线的 handle 映射落地。
         SourcesChanged?.Invoke();
         await Task.CompletedTask;
     }

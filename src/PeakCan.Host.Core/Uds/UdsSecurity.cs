@@ -3,10 +3,21 @@ namespace PeakCan.Host.Core.Uds;
 /// <summary>
 /// UDS security access state management. Tracks seed/key exchange,
 /// authentication status, and lockout state per security level.
+/// <para>
+/// M3.2（spec §5-D5）：lockout 判定经 <see cref="TimeProvider"/>（可选注入，
+/// 缺省 <see cref="TimeProvider.System"/>）——端到端与 server 状态机共享
+/// 虚拟时钟，零真实等待。
+/// </para>
 /// </summary>
 public sealed class UdsSecurity
 {
     private readonly Dictionary<byte, SecurityLevelState> _levels = new();
+    private readonly TimeProvider _timeProvider;
+
+    public UdsSecurity(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     /// <summary>
     /// v1.3.0 MINOR Item 1: lockout policy. Defaults to 3 attempts / 5 s.
@@ -110,8 +121,8 @@ public sealed class UdsSecurity
     {
         lock (_levels)
         {
-            if (_levels.TryGetValue(level, out var state) && state.LockedUntilUtc is DateTime until)
-                return DateTime.UtcNow < until;
+            if (_levels.TryGetValue(level, out var state) && state.LockedUntilUtc is DateTimeOffset until)
+                return _timeProvider.GetUtcNow() < until;
             return false;
         }
     }
@@ -124,9 +135,9 @@ public sealed class UdsSecurity
     {
         lock (_levels)
         {
-            if (_levels.TryGetValue(level, out var state) && state.LockedUntilUtc is DateTime until)
+            if (_levels.TryGetValue(level, out var state) && state.LockedUntilUtc is DateTimeOffset until)
             {
-                var remaining = until - DateTime.UtcNow;
+                var remaining = until - _timeProvider.GetUtcNow();
                 return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
             }
             return TimeSpan.Zero;
@@ -146,7 +157,7 @@ public sealed class UdsSecurity
             state.AttemptCount++;
             if (state.AttemptCount >= LockoutConfig.MaxAttempts)
             {
-                state.LockedUntilUtc = DateTime.UtcNow + LockoutConfig.LockoutDuration;
+                state.LockedUntilUtc = _timeProvider.GetUtcNow() + LockoutConfig.LockoutDuration;
                 state.AttemptCount = 0;  // reset counter, lockout takes effect
             }
             _levels[level] = state;
@@ -178,6 +189,6 @@ public sealed class UdsSecurity
 
         // v1.3.0 MINOR Item 1: lockout state
         public int AttemptCount { get; set; }
-        public DateTime? LockedUntilUtc { get; set; }
+        public DateTimeOffset? LockedUntilUtc { get; set; }
     }
 }

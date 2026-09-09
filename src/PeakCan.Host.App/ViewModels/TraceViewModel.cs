@@ -144,6 +144,14 @@ public sealed partial class TraceViewModel : ObservableObject
     public IReadOnlyDictionary<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>> PendingDecode => _pendingDecode;
 
     /// <summary>
+    /// M2.4b（spec §5-D6.7）：SecOC 徽标解析钩子——trace 渲染层经此 join
+    /// host 侧旁路 verdict 表（按 (sourceHandle, seq)）。App 侧 SecOC 通道
+    /// 接线在 Phase 3 落地；为 null（缺省）时所有行标"离线不验"（D6.9
+    /// 身份 (a)，禁止"无标注"缺省）。测试经此注入 fake 解析器。
+    /// </summary>
+    public Func<CanFrame, SecOcBadge>? SecOcBadgeResolver { get; set; }
+
+    /// <summary>
     // === Flow A methods moved to TraceViewModel/ReceptionFlow.cs (W19 Task 1) ===
     /// <summary>Clear the trace entries and reset the filter counter.</summary>
     [RelayCommand]

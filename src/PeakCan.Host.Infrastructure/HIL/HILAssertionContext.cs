@@ -15,12 +15,14 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Bridges a virtual CAN channel to the HIL assertion context.
 /// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
 /// </summary>
-internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable
+internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable,
+    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource
 {
     private readonly ICanChannel _channel;
     private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
     private readonly FaultInjector? _faultInjector;
     private readonly ReceivePathFaultInjector? _receiveFaultInjector;
+    private readonly PeakCan.Host.Core.HIL.Contracts.ISecOcStats? _secOcStats;
     private readonly IDbcLookup _dbcLookup;
     private readonly ILogger? _logger;
     private readonly Channel<CanFrame> _frameChannel;
@@ -33,24 +35,20 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     private readonly CircularBuffer<CanFrame> _recentFrames = new(capacity: 50);
     private readonly ConcurrentDictionary<string, IDisposable> _faultHandles = new();
 
-    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, bool enableFaultInjection = false, ILogger? logger = null)
+    public HILAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null,
+        PeakCan.Host.Core.HIL.Contracts.ISecOcStats? secOcStats = null)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
         _logger = logger;
+        _secOcStats = secOcStats;
 
-        // When fault injection is enabled, wrap channel with FaultInjector (send path)
-        // and ReceivePathFaultInjector (receive path).
-        if (enableFaultInjection)
-        {
-            _faultInjector = new FaultInjector(channel);
-            _receiveFaultInjector = new ReceivePathFaultInjector(_faultInjector);
-            _effectiveChannel = _receiveFaultInjector;
-        }
-        else
-        {
-            _effectiveChannel = channel;
-        }
+        // Spec §5-D1: the context never self-wraps. The decorator chain
+        // (FaultInjector / ReceivePathFaultInjector / SecOcChannel) is composed
+        // at the single assembly point (HilChannelComposer); capabilities are
+        // resolved by walking the chain.
+        (_faultInjector, _receiveFaultInjector) = ResolveFaultInjectors(channel);
+        _effectiveChannel = channel;
 
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
             new BoundedChannelOptions(10000)
@@ -61,6 +59,36 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
             });
         _frameSubscription = new FrameReceivedSubscription(_effectiveChannel, OnFrame);
         _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token));
+    }
+
+    /// <summary>
+    /// Walks a decorator chain (outermost first) collecting fault-injection
+    /// capabilities (spec §5-D1 capability resolution).
+    /// </summary>
+    private static (FaultInjector? Tx, ReceivePathFaultInjector? Rx) ResolveFaultInjectors(ICanChannel channel)
+    {
+        FaultInjector? tx = null;
+        ReceivePathFaultInjector? rx = null;
+        var current = channel;
+        while (true)
+        {
+            switch (current)
+            {
+                case ReceivePathFaultInjector r:
+                    rx ??= r;
+                    current = r.Inner;
+                    continue;
+                case FaultInjector f:
+                    tx ??= f;
+                    current = f.Inner;
+                    continue;
+                case global::PeakCan.Host.Infrastructure.Channel.SecOc.SecOcChannel s:
+                    current = s.Inner;
+                    continue;
+                default:
+                    return (tx, rx);
+            }
+        }
     }
 
     public double CurrentTimestamp => _currentTimestamp;
@@ -143,6 +171,9 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
     }
 
     public IReadOnlyList<CanFrame> GetRecentFrames() => _recentFrames.Snapshot();
+
+    // --- ISecOcStatsSource (spec §5-D6.2) ---
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats => _secOcStats;
 
     // --- IHasFrameSink ---
     // 跨线程：sink 由引擎线程 SetFrameSink 挂载/摘除，consumer 线程读；用 Volatile 保证可见性。

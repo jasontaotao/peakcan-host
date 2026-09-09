@@ -156,6 +156,10 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 
+        // M2.4b（spec §5-D6.7）：SecOC 旁路 verdict 表单例（App 侧 SecOC 通道
+        // 接线在 Phase 3 落地；本单例先行供徽标 join / 断开清理钩子使用）。
+        builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable>();
+
         // v1.0.0: Scripting engine. P1-2（2026-09-06，Lazy<T> 清零）：输出走
         // ScriptOutputHub 单向流（ScriptUtilities → hub → ScriptEngine 转发到
         // OutputReceived），依赖图无环——ScriptEngine 直接 ctor 持有 ScriptUtilities。

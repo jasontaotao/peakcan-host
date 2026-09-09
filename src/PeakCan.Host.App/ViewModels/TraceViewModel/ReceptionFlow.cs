@@ -104,6 +104,9 @@ public sealed partial class TraceViewModel
                 IsSim = f.FrameSource == FrameSource.Environment,
                 IsFd = f.IsFd,
                 IsRtr = (f.Flags & FrameFlags.Rtr) != 0,
+                // M2.4b（spec §5-D6.7）：徽标三态——resolver join 命中 →
+                // ✓/✗+reason；无 resolver（离线/未接线）→ "离线不验"。
+                SecOcBadge = SecOcBadgeResolver?.Invoke(f) ?? SecOcBadge.Offline,
             };
             // 新帧入列即按当前高亮规则求色（无规则 → -1）。
             entry.HighlightColorIndex = EvaluateHighlight(entry);

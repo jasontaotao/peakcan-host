@@ -3,11 +3,14 @@
     <Project Path="src/PeakCan.Host.App/PeakCan.Host.App.csproj" />
     <Project Path="src/PeakCan.Host.Core/PeakCan.Host.Core.csproj" />
     <Project Path="src/PeakCan.Host.Infrastructure/PeakCan.Host.Infrastructure.csproj" />
+    <!-- SecOC Phase 1：通道无关密码库（spec D2，不引用 hil-core） -->
+    <Project Path="src/PeakCan.Security/PeakCan.Security.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PeakCan.Host.App.Tests/PeakCan.Host.App.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj" />
     <Project Path="tests/PeakCan.Host.Infrastructure.Tests/PeakCan.Host.Infrastructure.Tests.csproj" />
+    <Project Path="tests/PeakCan.Security.Tests/PeakCan.Security.Tests.csproj" />
     <Project Path="tests/PromptCacheProbe.Tests/PromptCacheProbe.Tests.csproj" />
   </Folder>
 </Solution>
