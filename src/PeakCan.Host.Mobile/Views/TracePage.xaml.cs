@@ -3,6 +3,7 @@ using LiveChartsCore.Drawing;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Maui;
 using LiveChartsCore.SkiaSharpView.Painting;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ public partial class TracePage : ContentPage
     private readonly DbcCatalogHolder _dbcHolder;
     private bool _isChartTab;
     private readonly ChartZoomState _zoomState = new();
+    private readonly List<CartesianChart> _charts = new();
 
     public TracePage(
         IUiDispatcher ui,
@@ -41,8 +43,6 @@ public partial class TracePage : ContentPage
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.Chart.RenderChanged += OnChartRenderChanged;
-        SignalChart.ZoomMode = ZoomAndPanMode.X;
-        SignalChart.ZoomingSpeed = 0.8;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
         _vm.SetDbc(_dbcHolder.Current);
@@ -177,8 +177,9 @@ public partial class TracePage : ContentPage
     private void RenderChart()
     {
         var chart = _vm.Chart;
-        if (SignalChart.XAxes.FirstOrDefault() is Axis existingXAxis)
-            _zoomState.Capture(existingXAxis.MinLimit, existingXAxis.MaxLimit);
+        var existingXAxis = _charts.FirstOrDefault()?.XAxes.FirstOrDefault() as Axis;
+        _zoomState.Capture(existingXAxis?.MinLimit, existingXAxis?.MaxLimit);
+
         SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
             ? string.Empty
             : string.Join("  |  ", chart.SelectedSignals.Select(s => s.DisplayName));
@@ -187,8 +188,10 @@ public partial class TracePage : ContentPage
             : "请选择 1–4 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
-        var series = new List<ISeries>();
-        var yAxes = new List<Axis>();
+        ChartHost.Children.Clear();
+        ChartHost.RowDefinitions.Clear();
+        _charts.Clear();
+
         var seriesColors = new[]
         {
             SKColors.MediumBlue,
@@ -203,59 +206,76 @@ public partial class TracePage : ContentPage
             if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
 
             var paint = new SolidColorPaint(seriesColors[index % seriesColors.Length]);
-            series.Add(new LineSeries<ObservablePoint>
+            var series = new LineSeries<ObservablePoint>
             {
                 Name = selection.DisplayName,
                 Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
                 GeometrySize = 6,
                 GeometryFill = paint,
                 GeometryStroke = paint,
+                Stroke = paint,
                 Fill = null,
                 LineSmoothness = 0,
-                ScalesYAt = yAxes.Count
-            });
+            };
 
-            yAxes.Add(new Axis
+            var yAxis = new Axis
             {
-                Name = selection.DisplayName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
+                Name = selection.Key.SignalName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
+                MinStep = chart.SelectedSignals.Count > 2 ? 1 : 0,
+                ForceStepToMin = chart.SelectedSignals.Count > 2,
                 NamePaint = paint,
                 LabelsPaint = paint,
-                Position = index % 2 == 0
-                    ? LiveChartsCore.Measure.AxisPosition.Start
-                    : LiveChartsCore.Measure.AxisPosition.End,
                 Labeler = value => value.ToString("0.###", CultureInfo.InvariantCulture),
-                SeparatorsPaint = new SolidColorPaint(SKColors.LightGray.WithAlpha(64))
-            });
-        }
+                SeparatorsPaint = new SolidColorPaint(SKColors.LightGray.WithAlpha(64)),
+            };
 
-        SignalChart.Series = series;
-        SignalChart.XAxes = [new Axis
-        {
-            Name = "时间 (s)",
-            Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture)
-        }];
-        SignalChart.YAxes = yAxes;
-
-        if (_zoomState.TryGet(out var xRange)
-            && SignalChart.XAxes.FirstOrDefault() is Axis xAxis)
-        {
-            xAxis.MinLimit = xRange.Minimum;
-            xAxis.MaxLimit = xRange.Maximum;
-        }
-
-        if (chart.Cursor is { } cursor)
-        {
-            SignalChart.Sections = [new RectangularSection
+            var xAxis = new Axis
             {
-                Xi = cursor.Timestamp,
-                Xj = cursor.Timestamp,
-                ScalesYAt = 0,
-                Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64))
-            }];
+                Name = "时间 (s)",
+                Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture),
+                MinStep = 1,
+                IsVisible = index == chart.SelectedSignals.Count - 1,
+            };
+
+            var plot = new CartesianChart
+            {
+                ZoomMode = ZoomAndPanMode.X,
+                ZoomingSpeed = 0.8,
+                LegendPosition = LegendPosition.Hidden,
+                Series = [series],
+                XAxes = [xAxis],
+                YAxes = [yAxis],
+                Sections = chart.Cursor is { } cursor
+                    ? [new RectangularSection
+                       {
+                           Xi = cursor.Timestamp,
+                           Xj = cursor.Timestamp,
+                           ScalesYAt = 0,
+                           Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64)),
+                       }]
+                    : [],
+            };
+
+            var height = chart.SelectedSignals.Count switch
+            {
+                1 => 600,
+                2 => 280,
+                _ => 130,
+            };
+            ChartHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(height) });
+            ChartHost.Children.Add(plot);
+            Grid.SetRow(plot, _charts.Count);
+            _charts.Add(plot);
         }
-        else
+
+        if (_zoomState.TryGet(out var xRange))
         {
-            SignalChart.Sections = [];
+            foreach (var plot in _charts)
+            {
+                if (plot.XAxes.FirstOrDefault() is not Axis xAxis) continue;
+                xAxis.MinLimit = xRange.Minimum;
+                xAxis.MaxLimit = xRange.Maximum;
+            }
         }
     }
 
@@ -271,9 +291,12 @@ public partial class TracePage : ContentPage
 
     private void ZoomChart(ZoomDirection direction)
     {
-        if (SignalChart.CoreChart is not CartesianChartEngine chart || SignalChart.Width <= 0) return;
-        var center = new LvcPoint(SignalChart.Width / 2, SignalChart.Height / 2);
-        chart.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
+        foreach (var chart in _charts)
+        {
+            if (chart.CoreChart is not CartesianChartEngine engine || chart.Width <= 0) continue;
+            var center = new LvcPoint(chart.Width / 2, chart.Height / 2);
+            engine.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
+        }
     }
     private void OnSelectSignalClicked(object? sender, EventArgs e)
     {
