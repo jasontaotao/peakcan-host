@@ -80,7 +80,17 @@ public sealed class StatefulVirtualEcu : IDisposable
                     // processes the request so script-driven 0x27 state
                     // transitions (locked→seedSent, ODX-imported scripts)
                     // remain observable side effects; its response is discarded.
-                    _ = _stateMachine.ProcessRequest(request);
+                    // Script side effect is best-effort: a throwing script must
+                    // never swallow the authoritative 0x27 response (review M3).
+                    try
+                    {
+                        _ = _stateMachine.ProcessRequest(request);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex,
+                            "Script 0x27 side effect failed; authoritative security response still sent.");
+                    }
                     var secRsp = _securityServer.HandleRequest(request);
                     if (secRsp.Length == 0) return; // suppressPositiveResponseBit
                     _ = SendResponseAsync(secRsp, 0);
