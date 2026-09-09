@@ -28,6 +28,7 @@ public partial class TracePage : ContentPage
     private readonly List<CartesianChart> _charts = new();
     private readonly Dictionary<CartesianChart, (LineSeries<ObservablePoint> Series, SignalSelectionKey Key)> _plotSeries = new();
     private readonly List<SignalSelectionKey> _renderedKeys = [];
+    private ChartAxisRange? _xDataRange;
     private readonly SolidColorPaint _cursorPaint = new(SKColors.Orange.WithAlpha(64));
 
     public TracePage(
@@ -198,6 +199,7 @@ public partial class TracePage : ContentPage
     private void RenderChart()
     {
         var chart = _vm.Chart;
+        UpdateXDataRange(chart);
 
         SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
             ? string.Empty
@@ -233,10 +235,10 @@ public partial class TracePage : ContentPage
 
         var seriesColors = new[]
         {
-            SKColor.Parse("#3B82F6"),
-            SKColor.Parse("#F87171"),
-            SKColor.Parse("#34D399"),
-            SKColor.Parse("#FBBF24"),
+            SKColors.MediumBlue,
+            SKColors.IndianRed,
+            SKColors.SeaGreen,
+            SKColors.DarkOrange,
         };
 
         var renderableCount = chart.SelectedSignals.Count(s => chart.RenderPoints.ContainsKey(s.Key));
@@ -245,8 +247,20 @@ public partial class TracePage : ContentPage
             var selection = chart.SelectedSignals[index];
             if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
 
-            var color = seriesColors[index % seriesColors.Length];
-            var paint = new SolidColorPaint(color) { StrokeThickness = 2 };
+            var paint = new SolidColorPaint(seriesColors[index % seriesColors.Length]);
+            var series = new LineSeries<ObservablePoint>
+            {
+                Name = selection.DisplayName,
+                Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
+                // min-max 包络需要点标记辅助读图；点径 6 是既有视觉基线。
+                GeometrySize = 6,
+                GeometryFill = paint,
+                GeometryStroke = paint,
+                Stroke = paint,
+                Fill = null,
+                LineSmoothness = 0,
+            };
+
             var yAxis = new Axis
             {
                 Name = selection.Key.SignalName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
@@ -265,23 +279,9 @@ public partial class TracePage : ContentPage
                 Name = "时间 (s)",
                 NameTextSize = 11,
                 TextSize = 10,
-                Labeler = value => value.ToString("0.##", CultureInfo.InvariantCulture),
+                Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture),
                 MinStep = 1,
                 IsVisible = _charts.Count == renderableCount - 1,
-            };
-
-            var series = new LineSeries<ObservablePoint>
-            {
-                Name = selection.DisplayName,
-                Values = ChartRenderFilter
-                    .ClampToViewport(points, xAxis.MinLimit, xAxis.MaxLimit)
-                    .Select(p => new ObservablePoint(p.Timestamp, p.Value))
-                    .ToArray(),
-                // 长时间日志的点密度极高；绘制点标会糊成粗带。
-                GeometrySize = 0,
-                Stroke = paint,
-                Fill = null,
-                LineSmoothness = 0,
             };
 
             var plot = new CartesianChart
@@ -324,21 +324,13 @@ public partial class TracePage : ContentPage
 
     private void UpdatePlotData(TraceChartViewModel chart)
     {
+        UpdateXDataRange(chart);
         foreach (var plot in _charts)
         {
             if (!_plotSeries.TryGetValue(plot, out var entry)) continue;
             if (!chart.RenderPoints.TryGetValue(entry.Key, out var points)) continue;
 
-            if (!_xViewports.TryGetValue(plot, out var viewport)
-                || viewport is not AxisXViewport axisViewport)
-            {
-                continue;
-            }
-
-            entry.Series.Values = ChartRenderFilter
-                .ClampToViewport(points, axisViewport.CurrentMinimum, axisViewport.CurrentMaximum)
-                .Select(p => new ObservablePoint(p.Timestamp, p.Value))
-                .ToArray();
+            entry.Series.Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray();
             plot.Sections = chart.Cursor is { } cursor
                 ? [new RectangularSection
                    {
@@ -351,18 +343,46 @@ public partial class TracePage : ContentPage
         }
     }
 
+    private void UpdateXDataRange(TraceChartViewModel chart)
+    {
+        double? minimum = null;
+        double? maximum = null;
+        foreach (var selection in chart.SelectedSignals)
+        {
+            if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
+            foreach (var point in points)
+            {
+                if (!double.IsFinite(point.Timestamp)) continue;
+                minimum = minimum is { } current ? Math.Min(current, point.Timestamp) : point.Timestamp;
+                maximum = maximum is { } existing ? Math.Max(existing, point.Timestamp) : point.Timestamp;
+            }
+        }
+
+        _xDataRange = minimum is { } start && maximum is { } end && start < end
+            ? new ChartAxisRange(start, end)
+            : null;
+    }
+
+    private void EnforceXZoomLimit(IChartXAxisViewport viewport)
+    {
+        if (_xDataRange is not { } full || !viewport.TryGetRange(out var range)) return;
+
+        var clamped = ChartViewportLimits.ClampToMinimumSpan(range, full);
+        if (clamped != range)
+            viewport.SetRange(clamped);
+    }
+
     private void OnPlotUpdateStarted(IChartView chart)
     {
         if (chart is CartesianChart plot && _xViewports.TryGetValue(plot, out var viewport))
+        {
+            EnforceXZoomLimit(viewport);
             _xViewport.SyncFrom(viewport);
+        }
     }
 
     private sealed class AxisXViewport(Axis axis) : IChartXAxisViewport
     {
-        public double? CurrentMinimum => axis.MinLimit;
-
-        public double? CurrentMaximum => axis.MaxLimit;
-
         public bool TryGetRange(out ChartAxisRange range)
         {
             if (axis.MinLimit is { } minimum
@@ -434,3 +454,4 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
+
