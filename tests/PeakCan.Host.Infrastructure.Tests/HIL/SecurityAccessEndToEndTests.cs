@@ -36,7 +36,13 @@ public class SecurityAccessEndToEndTests
         var ecuCanIds = new CanIdConfig { RequestId = RespId, ResponseId = ReqId, IsExtendedFrame = false };
         var server = new SecurityAccessServer(serverCfg, timeProvider: clock);
         var ecu = new StatefulVirtualEcu(channel, ecuCanIds,
-            new EcuStateMachine(Array.Empty<EcuStateTransition>()), securityServer: server);
+            new EcuStateMachine(new[]
+            {
+                // 脚本侧哑转移：0x10 0x01 应答 0x50 0x01（0x10 钩子同时触发 server 重锁副作用）
+                new EcuStateTransition { FromState = null, ServiceId = 0x10, SubFunction = 0x01, Response = new StaticResponse(new byte[] { 0x50, 0x01, 0x00, 0x32, 0x00, 0xC8 }) },
+                new EcuStateTransition { FromState = null, ServiceId = 0x3E, SubFunction = 0x00, Response = new StaticResponse(new byte[] { 0x7E, 0x00 }) },
+            }),
+            securityServer: server);
         var clientIsoTp = new global::PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer(
             new CanIdConfig { RequestId = ReqId, ResponseId = RespId, IsExtendedFrame = false },
             async frame => { await channel.WriteAsync(frame).ConfigureAwait(false); });
@@ -56,8 +62,14 @@ public class SecurityAccessEndToEndTests
     public async Task FullHandshake_RequestSeed_SendKey_Unlocks_Server()
     {
         using var rig = NewRig();
-        var seed = await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+        // RequestSeed（仅取 seed，不触发 SendKey）
+        var seed = await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
         Assert.Equal(4, seed.Length);
+        Assert.False(rig.Server.IsAuthenticated(1));
+
+        // SendKey（XOR 0xAA 与 server 端种子算法一致）
+        var key = seed.Select(b => (byte)(b ^ 0xAA)).ToArray();
+        await rig.Client.SecurityAccessAsync(0x01, key, CancellationToken.None);
         Assert.True(rig.Server.IsAuthenticated(1));
     }
 
@@ -67,10 +79,10 @@ public class SecurityAccessEndToEndTests
         using var rig = NewRig();
         for (var i = 0; i < 3; i++)
         {
-            var seed = await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+            await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
             var ex = await Assert.ThrowsAsync<UdsNegativeResponseException>(
                 () => rig.Client.SecurityAccessAsync(0x01, new byte[] { 9, 9, 9, 9 }, CancellationToken.None));
-            Assert.Equal(0x35, (byte)ex.ResponseCode);
+            Assert.True((byte)ex.ResponseCode == 0x35, $"iter {i}: nrc=0x{(byte)ex.ResponseCode:X2} serverLocked={rig.Server.IsLocked(1)}");
         }
         Assert.True(rig.Server.IsLocked(1));
     }
@@ -82,7 +94,7 @@ public class SecurityAccessEndToEndTests
         // 3 wrong keys → server Delayed
         for (var i = 0; i < 3; i++)
         {
-            await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+            await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
             await Assert.ThrowsAsync<UdsNegativeResponseException>(
                 () => rig.Client.SecurityAccessAsync(0x01, new byte[] { 9, 9, 9, 9 }, CancellationToken.None));
         }
@@ -96,7 +108,7 @@ public class SecurityAccessEndToEndTests
         // 虚拟推进跨过锁定窗口（零真实等待）→ 恢复正常握手成功
         rig.Clock.Advance(TimeSpan.FromSeconds(5) + TimeSpan.FromMilliseconds(1));
         Assert.False(rig.Server.IsLocked(1));
-        var seed = await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+        var seed = await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
         await rig.Client.SecurityAccessAsync(0x01, seed.Select(b => (byte)(b ^ 0xAA)).ToArray(), CancellationToken.None);
         Assert.True(rig.Server.IsAuthenticated(1));
     }
@@ -110,7 +122,7 @@ public class SecurityAccessEndToEndTests
         });
         for (var i = 0; i < 3; i++)
         {
-            await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+            await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
             await Assert.ThrowsAsync<UdsNegativeResponseException>(
                 () => rig.Client.SecurityAccessAsync(0x01, new byte[] { 9, 9, 9, 9 }, CancellationToken.None));
         }
@@ -124,7 +136,7 @@ public class SecurityAccessEndToEndTests
     public async Task Session_Change_To_Default_Relocks_E2E()
     {
         using var rig = NewRig();
-        var seed = await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+        var seed = await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
         await rig.Client.SecurityAccessAsync(0x01, seed.Select(b => (byte)(b ^ 0xAA)).ToArray(), CancellationToken.None);
         Assert.True(rig.Server.IsAuthenticated(1));
 
@@ -132,8 +144,9 @@ public class SecurityAccessEndToEndTests
         await rig.Client.DiagnosticSessionControlAsync(0x01, CancellationToken.None);
         Assert.False(rig.Server.IsAuthenticated(1));
 
-        // 再握手成功
-        var seed2 = await rig.Client.SecurityAccessAsync(0x01, CancellationToken.None);
+        // 再握手成功（新 seed，非全零）
+        var seed2 = await rig.Client.RequestSeedAsync(0x01, CancellationToken.None);
+        Assert.Equal(4, seed2.Length);
         Assert.False(seed2.All(b => b == 0));
         await rig.Client.SecurityAccessAsync(0x01, seed2.Select(b => (byte)(b ^ 0xAA)).ToArray(), CancellationToken.None);
         Assert.True(rig.Server.IsAuthenticated(1));
