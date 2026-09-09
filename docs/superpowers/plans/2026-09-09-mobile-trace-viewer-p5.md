@@ -48,7 +48,7 @@
   - `bool TryGet(out ChartAxisRange range)`
   - `void Reset()`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add this test file:
 
@@ -99,7 +99,7 @@ public class ChartZoomStateTests
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 ```powershell
@@ -107,7 +107,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 ```
 Expected: compile failure because `ChartZoomState` does not exist.
 
-- [ ] **Step 3: Implement the model**
+- [x] **Step 3: Implement the model**
 
 Create:
 
@@ -149,12 +149,12 @@ public sealed class ChartZoomState
 }
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run the same filter command.
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Host.Mobile.Core/ViewModels/ChartZoomState.cs tests/PeakCan.Host.Mobile.Core.Tests/ViewModels/ChartZoomStateTests.cs
@@ -173,7 +173,7 @@ git commit -m "feat(mobile): add chart zoom state model"
 - Consumes existing `StartChartBackfill()`, `ClearPlaybackBuffer()`, and `BackfillSelectedSignalsAsync()`.
 - Produces: destructive viewport operations restore chart history whenever valid selections remain.
 
-- [ ] **Step 1: Add failing lifecycle tests**
+- [x] **Step 1: Add failing lifecycle tests**
 
 Use the existing `Env`, `AsyncFrameSeq`, and DBC fixtures. Add at least these tests:
 
@@ -234,7 +234,7 @@ Add equivalent tests for:
 - `SeekTo` in `Ready` after `DurationKnown` is forced via test reflection or an existing duration scanner helper;
 - replay from `Ended` if an existing fake-player pattern already reaches that state.
 
-- [ ] **Step 2: Run new tests and verify failure**
+- [x] **Step 2: Run new tests and verify failure**
 
 Run:
 ```powershell
@@ -242,7 +242,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 ```
 Expected: new lifecycle tests fail because `RenderPoints` remains empty after the destructive operation.
 
-- [ ] **Step 3: Implement minimal restart behavior**
+- [x] **Step 3: Implement minimal restart behavior**
 
 Change the private method signature:
 
@@ -271,7 +271,7 @@ Use `restartChartBackfill: true` for:
 
 Keep `OpenAsync`'s initial clear non-restarting, because it starts backfill explicitly after state becomes `Ready`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run:
 ```powershell
@@ -279,7 +279,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 ```
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Host.Mobile.Core/ViewModels/TraceSessionViewModel.cs tests/PeakCan.Host.Mobile.Core.Tests/ViewModels/TraceSessionViewModelTests.cs
@@ -301,7 +301,7 @@ git commit -m "fix(mobile): restore chart history after state changes"
   - `Select` accepts up to 4 known signals.
   - selection page message: `"最多选择 4 个信号。"`
 
-- [ ] **Step 1: Change the existing limit test**
+- [x] **Step 1: Change the existing limit test**
 
 Replace `Select_Accepts_At_Most_Two_Signals` with:
 
@@ -324,7 +324,7 @@ public void Select_Accepts_At_Most_Four_Signals()
 
 If a fifth valid signal is needed, extend the DBC fixture with another known message/signal; do not use an unknown key to assert the limit.
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run:
 ```powershell
@@ -332,7 +332,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 ```
 Expected: the changed test fails while only 2 signals are accepted.
 
-- [ ] **Step 3: Implement the 4-signal limit**
+- [x] **Step 3: Implement the 4-signal limit**
 
 In `TraceChartViewModel`:
 
@@ -352,7 +352,7 @@ In `SignalSelectionPage.xaml.cs`, change the alert text to:
 await DisplayAlertAsync("无法选择", "最多选择 4 个信号。", "确定");
 ```
 
-- [ ] **Step 4: Run chart tests**
+- [x] **Step 4: Run chart tests**
 
 Run:
 ```powershell
@@ -360,7 +360,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.
 ```
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/PeakCan.Host.Mobile.Core/ViewModels/TraceChartViewModel.cs src/PeakCan.Host.Mobile/Views/SignalSelectionPage.xaml.cs tests/PeakCan.Host.Mobile.Core.Tests/ViewModels/TraceChartViewModelTests.cs
@@ -378,13 +378,13 @@ git commit -m "feat(mobile): allow four chart signals"
 - Consumes `ChartZoomState`, `ChartAxisRange`, and `TraceChartViewModel.MaxSelectedSignals` behavior.
 - Produces: chart render does not reset user X zoom; reset button clears the captured range.
 
-- [ ] **Step 1: Add a private zoom field**
+- [x] **Step 1: Add a private zoom field**
 
 ```csharp
 private readonly ChartZoomState _zoomState = new();
 ```
 
-- [ ] **Step 2: Capture before rebuilding and restore after assignment**
+- [x] **Step 2: Capture before rebuilding and restore after assignment**
 
 At the start of `RenderChart()`, before changing `SignalChart.Series` / axes:
 
@@ -405,7 +405,7 @@ if (_zoomState.TryGet(out var xRange) && SignalChart.XAxes.Count > 0)
 
 If the LiveCharts property types are not nullable on the installed package version, adapt capture with safe local conversion while preserving the same `ChartZoomState` semantics.
 
-- [ ] **Step 3: Update colors, empty text, and Y-axis positions**
+- [x] **Step 3: Update colors, empty text, and Y-axis positions**
 
 Use at least four series colors:
 
@@ -435,7 +435,7 @@ Position = index % 2 == 0
     : LiveChartsCore.Measure.AxisPosition.End,
 ```
 
-- [ ] **Step 4: Reset zoom explicitly**
+- [x] **Step 4: Reset zoom explicitly**
 
 Change:
 
@@ -449,7 +449,7 @@ private void OnResetZoomClicked(object? sender, EventArgs e)
 
 Because capture happens after reset, the next render re-autoscales.
 
-- [ ] **Step 5: Build Android**
+- [x] **Step 5: Build Android**
 
 Run:
 ```powershell
@@ -457,7 +457,7 @@ dotnet build src/PeakCan.Host.Mobile/PeakCan.Host.Mobile.csproj -f net10.0-andro
 ```
 Expected: build succeeds with 0 errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/PeakCan.Host.Mobile/Views/TracePage.xaml.cs
@@ -472,19 +472,19 @@ git commit -m "feat(mobile): preserve chart zoom across renders"
 - No production file changes expected.
 - Local-only evidence under `.acceptance/` (do not commit).
 
-- [ ] **Step 1: Run Mobile.Core tests**
+- [x] **Step 1: Run Mobile.Core tests**
 
 ```powershell
 dotnet test tests/PeakCan.Host.Mobile.Core.Tests/PeakCan.Host.Mobile.Core.Tests.csproj --nologo
 ```
 Expected: 0 failed; coverage remains at or above the existing P4 level.
 
-- [ ] **Step 2: Run Android build**
+- [x] **Step 2: Run Android build**
 
 Use the Task 4 build command.
 Expected: 0 errors.
 
-- [ ] **Step 3: Install and verify on emulator**
+- [x] **Step 3: Install and verify on emulator**
 
 Use the existing embedded APK and `emulator-5554` workflow. Clear app data, then:
 1. Open `.acceptance/two-signal.blf` through the file/intent flow.
@@ -496,12 +496,12 @@ Use the existing embedded APK and `emulator-5554` workflow. Clear app data, then
 7. Change ID filter and confirm selected-signal history returns after backfill.
 8. Save screenshot to `.acceptance/latest-chart-p5.png` and verify all controls remain on screen.
 
-- [ ] **Step 4: Run Superpowers code review**
+- [x] **Step 4: Run Superpowers code review**
 
 Use `superpowers:requesting-code-review`.
 Fix all Critical/Important findings with focused tests.
 
-- [ ] **Step 5: Record completion**
+- [x] **Step 5: Record completion**
 
 If all checks pass, update the plan checkboxes. Do not merge, push, or delete the branch without explicit user confirmation.
 
@@ -511,3 +511,12 @@ If all checks pass, update the plan checkboxes. Do not merge, push, or delete th
 - **Placeholder scan:** No TBD/TODO items; all implementation and tests include concrete behavior.
 - **Type consistency:** `ChartZoomState`, `ChartAxisRange`, and `TraceChartViewModel.Select` usage are consistent across tasks.
 - **Risk control:** LiveCharts nullable axis limits may require a small UI-only adaptation, but Mobile.Core remains chart-library independent.
+
+
+## Execution Notes
+
+- Implemented and verified on branch `feature/mobile-trace-viewer-p4`.
+- Four signals were rendered as compact per-signal subplots after the shared-axis approach did not render all series reliably in LiveCharts2.
+- Emulator evidence is local-only in `.acceptance/latest-chart-p5-grid-final.png`, `p5-subplots-zoomed2.png`, and `p5-subplots-zoom-refresh2.png`.
+- The plan's subagent dispatch step was unavailable in the current tool surface; review was performed by the controller against the full P5 diff and one Important UI finding (last rendered X-axis visibility) was fixed.
+- Final Mobile.Core result: 124 passed / 0 failed; Android embedded-APK build passed with 0 errors.
