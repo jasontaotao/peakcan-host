@@ -58,6 +58,7 @@ public sealed class SecOcAuthenticator
     /// <returns>写入 <paramref name="frame"/> 的总字节数。</returns>
     public int Sign(ReadOnlySpan<byte> authenticData, Span<byte> frame)
     {
+        ObjectDisposedException.ThrowIf(_wiped, this);
         var fvBytes = _profile.FvLenBits / 8;
         var macBytes = _profile.MacLenBits / 8;
         var total = authenticData.Length + fvBytes + macBytes;
@@ -97,6 +98,7 @@ public sealed class SecOcAuthenticator
     /// </summary>
     public VerifyResult Verify(ReadOnlySpan<byte> frame)
     {
+        ObjectDisposedException.ThrowIf(_wiped, this);
         var fvBytes = _profile.FvLenBits / 8;
         var macBytes = _profile.MacLenBits / 8;
         if (frame.Length < fvBytes + macBytes)
@@ -163,6 +165,18 @@ public sealed class SecOcAuthenticator
             value = (ushort)((value << 8) | bytes[i]);
         return value;
     }
+
+    /// <summary>
+    /// 密钥零化（devlog M2 遗留 #5，卫生级）：清零内部克隆并封禁后续加签/验签。
+    /// 供通道卸载 / 套件结束时的确定性内存清理；不可逆，重复调用幂等。
+    /// </summary>
+    public void Wipe()
+    {
+        CryptographicOperations.ZeroMemory(_key);
+        _wiped = true;
+    }
+
+    private bool _wiped;
 }
 
 /// <summary>验签结果（spec §6.2 分类表映射）。</summary>

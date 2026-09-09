@@ -369,7 +369,12 @@ public static class HeadlessHostBuilder
             .WriteTo.File("hil.log")
             .CreateLogger());
 
-        return builder.Build();
+        var host = builder.Build();
+        // M3.4 devlog 遗留修复：HilIsoTpBridge 是懒注册单例，无人解析则 client isotp 的
+        // ProcessFrame 永不接线（单通道/ECU 模式跑 UDS 步骤全超时）。注册了即急切实例化；
+        // trace-replay 模式未注册 → GetService 返回 null，无副作用。多通道模式已自建 bridge。
+        _ = host.Services.GetService<HilIsoTpBridge>();
+        return host;
     }
 
     /// <summary>

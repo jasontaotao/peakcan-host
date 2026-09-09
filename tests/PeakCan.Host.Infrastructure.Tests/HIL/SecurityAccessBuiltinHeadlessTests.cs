@@ -146,4 +146,27 @@ public class SecurityAccessBuiltinHeadlessTests
             File.Delete(dbc); File.Delete(suite); File.Delete(ecuPath);
         }
     }
+
+    [Fact]
+    public void KeyDll_Wiring_ResolvesAlgorithm_AndSurfacesMissingDll()
+    {
+        // M3.4 devlog 遗留 #2 闭合：--key-dll → DllKeyDerivationAlgorithm → UdsClient
+        // 链路的 headless 验证（真实 ABI 已由 delegate-seam 单测覆盖；此处证明
+        // CLI 旗标真的把算法接到 UdsClient——坏 DLL 路径在解析时 fail-fast 暴露）。
+        var (dbc, suite, ecuPath) = WriteFixtures();
+        try
+        {
+            var cli = new CliArgs(dbc, suite, UdsRequestId: 0x7E0, UdsResponseId: 0x7E8,
+                EcuScriptPath: ecuPath, KeyDllPath: @"C:\definitely\missing\GenerateKey.dll");
+            using var host = HeadlessHostBuilder.Build(cli);
+
+            var ex = Assert.ThrowsAny<Exception>(
+                () => host.Services.GetRequiredService<UdsClient>());
+            Assert.Contains("GenerateKey.dll", ex.Message);
+        }
+        finally
+        {
+            File.Delete(dbc); File.Delete(suite); File.Delete(ecuPath);
+        }
+    }
 }
