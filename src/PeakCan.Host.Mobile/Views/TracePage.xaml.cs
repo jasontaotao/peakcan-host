@@ -20,6 +20,7 @@ public partial class TracePage : ContentPage
     private readonly IDbcCatalogProvider _dbcProvider;
     private readonly DbcCatalogHolder _dbcHolder;
     private bool _isChartTab;
+    private readonly ChartZoomState _zoomState = new();
 
     public TracePage(
         IUiDispatcher ui,
@@ -176,17 +177,25 @@ public partial class TracePage : ContentPage
     private void RenderChart()
     {
         var chart = _vm.Chart;
+        if (SignalChart.XAxes.FirstOrDefault() is Axis existingXAxis)
+            _zoomState.Capture(existingXAxis.MinLimit, existingXAxis.MaxLimit);
         SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
             ? string.Empty
             : string.Join("  |  ", chart.SelectedSignals.Select(s => s.DisplayName));
         ChartEmptyLabel.Text = chart.Messages.Count == 0
             ? "请先加载 DBC"
-            : "请选择 1–2 个 DBC 信号";
+            : "请选择 1–4 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
         var series = new List<ISeries>();
         var yAxes = new List<Axis>();
-        var seriesColors = new[] { SKColors.MediumBlue, SKColors.IndianRed };
+        var seriesColors = new[]
+        {
+            SKColors.MediumBlue,
+            SKColors.IndianRed,
+            SKColors.SeaGreen,
+            SKColors.DarkOrange,
+        };
 
         for (var index = 0; index < chart.SelectedSignals.Count; index++)
         {
@@ -211,7 +220,7 @@ public partial class TracePage : ContentPage
                 Name = selection.DisplayName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
                 NamePaint = paint,
                 LabelsPaint = paint,
-                Position = yAxes.Count == 0
+                Position = index % 2 == 0
                     ? LiveChartsCore.Measure.AxisPosition.Start
                     : LiveChartsCore.Measure.AxisPosition.End,
                 Labeler = value => value.ToString("0.###", CultureInfo.InvariantCulture),
@@ -226,6 +235,13 @@ public partial class TracePage : ContentPage
             Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture)
         }];
         SignalChart.YAxes = yAxes;
+
+        if (_zoomState.TryGet(out var xRange)
+            && SignalChart.XAxes.FirstOrDefault() is Axis xAxis)
+        {
+            xAxis.MinLimit = xRange.Minimum;
+            xAxis.MaxLimit = xRange.Maximum;
+        }
 
         if (chart.Cursor is { } cursor)
         {
@@ -247,7 +263,11 @@ public partial class TracePage : ContentPage
 
     private void OnZoomOutClicked(object? sender, EventArgs e) => ZoomChart(ZoomDirection.ZoomOut);
 
-    private void OnResetZoomClicked(object? sender, EventArgs e) => RenderChart();
+    private void OnResetZoomClicked(object? sender, EventArgs e)
+    {
+        _zoomState.Reset();
+        RenderChart();
+    }
 
     private void ZoomChart(ZoomDirection direction)
     {
