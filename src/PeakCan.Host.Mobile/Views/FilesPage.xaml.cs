@@ -244,7 +244,10 @@ public partial class FilesPage : ContentPage
                 return;
             }
             _dbcHolder.Set(result.Catalog);
-            await DisplayAlertAsync("DBC 已就绪", $"{name} 已加载，打开 trace 文件后自动生效。", "确定");
+            var message = Navigation.NavigationStack.LastOrDefault() is TracePage
+                ? $"{name} 已加载并应用到当前会话。"
+                : $"{name} 已加载，打开 trace 文件后自动生效。";
+            await DisplayAlertAsync("DBC 已就绪", message, "确定");
         }
         catch (Exception ex)
         {

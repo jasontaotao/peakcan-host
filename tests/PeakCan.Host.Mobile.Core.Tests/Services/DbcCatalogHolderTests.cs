@@ -39,4 +39,18 @@ public class DbcCatalogHolderTests
         holder.Set(null);
         holder.Current.Should().BeNull();
     }
+
+    [Fact]
+    public void Set_Raises_Changed_Every_Time()
+    {
+        var holder = new DbcCatalogHolder();
+        var catalog = CreateCatalog();
+        var changes = 0;
+        holder.Changed += () => changes++;
+
+        holder.Set(catalog);
+        holder.Set(catalog);
+
+        changes.Should().Be(2);
+    }
 }

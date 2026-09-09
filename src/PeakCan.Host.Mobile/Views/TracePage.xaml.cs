@@ -21,6 +21,7 @@ public partial class TracePage : ContentPage
     private readonly TraceSessionViewModel _vm;
     private readonly IDbcCatalogProvider _dbcProvider;
     private readonly DbcCatalogHolder _dbcHolder;
+    private DbcCatalog? _appliedDbc;
     private bool _isChartTab;
     private readonly ChartXViewportSync _xViewport = new();
     private readonly Dictionary<CartesianChart, IChartXAxisViewport> _xViewports = new();
@@ -47,7 +48,8 @@ public partial class TracePage : ContentPage
         _vm.Chart.RenderChanged += OnChartRenderChanged;
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
-        _vm.SetDbc(_dbcHolder.Current);
+        _appliedDbc = _dbcHolder.Current;
+        _vm.SetDbc(_appliedDbc);
         _ = InitializeAsync(cachedFilePath, sourceName, fileSizeBytes);
     }
 
@@ -55,18 +57,32 @@ public partial class TracePage : ContentPage
     {
         base.OnAppearing();
         SizeChanged += OnPageSizeChanged;
+        _dbcHolder.Changed += OnDbcHolderChanged;
+        ApplyHolderDbc();
         ApplyChartFullscreen();
     }
 
     protected override void OnDisappearing()
     {
         SizeChanged -= OnPageSizeChanged;
+        _dbcHolder.Changed -= OnDbcHolderChanged;
         base.OnDisappearing();
     }
 
     private void OnPageSizeChanged(object? sender, EventArgs e)
     {
         ApplyChartFullscreen();
+    }
+
+    /// <summary>Hot-apply the app-wide DBC so WeChat shares reach the open session.</summary>
+    private void OnDbcHolderChanged() => ApplyHolderDbc();
+
+    private void ApplyHolderDbc()
+    {
+        if (ReferenceEquals(_appliedDbc, _dbcHolder.Current)) return;
+        _appliedDbc = _dbcHolder.Current;
+        _vm.SetDbc(_appliedDbc);
+        ScrollToLatest();
     }
 
     private void ApplyChartFullscreen()
@@ -141,7 +157,7 @@ public partial class TracePage : ContentPage
             if (result.Catalog is null) return;
 
             _dbcHolder.Set(result.Catalog);
-            _vm.SetDbc(result.Catalog);
+            ApplyHolderDbc();
         }
         catch (Exception ex)
         {
@@ -356,8 +372,6 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
-
-
 
 
 
