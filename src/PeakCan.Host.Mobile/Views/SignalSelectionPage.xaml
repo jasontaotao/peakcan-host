@@ -4,7 +4,7 @@
              x:Class="PeakCan.Host.Mobile.Views.SignalSelectionPage"
              Title="选择信号">
     <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
-        <Label Grid.Row="0" Text="最多选择 2 个信号" FontAttributes="Bold" />
+        <Label Grid.Row="0" Text="最多选择 4 个信号" FontAttributes="Bold" />
 
         <CollectionView Grid.Row="1" x:Name="SignalList">
             <CollectionView.ItemTemplate>

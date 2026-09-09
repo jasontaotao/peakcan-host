@@ -58,7 +58,7 @@
                 <Button Grid.Column="4" x:Name="ResetZoomButton" Text="复位" WidthRequest="64" Clicked="OnResetZoomClicked" />
             </Grid>
             <lvc:CartesianChart Grid.Row="1" x:Name="SignalChart" />
-            <Label x:Name="ChartEmptyLabel" Grid.Row="2" Text="请选择 1–2 个 DBC 信号" HorizontalOptions="Center" TextColor="Gray" />
+            <Label x:Name="ChartEmptyLabel" Grid.Row="2" Text="请选择 1–4 个 DBC 信号" HorizontalOptions="Center" TextColor="Gray" />
         </Grid>
 
         <HorizontalStackLayout x:Name="StatusRow" Grid.Row="4" Spacing="12" Margin="0,4">
