@@ -9,6 +9,7 @@ public class ChartXViewportSyncTests
     private sealed class FakeAxis : IChartXAxisViewport
     {
         public ChartAxisRange? Range { get; private set; }
+        public int SetRangeCalls { get; private set; }
 
         public bool TryGetRange(out ChartAxisRange range)
         {
@@ -22,7 +23,11 @@ public class ChartXViewportSyncTests
             return false;
         }
 
-        public void SetRange(ChartAxisRange range) => Range = range;
+        public void SetRange(ChartAxisRange range)
+        {
+            SetRangeCalls++;
+            Range = range;
+        }
     }
 
     [Fact]
@@ -56,6 +61,21 @@ public class ChartXViewportSyncTests
         sync.Attach([replacement]);
 
         replacement.Range.Should().Be(new ChartAxisRange(1, 2));
+    }
+
+    [Fact]
+    public void SyncFrom_Does_Not_Rewrite_Source_Axis()
+    {
+        var sync = new ChartXViewportSync();
+        var source = new FakeAxis();
+        var other = new FakeAxis();
+        sync.Attach([source, other]);
+        source.SetRange(new ChartAxisRange(4, 6));
+
+        sync.SyncFrom(source).Should().BeTrue();
+
+        other.Range.Should().Be(new ChartAxisRange(4, 6));
+        source.SetRangeCalls.Should().Be(1, "rewriting the gesture source mid-pinch cancels the zoom");
     }
 
     [Fact]

@@ -243,6 +243,8 @@ public partial class TracePage : ContentPage
             var yAxis = new Axis
             {
                 Name = selection.Key.SignalName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
+                NameTextSize = 11,
+                TextSize = 10,
                 MinStep = chart.SelectedSignals.Count > 2 ? 1 : 0,
                 ForceStepToMin = chart.SelectedSignals.Count > 2,
                 NamePaint = paint,
@@ -254,6 +256,8 @@ public partial class TracePage : ContentPage
             var xAxis = new Axis
             {
                 Name = "时间 (s)",
+                NameTextSize = 11,
+                TextSize = 10,
                 Labeler = value => value.ToString("F2", CultureInfo.InvariantCulture),
                 MinStep = 1,
                 IsVisible = _charts.Count == renderableCount - 1,
@@ -372,7 +376,6 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
-
 
 
 

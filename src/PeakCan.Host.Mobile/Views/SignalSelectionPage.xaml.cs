@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Core.ViewModels;
 
@@ -14,17 +15,33 @@ public partial class SignalSelectionPage : ContentPage
         BuildRows();
     }
 
-    private record Choice(
-        SignalCatalogMessage Message,
-        SignalCatalogSignal Signal,
-        string DisplayName,
-        bool IsSelected)
+    private sealed partial class Choice : ObservableObject
     {
+        public Choice(
+            SignalCatalogMessage message,
+            SignalCatalogSignal signal,
+            string displayName,
+            bool isSelected)
+        {
+            Message = message;
+            Signal = signal;
+            DisplayName = displayName;
+            _isSelected = isSelected;
+        }
+
+        public SignalCatalogMessage Message { get; }
+        public SignalCatalogSignal Signal { get; }
+        public string DisplayName { get; }
+
         public SignalSelectionKey Key => new(
             Message.CanId,
             Message.IsExtended,
             Message.Name,
             Signal.Name);
+
+        // INPC 勾选标记就地更新，避免重建 ItemsSource 造成列表滚动复位。
+        [ObservableProperty]
+        private bool _isSelected;
     }
 
     private void BuildRows()
@@ -49,17 +66,20 @@ public partial class SignalSelectionPage : ContentPage
     {
         if (sender is not BindableObject { BindingContext: Choice choice }) return;
 
-        if (IsSelected(choice.Message, choice.Signal))
+        if (choice.IsSelected)
         {
             _chart.Deselect(choice.Key);
-        }
-        else if (!_chart.Select(choice.Key))
-        {
-            await DisplayAlertAsync("无法选择", "最多选择 4 个信号。", "确定");
+            choice.IsSelected = false;
             return;
         }
 
-        BuildRows();
+        if (_chart.Select(choice.Key))
+        {
+            choice.IsSelected = true;
+            return;
+        }
+
+        await DisplayAlertAsync("无法选择", "最多选择 4 个信号。", "确定");
     }
 
     private async void OnDoneClicked(object? sender, EventArgs e)

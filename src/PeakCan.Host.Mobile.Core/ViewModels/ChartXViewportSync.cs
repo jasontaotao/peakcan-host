@@ -38,6 +38,9 @@ public sealed class ChartXViewportSync
 
     /// <summary>Applies a range to every tracked axis.</summary>
     public void Apply(ChartAxisRange range)
+        => Apply(range, except: null);
+
+    private void Apply(ChartAxisRange range, IChartXAxisViewport? except)
     {
         if (_syncing) return;
 
@@ -46,7 +49,11 @@ public sealed class ChartXViewportSync
         {
             _range = range;
             foreach (var axis in _axes)
+            {
+                // 跳过手势发起方：把手势中的图表写成固定范围会打断捏合缩放。
+                if (ReferenceEquals(axis, except)) continue;
                 axis.SetRange(range);
+            }
         }
         finally
         {
@@ -63,7 +70,7 @@ public sealed class ChartXViewportSync
         if (_range == range)
             return false;
 
-        Apply(range);
+        Apply(range, except: source);
         return true;
     }
 
