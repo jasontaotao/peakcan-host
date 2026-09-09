@@ -55,7 +55,7 @@ public partial class SignalSelectionPage : ContentPage
         }
         else if (!_chart.Select(choice.Key))
         {
-            await DisplayAlertAsync("无法选择", "最多选择 2 个信号。", "确定");
+            await DisplayAlertAsync("无法选择", "最多选择 4 个信号。", "确定");
             return;
         }
 

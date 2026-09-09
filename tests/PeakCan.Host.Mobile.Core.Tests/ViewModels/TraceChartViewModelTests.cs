@@ -50,17 +50,19 @@ public class TraceChartViewModelTests
     }
 
     [Fact]
-    public void Select_Accepts_At_Most_Two_Signals()
+    public void Select_Accepts_At_Most_Four_Signals()
     {
         var vm = Create();
         var unknown = new SignalSelectionKey(0x101, false, "EngineData", "EngineSpeed");
+        var low = new SignalSelectionKey(0x12C, false, "MuxData", "LowValue");
 
         vm.Select(unknown).Should().BeFalse();
         vm.Select(Speed).Should().BeTrue();
         vm.Select(Temp).Should().BeTrue();
-        vm.Select(High).Should().BeFalse();
+        vm.Select(High).Should().BeTrue();
+        vm.Select(low).Should().BeTrue();
 
-        vm.SelectedSignals.Should().HaveCount(2);
+        vm.SelectedSignals.Should().HaveCount(4);
     }
 
     [Fact]
