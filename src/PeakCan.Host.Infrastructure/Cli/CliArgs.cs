@@ -49,7 +49,11 @@ public sealed record CliArgs(
     string? SecOcStoreDir = null,
     string? SecOcEntropy = null,
     // SecOC Phase 2：headless 运行时的 PDU 配置（D4：keyId 引用，缺失即启动拦截）
-    string? SecOcConfigPath = null);
+    string? SecOcConfigPath = null,
+    // M3.4（spec 2026-09-07 Phase 3）：--key-algorithm 选择入口。当前唯一取值 builtin
+    // = 内置 XOR-0xAA（与虚拟 ECU seed 算法一致，无需 DLL）；与 KeyDllPath 互斥，
+    // KeyDllPath 优先。两者皆空 = 占位算法（SecurityAccess fail-fast）。
+    string? KeyAlgorithm = null);
 
 /// <summary>
 /// Simple CLI argument parser for peakcan-hil.
@@ -75,6 +79,7 @@ public static class CliArgsParser
         string? gatewayPath = null;
         // 2026-09-07 backlog §9 1.7.6 seed-key 算法 DLL
         string? keyDll = null;
+        string? keyAlgorithm = null;
         // SecOC Phase 2 key management
         string? secocKeyCommand = null, secocKeyId = null, secocKeyPath = null;
         string? secocStoreDir = null, secocEntropy = null;
@@ -111,6 +116,8 @@ public static class CliArgsParser
                 case "--generator-dir": generatorDir = NextArg(args, ref i, "--generator-dir"); break;
                 case "--gateway": gatewayPath = NextArg(args, ref i, "--gateway"); break;
                 case "--key-dll": keyDll = NextArg(args, ref i, "--key-dll"); break;
+                // M3.4：内置算法选择（当前仅 builtin = XOR-0xAA）；与 --key-dll 互斥，DLL 优先
+                case "--key-algorithm": keyAlgorithm = NextArg(args, ref i, "--key-algorithm"); break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -136,7 +143,7 @@ public static class CliArgsParser
         {
             // ODX import mode: no other required args
             return new CliArgs(dbc ?? "", suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
+                ecu, enableFaults, matrix, importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll, KeyAlgorithm: keyAlgorithm,
                 SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
         }
 
@@ -150,7 +157,7 @@ public static class CliArgsParser
             if (dbc is null)
                 throw new ArgumentException("--simulate requires --dbc <path>.");
             return new CliArgs(dbc, suite ?? "", trace, output, format, hw, udsReq, udsResp,
-                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
+                ecu, enableFaults, matrix, null, null, importReq, importResp, Simulate: true, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll, KeyAlgorithm: keyAlgorithm,
                 SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
         }
 
@@ -168,7 +175,7 @@ public static class CliArgsParser
             throw new ArgumentException("Cannot use --matrix and --ecu simultaneously.");
 
         return new CliArgs(dbc, suite, trace, output, format, hw, udsReq, udsResp, ecu, enableFaults, matrix,
-            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll,
+            importOdx, importEcuName, importReq, importResp, Simulate: false, exportFramesDir, GeneratorDir: generatorDir, GatewayPath: gatewayPath, KeyDllPath: keyDll, KeyAlgorithm: keyAlgorithm,
             SecOcConfigPath: secocConfigPath, SecOcStoreDir: secocStoreDir, SecOcEntropy: secocEntropy);
     }
 
@@ -223,6 +230,7 @@ public static class CliArgsParser
         Console.WriteLine("  --generator-dir <path>  Directory of external IEcuResponseGenerator plugin DLLs");
         Console.WriteLine("  --gateway <path>  Multi-bus gateway config JSON (bus-to-bus frame forwarding)");
         Console.WriteLine("  --key-dll <path>  OEM seed-key DLL (cdecl GenerateKey(seed, seedLen, keyOut, keyOutLen, securityLevel)) for SecurityAccess steps");
+        Console.WriteLine("  --key-algorithm builtin  Built-in XOR-0xAA seed-key (no DLL; matches virtual ECU); ignored when --key-dll present");
         Console.WriteLine();
         Console.WriteLine("SecOc key management (spec D4):");
         Console.WriteLine("  --secoc-key <cmd>   import | list | remove (standalone mode, no --dbc/--suite)");

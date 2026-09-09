@@ -232,7 +232,9 @@ public static class HeadlessHostBuilder
                         // channel 持有 bridge 引用，不会被 GC；每通道独立桥接，互不串扰。
                         _ = new HilIsoTpBridge(channel, isoTp);
                         // 1.7.6：per-channel UDS 栈同样可挂 --key-dll 算法（未配则无算法 fail-fast）
-                        var chanKeyAlgo = sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>();
+                        var chanKeyAlgo = (PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm?)
+                            sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>()
+                            ?? sp.GetService<PeakCan.Host.Core.Uds.XorAAKeyDerivationAlgorithm>();
                         udsSessions[cfg.Name] = chanKeyAlgo is null
                             ? new UdsSessionAdapter(new UdsClient(isoTp))
                             : new UdsSessionAdapter(new UdsClient(isoTp, chanKeyAlgo));
@@ -401,6 +403,11 @@ public static class HeadlessHostBuilder
         if (args.KeyDllPath is not null)
             builder.Services.AddSingleton<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>(
                 _ => new PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm(args.KeyDllPath));
+        // M3.4（spec Phase 3）：--key-algorithm builtin = 内置 XOR-0xAA（与虚拟 ECU
+        // seed 算法一致）；与 --key-dll 互斥，DLL 优先（选取点按注册顺序 fallback）。
+        else if (args.KeyAlgorithm == "builtin")
+            builder.Services.AddSingleton<PeakCan.Host.Core.Uds.XorAAKeyDerivationAlgorithm>(
+                new PeakCan.Host.Core.Uds.XorAAKeyDerivationAlgorithm());
 
         builder.Services.AddSingleton<IsoTpLayer>(sp =>
         {
@@ -418,7 +425,11 @@ public static class HeadlessHostBuilder
         {
             var isoTp = sp.GetRequiredService<IsoTpLayer>();
             // 1.7.6：--key-dll 未配时保持无算法 1 参构造（SecurityAccess fail-fast 不静默）
-            var keyAlgo = sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>();
+            // M3.4：DllKeyDerivationAlgorithm 优先，其次 --key-algorithm builtin（XOR-0xAA），
+            // 两者皆空 = 1 参构造（占位 fail-fast）。
+            var keyAlgo = (PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm?)
+                sp.GetService<PeakCan.Host.Core.Uds.KeyDerivation.DllKeyDerivationAlgorithm>()
+                ?? sp.GetService<PeakCan.Host.Core.Uds.XorAAKeyDerivationAlgorithm>();
             return keyAlgo is null ? new UdsClient(isoTp) : new UdsClient(isoTp, keyAlgo);
         });
         builder.Services.AddSingleton<IUdsSession>(sp =>
