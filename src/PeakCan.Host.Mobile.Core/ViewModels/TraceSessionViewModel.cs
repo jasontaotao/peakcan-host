@@ -46,6 +46,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private DbcCatalog? _dbc;
     private string? _cachedFilePath;
     private CancellationTokenSource? _chartBackfillCts;
+    private Task? _chartBackfillTask;
     private readonly TraceChartViewModel _chart;
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
@@ -102,14 +103,16 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     /// <summary>Chart-side selected signal state.</summary>
     public TraceChartViewModel Chart => _chart;
 
+    /// <summary>Gets the active chart backfill task for deterministic test synchronization.</summary>
+    internal Task? ChartBackfillTask => _chartBackfillTask;
+
     /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
     public void SetDbc(DbcCatalog? catalog)
     {
         _dbc = catalog;
         DbcStatusText = catalog is null ? "未加载 DBC" : $"DBC: {catalog.SourceName}";
         _chart.SetCatalog(catalog);
-        ClearPlaybackBuffer();
-        StartChartBackfill();
+        ClearPlaybackBuffer(restartChartBackfill: true);
     }
 
     /// <summary>Open a cached file, prefetch a display-only first screen, and start the duration scan.</summary>
@@ -242,7 +245,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         if (_cachedFilePath is null || _dbc is null || _chart.SelectedSignals.Count == 0)
             return;
 
-        _ = BackfillSelectedSignalsAsync();
+        _chartBackfillTask = BackfillSelectedSignalsAsync();
     }
 
     internal async Task BackfillSelectedSignalsAsync()
@@ -297,7 +300,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             _logger.LogWarning(ex, "chart history backfill failed");
         }
     }
-    private void ClearPlaybackBuffer()
+    private void ClearPlaybackBuffer(bool restartChartBackfill = false)
     {
         _chartBackfillCts?.Cancel();
         lock (_emitGate) _pending.Clear();
@@ -305,6 +308,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         SkippedLinesText = string.Empty;
         _chart.Clear();
         UpdateViewport();
+
+        if (restartChartBackfill)
+            StartChartBackfill();
     }
 
     private void OnPlaybackEnded(object? sender, PlaybackEndedEventArgs e)
@@ -374,7 +380,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         // 预读首屏仅用于打开后 preview；正式播放从头开始，避免重复 ingest。
         if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
         {
-            ClearPlaybackBuffer();
+            ClearPlaybackBuffer(restartChartBackfill: true);
             // 保留 seek 位置，不重置 Progress01/CurrentTimeText
         }
 
@@ -390,7 +396,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _drainTimer?.Dispose();
         _drainTimer = null;
         IsSeekBusy = false;
-        ClearPlaybackBuffer();
+        ClearPlaybackBuffer(restartChartBackfill: true);
         CurrentTimeText = "00:00:00";
         Progress01 = 0;
         State = SessionState.Ready;
@@ -407,7 +413,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _ = _player.SeekAsync(ts);
         CurrentTimeText = FormatTime(ts);
         // Stopped 状态下 seek 不 emit 帧；清空旧数据让用户知道位置已变
-        if (State == SessionState.Ready) ClearPlaybackBuffer();
+        if (State == SessionState.Ready) ClearPlaybackBuffer(restartChartBackfill: true);
     }
 
     partial void OnIdFilterTextChanged(string? value)
@@ -417,7 +423,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
         // 过滤变更必须满足验收语义：viewport 只保留匹配帧。P1 清空已有 rows，
         // 后续只 ingest 匹配帧；SQLite 全量回看在 P2 实现。
-        ClearPlaybackBuffer();
+        ClearPlaybackBuffer(restartChartBackfill: true);
     }
 
     /// <summary>Forward playback speed multiplier to the active player.</summary>
@@ -433,7 +439,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _player.PlaybackEnded += OnPlaybackEnded;
         _player.SeekProgress += OnSeekProgress;
         State = SessionState.Playing;
-        ClearPlaybackBuffer();
+        ClearPlaybackBuffer(restartChartBackfill: true);
         _drainTimer ??= _ui.StartTimer(UiDrainInterval, Drain);
     }
 

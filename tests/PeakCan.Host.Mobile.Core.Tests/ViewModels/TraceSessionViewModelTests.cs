@@ -15,6 +15,16 @@ public class TraceSessionViewModelTests
     private static ReplayFrame F(double t, uint id) =>
         new(t, id, 2, new byte[] { 1, 2 }, default, false);
 
+    private static DbcCatalog EngineDbc() => DbcCatalog.Parse("""
+        VERSION ""
+        NS_ :
+        BS_:
+        BU_: ECM
+
+        BO_ 256 EngineData: 8 ECM
+         SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
+        """).Catalog!;
+
     private static FakeUiDispatcher.FakeTimer DrainTimer(TraceSessionViewModel vm)
     {
         var field = typeof(TraceSessionViewModel)
@@ -514,6 +524,110 @@ public class TraceSessionViewModelTests
         env.Vm.Chart.RenderPoints.Should().BeEmpty();
         env.Vm.Chart.Cursor.Should().BeNull();
         env.Vm.Chart.SelectedSignals.Should().ContainSingle(i => i.Key == key);
+    }
+
+    [Fact]
+    public async Task Stop_Restarts_Selected_Signal_Backfill()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+
+        env.Vm.SetDbc(EngineDbc());
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.StopCommand.Execute(null);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.Chart.RenderPoints[key].Select(p => p.Timestamp).Should().Equal(0, 5);
+    }
+
+    [Fact]
+    public async Task TogglePlay_FromReady_Restarts_Selected_Signal_Backfill()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+
+        env.Vm.SetDbc(EngineDbc());
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.TogglePlayCommand.Execute(null);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.Chart.RenderPoints[key].Select(p => p.Timestamp).Should().Equal(0, 5);
+    }
+
+    [Fact]
+    public async Task Replay_FromEnded_Restarts_Selected_Signal_Backfill()
+    {
+        var env = new Env(useCache: false);
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+
+        env.Vm.SetDbc(EngineDbc());
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.ChartBackfillTask!;
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.EmitEof();
+        env.Player.Emit(F(0, 0x100));
+
+        env.Vm.TogglePlayCommand.Execute(null);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.Chart.RenderPoints[key].Select(p => p.Timestamp).Should().Equal(0, 5);
+    }
+
+    [Fact]
+    public async Task Seek_FromReady_Restarts_Selected_Signal_Backfill()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+
+        env.Vm.SetDbc(EngineDbc());
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.ChartBackfillTask!;
+        typeof(TraceSessionViewModel)
+            .GetField("_durationKnownValue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel)
+            .GetField("_duration", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(env.Vm, 10d);
+
+        env.Vm.SeekToCommand.Execute(0.5);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.Chart.RenderPoints[key].Select(p => p.Timestamp).Should().Equal(0, 5);
+    }
+
+    [Fact]
+    public async Task IdFilter_Change_Restarts_Selected_Signal_Backfill()
+    {
+        var env = new Env();
+        var frames = new AsyncFrameSeq(F(0, 0x100), F(5, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        var key = new SignalSelectionKey(0x100, false, "EngineData", "EngineSpeed");
+
+        env.Vm.SetDbc(EngineDbc());
+        env.Vm.Chart.Select(key).Should().BeTrue();
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 0);
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.SetIdFilter("0x100");
+        await env.Vm.ChartBackfillTask!;
+
+        env.Vm.Chart.RenderPoints[key].Select(p => p.Timestamp).Should().Equal(0, 5);
     }
 
     [Fact]
