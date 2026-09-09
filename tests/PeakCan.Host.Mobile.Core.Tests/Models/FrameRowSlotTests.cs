@@ -34,4 +34,17 @@ public class FrameRowSlotTests
         slot.IsEmpty.Should().BeTrue();
         slot.IdText.Should().BeEmpty();
     }
+
+    [Fact]
+    public void HasContent_TracksSlotFillState()
+    {
+        var slot = new FrameRowSlot();
+        slot.HasContent.Should().BeFalse();
+
+        slot.UpdateFrom(new FrameRow(1, 2, false, 3, Data));
+        slot.HasContent.Should().BeTrue();
+
+        slot.Clear();
+        slot.HasContent.Should().BeFalse();
+    }
 }

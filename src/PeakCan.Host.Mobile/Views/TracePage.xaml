@@ -68,11 +68,11 @@
             <Label Text="{Binding SkippedLinesText}" FontSize="12" TextColor="Orange" />
         </HorizontalStackLayout>
 
-        <HorizontalStackLayout x:Name="FilterRow" Grid.Row="5" Spacing="8">
-            <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="200"
+        <Grid x:Name="FilterRow" Grid.Row="5" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)"
                    Completed="OnFilterCompleted" />
-            <Button Text="↓ 最新" Clicked="OnJumpLatest" />
-        </HorizontalStackLayout>
+            <Button Grid.Column="1" Text="↓ 最新" Clicked="OnJumpLatest" />
+        </Grid>
 
         <HorizontalStackLayout x:Name="TabRow" Grid.Row="6" Spacing="8">
             <Button x:Name="TableTabButton" Text="表格" Clicked="OnShowTableClicked" />
@@ -80,7 +80,6 @@
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
-
 
 
 

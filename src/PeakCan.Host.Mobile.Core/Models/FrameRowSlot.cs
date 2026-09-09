@@ -16,6 +16,7 @@ public sealed partial class FrameRowSlot : ObservableObject
     [ObservableProperty] private string _signalSummaryText = string.Empty;
 
     public bool IsEmpty => string.IsNullOrEmpty(IdText);
+    public bool HasContent => !IsEmpty;
     public FrameRow? Source { get; private set; }
 
     public void UpdateFrom(FrameRow row)
@@ -26,6 +27,12 @@ public sealed partial class FrameRowSlot : ObservableObject
         DataText = row.DataText;
         SignalSummaryText = row.SignalSummaryText;
         Source = row;
+    }
+
+    partial void OnIdTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(HasContent));
     }
 
     public void Clear()

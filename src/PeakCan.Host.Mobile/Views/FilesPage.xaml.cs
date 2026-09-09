@@ -56,14 +56,28 @@ public partial class FilesPage : ContentPage
     {
         var items = new List<RecentItem>();
         var traces = await _cacheStore.ListTracesAsync();
+        var cacheFileNames = Directory.EnumerateFiles(_cache.CacheDirectory)
+            .Where(path =>
+            {
+                var extension = Path.GetExtension(path);
+                return extension.Equals(".asc", StringComparison.OrdinalIgnoreCase) ||
+                       extension.Equals(".blf", StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(Path.GetFileName)
+            .Where(name => name is not null)
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var trace in traces)
         {
             var state = trace.Complete ? "完整" : "部分";
+            var cachedPath = ResolveCachePath(trace.SourceName, trace.FileSizeBytes, cacheFileNames);
+            // 完整索引用回看页；部分索引（含微信分享后未播放的 0 帧会话）
+            // 直接流式回放，避免落到空回看页。
             items.Add(new RecentItem(
                 trace.SourceName,
                 $"{trace.FileSizeBytes / 1024} KB · {trace.FrameCount} 帧 · {TimeSpan.FromSeconds(trace.Duration):hh\\:mm\\:ss} · {state} · 上次 {TimeSpan.FromSeconds(trace.LastPositionSeconds):hh\\:mm\\:ss}",
-                null,
-                trace.TraceId,
+                trace.Complete ? null : cachedPath,
+                trace.Complete ? trace.TraceId : null,
                 trace.FileSizeBytes));
         }
 
@@ -82,6 +96,18 @@ public partial class FilesPage : ContentPage
         }
 
         RecentList.ItemsSource = items;
+    }
+
+    private string? ResolveCachePath(string sourceName, long fileSizeBytes, HashSet<string> cacheFileNames)
+    {
+        var extension = Path.GetExtension(sourceName);
+        if (string.IsNullOrEmpty(extension)) return null;
+        if (cacheFileNames.Contains(sourceName))
+            return Path.Combine(_cache.CacheDirectory, sourceName);
+        var sized = $"{Path.GetFileNameWithoutExtension(sourceName)}.{fileSizeBytes}{extension}";
+        return cacheFileNames.Contains(sized)
+            ? Path.Combine(_cache.CacheDirectory, sized)
+            : null;
     }
 
     /// <summary>Cache names are "{stem}.{size}{extension}"; restore the original display name.</summary>
