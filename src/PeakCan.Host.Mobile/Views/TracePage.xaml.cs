@@ -26,6 +26,9 @@ public partial class TracePage : ContentPage
     private readonly ChartXViewportSync _xViewport = new();
     private readonly Dictionary<CartesianChart, IChartXAxisViewport> _xViewports = new();
     private readonly List<CartesianChart> _charts = new();
+    private readonly Dictionary<CartesianChart, (LineSeries<ObservablePoint> Series, SignalSelectionKey Key)> _plotSeries = new();
+    private readonly List<SignalSelectionKey> _renderedKeys = [];
+    private readonly SolidColorPaint _cursorPaint = new(SKColors.Orange.WithAlpha(64));
 
     public TracePage(
         IUiDispatcher ui,
@@ -204,12 +207,27 @@ public partial class TracePage : ContentPage
             : "请选择 1–4 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
+        var renderableSignals = chart.SelectedSignals
+            .Where(s => chart.RenderPoints.ContainsKey(s.Key))
+            .ToList();
+
+        // 结构未变（同一组信号）时只刷新数据与游标：播放期间每 100ms 的
+        // RefreshRender 不再整树重建 native 图表视图，缩放手势也不会被打断。
+        if (_charts.Count == renderableSignals.Count &&
+            _renderedKeys.SequenceEqual(renderableSignals.Select(s => s.Key)))
+        {
+            UpdatePlotData(chart);
+            return;
+        }
+
         foreach (var plot in _charts)
             plot.UpdateStarted -= OnPlotUpdateStarted;
 
         ChartHost.Children.Clear();
         ChartHost.RowDefinitions.Clear();
         _charts.Clear();
+        _plotSeries.Clear();
+        _renderedKeys.Clear();
         _xViewports.Clear();
         _xViewport.Clear();
 
@@ -232,9 +250,8 @@ public partial class TracePage : ContentPage
             {
                 Name = selection.DisplayName,
                 Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
-                GeometrySize = 6,
-                GeometryFill = paint,
-                GeometryStroke = paint,
+                // 512 桶密线不画几何点：缩放/播放时省掉每点一个圆的 Skia 开销。
+                GeometrySize = 0,
                 Stroke = paint,
                 Fill = null,
                 LineSmoothness = 0,
@@ -276,8 +293,8 @@ public partial class TracePage : ContentPage
                        {
                            Xi = cursor.Timestamp,
                            Xj = cursor.Timestamp,
-                           ScalesYAt = 0,
-                           Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64)),
+                ScalesYAt = 0,
+                       Fill = _cursorPaint,
                        }]
                     : [],
             };
@@ -294,9 +311,31 @@ public partial class TracePage : ContentPage
             Grid.SetRow(plot, _charts.Count);
             _charts.Add(plot);
             _xViewports[plot] = new AxisXViewport(xAxis);
+            _plotSeries[plot] = (series, selection.Key);
+            _renderedKeys.Add(selection.Key);
         }
 
         _xViewport.Attach(_xViewports.Values);
+    }
+
+    private void UpdatePlotData(TraceChartViewModel chart)
+    {
+        foreach (var plot in _charts)
+        {
+            if (!_plotSeries.TryGetValue(plot, out var entry)) continue;
+            if (!chart.RenderPoints.TryGetValue(entry.Key, out var points)) continue;
+
+            entry.Series.Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray();
+            plot.Sections = chart.Cursor is { } cursor
+                ? [new RectangularSection
+                   {
+                       Xi = cursor.Timestamp,
+                       Xj = cursor.Timestamp,
+                       ScalesYAt = 0,
+                       Fill = _cursorPaint,
+                   }]
+                : [];
+        }
     }
 
     private void OnPlotUpdateStarted(IChartView chart)
@@ -376,7 +415,6 @@ public partial class TracePage : ContentPage
             decoded));
     }
 }
-
 
 
 
