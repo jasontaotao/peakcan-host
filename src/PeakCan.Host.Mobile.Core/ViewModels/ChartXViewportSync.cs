@@ -1,5 +1,8 @@
 namespace PeakCan.Host.Mobile.Core.ViewModels;
 
+/// <summary>A finite, increasing one-dimensional axis range.</summary>
+public readonly record struct ChartAxisRange(double Minimum, double Maximum);
+
 /// <summary>A chart axis adapter that can read and apply the shared X range.</summary>
 public interface IChartXAxisViewport
 {

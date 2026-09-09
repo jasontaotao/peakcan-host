@@ -1,5 +1,6 @@
 using LiveChartsCore;
 using LiveChartsCore.Drawing;
+using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
@@ -21,7 +22,8 @@ public partial class TracePage : ContentPage
     private readonly IDbcCatalogProvider _dbcProvider;
     private readonly DbcCatalogHolder _dbcHolder;
     private bool _isChartTab;
-    private readonly ChartZoomState _zoomState = new();
+    private readonly ChartXViewportSync _xViewport = new();
+    private readonly Dictionary<CartesianChart, IChartXAxisViewport> _xViewports = new();
     private readonly List<CartesianChart> _charts = new();
 
     public TracePage(
@@ -177,8 +179,6 @@ public partial class TracePage : ContentPage
     private void RenderChart()
     {
         var chart = _vm.Chart;
-        var existingXAxis = _charts.FirstOrDefault()?.XAxes.FirstOrDefault() as Axis;
-        _zoomState.Capture(existingXAxis?.MinLimit, existingXAxis?.MaxLimit);
 
         SelectedSignalsLabel.Text = chart.SelectedSignals.Count == 0
             ? string.Empty
@@ -188,9 +188,14 @@ public partial class TracePage : ContentPage
             : "请选择 1–4 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
+        foreach (var plot in _charts)
+            plot.UpdateStarted -= OnPlotUpdateStarted;
+
         ChartHost.Children.Clear();
         ChartHost.RowDefinitions.Clear();
         _charts.Clear();
+        _xViewports.Clear();
+        _xViewport.Clear();
 
         var seriesColors = new[]
         {
@@ -256,6 +261,7 @@ public partial class TracePage : ContentPage
                        }]
                     : [],
             };
+            plot.UpdateStarted += OnPlotUpdateStarted;
 
             var height = chart.SelectedSignals.Count switch
             {
@@ -267,16 +273,40 @@ public partial class TracePage : ContentPage
             ChartHost.Children.Add(plot);
             Grid.SetRow(plot, _charts.Count);
             _charts.Add(plot);
+            _xViewports[plot] = new AxisXViewport(xAxis);
         }
 
-        if (_zoomState.TryGet(out var xRange))
+        _xViewport.Attach(_xViewports.Values);
+    }
+
+    private void OnPlotUpdateStarted(IChartView chart)
+    {
+        if (chart is CartesianChart plot && _xViewports.TryGetValue(plot, out var viewport))
+            _xViewport.SyncFrom(viewport);
+    }
+
+    private sealed class AxisXViewport(Axis axis) : IChartXAxisViewport
+    {
+        public bool TryGetRange(out ChartAxisRange range)
         {
-            foreach (var plot in _charts)
+            if (axis.MinLimit is { } minimum
+                && axis.MaxLimit is { } maximum
+                && double.IsFinite(minimum)
+                && double.IsFinite(maximum)
+                && minimum < maximum)
             {
-                if (plot.XAxes.FirstOrDefault() is not Axis xAxis) continue;
-                xAxis.MinLimit = xRange.Minimum;
-                xAxis.MaxLimit = xRange.Maximum;
+                range = new ChartAxisRange(minimum, maximum);
+                return true;
             }
+
+            range = default;
+            return false;
+        }
+
+        public void SetRange(ChartAxisRange range)
+        {
+            axis.MinLimit = range.Minimum;
+            axis.MaxLimit = range.Maximum;
         }
     }
 
@@ -286,18 +316,22 @@ public partial class TracePage : ContentPage
 
     private void OnResetZoomClicked(object? sender, EventArgs e)
     {
-        _zoomState.Reset();
+        _xViewport.Reset();
         RenderChart();
     }
 
     private void ZoomChart(ZoomDirection direction)
     {
-        foreach (var chart in _charts)
-        {
-            if (chart.CoreChart is not CartesianChartEngine engine || chart.Width <= 0) continue;
-            var center = new LvcPoint(chart.Width / 2, chart.Height / 2);
-            engine.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
-        }
+        var plot = _charts.FirstOrDefault();
+        if (plot is null
+            || plot.CoreChart is not CartesianChartEngine engine
+            || plot.Width <= 0
+            || !_xViewports.TryGetValue(plot, out var viewport))
+            return;
+
+        var center = new LvcPoint(plot.Width / 2, plot.Height / 2);
+        engine.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
+        _xViewport.SyncFrom(viewport);
     }
     private void OnSelectSignalClicked(object? sender, EventArgs e)
     {
