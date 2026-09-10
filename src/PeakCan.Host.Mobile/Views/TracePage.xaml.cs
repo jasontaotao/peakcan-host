@@ -25,6 +25,7 @@ public partial class TracePage : ContentPage
     private readonly DbcCatalogHolder _dbcHolder;
     private DbcCatalog? _appliedDbc;
     private bool _isChartTab;
+    private bool _isJ1939Tab;
     private readonly ChartXViewportSync _xViewport = new();
     private readonly Dictionary<CartesianChart, IChartXAxisViewport> _xViewports = new();
     private readonly List<CartesianChart> _charts = new();
@@ -109,13 +110,14 @@ public partial class TracePage : ContentPage
 
     private void ApplyChartFullscreen()
     {
+        // 全屏仅图表 tab 语义；J1939 tab 不做全屏（横屏切到 J1939 时恢复全部控件）
         var isFullscreen = _isChartTab && Width > Height;
         ControlsRow.IsVisible = !isFullscreen;
         DbcStatusRow.IsVisible = !isFullscreen;
         SeekSlider.IsVisible = !isFullscreen;
         LocatorPanel.IsVisible = !isFullscreen && _locatorExpanded;
-        StatusRow.IsVisible = !isFullscreen && !_isChartTab;
-        FilterRow.IsVisible = !isFullscreen && !_isChartTab;
+        StatusRow.IsVisible = !isFullscreen && !_isChartTab && !_isJ1939Tab;
+        FilterRow.IsVisible = !isFullscreen && !_isChartTab && !_isJ1939Tab;
         TabRow.IsVisible = !isFullscreen;
     }
 
@@ -192,11 +194,15 @@ public partial class TracePage : ContentPage
 
     private void OnShowChartClicked(object? sender, EventArgs e) => ShowChartTab();
 
+    private void OnShowJ1939Clicked(object? sender, EventArgs e) => ShowJ1939Tab();
+
     private void ShowTableTab()
     {
         _isChartTab = false;
+        _isJ1939Tab = false;
         FramesGrid.IsVisible = true;
         ChartGrid.IsVisible = false;
+        J1939Grid.IsVisible = false;
         StatusRow.IsVisible = true;
         FilterRow.IsVisible = true;
         ApplyChartFullscreen();
@@ -205,11 +211,25 @@ public partial class TracePage : ContentPage
     private void ShowChartTab()
     {
         _isChartTab = true;
+        _isJ1939Tab = false;
         FramesGrid.IsVisible = false;
         ChartGrid.IsVisible = true;
+        J1939Grid.IsVisible = false;
         StatusRow.IsVisible = false;
         FilterRow.IsVisible = false;
         RenderChart();
+        ApplyChartFullscreen();
+    }
+
+    private void ShowJ1939Tab()
+    {
+        _isChartTab = false;
+        _isJ1939Tab = true;
+        FramesGrid.IsVisible = false;
+        ChartGrid.IsVisible = false;
+        J1939Grid.IsVisible = true;
+        StatusRow.IsVisible = false;
+        FilterRow.IsVisible = false;
         ApplyChartFullscreen();
     }
 

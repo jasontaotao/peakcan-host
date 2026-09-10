@@ -91,9 +91,42 @@
             <Button Grid.Column="1" Text="↓ 最新" Clicked="OnJumpLatest" />
         </Grid>
 
+        <Grid x:Name="J1939Grid" Grid.Row="4" IsVisible="False">
+            <CollectionView ItemsSource="{Binding J1939.Rows}">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" Padding="0,2">
+                            <Label Grid.Column="0" Text="{Binding PgnText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="1" Text="{Binding SaText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="2" Text="{Binding DaText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="3" Text="{Binding ModeText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="4" Text="{Binding LengthText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="5" Text="{Binding CompletedText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="6" Text="{Binding StatusText}" FontFamily="Mono" FontSize="12" />
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+                <CollectionView.Header>
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" Padding="0,4">
+                        <Label Grid.Column="0" Text="PGN" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="1" Text="SA" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="2" Text="DA" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="3" Text="模式" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="4" Text="长度" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="5" Text="完成时刻" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="6" Text="状态" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                    </Grid>
+                </CollectionView.Header>
+                <CollectionView.EmptyView>
+                    <Label Text="无 J1939 TP 会话" HorizontalOptions="Center" VerticalOptions="Center" TextColor="Gray" />
+                </CollectionView.EmptyView>
+            </CollectionView>
+        </Grid>
+
         <HorizontalStackLayout x:Name="TabRow" Grid.Row="7" Spacing="8">
             <Button x:Name="TableTabButton" Text="表格" Clicked="OnShowTableClicked" />
             <Button x:Name="ChartTabButton" Text="图表" Clicked="OnShowChartClicked" />
+            <Button x:Name="J1939TabButton" Text="J1939" Clicked="OnShowJ1939Clicked" />
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
