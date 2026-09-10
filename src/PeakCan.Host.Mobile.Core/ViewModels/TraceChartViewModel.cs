@@ -53,6 +53,22 @@ public sealed class TraceChartViewModel : ObservableObject
     }
     public ChartCursor? Cursor => _cursor;
 
+    /// <summary>Time anchor placed by the user; read by the UI to draw the green section.</summary>
+    public double? AnchorTimestamp { get; private set; }
+
+    /// <summary>Place or clear the anchor. Non-finite values are ignored; no-op raises nothing.</summary>
+    public void SetAnchor(double? timestamp)
+    {
+        if (timestamp is { } value && !double.IsFinite(value)) return;
+        lock (_stateGate)
+        {
+            if (AnchorTimestamp == timestamp) return;
+            AnchorTimestamp = timestamp;
+        }
+
+        RaiseRenderChanged();
+    }
+
     public event EventHandler? RenderChanged;
 
     /// <summary>Raised after a signal becomes selected so hosts can backfill history.</summary>

@@ -664,6 +664,83 @@ public class TraceSessionViewModelTests
         DrainTimer(env.Vm).Tick();
         env.Vm.LatestVisibleRow!.Id.Should().Be(0x100u);
     }
+
+    [Fact]
+    public void SetAnchor_SetsTimestampAndRaisesChanges()
+    {
+        var env = new Env();
+        var changed = new List<string?>();
+        env.Vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        env.Vm.SetAnchor(12.345678);
+
+        env.Vm.AnchorTimestamp.Should().Be(12.345678);
+        env.Vm.HasAnchor.Should().BeTrue();
+        env.Vm.AnchorText.Should().Be("⚑ 12.345678s");
+        changed.Should().Contain(nameof(TraceSessionViewModel.AnchorTimestamp));
+        changed.Should().Contain(nameof(TraceSessionViewModel.HasAnchor));
+        changed.Should().Contain(nameof(TraceSessionViewModel.AnchorText));
+    }
+
+    [Fact]
+    public void SetAnchor_NaNOrInfinity_Ignored()
+    {
+        var env = new Env();
+        env.Vm.SetAnchor(3.0);
+
+        env.Vm.SetAnchor(double.NaN);
+        env.Vm.SetAnchor(double.PositiveInfinity);
+        env.Vm.SetAnchor(double.NegativeInfinity);
+
+        env.Vm.AnchorTimestamp.Should().Be(3.0);
+        env.Vm.HasAnchor.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ClearAnchor_ResetsAll()
+    {
+        var env = new Env();
+        env.Vm.SetAnchor(5.0);
+
+        env.Vm.ClearAnchor();
+
+        env.Vm.AnchorTimestamp.Should().BeNull();
+        env.Vm.HasAnchor.Should().BeFalse();
+        env.Vm.AnchorText.Should().BeEmpty();
+        env.Vm.Chart.AnchorTimestamp.Should().BeNull();
+    }
+
+    [Fact]
+    public void SetAnchor_SyncsChartAnchorTimestamp()
+    {
+        var env = new Env();
+
+        env.Vm.SetAnchor(3.5);
+
+        env.Vm.Chart.AnchorTimestamp.Should().Be(3.5);
+    }
+
+    [Fact]
+    public void SetAnchor_SurvivesSeekAndStop()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        // DurationKnown 由后台 scan 线程置位；测试直接反射置位（对齐现有 Seek 测试模式）
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        typeof(TraceSessionViewModel).GetField("_durationKnownValue", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_durationKnown", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_duration", flags)!.SetValue(env.Vm, 10d);
+        env.Vm.SetAnchor(4.0);
+
+        env.Vm.SeekToCommand.Execute(0.5);
+        env.Vm.StopCommand.Execute(null);
+        env.Vm.TogglePlayCommand.Execute(null);
+
+        env.Vm.AnchorTimestamp.Should().Be(4.0);
+        env.Vm.HasAnchor.Should().BeTrue();
+        env.Vm.AnchorText.Should().Be("⚑ 4.000000s");
+        env.Vm.Chart.AnchorTimestamp.Should().Be(4.0);
+    }
 }
 
 // 测试用：可控的惰性帧流

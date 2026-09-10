@@ -226,6 +226,20 @@ public class TraceChartViewModelTests
 
         raised.Should().Be(1);
     }
+
+    [Fact]
+    public void SetAnchor_RaisesRenderChanged_On_Ui_Thread()
+    {
+        var ui = new FakeUiDispatcher();
+        var raised = 0;
+        var vm = new TraceChartViewModel(null, ui);
+        vm.RenderChanged += (_, _) => raised++;
+
+        vm.SetAnchor(3.5);
+
+        raised.Should().Be(1);
+        vm.AnchorTimestamp.Should().Be(3.5);
+    }
 }
 
 

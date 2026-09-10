@@ -1,3 +1,4 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -90,6 +91,10 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string _cacheStatusText = string.Empty;
     [ObservableProperty] private string _skippedLinesText = string.Empty;
     [ObservableProperty] private string _dbcStatusText = "未加载 DBC";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAnchor))]
+    [NotifyPropertyChangedFor(nameof(AnchorText))]
+    private double? _anchorTimestamp;
 
     public long? TraceId => _traceId;
 
@@ -102,6 +107,27 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     /// <summary>Chart-side selected signal state.</summary>
     public TraceChartViewModel Chart => _chart;
+
+    /// <summary>锚点是否已设置（锚点是用户主动放置的书签，DBC 变更/Seek/Stop 不清除）。</summary>
+    public bool HasAnchor => AnchorTimestamp is not null;
+
+    /// <summary>锚点时刻文本：如 "⚑ 12.345678s"（F6 对齐 <see cref="FrameRow.TimeText"/>）。</summary>
+    public string AnchorText
+        => AnchorTimestamp is { } timestamp
+            ? $"⚑ {timestamp.ToString("F6", CultureInfo.InvariantCulture)}s"
+            : string.Empty;
+
+    /// <summary>设置单锚点；非有限值忽略。</summary>
+    public void SetAnchor(double timestamp)
+    {
+        if (!double.IsFinite(timestamp)) return;
+        AnchorTimestamp = timestamp;
+    }
+
+    /// <summary>清除锚点。</summary>
+    public void ClearAnchor() => AnchorTimestamp = null;
+
+    partial void OnAnchorTimestampChanged(double? value) => Chart.SetAnchor(value);
 
     /// <summary>Gets the active chart backfill task for deterministic test synchronization.</summary>
     internal Task? ChartBackfillTask => _chartBackfillTask;
