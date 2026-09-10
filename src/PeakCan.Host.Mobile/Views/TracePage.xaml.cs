@@ -26,6 +26,8 @@ public partial class TracePage : ContentPage
     private readonly ChartXViewportSync _xViewport = new();
     private readonly Dictionary<CartesianChart, IChartXAxisViewport> _xViewports = new();
     private readonly List<CartesianChart> _charts = new();
+    private readonly Dictionary<CartesianChart, (LineSeries<ObservablePoint> Series, SignalSelectionKey Key)> _plotSeries = new();
+    private readonly List<SignalSelectionKey> _renderedKeys = [];
     private ChartAxisRange? _xDataRange;
 
     public TracePage(
@@ -212,6 +214,8 @@ public partial class TracePage : ContentPage
         ChartHost.Children.Clear();
         ChartHost.RowDefinitions.Clear();
         _charts.Clear();
+        _plotSeries.Clear();
+        _renderedKeys.Clear();
         _xViewports.Clear();
         _xViewport.Clear();
 
@@ -229,15 +233,21 @@ public partial class TracePage : ContentPage
             var selection = chart.SelectedSignals[index];
             if (!chart.RenderPoints.TryGetValue(selection.Key, out var points)) continue;
 
-            var paint = new SolidColorPaint(seriesColors[index % seriesColors.Length]);
-            var series = new LineSeries<ObservablePoint>
+            var color = seriesColors[index % seriesColors.Length];
+            var strokePaint = new SolidColorPaint(color) { StrokeThickness = 1 };
+            var markerPaint = new SolidColorPaint(color);
+            var axisPaint = new SolidColorPaint(color);
+            var series = new NoFillLineSeries
             {
                 Name = selection.DisplayName,
-                Values = points.Select(p => new ObservablePoint(p.Timestamp, p.Value)).ToArray(),
+                Values = chart
+                    .GetViewportRenderPoints(selection.Key, null, null, 128)
+                    .Select(p => new ObservablePoint(p.Timestamp, p.Value))
+                    .ToArray(),
                 GeometrySize = 6,
-                GeometryFill = paint,
-                GeometryStroke = paint,
-                Stroke = paint,
+                GeometryFill = markerPaint,
+                GeometryStroke = strokePaint,
+                Stroke = strokePaint,
                 Fill = null,
                 LineSmoothness = 0,
             };
@@ -249,8 +259,8 @@ public partial class TracePage : ContentPage
                 TextSize = 10,
                 MinStep = chart.SelectedSignals.Count > 2 ? 1 : 0,
                 ForceStepToMin = chart.SelectedSignals.Count > 2,
-                NamePaint = paint,
-                LabelsPaint = paint,
+                NamePaint = axisPaint,
+                LabelsPaint = axisPaint,
                 Labeler = value => value.ToString("0.###", CultureInfo.InvariantCulture),
                 SeparatorsPaint = new SolidColorPaint(SKColors.LightGray.WithAlpha(64)),
             };
@@ -296,6 +306,8 @@ public partial class TracePage : ContentPage
             Grid.SetRow(plot, _charts.Count);
             _charts.Add(plot);
             _xViewports[plot] = new AxisXViewport(xAxis);
+            _plotSeries[plot] = (series, selection.Key);
+            _renderedKeys.Add(selection.Key);
         }
 
         _xViewport.Attach(_xViewports.Values);
@@ -330,15 +342,46 @@ public partial class TracePage : ContentPage
             viewport.SetRange(clamped);
     }
 
+    private void UpdatePlotData(TraceChartViewModel chart)
+    {
+        foreach (var plot in _charts)
+        {
+            if (!_plotSeries.TryGetValue(plot, out var entry)) continue;
+            if (!_xViewports.TryGetValue(plot, out var viewport)) continue;
+
+            var range = viewport.TryGetRange(out var value) ? value : (ChartAxisRange?)null;
+            var pointCount = double.IsFinite(plot.Width) && plot.Width > 0
+                ? Math.Clamp((int)(plot.Width / 8), 32, 128)
+                : 128;
+            var points = chart.GetViewportRenderPoints(
+                entry.Key,
+                range?.Minimum,
+                range?.Maximum,
+                pointCount);
+            entry.Series.Values = points
+                .Select(p => new ObservablePoint(p.Timestamp, p.Value))
+                .ToArray();
+        }
+    }
+
     private void OnPlotUpdateStarted(IChartView chart)
     {
         if (chart is CartesianChart plot && _xViewports.TryGetValue(plot, out var viewport))
         {
             EnforceXZoomLimit(viewport);
-            _xViewport.SyncFrom(viewport);
+            if (!_xViewport.SyncFrom(viewport)) return;
+            UpdatePlotData(_vm.Chart);
         }
     }
 
+    private sealed class NoFillLineSeries : LineSeries<ObservablePoint>
+    {
+        public override void Invalidate(Chart chart)
+        {
+            Fill = null;
+            base.Invalidate(chart);
+        }
+    }
     private sealed class AxisXViewport(Axis axis) : IChartXAxisViewport
     {
         public bool TryGetRange(out ChartAxisRange range)
@@ -371,6 +414,7 @@ public partial class TracePage : ContentPage
     private void OnResetZoomClicked(object? sender, EventArgs e)
     {
         _xViewport.Reset();
+        _renderedKeys.Clear();
         RenderChart();
     }
 

@@ -4,7 +4,7 @@ namespace PeakCan.Host.Mobile.Core.ViewModels;
 public static class ChartViewportLimits
 {
     /// <summary>The largest supported zoom factor relative to the full X range.</summary>
-    public const double DefaultMaxZoomFactor = 32;
+    public const double DefaultMaxZoomFactor = 1024;
 
     /// <summary>
     /// Expands a viewport that is narrower than <paramref name="maxZoomFactor"/> permits.

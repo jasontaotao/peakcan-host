@@ -82,8 +82,49 @@ public sealed class SignalSeriesStore
             return RenderLocked(start, end, bucketCount);
         }
     }
+    /// <summary>
+    /// Selects actual samples across the full range. Unlike min/max buckets,
+    /// this keeps the rendered path as a line between real samples.
+    /// </summary>
+    public IReadOnlyList<ChartPoint> GetViewportRenderPoints(int pointCount)
+    {
+        lock (_gate)
+        {
+            if (_samples.Count == 0) return [];
+            return LttbLocked(0, _samples.Count, pointCount);
+        }
+    }
+    /// <summary>
+    /// Selects actual samples in the visible viewport. Unlike min/max buckets,
+    /// this keeps the rendered path as a line between real samples and avoids
+    /// painting a filled envelope when zoomed.
+    /// </summary>
+    public IReadOnlyList<ChartPoint> GetViewportRenderPoints(double start, double end, int pointCount)
+    {
+        if (start > end || pointCount <= 0) return [];
+        lock (_gate)
+        {
+            if (_samples.Count == 0) return [];
 
-private sealed class SampleTimestampComparer : IComparer<SignalSample>
+            var first = 0;
+            while (first < _samples.Count && _samples[first].Timestamp < start) first++;
+            var last = first;
+            while (last < _samples.Count && _samples[last].Timestamp <= end) last++;
+            var count = last - first;
+            if (count == 0) return [];
+            if (count <= pointCount)
+            {
+                var result = new List<ChartPoint>(count);
+                for (var i = first; i < last; i++)
+                    result.Add(new ChartPoint(_samples[i].Timestamp, _samples[i].Value));
+                return result;
+            }
+
+            return LttbLocked(first, last, pointCount);
+        }
+    }
+
+    private sealed class SampleTimestampComparer : IComparer<SignalSample>
     {
         public int Compare(SignalSample x, SignalSample y) => x.Timestamp.CompareTo(y.Timestamp);
     }
@@ -99,6 +140,65 @@ private sealed class SampleTimestampComparer : IComparer<SignalSample>
         var index = _samples.BinarySearch(0, _samples.Count, sample, new SampleTimestampComparer());
         if (index < 0) index = ~index;
         _samples.Insert(index, sample);
+    }
+
+    private List<ChartPoint> LttbLocked(int first, int last, int pointCount)
+    {
+        var count = last - first;
+        if (pointCount < 3 || count < 3)
+        {
+            return
+            [
+                new(_samples[first].Timestamp, _samples[first].Value),
+                new(_samples[last - 1].Timestamp, _samples[last - 1].Value),
+            ];
+        }
+
+        var sampled = new List<ChartPoint>(pointCount)
+        {
+            new(_samples[first].Timestamp, _samples[first].Value),
+        };
+
+        var previousIndex = 0;
+        var innerBuckets = pointCount - 2;
+        for (var bucket = 1; bucket <= innerBuckets; bucket++)
+        {
+            var bucketStart = (int)Math.Floor((double)(bucket - 1) * (count - 2) / innerBuckets) + 1;
+            var bucketEnd = (int)Math.Floor((double)bucket * (count - 2) / innerBuckets) + 1;
+            if (bucketEnd <= bucketStart) bucketEnd = bucketStart + 1;
+            if (bucketEnd > count - 1) bucketEnd = count - 1;
+
+            double averageTimestamp = 0;
+            double averageValue = 0;
+            for (var i = bucketStart; i < bucketEnd; i++)
+            {
+                averageTimestamp += _samples[first + i].Timestamp;
+                averageValue += _samples[first + i].Value;
+            }
+            var averageCount = bucketEnd - bucketStart;
+            averageTimestamp /= averageCount;
+            averageValue /= averageCount;
+
+            var left = sampled[^1];
+            var bestIndex = bucketStart;
+            var bestArea = -1d;
+            for (var i = bucketStart; i < bucketEnd; i++)
+            {
+                var candidate = _samples[first + i];
+                var area = Math.Abs(
+                    (left.Timestamp - averageTimestamp) * (candidate.Value - left.Value)
+                    - (left.Timestamp - candidate.Timestamp) * (averageValue - left.Value));
+                if (area <= bestArea) continue;
+                bestArea = area;
+                bestIndex = i;
+            }
+
+            sampled.Add(new ChartPoint(_samples[first + bestIndex].Timestamp, _samples[first + bestIndex].Value));
+            previousIndex = bestIndex;
+        }
+
+        sampled.Add(new ChartPoint(_samples[last - 1].Timestamp, _samples[last - 1].Value));
+        return sampled;
     }
 
     private void ThinLocked()
@@ -198,7 +298,3 @@ private sealed class SampleTimestampComparer : IComparer<SignalSample>
         return result;
     }
 }
-
-
-
-

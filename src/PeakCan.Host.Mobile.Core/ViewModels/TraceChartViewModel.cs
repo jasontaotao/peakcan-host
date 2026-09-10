@@ -33,7 +33,24 @@ public sealed class TraceChartViewModel : ObservableObject
 
     public IReadOnlyDictionary<SignalSelectionKey, IReadOnlyList<ChartPoint>> RenderPoints =>
         _renderPoints;
-
+    /// <summary>
+    /// Gets actual samples in a viewport for line rendering. A null range means
+    /// the full data range.
+    /// </summary>
+    public IReadOnlyList<ChartPoint> GetViewportRenderPoints(
+        SignalSelectionKey key,
+        double? start,
+        double? end,
+        int pointCount)
+    {
+        lock (_stateGate)
+        {
+            if (!_stores.TryGetValue(key, out var store)) return [];
+            return start is { } minimum && end is { } maximum
+                ? store.GetViewportRenderPoints(minimum, maximum, pointCount)
+                : store.GetViewportRenderPoints(pointCount);
+        }
+    }
     public ChartCursor? Cursor => _cursor;
 
     public event EventHandler? RenderChanged;
@@ -192,5 +209,3 @@ public sealed class TraceChartViewModel : ObservableObject
         _ui.Post(() => RenderChanged?.Invoke(this, EventArgs.Empty));
     }
 }
-
-
