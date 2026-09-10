@@ -36,6 +36,35 @@ public class TraceBrowseViewModelTests
     }
 
     [Fact]
+    public async Task JumpTo_Found_ResetsPagingAtTargetAndSetsHighlight()
+    {
+        var (store, id) = await CreateStoreAsync();
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+        vm.HasNext.Should().BeTrue();   // 起始在第一页
+
+        var ok = await vm.JumpToAsync(0x200, first: true);
+
+        ok.Should().BeTrue();
+        vm.HighlightIndex.Should().Be(1);   // 0x200 最早出现在 index 1
+        // 分页已重置到目标：首行即目标帧（AfterIndex = idx-1 语义）
+        vm.Rows.First(r => !r.IsEmpty).Source!.Id.Should().Be(0x200);
+    }
+
+    [Fact]
+    public async Task JumpTo_NotFound_ReturnsFalse()
+    {
+        var (store, id) = await CreateStoreAsync();
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        var ok = await vm.JumpToAsync(0x999, first: true);
+
+        ok.Should().BeFalse();
+        vm.HighlightIndex.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Next_Then_Previous_Returns_To_Previous_Page()
     {
         var (store, id) = await CreateStoreAsync();

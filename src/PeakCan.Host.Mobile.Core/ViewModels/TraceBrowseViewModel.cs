@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Services;
@@ -24,6 +25,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     private long? _lastIndex;
     private DbcCatalog? _dbc;
     private IReadOnlySet<uint>? _idFilter;
+    private IReadOnlySet<uint>? _pgnFilter;
 
     public TraceBrowseViewModel(ITraceCacheStore store)
     {
@@ -42,6 +44,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     [ObservableProperty] private bool _hasNext;
     [ObservableProperty] private bool _hasPrevious;
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private long? _highlightIndex;
 
     public async Task OpenAsync(long traceId, CancellationToken ct = default)
     {
@@ -73,24 +76,50 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     public void SetDbc(DbcCatalog? catalog) => _dbc = catalog;
 
     public Task FirstAsync() =>
-        LoadForwardAsync(new FrameQuery(AfterIndex: -1, CanIds: _idFilter, Limit: PageSize), hasContentBefore: false);
+        LoadForwardAsync(NextQuery(-1), hasContentBefore: false);
 
     [RelayCommand]
     public Task NextAsync() => _lastIndex is null
         ? Task.CompletedTask
-        : LoadForwardAsync(new FrameQuery(AfterIndex: _lastIndex, CanIds: _idFilter, Limit: PageSize), hasContentBefore: true);
+        : LoadForwardAsync(NextQuery(_lastIndex), hasContentBefore: true);
 
     [RelayCommand]
     public Task PreviousAsync() => _firstIndex is null || !HasPrevious
         ? Task.CompletedTask
-        : LoadBackwardAsync(new FrameQuery(BeforeIndex: _firstIndex, CanIds: _idFilter, Limit: PageSize));
+        : LoadBackwardAsync(new FrameQuery(BeforeIndex: _firstIndex, CanIds: QueryCanIds, Limit: PageSize));
+
+    /// <summary>SQL 只支持 ID 集合下推；存在 PGN 过滤时不下推（PGN 谓词走内存，见 ApplyMemoryFilter）。</summary>
+    private IReadOnlySet<uint>? QueryCanIds => _pgnFilter is null ? _idFilter : null;
+
+    private FrameQuery NextQuery(long? afterIndex) =>
+        new(AfterIndex: afterIndex, CanIds: QueryCanIds, Limit: PageSize);
+
+    /// <summary>
+    /// PGN 过滤在内存后处理（spec §8 已知限制：内存后过滤会扭曲 keyset 分页的 HasMore）。
+    /// 仅当存在 PGN 过滤时启用（ID 过滤已被 QueryCanIds 禁掉下推，一并在此处理）；
+    /// 纯 ID 过滤仍走 SQL 下推，此处直接返回零开销。
+    /// </summary>
+    private IReadOnlyList<CachedFrame> ApplyMemoryFilter(IReadOnlyList<CachedFrame> frames)
+    {
+        if (_pgnFilter is null) return frames;
+        return frames.Where(f => PassesBrowseFilter(f)).ToArray();
+    }
+
+    private bool PassesBrowseFilter(CachedFrame f)
+    {
+        if (_idFilter is not null && !_idFilter.Contains(f.CanId)) return false;
+        if (_pgnFilter is not null
+            && (!f.IsExtended || !_pgnFilter.Contains(new J1939Id(f.CanId & J1939Id.Raw29Mask).Pgn)))
+            return false;
+        return true;
+    }
 
     [RelayCommand]
     public Task ApplyFilterAsync()
     {
-        _idFilter = string.IsNullOrWhiteSpace(FilterText)
-            ? null
-            : CanIdListParser.Parse(FilterText).AllowList;
+        var parsed = CanIdListParser.Parse(FilterText);
+        _idFilter = parsed.AllowList;
+        _pgnFilter = parsed.PgnAllowList;
         return FirstAsync();
     }
 
@@ -102,7 +131,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         try
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
-            var frames = page.Frames;
+            var frames = ApplyMemoryFilter(page.Frames);
             var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
@@ -131,7 +160,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         try
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
-            var frames = page.Frames;
+            var frames = ApplyMemoryFilter(page.Frames);
             var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
@@ -152,6 +181,32 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// 缓存内定位某 ID 的帧并重置分页到目标（AfterIndex=idx-1 语义，目标行成为页首）。
+    /// first=true 找最早出现；first=false 从当前页末尾时刻之后找下一处。
+    /// 返回 false 表示缓存范围内未找到。
+    /// </summary>
+    public async Task<bool> JumpToAsync(uint canId, bool first)
+    {
+        double? after = null;
+        if (!first && _lastIndex is { } lastIndex)
+        {
+            var lastPage = await _store.GetFramesAsync(_traceId,
+                new FrameQuery(AfterIndex: lastIndex, Limit: 1)).ConfigureAwait(false);
+            if (lastPage.Frames.Count > 0) after = lastPage.Frames[0].Timestamp;
+        }
+
+        var frame = await _store.FindFrameAsync(_traceId, canId, after,
+            first ? CacheSearchDirection.First : CacheSearchDirection.Next).ConfigureAwait(false);
+        if (frame is null) return false;
+
+        HighlightIndex = frame.Index;
+        await LoadForwardAsync(
+            new FrameQuery(AfterIndex: frame.Index - 1, CanIds: QueryCanIds, Limit: PageSize),
+            hasContentBefore: true).ConfigureAwait(false);
+        return true;
     }
 
     private void FillSlots(FrameRow[] rows)

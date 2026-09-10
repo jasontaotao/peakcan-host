@@ -81,4 +81,41 @@ public class FrameRowTests
 
         row.SignalSummaryText.Should().BeEmpty();
     }
+
+    [Fact]
+    public void PgnSaText_ExtendedFrame_FormatsPgnAndSa()
+    {
+        // 0x18F00411：EDP/DP=0、PF=0xF0（PDU2）、PS=0x04、SA=0x11
+        var row = new FrameRow(0, 0x18F00411, true, 8, Data);
+
+        row.PgnSaText.Should().Be("F004·11");
+    }
+
+    [Fact]
+    public void PgnSaText_StandardFrame_Empty()
+    {
+        var row = new FrameRow(0, 0x123, false, 8, Data);
+
+        row.PgnSaText.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PgnSaText_Pdu1_PgnDropsPs()
+    {
+        // PDU1（PF=0xEA < 0xF0）：PS 是目标地址，不属于 PGN → PGN 低 8 位为 0
+        var id = PeakCan.Host.Core.J1939.J1939Id.Compose(6, 0xEA00, 0x30, 0x42);
+        var row = new FrameRow(0, id, true, 8, Data);
+
+        row.PgnSaText.Should().Be("EA00·30");
+    }
+
+    [Fact]
+    public void PgnSaText_FromCached_SameResultAsReplay()
+    {
+        var frame = new CachedFrame(0, 0, 0x18F00411, true, 8, Data);
+        var replay = new ReplayFrame(0, 0x18F00411, 8, Data, default, true);
+
+        FrameRow.FromCached(frame).PgnSaText.Should().Be(
+            FrameRow.FromReplayFrame(replay).PgnSaText);
+    }
 }

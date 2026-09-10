@@ -15,6 +15,8 @@
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>
+            <Button Text="设为锚点" Clicked="OnSetAnchorClicked"
+                    IsVisible="{Binding ShowSetAnchorButton}" Margin="0,16,0,0" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

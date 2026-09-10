@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="PeakCan.Host.Mobile.Views.BrowsePage"
              Title="回看">
-    <Grid RowDefinitions="Auto,*,Auto" Padding="8">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="8" RowSpacing="6">
         <FlexLayout Grid.Row="0" Wrap="Wrap" AlignItems="Center" JustifyContent="Start">
             <Button Text="⏮" Clicked="OnFirst" />
             <Button Text="←" Clicked="OnPrevious" IsEnabled="{Binding HasPrevious}" />
@@ -11,6 +11,13 @@
             <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="180" />
             <Button Text="过滤" Clicked="OnApplyFilter" />
         </FlexLayout>
+
+        <Grid x:Name="LocatorRow" Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+            <Entry x:Name="JumpEntry" Placeholder="搜索 CAN ID (hex)" Completed="OnJumpFirstClicked" />
+            <Button Grid.Column="1" Text="首次" Clicked="OnJumpFirstClicked" />
+            <Button Grid.Column="2" Text="下一处" Clicked="OnJumpNextClicked" />
+            <Label Grid.Column="3" x:Name="JumpStatus" Text="" FontSize="11" TextColor="Orange" VerticalOptions="Center" />
+        </Grid>
 
         <CollectionView Grid.Row="1" ItemsSource="{Binding Rows}">
             <CollectionView.ItemTemplate>

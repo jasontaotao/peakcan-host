@@ -1,7 +1,9 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Mobile.Core.Models;
@@ -26,7 +28,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private readonly Func<IStreamingTraceSource, IStreamingTracePlayer> _playerFactory;
     private readonly ILogger _logger;
     private readonly ITraceCacheSinkFactory? _cacheSinkFactory;
+    private readonly ITraceCacheStore? _cacheStore;
     private readonly object _cacheSinkGate = new();
+    private readonly StreamingJ1939Reassembler _j1939Reassembler;
 
     private readonly object _emitGate = new();
     private readonly Queue<ReplayFrame> _pending = new();
@@ -36,6 +40,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     private IStreamingTracePlayer? _player;
     private IReadOnlySet<uint>? _idFilter;
+    private IReadOnlySet<uint>? _pgnFilter;
     private double _duration;
     private bool _durationKnownValue;
     private IDisposable? _drainTimer;
@@ -51,15 +56,20 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory,
-        ILogger? logger = null, ITraceCacheSinkFactory? cacheSinkFactory = null)
+        ILogger? logger = null, ITraceCacheSinkFactory? cacheSinkFactory = null,
+        ITraceCacheStore? cacheStore = null)
     {
         _ui = ui;
         _sourceFactory = sourceFactory;
         _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
         _cacheSinkFactory = cacheSinkFactory;
+        _cacheStore = cacheStore;
         _chart = new TraceChartViewModel(null, ui);
         _chart.SignalSelected += (_, _) => _ = BackfillSelectedSignalsAsync();
+        _j1939Reassembler = new StreamingJ1939Reassembler();
+        J1939 = new J1939ReassemblyViewModel(ui);
+        J1939.Attach(_j1939Reassembler);
         for (var i = 0; i < ViewportRowCount; i++)
             _viewport[i] = new FrameRowSlot();
     }
@@ -90,6 +100,12 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [ObservableProperty] private string _cacheStatusText = string.Empty;
     [ObservableProperty] private string _skippedLinesText = string.Empty;
     [ObservableProperty] private string _dbcStatusText = "未加载 DBC";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAnchor))]
+    [NotifyPropertyChangedFor(nameof(AnchorText))]
+    private double? _anchorTimestamp;
+    [ObservableProperty] private string? _searchText;
+    [ObservableProperty] private string _searchStatusText = string.Empty;
 
     public long? TraceId => _traceId;
 
@@ -103,8 +119,59 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     /// <summary>Chart-side selected signal state.</summary>
     public TraceChartViewModel Chart => _chart;
 
+    /// <summary>J1939 重组 tab 行集合；构造即创建，永不替换实例。</summary>
+    public J1939ReassemblyViewModel J1939 { get; }
+
+    /// <summary>锚点是否已设置（锚点是用户主动放置的书签，DBC 变更/Seek/Stop 不清除）。</summary>
+    public bool HasAnchor => AnchorTimestamp is not null;
+
+    /// <summary>锚点时刻文本：如 "⚑ 12.345678s"（F6 对齐 <see cref="FrameRow.TimeText"/>）。</summary>
+    public string AnchorText
+        => AnchorTimestamp is { } timestamp
+            ? $"⚑ {timestamp.ToString("F6", CultureInfo.InvariantCulture)}s"
+            : string.Empty;
+
+    /// <summary>设置单锚点；非有限值忽略。</summary>
+    public void SetAnchor(double timestamp)
+    {
+        if (!double.IsFinite(timestamp)) return;
+        AnchorTimestamp = timestamp;
+    }
+
+    /// <summary>清除锚点。</summary>
+    public void ClearAnchor() => AnchorTimestamp = null;
+
+    partial void OnAnchorTimestampChanged(double? value) => Chart.SetAnchor(value);
+
+    /// <summary>用当前 session 的缓存/traceId/DBC 构造锚点值面板 VM。仅在 HasAnchor 时由 UI 调用。</summary>
+    public AnchorValuesViewModel CreateAnchorValuesViewModel()
+        => new(_cacheStore ?? throw new InvalidOperationException("cache unavailable for anchor values"),
+            TraceId ?? throw new InvalidOperationException("no trace opened"),
+            _dbc, _ui);
+
     /// <summary>Gets the active chart backfill task for deterministic test synchronization.</summary>
     internal Task? ChartBackfillTask => _chartBackfillTask;
+
+    /// <summary>
+    /// Seek/Stop/重新播放：结算未闭合会话（截断/丢包行经 Flush 留存可见——spec §6
+    /// "Reset 后旧会话行保留"），再 Reset 丢弃层状态，新会话从零重组。不清空 tab 列表：
+    /// 结算行是本次播放的中止快照，对诊断有留存价值。
+    /// </summary>
+    private void ResetReassemblyForPlaybackChange()
+    {
+        _j1939Reassembler.Flush();
+        _j1939Reassembler.Reset();
+    }
+
+    /// <summary>
+    /// 打开/切换文件：旧 trace 的一切 J1939 状态与行整体丢弃（不结算——用户已放弃旧
+    /// trace，其中间态截断行显示在新 session 无意义，spec §4.3 换文件语义）。
+    /// </summary>
+    private void ResetReassemblyForNewTrace()
+    {
+        _j1939Reassembler.Reset();
+        J1939.Clear();
+    }
 
     /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
     public void SetDbc(DbcCatalog? catalog)
@@ -134,6 +201,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         CacheStatusText = string.Empty;
         _cachedFilePath = cachedFilePath;
         ClearPlaybackBuffer();
+        // 换文件：重置 J1939 重组（否则上一个 trace 的进行中 TP 会话漂进新 session）
+        ResetReassemblyForNewTrace();
 
         if (_cacheSinkFactory is not null)
         {
@@ -191,6 +260,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         lock (_cacheSinkGate) cacheSink = _cacheSink;
         cacheSink?.Enqueue(f);
 
+        // J1939 重组 tap 必须在 ID 过滤之前：过滤排除的扩展帧仍要进 TP 会话
+        _j1939Reassembler.Ingest(f);
+
         if (PassesFilter(f)) _chart.Ingest(f);
 
         lock (_emitGate)
@@ -202,7 +274,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         }
     }
 
-    private bool PassesFilter(ReplayFrame f) => _idFilter is null || _idFilter.Contains(f.Id);
+    private bool PassesFilter(ReplayFrame f)
+    {
+        if (_idFilter is null && _pgnFilter is null) return true;
+        if (_idFilter is not null && _idFilter.Contains(f.Id)) return true;
+        // PGN 命中仅限扩展帧（J1939Id.Raw29Mask 剥 DBC bit31 IDE 位）
+        if (_pgnFilter is not null && f.IsExtended
+            && _pgnFilter.Contains(new J1939Id(f.Id & J1939Id.Raw29Mask).Pgn)) return true;
+        return false;
+    }
 
     private void Drain()
     {
@@ -338,6 +418,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             }
         });
 
+        // EOF（无 Error）是自然会话边界：Flush 结算未闭合会话，不 Reset
+        if (e.Error is null) _j1939Reassembler.Flush();
+
         _ui.Post(() =>
         {
             IsSeekBusy = false;
@@ -381,6 +464,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
         {
             ClearPlaybackBuffer(restartChartBackfill: true);
+            // 重新播放：重置 J1939 重组
+            ResetReassemblyForPlaybackChange();
             // 保留 seek 位置，不重置 Progress01/CurrentTimeText
         }
 
@@ -396,6 +481,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _drainTimer?.Dispose();
         _drainTimer = null;
         IsSeekBusy = false;
+        ResetReassemblyForPlaybackChange();
         ClearPlaybackBuffer(restartChartBackfill: true);
         CurrentTimeText = "00:00:00";
         Progress01 = 0;
@@ -410,6 +496,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         IsSeekDragging = false;
         SeekProgressText = "快进...";
         var ts = Math.Clamp(fraction, 0, 1) * _duration;
+        ResetReassemblyForPlaybackChange();
         _ = _player.SeekAsync(ts);
         CurrentTimeText = FormatTime(ts);
         // Stopped 状态下 seek 不 emit 帧；清空旧数据让用户知道位置已变
@@ -420,6 +507,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     {
         var parsed = CanIdListParser.Parse(value);
         _idFilter = parsed.AllowList;
+        _pgnFilter = parsed.PgnAllowList;
 
         // 过滤变更必须满足验收语义：viewport 只保留匹配帧。P1 清空已有 rows，
         // 后续只 ingest 匹配帧；SQLite 全量回看在 P2 实现。
@@ -431,6 +519,62 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     /// <summary>设置 ID 过滤（十六进制，逗号分隔；空串=清除）。</summary>
     public void SetIdFilter(string text) { IdFilterText = string.IsNullOrWhiteSpace(text) ? null : text; }
+
+    /// <summary>
+    /// 缓存内最早出现该 ID 的帧并跳转（spec §5）。PGN token / 多 token / 无效输入 → 状态文案。
+    /// 仅覆盖已缓存区间（spec §2 决策 1，无后台补全）。
+    /// </summary>
+    public async Task SearchFirstAsync() => await SearchAsync(direction: CacheSearchDirection.First);
+
+    /// <summary>当前播放时刻之后第一处该 ID 的帧并跳转。</summary>
+    public async Task SearchNextAsync() => await SearchAsync(direction: CacheSearchDirection.Next);
+
+    private async Task SearchAsync(CacheSearchDirection direction)
+    {
+        var parsed = CanIdListParser.Parse(SearchText);
+        if (parsed.AllowList is not { Count: 1 })
+        {
+            SearchStatusText = parsed.PgnAllowList is not null
+                ? "搜索仅支持 CAN ID"
+                : "搜索仅支持单个 CAN ID";
+            return;
+        }
+
+        var id = parsed.AllowList.First();
+        if (_cacheStore is null || TraceId is not { } traceId)
+        {
+            SearchStatusText = "缓存不可用";
+            return;
+        }
+
+        var current = _player?.CurrentTimestamp;
+        var frame = await _cacheStore.FindFrameAsync(
+            traceId, id,
+            direction == CacheSearchDirection.Next ? current : null,
+            direction).ConfigureAwait(false);
+        if (frame is null)
+        {
+            SearchStatusText = "缓存范围内未找到该 ID";
+            return;
+        }
+
+        SeekToAbsolute(frame.Timestamp);
+        SearchStatusText = $"已跳到 {frame.Timestamp.ToString("F6", CultureInfo.InvariantCulture)}s";
+    }
+
+    /// <summary>绝对时间戳 seek（搜索命中路径）；复用 Seek 的重置语义与进度显示。</summary>
+    private void SeekToAbsolute(double timestamp)
+    {
+        if (_player is null) return;
+        IsSeekBusy = true;
+        IsSeekDragging = false;
+        SeekProgressText = "快进...";
+        ResetReassemblyForPlaybackChange();
+        _ = _player.SeekAsync(timestamp);
+        CurrentTimeText = FormatTime(timestamp);
+        if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
+            ClearPlaybackBuffer(restartChartBackfill: true);
+    }
 
     internal void MarkReadyForEmit(IStreamingTracePlayer player)
     {

@@ -64,6 +64,10 @@ public sealed class TraceCacheStore : ITraceCacheStore
 
                 CREATE INDEX IF NOT EXISTS idx_frames_ts ON frames(trace_id, timestamp);
                 CREATE INDEX IF NOT EXISTS idx_frames_id ON frames(trace_id, can_id);
+                -- P5 搜索/锚点复合索引：FindFrameAsync(First/Next) 的 can_id+idx / can_id+timestamp
+                -- 排序走覆盖索引，避免 ORDER BY 全表 sort（旧 DB 由 IF NOT EXISTS 幂等补齐）
+                CREATE INDEX IF NOT EXISTS idx_frames_cid_idx ON frames(trace_id, can_id, idx);
+                CREATE INDEX IF NOT EXISTS idx_frames_cid_ts ON frames(trace_id, can_id, timestamp);
                 """, ct).ConfigureAwait(false);
             _initialized = true;
         }
@@ -278,6 +282,106 @@ public sealed class TraceCacheStore : ITraceCacheStore
             if (hasMore) result.RemoveAt(result.Count - 1);
             if (!forward) result.Reverse();
             return new FramePage(result, hasMore);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(
+        long traceId, double timestamp, CancellationToken ct = default)
+    {
+        if (double.IsNaN(timestamp)) throw new ArgumentOutOfRangeException(nameof(timestamp));
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // timestamp 主选（ASC 流式与 BLF 2 秒重排窗口下都正确）、idx 仅破同刻并列。
+            // BLF 重排下 idx 单选会取到"到达更晚但时间更早"的错位帧，但 idx 最大值也未必
+            // 落在 timestamp 最大那一帧上（Task 2 测试 case 4：idx=0/t=5.0 与 idx=1/t=4.0，
+            // 须返回 t=5.0 帧），因此分两层取：先定每 can_id 的 MAX(timestamp)，
+            // 再在同一 (can_id, timestamp) 内取 MAX(idx)。
+            var sql = """
+                SELECT f.idx, f.timestamp, f.can_id, f.is_extended, f.dlc, f.data
+                FROM frames f
+                JOIN (
+                    SELECT can_id, MAX(timestamp) AS mt
+                    FROM frames WHERE trace_id=$traceId AND timestamp<=$ts
+                    GROUP BY can_id
+                ) x ON f.trace_id=$traceId AND f.can_id=x.can_id AND f.timestamp=x.mt
+                JOIN (
+                    SELECT can_id, timestamp, MAX(idx) AS mi
+                    FROM frames WHERE trace_id=$traceId AND timestamp<=$ts
+                    GROUP BY can_id, timestamp
+                ) y ON f.trace_id=$traceId AND f.can_id=y.can_id
+                     AND f.timestamp=y.timestamp AND f.idx=y.mi
+                ORDER BY f.can_id;
+                """;
+            await using var command = _connection.CreateCommand();
+            command.CommandText = sql;
+            command.Parameters.AddRange(
+            [
+                new("$traceId", traceId),
+                new("$ts", timestamp),
+            ]);
+            var result = new List<CachedFrame>();
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                result.Add(new CachedFrame(
+                    reader.GetInt64(0),
+                    reader.GetDouble(1),
+                    (uint)reader.GetInt64(2),
+                    reader.GetInt64(3) != 0,
+                    reader.GetByte(4),
+                    (byte[])reader.GetValue(5)));
+            }
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CachedFrame?> FindFrameAsync(
+        long traceId, uint canId, double? afterTimestamp,
+        CacheSearchDirection direction, CancellationToken ct = default)
+    {
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // First=全缓存最早一帧；Next=timestamp 严格大于 afterTimestamp（必填，
+            // 为 null 时按 First 处理）的最早一帧（t 后同刻并列取 idx 小者）。
+            var sql = direction == CacheSearchDirection.First
+                ? """
+                  SELECT idx,timestamp,can_id,is_extended,dlc,data FROM frames
+                  WHERE trace_id=$traceId AND can_id=$canId ORDER BY idx ASC LIMIT 1
+                  """
+                : """
+                  SELECT idx,timestamp,can_id,is_extended,dlc,data FROM frames
+                  WHERE trace_id=$traceId AND can_id=$canId AND timestamp>$after
+                  ORDER BY timestamp ASC, idx ASC LIMIT 1
+                  """;
+            await using var command = _connection.CreateCommand();
+            command.CommandText = sql;
+            command.Parameters.AddRange(
+            [
+                new("$traceId", traceId),
+                new("$canId", canId),
+                new("$after", afterTimestamp ?? double.MinValue),
+            ]);
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return null;
+            return new CachedFrame(
+                reader.GetInt64(0),
+                reader.GetDouble(1),
+                (uint)reader.GetInt64(2),
+                reader.GetInt64(3) != 0,
+                reader.GetByte(4),
+                (byte[])reader.GetValue(5));
         }
         finally
         {

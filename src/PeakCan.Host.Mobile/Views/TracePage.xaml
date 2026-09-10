@@ -4,8 +4,8 @@
              xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.Maui;assembly=LiveChartsCore.SkiaSharpView.Maui"
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Padding="8" RowSpacing="4">
-        <Grid x:Name="ControlsRow" Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" Padding="8" RowSpacing="4">
+        <Grid x:Name="ControlsRow" Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
             <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
             <Picker Grid.Column="1" x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
             <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
@@ -17,6 +17,7 @@
                 <Label Text="{Binding DurationScanProgress, StringFormat='扫描 {0:P0}'}" FontSize="12" LineBreakMode="TailTruncation" />
             </VerticalStackLayout>
             <Button Grid.Column="3" Text="DBC" Clicked="OnLoadDbcClicked" />
+            <Button Grid.Column="4" Text="定位" Clicked="OnToggleLocatorClicked" />
         </Grid>
 
         <Label x:Name="DbcStatusRow" Grid.Row="1" Text="{Binding DbcStatusText}" FontSize="12" LineBreakMode="TailTruncation" />
@@ -26,16 +27,34 @@
                 DragStarted="OnSeekStarted" DragCompleted="OnSeekCompleted"
                 IsEnabled="{Binding DurationKnown}" />
 
-        <Grid x:Name="FramesGrid" Grid.Row="3">
+        <!-- 定位行（搜索 + 锚点），默认折叠，不占纵向空间 -->
+        <VerticalStackLayout x:Name="LocatorPanel" Grid.Row="3" Spacing="4" IsVisible="False">
+            <Grid x:Name="SearchRow" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <Entry x:Name="SearchEntry" Placeholder="搜索 CAN ID (hex)"
+                       Text="{Binding SearchText}" Completed="OnSearchFirstClicked" />
+                <Button Grid.Column="1" Text="首次" Clicked="OnSearchFirstClicked" />
+                <Button Grid.Column="2" Text="下一处" Clicked="OnSearchNextClicked" />
+            </Grid>
+            <Label Text="{Binding SearchStatusText}" FontSize="11" TextColor="Orange" />
+            <Grid x:Name="AnchorRow" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"
+                  IsVisible="{Binding HasAnchor}">
+                <Label Text="{Binding AnchorText}" FontFamily="Mono" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                <Button Grid.Column="1" Text="信号值" Clicked="OnShowAnchorValuesClicked" />
+                <Button Grid.Column="2" Text="清除" Clicked="OnClearAnchorClicked" />
+            </Grid>
+        </VerticalStackLayout>
+
+        <Grid x:Name="FramesGrid" Grid.Row="4">
             <CollectionView x:Name="Frames" ItemsSource="{Binding VisibleRows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
-                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="8" Padding="0,2">
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*" ColumnSpacing="8" Padding="0,2">
                         <Label Grid.Column="0" Text="{Binding TimeText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="1" Text="{Binding IdText}" FontFamily="Mono" FontSize="12" />
                         <Label Grid.Column="2" Text="{Binding Dlc}" FontFamily="Mono" FontSize="12" />
-                        <Label Grid.Column="3" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" />
-                        <Label Grid.Column="4" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
+                        <Label Grid.Column="3" Text="{Binding PgnSaText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="4" Text="{Binding DataText}" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="5" Text="{Binding SignalSummaryText}" FontFamily="Mono" FontSize="12" LineBreakMode="TailTruncation" />
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnRowTapped" />
                         </Grid.GestureRecognizers>
@@ -49,7 +68,7 @@
                    BackgroundColor="#80000000" Padding="20,12" />
         </Grid>
 
-        <Grid x:Name="ChartGrid" Grid.Row="3" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+        <Grid x:Name="ChartGrid" Grid.Row="4" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="8">
             <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
                 <Button Grid.Column="0" Text="选择信号" Clicked="OnSelectSignalClicked" />
                 <Button Grid.Column="1" x:Name="SelectionZoomButton" Text="框选" Clicked="OnToggleSelectionZoomClicked" />
@@ -64,23 +83,53 @@
             <Label x:Name="ChartEmptyLabel" Grid.Row="2" Text="请选择 1–8 个 DBC 信号" HorizontalOptions="Center" TextColor="Gray" />
         </Grid>
 
-        <HorizontalStackLayout x:Name="StatusRow" Grid.Row="4" Spacing="12" Margin="0,4">
+        <HorizontalStackLayout x:Name="StatusRow" Grid.Row="5" Spacing="12" Margin="0,4">
             <Label Text="{Binding CacheStatusText}" FontSize="12" TextColor="Gray" />
             <Label Text="{Binding SkippedLinesText}" FontSize="12" TextColor="Orange" />
         </HorizontalStackLayout>
 
-        <Grid x:Name="FilterRow" Grid.Row="5" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <Grid x:Name="FilterRow" Grid.Row="6" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)"
                    Completed="OnFilterCompleted" />
             <Button Grid.Column="1" Text="↓ 最新" Clicked="OnJumpLatest" />
         </Grid>
 
-        <HorizontalStackLayout x:Name="TabRow" Grid.Row="6" Spacing="8">
+        <Grid x:Name="J1939Grid" Grid.Row="4" IsVisible="False">
+            <CollectionView ItemsSource="{Binding J1939.Rows}">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" Padding="0,2">
+                            <Label Grid.Column="0" Text="{Binding PgnText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="1" Text="{Binding SaText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="2" Text="{Binding DaText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="3" Text="{Binding ModeText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="4" Text="{Binding LengthText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="5" Text="{Binding CompletedText}" FontFamily="Mono" FontSize="12" />
+                            <Label Grid.Column="6" Text="{Binding StatusText}" FontFamily="Mono" FontSize="12" />
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+                <CollectionView.Header>
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" Padding="0,4">
+                        <Label Grid.Column="0" Text="PGN" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="1" Text="SA" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="2" Text="DA" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="3" Text="模式" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="4" Text="长度" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="5" Text="完成时刻" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                        <Label Grid.Column="6" Text="状态" FontAttributes="Bold" FontFamily="Mono" FontSize="12" />
+                    </Grid>
+                </CollectionView.Header>
+                <CollectionView.EmptyView>
+                    <Label Text="无 J1939 TP 会话" HorizontalOptions="Center" VerticalOptions="Center" TextColor="Gray" />
+                </CollectionView.EmptyView>
+            </CollectionView>
+        </Grid>
+
+        <HorizontalStackLayout x:Name="TabRow" Grid.Row="7" Spacing="8">
             <Button x:Name="TableTabButton" Text="表格" Clicked="OnShowTableClicked" />
             <Button x:Name="ChartTabButton" Text="图表" Clicked="OnShowChartClicked" />
+            <Button x:Name="J1939TabButton" Text="J1939" Clicked="OnShowJ1939Clicked" />
         </HorizontalStackLayout>
     </Grid>
 </ContentPage>
-
-
-

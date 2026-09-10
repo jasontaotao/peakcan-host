@@ -84,13 +84,10 @@ public class TraceSessionViewModelTests
         public FakeCacheSinkFactory CacheFactory { get; } = new();
         public TraceSessionViewModel Vm { get; }
 
-        public TraceSessionViewModel CreateVm() =>
-            new(Ui, SourceFactory, _ => Player, cacheSinkFactory: CacheFactory);
-
-        public Env(bool useCache = true)
+        public Env(bool useCache = true, ITraceCacheStore? cacheStore = null)
         {
             Vm = useCache
-                ? CreateVm()
+                ? new TraceSessionViewModel(Ui, SourceFactory, _ => Player, cacheSinkFactory: CacheFactory, cacheStore: cacheStore)
                 : new TraceSessionViewModel(Ui, SourceFactory, _ => Player);
         }
     }
@@ -663,6 +660,340 @@ public class TraceSessionViewModelTests
         env.Player.Emit(F(0.2, 0x100));
         DrainTimer(env.Vm).Tick();
         env.Vm.LatestVisibleRow!.Id.Should().Be(0x100u);
+    }
+
+    [Fact]
+    public void SetAnchor_SetsTimestampAndRaisesChanges()
+    {
+        var env = new Env();
+        var changed = new List<string?>();
+        env.Vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        env.Vm.SetAnchor(12.345678);
+
+        env.Vm.AnchorTimestamp.Should().Be(12.345678);
+        env.Vm.HasAnchor.Should().BeTrue();
+        env.Vm.AnchorText.Should().Be("⚑ 12.345678s");
+        changed.Should().Contain(nameof(TraceSessionViewModel.AnchorTimestamp));
+        changed.Should().Contain(nameof(TraceSessionViewModel.HasAnchor));
+        changed.Should().Contain(nameof(TraceSessionViewModel.AnchorText));
+    }
+
+    [Fact]
+    public void SetAnchor_NaNOrInfinity_Ignored()
+    {
+        var env = new Env();
+        env.Vm.SetAnchor(3.0);
+
+        env.Vm.SetAnchor(double.NaN);
+        env.Vm.SetAnchor(double.PositiveInfinity);
+        env.Vm.SetAnchor(double.NegativeInfinity);
+
+        env.Vm.AnchorTimestamp.Should().Be(3.0);
+        env.Vm.HasAnchor.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ClearAnchor_ResetsAll()
+    {
+        var env = new Env();
+        env.Vm.SetAnchor(5.0);
+
+        env.Vm.ClearAnchor();
+
+        env.Vm.AnchorTimestamp.Should().BeNull();
+        env.Vm.HasAnchor.Should().BeFalse();
+        env.Vm.AnchorText.Should().BeEmpty();
+        env.Vm.Chart.AnchorTimestamp.Should().BeNull();
+    }
+
+    [Fact]
+    public void SetAnchor_SyncsChartAnchorTimestamp()
+    {
+        var env = new Env();
+
+        env.Vm.SetAnchor(3.5);
+
+        env.Vm.Chart.AnchorTimestamp.Should().Be(3.5);
+    }
+
+    [Fact]
+    public void SetAnchor_SurvivesSeekAndStop()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        // DurationKnown 由后台 scan 线程置位；测试直接反射置位（对齐现有 Seek 测试模式）
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        typeof(TraceSessionViewModel).GetField("_durationKnownValue", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_durationKnown", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_duration", flags)!.SetValue(env.Vm, 10d);
+        env.Vm.SetAnchor(4.0);
+
+        env.Vm.SeekToCommand.Execute(0.5);
+        env.Vm.StopCommand.Execute(null);
+        env.Vm.TogglePlayCommand.Execute(null);
+
+        env.Vm.AnchorTimestamp.Should().Be(4.0);
+        env.Vm.HasAnchor.Should().BeTrue();
+        env.Vm.AnchorText.Should().Be("⚑ 4.000000s");
+        env.Vm.Chart.AnchorTimestamp.Should().Be(4.0);
+    }
+
+    [Fact]
+    public async Task CreateAnchorValuesViewModel_UsesSessionCacheTraceAndDbc()
+    {
+        // Arrange: stub store 记录查询入参；fake sink 的 TraceId=42 即 session 的 traceId
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(42L);
+        var frame = new CachedFrame(0, 3.5, 0x100u, false, 2, [0x01, 0x00, 0, 0, 0, 0, 0, 0]);
+        store.GetLatestFramesBeforeAsync(42, 3.5, Arg.Any<CancellationToken>())
+            .Returns([frame]);
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+        env.Vm.SetDbc(EngineDbc());
+
+        var values = env.Vm.CreateAnchorValuesViewModel();
+        await values.LoadAsync(3.5);
+
+        values.Rows.Should().HaveCount(1);
+        values.Rows[0].MessageName.Should().Be("EngineData"); // DBC 解码路径生效
+        values.Rows[0].SignalName.Should().Be("EngineSpeed");
+        values.Rows[0].ValueText.Should().Be("0.25");         // little-endian: 0x0001 * 0.25
+        await store.Received(1).GetLatestFramesBeforeAsync(42, 3.5, Arg.Any<CancellationToken>());
+    }
+
+    // ---- J1939 重组接线（Task 7）----
+
+    private static ReplayFrame BamCm(double t, byte sa = 0xF4) =>
+        new(t, PeakCan.Host.Core.J1939.J1939Id.Compose(6, 0x00EC00, sa, 0xFF), 8,
+            PeakCan.Host.Core.J1939.TpCmMessage.Bam(14, 2, 0x000200).Encode(), default, true);
+
+    private static ReplayFrame BamDt(double t, byte seq, byte sa = 0xF4)
+    {
+        var chunk = seq == 1 ? Enumerable.Range(0, 7).Select(i => (byte)(i + 1)).ToArray()
+                             : Enumerable.Range(7, 7).Select(i => (byte)(i + 1)).ToArray();
+        return new ReplayFrame(t, PeakCan.Host.Core.J1939.J1939Id.Compose(6, 0x00EB00, sa, 0xFF), 8,
+            new PeakCan.Host.Core.J1939.TpDtMessage(seq, chunk).Encode(), default, true);
+    }
+
+    [Fact]
+    public void PassesFilter_PgnMatch_ExtendedFramePasses()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x18F00411, 8, new byte[8], default, true)); // PGN F004
+        env.Player.Emit(new ReplayFrame(0.1, 0x123, 2, [1, 2], default, false));        // 标准帧（非扩展）
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x18F00411);
+    }
+
+    [Fact]
+    public void PassesFilter_PgnNonMatch_ExtendedFrameBlocked()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x18EA0011, 8, new byte[8], default, true)); // PGN EA00
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow.Should().BeNull();
+    }
+
+    [Fact]
+    public void PassesFilter_IdOrPgn_EitherMatchPasses()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("0x123 pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x123, 2, [1, 2], default, false));          // ID 命中
+        env.Player.Emit(new ReplayFrame(0.1, 0x18F00411, 8, new byte[8], default, true)); // PGN 命中
+        env.Player.Emit(new ReplayFrame(0.2, 0x456, 2, [3, 4], default, false));        // 均不命中
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x18F00411);
+        env.Vm.VisibleRows.Should().Contain(r => r.Source != null && r.Source.Id == 0x123u);
+        env.Vm.VisibleRows.Should().NotContain(r => r.Source != null && r.Source.Id == 0x456u);
+    }
+
+    [Fact]
+    public async Task SearchFirst_Found_SeeksToTimestamp()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, null, CacheSearchDirection.First, Arg.Any<CancellationToken>())
+            .Returns(new CachedFrame(5, 1.25, 0x100u, false, 2, [1, 2]));
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchFirstAsync();
+
+        env.Player.Seeks.Should().ContainSingle(s => Math.Abs(s - 1.25) < 1e-9);
+        env.Vm.SearchStatusText.Should().Be("已跳到 1.250000s");
+    }
+
+    [Fact]
+    public async Task SearchNext_UsesCurrentTimestampAsLowerBound()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, 1.0, CacheSearchDirection.Next, Arg.Any<CancellationToken>())
+            .Returns(new CachedFrame(7, 1.5, 0x100u, false, 2, [1, 2]));
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(F(1.0, 0x100));   // 当前时刻 = 1.0
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchNextAsync();
+
+        await store.Received(1).FindFrameAsync(42, 0x100u, 1.0, CacheSearchDirection.Next, Arg.Any<CancellationToken>());
+        env.Vm.SearchStatusText.Should().Be("已跳到 1.500000s");
+    }
+
+    [Fact]
+    public async Task SearchNext_NoLaterMatch_SetsStatusNotFound()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, Arg.Any<double?>(), CacheSearchDirection.Next, Arg.Any<CancellationToken>())
+            .Returns((CachedFrame?)null);
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchNextAsync();
+
+        env.Vm.SearchStatusText.Should().Be("缓存范围内未找到该 ID");
+        env.Vm.SearchStatusText.Should().NotContain("已跳到");
+    }
+
+    [Fact]
+    public async Task Search_PgnToken_SetsStatusIdOnly()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.SearchText = "pgn:F004";
+
+        await env.Vm.SearchFirstAsync();
+
+        env.Vm.SearchStatusText.Should().Be("搜索仅支持 CAN ID");
+    }
+
+    [Fact]
+    public async Task Search_InvalidText_SetsStatusIdOnly()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.SearchText = "not_an_id";
+
+        await env.Vm.SearchFirstAsync();
+
+        env.Vm.SearchStatusText.Should().Be("搜索仅支持 CAN ID");
+    }
+
+    [Fact]
+    public void FrameEmitted_FeedsReassemblerBeforeIdFilter()
+    {
+        // Arrange: 设 ID 过滤排除扩展 TP 帧；重组 tap 必须在过滤前
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("0x100");
+
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Player.Emit(BamDt(0.02, 2));
+
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+        env.Vm.LatestVisibleRow.Should().BeNull(); // 过滤帧不进表格
+    }
+
+    [Fact]
+    public void Stop_FlushesThenResets()
+    {
+        // Arrange: 未闭合会话（CM + 1×DT）
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Vm.J1939.Rows.Should().BeEmpty();
+
+        env.Vm.StopCommand.Execute(null);
+
+        // Stop → Flush 结算未闭合会话 → 截断行留存可见（spec §6）
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "截断");
+        // 且已 Reset：此后新会话从零重组
+        env.Player.Emit(BamCm(0.5));
+        env.Player.Emit(BamDt(0.51, 1));
+        env.Player.Emit(BamDt(0.52, 2));
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+    }
+
+    [Fact]
+    public void Seek_FlushesThenResets()
+    {
+        // Arrange: 未闭合会话 + DurationKnown
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        typeof(TraceSessionViewModel).GetField("_durationKnownValue", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_durationKnown", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_duration", flags)!.SetValue(env.Vm, 10d);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+
+        env.Vm.SeekToCommand.Execute(0.5);
+
+        // Seek → Flush 结算留存截断行（spec §6 "截断会话可见而非消失"）
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "截断");
+        env.Player.Seeks.Should().ContainSingle(s => s == 5.0);
+        // 已 Reset：新会话从零重组
+        env.Player.Emit(BamCm(0.5));
+        env.Player.Emit(BamDt(0.51, 1));
+        env.Player.Emit(BamDt(0.52, 2));
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+    }
+
+    [Fact]
+    public async Task OpenNewTrace_ResetsAndClears()
+    {
+        // Arrange: 打开 A → 进行中 TP 会话
+        var env = new Env();
+        var framesA = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(framesA.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Vm.J1939.Rows.Should().BeEmpty();
+
+        // Act: 打开 B
+        var framesB = new AsyncFrameSeq(F(0, 0x200));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(framesB.OpenResult));
+        await env.Vm.OpenAsync("b.asc", "b.asc", 200);
+
+        // J1939.Rows 已清空；reassembler 已 Reset（Flush 无未闭合会话可结算）
+        env.Vm.J1939.Rows.Should().BeEmpty();
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        var reassembler = (StreamingJ1939Reassembler)typeof(TraceSessionViewModel)
+            .GetField("_j1939Reassembler", flags)!.GetValue(env.Vm)!;
+        var settled = new List<J1939ReassembledRow>();
+        reassembler.MessageReassembled += settled.Add;
+        reassembler.Flush();
+        settled.Should().BeEmpty();
     }
 }
 
