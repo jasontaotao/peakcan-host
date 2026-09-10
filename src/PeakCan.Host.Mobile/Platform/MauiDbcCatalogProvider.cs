@@ -23,8 +23,7 @@ public sealed class MauiDbcCatalogProvider : IDbcCatalogProvider
             return new DbcCatalogLoadResult(null, result.FileName, "仅支持 .dbc 文件。");
 
         await using var stream = await result.OpenReadAsync();
-        using var reader = new StreamReader(stream);
-        var text = await reader.ReadToEndAsync(ct);
+        var text = await DbcTextReader.ReadAsync(stream, ct);
         return DbcCatalog.Parse(text, result.FileName);
     }
 }

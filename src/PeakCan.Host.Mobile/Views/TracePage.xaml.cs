@@ -1,5 +1,6 @@
 using LiveChartsCore;
 using LiveChartsCore.Drawing;
+using LiveChartsCore.Kernel.Events;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Defaults;
@@ -29,6 +30,10 @@ public partial class TracePage : ContentPage
     private readonly Dictionary<CartesianChart, (LineSeries<ObservablePoint> Series, SignalSelectionKey Key)> _plotSeries = new();
     private readonly List<SignalSelectionKey> _renderedKeys = [];
     private ChartAxisRange? _xDataRange;
+    private bool _isSelectionZoomMode;
+    private Command<PointerCommandArgs>? _chartPressedCommand;
+    private Command<PointerCommandArgs>? _chartMovedCommand;
+    private Command<PointerCommandArgs>? _chartReleasedCommand;
     private const int MinimumRenderPointCount = 64;
     private const int MaxRenderPointCount = 512;
 
@@ -51,6 +56,9 @@ public partial class TracePage : ContentPage
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.Chart.RenderChanged += OnChartRenderChanged;
+        _chartPressedCommand = new(OnChartPressed);
+        _chartMovedCommand = new(OnChartMoved);
+        _chartReleasedCommand = new(OnChartReleased);
         SpeedPicker.ItemsSource = new[] { "0.1x", "0.5x", "1x", "2x", "5x", "10x" };
         SpeedPicker.SelectedIndex = 2;
         _appliedDbc = _dbcHolder.Current;
@@ -207,7 +215,7 @@ public partial class TracePage : ContentPage
             : string.Join("  |  ", chart.SelectedSignals.Select(s => s.DisplayName));
         ChartEmptyLabel.Text = chart.Messages.Count == 0
             ? "请先加载 DBC"
-            : "请选择 1–4 个 DBC 信号";
+            : "请选择 1–8 个 DBC 信号";
         ChartEmptyLabel.IsVisible = chart.SelectedSignals.Count == 0;
 
         foreach (var plot in _charts)
@@ -279,7 +287,7 @@ public partial class TracePage : ContentPage
 
             var plot = new CartesianChart
             {
-                ZoomMode = ZoomAndPanMode.X,
+                ZoomMode = GetZoomMode(),
                 ZoomingSpeed = 0.8,
                 LegendPosition = LegendPosition.Hidden,
                 Series = [series],
@@ -296,6 +304,9 @@ public partial class TracePage : ContentPage
                     : [],
             };
             plot.UpdateStarted += OnPlotUpdateStarted;
+            plot.PressedCommand = _chartPressedCommand;
+            plot.MovedCommand = _chartMovedCommand;
+            plot.ReleasedCommand = _chartReleasedCommand;
 
             var height = chart.SelectedSignals.Count switch
             {
@@ -370,6 +381,57 @@ public partial class TracePage : ContentPage
                 .ToArray();
         }
     }
+
+    private ZoomAndPanMode GetZoomMode() =>
+        _isSelectionZoomMode
+            ? ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit
+            : ZoomAndPanMode.PanX | ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit;
+
+    private void OnToggleSelectionZoomClicked(object? sender, EventArgs e)
+    {
+        _isSelectionZoomMode = !_isSelectionZoomMode;
+        SelectionZoomButton.Text = _isSelectionZoomMode ? "平移" : "框选";
+
+        foreach (var plot in _charts)
+            plot.ZoomMode = GetZoomMode();
+    }
+
+    private void OnChartPressed(PointerCommandArgs args)
+    {
+        if (!_isSelectionZoomMode
+            || args.Chart is not CartesianChart plot
+            || plot.CoreChart is not CartesianChartEngine engine)
+            return;
+
+        var point = ToLvcPoint(args.PointerPosition);
+        engine.StartZoomingSection(GetZoomMode(), point);
+    }
+
+    private void OnChartMoved(PointerCommandArgs args)
+    {
+        if (!_isSelectionZoomMode
+            || args.Chart is not CartesianChart plot
+            || plot.CoreChart is not CartesianChartEngine engine)
+            return;
+
+        engine.GrowZoomingSection(GetZoomMode(), ToLvcPoint(args.PointerPosition));
+    }
+
+    private void OnChartReleased(PointerCommandArgs args)
+    {
+        if (!_isSelectionZoomMode
+            || args.Chart is not CartesianChart plot
+            || plot.CoreChart is not CartesianChartEngine engine)
+            return;
+
+        engine.EndZoomingSection(GetZoomMode(), ToLvcPoint(args.PointerPosition));
+        if (!_xViewports.TryGetValue(plot, out var viewport)) return;
+        EnforceXZoomLimit(viewport);
+        if (_xViewport.SyncFrom(viewport))
+            UpdatePlotData(_vm.Chart);
+    }
+
+    private static LvcPoint ToLvcPoint(LvcPointD point) => new((float)point.X, (float)point.Y);
 
     private void OnPlotUpdateStarted(IChartView chart)
     {

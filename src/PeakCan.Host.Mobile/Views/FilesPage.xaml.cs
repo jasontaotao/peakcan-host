@@ -235,8 +235,7 @@ public partial class FilesPage : ContentPage
                 await DisplayAlertAsync("DBC 过大", $"DBC 文件超过 {MaxDbcFileBytes / 1024 / 1024} MB 上限。", "确定");
                 return;
             }
-            using var reader = new StreamReader(src);
-            var text = await reader.ReadToEndAsync();
+            var text = await DbcTextReader.ReadAsync(src);
             var result = DbcCatalog.Parse(text, name);
             if (result.Catalog is null)
             {

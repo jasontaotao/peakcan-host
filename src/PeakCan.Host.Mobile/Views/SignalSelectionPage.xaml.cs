@@ -79,7 +79,7 @@ public partial class SignalSelectionPage : ContentPage
             return;
         }
 
-        await DisplayAlertAsync("无法选择", "最多选择 4 个信号。", "确定");
+        await DisplayAlertAsync("无法选择", "最多选择 8 个信号。", "确定");
     }
 
     private async void OnDoneClicked(object? sender, EventArgs e)

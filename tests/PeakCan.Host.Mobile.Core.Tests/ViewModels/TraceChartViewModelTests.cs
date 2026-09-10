@@ -22,6 +22,10 @@ public class TraceChartViewModelTests
         BO_ 256 EngineData: 8 ECM
          SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX
          SG_ EngineTemp : 16|8@1+ (1,-40) [0|215] "C" Vector__XXX
+         SG_ SignalA : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+         SG_ SignalB : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+         SG_ SignalC : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+         SG_ SignalD : 48|8@1+ (1,0) [0|255] "" Vector__XXX
 
         BO_ 300 MuxData: 8 ECM
          SG_ MuxSelector M : 0|8@1+ (1,0) [0|1] "" Vector__XXX
@@ -50,19 +54,29 @@ public class TraceChartViewModelTests
     }
 
     [Fact]
-    public void Select_Accepts_At_Most_Four_Signals()
+    public void Select_Accepts_At_Most_Eight_Signals()
     {
         var vm = Create();
         var unknown = new SignalSelectionKey(0x101, false, "EngineData", "EngineSpeed");
         var low = new SignalSelectionKey(0x12C, false, "MuxData", "LowValue");
+        var extra = new[]
+        {
+            new SignalSelectionKey(0x100, false, "EngineData", "SignalA"),
+            new SignalSelectionKey(0x100, false, "EngineData", "SignalB"),
+            new SignalSelectionKey(0x100, false, "EngineData", "SignalC"),
+            new SignalSelectionKey(0x100, false, "EngineData", "SignalD"),
+        };
 
         vm.Select(unknown).Should().BeFalse();
         vm.Select(Speed).Should().BeTrue();
         vm.Select(Temp).Should().BeTrue();
         vm.Select(High).Should().BeTrue();
         vm.Select(low).Should().BeTrue();
+        foreach (var key in extra)
+            vm.Select(key).Should().BeTrue();
+        vm.Select(new SignalSelectionKey(0x100, false, "EngineData", "Unknown")).Should().BeFalse();
 
-        vm.SelectedSignals.Should().HaveCount(4);
+        vm.SelectedSignals.Should().HaveCount(8);
     }
 
     [Fact]

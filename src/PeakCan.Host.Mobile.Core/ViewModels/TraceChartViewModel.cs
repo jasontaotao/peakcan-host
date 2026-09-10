@@ -12,7 +12,7 @@ namespace PeakCan.Host.Mobile.Core.ViewModels;
 public sealed class TraceChartViewModel : ObservableObject
 {
     private const int DefaultRenderBuckets = 512;
-    private const int MaxSelectedSignals = 4;
+    private const int MaxSelectedSignals = 8;
     private readonly IUiDispatcher _ui;
     private readonly object _stateGate = new();
     private readonly Dictionary<SignalSelectionKey, SignalSeriesStore> _stores = new();
@@ -84,7 +84,7 @@ public sealed class TraceChartViewModel : ObservableObject
         RaiseRenderChanged();
     }
 
-    /// <summary>Select one signal. Returns false for unknown messages or when four are already selected.</summary>
+    /// <summary>Select one signal. Returns false for unknown messages or when eight are already selected.</summary>
     public bool Select(SignalSelectionKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
