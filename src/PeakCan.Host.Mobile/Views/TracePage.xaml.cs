@@ -29,6 +29,8 @@ public partial class TracePage : ContentPage
     private readonly Dictionary<CartesianChart, (LineSeries<ObservablePoint> Series, SignalSelectionKey Key)> _plotSeries = new();
     private readonly List<SignalSelectionKey> _renderedKeys = [];
     private ChartAxisRange? _xDataRange;
+    private const int MinimumRenderPointCount = 64;
+    private const int MaxRenderPointCount = 256;
 
     public TracePage(
         IUiDispatcher ui,
@@ -241,7 +243,7 @@ public partial class TracePage : ContentPage
             {
                 Name = selection.DisplayName,
                 Values = chart
-                    .GetViewportRenderPoints(selection.Key, null, null, 128)
+                    .GetViewportRenderPoints(selection.Key, null, null, MaxRenderPointCount)
                     .Select(p => new ObservablePoint(p.Timestamp, p.Value))
                     .ToArray(),
                 GeometrySize = 6,
@@ -342,6 +344,13 @@ public partial class TracePage : ContentPage
             viewport.SetRange(clamped);
     }
 
+    private static int GetRenderPointCount(double width)
+    {
+        return double.IsFinite(width) && width > 0
+            ? Math.Clamp((int)(width / 4), MinimumRenderPointCount, MaxRenderPointCount)
+            : MaxRenderPointCount;
+    }
+
     private void UpdatePlotData(TraceChartViewModel chart)
     {
         foreach (var plot in _charts)
@@ -350,9 +359,7 @@ public partial class TracePage : ContentPage
             if (!_xViewports.TryGetValue(plot, out var viewport)) continue;
 
             var range = viewport.TryGetRange(out var value) ? value : (ChartAxisRange?)null;
-            var pointCount = double.IsFinite(plot.Width) && plot.Width > 0
-                ? Math.Clamp((int)(plot.Width / 8), 32, 128)
-                : 128;
+            var pointCount = GetRenderPointCount(plot.Width);
             var points = chart.GetViewportRenderPoints(
                 entry.Key,
                 range?.Minimum,
