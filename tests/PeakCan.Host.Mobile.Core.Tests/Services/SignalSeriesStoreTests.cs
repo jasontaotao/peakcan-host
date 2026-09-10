@@ -167,6 +167,20 @@ public class SignalSeriesStoreTests
     }
 
     [Fact]
+    public void GetViewportRenderPoints_Returns_Budget_For_Dense_Alternating_Samples()
+    {
+        var store = new SignalSeriesStore();
+        for (var i = 0; i < 2_000; i++)
+            store.Add(i * 0.001, i % 2 == 0 ? 0 : 3);
+
+        var points = store.GetViewportRenderPoints(0, 1.999, 128);
+
+        points.Should().HaveCount(128);
+        points[0].Timestamp.Should().Be(0);
+        points[^1].Timestamp.Should().Be(1.999);
+    }
+
+    [Fact]
     public void GetViewportRenderPoints_Thins_Flat_Dense_Samples()
     {
         var store = new SignalSeriesStore();
