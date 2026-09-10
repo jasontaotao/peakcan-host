@@ -167,6 +167,24 @@ public class SignalSeriesStoreTests
     }
 
     [Fact]
+    public void GetViewportRenderPoints_Keeps_Representatives_Across_Flat_Range()
+    {
+        var store = new SignalSeriesStore();
+        for (var i = 0; i < 1_000; i++)
+        {
+            var value = i < 100 ? (i % 2) * 100 : 1;
+            store.Add(i, value);
+        }
+
+        var points = store.GetViewportRenderPoints(0, 999, 32);
+
+        points.Should().HaveCountLessThanOrEqualTo(32);
+        points.Should().Contain(p => p.Timestamp >= 400 && p.Timestamp < 600);
+        points.Should().Contain(p => p.Timestamp >= 800 && p.Timestamp < 999);
+        points[^1].Timestamp.Should().Be(999);
+    }
+
+    [Fact]
     public void GetViewportRenderPoints_Returns_Budget_For_Dense_Alternating_Samples()
     {
         var store = new SignalSeriesStore();

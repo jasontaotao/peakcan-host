@@ -4,7 +4,7 @@ namespace PeakCan.Host.Mobile.Core.Services;
 /// Bounded, thread-safe storage for one signal's chart history. Capacity is the
 /// maximum number of representative samples; when exceeded, adjacent samples are
 /// progressively thinned instead of dropping the beginning of a long trace.
-/// Rendering uses min/max buckets or visually weighted adaptive sampling for responsive mobile charts.
+/// Rendering uses real min/max samples in time buckets to keep signal activity visible.
 /// </summary>
 public sealed class SignalSeriesStore
 {
@@ -83,21 +83,21 @@ public sealed class SignalSeriesStore
         }
     }
     /// <summary>
-    /// Selects actual samples across the full range using visually weighted adaptive
-    /// sampling, keeping the rendered path as a line between real samples.
+    /// Selects real minimum and maximum samples in time buckets across the full
+    /// range, keeping every visible bucket represented by actual samples.
     /// </summary>
     public IReadOnlyList<ChartPoint> GetViewportRenderPoints(int pointCount)
     {
+        if (pointCount <= 0) return [];
         lock (_gate)
         {
             if (_samples.Count == 0) return [];
-            return AdaptiveLocked(0, _samples.Count, pointCount);
+            return ViewportLocked(0, _samples.Count, pointCount);
         }
     }
     /// <summary>
-    /// Selects actual samples in the visible viewport using visually weighted adaptive
-    /// sampling. Flat dense runs are thinned aggressively while large value changes
-    /// are retained, and the path avoids painting a filled envelope when zoomed.
+    /// Selects real minimum and maximum samples in visible time buckets. This avoids
+    /// gaps that can make active signal ranges look like missing communication.
     /// </summary>
     public IReadOnlyList<ChartPoint> GetViewportRenderPoints(double start, double end, int pointCount)
     {
@@ -120,7 +120,7 @@ public sealed class SignalSeriesStore
                 return result;
             }
 
-            return AdaptiveLocked(first, last, pointCount);
+            return ViewportLocked(first, last, pointCount);
         }
     }
 
@@ -143,13 +143,14 @@ public sealed class SignalSeriesStore
     }
 
     /// <summary>
-    /// Visually weighted sampling. Dense, flat runs are reduced aggressively while
-    /// samples that form large triangles with their current neighbours -- peaks,
-    /// valleys, steps and other high-change points -- are retained first.
+    /// Buckets the interior samples by time while always retaining both viewport
+    /// endpoints. Each bucket emits its real minimum and maximum sample, so no active
+    /// time range is silently removed by downsampling.
     /// </summary>
-    private List<ChartPoint> AdaptiveLocked(int first, int last, int pointCount)
+    private List<ChartPoint> ViewportLocked(int first, int last, int pointCount)
     {
         var count = last - first;
+        if (count == 0) return [];
         if (pointCount < 3 || count < 3)
         {
             return
@@ -159,88 +160,80 @@ public sealed class SignalSeriesStore
             ];
         }
 
-        double minimumTime = _samples[first].Timestamp;
-        double maximumTime = _samples[last - 1].Timestamp;
-        double minimumValue = double.MaxValue;
-        double maximumValue = double.MinValue;
-        for (var i = first; i < last; i++)
+        var result = new List<ChartPoint>(pointCount)
         {
-            if (_samples[i].Value < minimumValue) minimumValue = _samples[i].Value;
-            if (_samples[i].Value > maximumValue) maximumValue = _samples[i].Value;
+            new(_samples[first].Timestamp, _samples[first].Value),
+        };
+
+        var innerFirst = first + 1;
+        var innerLast = last - 1;
+        var innerCount = innerLast - innerFirst;
+        if (innerCount <= 0)
+        {
+            result.Add(new(_samples[last - 1].Timestamp, _samples[last - 1].Value));
+            return result;
         }
 
-        var timeSpan = maximumTime - minimumTime;
-        var valueSpan = maximumValue - minimumValue;
-        if (!double.IsFinite(timeSpan) || timeSpan <= 0) timeSpan = 1;
-        if (!double.IsFinite(valueSpan) || valueSpan <= 0) valueSpan = 1;
+        var bucketCount = Math.Max(1, (pointCount - 2) / 2);
+        var startTime = _samples[innerFirst].Timestamp;
+        var endTime = _samples[innerLast - 1].Timestamp;
+        var width = endTime > startTime ? (endTime - startTime) / bucketCount : 0;
+        var currentBucket = -1;
+        var hasBucket = false;
+        var min = double.MaxValue;
+        var max = double.MinValue;
+        var minAt = 0.0;
+        var maxAt = 0.0;
 
-        var x = new double[count];
-        var y = new double[count];
-        for (var i = 0; i < count; i++)
+        void AppendBucket()
         {
-            x[i] = (_samples[first + i].Timestamp - minimumTime) / timeSpan;
-            y[i] = (_samples[first + i].Value - minimumValue) / valueSpan;
-        }
-
-        var previous = new int[count];
-        var next = new int[count];
-        var area = new double[count];
-        var removed = new bool[count];
-        var candidates = new PriorityQueue<int, double>(count);
-
-        for (var i = 0; i < count; i++)
-        {
-            previous[i] = i - 1;
-            next[i] = i + 1 == count ? -1 : i + 1;
-        }
-
-        double TriangleArea(int left, int middle, int right)
-        {
-            var result = Math.Abs(
-                (x[right] - x[left]) * (y[middle] - y[left])
-                - (x[middle] - x[left]) * (y[right] - y[left]));
-
-            return double.IsFinite(result) ? result : 0;
-        }
-
-        for (var i = 1; i < count - 1; i++)
-        {
-            area[i] = TriangleArea(previous[i], i, next[i]);
-            candidates.Enqueue(i, area[i]);
-        }
-
-        var remaining = count;
-        var budget = Math.Min(pointCount, count);
-        while (remaining > budget && candidates.TryDequeue(out var index, out var priority))
-        {
-            if (removed[index] || area[index] != priority) continue;
-
-            var left = previous[index];
-            var right = next[index];
-            removed[index] = true;
-            remaining--;
-
-            if (left >= 0) next[left] = right;
-            if (right >= 0) previous[right] = left;
-
-            if (left > 0)
+            if (!hasBucket) return;
+            if (min == max)
             {
-                area[left] = TriangleArea(previous[left], left, right);
-                candidates.Enqueue(left, area[left]);
+                result.Add(new ChartPoint(minAt, min));
             }
-
-            if (right < count - 1 && right > 0)
+            else if (minAt <= maxAt)
             {
-                area[right] = TriangleArea(left, right, next[right]);
-                candidates.Enqueue(right, area[right]);
+                result.Add(new ChartPoint(minAt, min));
+                result.Add(new ChartPoint(maxAt, max));
+            }
+            else
+            {
+                result.Add(new ChartPoint(maxAt, max));
+                result.Add(new ChartPoint(minAt, min));
             }
         }
 
-        var sampled = new List<ChartPoint>(remaining);
-        for (var i = 0; i >= 0 && i < count; i = next[i])
-            sampled.Add(new ChartPoint(_samples[first + i].Timestamp, _samples[first + i].Value));
+        for (var i = innerFirst; i < innerLast; i++)
+        {
+            var sample = _samples[i];
+            var bucket = width > 0
+                ? Math.Clamp((int)((sample.Timestamp - startTime) / width), 0, bucketCount - 1)
+                : 0;
 
-        return sampled;
+            if (bucket != currentBucket)
+            {
+                AppendBucket();
+                currentBucket = bucket;
+                hasBucket = false;
+            }
+
+            if (!hasBucket || sample.Value <= min)
+            {
+                min = sample.Value;
+                minAt = sample.Timestamp;
+            }
+            if (!hasBucket || sample.Value >= max)
+            {
+                max = sample.Value;
+                maxAt = sample.Timestamp;
+            }
+            hasBucket = true;
+        }
+
+        AppendBucket();
+        result.Add(new(_samples[last - 1].Timestamp, _samples[last - 1].Value));
+        return result;
     }
 
     private void ThinLocked()
@@ -323,12 +316,12 @@ public sealed class SignalSeriesStore
             }
 
             var value = sample.Value;
-            if (!hasBucket || value < min)
+            if (!hasBucket || value <= min)
             {
                 min = value;
                 minAt = sample.Timestamp;
             }
-            if (!hasBucket || value > max)
+            if (!hasBucket || value >= max)
             {
                 max = value;
                 maxAt = sample.Timestamp;

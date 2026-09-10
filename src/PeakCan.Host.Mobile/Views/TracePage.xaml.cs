@@ -30,7 +30,7 @@ public partial class TracePage : ContentPage
     private readonly List<SignalSelectionKey> _renderedKeys = [];
     private ChartAxisRange? _xDataRange;
     private const int MinimumRenderPointCount = 64;
-    private const int MaxRenderPointCount = 256;
+    private const int MaxRenderPointCount = 512;
 
     public TracePage(
         IUiDispatcher ui,
@@ -246,7 +246,7 @@ public partial class TracePage : ContentPage
                     .GetViewportRenderPoints(selection.Key, null, null, MaxRenderPointCount)
                     .Select(p => new ObservablePoint(p.Timestamp, p.Value))
                     .ToArray(),
-                GeometrySize = 6,
+                GeometrySize = 4,
                 GeometryFill = markerPaint,
                 GeometryStroke = strokePaint,
                 Stroke = strokePaint,
@@ -259,11 +259,11 @@ public partial class TracePage : ContentPage
                 Name = selection.Key.SignalName + (string.IsNullOrEmpty(selection.Unit) ? "" : $" ({selection.Unit})"),
                 NameTextSize = 11,
                 TextSize = 10,
-                MinStep = chart.SelectedSignals.Count > 2 ? 1 : 0,
-                ForceStepToMin = chart.SelectedSignals.Count > 2,
+                MinStep = 0,
+                ForceStepToMin = false,
                 NamePaint = axisPaint,
                 LabelsPaint = axisPaint,
-                Labeler = value => value.ToString("0.###", CultureInfo.InvariantCulture),
+                Labeler = value => value.ToString("0.######", CultureInfo.InvariantCulture),
                 SeparatorsPaint = new SolidColorPaint(SKColors.LightGray.WithAlpha(64)),
             };
 
@@ -347,7 +347,7 @@ public partial class TracePage : ContentPage
     private static int GetRenderPointCount(double width)
     {
         return double.IsFinite(width) && width > 0
-            ? Math.Clamp((int)(width / 4), MinimumRenderPointCount, MaxRenderPointCount)
+            ? Math.Clamp((int)(width / 2), MinimumRenderPointCount, MaxRenderPointCount)
             : MaxRenderPointCount;
     }
 
