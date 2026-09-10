@@ -14,8 +14,8 @@ public class ChartViewportLimitsTests
 
         var result = ChartViewportLimits.ClampToMinimumSpan(requested, full, 32);
 
-        result.Minimum.Should().Be(9.84375);
-        result.Maximum.Should().Be(10.15625);
+        result.Minimum.Should().Be(9.6875);
+        result.Maximum.Should().Be(10.0);
     }
 
     [Fact]
