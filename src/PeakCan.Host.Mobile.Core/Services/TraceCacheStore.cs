@@ -64,6 +64,10 @@ public sealed class TraceCacheStore : ITraceCacheStore
 
                 CREATE INDEX IF NOT EXISTS idx_frames_ts ON frames(trace_id, timestamp);
                 CREATE INDEX IF NOT EXISTS idx_frames_id ON frames(trace_id, can_id);
+                -- P5 搜索/锚点复合索引：FindFrameAsync(First/Next) 的 can_id+idx / can_id+timestamp
+                -- 排序走覆盖索引，避免 ORDER BY 全表 sort（旧 DB 由 IF NOT EXISTS 幂等补齐）
+                CREATE INDEX IF NOT EXISTS idx_frames_cid_idx ON frames(trace_id, can_id, idx);
+                CREATE INDEX IF NOT EXISTS idx_frames_cid_ts ON frames(trace_id, can_id, timestamp);
                 """, ct).ConfigureAwait(false);
             _initialized = true;
         }
