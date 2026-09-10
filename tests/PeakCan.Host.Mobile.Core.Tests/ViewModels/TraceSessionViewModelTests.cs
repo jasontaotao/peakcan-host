@@ -84,13 +84,10 @@ public class TraceSessionViewModelTests
         public FakeCacheSinkFactory CacheFactory { get; } = new();
         public TraceSessionViewModel Vm { get; }
 
-        public TraceSessionViewModel CreateVm() =>
-            new(Ui, SourceFactory, _ => Player, cacheSinkFactory: CacheFactory);
-
-        public Env(bool useCache = true)
+        public Env(bool useCache = true, ITraceCacheStore? cacheStore = null)
         {
             Vm = useCache
-                ? CreateVm()
+                ? new TraceSessionViewModel(Ui, SourceFactory, _ => Player, cacheSinkFactory: CacheFactory, cacheStore: cacheStore)
                 : new TraceSessionViewModel(Ui, SourceFactory, _ => Player);
         }
     }
@@ -740,6 +737,32 @@ public class TraceSessionViewModelTests
         env.Vm.HasAnchor.Should().BeTrue();
         env.Vm.AnchorText.Should().Be("⚑ 4.000000s");
         env.Vm.Chart.AnchorTimestamp.Should().Be(4.0);
+    }
+
+    [Fact]
+    public async Task CreateAnchorValuesViewModel_UsesSessionCacheTraceAndDbc()
+    {
+        // Arrange: stub store 记录查询入参；fake sink 的 TraceId=42 即 session 的 traceId
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(42L);
+        var frame = new CachedFrame(0, 3.5, 0x100u, false, 2, [0x01, 0x00, 0, 0, 0, 0, 0, 0]);
+        store.GetLatestFramesBeforeAsync(42, 3.5, Arg.Any<CancellationToken>())
+            .Returns([frame]);
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("cached.asc", "a.asc", 123);
+        env.Vm.SetDbc(EngineDbc());
+
+        var values = env.Vm.CreateAnchorValuesViewModel();
+        await values.LoadAsync(3.5);
+
+        values.Rows.Should().HaveCount(1);
+        values.Rows[0].MessageName.Should().Be("EngineData"); // DBC 解码路径生效
+        values.Rows[0].SignalName.Should().Be("EngineSpeed");
+        values.Rows[0].ValueText.Should().Be("0.25");         // little-endian: 0x0001 * 0.25
+        await store.Received(1).GetLatestFramesBeforeAsync(42, 3.5, Arg.Any<CancellationToken>());
     }
 }
 

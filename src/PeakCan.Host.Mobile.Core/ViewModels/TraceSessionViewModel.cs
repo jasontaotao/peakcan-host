@@ -27,6 +27,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private readonly Func<IStreamingTraceSource, IStreamingTracePlayer> _playerFactory;
     private readonly ILogger _logger;
     private readonly ITraceCacheSinkFactory? _cacheSinkFactory;
+    private readonly ITraceCacheStore? _cacheStore;
     private readonly object _cacheSinkGate = new();
 
     private readonly object _emitGate = new();
@@ -52,13 +53,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     public TraceSessionViewModel(IUiDispatcher ui, IStreamingSourceFactory sourceFactory,
         Func<IStreamingTraceSource, IStreamingTracePlayer> playerFactory,
-        ILogger? logger = null, ITraceCacheSinkFactory? cacheSinkFactory = null)
+        ILogger? logger = null, ITraceCacheSinkFactory? cacheSinkFactory = null,
+        ITraceCacheStore? cacheStore = null)
     {
         _ui = ui;
         _sourceFactory = sourceFactory;
         _playerFactory = playerFactory;
         _logger = logger ?? NullLogger.Instance;
         _cacheSinkFactory = cacheSinkFactory;
+        _cacheStore = cacheStore;
         _chart = new TraceChartViewModel(null, ui);
         _chart.SignalSelected += (_, _) => _ = BackfillSelectedSignalsAsync();
         for (var i = 0; i < ViewportRowCount; i++)
@@ -128,6 +131,12 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     public void ClearAnchor() => AnchorTimestamp = null;
 
     partial void OnAnchorTimestampChanged(double? value) => Chart.SetAnchor(value);
+
+    /// <summary>用当前 session 的缓存/traceId/DBC 构造锚点值面板 VM。仅在 HasAnchor 时由 UI 调用。</summary>
+    public AnchorValuesViewModel CreateAnchorValuesViewModel()
+        => new(_cacheStore ?? throw new InvalidOperationException("cache unavailable for anchor values"),
+            TraceId ?? throw new InvalidOperationException("no trace opened"),
+            _dbc, _ui);
 
     /// <summary>Gets the active chart backfill task for deterministic test synchronization.</summary>
     internal Task? ChartBackfillTask => _chartBackfillTask;

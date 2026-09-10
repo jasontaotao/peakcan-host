@@ -12,8 +12,9 @@ using Microsoft.Extensions.Logging;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
-using SkiaSharp;
 using PeakCan.Host.Mobile.Core.ViewModels;
+using SkiaSharp;
+using Microsoft.Maui.Devices;
 
 namespace PeakCan.Host.Mobile.Views;
 
@@ -31,11 +32,17 @@ public partial class TracePage : ContentPage
     private readonly List<SignalSelectionKey> _renderedKeys = [];
     private ChartAxisRange? _xDataRange;
     private bool _isSelectionZoomMode;
+    private bool _locatorExpanded;
     private Command<PointerCommandArgs>? _chartPressedCommand;
     private Command<PointerCommandArgs>? _chartMovedCommand;
     private Command<PointerCommandArgs>? _chartReleasedCommand;
+    private readonly ITraceCacheStore? _cacheStore;
+    private LvcPointD? _pressPosition;      // chart 点按起始位置（tap/pan 判定）
+    private long _pressTimestamp;           // chart 点按起始时刻（raw TickCount，不受 DPI 影响）
     private const int MinimumRenderPointCount = 64;
     private const int MaxRenderPointCount = 512;
+    private const double TapMaxTravelDp = 10;   // tap 判定位移阈值（dp）
+    private const long TapMaxDurationMs = 400;  // tap 判定时长阈值
 
     public TracePage(
         IUiDispatcher ui,
@@ -46,13 +53,15 @@ public partial class TracePage : ContentPage
         ILogger? logger = null,
         IDbcCatalogProvider? dbcProvider = null,
         DbcCatalogHolder? dbcHolder = null,
-        ITraceCacheSinkFactory? cacheSinkFactory = null)
+        ITraceCacheSinkFactory? cacheSinkFactory = null,
+        ITraceCacheStore? cacheStore = null)
     {
         InitializeComponent();
         _dbcProvider = dbcProvider ?? throw new ArgumentNullException(nameof(dbcProvider));
         _dbcHolder = dbcHolder ?? new DbcCatalogHolder();
+        _cacheStore = cacheStore;
         _vm = new TraceSessionViewModel(ui, sourceFactory,
-            src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory);
+            src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory, _cacheStore);
         BindingContext = _vm;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.Chart.RenderChanged += OnChartRenderChanged;
@@ -104,6 +113,7 @@ public partial class TracePage : ContentPage
         ControlsRow.IsVisible = !isFullscreen;
         DbcStatusRow.IsVisible = !isFullscreen;
         SeekSlider.IsVisible = !isFullscreen;
+        LocatorPanel.IsVisible = !isFullscreen && _locatorExpanded;
         StatusRow.IsVisible = !isFullscreen && !_isChartTab;
         FilterRow.IsVisible = !isFullscreen && !_isChartTab;
         TabRow.IsVisible = !isFullscreen;
@@ -293,15 +303,7 @@ public partial class TracePage : ContentPage
                 Series = [series],
                 XAxes = [xAxis],
                 YAxes = [yAxis],
-                Sections = chart.Cursor is { } cursor
-                    ? [new RectangularSection
-                       {
-                           Xi = cursor.Timestamp,
-                           Xj = cursor.Timestamp,
-                           ScalesYAt = 0,
-                           Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64)),
-                       }]
-                    : [],
+                Sections = BuildSections(chart),
             };
             plot.UpdateStarted += OnPlotUpdateStarted;
             plot.PressedCommand = _chartPressedCommand;
@@ -396,8 +398,44 @@ public partial class TracePage : ContentPage
             plot.ZoomMode = GetZoomMode();
     }
 
+    /// <summary>游标（橙）+ 锚点（绿）section 列表；锚点存在时追加同款竖线。</summary>
+    private static List<RectangularSection> BuildSections(TraceChartViewModel chart)
+    {
+        var sections = new List<RectangularSection>();
+        if (chart.Cursor is { } cursor)
+        {
+            sections.Add(new RectangularSection
+            {
+                Xi = cursor.Timestamp,
+                Xj = cursor.Timestamp,
+                ScalesYAt = 0,
+                Fill = new SolidColorPaint(SKColors.Orange.WithAlpha(64)),
+            });
+        }
+
+        if (chart.AnchorTimestamp is { } anchor)
+        {
+            sections.Add(new RectangularSection
+            {
+                Xi = anchor,
+                Xj = anchor,
+                ScalesYAt = 0,
+                Fill = new SolidColorPaint(SKColors.LimeGreen.WithAlpha(64)),
+            });
+        }
+
+        return sections;
+    }
+
+    /// <summary>位移阈值必须过 GetDpiScale 转 dp 再比 10dp（对齐 CANoe parity spec §2.1 的 DPI 修正约定）。</summary>
+    private static double GetDpiScale() => DeviceDisplay.Current.MainDisplayInfo.Density;
+
     private void OnChartPressed(PointerCommandArgs args)
     {
+        // 所有模式都记录按压起点（非框选模式用于 tap 判定）
+        _pressPosition = args.PointerPosition;
+        _pressTimestamp = Environment.TickCount64;
+
         if (!_isSelectionZoomMode
             || args.Chart is not CartesianChart plot
             || plot.CoreChart is not CartesianChartEngine engine)
@@ -419,16 +457,41 @@ public partial class TracePage : ContentPage
 
     private void OnChartReleased(PointerCommandArgs args)
     {
-        if (!_isSelectionZoomMode
-            || args.Chart is not CartesianChart plot
-            || plot.CoreChart is not CartesianChartEngine engine)
-            return;
+        if (_isSelectionZoomMode)
+        {
+            if (args.Chart is CartesianChart plot
+                && plot.CoreChart is CartesianChartEngine engine)
+            {
+                engine.EndZoomingSection(GetZoomMode(), ToLvcPoint(args.PointerPosition));
+                if (_xViewports.TryGetValue(plot, out var viewport))
+                {
+                    EnforceXZoomLimit(viewport);
+                    if (_xViewport.SyncFrom(viewport))
+                        UpdatePlotData(_vm.Chart);
+                }
+            }
+        }
+        else if (_pressPosition is { } start
+                 && args.Chart is CartesianChart tapPlot
+                 && tapPlot.CoreChart is CartesianChartEngine tapEngine)
+        {
+            // 非框选模式：press→release 位移 <10dp 且 <400ms 判定为 tap → 设锚点。
+            // 原始像素阈值在高 DPI 真机（density≈3）上 10px≈3.3dp，手指轻颤即超阈值，
+            // 因此位移必须除以 density 转 dp 再比；时长用 raw TickCount 不受 DPI 影响。
+            var scale = GetDpiScale();
+            var dx = (args.PointerPosition.X - start.X) / scale;
+            var dy = (args.PointerPosition.Y - start.Y) / scale;
+            var isTap = Math.Sqrt(dx * dx + dy * dy) < TapMaxTravelDp
+                        && Environment.TickCount64 - _pressTimestamp < TapMaxDurationMs;
+            if (isTap)
+            {
+                // 返回 LvcPointD（X = x 轴数据值 = 时间戳；非 double[]）
+                var data = tapEngine.ScalePixelsToData(args.PointerPosition, 0, 0);
+                _vm.SetAnchor(data.X);
+            }
+        }
 
-        engine.EndZoomingSection(GetZoomMode(), ToLvcPoint(args.PointerPosition));
-        if (!_xViewports.TryGetValue(plot, out var viewport)) return;
-        EnforceXZoomLimit(viewport);
-        if (_xViewport.SyncFrom(viewport))
-            UpdatePlotData(_vm.Chart);
+        _pressPosition = null;
     }
 
     private static LvcPoint ToLvcPoint(LvcPointD point) => new((float)point.X, (float)point.Y);
@@ -526,6 +589,30 @@ public partial class TracePage : ContentPage
         _ = Navigation.PushAsync(new FrameDetailSheet(
             $"0x{row.IdText} @ {row.TimeText}",
             row.DataText,
-            decoded));
+            decoded,
+            onSetAnchor: t => _vm.SetAnchor(t),
+            frameTimestamp: row.Source.Timestamp));
+    }
+
+    private void OnToggleLocatorClicked(object? sender, EventArgs e)
+    {
+        _locatorExpanded = !_locatorExpanded;
+        ApplyChartFullscreen();
+    }
+
+    private void OnClearAnchorClicked(object? sender, EventArgs e) => _vm.ClearAnchor();
+
+    private async void OnShowAnchorValuesClicked(object? sender, EventArgs e)
+    {
+        if (_vm.AnchorTimestamp is not { } timestamp) return;
+        try
+        {
+            var valuesVm = _vm.CreateAnchorValuesViewModel();
+            await Navigation.PushAsync(new AnchorValuesPage(valuesVm, timestamp));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("锚点不可用", ex.Message, "确定");
+        }
     }
 }

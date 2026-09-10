@@ -19,7 +19,8 @@ public sealed class TracePageFactory(IServiceProvider services) : ITracePageFact
             services.GetRequiredService<ILogger<TraceSessionViewModel>>(),
             services.GetRequiredService<IDbcCatalogProvider>(),
             services.GetRequiredService<DbcCatalogHolder>(),
-            services.GetRequiredService<ITraceCacheSinkFactory>());
+            services.GetRequiredService<ITraceCacheSinkFactory>(),
+            services.GetRequiredService<ITraceCacheStore>());
 
     public ContentPage CreateBrowse(long traceId)
         => new BrowsePage(
