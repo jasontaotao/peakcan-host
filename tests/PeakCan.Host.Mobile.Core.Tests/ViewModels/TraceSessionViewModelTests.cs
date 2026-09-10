@@ -780,6 +780,50 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public void PassesFilter_PgnMatch_ExtendedFramePasses()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x18F00411, 8, new byte[8], default, true)); // PGN F004
+        env.Player.Emit(new ReplayFrame(0.1, 0x123, 2, [1, 2], default, false));        // 标准帧（非扩展）
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x18F00411);
+    }
+
+    [Fact]
+    public void PassesFilter_PgnNonMatch_ExtendedFrameBlocked()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x18EA0011, 8, new byte[8], default, true)); // PGN EA00
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow.Should().BeNull();
+    }
+
+    [Fact]
+    public void PassesFilter_IdOrPgn_EitherMatchPasses()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("0x123 pgn:F004");
+
+        env.Player.Emit(new ReplayFrame(0, 0x123, 2, [1, 2], default, false));          // ID 命中
+        env.Player.Emit(new ReplayFrame(0.1, 0x18F00411, 8, new byte[8], default, true)); // PGN 命中
+        env.Player.Emit(new ReplayFrame(0.2, 0x456, 2, [3, 4], default, false));        // 均不命中
+        DrainTimer(env.Vm).Tick();
+
+        env.Vm.LatestVisibleRow!.Id.Should().Be(0x18F00411);
+        env.Vm.VisibleRows.Should().Contain(r => r.Source != null && r.Source.Id == 0x123u);
+        env.Vm.VisibleRows.Should().NotContain(r => r.Source != null && r.Source.Id == 0x456u);
+    }
+
+    [Fact]
     public void FrameEmitted_FeedsReassemblerBeforeIdFilter()
     {
         // Arrange: 设 ID 过滤排除扩展 TP 帧；重组 tap 必须在过滤前

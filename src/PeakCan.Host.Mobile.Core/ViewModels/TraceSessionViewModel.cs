@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Mobile.Core.Models;
@@ -39,6 +40,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     private IStreamingTracePlayer? _player;
     private IReadOnlySet<uint>? _idFilter;
+    private IReadOnlySet<uint>? _pgnFilter;
     private double _duration;
     private bool _durationKnownValue;
     private IDisposable? _drainTimer;
@@ -270,7 +272,15 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         }
     }
 
-    private bool PassesFilter(ReplayFrame f) => _idFilter is null || _idFilter.Contains(f.Id);
+    private bool PassesFilter(ReplayFrame f)
+    {
+        if (_idFilter is null && _pgnFilter is null) return true;
+        if (_idFilter is not null && _idFilter.Contains(f.Id)) return true;
+        // PGN 命中仅限扩展帧（J1939Id.Raw29Mask 剥 DBC bit31 IDE 位）
+        if (_pgnFilter is not null && f.IsExtended
+            && _pgnFilter.Contains(new J1939Id(f.Id & J1939Id.Raw29Mask).Pgn)) return true;
+        return false;
+    }
 
     private void Drain()
     {
@@ -495,6 +505,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     {
         var parsed = CanIdListParser.Parse(value);
         _idFilter = parsed.AllowList;
+        _pgnFilter = parsed.PgnAllowList;
 
         // 过滤变更必须满足验收语义：viewport 只保留匹配帧。P1 清空已有 rows，
         // 后续只 ingest 匹配帧；SQLite 全量回看在 P2 实现。

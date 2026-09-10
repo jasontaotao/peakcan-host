@@ -156,4 +156,51 @@ public class CanIdListParserTests
         result.InvalidTokens.Should().BeEquivalentTo(JustZeroX);
         result.HasInvalidTokens.Should().BeTrue();
     }
+
+    [Fact]
+    public void Parse_PgnToken_ParsesHexIntoPgnAllowList()
+    {
+        var result = CanIdListParser.Parse("pgn:F004");
+
+        result.PgnAllowList.Should().BeEquivalentTo(new HashSet<uint> { 0xF004u });
+        result.AllowList.Should().BeNull();   // PGN token 不进 ID 集合
+        result.InvalidTokens.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Parse_PgnToken_Accepts0xPrefix()
+    {
+        var result = CanIdListParser.Parse("pgn:0xF004");
+
+        result.PgnAllowList.Should().BeEquivalentTo(new HashSet<uint> { 0xF004u });
+    }
+
+    [Fact]
+    public void Parse_Mixed_IdAndPgn_TwoCollectionsIndependent()
+    {
+        var result = CanIdListParser.Parse("0x123 pgn:F004 456");
+
+        result.AllowList.Should().BeEquivalentTo(new HashSet<uint> { 0x123u, 456u });
+        result.PgnAllowList.Should().BeEquivalentTo(new HashSet<uint> { 0xF004u });
+    }
+
+    [Fact]
+    public void Parse_PgnAbove18Bit_Invalid_EmptyAllowSet()
+    {
+        // 0x40000 > 0x3FFFF（18 位上限）→ 进 invalid；tri-state 与 AllowList 同款语义：
+        // invalid>0 时集合为 empty（非 null，对齐现有 Parse_AllInvalidTokens 行为）
+        var result = CanIdListParser.Parse("pgn:40000");
+
+        result.PgnAllowList.Should().NotBeNull();
+        result.PgnAllowList.Should().BeEmpty();
+        result.InvalidTokens.Should().BeEquivalentTo(["pgn:40000"]);
+    }
+
+    [Fact]
+    public void Parse_PgnCaseInsensitive()
+    {
+        var result = CanIdListParser.Parse("PGN:f004");
+
+        result.PgnAllowList.Should().BeEquivalentTo(new HashSet<uint> { 0xF004u });
+    }
 }
