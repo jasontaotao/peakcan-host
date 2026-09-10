@@ -31,6 +31,31 @@ public static class ChartViewportLimits
         return new ChartAxisRange(boundedCenter - halfSpan, boundedCenter + halfSpan);
     }
 
+    /// <summary>
+    /// Clamps a viewport to the supported zoom range: no narrower than
+    /// <paramref name="maxZoomFactor"/> allows, and no wider than the full range.
+    /// The current viewport center is kept whenever it fits inside the clamped span.
+    /// </summary>
+    public static ChartAxisRange ClampToAllowedSpan(
+        ChartAxisRange requested,
+        ChartAxisRange full,
+        double maxZoomFactor = DefaultMaxZoomFactor)
+    {
+        if (!IsValid(requested) || !IsValid(full) || !double.IsFinite(maxZoomFactor) || maxZoomFactor <= 1)
+            return requested;
+
+        var fullSpan = full.Maximum - full.Minimum;
+        if (fullSpan <= 0) return requested;
+
+        var minimumSpan = fullSpan / maxZoomFactor;
+        var requestedSpan = requested.Maximum - requested.Minimum;
+        var span = Math.Clamp(requestedSpan, minimumSpan, fullSpan);
+        var halfSpan = span / 2;
+        var center = (requested.Minimum + requested.Maximum) / 2;
+        var boundedCenter = Math.Clamp(center, full.Minimum + halfSpan, full.Maximum - halfSpan);
+        return new ChartAxisRange(boundedCenter - halfSpan, boundedCenter + halfSpan);
+    }
+
     private static bool IsValid(ChartAxisRange range) =>
         double.IsFinite(range.Minimum)
         && double.IsFinite(range.Maximum)

@@ -337,7 +337,7 @@ public partial class TracePage : ContentPage
     {
         if (_xDataRange is not { } full || !viewport.TryGetRange(out var range)) return;
 
-        var clamped = ChartViewportLimits.ClampToMinimumSpan(range, full);
+        var clamped = ChartViewportLimits.ClampToAllowedSpan(range, full);
         if (clamped != range)
             viewport.SetRange(clamped);
     }
@@ -429,7 +429,13 @@ public partial class TracePage : ContentPage
 
         var center = new LvcPoint(plot.Width / 2, plot.Height / 2);
         engine.Zoom(ZoomAndPanMode.ZoomX | ZoomAndPanMode.NoFit, center, direction, null);
-        _xViewport.SyncFrom(viewport);
+
+        // Button zoom changes the axis before the next chart measure. Clamp, sync,
+        // and rebuild samples now; otherwise the later UpdateStarted can see the
+        // same stored range and skip UpdatePlotData.
+        EnforceXZoomLimit(viewport);
+        if (_xViewport.SyncFrom(viewport))
+            UpdatePlotData(_vm.Chart);
     }
     private void OnSelectSignalClicked(object? sender, EventArgs e)
     {
