@@ -1,4 +1,5 @@
 using System.Globalization;
+using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Mobile.Core.Services;
 
@@ -24,6 +25,15 @@ public sealed record FrameRow(
         : Id.ToString("X3", CultureInfo.InvariantCulture);
 
     public string DataText { get; } = BuildDataText(Dlc, Data);
+
+    /// <summary>
+    /// J1939 扩展帧的 "PGN·SA" 列文本（如 "F004·11"）；非扩展帧空串。
+    /// <see cref="J1939Id.Raw29Mask"/> 剥 DBC bit31 IDE 约定位。
+    /// </summary>
+    public string PgnSaText { get; } = IsExtended
+        ? string.Create(CultureInfo.InvariantCulture,
+            $"{new J1939Id(Id & J1939Id.Raw29Mask).Pgn:X}·{new J1939Id(Id & J1939Id.Raw29Mask).SourceAddress:X2}")
+        : string.Empty;
 
     /// <summary>Project a parsed frame into a display row.</summary>
     public static FrameRow FromReplayFrame(ReplayFrame f, DbcCatalog? dbc = null)
