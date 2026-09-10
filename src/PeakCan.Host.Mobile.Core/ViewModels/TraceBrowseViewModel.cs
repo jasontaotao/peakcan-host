@@ -44,6 +44,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     [ObservableProperty] private bool _hasNext;
     [ObservableProperty] private bool _hasPrevious;
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private long? _highlightIndex;
 
     public async Task OpenAsync(long traceId, CancellationToken ct = default)
     {
@@ -180,6 +181,32 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// 缓存内定位某 ID 的帧并重置分页到目标（AfterIndex=idx-1 语义，目标行成为页首）。
+    /// first=true 找最早出现；first=false 从当前页末尾时刻之后找下一处。
+    /// 返回 false 表示缓存范围内未找到。
+    /// </summary>
+    public async Task<bool> JumpToAsync(uint canId, bool first)
+    {
+        double? after = null;
+        if (!first && _lastIndex is { } lastIndex)
+        {
+            var lastPage = await _store.GetFramesAsync(_traceId,
+                new FrameQuery(AfterIndex: lastIndex, Limit: 1)).ConfigureAwait(false);
+            if (lastPage.Frames.Count > 0) after = lastPage.Frames[0].Timestamp;
+        }
+
+        var frame = await _store.FindFrameAsync(_traceId, canId, after,
+            first ? CacheSearchDirection.First : CacheSearchDirection.Next).ConfigureAwait(false);
+        if (frame is null) return false;
+
+        HighlightIndex = frame.Index;
+        await LoadForwardAsync(
+            new FrameQuery(AfterIndex: frame.Index - 1, CanIds: QueryCanIds, Limit: PageSize),
+            hasContentBefore: true).ConfigureAwait(false);
+        return true;
     }
 
     private void FillSlots(FrameRow[] rows)

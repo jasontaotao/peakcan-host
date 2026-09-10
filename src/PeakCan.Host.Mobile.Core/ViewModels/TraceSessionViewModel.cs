@@ -104,6 +104,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     [NotifyPropertyChangedFor(nameof(HasAnchor))]
     [NotifyPropertyChangedFor(nameof(AnchorText))]
     private double? _anchorTimestamp;
+    [ObservableProperty] private string? _searchText;
+    [ObservableProperty] private string _searchStatusText = string.Empty;
 
     public long? TraceId => _traceId;
 
@@ -517,6 +519,62 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
 
     /// <summary>设置 ID 过滤（十六进制，逗号分隔；空串=清除）。</summary>
     public void SetIdFilter(string text) { IdFilterText = string.IsNullOrWhiteSpace(text) ? null : text; }
+
+    /// <summary>
+    /// 缓存内最早出现该 ID 的帧并跳转（spec §5）。PGN token / 多 token / 无效输入 → 状态文案。
+    /// 仅覆盖已缓存区间（spec §2 决策 1，无后台补全）。
+    /// </summary>
+    public async Task SearchFirstAsync() => await SearchAsync(direction: CacheSearchDirection.First);
+
+    /// <summary>当前播放时刻之后第一处该 ID 的帧并跳转。</summary>
+    public async Task SearchNextAsync() => await SearchAsync(direction: CacheSearchDirection.Next);
+
+    private async Task SearchAsync(CacheSearchDirection direction)
+    {
+        var parsed = CanIdListParser.Parse(SearchText);
+        if (parsed.AllowList is not { Count: 1 })
+        {
+            SearchStatusText = parsed.PgnAllowList is not null
+                ? "搜索仅支持 CAN ID"
+                : "搜索仅支持单个 CAN ID";
+            return;
+        }
+
+        var id = parsed.AllowList.First();
+        if (_cacheStore is null || TraceId is not { } traceId)
+        {
+            SearchStatusText = "缓存不可用";
+            return;
+        }
+
+        var current = _player?.CurrentTimestamp;
+        var frame = await _cacheStore.FindFrameAsync(
+            traceId, id,
+            direction == CacheSearchDirection.Next ? current : null,
+            direction).ConfigureAwait(false);
+        if (frame is null)
+        {
+            SearchStatusText = "缓存范围内未找到该 ID";
+            return;
+        }
+
+        SeekToAbsolute(frame.Timestamp);
+        SearchStatusText = $"已跳到 {frame.Timestamp.ToString("F6", CultureInfo.InvariantCulture)}s";
+    }
+
+    /// <summary>绝对时间戳 seek（搜索命中路径）；复用 Seek 的重置语义与进度显示。</summary>
+    private void SeekToAbsolute(double timestamp)
+    {
+        if (_player is null) return;
+        IsSeekBusy = true;
+        IsSeekDragging = false;
+        SeekProgressText = "快进...";
+        ResetReassemblyForPlaybackChange();
+        _ = _player.SeekAsync(timestamp);
+        CurrentTimeText = FormatTime(timestamp);
+        if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
+            ClearPlaybackBuffer(restartChartBackfill: true);
+    }
 
     internal void MarkReadyForEmit(IStreamingTracePlayer player)
     {

@@ -622,6 +622,30 @@ public partial class TracePage : ContentPage
 
     private void OnClearAnchorClicked(object? sender, EventArgs e) => _vm.ClearAnchor();
 
+    private async void OnSearchFirstClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            await _vm.SearchFirstAsync();
+        }
+        catch
+        {
+            _vm.SearchStatusText = "搜索失败";
+        }
+    }
+
+    private async void OnSearchNextClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            await _vm.SearchNextAsync();
+        }
+        catch
+        {
+            _vm.SearchStatusText = "搜索失败";
+        }
+    }
+
     private async void OnShowAnchorValuesClicked(object? sender, EventArgs e)
     {
         if (_vm.AnchorTimestamp is not { } timestamp) return;

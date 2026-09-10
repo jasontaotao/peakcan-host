@@ -824,6 +824,89 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public async Task SearchFirst_Found_SeeksToTimestamp()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, null, CacheSearchDirection.First, Arg.Any<CancellationToken>())
+            .Returns(new CachedFrame(5, 1.25, 0x100u, false, 2, [1, 2]));
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchFirstAsync();
+
+        env.Player.Seeks.Should().ContainSingle(s => Math.Abs(s - 1.25) < 1e-9);
+        env.Vm.SearchStatusText.Should().Be("已跳到 1.250000s");
+    }
+
+    [Fact]
+    public async Task SearchNext_UsesCurrentTimestampAsLowerBound()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, 1.0, CacheSearchDirection.Next, Arg.Any<CancellationToken>())
+            .Returns(new CachedFrame(7, 1.5, 0x100u, false, 2, [1, 2]));
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(F(1.0, 0x100));   // 当前时刻 = 1.0
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchNextAsync();
+
+        await store.Received(1).FindFrameAsync(42, 0x100u, 1.0, CacheSearchDirection.Next, Arg.Any<CancellationToken>());
+        env.Vm.SearchStatusText.Should().Be("已跳到 1.500000s");
+    }
+
+    [Fact]
+    public async Task SearchNext_NoLaterMatch_SetsStatusNotFound()
+    {
+        var store = Substitute.For<ITraceCacheStore>();
+        store.GetOrCreateTraceAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(42L);
+        store.FindFrameAsync(42, 0x100u, Arg.Any<double?>(), CacheSearchDirection.Next, Arg.Any<CancellationToken>())
+            .Returns((CachedFrame?)null);
+        var env = new Env(cacheStore: store);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        env.Vm.SearchText = "0x100";
+        await env.Vm.SearchNextAsync();
+
+        env.Vm.SearchStatusText.Should().Be("缓存范围内未找到该 ID");
+        env.Vm.SearchStatusText.Should().NotContain("已跳到");
+    }
+
+    [Fact]
+    public async Task Search_PgnToken_SetsStatusIdOnly()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.SearchText = "pgn:F004";
+
+        await env.Vm.SearchFirstAsync();
+
+        env.Vm.SearchStatusText.Should().Be("搜索仅支持 CAN ID");
+    }
+
+    [Fact]
+    public async Task Search_InvalidText_SetsStatusIdOnly()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.SearchText = "not_an_id";
+
+        await env.Vm.SearchFirstAsync();
+
+        env.Vm.SearchStatusText.Should().Be("搜索仅支持 CAN ID");
+    }
+
+    [Fact]
     public void FrameEmitted_FeedsReassemblerBeforeIdFilter()
     {
         // Arrange: 设 ID 过滤排除扩展 TP 帧；重组 tap 必须在过滤前

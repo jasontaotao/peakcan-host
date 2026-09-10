@@ -29,10 +29,13 @@
 
         <!-- 定位行（搜索 + 锚点），默认折叠，不占纵向空间 -->
         <VerticalStackLayout x:Name="LocatorPanel" Grid.Row="3" Spacing="4" IsVisible="False">
-            <!-- 搜索行（Task 10 填充）：ID Entry + [首次] + [下一处] + 状态 -->
-            <Grid x:Name="SearchRow">
-                <Label Text="搜索行待实现" FontSize="11" TextColor="Gray" />
+            <Grid x:Name="SearchRow" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <Entry x:Name="SearchEntry" Placeholder="搜索 CAN ID (hex)"
+                       Text="{Binding SearchText}" Completed="OnSearchFirstClicked" />
+                <Button Grid.Column="1" Text="首次" Clicked="OnSearchFirstClicked" />
+                <Button Grid.Column="2" Text="下一处" Clicked="OnSearchNextClicked" />
             </Grid>
+            <Label Text="{Binding SearchStatusText}" FontSize="11" TextColor="Orange" />
             <Grid x:Name="AnchorRow" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"
                   IsVisible="{Binding HasAnchor}">
                 <Label Text="{Binding AnchorText}" FontFamily="Mono" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
