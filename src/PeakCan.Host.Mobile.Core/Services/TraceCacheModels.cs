@@ -25,6 +25,9 @@ public sealed record CachedFrame(
     public FrameRow ToFrameRow(DbcCatalog? dbc = null) => FrameRow.FromCached(this, dbc);
 }
 
+/// <summary>Cache search direction for <see cref="ITraceCacheStore.FindFrameAsync"/>.</summary>
+public enum CacheSearchDirection : byte { First, Next }
+
 /// <summary>Keyset paged cache query. Forward paging uses AfterIndex; backward paging uses BeforeIndex.</summary>
 public sealed record FrameQuery(
     long? AfterIndex = null,

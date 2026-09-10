@@ -12,4 +12,13 @@ public interface ITraceCacheStore : IAsyncDisposable
     Task<TraceCacheSummary?> GetTraceAsync(long traceId, CancellationToken ct = default);
     Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default);
     Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default);
+
+    /// <summary>Returns the latest cached frame of each CAN ID at or before the given timestamp (per ID, by its largest idx), ordered by can_id ascending. Empty when no frame precedes the timestamp.</summary>
+    Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(
+        long traceId, double timestamp, CancellationToken ct = default);
+
+    /// <summary>Finds a cached frame of one CAN ID: First=earliest frame overall; Next=earliest frame strictly after afterTimestamp. Returns null when no match.</summary>
+    Task<CachedFrame?> FindFrameAsync(
+        long traceId, uint canId, double? afterTimestamp,
+        CacheSearchDirection direction, CancellationToken ct = default);
 }

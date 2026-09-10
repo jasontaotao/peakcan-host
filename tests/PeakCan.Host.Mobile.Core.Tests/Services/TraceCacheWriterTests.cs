@@ -41,6 +41,8 @@ public class TraceCacheWriterTests
         public Task<TraceCacheSummary?> GetTraceAsync(long traceId, CancellationToken ct = default) => Task.FromResult<TraceCacheSummary?>(null);
         public Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default) => Task.FromResult(new FramePage([], false));
         public Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TraceCacheSummary>>([]);
+        public Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(long traceId, double timestamp, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CachedFrame>>([]);
+        public Task<CachedFrame?> FindFrameAsync(long traceId, uint canId, double? afterTimestamp, CacheSearchDirection direction, CancellationToken ct = default) => Task.FromResult<CachedFrame?>(null);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -187,6 +189,8 @@ public class TraceCacheWriterTests
         public Task<TraceCacheSummary?> GetTraceAsync(long traceId, CancellationToken ct = default) => Task.FromResult<TraceCacheSummary?>(null);
         public Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default) => Task.FromResult(new FramePage([], false));
         public Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TraceCacheSummary>>([]);
+        public Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(long traceId, double timestamp, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CachedFrame>>([]);
+        public Task<CachedFrame?> FindFrameAsync(long traceId, uint canId, double? afterTimestamp, CacheSearchDirection direction, CancellationToken ct = default) => Task.FromResult<CachedFrame?>(null);
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
