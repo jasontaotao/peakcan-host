@@ -150,11 +150,34 @@ public class SignalSeriesStoreTests
         store.Count.Should().Be(0);
         store.GetRenderPoints(4).Should().BeEmpty();
     }
+
+    [Fact]
+    public void GetViewportRenderPoints_Keeps_Large_Value_Changes_When_Over_Budget()
+    {
+        var store = new SignalSeriesStore();
+        for (var i = 0; i < 200; i++)
+            store.Add(i, i == 100 ? 100 : 0);
+
+        var points = store.GetViewportRenderPoints(0, 199, 32);
+
+        points.Should().HaveCountLessThanOrEqualTo(32);
+        points.Should().Contain(p => p.Timestamp == 0);
+        points.Should().Contain(p => p.Timestamp == 100);
+        points.Should().Contain(p => p.Timestamp == 199);
+    }
+
+    [Fact]
+    public void GetViewportRenderPoints_Thins_Flat_Dense_Samples()
+    {
+        var store = new SignalSeriesStore();
+        for (var i = 0; i < 128; i++)
+            store.Add(i, 7);
+
+        var points = store.GetViewportRenderPoints(0, 127, 16);
+
+        points.Should().HaveCountLessThanOrEqualTo(16);
+        points.Should().Contain(p => p.Timestamp == 0);
+        points.Should().Contain(p => p.Timestamp == 127);
+    }
+
 }
-
-
-
-
-
-
-
