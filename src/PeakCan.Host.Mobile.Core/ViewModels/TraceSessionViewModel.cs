@@ -29,6 +29,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private readonly ITraceCacheSinkFactory? _cacheSinkFactory;
     private readonly ITraceCacheStore? _cacheStore;
     private readonly object _cacheSinkGate = new();
+    private readonly StreamingJ1939Reassembler _j1939Reassembler;
 
     private readonly object _emitGate = new();
     private readonly Queue<ReplayFrame> _pending = new();
@@ -64,6 +65,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _cacheStore = cacheStore;
         _chart = new TraceChartViewModel(null, ui);
         _chart.SignalSelected += (_, _) => _ = BackfillSelectedSignalsAsync();
+        _j1939Reassembler = new StreamingJ1939Reassembler();
+        J1939 = new J1939ReassemblyViewModel(ui);
+        J1939.Attach(_j1939Reassembler);
         for (var i = 0; i < ViewportRowCount; i++)
             _viewport[i] = new FrameRowSlot();
     }
@@ -111,6 +115,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     /// <summary>Chart-side selected signal state.</summary>
     public TraceChartViewModel Chart => _chart;
 
+    /// <summary>J1939 重组 tab 行集合；构造即创建，永不替换实例。</summary>
+    public J1939ReassemblyViewModel J1939 { get; }
+
     /// <summary>锚点是否已设置（锚点是用户主动放置的书签，DBC 变更/Seek/Stop 不清除）。</summary>
     public bool HasAnchor => AnchorTimestamp is not null;
 
@@ -141,6 +148,27 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     /// <summary>Gets the active chart backfill task for deterministic test synchronization.</summary>
     internal Task? ChartBackfillTask => _chartBackfillTask;
 
+    /// <summary>
+    /// Seek/Stop/重新播放：结算未闭合会话（截断/丢包行经 Flush 留存可见——spec §6
+    /// "Reset 后旧会话行保留"），再 Reset 丢弃层状态，新会话从零重组。不清空 tab 列表：
+    /// 结算行是本次播放的中止快照，对诊断有留存价值。
+    /// </summary>
+    private void ResetReassemblyForPlaybackChange()
+    {
+        _j1939Reassembler.Flush();
+        _j1939Reassembler.Reset();
+    }
+
+    /// <summary>
+    /// 打开/切换文件：旧 trace 的一切 J1939 状态与行整体丢弃（不结算——用户已放弃旧
+    /// trace，其中间态截断行显示在新 session 无意义，spec §4.3 换文件语义）。
+    /// </summary>
+    private void ResetReassemblyForNewTrace()
+    {
+        _j1939Reassembler.Reset();
+        J1939.Clear();
+    }
+
     /// <summary>Sets the catalog used for subsequently decoded rows and clears stale summaries.</summary>
     public void SetDbc(DbcCatalog? catalog)
     {
@@ -169,6 +197,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         CacheStatusText = string.Empty;
         _cachedFilePath = cachedFilePath;
         ClearPlaybackBuffer();
+        // 换文件：重置 J1939 重组（否则上一个 trace 的进行中 TP 会话漂进新 session）
+        ResetReassemblyForNewTrace();
 
         if (_cacheSinkFactory is not null)
         {
@@ -225,6 +255,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         ITraceCacheSink? cacheSink;
         lock (_cacheSinkGate) cacheSink = _cacheSink;
         cacheSink?.Enqueue(f);
+
+        // J1939 重组 tap 必须在 ID 过滤之前：过滤排除的扩展帧仍要进 TP 会话
+        _j1939Reassembler.Ingest(f);
 
         if (PassesFilter(f)) _chart.Ingest(f);
 
@@ -373,6 +406,9 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
             }
         });
 
+        // EOF（无 Error）是自然会话边界：Flush 结算未闭合会话，不 Reset
+        if (e.Error is null) _j1939Reassembler.Flush();
+
         _ui.Post(() =>
         {
             IsSeekBusy = false;
@@ -416,6 +452,8 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         if (State is SessionState.Ready or SessionState.Ended or SessionState.Failed)
         {
             ClearPlaybackBuffer(restartChartBackfill: true);
+            // 重新播放：重置 J1939 重组
+            ResetReassemblyForPlaybackChange();
             // 保留 seek 位置，不重置 Progress01/CurrentTimeText
         }
 
@@ -431,6 +469,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         _drainTimer?.Dispose();
         _drainTimer = null;
         IsSeekBusy = false;
+        ResetReassemblyForPlaybackChange();
         ClearPlaybackBuffer(restartChartBackfill: true);
         CurrentTimeText = "00:00:00";
         Progress01 = 0;
@@ -445,6 +484,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         IsSeekDragging = false;
         SeekProgressText = "快进...";
         var ts = Math.Clamp(fraction, 0, 1) * _duration;
+        ResetReassemblyForPlaybackChange();
         _ = _player.SeekAsync(ts);
         CurrentTimeText = FormatTime(ts);
         // Stopped 状态下 seek 不 emit 帧；清空旧数据让用户知道位置已变

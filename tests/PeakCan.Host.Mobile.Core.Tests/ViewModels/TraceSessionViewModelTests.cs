@@ -764,6 +764,110 @@ public class TraceSessionViewModelTests
         values.Rows[0].ValueText.Should().Be("0.25");         // little-endian: 0x0001 * 0.25
         await store.Received(1).GetLatestFramesBeforeAsync(42, 3.5, Arg.Any<CancellationToken>());
     }
+
+    // ---- J1939 重组接线（Task 7）----
+
+    private static ReplayFrame BamCm(double t, byte sa = 0xF4) =>
+        new(t, PeakCan.Host.Core.J1939.J1939Id.Compose(6, 0x00EC00, sa, 0xFF), 8,
+            PeakCan.Host.Core.J1939.TpCmMessage.Bam(14, 2, 0x000200).Encode(), default, true);
+
+    private static ReplayFrame BamDt(double t, byte seq, byte sa = 0xF4)
+    {
+        var chunk = seq == 1 ? Enumerable.Range(0, 7).Select(i => (byte)(i + 1)).ToArray()
+                             : Enumerable.Range(7, 7).Select(i => (byte)(i + 1)).ToArray();
+        return new ReplayFrame(t, PeakCan.Host.Core.J1939.J1939Id.Compose(6, 0x00EB00, sa, 0xFF), 8,
+            new PeakCan.Host.Core.J1939.TpDtMessage(seq, chunk).Encode(), default, true);
+    }
+
+    [Fact]
+    public void FrameEmitted_FeedsReassemblerBeforeIdFilter()
+    {
+        // Arrange: 设 ID 过滤排除扩展 TP 帧；重组 tap 必须在过滤前
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Vm.SetIdFilter("0x100");
+
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Player.Emit(BamDt(0.02, 2));
+
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+        env.Vm.LatestVisibleRow.Should().BeNull(); // 过滤帧不进表格
+    }
+
+    [Fact]
+    public void Stop_FlushesThenResets()
+    {
+        // Arrange: 未闭合会话（CM + 1×DT）
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Vm.J1939.Rows.Should().BeEmpty();
+
+        env.Vm.StopCommand.Execute(null);
+
+        // Stop → Flush 结算未闭合会话 → 截断行留存可见（spec §6）
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "截断");
+        // 且已 Reset：此后新会话从零重组
+        env.Player.Emit(BamCm(0.5));
+        env.Player.Emit(BamDt(0.51, 1));
+        env.Player.Emit(BamDt(0.52, 2));
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+    }
+
+    [Fact]
+    public void Seek_FlushesThenResets()
+    {
+        // Arrange: 未闭合会话 + DurationKnown
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        typeof(TraceSessionViewModel).GetField("_durationKnownValue", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_durationKnown", flags)!.SetValue(env.Vm, true);
+        typeof(TraceSessionViewModel).GetField("_duration", flags)!.SetValue(env.Vm, 10d);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+
+        env.Vm.SeekToCommand.Execute(0.5);
+
+        // Seek → Flush 结算留存截断行（spec §6 "截断会话可见而非消失"）
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "截断");
+        env.Player.Seeks.Should().ContainSingle(s => s == 5.0);
+        // 已 Reset：新会话从零重组
+        env.Player.Emit(BamCm(0.5));
+        env.Player.Emit(BamDt(0.51, 1));
+        env.Player.Emit(BamDt(0.52, 2));
+        env.Vm.J1939.Rows.Should().ContainSingle(r => r.StatusText == "完成");
+    }
+
+    [Fact]
+    public async Task OpenNewTrace_ResetsAndClears()
+    {
+        // Arrange: 打开 A → 进行中 TP 会话
+        var env = new Env();
+        var framesA = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(framesA.OpenResult));
+        await env.Vm.OpenAsync("a.asc", "a.asc", 100);
+        env.Player.Emit(BamCm(0.0));
+        env.Player.Emit(BamDt(0.01, 1));
+        env.Vm.J1939.Rows.Should().BeEmpty();
+
+        // Act: 打开 B
+        var framesB = new AsyncFrameSeq(F(0, 0x200));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(framesB.OpenResult));
+        await env.Vm.OpenAsync("b.asc", "b.asc", 200);
+
+        // J1939.Rows 已清空；reassembler 已 Reset（Flush 无未闭合会话可结算）
+        env.Vm.J1939.Rows.Should().BeEmpty();
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        var reassembler = (StreamingJ1939Reassembler)typeof(TraceSessionViewModel)
+            .GetField("_j1939Reassembler", flags)!.GetValue(env.Vm)!;
+        var settled = new List<J1939ReassembledRow>();
+        reassembler.MessageReassembled += settled.Add;
+        reassembler.Flush();
+        settled.Should().BeEmpty();
+    }
 }
 
 // 测试用：可控的惰性帧流
