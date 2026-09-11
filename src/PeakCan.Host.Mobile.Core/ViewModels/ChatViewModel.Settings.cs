@@ -248,7 +248,7 @@ public sealed partial class ChatViewModel
 
     /// <summary>启动时从配置存储恢复已保存的 key 并激活第一个（自定义厂商的
     /// ApiBase/Model 一并恢复）。</summary>
-    internal async Task LoadChatSavedKeysAsync()
+    public async Task LoadChatSavedKeysAsync()
     {
         if (!EnsureSettingsReady()) return;
         try

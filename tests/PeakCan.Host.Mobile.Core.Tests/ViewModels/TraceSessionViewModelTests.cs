@@ -1,9 +1,11 @@
 using FluentAssertions;
 using PeakCan.Host.Core.Replay;
+using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Tests.Fakes;
 using PeakCan.Host.Mobile.Core.Services;
+using PeakCan.HIL.Core.Analysis;
 using NSubstitute;
 using PeakCan.Host.Mobile.Core.ViewModels;
 using Xunit;
@@ -1007,6 +1009,101 @@ public class TraceSessionViewModelTests
         reassembler.MessageReassembled += settled.Add;
         reassembler.Flush();
         settled.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ChatContext_SnapshotExposesSessionState()
+    {
+        var env = new Env(useCache: false);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("foo.asc", "引擎日志.asc", 100);
+        env.Vm.SetAnchor(3.25);
+        env.Vm.SetIdFilter("0x100");
+        env.Player.CurrentTimestamp = 7.5;
+        var ctx = (IMobileChatToolContext)env.Vm;
+
+        ctx.SourceName.Should().Be("引擎日志.asc");
+        ctx.HasAnchor.Should().BeTrue();
+        ctx.AnchorTimestamp.Should().Be(3.25);
+        ctx.CurrentTimestamp.Should().Be(7.5);
+        ctx.FilterText.Should().Be("0x100");
+    }
+
+    [Fact]
+    public async Task ChatContext_DurationUnknownBeforeScan()
+    {
+        var env = new Env(useCache: false);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 100);
+        var ctx = (IMobileChatToolContext)env.Vm;
+
+        ctx.IsDurationKnown.Should().BeFalse();
+        ctx.DurationSeconds.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ChatContext_GetFramesBefore_DelegatesToCache()
+    {
+        var cache = Substitute.For<ITraceCacheStore>();
+        var expected = new List<CachedFrame> { new(0, 3.0, 0x100, false, 8, [1, 2, 3, 4, 5, 6, 7, 8]) };
+        cache.GetLatestFramesBeforeAsync(42, 3.0, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<CachedFrame>>(expected));
+        var env = new Env(useCache: true, cacheStore: cache);
+        var frames = new AsyncFrameSeq(F(0, 0x100));
+        env.SourceFactory.LastSource.OpenAsync(default).ReturnsForAnyArgs(Task.FromResult(frames.OpenResult));
+        await env.Vm.OpenAsync("foo.asc", "foo.asc", 100);
+
+        var result = await ((IMobileChatToolContext)env.Vm).GetFramesBeforeAsync(3.0, default);
+
+        result.Should().BeSameAs(expected);
+        await cache.Received(1).GetLatestFramesBeforeAsync(42, 3.0, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChatContext_GetFramesBefore_NoTrace_ReturnsEmpty()
+    {
+        var cache = Substitute.For<ITraceCacheStore>();
+        var env = new Env(useCache: true, cacheStore: cache);
+        // 未打开文件 → traceId null
+
+        var result = await ((IMobileChatToolContext)env.Vm).GetFramesBeforeAsync(3.0, default);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ChatContext_Seek_NoPlayer_ReturnsFalse()
+    {
+        var env = new Env(useCache: false);
+        ((IMobileChatToolContext)env.Vm).Seek(5.0).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ChatContext_Seek_WithPlayer_Seeks()
+    {
+        var env = new Env(useCache: false);
+        env.Vm.MarkReadyForEmit(env.Player);
+
+        ((IMobileChatToolContext)env.Vm).Seek(5.0).Should().BeTrue();
+
+        env.Player.Seeks.Should().Contain(5.0);
+    }
+
+    [Fact]
+    public void CreateChatViewModel_BindsSessionContext()
+    {
+        var env = new Env(useCache: false);
+        var chat = env.Vm.CreateChatViewModel(
+            Substitute.For<IChatProviderFactory>(),
+            Substitute.For<ICredentialStore>(),
+            Substitute.For<IChatConfigStore>(),
+            Substitute.For<IChatConnectionTester>());
+
+        chat.Should().NotBeNull();
+        chat.ChatTools.Should().HaveCount(7);
+        chat.ChatMessages.Should().BeEmpty();
     }
 }
 

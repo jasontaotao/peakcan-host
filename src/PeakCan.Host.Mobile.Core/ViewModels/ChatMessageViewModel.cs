@@ -26,11 +26,15 @@ public sealed partial class ChatMessageViewModel : ObservableObject
     {
         Role = role;
         _content = content;
+        Tools.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ToolLogText));
     }
 
     public bool IsUser => Role == "user";
     public bool IsAssistant => Role == "assistant";
     public bool IsToolLog => Role == "tool_log";
+
+    /// <summary>Collapsed tool-log strip label ("🔍 执行了 N 个工具").</summary>
+    public string ToolLogText => $"🔍 执行了 {Tools.Count} 个工具";
 }
 
 /// <summary>One executed tool call shown inside a <c>tool_log</c> bubble.</summary>

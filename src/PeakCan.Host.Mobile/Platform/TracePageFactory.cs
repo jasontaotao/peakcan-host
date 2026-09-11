@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Core.ViewModels;
@@ -20,7 +22,11 @@ public sealed class TracePageFactory(IServiceProvider services) : ITracePageFact
             services.GetRequiredService<IDbcCatalogProvider>(),
             services.GetRequiredService<DbcCatalogHolder>(),
             services.GetRequiredService<ITraceCacheSinkFactory>(),
-            services.GetRequiredService<ITraceCacheStore>());
+            services.GetRequiredService<ITraceCacheStore>(),
+            services.GetRequiredService<IChatProviderFactory>(),
+            services.GetRequiredService<ICredentialStore>(),
+            services.GetRequiredService<IChatConfigStore>(),
+            services.GetRequiredService<IChatConnectionTester>());
 
     public ContentPage CreateBrowse(long traceId)
         => new BrowsePage(
