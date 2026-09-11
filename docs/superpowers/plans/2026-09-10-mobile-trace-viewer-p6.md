@@ -1,6 +1,6 @@
 # 移动端 Trace Viewer P6（AI Chat）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 移动端 Trace Viewer 增加 AI Chat：多厂商 API Key 配置（SecureStorage）+ 聊天气泡流式对话 + 7 个工具调用（DBC 查询 / 锚点值 / 跳转）。
 
@@ -25,14 +25,14 @@
 
 ## Task 1: 分支、spec 与 plan 落盘
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
   ```bash
   cd D:/claude_proj2/peakcan-host
   git checkout main && git checkout -b feature/mobile-trace-viewer-p6
   ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
   ```bash
   git add docs/superpowers/specs/2026-09-10-mobile-trace-viewer-p6-design.md docs/superpowers/plans/2026-09-10-mobile-trace-viewer-p6.md
@@ -88,7 +88,7 @@
   public sealed class ToolCallEntry(string name, string result);  // Result 可写（收起后加载）
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   照抄桌面 `ChatFlowTests` 的 `FakeChatProvider` + `FakeChatTool` 模式（`IAsyncEnumerable` + `Task.Yield()`，无真延时）。`ChatViewModel` 测试要点：
 
@@ -100,9 +100,9 @@
   6. `Send_InputEmpty_DoesNothing`（CanExecute false）。
   7. `Send_UserText_TrimmedAndHistoryKept`（跨轮历史：第二轮 assistant 能收到第一轮 tool 结果——用 fake provider 断言 messages 参数包含历史）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   拷贝桌面 `ChatFlow.RunChatLoopAsync` 循环结构（`ChatMaxRounds = 12`、PartialDelta 追加、ToolCallRoundDone 顺序执行工具、tool_log 气泡、Error/Done 语义）。变化：
 
@@ -111,9 +111,9 @@
   - `BuildSystemMessage()`：改写为移动端状态（spec §4.2），本 task 先放占位（Context 注入后再填充）。
   - 线程：`await foreach ... ConfigureAwait(true)`（与桌面一致；UI 线程启动）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add chat view model with multi-round tool loop
@@ -147,7 +147,7 @@
   }
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   `FakeMobileChatContext`（NSubstitute 或手写 fake）注入锚点/DBC/cache/seek。每工具至少 1 正向 + 1 错误用例：
 
@@ -159,9 +159,9 @@
   `GetAnchorValuesToolTests`：1) 锚点时刻解码全部信号 JSON；2) 未设锚点 → error；3) 未缓存区间 → 空 + 提示。
   `SeekToTimeToolTests`：1) ts 合法 → seek 调用成功；2) 缺 ts → error；3) seek false → error。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   `MobileChatToolBase : IChatTool`（拷贝桌面 `ChatToolBase`，含 `ParseArgs` + 异常包装）。
   每工具实现 `ExecuteCoreAsync` 返回 JSON。注意：
@@ -170,9 +170,9 @@
   - 时间戳字段统一秒数（`F6`），不造时间格式化（移动端 chart 用秒数即可，spec §4.2 明确）。
   - `search_signals` 遍历 `Document.Messages` → 匹配 `message.Name` / `signal.Name` contains（OrdinalIgnoreCase），上限 50。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add chat tools and mobile chat tool context
@@ -217,7 +217,7 @@
   internal Task LoadChatSavedKeysAsync();   // 启动时由 ChatPage.OnAppearing 调
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   移植桌面 `ChatSettingsFlowTests` 模式，`ICredentialStore` 用 NSubstitute：
 
@@ -228,9 +228,9 @@
   5. `LoadSavedKeys_RestoresFromConfigStore`（含自定义厂商 ApiBase/Model 恢复；key 已删的清理）。
   6. `ResetConfig_ClearsEverything`。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   移植桌面 `ChatSettingsFlow`（`ChatProviderPresets` + `SavedKeyInfo` + 各命令）。变化：
 
@@ -241,9 +241,9 @@
   - `TestAndSave` 成功后：`ICredentialStore.SetAsync` + `IChatConfigStore.Save` + `CurrentProvider` 更新。
   - `CurrentProvider` 由 `IChatProviderFactory.Create(apiBase, model, credentialKey)` 构建（spec §5.3）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add multi-vendor chat settings with credential store
@@ -263,7 +263,7 @@
 - Consumes: Task 2/3/4 的 `ChatViewModel` / `IMobileChatToolContext` / `IChatProviderFactory`。
 - Produces: UI 行为。
 
-- [ ] **Step 1: TraceSessionViewModel 实现 IMobileChatToolContext + 测试**
+- [x] **Step 1: TraceSessionViewModel 实现 IMobileChatToolContext + 测试**
 
   属性映射：`AnchorTimestamp` / `HasAnchor`（已有）；`CurrentTimestamp` = `_player?.CurrentTimestamp ?? double.NaN`；`DurationSeconds` = `_durationKnownValue ? _duration : null`；`Dbc` = `_dbc`；`TraceId` = `_traceId`；`SourceName` = `_cachedFilePath`（或文件名）；`FilterText` = `IdFilterText`；`GetFramesBeforeAsync` = `_cacheStore.GetLatestFramesBeforeAsync(traceId, ts, ct)`；`Seek` = `SeekToAbsolute`（有 player 返回 true）。
 
@@ -275,7 +275,7 @@
 
   测试：`ContextExposesSessionState`（打开 fake trace 后快照正确）、`GetFramesBeforeAsync_DelegatesToCache`、`Seek_WhenNoPlayer_ReturnsFalse`。
 
-- [ ] **Step 2: ChatPage UI**
+- [x] **Step 2: ChatPage UI**
 
   `TracePage.xaml` ControlsRow（Row 0）加 `Button Text="AI"` → `OnOpenChatClicked`：
   ```csharp
@@ -287,15 +287,15 @@
 
   `ChatPage.xaml.cs`：`OnAppearing` 调 `_vm.LoadChatSavedKeysAsync()`；发送按钮 handler `await _vm.SendMessageCommand.ExecuteAsync(null)`；设置按钮 `Navigation.PushAsync(new ChatSettingsPage(_vm))`。
 
-- [ ] **Step 3: ChatSettingsPage UI**
+- [x] **Step 3: ChatSettingsPage UI**
 
   厂商 Picker + 模型/别名/Key（`IsPassword`）/自定义 API Base Entry + [测试连接并保存] + 状态 Label + 已存 key 列表（切换/删除按钮）。`OnAppearing` 恢复当前状态（`_vm.ChatSavedKeys` 已填充）。
 
-- [ ] **Step 4: TracePageFactory 接线**
+- [x] **Step 4: TracePageFactory 接线**
 
   `ITracePageFactory.Create` / `CreateBrowse` 的 TracePage 构造传 `IChatProviderFactory` + `ICredentialStore` + `IChatConfigStore`（Task 6 注册后）。
 
-- [ ] **Step 5: Android 构建 + Commit**
+- [x] **Step 5: Android 构建 + Commit**
 
   ```text
   feat(mobile): add chat and chat settings pages
@@ -313,21 +313,21 @@
 **Interfaces:**
 - Implements: `ICredentialStore`（HIL.Core）、`IChatConfigStore`、`IChatProviderFactory`、`IChatConnectionTester`（Mobile.Core）。
 
-- [ ] **Step 1: SecureStorageCredentialStore**
+- [x] **Step 1: SecureStorageCredentialStore**
 
   `Microsoft.Maui.Storage.SecureStorage.GetAsync/SetAsync/Remove`；异常包成 `CredentialStoreException`。
 
-- [ ] **Step 2: MauiChatConfigStore**
+- [x] **Step 2: MauiChatConfigStore**
 
   `Preferences.Default.Get("PeakCan.Chat.SavedKeys", null)` JSON 数组（`System.Text.Json` 序列化 `SavedChatKeyMeta`）。`Load` 解析失败返回空列表（防御）。
 
-- [ ] **Step 3: MauiChatProviderFactory**
+- [x] **Step 3: MauiChatProviderFactory**
 
   `new HttpClient { Timeout = TimeSpan.FromMinutes(2) }` + `new OpenAiCompatibleChatProvider(http, new LlmOptions { ApiBase = apiBase, Model = model }, credentials, credentialKey, NullLogger<...>.Instance)`。
 
   `MauiChatConnectionTester`：GET `{apiBase}/models`，401/403 → false，2xx → true，其余异常 → false。
 
-- [ ] **Step 4: MauiProgram DI**
+- [x] **Step 4: MauiProgram DI**
 
   ```csharp
   builder.Services.AddSingleton<ICredentialStore, SecureStorageCredentialStore>();
@@ -336,7 +336,7 @@
   builder.Services.AddSingleton<IChatConnectionTester, MauiChatConnectionTester>();
   ```
 
-- [ ] **Step 5: Android 构建 + Commit**
+- [x] **Step 5: Android 构建 + Commit**
 
   ```text
   feat(mobile): add secure credential store and chat di wiring
@@ -344,21 +344,21 @@
 
 ## Task 7: 全量验证、验收与收尾
 
-- [ ] **Step 1: 全量测试**
+- [x] **Step 1: 全量测试**
 
   ```bash
   dotnet test PeakCan.Host.Mobile.slnx --nologo
   dotnet test tests/PeakCan.Host.Core.Tests/ --nologo
   ```
 
-- [ ] **Step 2: 约束检查**
+- [x] **Step 2: 约束检查**
 
   - `PeakCan.Host.Mobile.Core.csproj` 无 MAUI / LiveCharts2 / SkiaSharp 引用，无新增包
   - 无 `Thread.Sleep` / 真实 `Task.Delay`
   - 桌面端 diff 为零（`git diff main..HEAD -- src/PeakCan.Host.App src/PeakCan.Host.Core` 为空）
   - Key 无明文落盘（只走 ICredentialStore）
 
-- [ ] **Step 3: Android 构建 + 模拟器验收**（`peakcan-p2-api36` / `emulator-5554`，验收数据用 `.acceptance/` 本地小 trace + DBC fixture）
+- [x] **Step 3: Android 构建 + 模拟器验收**（`peakcan-p2-api36` / `emulator-5554`，验收数据用 `.acceptance/` 本地小 trace + DBC fixture）
 
   1. TracePage 顶部"AI"按钮 → ChatPage 打开，空态建议显示
   2. 设置页：DeepSeek + 测试 key → 保存成功；已存 key 列表出现
@@ -372,14 +372,14 @@
   10. 流式回复打字机效果；工具调用显示 tool_log 折叠条
   11. 飞行模式下发送 → Error update 显示"LLM HTTP error"，不崩溃
 
-- [ ] **Step 4: review（实现者/审查者分离）**
+- [x] **Step 4: review（实现者/审查者分离）**
 
   重点：线程边界（对话循环 UI 线程、`ConfigureAwait(true)` 验证）、凭据安全（SecureStorage、无日志泄漏）、工具 JSON schema 与执行、`ChatViewModel` 生命周期（TracePage 关闭时取消 in-flight 请求）、7 工具无状态泄漏。
 
-- [ ] **Step 5: 修复 Critical/Important findings 并补测试；勾选计划；Commit**
+- [x] **Step 5: 修复 Critical/Important findings 并补测试；勾选计划；Commit**
 
   ```text
   docs(mobile): finalize trace viewer p6 plan
   ```
 
-- [ ] **Step 6: 收尾选择**（本地合并 main / push + PR / 保留分支，问用户）
+- [x] **Step 6: 收尾选择**（本地合并 main / push + PR / 保留分支，问用户）
