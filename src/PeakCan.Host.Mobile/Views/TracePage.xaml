@@ -5,7 +5,7 @@
              x:Class="PeakCan.Host.Mobile.Views.TracePage"
              Title="Trace">
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" Padding="8" RowSpacing="4">
-        <Grid x:Name="ControlsRow" Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+        <Grid x:Name="ControlsRow" Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
             <Button Text="{Binding PlayPauseLabel}" Clicked="OnTogglePlay" WidthRequest="60" />
             <Picker Grid.Column="1" x:Name="SpeedPicker" SelectedIndexChanged="OnSpeedChanged" WidthRequest="80" />
             <VerticalStackLayout Grid.Column="2" Spacing="0" VerticalOptions="Center">
@@ -18,6 +18,7 @@
             </VerticalStackLayout>
             <Button Grid.Column="3" Text="DBC" Clicked="OnLoadDbcClicked" />
             <Button Grid.Column="4" Text="定位" Clicked="OnToggleLocatorClicked" />
+            <Button Grid.Column="5" Text="AI" Clicked="OnOpenChatClicked" />
         </Grid>
 
         <Label x:Name="DbcStatusRow" Grid.Row="1" Text="{Binding DbcStatusText}" FontSize="12" LineBreakMode="TailTruncation" />

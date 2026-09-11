@@ -9,6 +9,8 @@ using LiveChartsCore.SkiaSharpView.Maui;
 using LiveChartsCore.SkiaSharpView.Painting;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
@@ -38,6 +40,10 @@ public partial class TracePage : ContentPage
     private Command<PointerCommandArgs>? _chartMovedCommand;
     private Command<PointerCommandArgs>? _chartReleasedCommand;
     private readonly ITraceCacheStore? _cacheStore;
+    private readonly IChatProviderFactory? _chatProviderFactory;
+    private readonly ICredentialStore? _credentialStore;
+    private readonly IChatConfigStore? _chatConfigStore;
+    private readonly IChatConnectionTester? _chatConnectionTester;
     private LvcPointD? _pressPosition;      // chart 点按起始位置（tap/pan 判定）
     private long _pressTimestamp;           // chart 点按起始时刻（raw TickCount，不受 DPI 影响）
     private const int MinimumRenderPointCount = 64;
@@ -55,12 +61,20 @@ public partial class TracePage : ContentPage
         IDbcCatalogProvider? dbcProvider = null,
         DbcCatalogHolder? dbcHolder = null,
         ITraceCacheSinkFactory? cacheSinkFactory = null,
-        ITraceCacheStore? cacheStore = null)
+        ITraceCacheStore? cacheStore = null,
+        IChatProviderFactory? chatProviderFactory = null,
+        ICredentialStore? credentialStore = null,
+        IChatConfigStore? chatConfigStore = null,
+        IChatConnectionTester? chatConnectionTester = null)
     {
         InitializeComponent();
         _dbcProvider = dbcProvider ?? throw new ArgumentNullException(nameof(dbcProvider));
         _dbcHolder = dbcHolder ?? new DbcCatalogHolder();
         _cacheStore = cacheStore;
+        _chatProviderFactory = chatProviderFactory;
+        _credentialStore = credentialStore;
+        _chatConfigStore = chatConfigStore;
+        _chatConnectionTester = chatConnectionTester;
         _vm = new TraceSessionViewModel(ui, sourceFactory,
             src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory, _cacheStore);
         BindingContext = _vm;
@@ -618,6 +632,21 @@ public partial class TracePage : ContentPage
     {
         _locatorExpanded = !_locatorExpanded;
         ApplyChartFullscreen();
+    }
+
+    /// <summary>打开 AI 聊天页；聊天绑定当前 session 上下文（锚点/DBC/缓存/seek）。</summary>
+    private void OnOpenChatClicked(object? sender, EventArgs e)
+    {
+        if (_chatProviderFactory is null || _credentialStore is null
+            || _chatConfigStore is null || _chatConnectionTester is null)
+        {
+            _ = DisplayAlertAsync("AI 聊天不可用", "聊天配置未就绪", "确定");
+            return;
+        }
+
+        var chatVm = _vm.CreateChatViewModel(
+            _chatProviderFactory, _credentialStore, _chatConfigStore, _chatConnectionTester);
+        _ = Navigation.PushAsync(new ChatPage(chatVm));
     }
 
     private void OnClearAnchorClicked(object? sender, EventArgs e) => _vm.ClearAnchor();

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="PeakCan.Host.Mobile.Views.ChatPage"
+             Title="AI 分析">
+    <Grid RowDefinitions="Auto,*,Auto" Padding="8" RowSpacing="6">
+        <!-- 工具栏 -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+            <Button Text="设置" Clicked="OnSettingsClicked" />
+            <Button Grid.Column="1" Text="清空" Clicked="OnClearClicked" />
+            <Label Grid.Column="2" Text="{Binding ConnectionHint}" TextColor="Orange" FontSize="12"
+                   VerticalOptions="Center" LineBreakMode="TailTruncation">
+                <Label.Triggers>
+                    <DataTrigger TargetType="Label" Binding="{Binding ConnectionHint}" Value="">
+                        <Setter Property="IsVisible" Value="False" />
+                    </DataTrigger>
+                </Label.Triggers>
+            </Label>
+        </Grid>
+
+        <!-- 消息列表 -->
+        <CollectionView Grid.Row="1" ItemsSource="{Binding ChatMessages}" x:Name="Messages">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Padding="0,3">
+                        <!-- user 右对齐气泡 -->
+                        <Border Grid.Column="1" IsVisible="{Binding IsUser}"
+                                BackgroundColor="#DCEBFF" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                Padding="10,6" HorizontalOptions="End">
+                            <Label Text="{Binding Content}" FontSize="14" />
+                        </Border>
+                        <!-- assistant 左对齐气泡 -->
+                        <Border Grid.Column="0" IsVisible="{Binding IsAssistant}"
+                                BackgroundColor="#F2F2F7" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                Padding="10,6" HorizontalOptions="Start">
+                            <Label Text="{Binding Content}" FontSize="14" />
+                        </Border>
+                        <!-- tool_log 折叠条 -->
+                        <Border Grid.Column="0" IsVisible="{Binding IsToolLog}"
+                                BackgroundColor="#FFF4E0" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                                Padding="10,6" HorizontalOptions="Start">
+                            <Label Text="{Binding ToolLogText}" FontSize="12" TextColor="#8A6D00" />
+                        </Border>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+            <CollectionView.EmptyView>
+                <VerticalStackLayout Padding="24" Spacing="8" HorizontalOptions="Center" VerticalOptions="Center">
+                    <Label Text="💬 让 AI 帮你分析 trace" FontSize="16" FontAttributes="Bold" HorizontalOptions="Center" />
+                    <Label Text="例如：这个 trace 里有哪些信号？&#x0a;锚点时刻有什么信号异常？"
+                           FontSize="13" TextColor="Gray" HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+            </CollectionView.EmptyView>
+        </CollectionView>
+
+        <!-- 输入行 -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Entry x:Name="ChatEntry" Placeholder="问 AI…" Text="{Binding ChatInput}" Completed="OnSendClicked" />
+            <Button Grid.Column="1" Text="发送" Clicked="OnSendClicked" />
+        </Grid>
+    </Grid>
+</ContentPage>

@@ -1,6 +1,8 @@
 using LiveChartsCore.SkiaSharpView.Maui;
 using Microsoft.Extensions.Logging;
 using SkiaSharp.Views.Maui.Controls.Hosting;
+using PeakCan.HIL.Core.Analysis;
+using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Platform;
@@ -34,6 +36,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<DbcCatalogHolder>();
         builder.Services.AddSingleton<ITracePageFactory, TracePageFactory>();
         builder.Services.AddTransient<FilesPage>();
+        // AI Chat（P6）：凭据走 SecureStorage，metadata 走 Preferences，provider 按厂商构建
+        builder.Services.AddSingleton<ICredentialStore, SecureStorageCredentialStore>();
+        builder.Services.AddSingleton<IChatConfigStore, MauiChatConfigStore>();
+        builder.Services.AddSingleton<IChatProviderFactory, MauiChatProviderFactory>();
+        builder.Services.AddSingleton<IChatConnectionTester, MauiChatConnectionTester>();
 
 #if DEBUG
         builder.Logging.AddDebug();

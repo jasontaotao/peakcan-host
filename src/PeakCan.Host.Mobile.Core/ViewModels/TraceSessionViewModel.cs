@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.Dbc;
+using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
@@ -17,7 +18,7 @@ namespace PeakCan.Host.Mobile.Core.ViewModels;
 /// drain 到固定容量 FrameRingBuffer，并把最近 viewport 行写入稳定行槽。行槽用
 /// INPC in-place 更新，避免高频 CollectionView Insert/Remove/Reset 造成 native 膨胀。
 /// </summary>
-public sealed partial class TraceSessionViewModel : ObservableObject, IDisposable
+public sealed partial class TraceSessionViewModel : ObservableObject, IMobileChatToolContext, IDisposable
 {
     private const int MaxPendingFrames = 10_000;
     private const int ViewportRowCount = 80;
@@ -200,6 +201,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
         lock (_cacheSinkGate) _cacheSink = null;
         CacheStatusText = string.Empty;
         _cachedFilePath = cachedFilePath;
+        _sourceName = sourceName;
         ClearPlaybackBuffer();
         // 换文件：重置 J1939 重组（否则上一个 trace 的进行中 TP 会话漂进新 session）
         ResetReassemblyForNewTrace();
