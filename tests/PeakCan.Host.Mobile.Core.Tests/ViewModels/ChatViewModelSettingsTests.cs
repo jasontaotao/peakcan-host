@@ -215,6 +215,25 @@ public class ChatViewModelSettingsTests
     }
 
     [Fact]
+    public async Task LoadSavedKeys_RepeatedCall_DoesNotDuplicate()
+    {
+        // OnAppearing 每次触发（含从设置页返回）——重复加载不得重复 Add（review MEDIUM）
+        var credentials = new FakeCredentialStore();
+        await credentials.SetAsync("PeakCan/DeepSeek/a", "key-a");
+        var config = new FakeConfigStore
+        {
+            Items = { new SavedChatKeyMeta("PeakCan/DeepSeek/a", "DeepSeek", "a", "https://api.deepseek.com/v1", "deepseek-chat") },
+        };
+        var vm = BuildVm(credentials, config);
+
+        await vm.LoadChatSavedKeysAsync();
+        await vm.LoadChatSavedKeysAsync();
+
+        vm.ChatSavedKeys.Should().ContainSingle();
+        vm.ChatIsConfigured.Should().BeTrue();
+    }
+
+    [Fact]
     public void SavedChatKeyMeta_RoundTripsJson()
     {
         // 钉住 MauiChatConfigStore 的序列化假设（Core 层可测，platform 层薄封装）

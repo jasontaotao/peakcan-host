@@ -73,8 +73,10 @@ public sealed class GetAnchorValuesTool : MobileChatToolBase
             ["frame_count"] = frames.Count,
             ["signal_count"] = signals.Count,
             ["signals"] = signals,
-            ["message"] = frames.Count == 0 ? "该区域尚未缓存" : null,
         };
+        // 未缓存区间显式携带提示字段；有帧时不写（属性缺失语义清晰，避免赋值 null 删除属性）
+        if (frames.Count == 0)
+            root["message"] = "该区域尚未缓存";
         return root.ToJsonString();
     }
 }

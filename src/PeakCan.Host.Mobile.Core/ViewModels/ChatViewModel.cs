@@ -113,6 +113,15 @@ public sealed partial class ChatViewModel : ObservableObject
         };
     }
 
+    /// <summary>Cancel any in-flight provider round. Called by ChatPage when
+    /// the page closes so a popped page does not keep streaming tokens.</summary>
+    public void Dispose()
+    {
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        _chatCts = null;
+    }
+
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
 
     [RelayCommand(CanExecute = nameof(CanSendChat))]

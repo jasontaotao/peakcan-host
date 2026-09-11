@@ -20,6 +20,13 @@ public partial class ChatPage : ContentPage
         _ = _vm.LoadChatSavedKeysAsync();
     }
 
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        // 页面关闭：取消 in-flight 请求，避免继续消耗 token
+        _vm.Dispose();
+    }
+
     private async void OnSendClicked(object? sender, EventArgs e)
     {
         try

@@ -153,6 +153,19 @@ public class ChatViewModelTests
         provider.ReceivedMessages[1].Last(m => m.Role == "assistant")!.ToolCalls.Should().HaveCount(1);
     }
 
+    [Fact]
+    public void Dispose_IsIdempotent_AndDoesNotBreakSends()
+    {
+        var vm = BuildVm(new FakeChatProvider());
+
+        vm.Dispose();
+        vm.Dispose(); // 幂等
+
+        vm.ChatInput = "hi";
+        vm.SendMessageCommand.CanExecute(null).Should().BeTrue();
+        vm.ChatMessages.Should().BeEmpty();
+    }
+
     private sealed class FakeChatProvider : IChatProvider
     {
         private readonly Queue<List<ChatUpdate>> _rounds = new();

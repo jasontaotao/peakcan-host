@@ -253,6 +253,8 @@ public sealed partial class ChatViewModel
         if (!EnsureSettingsReady()) return;
         try
         {
+            // OnAppearing 每次触发（含从设置页返回）：先清空避免重复 Add
+            ChatSavedKeys.Clear();
             var metas = _configStore!.Load();
             var found = false;
             foreach (var meta in metas)
