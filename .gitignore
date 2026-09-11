@@ -62,4 +62,5 @@ NuGet.Local.config
 # Generated mobile acceptance fixtures
 large-100mb.asc
 small-test.asc
+.acceptance/
 .worktrees/

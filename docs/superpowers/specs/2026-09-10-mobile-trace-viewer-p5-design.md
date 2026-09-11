@@ -143,3 +143,4 @@ public sealed class StreamingJ1939Reassembler
 
 1. **Browse 模式的 PGN 过滤为内存后过滤**：`FrameQuery.CanIds` 只支持 ID 下推；PGN token 存在时不走 SQL，而是分页结果在 VM 内按谓词过滤。其后果是 keyset 分页的 `HasMore` 语义失真（一页 80 行过滤后可能只剩 3 行仍显示有下一页），PGN 命中稀疏时翻页体验下降。彻底解法是 `frames` 表加生成列 `pgn` + 索引 + `FrameQuery.PgnAllowList` 下推——schema 变更，记为后续期次候选。
 2. **搜索仅支持 CAN ID（不支持 PGN）**：PGN 搜索需逐帧匹配，无法走 `idx_frames_id` 索引；输入 `pgn:` token 时明确提示"搜索仅支持 CAN ID"。
+3. **桌面 Replay 的 `pgn:` token 行为变化（review 记录）**：`CanIdListParser` 是桌面/移动共享的 additive 扩展。旧版本 `pgn:F004` 无法解析（进 invalid → AllowList 空集 → Replay 不显示任何帧）；现在 `pgn:` token 解析进 `PgnAllowList`，桌面 Replay 只消费 `AllowList`（此时为 null = "无过滤"）→ 从"全拒"变为"全放"。这是边缘行为变化，桌面调用方未改（保持"桌面 diff 仅 parser"约束）；如需桌面 Replay 也支持 PGN 过滤，作为独立功能另立期次。

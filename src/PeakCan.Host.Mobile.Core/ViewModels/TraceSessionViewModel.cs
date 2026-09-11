@@ -532,11 +532,16 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IDisposabl
     private async Task SearchAsync(CacheSearchDirection direction)
     {
         var parsed = CanIdListParser.Parse(SearchText);
+        // 先查 PGN token：混合输入 "0x123 pgn:F004" 的 AllowList 也是单 ID，
+        // 但搜索本期仅支持纯 CAN ID（spec §8.2），含 pgn 一律拒绝（review MEDIUM）。
+        if (parsed.PgnAllowList is not null)
+        {
+            SearchStatusText = "搜索仅支持 CAN ID";
+            return;
+        }
         if (parsed.AllowList is not { Count: 1 })
         {
-            SearchStatusText = parsed.PgnAllowList is not null
-                ? "搜索仅支持 CAN ID"
-                : "搜索仅支持单个 CAN ID";
+            SearchStatusText = "搜索仅支持单个 CAN ID";
             return;
         }
 

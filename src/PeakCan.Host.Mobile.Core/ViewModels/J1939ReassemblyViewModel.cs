@@ -17,7 +17,10 @@ public sealed class J1939ReassemblyViewModel
 
     public ObservableCollection<J1939ReassembledRow> Rows { get; } = [];
 
-    /// <summary>订阅重组事件；调用方负责在不需要时（如换 session）解绑。</summary>
+    /// <summary>
+    /// 订阅重组事件。VM 与 reassembler 共享 TraceSessionViewModel 生命周期，无需解绑
+    /// （无需 detach 的据：换 session 时整个 VM 一起被替换，行由 Clear() 清空）。
+    /// </summary>
     public void Attach(StreamingJ1939Reassembler reassembler)
         => reassembler.MessageReassembled += row => _ui.Post(() => Rows.Add(row));
 

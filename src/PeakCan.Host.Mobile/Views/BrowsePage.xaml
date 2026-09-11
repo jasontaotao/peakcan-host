@@ -19,7 +19,7 @@
             <Label Grid.Column="3" x:Name="JumpStatus" Text="" FontSize="11" TextColor="Orange" VerticalOptions="Center" />
         </Grid>
 
-        <CollectionView Grid.Row="1" ItemsSource="{Binding Rows}">
+        <CollectionView Grid.Row="2" ItemsSource="{Binding Rows}">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
                     <Grid ColumnDefinitions="1.5*,1*,0.5*,1.7*,2.2*" IsVisible="{Binding HasContent}">
@@ -33,7 +33,7 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
-        <VerticalStackLayout Grid.Row="2" Spacing="4">
+        <VerticalStackLayout Grid.Row="3" Spacing="4">
             <Label Text="{Binding PageStatus}" FontSize="12" />
             <ActivityIndicator IsRunning="{Binding IsLoading}" IsVisible="{Binding IsLoading}" />
             <Label Text="{Binding ErrorMessage}" TextColor="Red" />

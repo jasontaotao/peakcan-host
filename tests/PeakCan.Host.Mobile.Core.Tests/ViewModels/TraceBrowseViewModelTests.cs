@@ -193,4 +193,38 @@ public class TraceBrowseViewModelTests
         vm.Rows.Select(r => r.IdText).Where(t => !string.IsNullOrEmpty(t))
             .Should().Contain("100").And.Contain("200");
     }
+
+    [Fact]
+    public async Task JumpTo_NextAtEndOfTrace_ReturnsFalse_NotFirstOccurrence()
+    {
+        // review 修复：全量可见（单页 10 帧）时按"下一处"，页末即 trace 末尾 →
+        // 必须返回 false（"未找到"），绝不能退化为跳回最早一帧
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("tiny.asc", 100);
+        await store.AppendFramesAsync(id, Enumerable.Range(0, 10)
+            .Select(i => Frame(i, i % 2 == 0 ? 0x100u : 0x200u)).ToArray());
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);   // 10 帧 < 页大小 → 单页，页末 idx=9
+
+        var ok = await vm.JumpToAsync(0x100, first: false);
+
+        ok.Should().BeFalse();
+        vm.HighlightIndex.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ApplyFilter_IdOrPgn_OrSemantics_KeepsMatchingRows()
+    {
+        // review 修复：内存后过滤必须与 spec §4.5 OR 语义一致——
+        // "0x200 pgn:F004"：0x200 标准帧靠 ID 命中保留（PGN 谓词只影响扩展帧）
+        var (store, id) = await CreateStoreAsync();
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        vm.FilterText = "0x200 pgn:F004";
+        await vm.ApplyFilterAsync();
+
+        vm.Rows.Should().Contain(r => r.Source != null && r.Source.Id == 0x200u);
+        vm.Rows.Should().NotContain(r => r.Source != null && r.Source.Id == 0x100u);
+    }
 }

@@ -19,9 +19,11 @@ public sealed record J1939ReassembledRow(
 /// <summary>
 /// 流式 J1939 TP 重组：播放器帧流在 ID 过滤之前 tap（spec §6）。复用 Host.Core
 /// <see cref="J1939TpLayer"/> 的 Offline 模式——不启 watchdog、禁止发送、完整性判定
-/// 由 <see cref="Flush"/> 结算。线程安全：Ingest/Flush/Reset 只在 player 线程调用；
+/// 由 <see cref="Flush"/> 结算。线程契约（review 修正）：Ingest 只在 player 线程；
+/// Reset/Flush 由调用方时序保证不并发（Stop/Seek/重播/换文件在 UI 线程发起）。
+/// 即使瞬时并发也无害——Reset 原子替换 layer 引用，straggler 帧落入新层。
 /// 事件引发在调用线程（UI 侧经 dispatcher Post）。
-/// </summary>
+///</summary>
 public sealed class StreamingJ1939Reassembler
 {
     private readonly Func<CanFrame, CancellationToken, ValueTask<Result<Unit>>> _sendAsync;

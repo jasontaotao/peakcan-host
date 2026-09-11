@@ -896,6 +896,19 @@ public class TraceSessionViewModelTests
     }
 
     [Fact]
+    public async Task Search_MixedIdAndPgn_SetsStatusIdOnly()
+    {
+        // review 修复：混合输入 "0x123 pgn:F004" 的 AllowList 也是单 ID，
+        // 但含 pgn token 必须拒绝（spec §8.2 搜索 ID-only）——先查 PgnAllowList
+        var env = new Env(useCache: false);
+        env.Vm.SearchText = "0x123 pgn:F004";
+
+        await env.Vm.SearchFirstAsync();
+
+        env.Vm.SearchStatusText.Should().Be("搜索仅支持 CAN ID");
+    }
+
+    [Fact]
     public async Task Search_InvalidText_SetsStatusIdOnly()
     {
         var env = new Env(useCache: false);

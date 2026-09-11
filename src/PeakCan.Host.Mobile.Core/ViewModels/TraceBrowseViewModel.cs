@@ -107,11 +107,15 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
 
     private bool PassesBrowseFilter(CachedFrame f)
     {
-        if (_idFilter is not null && !_idFilter.Contains(f.CanId)) return false;
-        if (_pgnFilter is not null
-            && (!f.IsExtended || !_pgnFilter.Contains(new J1939Id(f.CanId & J1939Id.Raw29Mask).Pgn)))
-            return false;
-        return true;
+        // OR 语义（spec §4.5），与 TraceSessionViewModel.PassesFilter 逐字一致：
+        // (ID 命中) OR (扩展帧且 PGN 命中)。空集（全部 token 无效）自然永不命中 →
+        // all-invalid 输入全拒，与 Replay "emits nothing" 语义一致（review MEDIUM）。
+        if (_idFilter is null && _pgnFilter is null) return true;
+        if (_idFilter is not null && _idFilter.Contains(f.CanId)) return true;
+        if (_pgnFilter is not null && f.IsExtended
+            && _pgnFilter.Contains(new J1939Id(f.CanId & J1939Id.Raw29Mask).Pgn))
+            return true;
+        return false;
     }
 
     [RelayCommand]
@@ -193,9 +197,15 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         double? after = null;
         if (!first && _lastIndex is { } lastIndex)
         {
+            // 下界取"当前页最后一帧自身"的 timestamp（Next 语义 = 页末之后第一处）。
+            // AfterIndex: lastIndex-1 → idx ≥ lastIndex 的首条 = 页末帧。原来用
+            // AfterIndex: lastIndex 取到的是页后一帧（cutoff 偏后）；且页末为空时
+            // after 落 null 会让 FindFrameAsync 的 Next 退化为最早一帧，导致"末尾按
+            // 下一处"错误跳回开头（review MEDIUM）。
             var lastPage = await _store.GetFramesAsync(_traceId,
-                new FrameQuery(AfterIndex: lastIndex, Limit: 1)).ConfigureAwait(false);
+                new FrameQuery(AfterIndex: lastIndex - 1, Limit: 1)).ConfigureAwait(false);
             if (lastPage.Frames.Count > 0) after = lastPage.Frames[0].Timestamp;
+            else return false;   // 已到 trace 末尾：无"下一处"
         }
 
         var frame = await _store.FindFrameAsync(_traceId, canId, after,
