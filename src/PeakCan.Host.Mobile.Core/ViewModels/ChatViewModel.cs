@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Chat.Tools;
@@ -63,11 +64,17 @@ public sealed partial class ChatViewModel : ObservableObject
         IMobileChatToolContext context,
         IChatProviderFactory providerFactory,
         ILogger? logger = null,
-        IReadOnlyList<IChatTool>? chatTools = null)
+        IReadOnlyList<IChatTool>? chatTools = null,
+        ICredentialStore? credentialStore = null,
+        IChatConfigStore? configStore = null,
+        IChatConnectionTester? connectionTester = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _providerFactory = providerFactory ?? throw new ArgumentNullException(nameof(providerFactory));
         _logger = logger ?? NullLogger.Instance;
+        _credentialStore = credentialStore;
+        _configStore = configStore;
+        _connectionTester = connectionTester;
         _chatTools = chatTools ?? BuildChatTools(_context, _logger);
         _chatToolDefs = _chatTools.Select(t => t.Definition).ToList();
         ChatMessages.CollectionChanged += (_, _) =>
