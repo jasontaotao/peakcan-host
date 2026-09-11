@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -211,6 +212,22 @@ public class ChatViewModelSettingsTests
         vm.ChatIsConfigured.Should().BeFalse();
         vm.ChatApiKeyInput.Should().Be("");
         vm.CurrentProvider.Should().BeNull();
+    }
+
+    [Fact]
+    public void SavedChatKeyMeta_RoundTripsJson()
+    {
+        // 钉住 MauiChatConfigStore 的序列化假设（Core 层可测，platform 层薄封装）
+        var keys = new List<SavedChatKeyMeta>
+        {
+            new("PeakCan/DeepSeek/work", "DeepSeek", "work", "https://api.deepseek.com/v1", "deepseek-chat"),
+            new("PeakCan/自定义/office", "自定义", "office", "https://my-gw.example.com/v1", "my-model"),
+        };
+
+        var json = JsonSerializer.Serialize(keys);
+        var back = JsonSerializer.Deserialize<List<SavedChatKeyMeta>>(json);
+
+        back.Should().Equal(keys);
     }
 
     private sealed class FakeCredentialStore : ICredentialStore
