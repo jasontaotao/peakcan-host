@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Mobile.Core.Chat;
+using PeakCan.Host.Mobile.Core.Chat.Tools;
 
 namespace PeakCan.Host.Mobile.Core.ViewModels;
 
@@ -67,7 +68,7 @@ public sealed partial class ChatViewModel : ObservableObject
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _providerFactory = providerFactory ?? throw new ArgumentNullException(nameof(providerFactory));
         _logger = logger ?? NullLogger.Instance;
-        _chatTools = chatTools ?? Array.Empty<IChatTool>();
+        _chatTools = chatTools ?? BuildChatTools(_context, _logger);
         _chatToolDefs = _chatTools.Select(t => t.Definition).ToList();
         ChatMessages.CollectionChanged += (_, _) =>
         {
@@ -88,6 +89,22 @@ public sealed partial class ChatViewModel : ObservableObject
 
     /// <summary>The chat tools exposed to the provider (unit-testable via ctor injection).</summary>
     internal IReadOnlyList<IChatTool> ChatTools => _chatTools;
+
+    /// <summary>Construct the 7 mobile chat tools bound to the session context
+    /// (production path; tests inject fakes via ctor instead).</summary>
+    private static IReadOnlyList<IChatTool> BuildChatTools(IMobileChatToolContext context, ILogger logger)
+    {
+        return new IChatTool[]
+        {
+            new GetTraceInfoTool(context, logger),
+            new GetDbcInfoTool(context, logger),
+            new SearchSignalsTool(context, logger),
+            new GetDbcSignalTool(context, logger),
+            new GetDbcMessageTool(context, logger),
+            new GetAnchorValuesTool(context, logger),
+            new SeekToTimeTool(context, logger),
+        };
+    }
 
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
 
