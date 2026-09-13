@@ -367,13 +367,13 @@ public class TraceCacheStoreTests
                 (await store.GetOrCreateTraceAsync("legacy.asc", 1)).Should().Be(1);
             }
 
-            // Opening the same file a second time must not add the column again (a duplicate ALTER would throw duplicate column name)
+            // 同一文件二次打开不得重复加列（重复 ALTER 会抛 duplicate column name）
             await using (var second = new TraceCacheStore(path))
                 await second.InitializeAsync();
             (await ScalarAsync(path, "SELECT COUNT(*) FROM pragma_table_xinfo('frames') WHERE name='pgn';"))
                 .Should().Be(1);
 
-            // VIRTUAL generated columns compute on the fly for old rows as well: legacy rows immediately get the correct PGN
+            // VIRTUAL 生成列对旧行按需计算：迁移后旧行立即读到正确 PGN
             (await ScalarAsync(path, "SELECT pgn FROM frames WHERE trace_id=1 AND idx=0;"))
                 .Should().Be((long)new J1939Id(LegacyExtendedId).Pgn);
         }
@@ -389,16 +389,16 @@ public class TraceCacheStoreTests
             var frames = new List<CachedFrame>();
             long index = 0;
             var random = new Random(20260913);
-            // Random extended IDs (covering priority/R-EDP/DP/PF/PS/SA full domain)
+            // 随机扩展 ID（覆盖 priority/R-EDP/DP/PF/PS/SA 全域）
             for (var i = 0; i < 1000; i++)
                 frames.Add(ExtFrame(index++, (uint)random.Next(0, 1 << 29)));
-            // PDU1/PDU2 boundary: PF=0xEF (PS is not part of PGN) and PF=0xF0 (PS is part of PGN), DP=0/1 two forms
+            // PDU1/PDU2 边界：PF=0xEF（PS 不入 PGN）与 PF=0xF0（PS 并入 PGN），DP=0/1 两种形态
             foreach (var id in new[] { 0x00EF01FFu, 0x01EF01FFu, 0x00F001FFu, 0x01F001FFu, 0x18EF01FFu, 0x18FF50E5u })
                 frames.Add(ExtFrame(index++, id));
-            // Forms carrying the IDE reserved bit at bit31 (the expression must strip bits first)
+            // bit31 携带 IDE 约定位的形态（表达式必须先剥位）
             for (var i = 0; i < 10; i++)
                 frames.Add(ExtFrame(index++, (uint)random.Next(0, 1 << 29) | 0x80000000u));
-            // Non-extended frames: pgn must be NULL
+            // 非扩展帧：pgn 必须为 NULL
             for (var i = 0; i < 50; i++)
                 frames.Add(new CachedFrame(index++, i * 0.01, (uint)random.Next(0, 0x800), false, 8, new byte[8]));
 
@@ -424,16 +424,185 @@ public class TraceCacheStoreTests
                 if (reader.GetBoolean(2))
                 {
                     reader.GetInt64(3).Should().Be((long)new J1939Id(canId & J1939Id.Raw29Mask).Pgn,
-                        $"can_id=0x{canId:X8} PGN should match J1939Id bit by bit");
+                        $"can_id=0x{canId:X8} 的 PGN 必须与 J1939Id 逐位一致");
                 }
                 else
                 {
-                    reader.IsDBNull(3).Should().BeTrue("non-extended frame pgn must be NULL");
+                    reader.IsDBNull(3).Should().BeTrue("非扩展帧 pgn 必须为 NULL");
                 }
                 checkedCount++;
             }
             checkedCount.Should().Be(frames.Count);
         }
         finally { DeleteDb(path); }
+    }
+
+    // --- P7 Task 3：FrameQuery.PgnAllowList tri-state 下推 ---
+
+    /// <summary>PDU1 形态（PF=0xEF，PS 不入 PGN）。</summary>
+    private const uint MatchId = 0x18EF01FF;
+    /// <summary>另一 PGN 的 PDU2 形态。</summary>
+    private const uint OtherId = 0x18FF10E5;
+    /// <summary>应被过滤排除的第三种 PGN。</summary>
+    private const uint MissId = 0x18FF20E5;
+
+    private static HashSet<uint> PgnOf(params uint[] ids) =>
+        new(ids.Select(id => new J1939Id(id & J1939Id.Raw29Mask).Pgn));
+
+    [Fact]
+    public async Task PgnFilter_Null_NoFilter()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id, [ExtFrame(0, MatchId), ExtFrame(1, MissId), Frame(2, 0.02)]);
+
+        var page = await store.GetFramesAsync(id, new FrameQuery(AfterIndex: -1, PgnAllowList: null, Limit: 10));
+
+        page.Frames.Should().HaveCount(3);
+        page.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TriState_EmptySet_RejectsAll()
+    {
+        // parser tri-state：空集 = all-invalid 全拒。store 不得把空集当作"无过滤"
+        //（否则 all-invalid 过滤输入会显示全部帧——spec §2.4 回归锁）。
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id, [ExtFrame(0, MatchId), Frame(1, 0.01)]);
+
+        (await store.GetFramesAsync(id, new FrameQuery(AfterIndex: -1, CanIds: new HashSet<uint>(), Limit: 10)))
+            .Frames.Should().BeEmpty();
+        (await store.GetFramesAsync(id, new FrameQuery(AfterIndex: -1, PgnAllowList: new HashSet<uint>(), Limit: 10)))
+            .Frames.Should().BeEmpty();
+        (await store.GetFramesAsync(id, new FrameQuery(AfterIndex: -1,
+                CanIds: new HashSet<uint>(), PgnAllowList: new HashSet<uint>(), Limit: 10)))
+            .Frames.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PgnFilter_Populated_OnlyExtendedMatches()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id, [ExtFrame(0, MatchId), Frame(1, 0.01), ExtFrame(2, MissId)]);
+
+        var page = await store.GetFramesAsync(id,
+            new FrameQuery(AfterIndex: -1, PgnAllowList: PgnOf(MatchId), Limit: 10));
+
+        page.Frames.Select(f => f.Index).Should().Equal([0L]);
+    }
+
+    [Fact]
+    public async Task CanIds_And_Pgn_OR_Semantics()
+    {
+        // OR 语义（与旧 PassesBrowseFilter 逐字一致）：(ID 命中) OR (扩展帧且 PGN 命中)。
+        // 双集合非空时走 C# 双分支归并（spec §2.6：不生成单条 OR SQL）。
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id,
+        [
+            Frame(0, 0.00),          // 0x100 → ID 命中
+            ExtFrame(1, MatchId),    // PGN 命中
+            ExtFrame(2, MissId),     // 都不中 → 排除
+            Frame(3, 0.03),          // ID 命中
+            ExtFrame(4, MatchId),
+        ]);
+
+        var forward = await store.GetFramesAsync(id, new FrameQuery(AfterIndex: -1,
+            CanIds: new HashSet<uint> { 0x100 }, PgnAllowList: PgnOf(MatchId, OtherId), Limit: 80));
+        forward.Frames.Select(f => f.Index).Should().Equal([0L, 1L, 3L, 4L]);
+        forward.HasMore.Should().BeFalse();
+
+        var afterCursor = await store.GetFramesAsync(id, new FrameQuery(AfterIndex: 1,
+            CanIds: new HashSet<uint> { 0x100 }, PgnAllowList: PgnOf(MatchId), Limit: 80));
+        afterCursor.Frames.Select(f => f.Index).Should().Equal([3L, 4L]);
+
+        var backward = await store.GetFramesAsync(id, new FrameQuery(BeforeIndex: 5,
+            CanIds: new HashSet<uint> { 0x100 }, PgnAllowList: PgnOf(MatchId), Limit: 80));
+        backward.Frames.Select(f => f.Index).Should().Equal([0L, 1L, 3L, 4L]); // 降序取回后翻正
+        backward.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PgnFilter_Paging_HasMore_Honest()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        // 90 个命中帧 + 10 个不命中帧 → 第一页 80 行 HasMore=true，第二页 10 行 HasMore=false
+        var frames = new List<CachedFrame>();
+        for (var i = 0; i < 90; i++) frames.Add(ExtFrame(i, MatchId));
+        for (var i = 90; i < 100; i++) frames.Add(ExtFrame(i, MissId));
+        await store.AppendFramesAsync(id, frames);
+
+        var query = new FrameQuery(PgnAllowList: PgnOf(MatchId), Limit: 80);
+        var page1 = await store.GetFramesAsync(id, query);
+        page1.Frames.Should().HaveCount(80);
+        page1.HasMore.Should().BeTrue();
+
+        var page2 = await store.GetFramesAsync(id, query with { AfterIndex = page1.Frames[^1].Index });
+        page2.Frames.Should().HaveCount(10);
+        page2.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PgnFilter_SparseHits_SinglePage_NoFalseHasMore()
+    {
+        // 旧内存后过滤的失真场景：800 帧仅 3 帧命中——旧路径整页拉 80 行内存过滤后
+        // 剩 3 行却报告 HasMore=true。SQL 下推后必须如实返回 false。
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        var frames = new List<CachedFrame>();
+        for (var i = 0; i < 800; i++)
+            frames.Add(i is 100 or 400 or 700 ? ExtFrame(i, MatchId) : ExtFrame(i, MissId));
+        await store.AppendFramesAsync(id, frames);
+
+        var page = await store.GetFramesAsync(id,
+            new FrameQuery(AfterIndex: -1, PgnAllowList: PgnOf(MatchId), Limit: 80));
+
+        page.Frames.Select(f => f.Index).Should().Equal([100L, 400L, 700L]);
+        page.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ExplainQueryPlan_SingleFilter_UsesMatchingIndex_NoTempBTree()
+    {
+        var path = TempDbPath();
+        try
+        {
+            await using (var store = new TraceCacheStore(path))
+                await store.InitializeAsync();
+
+            var pgnSql = TraceCacheStore.BuildFramePageSql(
+                1, new FrameQuery(AfterIndex: -1, PgnAllowList: PgnOf(MatchId), Limit: 80),
+                out var pgnParameters);
+            var idSql = TraceCacheStore.BuildFramePageSql(
+                1, new FrameQuery(AfterIndex: -1, CanIds: new HashSet<uint> { 0x100 }, Limit: 80),
+                out var idParameters);
+
+            // pgn 分支由 INDEXED BY 强制走复合索引（spec §2.6 兜底）；ORDER BY idx 的
+            // TEMP B-TREE 排序输入仅为命中行（有界），属可接受计划，不断言其缺席。
+            var pgnPlan = await ExplainAsync(path, pgnSql, pgnParameters);
+            pgnPlan.Should().Contain("idx_frames_pgn_idx");
+            // ID 分支只要求是 SEARCH（未退化全表 SCAN）
+            var idPlan = await ExplainAsync(path, idSql, idParameters);
+            idPlan.Should().Contain("SEARCH").And.NotContain("SCAN");
+        }
+        finally { DeleteDb(path); }
+    }
+
+    private static async Task<string> ExplainAsync(string path, string sql, IReadOnlyList<SqliteParameter> parameters)
+    {
+        await using var probe = new SqliteConnection($"Data Source={path};Pooling=False");
+        await probe.OpenAsync();
+        await using var command = probe.CreateCommand();
+        command.CommandText = "EXPLAIN QUERY PLAN " + sql;
+        foreach (var parameter in parameters)
+            command.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
+        using var reader = await command.ExecuteReaderAsync();
+        var details = new List<string>();
+        while (await reader.ReadAsync())
+            details.Add(reader.GetString(3)); // detail 列
+        return string.Join("\n", details);
     }
 }

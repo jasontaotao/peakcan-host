@@ -261,62 +261,150 @@ public sealed class TraceCacheStore : ITraceCacheStore
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var where = "WHERE trace_id=$trace_id";
-            var parameters = new List<SqliteParameter> { new("$trace_id", traceId) };
-
-            if (query.CanIds is { Count: > 0 })
+            // 双集合并存时不生成单条 OR SQL：ORDER BY idx 会让 multi-index OR 退化成
+            // TEMP B-TREE 全量排序（spec §2.6）。改为两个索引完美分支各取 limit+1 行，
+            // C# 侧按 idx 归并——HasMore 语义与单分支一致。
+            if (query.CanIds is not null && query.PgnAllowList is not null)
             {
-                var names = query.CanIds.Select((_, i) => $"$can{i}").ToArray();
-                where += $" AND can_id IN ({string.Join(',', names)})";
-                parameters.AddRange(query.CanIds.Select((id, i) => new SqliteParameter(names[i], id)));
+                var idPage = await ExecuteFramePageAsync(traceId,
+                    query with { PgnAllowList = null }, ct).ConfigureAwait(false);
+                var pgnPage = await ExecuteFramePageAsync(traceId,
+                    query with { CanIds = null }, ct).ConfigureAwait(false);
+                return MergeFramePages(idPage, pgnPage, query.Limit);
             }
-
-            var forward = query.BeforeIndex is null;
-            if (forward)
-            {
-                parameters.Add(new("$cursor", query.AfterIndex ?? -1));
-                where += " AND idx > $cursor ORDER BY idx ASC";
-            }
-            else
-            {
-                parameters.Add(new("$cursor", query.BeforeIndex!.Value));
-                where += " AND idx < $cursor ORDER BY idx DESC";
-            }
-
-            var sql = $"""
-                SELECT idx,timestamp,can_id,is_extended,dlc,data
-                FROM frames {where}
-                LIMIT $limit
-                """;
-            parameters.Add(new("$limit", query.Limit + 1));
-
-            await using var command = _connection.CreateCommand();
-            command.CommandText = sql;
-            foreach (var parameter in parameters)
-                command.Parameters.Add(parameter);
-
-            var result = new List<CachedFrame>();
-            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                result.Add(new CachedFrame(
-                    reader.GetInt64(0),
-                    reader.GetDouble(1),
-                    (uint)reader.GetInt64(2),
-                    reader.GetInt64(3) != 0,
-                    reader.GetByte(4),
-                    (byte[])reader.GetValue(5)));
-            }
-
-            var hasMore = result.Count > query.Limit;
-            if (hasMore) result.RemoveAt(result.Count - 1);
-            if (!forward) result.Reverse();
-            return new FramePage(result, hasMore);
+            return await ExecuteFramePageAsync(traceId, query, ct).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>Merges two index-ordered branch pages (both chronological
+    /// ascending, per <see cref="ExecuteFramePageAsync"/>'s contract) into one
+    /// honest page: the global next <paramref name="limit"/> rows by idx are
+    /// contained in each branch's first <paramref name="limit"/> rows, so
+    /// fetching limit+1 per branch is enough to decide HasMore.</summary>
+    private static FramePage MergeFramePages(FramePage first, FramePage second, int limit)
+    {
+        var merged = new List<CachedFrame>(first.Frames.Count + second.Frames.Count);
+        int i = 0, j = 0;
+        while (merged.Count <= limit)
+        {
+            CachedFrame next;
+            if (i < first.Frames.Count && j < second.Frames.Count)
+            {
+                var a = first.Frames[i];
+                var b = second.Frames[j];
+                if (a.Index == b.Index)
+                {
+                    // 同一帧同时命中 ID 与 PGN 两个分支：只收一次，双指针同进
+                    next = a;
+                    i++;
+                    j++;
+                }
+                else
+                {
+                    var takeFirst = a.Index < b.Index;
+                    next = takeFirst ? a : b;
+                    if (takeFirst) i++; else j++;
+                }
+            }
+            else if (i < first.Frames.Count) next = first.Frames[i++];
+            else if (j < second.Frames.Count) next = second.Frames[j++];
+            else break;
+            merged.Add(next);
+        }
+
+        var hasMore = merged.Count > limit || first.HasMore || second.HasMore;
+        if (merged.Count > limit) merged.RemoveAt(merged.Count - 1);
+        return new FramePage(merged, hasMore);
+    }
+
+    /// <summary>Builds the paged frame SELECT for a single-filter query.
+    /// Internal so tests can EXPLAIN QUERY PLAN the exact statement the store
+    /// runs. Filter clauses follow the parser tri-state: null = no clause,
+    /// empty set = universally-false (all-invalid input must reject all).
+    /// <para><c>traceId</c> 由参数传入而非字面量占位：字面量 0 会经 C# 的
+    /// 字面-0→枚举隐式转换错配到 <c>SqliteParameter(string, SqliteType)</c>
+    /// 构造器，Value 保持未赋值。</para></summary>
+    internal static string BuildFramePageSql(long traceId, FrameQuery query, out List<SqliteParameter> parameters)
+    {
+        parameters = [];
+        var where = "WHERE trace_id=$trace_id";
+        parameters.Add(new("$trace_id", traceId));
+
+        AppendFilterClause(ref where, parameters, "can_id", "$can", query.CanIds);
+        AppendFilterClause(ref where, parameters, "pgn", "$pgn", query.PgnAllowList);
+
+        var forward = query.BeforeIndex is null;
+        if (forward)
+        {
+            parameters.Add(new("$cursor", query.AfterIndex ?? -1));
+            where += " AND idx > $cursor ORDER BY idx ASC";
+        }
+        else
+        {
+            parameters.Add(new("$cursor", query.BeforeIndex!.Value));
+            where += " AND idx < $cursor ORDER BY idx DESC";
+        }
+
+        parameters.Add(new("$limit", query.Limit + 1));
+        // PGN 命中稀疏时 planner 会因 ORDER BY idx+LIMIT 退化选 PK 全扫（每页 O(剩余行)），
+        // INDEXED BY 强制走 pgn 复合索引：每页代价 = 命中行排序（有界），spec §2.6 兜底。
+        var from = query.PgnAllowList is { Count: > 0 }
+            ? "FROM frames INDEXED BY idx_frames_pgn_idx"
+            : "FROM frames";
+        return $"""
+            SELECT idx,timestamp,can_id,is_extended,dlc,data
+            {from} {where}
+            LIMIT $limit
+            """;
+    }
+
+    /// <summary>tri-state：null → 不生成子句；空集 → 恒假子句（all-invalid 全拒）；
+    /// 非空 → IN 白名单。</summary>
+    private static void AppendFilterClause(
+        ref string where, List<SqliteParameter> parameters,
+        string column, string prefix, IReadOnlySet<uint>? values)
+    {
+        if (values is null) return;
+        if (values.Count == 0)
+        {
+            where += " AND 0";
+            return;
+        }
+        var names = values.Select((_, i) => $"{prefix}{i}").ToArray();
+        where += $" AND {column} IN ({string.Join(',', names)})";
+        parameters.AddRange(values.Select((id, i) => new SqliteParameter(names[i], (long)id)));
+    }
+
+    private async Task<FramePage> ExecuteFramePageAsync(long traceId, FrameQuery query, CancellationToken ct)
+    {
+        var sql = BuildFramePageSql(traceId, query, out var parameters);
+
+        await using var command = _connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var parameter in parameters)
+            command.Parameters.Add(parameter);
+
+        var result = new List<CachedFrame>();
+        var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            result.Add(new CachedFrame(
+                reader.GetInt64(0),
+                reader.GetDouble(1),
+                (uint)reader.GetInt64(2),
+                reader.GetInt64(3) != 0,
+                reader.GetByte(4),
+                (byte[])reader.GetValue(5)));
+        }
+
+        var hasMore = result.Count > query.Limit;
+        if (hasMore) result.RemoveAt(result.Count - 1);
+        if (query.BeforeIndex is not null) result.Reverse();
+        return new FramePage(result, hasMore);
     }
 
     public async Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(
