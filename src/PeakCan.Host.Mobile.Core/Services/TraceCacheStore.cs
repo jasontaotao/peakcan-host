@@ -6,10 +6,26 @@ namespace PeakCan.Host.Mobile.Core.Services;
 
 /// <summary>
 /// SQLite-backed replay cache. The spec schema is extended with
-/// <c>last_position_seconds</c> so the recent-file list can show playback position.
+/// <c>last_position_seconds</c> (recent-file playback position) and a
+/// <c>pgn</c> VIRTUAL generated column (P7 J1939 filter push-down).
 /// </summary>
 public sealed class TraceCacheStore : ITraceCacheStore
 {
+    /// <summary>
+    /// pgn 生成列表达式——与 <c>J1939Id.Pgn</c> 逐位一致
+    /// （R/EDP&lt;&lt;17 | DP&lt;&lt;16 | PF&lt;&lt;8 | PDU2 才并入 PS）；非扩展帧为 NULL，
+    /// 天然不被任何 IN 过滤命中。DDL 与旧库 ALTER 共用同一份文本，杜绝两份漂移。
+    /// </summary>
+    private const string PgnGeneratedSql = """
+        CASE WHEN is_extended = 1 THEN
+          ((((can_id & 536870911) >> 25) & 1) << 17)
+          | ((((can_id & 536870911) >> 24) & 1) << 16)
+          | ((((can_id & 536870911) >> 16) & 255) << 8)
+          | (CASE WHEN (((can_id & 536870911) >> 16) & 255) < 240
+                  THEN 0 ELSE (((can_id & 536870911) >> 8) & 255) END)
+        END
+        """;
+
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _initialized;
@@ -35,7 +51,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
         {
             if (_initialized) return;
             await _connection.OpenAsync(ct).ConfigureAwait(false);
-            await ExecuteAsync("""
+            await ExecuteAsync($"""
                 PRAGMA journal_mode=WAL;
                 PRAGMA synchronous=NORMAL;
 
@@ -59,6 +75,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
                   is_extended INTEGER NOT NULL,
                   dlc INTEGER NOT NULL,
                   data BLOB NOT NULL,
+                  pgn INTEGER GENERATED ALWAYS AS ({PgnGeneratedSql}) VIRTUAL,
                   PRIMARY KEY (trace_id, idx)
                 ) WITHOUT ROWID;
 
@@ -69,6 +86,19 @@ public sealed class TraceCacheStore : ITraceCacheStore
                 CREATE INDEX IF NOT EXISTS idx_frames_cid_idx ON frames(trace_id, can_id, idx);
                 CREATE INDEX IF NOT EXISTS idx_frames_cid_ts ON frames(trace_id, can_id, timestamp);
                 """, ct).ConfigureAwait(false);
+
+            // P7：旧库幂等补 pgn 生成列（SQLite 的 ALTER 只支持 VIRTUAL；新库上面 DDL 已含，此处跳过）
+            if (!await HasFrameColumnAsync("pgn", ct).ConfigureAwait(false))
+            {
+                await ExecuteAsync(
+                    $"ALTER TABLE frames ADD COLUMN pgn INTEGER GENERATED ALWAYS AS ({PgnGeneratedSql}) VIRTUAL;",
+                    ct).ConfigureAwait(false);
+            }
+
+            // pgn 索引必须在生成列就位后创建（旧库 ALTER 前该列不存在，不能进上面的首屏脚本）
+            await ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_frames_pgn_idx ON frames(trace_id, pgn, idx);",
+                ct).ConfigureAwait(false);
             _initialized = true;
         }
         finally
@@ -434,6 +464,19 @@ public sealed class TraceCacheStore : ITraceCacheStore
 
     private Task ExecuteAsync(string sql, CancellationToken ct = default) =>
         ExecuteAsync(sql, null, ct);
+
+    /// <summary>Checks whether the frames table has the given column
+    /// (legacy-database migration guard, runs before any ALTER). Must use
+    /// <c>pragma_table_xinfo</c> — plain <c>table_info</c> omits generated
+    /// (hidden) columns, which would re-trigger the ALTER on every open.</summary>
+    private async Task<bool> HasFrameColumnAsync(string columnName, CancellationToken ct)
+    {
+        await using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_xinfo('frames') WHERE name=$name;";
+        command.Parameters.AddWithValue("$name", columnName);
+        var result = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return (long)result! > 0;
+    }
 
     private async Task ExecuteAsync(string sql, IReadOnlyList<SqliteParameter>? parameters, CancellationToken ct)
     {

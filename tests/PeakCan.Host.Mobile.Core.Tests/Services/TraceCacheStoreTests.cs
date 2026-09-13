@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
+using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Mobile.Core.Services;
 using Xunit;
 
@@ -244,5 +246,194 @@ public class TraceCacheStoreTests
         var result = await store.FindFrameAsync(id, 0x200, null, CacheSearchDirection.First);
 
         result.Should().BeNull();
+    }
+
+    // --- P7 Task 2：pgn 生成列与幂等迁移 ---
+
+    private const uint LegacyExtendedId = 0x18EF01FF;
+
+    private static string TempDbPath() => Path.Combine(Path.GetTempPath(), $"pgntest_{Guid.NewGuid():N}.db");
+
+    private static void DeleteDb(string path)
+    {
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    private static CachedFrame ExtFrame(long index, uint canId)
+        => new(index, index * 0.01, canId, true, 8, new byte[8]);
+
+    private static async Task<long> ScalarAsync(string path, string sql)
+    {
+        await using var probe = new SqliteConnection($"Data Source={path};Pooling=False");
+        await probe.OpenAsync();
+        using var command = probe.CreateCommand();
+        command.CommandText = sql;
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>构造 P6 时代旧 schema（frames 无 pgn 生成列）并写入一条扩展帧。</summary>
+    private static async Task CreateLegacyDatabaseAsync(string path)
+    {
+        await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        await connection.OpenAsync();
+        using var create = connection.CreateCommand();
+        create.CommandText = """
+            CREATE TABLE IF NOT EXISTS traces (
+              trace_id INTEGER PRIMARY KEY,
+              source_name TEXT NOT NULL,
+              file_size INTEGER NOT NULL,
+              imported_at TEXT NOT NULL,
+              frame_count INTEGER NOT NULL DEFAULT 0,
+              duration REAL NOT NULL DEFAULT 0,
+              complete INTEGER NOT NULL DEFAULT 0,
+              last_position_seconds REAL NOT NULL DEFAULT 0,
+              UNIQUE(source_name, file_size)
+            );
+            CREATE TABLE IF NOT EXISTS frames (
+              trace_id INTEGER NOT NULL REFERENCES traces(trace_id),
+              idx INTEGER NOT NULL,
+              timestamp REAL NOT NULL,
+              can_id INTEGER NOT NULL,
+              is_extended INTEGER NOT NULL,
+              dlc INTEGER NOT NULL,
+              data BLOB NOT NULL,
+              PRIMARY KEY (trace_id, idx)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS idx_frames_ts ON frames(trace_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_frames_id ON frames(trace_id, can_id);
+            CREATE INDEX IF NOT EXISTS idx_frames_cid_idx ON frames(trace_id, can_id, idx);
+            CREATE INDEX IF NOT EXISTS idx_frames_cid_ts ON frames(trace_id, can_id, timestamp);
+            """;
+        await create.ExecuteNonQueryAsync();
+
+        using var insertTrace = connection.CreateCommand();
+        insertTrace.CommandText =
+            "INSERT INTO traces(source_name,file_size,imported_at) VALUES('legacy.asc',1,'2026-01-01T00:00:00.0000000+00:00');";
+        await insertTrace.ExecuteNonQueryAsync();
+
+        using var insertFrame = connection.CreateCommand();
+        insertFrame.CommandText =
+            "INSERT INTO frames(trace_id,idx,timestamp,can_id,is_extended,dlc,data) VALUES(1,0,1.0,$id,1,8,$data);";
+        insertFrame.Parameters.AddWithValue("$id", LegacyExtendedId);
+        insertFrame.Parameters.AddWithValue("$data", new byte[8]);
+        await insertFrame.ExecuteNonQueryAsync();
+    }
+
+    [Fact]
+    public async Task Sqlite_Version_Supports_Generated_Columns()
+    {
+        // spec §2.2 prerequisite: generated columns require SQLite ≥ 3.31 (constant regression guard)
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT sqlite_version();";
+        var version = Version.Parse((string)(await command.ExecuteScalarAsync())!);
+
+        version.Should().BeGreaterThanOrEqualTo(new Version(3, 31));
+    }
+
+    [Fact]
+    public async Task NewDatabase_HasPgnColumnAndIndex()
+    {
+        var path = TempDbPath();
+        try
+        {
+            await using (var store = new TraceCacheStore(path))
+                await store.InitializeAsync();
+
+            (await ScalarAsync(path, "SELECT COUNT(*) FROM pragma_table_xinfo('frames') WHERE name='pgn';"))
+                .Should().Be(1);
+            (await ScalarAsync(path, "SELECT COUNT(*) FROM pragma_index_list('frames') WHERE name='idx_frames_pgn_idx';"))
+                .Should().Be(1);
+        }
+        finally { DeleteDb(path); }
+    }
+
+    [Fact]
+    public async Task LegacyDatabase_MigratesOnOpen_Idempotent()
+    {
+        var path = TempDbPath();
+        try
+        {
+            await CreateLegacyDatabaseAsync(path);
+
+            // Legacy trace reusable: opening the old database does not rebuild the trace table
+            await using (var store = new TraceCacheStore(path))
+            {
+                await store.InitializeAsync();
+                (await store.GetOrCreateTraceAsync("legacy.asc", 1)).Should().Be(1);
+            }
+
+            // Opening the same file a second time must not add the column again (a duplicate ALTER would throw duplicate column name)
+            await using (var second = new TraceCacheStore(path))
+                await second.InitializeAsync();
+            (await ScalarAsync(path, "SELECT COUNT(*) FROM pragma_table_xinfo('frames') WHERE name='pgn';"))
+                .Should().Be(1);
+
+            // VIRTUAL generated columns compute on the fly for old rows as well: legacy rows immediately get the correct PGN
+            (await ScalarAsync(path, "SELECT pgn FROM frames WHERE trace_id=1 AND idx=0;"))
+                .Should().Be((long)new J1939Id(LegacyExtendedId).Pgn);
+        }
+        finally { DeleteDb(path); }
+    }
+
+    [Fact]
+    public async Task PgnExpression_Matches_J1939Id_Fuzz()
+    {
+        var path = TempDbPath();
+        try
+        {
+            var frames = new List<CachedFrame>();
+            long index = 0;
+            var random = new Random(20260913);
+            // Random extended IDs (covering priority/R-EDP/DP/PF/PS/SA full domain)
+            for (var i = 0; i < 1000; i++)
+                frames.Add(ExtFrame(index++, (uint)random.Next(0, 1 << 29)));
+            // PDU1/PDU2 boundary: PF=0xEF (PS is not part of PGN) and PF=0xF0 (PS is part of PGN), DP=0/1 two forms
+            foreach (var id in new[] { 0x00EF01FFu, 0x01EF01FFu, 0x00F001FFu, 0x01F001FFu, 0x18EF01FFu, 0x18FF50E5u })
+                frames.Add(ExtFrame(index++, id));
+            // Forms carrying the IDE reserved bit at bit31 (the expression must strip bits first)
+            for (var i = 0; i < 10; i++)
+                frames.Add(ExtFrame(index++, (uint)random.Next(0, 1 << 29) | 0x80000000u));
+            // Non-extended frames: pgn must be NULL
+            for (var i = 0; i < 50; i++)
+                frames.Add(new CachedFrame(index++, i * 0.01, (uint)random.Next(0, 0x800), false, 8, new byte[8]));
+
+            long traceId;
+            await using (var store = new TraceCacheStore(path))
+            {
+                await store.InitializeAsync();
+                traceId = await store.GetOrCreateTraceAsync("fuzz.asc", 1);
+                await store.AppendFramesAsync(traceId, frames);
+            }
+
+            await using var probe = new SqliteConnection($"Data Source={path};Pooling=False");
+            await probe.OpenAsync();
+            using var query = probe.CreateCommand();
+            query.CommandText = "SELECT idx,can_id,is_extended,pgn FROM frames WHERE trace_id=$id ORDER BY idx;";
+            query.Parameters.AddWithValue("$id", traceId);
+            using var reader = await query.ExecuteReaderAsync();
+
+            var checkedCount = 0;
+            while (await reader.ReadAsync())
+            {
+                var canId = (uint)reader.GetInt64(1);
+                if (reader.GetBoolean(2))
+                {
+                    reader.GetInt64(3).Should().Be((long)new J1939Id(canId & J1939Id.Raw29Mask).Pgn,
+                        $"can_id=0x{canId:X8} PGN should match J1939Id bit by bit");
+                }
+                else
+                {
+                    reader.IsDBNull(3).Should().BeTrue("non-extended frame pgn must be NULL");
+                }
+                checkedCount++;
+            }
+            checkedCount.Should().Be(frames.Count);
+        }
+        finally { DeleteDb(path); }
     }
 }
