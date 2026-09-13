@@ -9,6 +9,7 @@ using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Mobile.Core.Chat;
 using PeakCan.Host.Mobile.Core.Chat.Tools;
+using PeakCan.Host.Mobile.Core.Platform;
 
 namespace PeakCan.Host.Mobile.Core.ViewModels;
 
@@ -40,12 +41,24 @@ public sealed partial class ChatViewModel : ObservableObject
     /// so in-flight chat HTTP requests are aborted when the page closes.</summary>
     private CancellationTokenSource? _chatCts;
 
+    /// <summary>Marshals message-list mutations back to the UI thread. Null in
+    /// unit tests (mutations run inline on the test thread).</summary>
+    private readonly IUiDispatcher? _ui;
+
+    /// <summary>Run <paramref name="action"/> on the UI thread.</summary>
+    private void RunOnUi(Action action)
+    {
+        if (_ui is null) action();
+        else _ui.Post(action);
+    }
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private string _chatInput = "";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearChatCommand))]
     private bool _isChatBusy;
 
     /// <summary>UI hint for the unconfigured case ("请先在设置中配置 API Key").</summary>
@@ -67,11 +80,13 @@ public sealed partial class ChatViewModel : ObservableObject
         IReadOnlyList<IChatTool>? chatTools = null,
         ICredentialStore? credentialStore = null,
         IChatConfigStore? configStore = null,
-        IChatConnectionTester? connectionTester = null)
+        IChatConnectionTester? connectionTester = null,
+        IUiDispatcher? uiDispatcher = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _providerFactory = providerFactory ?? throw new ArgumentNullException(nameof(providerFactory));
         _logger = logger ?? NullLogger.Instance;
+        _ui = uiDispatcher;
         _credentialStore = credentialStore;
         _configStore = configStore;
         _connectionTester = connectionTester;
@@ -87,10 +102,16 @@ public sealed partial class ChatViewModel : ObservableObject
     /// <summary>Current provider set by the settings flow; null when no key is configured.</summary>
     internal IChatProvider? CurrentProvider { get; private set; }
 
-    /// <summary>Set/clear the active provider (called by the settings partial).</summary>
-    internal void SetProvider(IChatProvider? provider)
+    /// <summary>Credential key behind <see cref="CurrentProvider"/> (null when
+    /// unconfigured); used to restore the active marker on key-list reloads.</summary>
+    internal string? CurrentCredentialKey { get; private set; }
+
+    /// <summary>Set/clear the active provider (called by the settings partial).
+    /// <paramref name="credentialKey"/> records which saved key is active.</summary>
+    internal void SetProvider(IChatProvider? provider, string? credentialKey = null)
     {
         CurrentProvider = provider;
+        CurrentCredentialKey = provider is null ? null : credentialKey;
         if (provider is not null) ConnectionHint = "";
     }
 
@@ -141,7 +162,10 @@ public sealed partial class ChatViewModel : ObservableObject
         IsChatBusy = true;
         try
         {
-            await RunChatLoopAsync(userText, ct).ConfigureAwait(true);
+            // Android 上 HttpClient 走 Java 栈，主线程收发网络包会抛
+            // NetworkOnMainThreadException —— 整个聊天循环放到线程池跑，
+            // 消息列表变更经 IUiDispatcher 调度回 UI 线程。
+            await Task.Run(() => RunChatLoopAsync(userText, ct)).ConfigureAwait(true);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -155,7 +179,9 @@ public sealed partial class ChatViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanClearChat() => !IsChatBusy;
+
+    [RelayCommand(CanExecute = nameof(CanClearChat))]
     private void ClearChat()
     {
         _chatHistory.Clear();
@@ -165,12 +191,12 @@ public sealed partial class ChatViewModel : ObservableObject
     private async Task RunChatLoopAsync(string userText, CancellationToken ct)
     {
         _chatHistory.Add(new ChatMessage("user", userText, null, null));
-        ChatMessages.Add(new ChatMessageViewModel("user", userText));
+        RunOnUi(() => ChatMessages.Add(new ChatMessageViewModel("user", userText)));
 
         var provider = CurrentProvider;
         if (provider is null)
         {
-            ChatMessages.Add(new ChatMessageViewModel("assistant", "[出错: 聊天 Provider 未配置]"));
+            RunOnUi(() => ChatMessages.Add(new ChatMessageViewModel("assistant", "[出错: 聊天 Provider 未配置]")));
             return;
         }
 
@@ -180,19 +206,19 @@ public sealed partial class ChatViewModel : ObservableObject
             messages.AddRange(_chatHistory);
 
             var aiBubble = new ChatMessageViewModel("assistant") { IsStreaming = true };
-            ChatMessages.Add(aiBubble);
+            RunOnUi(() => ChatMessages.Add(aiBubble));
             var content = new StringBuilder();
             var toolCalls = new List<ChatToolCall>();
             var errored = false;
 
             await foreach (var update in provider.ChatStreamingAsync(messages, _chatToolDefs, ct)
-                              .ConfigureAwait(true))
+                              .ConfigureAwait(false))
             {
                 switch (update)
                 {
                     case ChatUpdate.PartialDelta d:
                         content.Append(d.Text);
-                        aiBubble.Content += d.Text;
+                        RunOnUi(() => aiBubble.Content += d.Text);
                         break;
                     case ChatUpdate.ToolCallStart s:
                         _logger.LogDebug("Chat tool call started: {ToolName}", s.Name);
@@ -203,7 +229,7 @@ public sealed partial class ChatViewModel : ObservableObject
                         toolCalls = r.ToolCalls.ToList();
                         break;
                     case ChatUpdate.Error e:
-                        aiBubble.Content += $"\n[错误: {e.Message}]";
+                        RunOnUi(() => aiBubble.Content += $"\n[错误: {e.Message}]");
                         _chatHistory.Add(new ChatMessage(
                             "assistant", content.ToString() + $"\n[错误: {e.Message}]", null, null));
                         errored = true;
@@ -217,7 +243,7 @@ public sealed partial class ChatViewModel : ObservableObject
                 if (update is ChatUpdate.Error or ChatUpdate.Done) break;
             }
 
-            aiBubble.IsStreaming = false;
+            RunOnUi(() => aiBubble.IsStreaming = false);
             if (errored) return;
 
             if (toolCalls.Count == 0)
@@ -239,15 +265,16 @@ public sealed partial class ChatViewModel : ObservableObject
                 var tool = _chatTools.FirstOrDefault(t => t.Name == tc.FunctionName);
                 results[i] = tool is null
                     ? $"{{\"error\":\"unknown tool: {tc.FunctionName}\"}}"
-                    : await tool.ExecuteAsync(tc.FunctionArgs, ct).ConfigureAwait(true);
+                    : await ExecuteToolOnUiAsync(tool, tc.FunctionArgs, ct).ConfigureAwait(false);
             }
 
             for (int i = 0; i < toolCalls.Count; i++)
             {
-                toolLog.Tools.Add(new ToolCallEntry(toolCalls[i].FunctionName, results[i]!));
+                var entry = new ToolCallEntry(toolCalls[i].FunctionName, results[i]!);
+                RunOnUi(() => toolLog.Tools.Add(entry));
                 _chatHistory.Add(new ChatMessage("tool", results[i], null, toolCalls[i].Id));
             }
-            ChatMessages.Add(toolLog);
+            RunOnUi(() => ChatMessages.Add(toolLog));
             // loop continues - next round the assistant replies to the tool results
         }
 
@@ -255,8 +282,22 @@ public sealed partial class ChatViewModel : ObservableObject
         // the hint on the next user turn.
         const string maxRoundsMsg = "[达到最大轮数上限，请发新消息继续]";
         var maxRoundsBubble = new ChatMessageViewModel("assistant", maxRoundsMsg);
-        ChatMessages.Add(maxRoundsBubble);
+        RunOnUi(() => ChatMessages.Add(maxRoundsBubble));
         _chatHistory.Add(new ChatMessage("assistant", maxRoundsMsg, null, null));
+    }
+
+    /// <summary>Executes a chat tool on the UI thread — tools touch session
+    /// state (player/seek/DBC) that is owned by the UI thread.</summary>
+    private Task<string> ExecuteToolOnUiAsync(IChatTool tool, string argsJson, CancellationToken ct)
+    {
+        if (_ui is null) return tool.ExecuteAsync(argsJson, ct);
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ui.Post(async () =>
+        {
+            try { tcs.SetResult(await tool.ExecuteAsync(argsJson, ct).ConfigureAwait(false)); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        return tcs.Task;
     }
 
     private ChatMessage BuildSystemMessage()

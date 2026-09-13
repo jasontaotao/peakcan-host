@@ -234,6 +234,57 @@ public class ChatViewModelSettingsTests
     }
 
     [Fact]
+    public async Task LoadSavedKeys_AfterSwitch_ReloadKeepsSwitchedKey()
+    {
+        // 返回聊天页触发 OnAppearing → 重复加载不得把激活 key 拉回第一个（review bug）
+        var credentials = new FakeCredentialStore();
+        await credentials.SetAsync("PeakCan/DeepSeek/a", "key-a");
+        await credentials.SetAsync("PeakCan/GLM/b", "key-b");
+        var config = new FakeConfigStore
+        {
+            Items =
+            {
+                new SavedChatKeyMeta("PeakCan/DeepSeek/a", "DeepSeek", "a", "https://api.deepseek.com/v1", "deepseek-chat"),
+                new SavedChatKeyMeta("PeakCan/GLM/b", "GLM", "b", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
+            },
+        };
+        var factory = new FakeProviderFactory();
+        var vm = BuildVm(credentials, config, factory: factory);
+        await vm.LoadChatSavedKeysAsync();
+
+        await vm.SwitchChatKeyCommand.ExecuteAsync(vm.ChatSavedKeys[1]);
+        await vm.LoadChatSavedKeysAsync(); // 模拟从设置页返回
+
+        vm.ChatSavedKeys[1].IsActive.Should().BeTrue();
+        vm.ChatSavedKeys[0].IsActive.Should().BeFalse();
+        factory.LastCredentialKey.Should().Be("PeakCan/GLM/b");
+        vm.CurrentCredentialKey.Should().Be("PeakCan/GLM/b");
+        vm.CurrentProvider.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task LoadSavedKeys_AfterReset_ReloadDoesNotReactivate()
+    {
+        // 重置后回到聊天页，不得把已保存的 key 自动重新激活
+        var credentials = new FakeCredentialStore();
+        await credentials.SetAsync("PeakCan/DeepSeek/a", "key-a");
+        var config = new FakeConfigStore
+        {
+            Items = { new SavedChatKeyMeta("PeakCan/DeepSeek/a", "DeepSeek", "a", "https://api.deepseek.com/v1", "deepseek-chat") },
+        };
+        var factory = new FakeProviderFactory();
+        var vm = BuildVm(credentials, config, factory: factory);
+        await vm.LoadChatSavedKeysAsync();
+
+        vm.ResetChatConfigCommand.Execute(null);
+        await vm.LoadChatSavedKeysAsync();
+
+        vm.CurrentProvider.Should().BeNull();
+        vm.ChatIsConfigured.Should().BeFalse();
+        vm.ChatSavedKeys.Should().ContainSingle().Which.IsActive.Should().BeFalse();
+    }
+
+    [Fact]
     public void SavedChatKeyMeta_RoundTripsJson()
     {
         // 钉住 MauiChatConfigStore 的序列化假设（Core 层可测，platform 层薄封装）

@@ -29,17 +29,51 @@
                                 Padding="10,6" HorizontalOptions="End">
                             <Label Text="{Binding Content}" FontSize="14" />
                         </Border>
-                        <!-- assistant 左对齐气泡 -->
+                        <!-- assistant 左对齐气泡（流式时尾部显示 …） -->
                         <Border Grid.Column="0" IsVisible="{Binding IsAssistant}"
                                 BackgroundColor="#F2F2F7" StrokeThickness="0" StrokeShape="RoundRectangle 12"
                                 Padding="10,6" HorizontalOptions="Start">
-                            <Label Text="{Binding Content}" FontSize="14" />
+                            <VerticalStackLayout>
+                                <Label Text="{Binding Content}" FontSize="14" />
+                                <Label Text="…" FontSize="14" TextColor="Gray"
+                                       IsVisible="{Binding IsStreaming}" />
+                            </VerticalStackLayout>
                         </Border>
-                        <!-- tool_log 折叠条 -->
+                        <!-- tool_log 折叠条（点击展开各工具 name/result） -->
                         <Border Grid.Column="0" IsVisible="{Binding IsToolLog}"
                                 BackgroundColor="#FFF4E0" StrokeThickness="0" StrokeShape="RoundRectangle 12"
                                 Padding="10,6" HorizontalOptions="Start">
-                            <Label Text="{Binding ToolLogText}" FontSize="12" TextColor="#8A6D00" />
+                            <VerticalStackLayout>
+                                <HorizontalStackLayout Spacing="4">
+                                    <Label Text="{Binding ToolLogText}" FontSize="12" TextColor="#8A6D00" />
+                                    <Label FontSize="12" TextColor="#8A6D00" VerticalOptions="Center">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsExpanded}" Value="True">
+                                                <Setter Property="Text" Value="▲" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsExpanded}" Value="False">
+                                                <Setter Property="Text" Value="▼" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                    <HorizontalStackLayout.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding ToggleExpandedCommand}" />
+                                    </HorizontalStackLayout.GestureRecognizers>
+                                </HorizontalStackLayout>
+                                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Tools}"
+                                                     IsVisible="{Binding IsExpanded}">
+                                    <BindableLayout.ItemTemplate>
+                                        <DataTemplate>
+                                            <VerticalStackLayout Padding="0,4,0,0">
+                                                <Label Text="{Binding Name}" FontSize="12" FontAttributes="Bold"
+                                                       TextColor="#1A5FB4" />
+                                                <Label Text="{Binding Result}" FontFamily="Mono" FontSize="11"
+                                                       TextColor="#5A5A5A" />
+                                            </VerticalStackLayout>
+                                        </DataTemplate>
+                                    </BindableLayout.ItemTemplate>
+                                </VerticalStackLayout>
+                            </VerticalStackLayout>
                         </Border>
                     </Grid>
                 </DataTemplate>
@@ -56,7 +90,13 @@
         <!-- 输入行 -->
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <Entry x:Name="ChatEntry" Placeholder="问 AI…" Text="{Binding ChatInput}" Completed="OnSendClicked" />
-            <Button Grid.Column="1" Text="发送" Clicked="OnSendClicked" />
+            <Button Grid.Column="1" Text="发送" Clicked="OnSendClicked">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding IsChatBusy}" Value="True">
+                        <Setter Property="IsEnabled" Value="False" />
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
         </Grid>
     </Grid>
 </ContentPage>

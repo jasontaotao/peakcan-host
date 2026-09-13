@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace PeakCan.Host.Mobile.Core.ViewModels;
 
@@ -18,6 +19,12 @@ public sealed partial class ChatMessageViewModel : ObservableObject
     [ObservableProperty]
     private bool _isStreaming;
 
+    /// <summary>tool_log bubble: whether the per-tool name/result list is
+    /// expanded (tap the strip header to toggle, mirroring the desktop
+    /// Expander).</summary>
+    [ObservableProperty]
+    private bool _isExpanded;
+
     /// <summary>Tool-call entries for a <c>tool_log</c> bubble. Empty for
     /// user/assistant bubbles.</summary>
     public ObservableCollection<ToolCallEntry> Tools { get; } = new();
@@ -35,6 +42,9 @@ public sealed partial class ChatMessageViewModel : ObservableObject
 
     /// <summary>Collapsed tool-log strip label ("🔍 执行了 N 个工具").</summary>
     public string ToolLogText => $"🔍 执行了 {Tools.Count} 个工具";
+
+    [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
 }
 
 /// <summary>One executed tool call shown inside a <c>tool_log</c> bubble.</summary>

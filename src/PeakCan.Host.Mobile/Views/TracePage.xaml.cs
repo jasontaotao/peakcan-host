@@ -44,6 +44,7 @@ public partial class TracePage : ContentPage
     private readonly ICredentialStore? _credentialStore;
     private readonly IChatConfigStore? _chatConfigStore;
     private readonly IChatConnectionTester? _chatConnectionTester;
+    private readonly IUiDispatcher? _ui;
     private LvcPointD? _pressPosition;      // chart 点按起始位置（tap/pan 判定）
     private long _pressTimestamp;           // chart 点按起始时刻（raw TickCount，不受 DPI 影响）
     private const int MinimumRenderPointCount = 64;
@@ -75,6 +76,7 @@ public partial class TracePage : ContentPage
         _credentialStore = credentialStore;
         _chatConfigStore = chatConfigStore;
         _chatConnectionTester = chatConnectionTester;
+        _ui = ui;
         _vm = new TraceSessionViewModel(ui, sourceFactory,
             src => new PeakCan.Host.Core.Replay.StreamingTracePlayer(src, clock: null), logger, cacheSinkFactory, _cacheStore);
         BindingContext = _vm;
@@ -645,7 +647,8 @@ public partial class TracePage : ContentPage
         }
 
         var chatVm = _vm.CreateChatViewModel(
-            _chatProviderFactory, _credentialStore, _chatConfigStore, _chatConnectionTester);
+            _chatProviderFactory, _credentialStore, _chatConfigStore, _chatConnectionTester,
+            uiDispatcher: _ui);
         _ = Navigation.PushAsync(new ChatPage(chatVm));
     }
 

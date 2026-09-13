@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only trust additions. <debug-overrides> is ignored unless the app
+     is debuggable (Debug builds), so Release behavior equals the platform
+     default (system CAs only, cleartext blocked). Debug builds additionally
+     trust user-installed CAs, letting the app talk to local mock LLM servers
+     with self-signed certificates (https://10.0.2.2:18443). -->
+<network-security-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.Host.Mobile.Core.Chat;
+using PeakCan.Host.Mobile.Core.Platform;
 using PeakCan.Host.Mobile.Core.Services;
 
 namespace PeakCan.Host.Mobile.Core.ViewModels;
@@ -45,7 +46,9 @@ public sealed partial class TraceSessionViewModel
         ICredentialStore credentials,
         IChatConfigStore config,
         IChatConnectionTester tester,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IUiDispatcher? uiDispatcher = null)
         => new(this, providerFactory, logger,
-            credentialStore: credentials, configStore: config, connectionTester: tester);
+            credentialStore: credentials, configStore: config, connectionTester: tester,
+            uiDispatcher: uiDispatcher);
 }

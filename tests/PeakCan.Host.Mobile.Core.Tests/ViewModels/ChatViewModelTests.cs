@@ -166,6 +166,19 @@ public class ChatViewModelTests
         vm.ChatMessages.Should().BeEmpty();
     }
 
+    [Fact]
+    public void ToolLogToggle_ExpandsAndCollapses()
+    {
+        // tool_log 折叠条点击展开（spec §6 气泡：点击展开各工具 name/result）
+        var bubble = new ChatMessageViewModel("tool_log");
+        bubble.IsExpanded.Should().BeFalse();
+
+        bubble.ToggleExpandedCommand.Execute(null);
+        bubble.IsExpanded.Should().BeTrue();
+        bubble.ToggleExpandedCommand.Execute(null);
+        bubble.IsExpanded.Should().BeFalse();
+    }
+
     private sealed class FakeChatProvider : IChatProvider
     {
         private readonly Queue<List<ChatUpdate>> _rounds = new();

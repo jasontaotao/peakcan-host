@@ -23,8 +23,10 @@ public partial class ChatPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        // 页面关闭：取消 in-flight 请求，避免继续消耗 token
-        _vm.Dispose();
+        // 仅在页面被弹出（已不在导航栈）时取消 in-flight 请求；
+        // 前往设置页 / 应用切后台时页面仍在栈中，流式回复继续
+        if (!Navigation.NavigationStack.Contains(this))
+            _vm.Dispose();
     }
 
     private async void OnSendClicked(object? sender, EventArgs e)

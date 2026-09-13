@@ -41,6 +41,10 @@ public sealed partial class ChatViewModel
     private readonly IChatConfigStore? _configStore;
     private readonly IChatConnectionTester? _connectionTester;
 
+    /// <summary>True once <see cref="LoadChatSavedKeysAsync"/> has run for this
+    /// VM — first-load-only auto-activation of the first key keys off this.</summary>
+    private bool _keysLoaded;
+
     /// <summary>当前选中的厂商。</summary>
     [ObservableProperty] private string _chatSelectedProvider = "DeepSeek";
 
@@ -164,7 +168,7 @@ public sealed partial class ChatViewModel
             PersistSavedKeys();
 
             ChatIsConfigured = true;
-            SetProvider(_providerFactory.Create(apiBase, model, credKey));
+            SetProvider(_providerFactory.Create(apiBase, model, credKey), credKey);
             ChatApiKeyInput = new string('*', 8);
             ChatConnectionStatus = $"已保存 {ChatSelectedProvider} / {ChatNewKeyAlias} ({model})";
         }
@@ -194,7 +198,7 @@ public sealed partial class ChatViewModel
         ChatSelectedProvider = info.Provider;
         ChatModelInput = info.Model;
         ChatIsConfigured = true;
-        SetProvider(_providerFactory.Create(info.ApiBase, info.Model, info.CredentialKey));
+        SetProvider(_providerFactory.Create(info.ApiBase, info.Model, info.CredentialKey), info.CredentialKey);
         PersistSavedKeys();
         ChatConnectionStatus = $"已切换到 {info.DisplayName}";
     }
@@ -220,7 +224,7 @@ public sealed partial class ChatViewModel
                     foreach (var k in ChatSavedKeys) k.IsActive = k == next;
                     ChatSelectedProvider = next.Provider;
                     ChatModelInput = next.Model;
-                    SetProvider(_providerFactory.Create(next.ApiBase, next.Model, next.CredentialKey));
+                    SetProvider(_providerFactory.Create(next.ApiBase, next.Model, next.CredentialKey), next.CredentialKey);
                 }
             }
             else if (ChatSavedKeys.Count == 0)
@@ -246,8 +250,9 @@ public sealed partial class ChatViewModel
         ChatConnectionStatus = "配置已重置";
     }
 
-    /// <summary>启动时从配置存储恢复已保存的 key 并激活第一个（自定义厂商的
-    /// ApiBase/Model 一并恢复）。</summary>
+    /// <summary>启动时从配置存储恢复已保存的 key（自定义厂商的 ApiBase/Model
+    /// 一并恢复）。仅首次加载时自动激活第一个；之后 OnAppearing 的重复调用只
+    /// 刷新列表和激活标记，不覆盖用户在设置页做出的切换/重置。</summary>
     public async Task LoadChatSavedKeysAsync()
     {
         if (!EnsureSettingsReady()) return;
@@ -256,6 +261,7 @@ public sealed partial class ChatViewModel
             // OnAppearing 每次触发（含从设置页返回）：先清空避免重复 Add
             ChatSavedKeys.Clear();
             var metas = _configStore!.Load();
+            var autoActivate = !_keysLoaded && CurrentProvider is null;
             var found = false;
             foreach (var meta in metas)
             {
@@ -271,17 +277,24 @@ public sealed partial class ChatViewModel
                     Model = meta.Model,
                 };
                 ChatSavedKeys.Add(info);
-                if (!found)
+                if (autoActivate && !found)
                 {
                     found = true;
                     info.IsActive = true;
                     ChatSelectedProvider = meta.Provider;
                     ChatModelInput = meta.Model;
-                    SetProvider(_providerFactory.Create(meta.ApiBase, meta.Model, meta.CredentialKey));
+                    SetProvider(_providerFactory.Create(meta.ApiBase, meta.Model, meta.CredentialKey), meta.CredentialKey);
                     ChatIsConfigured = true;
                 }
             }
-            ChatConnectionStatus = found
+            _keysLoaded = true;
+            if (!autoActivate)
+            {
+                // 保持当前激活的 provider 不变，仅恢复列表上的 IsActive 标记
+                foreach (var k in ChatSavedKeys)
+                    k.IsActive = k.CredentialKey == CurrentCredentialKey;
+            }
+            ChatConnectionStatus = found || !autoActivate
                 ? $"已加载 {ChatSavedKeys.Count} 个 API Key 配置"
                 : ChatSavedKeys.Count == 0
                     ? "未找到已保存的 API Key"
