@@ -591,6 +591,64 @@ public class TraceCacheStoreTests
         finally { DeleteDb(path); }
     }
 
+    // --- P7 Task 4：GetFramesForCanIdAsync 窗口查询 ---
+
+    private static CachedFrame ExtFrameAt(long index, double timestamp, uint canId)
+        => new(index, timestamp, canId, true, 8, new byte[8]);
+
+    [Fact]
+    public async Task WindowQuery_ClosedInterval_BothEndsInclusive_ExcludesOtherIds()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id,
+        [
+            ExtFrameAt(0, 1.0, MatchId),
+            ExtFrameAt(1, 2.0, MatchId),   // 恰为 tStart（闭区间含端点）
+            ExtFrameAt(2, 3.0, MatchId),   // 恰为 tEnd
+            ExtFrameAt(3, 4.0, MatchId),
+            ExtFrameAt(4, 2.5, OtherId),   // 窗口内但不同 ID → 排除
+        ]);
+
+        var page = await store.GetFramesForCanIdAsync(id, MatchId, tStart: 2.0, tEnd: 3.0);
+
+        page.Frames.Select(f => f.Index).Should().Equal([1L, 2L]);
+        page.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WindowQuery_OrderedByTimestamp_ThenIdx()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        // 写入顺序与时间序刻意错开（BLF 重排语义）；同刻两帧按 idx 升序（对齐
+        // GetLatestFramesBeforeAsync 的并列语义）。
+        await store.AppendFramesAsync(id,
+        [
+            ExtFrameAt(0, 2.0, MatchId),
+            ExtFrameAt(1, 1.0, MatchId),
+            ExtFrameAt(2, 2.0, MatchId),
+        ]);
+
+        var page = await store.GetFramesForCanIdAsync(id, MatchId, tStart: null, tEnd: null);
+
+        page.Frames.Select(f => f.Index).Should().Equal([1L, 0L, 2L]);
+    }
+
+    [Fact]
+    public async Task WindowQuery_LimitPlusOne_SetsHasMore()
+    {
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("a.asc", 100);
+        await store.AppendFramesAsync(id,
+            Enumerable.Range(0, 4).Select(i => ExtFrameAt(i, 1.0 + i, MatchId)).ToArray());
+
+        var page = await store.GetFramesForCanIdAsync(id, MatchId, tStart: null, tEnd: null, limit: 3);
+
+        page.Frames.Should().HaveCount(3);
+        page.HasMore.Should().BeTrue();
+    }
+
     private static async Task<string> ExplainAsync(string path, string sql, IReadOnlyList<SqliteParameter> parameters)
     {
         await using var probe = new SqliteConnection($"Data Source={path};Pooling=False");

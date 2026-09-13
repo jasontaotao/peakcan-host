@@ -43,6 +43,7 @@ public class TraceCacheWriterTests
         public Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TraceCacheSummary>>([]);
         public Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(long traceId, double timestamp, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CachedFrame>>([]);
         public Task<CachedFrame?> FindFrameAsync(long traceId, uint canId, double? afterTimestamp, CacheSearchDirection direction, CancellationToken ct = default) => Task.FromResult<CachedFrame?>(null);
+                public Task<FramePage> GetFramesForCanIdAsync(long traceId, uint canId, double? tStart, double? tEnd, int limit = 20000, CancellationToken ct = default) => Task.FromResult(new FramePage([], false));
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -191,6 +192,7 @@ public class TraceCacheWriterTests
         public Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TraceCacheSummary>>([]);
         public Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(long traceId, double timestamp, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CachedFrame>>([]);
         public Task<CachedFrame?> FindFrameAsync(long traceId, uint canId, double? afterTimestamp, CacheSearchDirection direction, CancellationToken ct = default) => Task.FromResult<CachedFrame?>(null);
+                public Task<FramePage> GetFramesForCanIdAsync(long traceId, uint canId, double? tStart, double? tEnd, int limit = 20000, CancellationToken ct = default) => Task.FromResult(new FramePage([], false));
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

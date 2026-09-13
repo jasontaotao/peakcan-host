@@ -21,4 +21,16 @@ public interface ITraceCacheStore : IAsyncDisposable
     Task<CachedFrame?> FindFrameAsync(
         long traceId, uint canId, double? afterTimestamp,
         CacheSearchDirection direction, CancellationToken ct = default);
+
+    /// <summary>
+    /// Window query for one CAN ID over the cached region: closed interval
+    /// [<paramref name="tStart"/>, <paramref name="tEnd"/>] (null = open-ended),
+    /// ordered by timestamp then idx. Returns at most <paramref name="limit"/>
+    /// rows; <see cref="FramePage.HasMore"/> reports truncation (read as
+    /// <c>truncated</c> by the chat tool — the raw window exceeded the budget).
+    /// Uses the idx_frames_cid_ts covering index.
+    /// </summary>
+    Task<FramePage> GetFramesForCanIdAsync(
+        long traceId, uint canId, double? tStart, double? tEnd,
+        int limit = 20000, CancellationToken ct = default);
 }

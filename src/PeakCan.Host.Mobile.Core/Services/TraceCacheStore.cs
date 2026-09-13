@@ -507,6 +507,63 @@ public sealed class TraceCacheStore : ITraceCacheStore
         }
     }
 
+    /// <inheritdoc />
+    public async Task<FramePage> GetFramesForCanIdAsync(
+        long traceId, uint canId, double? tStart, double? tEnd,
+        int limit = 20000, CancellationToken ct = default)
+    {
+        if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // 闭区间窗口；边界条件按需拼接（比 IS NULL 谓词更利于 planner 走
+            // idx_frames_cid_ts 的 trace_id+can_id 等值 + timestamp 范围）。
+            var bounds = "";
+            if (tStart is not null) bounds += " AND timestamp >= $t_start";
+            if (tEnd is not null) bounds += " AND timestamp <= $t_end";
+            var sql = $"""
+                SELECT idx,timestamp,can_id,is_extended,dlc,data
+                FROM frames
+                WHERE trace_id=$trace_id AND can_id=$can_id{bounds}
+                ORDER BY timestamp ASC, idx ASC
+                LIMIT $limit
+                """;
+
+            await using var command = _connection.CreateCommand();
+            command.CommandText = sql;
+            command.Parameters.AddRange(
+            [
+                new("$trace_id", traceId),
+                new("$can_id", canId),
+            ]);
+            if (tStart is not null) command.Parameters.Add(new("$t_start", tStart));
+            if (tEnd is not null) command.Parameters.Add(new("$t_end", tEnd));
+            command.Parameters.Add(new("$limit", limit + 1));
+
+            var result = new List<CachedFrame>();
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                result.Add(new CachedFrame(
+                    reader.GetInt64(0),
+                    reader.GetDouble(1),
+                    (uint)reader.GetInt64(2),
+                    reader.GetInt64(3) != 0,
+                    reader.GetByte(4),
+                    (byte[])reader.GetValue(5)));
+            }
+
+            var hasMore = result.Count > limit;
+            if (hasMore) result.RemoveAt(result.Count - 1);
+            return new FramePage(result, hasMore);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default)
     {
         if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
