@@ -97,12 +97,14 @@ public sealed record FrameQuery(
 Task<FramePage> GetFramesForCanIdAsync(long traceId, uint canId,
     double? tStart, double? tEnd, int limit = 20000, CancellationToken ct = default);
 
-// IMobileChatToolContext（实现于 TraceSessionViewModel.Chat.cs，委托 store；无缓存 session 返回空列表）
-Task<IReadOnlyList<CachedFrame>> GetFramesForCanIdAsync(uint canId,
-    double? tStart, double? tEnd, CancellationToken ct);
+// IMobileChatToolContext（实现于 TraceSessionViewModel.Chat.cs，委托 store；无缓存 session 返回空页）
+Task<FramePage> GetFramesForCanIdAsync(uint canId, double? tStart, double? tEnd, CancellationToken ct);
+
+// 缓存摘要（complete + duration），供工具判定 "cache incomplete" warning；无缓存 session 返回 null
+Task<TraceCacheSummary?> GetCacheSummaryAsync(CancellationToken ct);
 ```
 
-复用 `FramePage`（`HasMore` 即 `truncated`），不新增结果类型。**接口影响面**：`IMobileChatToolContext` 新增方法会破坏全部实现方——`TraceSessionViewModel`（显式接口实现）与测试替身 `FakeContext` 必须同步更新；`ITraceCacheStore` 的 `FakeStore`/`ThrowingStore` 测试替身同理。
+实施修订（vs 草案）：context 方法返回 `FramePage` 而非 `IReadOnlyList<CachedFrame>`——草案签名会把 store 的截断标记（`HasMore`）丢在 context 层，工具无法如实上报 `truncated`；warning 判定需要 `traces.complete/duration`，故新增 `GetCacheSummaryAsync` 而非在 context 上拼两个散属性。**接口影响面**：`IMobileChatToolContext` 新增方法会破坏全部实现方——`TraceSessionViewModel`（显式接口实现）与测试替身 `FakeContext` 必须同步更新；`ITraceCacheStore` 的 `FakeStore`/`ThrowingStore` 测试替身同理。
 
 ## 6. 错误处理（沿用 P6 §7 约定：返回 `{"error":"..."}` 不抛异常）
 

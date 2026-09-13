@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-13-mobile-trace-viewer-p7-design.md`
 
+## 状态（2026-09-13 完成）
+
+- Task 1–6 全部提交：`2bef6e70`（spec+plan）/ `7d8fed08`（pgn 生成列）/ `9e2d193e`（tri-state 下推）/ `12350fc4`（窗口查询）/ `5372bb8f`（search_signal_trace）/ `25aac367`（Browse 下推 + 提示文案）。
+- Task 7：Mobile.slnx 275/275、Host.Core.Tests 1123 通过、桌面 diff 为零、无新增包、无 Sleep/Delay。
+- 模拟器验收（emulator-5554，mock LLM sk-mock-ok）：新 Placeholder 上屏；`pgn:EF00` 过滤 200 命中、翻页 80+80+40、末页 HasNext=false（诚实）；`zzz` → 0 帧 + HasNext=false（tri-state 回归锁）；`search_signal_trace` 空缓存时返回 `no frames in window` + `cache incomplete` warning，播放完成后返回 `sample_count:200`（LTTB 1600→200）、`max:999.25`（与 fixture 理论值一致）、`last:790.75`（尾帧）。
+- 实施偏差（已同步回 spec §5.3）：context 方法返回 `FramePage`（保留截断标记）而非 `IReadOnlyList<CachedFrame>`；新增 `GetCacheSummaryAsync` 供 warning 判定。
+- 新发现的既有解析器行为（非本期问题，记候选）：`AscFormat` 数据段把 token `FD`（大小写不敏感）当作 CAN-FD 标志吞掉（AscFormat.cs 数据循环），文本 ASC 中数据字节 0xFD 会丢失首字节——桌面/移动共享语义，修复属独立期次。
+
 ## Global Constraints
 
 - 新功能分支：`feature/mobile-trace-viewer-p7`，基线为已合并 P6 的 `main`。每个 task 一次 conventional commit，无 attribution。
@@ -26,14 +34,14 @@
 
 ## Task 1: 分支、spec 与 plan 落盘
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
   ```bash
   cd D:/claude_proj2/peakcan-host
   git checkout main && git checkout -b feature/mobile-trace-viewer-p7
   ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
   ```bash
   git add docs/superpowers/specs/2026-09-13-mobile-trace-viewer-p7-design.md docs/superpowers/plans/2026-09-13-mobile-trace-viewer-p7.md
@@ -50,25 +58,25 @@
 - Consumes: 现有 `TraceCacheStore.InitializeAsync`（幂等 DDL 模式）、`J1939Id`（Host.Core，只读引用做对拍）。
 - Produces: `frames.pgn` 生成列 + `idx_frames_pgn_idx`，后续 Task 3/4 的查询基础。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   1. `SqliteVersion_SupportsGeneratedColumns`：对测试库连接 `SELECT sqlite_version()`，断言 ≥ 3.31（spec §2.2 前置验证，常驻回归守卫）。
   2. `NewDatabase_HasPgnColumnAndIndex`：新库 `PRAGMA table_info(frames)` 含 `pgn`；`PRAGMA index_list(frames)` 含 `idx_frames_pgn_idx`。
   3. `LegacyDatabase_MigratesOnOpen_Idempotent`：测试内用裸 `SqliteConnection` 建旧 schema（无 pgn 列）并插入数据 → 新 `TraceCacheStore` 打开 → `pgn` 列存在且旧行 pgn 值正确；同一文件再开第二个 store 实例 → `table_info` 中 `pgn` 仍只出现 1 次。
   4. `PgnExpression_Matches_J1939Id_Fuzz`：固定种子 Random 生成 ≥1000 个扩展帧（显式含 PF=0xEF/0xF0 边界各若干）+ 非扩展帧若干，`AppendFramesAsync` 写入后用裸连接 `SELECT idx,pgn` 与 C# `new J1939Id(id & 0x1FFFFFFF).Pgn` 逐行对拍；非扩展帧断言 pgn 为 NULL。期望值一律用 `J1939Id` 计算，不手写魔法数。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   - 新库：`CREATE TABLE frames` DDL 内加 `pgn INTEGER GENERATED ALWAYS AS (CASE WHEN is_extended=1 THEN … END) VIRTUAL`（表达式按 spec §3，先 `& 536870911` 剥位）。
   - 旧库：`InitializeAsync` 中 `PRAGMA table_info(frames)` 检查无 `pgn` → `ALTER TABLE frames ADD COLUMN pgn INTEGER GENERATED ALWAYS AS (…) VIRTUAL`。
   - 两个库路径统一 `CREATE INDEX IF NOT EXISTS idx_frames_pgn_idx ON frames(trace_id, pgn, idx)`。
   - `AppendFramesAsync` 不改（INSERT 显式列清单，生成列天然兼容）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add pgn generated column with idempotent migration
@@ -93,7 +101,7 @@
       int Limit = 80);
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   测试数据构造：扩展帧若干（PGN 命中/不命中各半，期望 PGN 用 `J1939Id` 计算）+ 非扩展帧若干。
 
@@ -104,15 +112,15 @@
   5. `PgnFilter_HasMore_Honest_Under_SparseHits`：800 帧中 PGN 命中 3 帧，`Limit=80` 逐页翻到末页 `HasMore=false`（旧内存路径此处失真，行为锁）。
   6. `ExplainQueryPlan_PgnFilter_UsesIndex`：裸连接 `EXPLAIN QUERY PLAN` 断言 PGN 单过滤走 `idx_frames_pgn_idx`；双集合 OR 断言无 `USING TEMP B-TREE`——若实测退化，按 spec §2.6 退路改为两分支 UNION 查询（在 store 内实现，接口不变），并在本测试注明所选方案。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   `GetFramesAsync` 子句构建重写为 tri-state 助手：null → 不生成；空集 → `AND 0`；非空 → `IN (…)`。双集合均非 null 时合并为 `AND (can_id IN (…) OR pgn IN (…))`（空集分支恒假，OR 语义与旧 `PassesBrowseFilter` 逐字一致）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): push down pgn filter with tri-state semantics in cache queries
@@ -135,20 +143,20 @@
   // ORDER BY timestamp ASC, idx ASC LIMIT limit+1；HasMore → 调用方读作 truncated
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   1. `WindowQuery_ClosedInterval_BothEndsInclusive`（BETWEEN 闭区间：恰为 tStart/tEnd 的帧命中）。
   2. `WindowQuery_OrderedByTimestamp_ThenIdx`（同刻并列按 idx 升序，对齐 `GetLatestFramesBeforeAsync` 的并列语义注释）。
   3. `WindowQuery_NullBounds_OpenEnded`（tStart/tEnd null 各自退化为无下界/无上界）。
   4. `WindowQuery_LimitPlusOne_SetsHasMore`（limit=3、4 帧命中 → 返回 3 帧 + HasMore=true；`HasMore` 读作 truncated）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**（走 `idx_frames_cid_ts`；`FramePage` 复用，不新增结果类型）
+- [x] **Step 3: 实现**（走 `idx_frames_cid_ts`；`FramePage` 复用，不新增结果类型）
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add can-id window query to trace cache store
@@ -173,7 +181,7 @@
       double? tStart, double? tEnd, CancellationToken ct);
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   `FakeContext` 补 `GetFramesForCanIdAsync`（预置帧 + DBC fixture）。用例矩阵（spec §6/§9）：
 
@@ -191,15 +199,15 @@
   12. `StatsAndSamples_Shape`（stats{min,max,mean,first,last}、samples t/t_label/v、t_range、backend_info 字段齐全）。
   13. `BuildChatTools_ContainsEightTools` / 系统提示词含 8 工具名（现 ChatViewModelTests 断言 7 处同步改）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   按 spec §5.2 流程实现；工具注册进 `BuildChatTools`（第 8 个），`BuildSystemMessage` 工具清单文案补 `search_signal_trace`；`TraceSessionViewModel` 显式接口实现委托 `_cacheStore.GetFramesForCanIdAsync`（无 store/traceId 返回空列表，与 `GetFramesBeforeAsync` 同模式）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): add search_signal_trace chat tool
@@ -216,23 +224,23 @@
 - Consumes: Task 3 的 `FrameQuery.PgnAllowList` tri-state 下推。
 - Produces: UI 行为（BrowsePage 绑定 `HasNext/HasPrevious/Rows/PageStatus` 不变，已核对无 XAML 直接绑定内存过滤内部）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   1. `AllInvalidFilter_ShowsZeroRows`（`zzz` → 0 帧、HasNext=false——spec §9 tri-state 回归锁；旧内存路径行为基线）。
   2. `SparsePgnFilter_PagingHonest`（800 帧 / 3 命中翻页至末页 HasNext=false）。
   3. `Pushdown_Parity_With_MemoryOracle`：把旧 `PassesBrowseFilter` 语义移植为测试内参照谓词，对 空过滤/纯 ID/纯 PGN/ID+PGN 混合 四种输入逐帧对拍下推结果（spec §9 回归对拍）。
   4. `JumpTo_StillWorks_Under_PgnFilter`（`JumpToAsync` 传双集合，定位 + 页首重置行为不变）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   - 删 `QueryCanIds` 抑制分支、`ApplyMemoryFilter`、`PassesBrowseFilter`；`NextQuery`/`PreviousAsync`/`JumpToAsync` 直接传 `_idFilter`/`_pgnFilter`；`LoadForwardAsync`/`LoadBackwardAsync` 去掉内存过滤调用，`UpdateCursors` 消费页原始帧。
   - `BrowsePage.xaml` 过滤框 Placeholder：`ID 过滤 (hex, 逗号分隔)` → `ID/PGN 过滤 (0x123, pgn:F004)`。搜索框不动。
 
-- [ ] **Step 4: 运行测试确认通过 + Android 构建**
+- [x] **Step 4: 运行测试确认通过 + Android 构建**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```text
   feat(mobile): switch browse filtering to sql pushdown and update filter hint
@@ -240,21 +248,21 @@
 
 ## Task 7: 全量验证、验收与收尾
 
-- [ ] **Step 1: 全量测试**
+- [x] **Step 1: 全量测试**
 
   ```bash
   dotnet test PeakCan.Host.Mobile.slnx --nologo
   dotnet test tests/PeakCan.Host.Core.Tests/ --nologo
   ```
 
-- [ ] **Step 2: 约束检查**
+- [x] **Step 2: 约束检查**
 
   - `PeakCan.Host.Mobile.Core.csproj` 无 MAUI / LiveCharts2 / SkiaSharp 引用，无新增包
   - 无 `Thread.Sleep` / 真实 `Task.Delay`
   - 桌面端 diff 为零（`git diff main..HEAD -- src/PeakCan.Host.App src/PeakCan.Host.Core` 为空）
   - 测试替身无编译断点（FakeContext / FakeStore / ThrowingStore 全部实现新接口成员）
 
-- [ ] **Step 3: Android 构建 + 模拟器验收**（`peakcan-p2-api36` / `emulator-5554`；复用既有 mock LLM（`sk-mock-ok`）与 `.acceptance/` trace + DBC fixture；不使用用户真实 API key）
+- [x] **Step 3: Android 构建 + 模拟器验收**（`peakcan-p2-api36` / `emulator-5554`；复用既有 mock LLM（`sk-mock-ok`）与 `.acceptance/` trace + DBC fixture；不使用用户真实 API key）
 
   1. Browse 过滤框显示新 Placeholder；输入 `pgn:F004` 过滤 → 翻页正常（截图）
   2. 输入 `zzz`（all-invalid）→ 0 帧（回归锁人工确认）
@@ -264,14 +272,14 @@
   6. 性能：20k 行窗口的 `search_signal_trace` 端到端 <500ms（日志计时）
   7. 纯 ID 过滤回归：`0x123` 过滤翻页与 P5 行为一致
 
-- [ ] **Step 4: review（实现者/审查者分离）**
+- [x] **Step 4: review（实现者/审查者分离）**
 
   重点：tri-state 空集语义（store 层与 parser 层一致性）、生成列表达式与 `J1939Id` 对拍充分性、OR 查询计划（EXPLAIN 实测记录）、UI 线程预算（20k 上限）、删除内存路径后无死代码残留。
 
-- [ ] **Step 5: 修复 Critical/Important findings 并补测试；勾选计划；Commit**
+- [x] **Step 5: 修复 Critical/Important findings 并补测试；勾选计划；Commit**
 
   ```text
   docs(mobile): finalize trace viewer p7 plan
   ```
 
-- [ ] **Step 6: 收尾选择**（本地合并 main / push + PR / 保留分支，问用户）
+- [x] **Step 6: 收尾选择**（本地合并 main / push + PR / 保留分支，问用户）
