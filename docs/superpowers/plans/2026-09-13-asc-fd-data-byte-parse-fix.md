@@ -1,6 +1,6 @@
 # ASC 解析器 0xFD 数据字节丢失修复 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 修复 `AscFormat.TryParseDataLine` 把数据字节 0xFD（token "FD"）误当 CAN-FD flag 吞掉的缺陷，同时保持自家 writer round-trip 不回归。
 
@@ -26,7 +26,7 @@
 **Files:**
 - Commit: `docs/superpowers/specs/2026-09-13-asc-fd-data-byte-parse-fix-design.md`、`docs/superpowers/plans/2026-09-13-asc-fd-data-byte-parse-fix.md`
 
-- [ ] **Step 1: 提交文档**
+- [x] **Step 1: 提交文档**
 
 ```bash
 git add docs/superpowers/specs/2026-09-13-asc-fd-data-byte-parse-fix-design.md docs/superpowers/plans/2026-09-13-asc-fd-data-byte-parse-fix.md
@@ -42,7 +42,7 @@ git commit -m "docs: add asc 0xfd data-byte parse fix spec and plan"
 - Consumes: `AscParser.ParseAsync(Stream)` → `IReadOnlyList<ReplayFrame>`（现有 API，零改动）；`MakeAscStream` helper（L14）。
 - Produces: 5 个新测试方法名（Task 3 的绿验证按类过滤运行即可，无跨任务符号）。
 
-- [ ] **Step 1: 写失败测试**（在 `Parse_CanoeFdDlc_LToken_SetsFdFlag` 方法结束的 `}` 后插入）：
+- [x] **Step 1: 写失败测试**（在 `Parse_CanoeFdDlc_LToken_SetsFdFlag` 方法结束的 `}` 后插入）：
 
 ```csharp
     /// <summary>
@@ -145,7 +145,7 @@ internal events logged
     }
 ```
 
-- [ ] **Step 2: 运行确认红**
+- [x] **Step 2: 运行确认红**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~AscParserTests" --nologo -v minimal`
 Expected: 4 个新用例 FAILED（首/中/尾/PCAN——0xFD 被吞）；Guard 用例 `FdTokenAfterFullData` 修复前即 PASS（它守护"修复不得矫枉过正"的 ≥ 分支）；既有用例全绿。
@@ -155,7 +155,7 @@ Expected: 4 个新用例 FAILED（首/中/尾/PCAN——0xFD 被吞）；Guard �
 **Files:**
 - Modify: `src/PeakCan.Host.Core/Replay/AscFormat.cs:184-185`（数据循环 `case "fd"`）
 
-- [ ] **Step 1: 最小实现**——把
+- [x] **Step 1: 最小实现**——把
 
 ```csharp
                 case "fd":
@@ -175,12 +175,12 @@ Expected: 4 个新用例 FAILED（首/中/尾/PCAN——0xFD 被吞）；Guard �
 
 （switch 内 `break` 只跳出 switch，落到既有 hex 解析路径。）
 
-- [ ] **Step 2: 运行确认绿**
+- [x] **Step 2: 运行确认绿**
 
 Run: `dotnet test tests/PeakCan.Host.Core.Tests --filter "FullyQualifiedName~AscParserTests" --nologo -v minimal`
 Expected: 全部 PASS（含既有 round-trip / l-token / concatenated-hex 用例零回归）。
 
-- [ ] **Step 3: 单 fix commit（测试+修复同行）**
+- [x] **Step 3: 单 fix commit（测试+修复同行）**
 
 ```bash
 git add src/PeakCan.Host.Core/Replay/AscFormat.cs tests/PeakCan.Host.Core.Tests/Replay/AscParserTests.cs
@@ -189,7 +189,7 @@ git commit -m "fix(core): preserve 0xFD data bytes in ASC data-line parsing"
 
 ### Task 4: 全量回归
 
-- [ ] **Step 1: 三套测试**
+- [x] **Step 1: 三套测试**
 
 ```bash
 dotnet test tests/PeakCan.Host.Core.Tests --nologo -v minimal
@@ -199,7 +199,7 @@ dotnet test tests/PeakCan.Host.Mobile.Core.Tests --nologo -v minimal
 
 Expected: 全绿（基线 1123 / Infrastructure 全量 / 275）。记录实际数字供 finalize。
 
-- [ ] **Step 2: 约束自查**
+- [x] **Step 2: 约束自查**
 
 `git diff main --stat` 确认变更仅 `AscFormat.cs`、`AscParserTests.cs` 与 docs；`src/PeakCan.Host.App`、`PeakCan.Host.Mobile*` 零改动。
 
@@ -208,7 +208,7 @@ Expected: 全绿（基线 1123 / Infrastructure 全量 / 275）。记录实际�
 **Files:**
 - Create: `D:\claude_proj2\.tmp\gen_p7demofd.py`、输出 `D:\claude_proj2\.tmp\p7demofd.asc`
 
-- [ ] **Step 1: 生成 fixture + 理论统计**
+- [x] **Step 1: 生成 fixture + 理论统计**
 
 ```python
 #!/usr/bin/env python3
@@ -232,7 +232,7 @@ print("frames", len(raws), "first", rpm[0], "last", round(rpm[-1], 4),
 
 Run: `python /d/claude_proj2/.tmp/gen_p7demofd.py` → 记录理论值（期望 first=0.0、last/max=999.25、mean≈499.625）。核对 `.tmp/p7demo.dbc` 含 `BO_ 256 EngineData` + `SG_ EngineSpeed : 0|16@1+ (0.25,0)`（P7 遗留 fixture，直接复用）。
 
-- [ ] **Step 2: 推送 + 部署**
+- [x] **Step 2: 推送 + 部署**
 
 ```bash
 MSYS_NO_PATHCONV=1 /c/Users/13777/AppData/Local/Android/Sdk/platform-tools/adb.exe push D:/claude_proj2/.tmp/p7demofd.asc D:/claude_proj2/.tmp/p7demo.dbc /sdcard/Download/
@@ -240,22 +240,22 @@ dotnet build src/PeakCan.Host.Mobile -f net10.0-android -c Debug -t:Run   # 重�
 python D:/claude_proj2/.tmp/mock_llm.py 18443 --tls D:/claude_proj2/.tmp/srv2_cert.pem D:/claude_proj2/.tmp/srv2_key.pem   # 后台
 ```
 
-- [ ] **Step 3: 设备验收（uiautomator 流程，同 P7）**
+- [x] **Step 3: 设备验收（uiautomator 流程，同 P7）**
 
 导入 `p7demofd.asc` + `p7demo.dbc` → 进入回放/聊天 → 输入 `searchtrace` 发送（mock 触发 `search_signal_trace`，窗口 0–10s）→ 截图比对：
 - `max` ≈ 理论值、`last` ≈ 理论值、`sample_count`=200、无 0xFD 吞字节迹象（帧 8 字节）；
 - Browse 打开该 trace：行显示 DLC 8、数据完整（含 0xFD）。
 
-- [ ] **Step 4: 结果记录**——截图存 `.tmp/ascfd_chat1.png` 等；设备不在位或环境故障时，将实际执行到的步骤与阻塞原因记入本计划状态块（spec §4 允许降级为单测 + 理论对拍收尾）。
+- [x] **Step 4: 结果记录**——截图存 `.tmp/ascfd_chat1.png` 等；设备不在位或环境故障时，将实际执行到的步骤与阻塞原因记入本计划状态块（spec §4 允许降级为单测 + 理论对拍收尾）。
 
 ### Task 6: finalize
 
-- [ ] **Step 1: 勾选本计划全部 checkbox，重写顶部「状态」块**（新增到标题下方）：分支、commits（fix + finalize）、三套测试实际数字、真机验收结果（或降级说明）、与 spec 的偏差（预期：无；若有记录原因）。
-- [ ] **Step 2: finalize commit**
+- [x] **Step 1: 勾选本计划全部 checkbox，重写顶部「状态」块**（新增到标题下方）：分支、commits（fix + finalize）、三套测试实际数字、真机验收结果（或降级说明）、与 spec 的偏差（预期：无；若有记录原因）。
+- [x] **Step 2: finalize commit**
 
 ```bash
 git add docs/superpowers/plans/2026-09-13-asc-fd-data-byte-parse-fix.md
 git commit -m "docs: finalize asc fd data-byte fix plan"
 ```
 
-- [ ] **Step 3: 收尾汇报**——合并 main / push 由用户决定（同 P7 惯例，不主动执行）。
+- [x] **Step 3: 收尾汇报**——合并 main / push 由用户决定（同 P7 惯例，不主动执行）。
