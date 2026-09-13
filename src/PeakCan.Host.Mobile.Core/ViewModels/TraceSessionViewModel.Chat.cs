@@ -33,6 +33,20 @@ public sealed partial class TraceSessionViewModel
         return _cacheStore.GetLatestFramesBeforeAsync(traceId, timestamp, ct);
     }
 
+    Task<FramePage> IMobileChatToolContext.GetFramesForCanIdAsync(uint canId, double? tStart, double? tEnd, CancellationToken ct)
+    {
+        if (_cacheStore is null || _traceId is not { } traceId)
+            return Task.FromResult(new FramePage([], false));
+        return _cacheStore.GetFramesForCanIdAsync(traceId, canId, tStart, tEnd, ct: ct);
+    }
+
+    Task<TraceCacheSummary?> IMobileChatToolContext.GetCacheSummaryAsync(CancellationToken ct)
+    {
+        if (_cacheStore is null || _traceId is not { } traceId)
+            return Task.FromResult<TraceCacheSummary?>(null);
+        return _cacheStore.GetTraceAsync(traceId, ct);
+    }
+
     bool IMobileChatToolContext.Seek(double timestamp)
     {
         if (_player is null) return false;

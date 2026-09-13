@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using PeakCan.Host.Core.J1939;
 using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Mobile.Core.Models;
 using PeakCan.Host.Mobile.Core.Services;
@@ -52,6 +51,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         _firstIndex = null;
         _lastIndex = null;
         _idFilter = null;
+        _pgnFilter = null;
         ErrorMessage = null;
         FilterText = null;
         Header = string.Empty;
@@ -86,37 +86,14 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
     [RelayCommand]
     public Task PreviousAsync() => _firstIndex is null || !HasPrevious
         ? Task.CompletedTask
-        : LoadBackwardAsync(new FrameQuery(BeforeIndex: _firstIndex, CanIds: QueryCanIds, Limit: PageSize));
+        : LoadBackwardAsync(new FrameQuery(BeforeIndex: _firstIndex,
+            CanIds: _idFilter, PgnAllowList: _pgnFilter, Limit: PageSize));
 
-    /// <summary>SQL 只支持 ID 集合下推；存在 PGN 过滤时不下推（PGN 谓词走内存，见 ApplyMemoryFilter）。</summary>
-    private IReadOnlySet<uint>? QueryCanIds => _pgnFilter is null ? _idFilter : null;
-
+    // 过滤下推（spec §4/§2.4）：ID 与 PGN 集合均交给 SQL（can_id IN / pgn IN），
+    // 不再有内存后过滤——后者会扭曲 keyset 分页的 HasMore。tri-state 语义
+    // （null=无过滤、空集=全拒）由 store 的 AppendFilterClause 逐字实现。
     private FrameQuery NextQuery(long? afterIndex) =>
-        new(AfterIndex: afterIndex, CanIds: QueryCanIds, Limit: PageSize);
-
-    /// <summary>
-    /// PGN 过滤在内存后处理（spec §8 已知限制：内存后过滤会扭曲 keyset 分页的 HasMore）。
-    /// 仅当存在 PGN 过滤时启用（ID 过滤已被 QueryCanIds 禁掉下推，一并在此处理）；
-    /// 纯 ID 过滤仍走 SQL 下推，此处直接返回零开销。
-    /// </summary>
-    private IReadOnlyList<CachedFrame> ApplyMemoryFilter(IReadOnlyList<CachedFrame> frames)
-    {
-        if (_pgnFilter is null) return frames;
-        return frames.Where(f => PassesBrowseFilter(f)).ToArray();
-    }
-
-    private bool PassesBrowseFilter(CachedFrame f)
-    {
-        // OR 语义（spec §4.5），与 TraceSessionViewModel.PassesFilter 逐字一致：
-        // (ID 命中) OR (扩展帧且 PGN 命中)。空集（全部 token 无效）自然永不命中 →
-        // all-invalid 输入全拒，与 Replay "emits nothing" 语义一致（review MEDIUM）。
-        if (_idFilter is null && _pgnFilter is null) return true;
-        if (_idFilter is not null && _idFilter.Contains(f.CanId)) return true;
-        if (_pgnFilter is not null && f.IsExtended
-            && _pgnFilter.Contains(new J1939Id(f.CanId & J1939Id.Raw29Mask).Pgn))
-            return true;
-        return false;
-    }
+        new(AfterIndex: afterIndex, CanIds: _idFilter, PgnAllowList: _pgnFilter, Limit: PageSize);
 
     [RelayCommand]
     public Task ApplyFilterAsync()
@@ -124,6 +101,10 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         var parsed = CanIdListParser.Parse(FilterText);
         _idFilter = parsed.AllowList;
         _pgnFilter = parsed.PgnAllowList;
+        // 过滤条件变更后旧游标失效（尤其 all-invalid → 0 行时，陈旧 _lastIndex 会被
+        // Next/JumpTo 误用），重置后从第一页重新定位。
+        _firstIndex = null;
+        _lastIndex = null;
         return FirstAsync();
     }
 
@@ -135,7 +116,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         try
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
-            var frames = ApplyMemoryFilter(page.Frames);
+            var frames = page.Frames;
             var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
@@ -164,7 +145,7 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
         try
         {
             var page = await _store.GetFramesAsync(_traceId, query).ConfigureAwait(false);
-            var frames = ApplyMemoryFilter(page.Frames);
+            var frames = page.Frames;
             var rows = frames.Select(f => f.ToFrameRow(_dbc)).ToArray();
 
             FillSlots(rows);
@@ -214,7 +195,8 @@ public sealed partial class TraceBrowseViewModel : ObservableObject
 
         HighlightIndex = frame.Index;
         await LoadForwardAsync(
-            new FrameQuery(AfterIndex: frame.Index - 1, CanIds: QueryCanIds, Limit: PageSize),
+            new FrameQuery(AfterIndex: frame.Index - 1,
+                CanIds: _idFilter, PgnAllowList: _pgnFilter, Limit: PageSize),
             hasContentBefore: true).ConfigureAwait(false);
         return true;
     }

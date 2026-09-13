@@ -8,7 +8,7 @@
             <Button Text="⏮" Clicked="OnFirst" />
             <Button Text="←" Clicked="OnPrevious" IsEnabled="{Binding HasPrevious}" />
             <Button Text="→" Clicked="OnNext" IsEnabled="{Binding HasNext}" />
-            <Entry x:Name="FilterEntry" Placeholder="ID 过滤 (hex, 逗号分隔)" WidthRequest="180" />
+            <Entry x:Name="FilterEntry" Placeholder="ID/PGN 过滤 (0x123, pgn:F004)" WidthRequest="180" />
             <Button Text="过滤" Clicked="OnApplyFilter" />
         </FlexLayout>
 

@@ -28,11 +28,19 @@ public sealed record CachedFrame(
 /// <summary>Cache search direction for <see cref="ITraceCacheStore.FindFrameAsync"/>.</summary>
 public enum CacheSearchDirection : byte { First, Next }
 
-/// <summary>Keyset paged cache query. Forward paging uses AfterIndex; backward paging uses BeforeIndex.</summary>
+/// <summary>
+/// Keyset paged cache query. Forward paging uses AfterIndex; backward paging uses BeforeIndex.
+/// <para>Filter sets follow the <c>CanIdListParser</c> tri-state: <c>null</c> = no
+/// filter, empty set = all-invalid input (reject all), populated = allow-list.
+/// CanIds pushes down via <c>can_id</c>, PgnAllowList via the <c>pgn</c> generated
+/// column (extended frames only); when both are set the page is a merge of the
+/// two index-perfect branches (OR semantics).</para>
+/// </summary>
 public sealed record FrameQuery(
     long? AfterIndex = null,
     long? BeforeIndex = null,
     IReadOnlySet<uint>? CanIds = null,
+    IReadOnlySet<uint>? PgnAllowList = null,
     int Limit = 80);
 
 /// <summary>One cache page. HasMore is true when Limit+1 rows were available.</summary>

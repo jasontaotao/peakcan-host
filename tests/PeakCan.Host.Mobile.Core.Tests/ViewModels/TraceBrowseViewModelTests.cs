@@ -1,4 +1,6 @@
 using FluentAssertions;
+using PeakCan.Host.Core.J1939;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Mobile.Core.Services;
 using PeakCan.Host.Mobile.Core.ViewModels;
 using Xunit;
@@ -215,7 +217,7 @@ public class TraceBrowseViewModelTests
     [Fact]
     public async Task ApplyFilter_IdOrPgn_OrSemantics_KeepsMatchingRows()
     {
-        // review 修复：内存后过滤必须与 spec §4.5 OR 语义一致——
+        // P7：切换 SQL 下推后仍须保持 spec §4.5 的 OR 语义——
         // "0x200 pgn:F004"：0x200 标准帧靠 ID 命中保留（PGN 谓词只影响扩展帧）
         var (store, id) = await CreateStoreAsync();
         var vm = new TraceBrowseViewModel(store);
@@ -226,5 +228,120 @@ public class TraceBrowseViewModelTests
 
         vm.Rows.Should().Contain(r => r.Source != null && r.Source.Id == 0x200u);
         vm.Rows.Should().NotContain(r => r.Source != null && r.Source.Id == 0x100u);
+    }
+
+    // --- P7 Task 6：Browse 切换 SQL 下推 ---
+
+    private const uint MatchId = 0x18EF01FF;   // PDU1，PGN 0xEF00
+    private const uint OtherId = 0x18FF20E5;   // PDU2，PGN 0xFF20
+    private const uint MissId = 0x18FF30E5;    // 不参与过滤断言的第三种 PGN
+
+    /// <summary>旧内存后过滤谓词（spec §4.5 OR 语义），作为下推结果的参照实现。</summary>
+    private static bool MemoryOracle(CachedFrame f, IReadOnlySet<uint>? idFilter, IReadOnlySet<uint>? pgnFilter)
+    {
+        if (idFilter is null && pgnFilter is null) return true;
+        if (idFilter is not null && idFilter.Contains(f.CanId)) return true;
+        if (pgnFilter is not null && f.IsExtended
+            && pgnFilter.Contains(new PeakCan.Host.Core.J1939.J1939Id(f.CanId & 0x1FFFFFFFu).Pgn))
+            return true;
+        return false;
+    }
+
+    [Fact]
+    public async Task AllInvalidFilter_ShowsZeroRows_AndHonestHasNext()
+    {
+        // tri-state 回归锁：all-invalid 输入必须 0 帧 + HasNext=false
+        //（空集下推若被当作"无过滤"会显示全部帧——spec §2.4）
+        var (store, id) = await CreateStoreAsync();
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        vm.FilterText = "zzz";
+        await vm.ApplyFilterAsync();
+
+        vm.Rows.Should().OnlyContain(r => r.IsEmpty);
+        vm.HasNext.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SparsePgnFilter_PagingHonest()
+    {
+        // 800 帧仅 3 帧命中：旧内存路径首页 80 行全被过滤掉、HasNext 撒谎；
+        // SQL 下推后首页应直接给出 3 行命中帧。
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("sparse.asc", 100);
+        var frames = new List<CachedFrame>();
+        for (var i = 0; i < 800; i++)
+            frames.Add(i is 100 or 400 or 700
+                ? new CachedFrame(i, i, MatchId, true, 2, [1, 2])
+                : new CachedFrame(i, i, MissId, true, 2, [1, 2]));
+        await store.AppendFramesAsync(id, frames);
+
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        vm.FilterText = "pgn:EF00";
+        await vm.ApplyFilterAsync();
+
+        vm.Rows.Where(r => !r.IsEmpty).Select(r => r.Source!.Timestamp).Should().Equal([100.0, 400.0, 700.0]);
+        vm.HasNext.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Pushdown_Parity_With_MemoryOracle()
+    {
+        // 空过滤 / 纯 ID / 纯 PGN / ID+PGN 四种输入与旧内存语义逐帧对拍
+        await using var store = new TraceCacheStore(":memory:");
+        var id = await store.GetOrCreateTraceAsync("parity.asc", 100);
+        var frames = new List<CachedFrame>();
+        for (var i = 0; i < 100; i++)
+        {
+            var canId = (i % 10) switch
+            {
+                0 => MatchId,
+                1 => OtherId,
+                2 => 0x300u,
+                3 => 0x100u,
+                _ => MissId,
+            };
+            frames.Add(new CachedFrame(i, i * 0.01, canId, i % 10 is 0 or 1 or > 3, 2, [1, 2]));
+        }
+        await store.AppendFramesAsync(id, frames);
+
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        var idsFor = (string text) => PeakCan.Host.Core.Replay.CanIdListParser.Parse(text).AllowList;
+        var pgnsFor = (string text) => PeakCan.Host.Core.Replay.CanIdListParser.Parse(text).PgnAllowList;
+        foreach (var filterText in new[] { "", "0x300", "pgn:EF00", "0x300 pgn:EF00" })
+        {
+            vm.FilterText = filterText;
+            await vm.ApplyFilterAsync();
+
+            var parsed = PeakCan.Host.Core.Replay.CanIdListParser.Parse(filterText);
+            var expected = frames
+                .Where(f => MemoryOracle(f, parsed.AllowList, parsed.PgnAllowList))
+                .Take(80)
+                .Select(f => f.Timestamp);
+            vm.Rows.Where(r => !r.IsEmpty).Select(r => r.Source!.Timestamp)
+                .Should().Equal(expected, $"filter '{filterText}' 必须与内存参照语义一致");
+        }
+    }
+
+    [Fact]
+    public async Task JumpTo_StillWorks_Under_PgnFilter()
+    {
+        var (store, id) = await CreateStoreAsync();
+        var vm = new TraceBrowseViewModel(store);
+        await vm.OpenAsync(id);
+
+        vm.FilterText = "pgn:EF00";
+        await vm.ApplyFilterAsync();
+
+        // 搜索仍按 CAN ID（FindFrameAsync 与过滤无关），JumpTo 不得因过滤切换而失效
+        var ok = await vm.JumpToAsync(0x200, first: true);
+
+        ok.Should().BeTrue();
+        vm.HighlightIndex.Should().Be(1);
     }
 }

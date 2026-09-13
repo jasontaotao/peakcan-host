@@ -51,6 +51,18 @@ public interface IMobileChatToolContext
     /// (zero-order hold snapshot), ordered by can id. Empty when the region is not cached.</summary>
     Task<IReadOnlyList<CachedFrame>> GetFramesBeforeAsync(double timestamp, CancellationToken ct);
 
+    /// <summary>Cached frames of one CAN ID within the closed window
+    /// [<paramref name="tStart"/>, <paramref name="tEnd"/>] (null = open-ended),
+    /// ordered by timestamp then idx. <see cref="FramePage.HasMore"/> reports
+    /// truncation (raw window exceeded the row budget). Empty page when no
+    /// cache session is open.</summary>
+    Task<FramePage> GetFramesForCanIdAsync(uint canId, double? tStart, double? tEnd, CancellationToken ct);
+
+    /// <summary>Cache summary of the open session (completeness + cached
+    /// duration), or null when no cache session is open. Lets tools warn
+    /// about partially cached windows instead of failing.</summary>
+    Task<TraceCacheSummary?> GetCacheSummaryAsync(CancellationToken ct);
+
     /// <summary>Seek the player to <paramref name="timestamp"/> seconds. Returns false
     /// when no player is active (seek is a no-op).</summary>
     bool Seek(double timestamp);

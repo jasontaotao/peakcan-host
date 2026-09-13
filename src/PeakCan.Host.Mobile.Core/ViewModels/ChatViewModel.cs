@@ -118,7 +118,7 @@ public sealed partial class ChatViewModel : ObservableObject
     /// <summary>The chat tools exposed to the provider (unit-testable via ctor injection).</summary>
     internal IReadOnlyList<IChatTool> ChatTools => _chatTools;
 
-    /// <summary>Construct the 7 mobile chat tools bound to the session context
+    /// <summary>Construct the 8 mobile chat tools bound to the session context
     /// (production path; tests inject fakes via ctor instead).</summary>
     private static IReadOnlyList<IChatTool> BuildChatTools(IMobileChatToolContext context, ILogger logger)
     {
@@ -130,6 +130,7 @@ public sealed partial class ChatViewModel : ObservableObject
             new GetDbcSignalTool(context, logger),
             new GetDbcMessageTool(context, logger),
             new GetAnchorValuesTool(context, logger),
+            new SearchSignalTraceTool(context, logger),
             new SeekToTimeTool(context, logger),
         };
     }

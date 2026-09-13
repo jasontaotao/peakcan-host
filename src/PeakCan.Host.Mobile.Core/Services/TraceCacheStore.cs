@@ -6,10 +6,26 @@ namespace PeakCan.Host.Mobile.Core.Services;
 
 /// <summary>
 /// SQLite-backed replay cache. The spec schema is extended with
-/// <c>last_position_seconds</c> so the recent-file list can show playback position.
+/// <c>last_position_seconds</c> (recent-file playback position) and a
+/// <c>pgn</c> VIRTUAL generated column (P7 J1939 filter push-down).
 /// </summary>
 public sealed class TraceCacheStore : ITraceCacheStore
 {
+    /// <summary>
+    /// pgn 生成列表达式——与 <c>J1939Id.Pgn</c> 逐位一致
+    /// （R/EDP&lt;&lt;17 | DP&lt;&lt;16 | PF&lt;&lt;8 | PDU2 才并入 PS）；非扩展帧为 NULL，
+    /// 天然不被任何 IN 过滤命中。DDL 与旧库 ALTER 共用同一份文本，杜绝两份漂移。
+    /// </summary>
+    private const string PgnGeneratedSql = """
+        CASE WHEN is_extended = 1 THEN
+          ((((can_id & 536870911) >> 25) & 1) << 17)
+          | ((((can_id & 536870911) >> 24) & 1) << 16)
+          | ((((can_id & 536870911) >> 16) & 255) << 8)
+          | (CASE WHEN (((can_id & 536870911) >> 16) & 255) < 240
+                  THEN 0 ELSE (((can_id & 536870911) >> 8) & 255) END)
+        END
+        """;
+
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _initialized;
@@ -35,7 +51,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
         {
             if (_initialized) return;
             await _connection.OpenAsync(ct).ConfigureAwait(false);
-            await ExecuteAsync("""
+            await ExecuteAsync($"""
                 PRAGMA journal_mode=WAL;
                 PRAGMA synchronous=NORMAL;
 
@@ -59,6 +75,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
                   is_extended INTEGER NOT NULL,
                   dlc INTEGER NOT NULL,
                   data BLOB NOT NULL,
+                  pgn INTEGER GENERATED ALWAYS AS ({PgnGeneratedSql}) VIRTUAL,
                   PRIMARY KEY (trace_id, idx)
                 ) WITHOUT ROWID;
 
@@ -69,6 +86,19 @@ public sealed class TraceCacheStore : ITraceCacheStore
                 CREATE INDEX IF NOT EXISTS idx_frames_cid_idx ON frames(trace_id, can_id, idx);
                 CREATE INDEX IF NOT EXISTS idx_frames_cid_ts ON frames(trace_id, can_id, timestamp);
                 """, ct).ConfigureAwait(false);
+
+            // P7：旧库幂等补 pgn 生成列（SQLite 的 ALTER 只支持 VIRTUAL；新库上面 DDL 已含，此处跳过）
+            if (!await HasFrameColumnAsync("pgn", ct).ConfigureAwait(false))
+            {
+                await ExecuteAsync(
+                    $"ALTER TABLE frames ADD COLUMN pgn INTEGER GENERATED ALWAYS AS ({PgnGeneratedSql}) VIRTUAL;",
+                    ct).ConfigureAwait(false);
+            }
+
+            // pgn 索引必须在生成列就位后创建（旧库 ALTER 前该列不存在，不能进上面的首屏脚本）
+            await ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_frames_pgn_idx ON frames(trace_id, pgn, idx);",
+                ct).ConfigureAwait(false);
             _initialized = true;
         }
         finally
@@ -231,62 +261,150 @@ public sealed class TraceCacheStore : ITraceCacheStore
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var where = "WHERE trace_id=$trace_id";
-            var parameters = new List<SqliteParameter> { new("$trace_id", traceId) };
-
-            if (query.CanIds is { Count: > 0 })
+            // 双集合并存时不生成单条 OR SQL：ORDER BY idx 会让 multi-index OR 退化成
+            // TEMP B-TREE 全量排序（spec §2.6）。改为两个索引完美分支各取 limit+1 行，
+            // C# 侧按 idx 归并——HasMore 语义与单分支一致。
+            if (query.CanIds is not null && query.PgnAllowList is not null)
             {
-                var names = query.CanIds.Select((_, i) => $"$can{i}").ToArray();
-                where += $" AND can_id IN ({string.Join(',', names)})";
-                parameters.AddRange(query.CanIds.Select((id, i) => new SqliteParameter(names[i], id)));
+                var idPage = await ExecuteFramePageAsync(traceId,
+                    query with { PgnAllowList = null }, ct).ConfigureAwait(false);
+                var pgnPage = await ExecuteFramePageAsync(traceId,
+                    query with { CanIds = null }, ct).ConfigureAwait(false);
+                return MergeFramePages(idPage, pgnPage, query.Limit);
             }
-
-            var forward = query.BeforeIndex is null;
-            if (forward)
-            {
-                parameters.Add(new("$cursor", query.AfterIndex ?? -1));
-                where += " AND idx > $cursor ORDER BY idx ASC";
-            }
-            else
-            {
-                parameters.Add(new("$cursor", query.BeforeIndex!.Value));
-                where += " AND idx < $cursor ORDER BY idx DESC";
-            }
-
-            var sql = $"""
-                SELECT idx,timestamp,can_id,is_extended,dlc,data
-                FROM frames {where}
-                LIMIT $limit
-                """;
-            parameters.Add(new("$limit", query.Limit + 1));
-
-            await using var command = _connection.CreateCommand();
-            command.CommandText = sql;
-            foreach (var parameter in parameters)
-                command.Parameters.Add(parameter);
-
-            var result = new List<CachedFrame>();
-            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                result.Add(new CachedFrame(
-                    reader.GetInt64(0),
-                    reader.GetDouble(1),
-                    (uint)reader.GetInt64(2),
-                    reader.GetInt64(3) != 0,
-                    reader.GetByte(4),
-                    (byte[])reader.GetValue(5)));
-            }
-
-            var hasMore = result.Count > query.Limit;
-            if (hasMore) result.RemoveAt(result.Count - 1);
-            if (!forward) result.Reverse();
-            return new FramePage(result, hasMore);
+            return await ExecuteFramePageAsync(traceId, query, ct).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>Merges two index-ordered branch pages (both chronological
+    /// ascending, per <see cref="ExecuteFramePageAsync"/>'s contract) into one
+    /// honest page: the global next <paramref name="limit"/> rows by idx are
+    /// contained in each branch's first <paramref name="limit"/> rows, so
+    /// fetching limit+1 per branch is enough to decide HasMore.</summary>
+    private static FramePage MergeFramePages(FramePage first, FramePage second, int limit)
+    {
+        var merged = new List<CachedFrame>(first.Frames.Count + second.Frames.Count);
+        int i = 0, j = 0;
+        while (merged.Count <= limit)
+        {
+            CachedFrame next;
+            if (i < first.Frames.Count && j < second.Frames.Count)
+            {
+                var a = first.Frames[i];
+                var b = second.Frames[j];
+                if (a.Index == b.Index)
+                {
+                    // 同一帧同时命中 ID 与 PGN 两个分支：只收一次，双指针同进
+                    next = a;
+                    i++;
+                    j++;
+                }
+                else
+                {
+                    var takeFirst = a.Index < b.Index;
+                    next = takeFirst ? a : b;
+                    if (takeFirst) i++; else j++;
+                }
+            }
+            else if (i < first.Frames.Count) next = first.Frames[i++];
+            else if (j < second.Frames.Count) next = second.Frames[j++];
+            else break;
+            merged.Add(next);
+        }
+
+        var hasMore = merged.Count > limit || first.HasMore || second.HasMore;
+        if (merged.Count > limit) merged.RemoveAt(merged.Count - 1);
+        return new FramePage(merged, hasMore);
+    }
+
+    /// <summary>Builds the paged frame SELECT for a single-filter query.
+    /// Internal so tests can EXPLAIN QUERY PLAN the exact statement the store
+    /// runs. Filter clauses follow the parser tri-state: null = no clause,
+    /// empty set = universally-false (all-invalid input must reject all).
+    /// <para><c>traceId</c> 由参数传入而非字面量占位：字面量 0 会经 C# 的
+    /// 字面-0→枚举隐式转换错配到 <c>SqliteParameter(string, SqliteType)</c>
+    /// 构造器，Value 保持未赋值。</para></summary>
+    internal static string BuildFramePageSql(long traceId, FrameQuery query, out List<SqliteParameter> parameters)
+    {
+        parameters = [];
+        var where = "WHERE trace_id=$trace_id";
+        parameters.Add(new("$trace_id", traceId));
+
+        AppendFilterClause(ref where, parameters, "can_id", "$can", query.CanIds);
+        AppendFilterClause(ref where, parameters, "pgn", "$pgn", query.PgnAllowList);
+
+        var forward = query.BeforeIndex is null;
+        if (forward)
+        {
+            parameters.Add(new("$cursor", query.AfterIndex ?? -1));
+            where += " AND idx > $cursor ORDER BY idx ASC";
+        }
+        else
+        {
+            parameters.Add(new("$cursor", query.BeforeIndex!.Value));
+            where += " AND idx < $cursor ORDER BY idx DESC";
+        }
+
+        parameters.Add(new("$limit", query.Limit + 1));
+        // PGN 命中稀疏时 planner 会因 ORDER BY idx+LIMIT 退化选 PK 全扫（每页 O(剩余行)），
+        // INDEXED BY 强制走 pgn 复合索引：每页代价 = 命中行排序（有界），spec §2.6 兜底。
+        var from = query.PgnAllowList is { Count: > 0 }
+            ? "FROM frames INDEXED BY idx_frames_pgn_idx"
+            : "FROM frames";
+        return $"""
+            SELECT idx,timestamp,can_id,is_extended,dlc,data
+            {from} {where}
+            LIMIT $limit
+            """;
+    }
+
+    /// <summary>tri-state：null → 不生成子句；空集 → 恒假子句（all-invalid 全拒）；
+    /// 非空 → IN 白名单。</summary>
+    private static void AppendFilterClause(
+        ref string where, List<SqliteParameter> parameters,
+        string column, string prefix, IReadOnlySet<uint>? values)
+    {
+        if (values is null) return;
+        if (values.Count == 0)
+        {
+            where += " AND 0";
+            return;
+        }
+        var names = values.Select((_, i) => $"{prefix}{i}").ToArray();
+        where += $" AND {column} IN ({string.Join(',', names)})";
+        parameters.AddRange(values.Select((id, i) => new SqliteParameter(names[i], (long)id)));
+    }
+
+    private async Task<FramePage> ExecuteFramePageAsync(long traceId, FrameQuery query, CancellationToken ct)
+    {
+        var sql = BuildFramePageSql(traceId, query, out var parameters);
+
+        await using var command = _connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var parameter in parameters)
+            command.Parameters.Add(parameter);
+
+        var result = new List<CachedFrame>();
+        var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            result.Add(new CachedFrame(
+                reader.GetInt64(0),
+                reader.GetDouble(1),
+                (uint)reader.GetInt64(2),
+                reader.GetInt64(3) != 0,
+                reader.GetByte(4),
+                (byte[])reader.GetValue(5)));
+        }
+
+        var hasMore = result.Count > query.Limit;
+        if (hasMore) result.RemoveAt(result.Count - 1);
+        if (query.BeforeIndex is not null) result.Reverse();
+        return new FramePage(result, hasMore);
     }
 
     public async Task<IReadOnlyList<CachedFrame>> GetLatestFramesBeforeAsync(
@@ -389,6 +507,63 @@ public sealed class TraceCacheStore : ITraceCacheStore
         }
     }
 
+    /// <inheritdoc />
+    public async Task<FramePage> GetFramesForCanIdAsync(
+        long traceId, uint canId, double? tStart, double? tEnd,
+        int limit = 20000, CancellationToken ct = default)
+    {
+        if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        await ReadyAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // 闭区间窗口；边界条件按需拼接（比 IS NULL 谓词更利于 planner 走
+            // idx_frames_cid_ts 的 trace_id+can_id 等值 + timestamp 范围）。
+            var bounds = "";
+            if (tStart is not null) bounds += " AND timestamp >= $t_start";
+            if (tEnd is not null) bounds += " AND timestamp <= $t_end";
+            var sql = $"""
+                SELECT idx,timestamp,can_id,is_extended,dlc,data
+                FROM frames
+                WHERE trace_id=$trace_id AND can_id=$can_id{bounds}
+                ORDER BY timestamp ASC, idx ASC
+                LIMIT $limit
+                """;
+
+            await using var command = _connection.CreateCommand();
+            command.CommandText = sql;
+            command.Parameters.AddRange(
+            [
+                new("$trace_id", traceId),
+                new("$can_id", canId),
+            ]);
+            if (tStart is not null) command.Parameters.Add(new("$t_start", tStart));
+            if (tEnd is not null) command.Parameters.Add(new("$t_end", tEnd));
+            command.Parameters.Add(new("$limit", limit + 1));
+
+            var result = new List<CachedFrame>();
+            var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                result.Add(new CachedFrame(
+                    reader.GetInt64(0),
+                    reader.GetDouble(1),
+                    (uint)reader.GetInt64(2),
+                    reader.GetInt64(3) != 0,
+                    reader.GetByte(4),
+                    (byte[])reader.GetValue(5)));
+            }
+
+            var hasMore = result.Count > limit;
+            if (hasMore) result.RemoveAt(result.Count - 1);
+            return new FramePage(result, hasMore);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default)
     {
         if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
@@ -434,6 +609,19 @@ public sealed class TraceCacheStore : ITraceCacheStore
 
     private Task ExecuteAsync(string sql, CancellationToken ct = default) =>
         ExecuteAsync(sql, null, ct);
+
+    /// <summary>Checks whether the frames table has the given column
+    /// (legacy-database migration guard, runs before any ALTER). Must use
+    /// <c>pragma_table_xinfo</c> — plain <c>table_info</c> omits generated
+    /// (hidden) columns, which would re-trigger the ALTER on every open.</summary>
+    private async Task<bool> HasFrameColumnAsync(string columnName, CancellationToken ct)
+    {
+        await using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_xinfo('frames') WHERE name=$name;";
+        command.Parameters.AddWithValue("$name", columnName);
+        var result = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return (long)result! > 0;
+    }
 
     private async Task ExecuteAsync(string sql, IReadOnlyList<SqliteParameter>? parameters, CancellationToken ct)
     {
