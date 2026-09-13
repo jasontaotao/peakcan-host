@@ -470,6 +470,105 @@ internal events logged
     }
 
     /// <summary>
+    /// 0xFD data-byte fix: per-byte dialects (CANoe 'd N', PCAN bare-DLC) write a
+    /// 0xFD byte as the standalone token "FD", which the data loop swallowed as a
+    /// CAN-FD flag. While collected data is short of the declared DLC, "FD" must
+    /// parse as a data byte.
+    /// </summary>
+    [Fact]
+    public async Task Parse_PerByteData_FirstByteFd_IsDataByteNotFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  d 8  FD BB CC DD EE FF 00 11
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(1);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0xFD, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeFalse("data-byte 0xFD must not set the CAN-FD flag");
+    }
+
+    [Fact]
+    public async Task Parse_PerByteData_MidByteFd_IsDataByteNotFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  d 8  AA FD CC DD EE FF 00 11
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(1);
+        frames[0].Data.Should().Equal(0xAA, 0xFD, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Parse_PerByteData_LastByteFd_IsDataByteNotFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  d 8  AA BB CC DD EE FF 00 FD
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(1);
+        frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0xFD);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Guard for the >= branch: once the declared DLC is exhausted, a trailing
+    /// "fd" token is the CAN-FD flag (classic 'd' marker — flag must come ONLY
+    /// from the trailing token, hence not 'l').
+    /// </summary>
+    [Fact]
+    public async Task Parse_PerByteData_FdTokenAfterFullData_IsFdFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+155564.432800 1  100  d 8  AA BB CC DD EE FF 00 11  fd
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(1);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeTrue("'fd' after data is exhausted is the CAN-FD flag");
+    }
+
+    /// <summary>
+    /// PCAN bare-DLC shape (P7 acceptance fixture): no 'd/l' marker, DLC at
+    /// tokens[3], first data byte 0xFD — the exact shape that lost its first
+    /// byte on device.
+    /// </summary>
+    [Fact]
+    public async Task Parse_PcanBareDlc_FirstByteFd_IsDataByteNotFlag()
+    {
+        const string asc = @"date Wed Jul 1 08:32:01 2026
+base hex  timestamps absolute
+internal events logged
+0.000000 51  100  8  FD 00 02 03 04 05 06 07
+";
+        using var stream = MakeAscStream(asc);
+        var frames = await AscParser.ParseAsync(stream);
+
+        frames.Should().HaveCount(1);
+        frames[0].Dlc.Should().Be(8);
+        frames[0].Data.Should().Equal(0xFD, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07);
+        frames[0].Flags.HasFlag(FrameFlags.Fd).Should().BeFalse();
+    }
+
+    /// <summary>
     /// v3.11.5 PATCH Gap #3: 'Rx' / 'Tx' are direction tokens, not data bytes.
     /// The parser must classify them as flags (currently silently dropped;
     /// direction tracking is a future-PATCH concern, not this PATCH).

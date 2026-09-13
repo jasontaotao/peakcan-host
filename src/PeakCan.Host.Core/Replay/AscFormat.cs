@@ -182,6 +182,10 @@ public static class AscFormat
             switch (t.ToLowerInvariant())
             {
                 case "fd":
+                    // 位置消歧：数据未凑满行内声明 DLC 时，"FD" 是数据字节 0xFD
+                    // （逐字节方言 PCAN/CANoe 的合法数据 token）；凑满后才是
+                    // CAN-FD flag（自家 writer 尾部标记）。
+                    if (data.Count < dlc) break;
                     flags |= FrameFlags.Fd; continue;
                 case "brs":
                     flags |= FrameFlags.BitRateSwitch; continue;
