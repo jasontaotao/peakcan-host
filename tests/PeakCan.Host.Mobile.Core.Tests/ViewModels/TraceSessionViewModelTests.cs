@@ -1102,7 +1102,7 @@ public class TraceSessionViewModelTests
             Substitute.For<IChatConnectionTester>());
 
         chat.Should().NotBeNull();
-        chat.ChatTools.Should().HaveCount(7);
+        chat.ChatTools.Should().HaveCount(8);
         chat.ChatMessages.Should().BeEmpty();
     }
 }

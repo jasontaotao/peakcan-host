@@ -19,8 +19,31 @@ public sealed class FakeContext : IMobileChatToolContext
     public bool SeekResult { get; set; } = true;
     public double? LastSeek { get; private set; }
 
+    /// <summary>Preset page returned by <see cref="GetFramesForCanIdAsync"/>
+    /// (window-filtered by timestamp before returning).</summary>
+    public FramePage? FramesForCanIdPage { get; set; }
+
+    /// <summary>Captured (CanId, TStart, TEnd) of each window query.</summary>
+    public List<(uint CanId, double? TStart, double? TEnd)> WindowQueries { get; } = [];
+
+    /// <summary>Preset cache summary returned by <see cref="GetCacheSummaryAsync"/>.</summary>
+    public TraceCacheSummary? CacheSummary { get; set; }
+
     public Task<IReadOnlyList<CachedFrame>> GetFramesBeforeAsync(double timestamp, CancellationToken ct)
         => Task.FromResult(FramesBefore);
+
+    public Task<FramePage> GetFramesForCanIdAsync(uint canId, double? tStart, double? tEnd, CancellationToken ct)
+    {
+        WindowQueries.Add((canId, tStart, tEnd));
+        if (FramesForCanIdPage is null) return Task.FromResult(new FramePage([], false));
+        var frames = FramesForCanIdPage.Frames
+            .Where(f => (tStart is null || f.Timestamp >= tStart) && (tEnd is null || f.Timestamp <= tEnd))
+            .ToList();
+        return Task.FromResult(new FramePage(frames, FramesForCanIdPage.HasMore));
+    }
+
+    public Task<TraceCacheSummary?> GetCacheSummaryAsync(CancellationToken ct)
+        => Task.FromResult(CacheSummary);
 
     public bool Seek(double timestamp)
     {
