@@ -41,6 +41,23 @@ public static class HeadlessHostBuilder
     public static IHost Build(CliArgs args)    {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
 
+        // Phase 4（spec §8）：suite 内嵌 security 块——通道组装早于 suite 完整反序列化，
+        // 故在此探取并一次性解析（keyId → KeyStore fail-loud 在任何模式下都即刻发生），
+        // 结果闭包传给各模式 ComposeChannel（块优先于 --secoc-config）。
+        var secOcBlock = SecOcBlockReader.TryRead(args.SuitePath);
+        // v1 suite 块仅支持传统单通道运行模式（--hw / --ecu / --matrix / --trace）：
+        // channels[] 路径一律走 MultiChannelAssertionContext，而后者不透出 ISecOcStatsSource /
+        // IPerCaseReset（无 per-channel PDU 绑定），会静默禁用 secocRejected 与 per-case 复位。
+        // 因此块存在时显式拒绝 channels[]（含单个声明通道），fail-loud 而非静默降级。
+        if (secOcBlock is not null && args.HardwareChannels is { Count: > 0 })
+            throw new InvalidOperationException(
+                "SecOC suite block is not supported on the channels[] run path (spec §8 Phase 4): the multi-channel " +
+                "assertion context does not carry SecOC verdict statistics / per-case reset. Use a single-channel run " +
+                "(--hw / --ecu / --matrix / --trace); per-channel SecOC binding is not supported yet.");
+        var secOcPdus = secOcBlock is not null
+            ? SecOcConfigLoader.LoadFromBlock(secOcBlock, args.SecOcStoreDir, args.SecOcEntropy)
+            : null;
+
         // Channel factory (hardware / trace / virtual-ECU / matrix)
         System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString())}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
         if (args.HardwareChannels is { Count: > 0 } multiHw)
@@ -51,10 +68,11 @@ public static class HeadlessHostBuilder
             RegisterChannelFactory(builder);
             // Multi-channel hardware mode (2026-08-22, spec §3.4): the FIRST channel is
             // registered as the default ICanChannel singleton so single-channel-default
-            // dependencies (BackgroundFrameSender / IFrameStatistics / IsoTpLayer / UdsClient
-            // — UDS+stats multi-channel is deferred to Task 10/§3.4) resolve against the
-            // default bus. MultiChannelAssertionContext (registered below) owns ALL channels
-            // for per-step TargetChannel routing.
+            // dependencies (BackgroundFrameSender / IFrameStatistics / IsoTpLayer / UdsClient)
+            // resolve against the default bus. MultiChannelAssertionContext (registered below)
+            // owns ALL channels for per-step TargetChannel routing. Per-channel UDS stacks are
+            // built below (Task B 第二步, spec 2026-08-27 §2.2) when the channel declares
+            // UdsRequestId/UdsResponseId; the resolver routes UDS steps by TargetChannel.
             var defaultHandle = ResolveChannelHandle(multiHw[0].Handle, index: 0);
             // M2.4b-0（review NEW HIGH）：组装点上移到 DI ICanChannel 注册处（spec D1 单点）——
             // 默认通道在此完成 SecOC 组装，IsoTpLayer/HilIsoTpBridge/J1939/FrameStatistics
@@ -66,7 +84,7 @@ public static class HeadlessHostBuilder
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
                 return ComposeChannel(raw, args, logger,
                     sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
-                    enableFaultInjection: false);
+                    enableFaultInjection: false, secOcPdus: secOcPdus);
             });
         }
         else if (args.HardwareChannel is not null)
@@ -83,7 +101,8 @@ public static class HeadlessHostBuilder
                 var raw = sp.GetRequiredService<PeakCan.Host.Core.IChannelFactory>().Create(new ChannelId(handle));
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
                 return ComposeChannel(raw, args, logger,
-                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>());
+                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
+                    secOcPdus: secOcPdus);
             });
         }
         else if (args.EcuScriptPath is not null)
@@ -100,7 +119,8 @@ public static class HeadlessHostBuilder
             // M2.4b-0：DI 通道改为组装后注册（SecOC/faults 单点）；VirtualEcu 仍持有
             // 原始 channel 引用（ECU 模拟端不经过 SecOC，与真实硬件对端语义一致）。
             builder.Services.AddSingleton<ICanChannel>(sp => ComposeChannel(channel, args, null,
-                sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>()));
+                sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
+                secOcPdus: secOcPdus));
             builder.Services.AddSingleton(ecu);
         }
         else if (args.MatrixPath is not null)
@@ -115,7 +135,8 @@ public static class HeadlessHostBuilder
             builder.Services.AddSingleton(_ => matrix);
             // M2.4b-0：DI 通道改为组装后注册（spec D1 单点）；matrix 内部 ECU 仍直连原始通道。
             builder.Services.AddSingleton<ICanChannel>(sp => ComposeChannel(matrix.Channel, args, null,
-                sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>()));
+                sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
+                secOcPdus: secOcPdus));
         }
         else
         {
@@ -133,7 +154,8 @@ public static class HeadlessHostBuilder
                     ch.LoadAscii(args.TracePath);
                 // M2.4b-0：组装点上移（fault injection；trace 离线回放 SecOC 语义不变）
                 return ComposeChannel(ch, args, logger,
-                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>());
+                    sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
+                    secOcPdus: secOcPdus);
             });
         }
 
@@ -169,7 +191,9 @@ public static class HeadlessHostBuilder
             // own ChannelName), and register MultiChannelAssertionContext as
             // IAssertionContext. The default ICanChannel singleton (first channel) is
             // already registered above for single-channel-default deps (UDS/stats/bg).
-            // UDS multi-channel is deferred (§3.4): IsoTpLayer/UdsClient bind to default.
+            // UDS multi-channel is handled below (Task B 第二步): channels declaring
+            // UdsRequestId/UdsResponseId get their own IsoTpLayer/UdsClient bound to their
+            // own ICanChannel, resolved per step via IUdsSessionResolver + TargetChannel.
             builder.Services.AddSingleton<PeakCan.Host.Core.HIL.Contracts.IAssertionContext>(sp =>
             {
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
@@ -199,7 +223,8 @@ public static class HeadlessHostBuilder
                             args, logger,
                             sp.GetService<Channel.SecOc.SecOcVerdictTable>(),
                             sp.GetService<Channel.SecOc.SecOcStats>(),
-                            enableFaultInjection: false);
+                            enableFaultInjection: false,
+                            secOcPdus: secOcPdus);
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     DbcDocument dbcDoc;
                     if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
@@ -252,7 +277,9 @@ public static class HeadlessHostBuilder
             {
                 var dbc = sp.GetRequiredService<PeakCan.HIL.Core.HIL.Contracts.IDbcLookup>();
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
-                return new PeakCanAssertionContext(sp.GetRequiredService<ICanChannel>(), dbc, logger);
+                // spec Rev7：硬件单通道同样接入 SecOC 统计（secocRejected 可用 + per-case 复位）。
+                return new PeakCanAssertionContext(sp.GetRequiredService<ICanChannel>(), dbc, logger,
+                    sp.GetService<PeakCan.Host.Core.HIL.Contracts.ISecOcStats>());
             });
             RegisterUdsServices(builder, args);
         }
@@ -480,20 +507,22 @@ public static class HeadlessHostBuilder
 /// </summary>
     /// <summary>
     /// Single assembly point for headless channel decoration (spec §5-D1):
-    /// fault injection + optional SecOC (from --secoc-config, D4 startup
-    /// interception — a missing keyId fails this call loudly).
+    /// fault injection + optional SecOC. SecOC source precedence (spec Phase 4):
+    /// a resolved suite-embedded block (<paramref name="secOcPdus"/>, already keyId-resolved
+    /// at Build time) wins over <c>--secoc-config</c>; a missing key fails at Build time (D4).
     /// </summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static ICanChannel ComposeChannel(ICanChannel raw, CliArgs args,
         Microsoft.Extensions.Logging.ILogger? logger,
         Channel.SecOc.SecOcVerdictTable? verdictTable = null,
         Channel.SecOc.SecOcStats? stats = null,
-        bool? enableFaultInjection = null)
+        bool? enableFaultInjection = null,
+        IReadOnlyDictionary<uint, SecOcPduConfig>? secOcPdus = null)
     {
-        var secocPdus = SecOcConfigLoader.LoadOptional(args.SecOcConfigPath,
+        var pdus = secOcPdus ?? SecOcConfigLoader.LoadOptional(args.SecOcConfigPath,
             args.SecOcStoreDir, args.SecOcEntropy);
         return HilChannelComposer.Compose(raw, enableFaultInjection ?? args.EnableFaultInjection,
-            secocPdus, verdictTable, stats, logger);
+            pdus, verdictTable, stats, logger);
     }
 
     public static ushort ResolveChannelHandle(string handle, int index)

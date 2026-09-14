@@ -16,7 +16,7 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Subscribes to channel.FrameReceived, decodes frames via DBC, caches signal values.
 /// </summary>
 internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable,
-    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource
+    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource, PeakCan.Host.Core.HIL.Contracts.IPerCaseReset
 {
     private readonly ICanChannel _channel;
     private readonly ICanChannel _effectiveChannel; // FaultInjector wrapper or raw channel
@@ -174,6 +174,11 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
 
     // --- ISecOcStatsSource (spec §5-D6.2) ---
     public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats => _secOcStats;
+
+    // --- IPerCaseReset (spec Rev7) ---
+    // 引擎在每个 case 开头调用：清空 per-canId 验签统计，防跨 case 累计导致攻击断言假通过。
+    public void ResetPerCase()
+        => global::PeakCan.Host.Infrastructure.Channel.SecOc.SecOcStatsReset.ResetPerCase(_secOcStats);
 
     // --- IHasFrameSink ---
     // 跨线程：sink 由引擎线程 SetFrameSink 挂载/摘除，consumer 线程读；用 Volatile 保证可见性。
