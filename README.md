@@ -9,7 +9,7 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 > **状态:** v3.65.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
 > 多通道录制与回放、报告侧 per-channel DBC 解码。
-> **3146 个单元测试通过**（Core 1053 + Infrastructure 627 + App 1412 + Cli 54，2026-09-06 全绿）；
+> **3357 个单元测试通过**（Core 1130 + Infrastructure 689 + App 1465 + Cli 73，2026-09-14 全绿）；
 > 依赖 **PeakCan.HIL.Core 0.21.0**（控制流/参数化/多通道模型；sibling 仓库存在时走 ProjectReference，
 > 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
@@ -137,8 +137,8 @@ artifacts/win-x64/PeakCan.Host.exe
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-输出：**3146 通过**（Core 1053 / Infrastructure 627 / App 1412 /
-Cli 54 — Cli.Tests 独立于 slnx 单独跑）。使用 `dotnet test --collect:"XPlat Code Coverage"`
+输出：**3357 通过**（Core 1130 / Infrastructure 689 / App 1465 /
+Cli 73 — Cli.Tests 独立于 slnx 单独跑）。使用 `dotnet test --collect:"XPlat Code Coverage"`
 可生成每个测试项目的 `cobertura.xml` 覆盖率报告。
 
 ## 项目结构

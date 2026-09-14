@@ -80,7 +80,7 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
         _secOcStats = secOcStats;
         ChannelName = channelName;
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
-            new BoundedChannelOptions(10000)
+            new BoundedChannelOptions(FrameChannelCapacity)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
                 SingleWriter = true,
@@ -180,11 +180,16 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
 
     public async Task WaitForFrameDrainAsync(CancellationToken ct = default)
     {
+        // 等「已处理 + 已丢弃」≥「已写入」，而非仅 reader 空：帧出队后仍需解码 + 更新 signal cache，
+        // 只看 Reader.Count 会在解码完成前返回（spec Rev9 残余 B3 的 drain race，
+        // 表现为 GetSignalValue 读到未更新的 cache → null）。
         var deadline = DateTime.UtcNow.AddMilliseconds(500);
         try
         {
-            while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
-                await Task.Delay(10, ct).ConfigureAwait(false);
+            while (Volatile.Read(ref _framesProcessed) + Volatile.Read(ref _framesDropped)
+                       < Volatile.Read(ref _framesWritten)
+                   && DateTime.UtcNow < deadline)
+                await Task.Delay(5, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { /* 取消时放弃排空，文件仍合法 */ }
     }
@@ -209,8 +214,12 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
         return GetRecentDecodedFrames();
     }
 
+    private int _disposed; // 0=active, 1=disposed (CAS for idempotency)
+
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         // 1. 先取消 consumer loop（阻止处理新帧）
         _consumerCts.Cancel();
 
@@ -233,11 +242,36 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
 
         _frameChannel.Writer.Complete();
         _consumerCts.Dispose();
+
+        // 4. 释放本 context 持有的通道（spec Rev9 残余 A1）：多通道模式下非默认通道仅由此释放
+        //    （默认通道同时是 DI singleton，二次释放幂等）。安全目标：SecOcChannel 的密钥克隆 +
+        //    TxGate 必须经其 Dispose 归零 / 释放，否则非默认通道的密钥材料泄漏。
+        //    仅「声明了 IDisposable」的类型走同步分支（注意 VirtualChannel/TraceDrivenChannel 有
+        //    Dispose() 方法但未声明接口 → 走 DisposeAsync）；其余阻塞等待其 DisposeAsync
+        //    （inner 内部 ConfigureAwait(false)，且本方法本身已阻塞等待 consumer loop）。
+        //    FaultInjector/ReceivePathFaultInjector 已补幂等，避免与 DI 二次释放冲突。
+        if (_channel is IDisposable sync)
+            sync.Dispose();
+        else
+            _channel.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
+
+    // 帧处理计数（spec Rev9 残余 B3）：drain 需等「已处理 + 已丢弃」追上「已写入」。
+    // DropOldest 满载时 TryWrite 会静默挤掉最旧一帧且仍返回 true —— 必须显式记账丢弃，
+    // 否则 written 永远领先 processed，drain 每次都要等满 deadline。
+    private const int FrameChannelCapacity = 10000;
+    private long _framesWritten;
+    private long _framesProcessed;
+    private long _framesDropped;
 
     private void OnFrame(CanFrame frame)
     {
         _currentTimestamp = frame.Timestamp.TotalMicroseconds;
+        // 满载 → 本次写入会丢弃最旧一帧（SingleWriter=true，仅此线程写）
+        if (_frameChannel.Reader.Count >= FrameChannelCapacity)
+            Interlocked.Increment(ref _framesDropped);
+        // 先计数再入队：drain 不会在该帧入队前误判「已处理完」
+        Interlocked.Increment(ref _framesWritten);
         _frameChannel.Writer.TryWrite(frame);
     }
 
@@ -313,6 +347,10 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
                         // Isolate per subscriber
                     }
                 }
+
+                // 本帧全部处理完成（解码 + signal cache + sink + subscribers）后才计数，
+                // 供 WaitForFrameDrainAsync 判定「已处理」。
+                Interlocked.Increment(ref _framesProcessed);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

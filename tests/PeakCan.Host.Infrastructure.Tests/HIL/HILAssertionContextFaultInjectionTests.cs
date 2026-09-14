@@ -3,6 +3,7 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.Host.Infrastructure.CanChannels;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.HIL;
+using PeakCan.Host.Infrastructure.Tests.HIL.Environment;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
 
@@ -19,7 +20,7 @@ public class HILAssertionContextFaultInjectionTests
         // Add a Drop fault for CAN ID 0x123
         ctx.AddFault(new FaultRule { Type = FaultType.Drop, TargetCanId = 0x123 });
 
-        var received = new List<CanFrame>();
+        var received = new SentList();
         channel.FrameReceived += f => received.Add(f);
 
         await channel.ConnectAsync(BaudRate.Can500kbps, false);
@@ -40,7 +41,7 @@ public class HILAssertionContextFaultInjectionTests
         var channel = new VirtualChannel();
         var ctx = new HILAssertionContext(channel, new FakeDbcLookup());
 
-        var received = new List<CanFrame>();
+        var received = new SentList();
         channel.FrameReceived += f => received.Add(f);
 
         await channel.ConnectAsync(BaudRate.Can500kbps, false);

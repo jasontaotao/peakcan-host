@@ -17,7 +17,7 @@ public class EnvironmentRuleDispatchTests
     [Fact]
     public void IncomingFrame_MatchesRule_SendsResponse()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -42,7 +42,7 @@ public class EnvironmentRuleDispatchTests
     [Fact]
     public void IncomingFrame_NoMatch_NoResponse()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -67,7 +67,7 @@ public class EnvironmentRuleDispatchTests
     [Fact]
     public void EnvironmentSourceFrame_Ignored()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -92,7 +92,7 @@ public class EnvironmentRuleDispatchTests
     [Fact]
     public void BytePatternCondition_MatchingPayload_Triggers()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -118,7 +118,7 @@ public class EnvironmentRuleDispatchTests
     [Fact]
     public void BytePatternCondition_NonMatchingPayload_DoesNotTrigger()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -160,7 +160,7 @@ public class EnvironmentJ1939RuleDispatchTests
     public void J1939Trigger_MatchesIncoming_SendsComposedActionFrame()
         // 修复前 MatchesIncoming 对 J1939 触发恒 false——GB/T 27930 规则链整体失效
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -190,7 +190,7 @@ public class EnvironmentJ1939RuleDispatchTests
     [Fact]
     public void J1939Trigger_SourceAddressMismatch_DoesNotTrigger()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -218,7 +218,7 @@ public class EnvironmentJ1939RuleDispatchTests
     [Fact]
     public void J1939StartAction_EnablesPeriodicMessage_WithIdentitySa()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -283,7 +283,7 @@ BO_ 512 CRM: 8 Charger
     [Fact]
     public void SetSignalRule_WritesRuntimeSignal_NextSendEncodesNewValue()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {

@@ -4,6 +4,7 @@ using PeakCan.HIL.Core.HIL.Contracts;
 using PeakCan.HIL.Core.Uds.IsoTp;
 using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.Tests.HIL.Environment;
 
 namespace PeakCan.Host.Infrastructure.Tests.HIL;
 
@@ -54,7 +55,7 @@ public class EcuMatrixTests
         using var matrix = new EcuMatrix();
         var channel = matrix.Channel;
 
-        var received = new List<CanFrame>();
+        var received = new SentList();
         channel.FrameReceived += f => received.Add(f);
 
         await channel.ConnectAsync(BaudRate.Can500kbps, false);

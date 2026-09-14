@@ -331,6 +331,16 @@ AUTOSAR 不公开完整 SecOC PDU 测试向量，自造 crypto 必须交叉验�
   - **（LOW）`SecOcBlockReader`**：顶层 `security` 大小写不敏感查找（`Security` 不再被静默忽略）；`Deserialize` 失败包装为 `InvalidOperationException`（与 `JsonDocument.Parse` 路径一致）；非对象 root 返回 null。新增 2 测试。
   - **顺带**：修正 `HeadlessHostBuilder` 中 `ResolveChannelHandle` 的 xmldoc 错位（原挂在 `ComposeChannel` 上）。
   - **验证**：Core `1130 / 6 skip`；Infrastructure `689 / 2 skip`（2 个已知并行 flake 移位，隔离均通过）；Mobile.Core `275`。**未 push / 未 bump 版本**。
-  - **Rev9 残余（本轮 review 新发现，未修，待排期）**：
-    1. **（MEDIUM）`channels[]` 模式下非默认通道永不释放**：多通道 `--secoc-config` 会包装每条通道（各为 `SecOcChannel`），但只有第一条是 DI singleton；`SingleChannelContext.Dispose` 有意不释放 `_channel`（Bug-1 注释），故非默认 `SecOcChannel` 的密钥克隆 + `TxGate` 不会走到 `WipeKeyMaterial`（源副本已由 `ComposeChannel` 即时归零）。修法：让 `SingleChannelContext`/`MultiChannelAssertionContext` 释放其通道（幂等）。
-    2. **（LOW-MEDIUM）同步释放走 UI 线程**：`HilRunnerService` 的 `using var host` 可能在 WPF UI 线程释放，`SecOcChannel.Dispose()` 阻塞等待 inner `DisposeAsync`；当前 inner 均 `ConfigureAwait(false)` 无死锁，但 `ReceivePathFaultInjector` 最长阻塞 5s，未来若有捕获上下文的 inner 会死锁。修法：host/通道释放移出 UI 上下文。
+  - **Rev9 残余**：见下方 Rev10。
+
+- Rev10（2026-09-14，Rev9 残余闭合 + 清理）：
+  - **（MEDIUM，已修）`channels[]` 模式非默认通道泄漏**：`SingleChannelContext.Dispose` 现在释放其 `_channel`（新增 CAS 幂等守卫）；多通道模式下非默认 `SecOcChannel` 的密钥克隆 + `TxGate` 由此归零 / 释放（默认通道同时是 DI singleton，二次释放幂等）。安全目标（密钥材料不泄漏）达成。**该改动暴露并顺带修复一处 HIGH 回归**：DI 与 context 二次释放同一实例时，`ReceivePathFaultInjector.DisposeAsync`（`_delayCts.Cancel()→Dispose()` 非幂等）会抛 `ObjectDisposedException` → `--hw --fault-injection` 的成功 run 在卸载时崩溃；已给 `ReceivePathFaultInjector` / `FaultInjector` 补 CAS 幂等 `DisposeAsync` + 回归测试。
+  - **（LOW-MEDIUM，评估为可接受 + 文档化）同步释放阻塞**：`SecOcChannel.Dispose` / `SingleChannelContext.Dispose` 在 IAsyncDisposable-only inner 上阻塞等待；所有 inner 的 `DisposeAsync` 均 `ConfigureAwait(false)`（`PeakCanChannel`/`ZlgCanChannel`/`VirtualChannel`/`ReceivePathFaultInjector`），无死锁；且这两个 Dispose 本就同步阻塞等待 consumer loop（≤5s，既有设计）。决定维持阻塞（确定性释放优于 fire-and-forget），风险以代码注释 + 本段记录，不做全链路 async 释放重构（收益低、回归面大）。
+  - **（MEDIUM，已修）并行 flake**（定位到 3 个独立根因，非单一）：
+    1. **测试侧集合竞争**：Environment 规则 / 运行时 / UDS-delay 及 `EcuMatrixTests` / `HILAssertionContextFaultInjectionTests` 用 `List<CanFrame>` 承载后台定时器线程写入 → 测试线程并发枚举偶发 `Collection was modified`。引入线程安全 drop-in `SentList`（Add / Count / 索引 / 快照枚举，调用点零改动）。
+    2. **（产品侧）`WaitForFrameDrainAsync` 语义缺陷**：`SingleChannelContext`/`HILAssertionContext` 原仅等 `_frameChannel.Reader.Count == 0`（已出队），未等解码 + signal cache 更新完成 → 调用方在 drain 返回后读到未更新的 `GetSignalValue`（null）。改为等待「已处理 + 已丢弃 ≥ 已写入」（`Interlocked`：`OnFrame` 先计数再入队，满载时记账 `DropOldest` 静默丢弃——否则 written 永远领先、drain 每次等满 deadline；consumer 每帧处理末尾 +1）。修复 `MultiChannelAssertionContextTests.GetSignalValue_*` 间歇失败；`--ecu/--matrix/--trace` 模式同构修复。
+    3. **`EnvironmentUdsDelayTests.PositiveDelay_ResponseDeferredUntilDue` 计时脆弱**：原用 `Thread.Sleep(25)` 后断言「尚未发出」，但 `Thread.Sleep` 是最小睡眠，并行负载下过冲 >40ms → 响应已发出而误判。改为：`ScanForTest` 后即时 `DoesNotContain`（确定性，due=+40ms 不可能同步发出）+ 测**实际到达延迟**（`Stopwatch` ≥30ms）+ deadline 500→2000ms。
+  - **（LOW，已修）Build 失败路径**：`HeadlessHostBuilder.Build` 捕获 `builder.Build()` 异常并显式归零源密钥（否则 DI 未创建归零器 → 只 GC）。
+  - **（LOW，已修）README** 测试计数刷新为 Core 1130 / Infrastructure 689 / App 1465 / Cli 73（2026-09-14）。
+  - **清理**：删除陈旧 worktree `.worktrees/secoc-phase1` + 分支 `feat/secoc-phase1`（均已并入 main）。8 个旧 stash 保留（可能含未合并旧 WIP，未验证弃置，避免误删）。
+  - **验证**：Core `1130 / 6 skip`；Infrastructure `689 / 2 skip`；App `1465 / 3 skip`；Cli `73`；Mobile.Core `275`。

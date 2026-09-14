@@ -20,7 +20,7 @@ public class EnvironmentRuntimeTests
     [Fact]
     public void Start_EnabledMessage_SendsImmediately()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -40,7 +40,7 @@ public class EnvironmentRuntimeTests
     [Fact]
     public void Start_DisabledMessage_DoesNotSend()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {
@@ -66,7 +66,7 @@ public class EnvironmentRuntimeTests
     [Fact]
     public void UpdateFrameData_FixedHexSource_Applies()
     {
-        var sent = new List<CanFrame>();
+        var sent = new SentList();
         var channel = new FakeChannel { OnWrite = f => sent.Add(f) };
         var node = new RestbusNode
         {

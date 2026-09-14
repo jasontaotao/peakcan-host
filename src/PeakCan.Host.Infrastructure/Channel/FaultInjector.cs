@@ -13,6 +13,7 @@ public sealed class FaultInjector : ICanChannel
     private readonly ICanChannel _inner;
     private readonly object _faultsLock = new();
     private readonly List<FaultRule> _activeFaults = new();
+    private int _disposed;
 
     public ChannelId Id => _inner.Id;
     public bool IsConnected => _inner.IsConnected;
@@ -95,7 +96,11 @@ public sealed class FaultInjector : ICanChannel
         => _inner.DisconnectAsync(ct);
 
     // ICanChannel inherits IAsyncDisposable, not IDisposable. Only implement DisposeAsync.
-    public ValueTask DisposeAsync() => _inner.DisposeAsync();
+    // 幂等（spec Rev9 残余 A1）：DI 与 SingleChannelContext 可能各释放一次同一实例。
+    public ValueTask DisposeAsync()
+        => Interlocked.Exchange(ref _disposed, 1) != 0
+            ? ValueTask.CompletedTask
+            : _inner.DisposeAsync();
 }
 
 public sealed record FaultHandle(Action Remove) : IDisposable

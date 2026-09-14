@@ -51,7 +51,7 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
         _effectiveChannel = channel;
 
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
-            new BoundedChannelOptions(10000)
+            new BoundedChannelOptions(FrameChannelCapacity)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
                 SingleWriter = true,
@@ -189,11 +189,15 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
 
     public async Task WaitForFrameDrainAsync(CancellationToken ct = default)
     {
+        // 等「已处理 + 已丢弃」≥「已写入」，而非仅 reader 空：帧出队后仍需解码 + 更新 cache
+        // （spec Rev9 残余 B3；与 SingleChannelContext 同构）。
         var deadline = DateTime.UtcNow.AddMilliseconds(500);
         try
         {
-            while (_frameChannel.Reader.Count > 0 && DateTime.UtcNow < deadline)
-                await Task.Delay(10, ct).ConfigureAwait(false);
+            while (Volatile.Read(ref _framesProcessed) + Volatile.Read(ref _framesDropped)
+                       < Volatile.Read(ref _framesWritten)
+                   && DateTime.UtcNow < deadline)
+                await Task.Delay(5, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { /* 取消时放弃排空，文件仍合法 */ }
     }
@@ -236,9 +240,20 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
         _consumerCts.Dispose();
     }
 
+    // 帧处理计数（spec Rev9 残余 B3）：drain 需等「已处理 + 已丢弃」追上「已写入」。
+    private const int FrameChannelCapacity = 10000;
+    private long _framesWritten;
+    private long _framesProcessed;
+    private long _framesDropped;
+
     private void OnFrame(CanFrame frame)
     {
         _currentTimestamp = frame.Timestamp.TotalMicroseconds;
+        // DropOldest 满载时静默丢最旧一帧（仍返回 true）→ 显式记账
+        if (_frameChannel.Reader.Count >= FrameChannelCapacity)
+            Interlocked.Increment(ref _framesDropped);
+        // 先计数再入队：drain 不会在该帧入队前误判「已处理完」
+        Interlocked.Increment(ref _framesWritten);
         _frameChannel.Writer.TryWrite(frame);
     }
 
@@ -314,6 +329,9 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
                         // Isolate per subscriber; swallow to prevent one bad callback from killing the loop
                     }
                 }
+
+                // 本帧全部处理完成（解码 + cache + sink + subscribers）后才计数
+                Interlocked.Increment(ref _framesProcessed);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

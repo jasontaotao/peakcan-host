@@ -17,6 +17,7 @@ public sealed class ReceivePathFaultInjector : ICanChannel
     private readonly object _subscribersLock = new();
     private Action<CanFrame>? _subscribers;
     private int _subscriberCount;
+    private int _disposed;
 
     public ChannelId Id => _inner.Id;
     public bool IsConnected => _inner.IsConnected;
@@ -175,6 +176,10 @@ public sealed class ReceivePathFaultInjector : ICanChannel
 
     public async ValueTask DisposeAsync()
     {
+        // 幂等（spec Rev9 残余 A1）：DI 与 SingleChannelContext 可能各释放一次同一实例；
+        // 非幂等的 _delayCts.Cancel()→Dispose() 二次调用会抛 ObjectDisposedException。
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         // Cancel pending delay tasks before waiting — prevents indefinite hangs
         _delayCts.Cancel();
 

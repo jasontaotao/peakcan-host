@@ -176,4 +176,16 @@ public class ReceivePathFaultInjectorTests
         await Task.Delay(200);
         Assert.Equal(1, count); // handler still works after double-remove
     }
+
+    [Fact]
+    public async Task DisposeAsync_IsIdempotent()
+    {
+        // spec Rev9 残余 A1 回归：DI 与 SingleChannelContext 会对同一实例各释放一次；
+        // 非幂等的 _delayCts.Cancel()→Dispose() 二次调用会抛 ObjectDisposedException，
+        // 在 --hw --fault-injection 卸载时表现为成功 run 被异常吞掉。
+        var injector = await CreateConnectedInjector();
+
+        await injector.DisposeAsync();
+        await injector.DisposeAsync(); // 二次不得抛
+    }
 }

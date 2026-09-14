@@ -140,4 +140,13 @@ public class FaultInjectorTests
 
         await injector.DisposeAsync();
     }
+
+    [Fact]
+    public async Task DisposeAsync_IsIdempotent()
+    {
+        // spec Rev9 残余 A1 回归：二次释放不得抛（DI + SingleChannelContext 各释放一次）。
+        var injector = CreateInjector(out _);
+        await injector.DisposeAsync();
+        await injector.DisposeAsync();
+    }
 }

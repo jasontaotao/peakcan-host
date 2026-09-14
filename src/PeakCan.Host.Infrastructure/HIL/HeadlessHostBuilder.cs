@@ -401,7 +401,18 @@ public static class HeadlessHostBuilder
             .WriteTo.File("hil.log")
             .CreateLogger());
 
-        var host = builder.Build();
+        IHost host;
+        try
+        {
+            host = builder.Build();
+        }
+        catch
+        {
+            // Build 失败时 DI 不会创建/释放密钥归零器 → 源密钥副本只被 GC。此处显式归零（spec Rev9）。
+            if (secOcPdus is not null)
+                new Channel.SecOc.SecOcKeyMaterialZeroizer(secOcPdus.Values.Select(p => p.Key)).Dispose();
+            throw;
+        }
         // M3.4 devlog 遗留修复：HilIsoTpBridge 是懒注册单例，无人解析则 client isotp 的
         // ProcessFrame 永不接线（单通道/ECU 模式跑 UDS 步骤全超时）。注册了即急切实例化；
         // trace-replay 模式未注册 → GetService 返回 null，无副作用。多通道模式已自建 bridge。
