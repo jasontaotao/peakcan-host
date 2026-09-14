@@ -134,6 +134,12 @@ public sealed class TestSuiteEngine
         (ctx as IStepVariableStore)?.Variables.Clear();
         // per-case SecOC 统计清零（spec Rev7）：secocRejected(id) 累计计数不得跨 case 泄漏，
         // 否则上一 case 的拒绝会让下一 case 的攻击断言假通过（同 M-1 变量污染同类问题）。
+        // Rev9 结构化强制：若 context 透出 SecOC 统计却不实现 IPerCaseReset，复位会静默 no-op
+        // 并重新引入假通过——此处直接 fail-loud，而非依赖 SecOcStatsReset 的事后兜底。
+        if (ctx is ISecOcStatsSource { SecOcStats: not null } && ctx is not IPerCaseReset)
+            throw new InvalidOperationException(
+                $"Assertion context '{ctx.GetType().Name}' exposes SecOC statistics but does not implement " +
+                "IPerCaseReset; per-case reset would be a silent no-op and re-introduce the attack-suite false-pass.");
         (ctx as IPerCaseReset)?.ResetPerCase();
 
         var stepResults = new List<StepResult>();

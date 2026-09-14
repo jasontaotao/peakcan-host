@@ -335,4 +335,80 @@ public class SecOcChannelTests
         stats.TotalRejected.Should().Be(1);
         await channel.DisposeAsync();
     }
+
+    // ---- sync dispose / key wipe (spec Rev9) ----
+
+    [Fact]
+    public void Dispose_WipesKeyMaterial_AndIsIdempotent()
+    {
+        var channel = Create(out _);
+        channel.IsKeyMaterialWiped.Should().BeFalse();
+
+        channel.Dispose();
+        channel.IsKeyMaterialWiped.Should().BeTrue();
+
+        // 幂等：二次调用不得抛（DI 同步释放 + 显式 using 可能各调一次）。
+        channel.Dispose();
+    }
+
+    [Fact]
+    public async Task Dispose_DisposesInnerOnce_AndAsyncDisposeIsNoOp()
+    {
+        var inner = new CountingInnerChannel();
+        var channel = new SecOcChannel(inner, Options());
+
+        channel.Dispose();
+
+        channel.IsKeyMaterialWiped.Should().BeTrue();
+        inner.SyncDisposeCount.Should().Be(1);
+
+        // 与同步 Dispose 互斥：DisposeAsync 不得再次释放 inner。
+        await channel.DisposeAsync();
+        inner.SyncDisposeCount.Should().Be(1);
+        inner.AsyncDisposeCount.Should().Be(0);
+        channel.IsKeyMaterialWiped.Should().BeTrue();
+    }
+
+    /// <summary>计数式 inner：区分同步/异步释放次数，验证 SecOcChannel 的释放传播与 Dispose/DisposeAsync 互斥。</summary>
+    private sealed class CountingInnerChannel : ICanChannel, IDisposable
+    {
+        private readonly VirtualChannel _inner = new();
+        public int SyncDisposeCount { get; private set; }
+        public int AsyncDisposeCount { get; private set; }
+
+        public ChannelId Id => _inner.Id;
+        public bool IsConnected => _inner.IsConnected;
+
+        public event Action<CanFrame>? FrameReceived
+        {
+            add => _inner.FrameReceived += value;
+            remove => _inner.FrameReceived -= value;
+        }
+
+        public event Action<ReadLoopError>? ReadLoopError
+        {
+            add => _inner.ReadLoopError += value;
+            remove => _inner.ReadLoopError -= value;
+        }
+
+        public Task<Result<Unit>> ConnectAsync(BaudRate baud, bool fd, CancellationToken ct = default)
+            => _inner.ConnectAsync(baud, fd, ct);
+
+        public Task DisconnectAsync(CancellationToken ct = default) => _inner.DisconnectAsync(ct);
+
+        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+            => _inner.WriteAsync(frame, ct);
+
+        public void Dispose()
+        {
+            SyncDisposeCount++;
+            _inner.Dispose();
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            AsyncDisposeCount++;
+            return _inner.DisposeAsync();
+        }
+    }
 }

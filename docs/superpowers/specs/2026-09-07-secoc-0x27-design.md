@@ -315,8 +315,22 @@ AUTOSAR 不公开完整 SecOC PDU 测试向量，自造 crypto 必须交叉验�
 
 - Rev8（2026-09-14，Phase 4 / Rev7 复核与收尾）：
   - **复核修复（MEDIUM，已落地）**：原拒绝条件为 `HardwareChannels is { Count: > 1 }`，但 `channels[]` 路径（含**单个**声明通道）同样走 `MultiChannelAssertionContext`，后者不透出 `ISecOcStatsSource` / `IPerCaseReset` → 会**静默禁用** `secocRejected` 与 per-case 复位（攻击断言查询未知函数）。改为 `Count: > 0` 时即显式拒绝（fail-loud），并给出改为传统单通道运行模式的提示。Rev6 里"多通道 + security 块显式拒绝"的描述据此收紧为"`channels[]` 路径一律拒绝"。
-  - **遗留（未做，待排期）**：
-    1. **（MEDIUM）reset 非结构化强制**：`TestSuiteEngine` 用 `(ctx as IPerCaseReset)?.ResetPerCase()` 可选转换；对「接了 `ISecOcStatsSource` 但漏实现 `IPerCaseReset`」的 context 无编译期约束（当前仅 `SecOcStats` 实现该接口，无活体假通过）。建议：引擎对带 stats 却无 reset 的 context 直接抛，或把 reset 并入 stats-source 契约。
-    2. **（MEDIUM）密钥擦除不彻底 + 生命周期可疑**：`SecOcChannel.DisposeAsync` 的 `Wipe()` 未清除宿主 options / `secOcPdus` 字典中 `IKeyStore.GetKey` 返回的**源副本**（`IKeyStore` 约定调用方负责归零）；且 `ICanChannel : IAsyncDisposable` 而运行路径（`Program.cs` / `HilRunnerService`）为**同步** `Dispose`，`DisposeAsync` 可能从不执行（MS DI 同步释放不触发 `DisposeAsync`）。建议：归零源 `SecOcPduConfig.Key`，并让 `SecOcChannel` 实现 `IDisposable` 或在 suite 结束显式擦除；补一条经 host 释放的测试。
-    3. **（LOW）测试缺口**：`TestSuiteEnginePerCaseResetTests` 只断言"每 case 一次"，未断言"setup 之前"；无 `SecOcChannel.DisposeAsync → Wipe()` 的覆盖。
-    4. **（LOW）`SecOcBlockReader` 细节**：`TryGetProperty("security")` 大小写敏感（第三方手改 `Security` 会被静默忽略 → 无保护运行）；`Deserialize` 失败抛出裸 `JsonException`，与 `JsonDocument.Parse` 包装的 `InvalidOperationException` 不一致。
+  - **遗留（Rev9 已全部闭合）**：
+    1. **（MEDIUM）reset 非结构化强制**：`TestSuiteEngine` 曾用 `(ctx as IPerCaseReset)?.ResetPerCase()` 可选转换，对「接了 `ISecOcStatsSource` 但漏实现 `IPerCaseReset`」的 context 会静默 no-op。→ Rev9 改为 fail-loud。
+    2. **（MEDIUM）密钥擦除不彻底 + 生命周期可疑**：源副本未清 + `DisposeAsync` 可能不执行。→ Rev9 闭合。
+    3. **（LOW）测试缺口**：reset-before-setup 顺序、`Dispose → Wipe`。→ Rev9 补齐。
+    4. **（LOW）`SecOcBlockReader` 细节**：大小写敏感 + 异常类型不一致。→ Rev9 闭合。
+
+- Rev9（2026-09-14，Rev8 遗留全部闭合）：
+  - **（MEDIUM）reset 结构化强制**：`TestSuiteEngine.ExecuteCaseAsync` 在复位前检查——`ctx is ISecOcStatsSource { SecOcStats: not null }` 且 `ctx is not IPerCaseReset` 时直接抛 `InvalidOperationException`（不再静默跳过）。新测试 `ExecuteAsync_SecOcStatsSourceWithoutReset_Throws`。
+  - **（MEDIUM）源密钥擦除 + 生命周期**：
+    - 新增 `SecOcKeyMaterialZeroizer`（internal，DI singleton）：block 路径的源密钥副本（`SecOcConfigLoader` 经 `IKeyStore.GetKey` 取得、被各模式闭包共享）在 host 释放时统一归零；`--secoc-config` 路径的每通道源副本由 `ComposeChannel` 在组装后立即归零。
+    - `SecOcChannel` 实现 `IDisposable`：同步 `host.Dispose()` 现在确定性触发 `WipeKeyMaterial()`（此前仅 `IAsyncDisposable`，同步释放不保证触发）；`Dispose`/`DisposeAsync` 由 CAS 互斥且幂等；inner 释放保留（`IDisposable` 直调，否则阻塞 `DisposeAsync`——inner 内部 `ConfigureAwait(false)`，本仓库既有模式）。
+    - `DisposeAsync` 注释更正为"本层两份副本"（authenticator 内部克隆 + `PduRuntime.Config.Key`）。
+  - **（LOW）测试补齐**：reset-before-setup 顺序断言（`ProbeFixture` 在 `SetupAsync` 观测复位计数）；`SecOcChannel.Dispose` 密钥归零 + 幂等 + inner 释放；`HostDispose_ZeroesSuiteBlockSourceKeyMaterial`（经 host 释放断言源密钥归零，验证 DI zeroizer）。
+  - **（LOW）`SecOcBlockReader`**：顶层 `security` 大小写不敏感查找（`Security` 不再被静默忽略）；`Deserialize` 失败包装为 `InvalidOperationException`（与 `JsonDocument.Parse` 路径一致）；非对象 root 返回 null。新增 2 测试。
+  - **顺带**：修正 `HeadlessHostBuilder` 中 `ResolveChannelHandle` 的 xmldoc 错位（原挂在 `ComposeChannel` 上）。
+  - **验证**：Core `1130 / 6 skip`；Infrastructure `689 / 2 skip`（2 个已知并行 flake 移位，隔离均通过）；Mobile.Core `275`。**未 push / 未 bump 版本**。
+  - **Rev9 残余（本轮 review 新发现，未修，待排期）**：
+    1. **（MEDIUM）`channels[]` 模式下非默认通道永不释放**：多通道 `--secoc-config` 会包装每条通道（各为 `SecOcChannel`），但只有第一条是 DI singleton；`SingleChannelContext.Dispose` 有意不释放 `_channel`（Bug-1 注释），故非默认 `SecOcChannel` 的密钥克隆 + `TxGate` 不会走到 `WipeKeyMaterial`（源副本已由 `ComposeChannel` 即时归零）。修法：让 `SingleChannelContext`/`MultiChannelAssertionContext` 释放其通道（幂等）。
+    2. **（LOW-MEDIUM）同步释放走 UI 线程**：`HilRunnerService` 的 `using var host` 可能在 WPF UI 线程释放，`SecOcChannel.Dispose()` 阻塞等待 inner `DisposeAsync`；当前 inner 均 `ConfigureAwait(false)` 无死锁，但 `ReceivePathFaultInjector` 最长阻塞 5s，未来若有捕获上下文的 inner 会死锁。修法：host/通道释放移出 UI 上下文。

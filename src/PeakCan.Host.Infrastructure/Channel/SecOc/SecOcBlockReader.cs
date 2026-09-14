@@ -32,14 +32,41 @@ public static class SecOcBlockReader
 
         using (doc)
         {
-            if (!doc.RootElement.TryGetProperty("security", out var security) ||
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !TryGetSecurityProperty(doc.RootElement, out var security) ||
                 security.ValueKind == JsonValueKind.Null)
             {
                 return null;
             }
 
             // 块存在但畸形时抛出（不静默降级为"无保护"——安全配置错误必须可见）。
-            return security.Deserialize<SecOcBlock>(HILJsonOptions.Default);
+            try
+            {
+                return security.Deserialize<SecOcBlock>(HILJsonOptions.Default);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Suite '{suitePath}' security block is malformed: {ex.Message}", ex);
+            }
         }
+    }
+
+    /// <summary>
+    /// 顶层 <c>security</c> 大小写不敏感查找。第三方手写 <c>"Security"</c> 不得被静默忽略
+    /// （否则会以"无保护"运行，spec Rev9）。JSON 序列化本身是 camelCase，正常路径全小写。
+    /// </summary>
+    private static bool TryGetSecurityProperty(JsonElement root, out JsonElement security)
+    {
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, "security", StringComparison.OrdinalIgnoreCase))
+            {
+                security = prop.Value;
+                return true;
+            }
+        }
+        security = default;
+        return false;
     }
 }

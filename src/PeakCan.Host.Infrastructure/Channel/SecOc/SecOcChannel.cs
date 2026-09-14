@@ -55,7 +55,7 @@ public sealed record SecOcChannelOptions
 /// (Phase 2 has no SecurityBlock signal stripping, spec §5-D6.8); verdicts go
 /// to the bypass table instead.
 /// </summary>
-public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
+public sealed partial class SecOcChannel : ICanChannel, ISecureChannel, IDisposable
 {
     private const int AesKeyLength = 16;
 
@@ -204,20 +204,50 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
     public Task DisconnectAsync(CancellationToken ct = default)
         => _inner.DisconnectAsync(ct);
 
+    private int _disposed; // 0=active, 1=disposed (CAS for idempotency)
+
+    /// <summary>
+    /// 同步释放入口（spec Rev9）：MS DI 的同步 <c>host.Dispose()</c> 走此路径，确保密钥
+    /// 在宿主释放时确定性归零（此前只实现 IAsyncDisposable，同步释放可能不触发）。
+    /// 释放 inner：IDisposable 直接调用，否则阻塞等待其 DisposeAsync（本仓库既有模式；
+    /// inner 的 DisposeAsync 内部 ConfigureAwait(false)，不 marshal UI 上下文）。
+    /// 幂等，且与 <see cref="DisposeAsync"/> 互斥（先到者生效）。
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _inner.FrameReceived -= OnInnerFrameReceived;
+        WipeKeyMaterial();
+        if (_inner is IDisposable sync) sync.Dispose();
+        else _inner.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
     public async ValueTask DisposeAsync()
     {
-        // Stop feeding frames into this decorator before inner disposal, and
-        // zeroize the per-PDU key copies (spec D4 hygiene).
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _inner.FrameReceived -= OnInnerFrameReceived;
+        WipeKeyMaterial();
+        await _inner.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 零化本层持有的两份密钥副本：<see cref="SecOcAuthenticator"/> 内部克隆 +
+    /// <see cref="PduRuntime.Config"/><c>.Key</c>。调用方（KeyStore → <see cref="SecOcPduConfig"/>）
+    /// 持有的源副本不由本层负责（spec D4 / Rev9）：block 路径由 <c>SecOcKeyMaterialZeroizer</c>
+    /// 在 host 释放时归零，<c>--secoc-config</c> 路径在组装后立即归零。
+    /// </summary>
+    private void WipeKeyMaterial()
+    {
         foreach (var pdu in _pdus.Values)
         {
-            // 清除解密密钥全部副本：authenticator 内部 clone + 本层 Config.Key（spec D4 hygiene）。
             pdu.Authenticator.Wipe();
             CryptographicOperations.ZeroMemory(pdu.Config.Key);
             pdu.TxGate.Dispose();
         }
-        await _inner.DisposeAsync().ConfigureAwait(false);
     }
+
+    /// <summary>测试探针：本层持有的 <see cref="PduRuntime.Config"/> 密钥副本是否已全部归零。</summary>
+    internal bool IsKeyMaterialWiped => _pdus.Values.All(p => p.Config.Key.All(b => b == 0));
 
     [LoggerMessage(EventId = 6020, Level = LogLevel.Warning,
         Message = "SecOC RX rejected id=0x{CanId:X} reason={Reason}")]

@@ -57,6 +57,11 @@ public static class HeadlessHostBuilder
         var secOcPdus = secOcBlock is not null
             ? SecOcConfigLoader.LoadFromBlock(secOcBlock, args.SecOcStoreDir, args.SecOcEntropy)
             : null;
+        // block 路径的源密钥副本由 DI 在 host 释放时归零（spec D4 / Rev9）；该字典被各模式闭包共享，
+        // 若在 compose 后立即归零会破坏 DI 工厂被多次调用时的第 2 次组装。
+        if (secOcPdus is not null)
+            builder.Services.AddSingleton(_ =>
+                new SecOcKeyMaterialZeroizer(secOcPdus.Values.Select(p => p.Key)));
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
         System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString())}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
@@ -401,6 +406,9 @@ public static class HeadlessHostBuilder
         // ProcessFrame 永不接线（单通道/ECU 模式跑 UDS 步骤全超时）。注册了即急切实例化；
         // trace-replay 模式未注册 → GetService 返回 null，无副作用。多通道模式已自建 bridge。
         _ = host.Services.GetService<HilIsoTpBridge>();
+        // block 路径：急切实例化密钥归零器，确保 DI 跟踪它、在 host 释放时清零源密钥副本
+        // （单例工厂只在被解析时才实例化；无人解析则 host 释放时不会被销毁 → 密钥永不归零）。
+        _ = host.Services.GetService<Channel.SecOc.SecOcKeyMaterialZeroizer>();
         return host;
     }
 
@@ -498,14 +506,6 @@ public static class HeadlessHostBuilder
     }
 
     /// <summary>
-/// Parse ChannelConfig.Handle into a PCAN-Basic channel handle.
-/// Two forms (per ChannelConfig doc "raw hex 51 / C600"):
-/// - raw hex ("51" / "0x51" / "C600") - direct ushort parse;
-/// - "USB1".."USB16" convention - ParseChannelHandle (0x51..0x60).
-/// Empty/blank handle maps by index to 0x51+index (Spec v3 §3.4: studio
-/// declares names only; the physical port is host-side, ordered by index).
-/// </summary>
-    /// <summary>
     /// Single assembly point for headless channel decoration (spec §5-D1):
     /// fault injection + optional SecOC. SecOC source precedence (spec Phase 4):
     /// a resolved suite-embedded block (<paramref name="secOcPdus"/>, already keyId-resolved
@@ -519,12 +519,27 @@ public static class HeadlessHostBuilder
         bool? enableFaultInjection = null,
         IReadOnlyDictionary<uint, SecOcPduConfig>? secOcPdus = null)
     {
+        // --secoc-config 路径的源密钥由本方法持有：compose（channel 已完成防御性克隆）后立即归零。
+        // block 路径（secOcPdus 非 null）的源密钥由 DI 的 SecOcKeyMaterialZeroizer 在 host 释放时归零。
+        var ownsPdus = secOcPdus is null;
         var pdus = secOcPdus ?? SecOcConfigLoader.LoadOptional(args.SecOcConfigPath,
             args.SecOcStoreDir, args.SecOcEntropy);
-        return HilChannelComposer.Compose(raw, enableFaultInjection ?? args.EnableFaultInjection,
+        var composed = HilChannelComposer.Compose(raw, enableFaultInjection ?? args.EnableFaultInjection,
             pdus, verdictTable, stats, logger);
+        if (ownsPdus && pdus is not null)
+            foreach (var pdu in pdus.Values)
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(pdu.Key);
+        return composed;
     }
 
+    /// <summary>
+    /// Parse ChannelConfig.Handle into a PCAN-Basic channel handle.
+    /// Two forms (per ChannelConfig doc "raw hex 51 / C600"):
+    /// - raw hex ("51" / "0x51" / "C600") - direct ushort parse;
+    /// - "USB1".."USB16" convention - ParseChannelHandle (0x51..0x60).
+    /// Empty/blank handle maps by index to 0x51+index (Spec v3 §3.4: studio
+    /// declares names only; the physical port is host-side, ordered by index).
+    /// </summary>
     public static ushort ResolveChannelHandle(string handle, int index)
     => string.IsNullOrWhiteSpace(handle)
         ? (ushort)(0x51 + index)

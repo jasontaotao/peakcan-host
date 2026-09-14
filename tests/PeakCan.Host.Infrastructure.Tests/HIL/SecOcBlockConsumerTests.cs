@@ -92,10 +92,48 @@ public class SecOcBlockConsumerTests
         => SecOcBlockReader.TryRead(null).Should().BeNull();
 
     [Fact]
+    public void Reader_ReturnsNull_WhenRootIsNotAnObject()
+    {
+        // 非对象 root 不得抛裸异常；无 security 语义 → null（suite 完整反序列化处再报错）。
+        var path = WriteTemp("json", "[1,2,3]");
+        try { SecOcBlockReader.TryRead(path).Should().BeNull(); }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Reader_ReturnsNull_WhenNoSecurityField()
     {
         var path = WriteTemp("json", """{"name":"x","cases":[],"globalCaseFixtureKeys":[],"suiteFixtureKeys":[],"config":{}}""");
         try { SecOcBlockReader.TryRead(path).Should().BeNull(); }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Reader_FindsSecurityField_CaseInsensitively()
+    {
+        // 第三方手写 "Security" 不得被静默忽略（否则无保护运行，spec Rev8）。
+        var path = WriteTemp("json",
+            """{"name":"x","Security":{"pdus":[{"pduName":"TestMsg","canId":{"raw":291,"format":"Standard","type":"Data"},"dataId":1,"fvLenBits":16,"macLenBits":24,"keyId":"KEY_SLOT_05"}]}}""");
+        try
+        {
+            var block = SecOcBlockReader.TryRead(path);
+            block.Should().NotBeNull();
+            block!.Pdus.Should().HaveCount(1);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Reader_ThrowsConsistently_WhenSecurityBlockMalformed()
+    {
+        // 非对象 security 值：Deserialize 抛 JsonException，须包装为 InvalidOperationException
+        // （与 JsonDocument.Parse 失败路径一致，spec Rev8）。
+        var path = WriteTemp("json", """{"name":"x","security":42}""");
+        try
+        {
+            var act = () => SecOcBlockReader.TryRead(path);
+            act.Should().Throw<InvalidOperationException>().WithMessage("*malformed*");
+        }
         finally { File.Delete(path); }
     }
 
@@ -171,6 +209,38 @@ public class SecOcBlockConsumerTests
 
             host.Services.GetRequiredService<ICanChannel>().Should().BeAssignableTo<ISecureChannel>()
                 .And.BeOfType<SecOcChannel>();
+        }
+        finally
+        {
+            File.Delete(dbc); File.Delete(suite); File.Delete(ecu);
+            if (Directory.Exists(storeDir)) Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void HostDispose_ZeroesSuiteBlockSourceKeyMaterial()
+    {
+        // SecOcChannel 只克隆密钥；loader 返回给宿主闭包的"源"副本由 DI 的
+        // SecOcKeyMaterialZeroizer 在 host 释放时归零（spec D4 / Rev8）。
+        var storeDir = Path.Combine(Path.GetTempPath(), $"p4_store_{Guid.NewGuid():N}");
+        new DpapiKeyStore(storeDir).SetKey("KEY_SLOT_05", Key);
+        var (dbc, suite, ecu) = WriteEcuFixtures(OnePdu);
+        try
+        {
+            var cli = new CliArgs(dbc, suite, EcuScriptPath: ecu, SecOcStoreDir: storeDir);
+            var createdBefore = SecOcKeyMaterialZeroizer.InstancesCreated;
+            var host = HeadlessHostBuilder.Build(cli);
+
+            // Build 必须已急切实例化归零器（否则生产环境无人解析 → 单例工厂不实例化 →
+            // host 释放时源密钥永不归零）。仅靠本测试的显式解析无法守护这一点。
+            SecOcKeyMaterialZeroizer.InstancesCreated.Should().Be(createdBefore + 1);
+
+            var zeroizer = host.Services.GetRequiredService<SecOcKeyMaterialZeroizer>();
+            zeroizer.AllZeroed.Should().BeFalse("源密钥在 host 释放前仍为明文");
+
+            host.Dispose();
+
+            zeroizer.AllZeroed.Should().BeTrue("host 释放后源密钥副本必须归零");
         }
         finally
         {
