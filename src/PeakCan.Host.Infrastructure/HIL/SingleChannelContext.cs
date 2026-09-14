@@ -19,11 +19,13 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// - null（匿名）：接受任何 channelName 作为"自身"（向后兼容，与旧 PeakCanAssertionContext 行为一致）。
 /// - 非 null（命名）：channelName 空/空字符串/相等 → 转发到自身；channelName 非空且不等 → 返回空/失败（防误路由）。
 /// </summary>
-internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable
+internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable,
+    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource, PeakCan.Host.Core.HIL.Contracts.IPerCaseReset
 {
     private readonly ICanChannel _channel;
     private readonly IDbcLookup _dbcLookup;
     private readonly ILogger? _logger;
+    private readonly PeakCan.Host.Core.HIL.Contracts.ISecOcStats? _secOcStats;
     private readonly Channel<CanFrame> _frameChannel;
     private readonly CancellationTokenSource _consumerCts = new();
     private readonly Task _consumerTask;
@@ -41,6 +43,12 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
 
     /// <summary>底层 ICanChannel 引用（internal，供测试验证多通道模式下默认通道与 DI singleton 共享同一实例）。</summary>
     internal ICanChannel Channel => _channel;
+
+    // --- ISecOcStatsSource / IPerCaseReset (spec §5-D6.2 / Rev7) ---
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats => _secOcStats;
+
+    public void ResetPerCase()
+        => global::PeakCan.Host.Infrastructure.Channel.SecOc.SecOcStatsReset.ResetPerCase(_secOcStats);
 
     /// <summary>
     /// 连接底层通道（多通道模式由 MultiChannelAssertionContext.ConnectAllAsync 转发）。
@@ -63,11 +71,13 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     /// </summary>
     internal Task DisconnectAsync(CancellationToken ct) => _channel.DisconnectAsync(ct);
 
-    public SingleChannelContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null, string? channelName = null)
+    public SingleChannelContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null, string? channelName = null,
+        PeakCan.Host.Core.HIL.Contracts.ISecOcStats? secOcStats = null)
     {
         _channel = channel;
         _dbcLookup = dbcLookup;
         _logger = logger;
+        _secOcStats = secOcStats;
         ChannelName = channelName;
         _frameChannel = System.Threading.Channels.Channel.CreateBounded<CanFrame>(
             new BoundedChannelOptions(10000)

@@ -211,6 +211,8 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel
         _inner.FrameReceived -= OnInnerFrameReceived;
         foreach (var pdu in _pdus.Values)
         {
+            // 清除解密密钥全部副本：authenticator 内部 clone + 本层 Config.Key（spec D4 hygiene）。
+            pdu.Authenticator.Wipe();
             CryptographicOperations.ZeroMemory(pdu.Config.Key);
             pdu.TxGate.Dispose();
         }

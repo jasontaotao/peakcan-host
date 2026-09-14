@@ -10,8 +10,8 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
 > 多通道录制与回放、报告侧 per-channel DBC 解码。
 > **3146 个单元测试通过**（Core 1053 + Infrastructure 627 + App 1412 + Cli 54，2026-09-06 全绿）；
-> 依赖 **PeakCan.HIL.Core 0.20.0**（控制流/参数化/多通道模型；sibling 仓库存在时走 ProjectReference，
-> 否则 NuGet 包，当前 pin 0.17.0 待随发包对齐）；NetArchTest 强制执行架构规则；
+> 依赖 **PeakCan.HIL.Core 0.21.0**（控制流/参数化/多通道模型；sibling 仓库存在时走 ProjectReference，
+> 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
 
 ## 功能特性
@@ -86,8 +86,8 @@ HIL Configurator Studio（TestSuiteBuilder / EcuSimulator / OdxImport 三面板 
 ECU 脚本 `canIds`/`states|rules` 结构、`channels` 声明等）由两仓库共享模型保证一致，
 任何一侧变更必须 lockstep 同步到另一侧并通过互操作测试（`peakcan-studio` 的 `InteropTests`），
 否则跨仓库加载直接失败。
-**模型包：** 共享模型通过 **`PeakCan.HIL.Core`**（0.20.0）消费，
-host / studio 双 pin 同一版本（host 侧当前 NuGet pin 0.17.0，sibling ProjectReference 优先，发包后对齐）。
+**模型包：** 共享模型通过 **`PeakCan.HIL.Core`**（0.21.0）消费，
+host / studio 双 pin 同一版本（sibling ProjectReference 优先，否则 NuGet 包）。
 
 ## 系统要求
 
@@ -168,7 +168,7 @@ tests/                           每层一个测试项目 + Cli.Tests
    PeakCan.Host.Core           （CanFrame, DBC 解析器, UDS, HIL 契约与引擎）
             │
             ▼  使用
-   PeakCan.HIL.Core (NuGet)    （0.20.0 — 共享模型: ChannelConfig / 控制流步骤 /
+   PeakCan.HIL.Core (NuGet)    （0.21.0 — 共享模型: ChannelConfig / 控制流步骤 /
                                  表达式求值器 / StepResult）
 ```
 
@@ -191,7 +191,7 @@ App 层禁止直接引用厂商 SDK（PEAK / ZLG）；所有硬件调用通过 I
 | **.NET 10** | 开发机只有 10.0.x SDK。发布的 exe 自包含，目标机器无需特定运行时。 |
 | **PEAK: `Peak.PCANBasic.NET` 5.0.1** | PEAK-System 官方包（旧 `Peak.Can.Basic` 在 nuget.org 无法找到）。 |
 | **ZLG: `zlgcan.dll` P/Invoke** | 厂商原生库随发布分发，`ZlgNative` 抽象隔离 SDK 细节。 |
-| **`PeakCan.HIL.Core` NuGet 包（0.20.0）** | hil-core 抽包后 host / studio 双 pin 同一模型包，格式冻结由版本号强制。 |
+| **`PeakCan.HIL.Core` NuGet 包（0.21.0）** | hil-core 抽包后 host / studio 双 pin 同一模型包，格式冻结由版本号强制。 |
 | **OxyPlot.Wpf 2.2.0 + ScottPlot.Wpf** | OxyPlot 为时序/统计主引擎；ScottPlot 承接 Trace 图表（v3.16.x 迁移）。 |
 | **ClearScript V8** | 脚本引擎宿主（CodeMirror 6 编辑器 + 沙箱执行）。 |
 | **WebView2** | HIL HTML 报告内嵌展示。 |
@@ -203,7 +203,15 @@ App 层禁止直接引用厂商 SDK（PEAK / ZLG）；所有硬件调用通过 I
 - **v3.61–v3.65（已完成）** — ZLG USBCAN FD 200U 驱动、BLF 解析器、AI 推理、
   Trace Viewer AI 聊天、ODX 导入 + SecurityAccess 桥接、Flash Pipeline、
   HIL 多通道（spec §3.4 执行接线 + 报告 per-channel DBC 解码）、控制流/参数化 lockstep。
-- **近期** — HIL 多通道 UDS（`IsoTpLayer`/`UdsClient` 目前绑定默认通道，多通道化待做）。
+- **SecOC（Phase 1–4 已完成）** — AES-CMAC 加签验签 + 新鲜度 + KeyStore、
+  通道装饰器单点组装 + trace 徽标 + secoc* 表达式、0x27 虚拟 ECU server、
+  **suite 内嵌 `security` 块消费**（`SecOcBlockReader` + `SecOcConfigLoader.LoadFromBlock`，
+  块优先于 `--secoc-config`）；`PeakCan.HIL.Core` 0.21.0 双 pin lockstep。
+- **HIL 多通道 UDS（已完成，Task B 第二步）** — 每通道独立 `IsoTpLayer`/`UdsClient` 栈
+  （`Channels[].UdsRequestId/UdsResponseId` 非空时），`IUdsSessionResolver` 按 step 的
+  `TargetChannel` 解析；全部 UDS step executor（ReadDid/WriteDid/SessionControl/AssertDtc/
+  AssertNrc/RoutineControl/SecurityAccess/…）均经 resolver 路由；studio 端 `ChannelConfigRow` +
+  `StepFieldDescriptors(TargetChannel)` + `ChannelReferenceCheck` 已暴露并校验。
 - **远期** — J1939 / CANopen，跨平台（Linux + SocketCAN）。
 
 ## 许可证

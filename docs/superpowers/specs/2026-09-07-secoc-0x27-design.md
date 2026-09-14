@@ -1,9 +1,9 @@
 # SecOC + 0x27（R19-11 子集）设计 Spec
 
 - 日期：2026-09-07
-- 状态：Draft（三视角评审合入版：架构 / AUTOSAR / 产品）
+- 状态：Implemented（Phase 1–4 已落地；Phase 4 = studio SecurityBlock + 攻击套件，2026-09-12）
 - 范围：peakcan-host、peakcan-studio、新项目 PeakCan.Security
-- 硬约束：**peakcan-hil-core 零改动**（schema/枚举/Factory 冻结纪律，见 studio 2026-09-06 UX spec 非目标节）
+- 硬约束：**peakcan-hil-core Phase 1–3 零改动**（Phase 4 为计划内 nullable `security` schema 新增，已随 0.21.0 落地，见 §11）
 
 ## 1. 背景与目标
 
@@ -299,3 +299,16 @@ AUTOSAR 不公开完整 SecOC PDU 测试向量，自造 crypto 必须交叉验�
   - **D1 补充：组装点最终落位**。唯一组装点是**各模式的 DI `ICanChannel` 注册处**（headless：HeadlessHostBuilder 全部 5 个模式分支；多通道首通道复用 DI 默认单例，i>0 通道就地组装）——UDS/ISO-TP/J1939/FrameStatisticsCollector 与断言上下文共用同一包装通道，杜绝"诊断栈绕过 SecOC"的旁路视图；context 工厂只解析不再包装（双包由 `ISecureChannel` marker 兜底拒绝）。虚拟 ECU / matrix 内部 ECU 仍直连原始通道（模拟对端不签名，与真实对端语义一致，Phase 3 端到端时由 EcuStateMachine 接管签名）。
   - **D3 落地补充**：布局配方文档交付为 `docs/secoc-fault-layout-recipe.md`（BadMac/ForgedFv → 裸 indices 计算 + 工作示例）；M2 demo 攻击 trace 的攻击帧时间戳须单调递增（回放调度按时间序分发，"旧帧"体现为 FV 回退而非时间戳回退）。
   - **交付物 #6 落地**：M2 demo 走查脚本 = `docs/secoc-m2-demo-walkthrough.md` + `scripts/secoc-demo/gen_demo_assets.py`（资产生成器，密钥只经 stdin 参与 MAC 计算不落盘）；DoD ③ 全链路已在 headless 实跑验证（全绿基线 / BadMac 注入→计数+1→恢复 / Replay / FvRollback 分类全对）。
+
+- Rev6（2026-09-12，Phase 4 落地合入）：
+  - **hil-core 0.21.0 `security` 块**：`TestSuite.Security`（nullable）+ `SecOcBlock` / `SecOcPduDefinition`（PduName / CanId / DataId / FvLenBits / MacLenBits / KeyId / Mode / InitialFv）+ `SecOcBlockValidator`（纯结构校验；keyId 存在性留 host）。仅 keyId 引用，密钥材料永不入 JSON。host / studio 双 pin lockstep。
+  - **host 消费**：`SecOcBlockReader` 从 suite JSON 探取 `security`；`SecOcConfigLoader.LoadFromBlock` 按 keyId 解析 KeyStore（缺钥 Build 期 fail-loud）；优先级 suite 块 > `--secoc-config`；多通道 + security 块显式拒绝（v1 单通道）；`SecOcChannel.DisposeAsync` 补 `Authenticator.Wipe()` 清密钥副本。
+  - **studio**：`MinimalXlsxReader` + `SecOcMatrixImporter`（OEM 通信矩阵 → 块，DLC 回传）、`SecOcFaultExpander`（命名故障 → 裸 indices）、`AttackSuiteGenerator`（BadMac/ForgedFv 用例，携带 security 块，`if secocRejected(id)` 断言）、`EditableSecOcBlock` + `SecOcPanel` 面板（增删改 / 导入矩阵 / 生成攻击套件 / 校验角标）；保存守卫：security 校验错误拦保存（防静默丢块）；面板编辑置脏。
+  - **已知限制（记录在案）**：~~`secocRejected` 为 host 进程级累计、无 per-case 复位 → 同一 CAN ID 多个攻击用例存在假通过风险~~（**Rev7 已解决**）；样例矩阵 VCU_ChrgCtrlCmd 的 24bit freshness 超 v1 上限，导入即校验告警，生成/运行会跳过该 PDU（fail-loud）。
+  - **交付物**：`docs/secoc-m4-demo-walkthrough.md`（导入矩阵 → 生成 suite → host run → 报告）。
+
+- Rev7（2026-09-12，per-case 统计复位合入）：
+  - **`secocRejected`/`secocAccepted`/`secocLastReason` 改为 per-case 语义**：新增 Core 能力接口 `IPerCaseReset`（`HIL/Contracts/IPerCaseReset.cs`）；`HILAssertionContext` 实现它并在 `ResetPerCase()` 中调用 `SecOcStats.Reset()`；`TestSuiteEngine.ExecuteCaseAsync` 在每个 case 开头（紧随既有 M-1 变量清理、case setup 之前）调用 `(ctx as IPerCaseReset)?.ResetPerCase()`。据此消除攻击套件"同一 CAN ID 多个用例、后一用例因前一用例拒绝而假通过"的风险（对齐 M-1 变量污染修复思路）。
+  - **范围**：host 内部；无 schema 变化，**未 bump hil-core**；studio 生成器与 suite 格式不变。硬件单通道 `PeakCanAssertionContext`/`SingleChannelContext` 同步接入 `ISecOcStatsSource` + `IPerCaseReset`（`secocRejected` 在 `--hw` 模式可用且每 case 复位）；多通道 v1 已在 P4-1 显式拒绝 security 块，故 `MultiChannelAssertionContext` 不实现该能力。
+  - **fail-loud**：`SecOcStatsReset.ResetPerCase` 对「接了 stats 但未实现 `IPerCaseReset`」的实现直接抛 `InvalidOperationException`，杜绝静默 no-op 重新引入假通过。
+  - **残余时序边界（文档化）**：case 末尾 in-flight 的 RX 帧（延迟故障派发）可能在下一 case reset 后到达并计入下一 case；trace 回放按时间序分发，正常无此问题。攻击用例的 `<c>delay</c>` 之后才断言，足以覆盖本 case 注入。

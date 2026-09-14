@@ -132,6 +132,9 @@ public sealed class TestSuiteEngine
         // 清空步骤间变量，防止上一 case 拋留值污染（review M-1）：
         // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
         (ctx as IStepVariableStore)?.Variables.Clear();
+        // per-case SecOC 统计清零（spec Rev7）：secocRejected(id) 累计计数不得跨 case 泄漏，
+        // 否则上一 case 的拒绝会让下一 case 的攻击断言假通过（同 M-1 变量污染同类问题）。
+        (ctx as IPerCaseReset)?.ResetPerCase();
 
         var stepResults = new List<StepResult>();
         var caseStopwatch = Stopwatch.StartNew();

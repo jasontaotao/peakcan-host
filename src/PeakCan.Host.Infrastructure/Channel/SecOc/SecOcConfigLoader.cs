@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text.Json;
+using PeakCan.HIL.Core.HIL.Security;
 using PeakCan.Host.Infrastructure.Cli;
 using PeakCan.Security.Keystore;
 using PeakCan.Security.SecOc;
@@ -8,11 +9,13 @@ using PeakCan.Security.SecOc;
 namespace PeakCan.Host.Infrastructure.Channel.SecOc;
 
 /// <summary>
-/// Loads SecOC PDU configuration for headless runs (Phase 2: raw config JSON —
-/// the studio SecurityBlock authoring arrives in Phase 4, spec §5-D3).
-/// Key material is resolved from the local KeyStore by keyId reference
-/// (spec §5-D4); a missing key fails startup loudly instead of silently
-/// bypassing verification.
+/// Loads SecOC PDU configuration for headless runs.
+/// <para>
+/// Phase 2 surface: raw config JSON (<c>--secoc-config</c>).
+/// Phase 4 surface: the suite-embedded <see cref="SecOcBlock"/> authored by the studio
+/// (spec §5-D3/§5-D4). Key material is always resolved from the local KeyStore by keyId
+/// reference — a missing key fails startup loudly instead of silently bypassing verification.
+/// </para>
 /// </summary>
 public static class SecOcConfigLoader
 {
@@ -74,6 +77,50 @@ public static class SecOcConfigLoader
         }
         return result;
     }
+
+    /// <summary>
+    /// Phase 4：从 suite 内嵌的 <see cref="SecOcBlock"/> 构建 PDU 配置（spec §8 Phase 4）。
+    /// 结构先经 <see cref="SecOcBlockValidator"/> 校验；再逐个按 keyId 从 KeyStore 取密钥，
+    /// 缺失即抛（D4 fail-loud）。字典按 CAN <c>Raw</c> 键控，与 <see cref="SecOcChannel"/> 查表口径一致。
+    /// </summary>
+    public static IReadOnlyDictionary<uint, SecOcPduConfig> LoadFromBlock(SecOcBlock block, IKeyStore keyStore)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(keyStore);
+
+        var errors = SecOcBlockValidator.Validate(block);
+        if (errors.Count > 0)
+            throw new InvalidOperationException("SecOC suite block is invalid: " + string.Join(" ", errors));
+
+        var result = new Dictionary<uint, SecOcPduConfig>();
+        foreach (var pdu in block.Pdus!)
+        {
+            if (!keyStore.Contains(pdu.KeyId))
+                throw new InvalidOperationException(
+                    $"SecOC suite block: keyId '{pdu.KeyId}' not found in KeyStore " +
+                    "(import it via `peakcan-hil --secoc-key import` before running).");
+
+            result[pdu.CanId.Raw] = new SecOcPduConfig
+            {
+                Profile = new SecOcProfile
+                {
+                    DataId = pdu.DataId,
+                    FvLenBits = pdu.FvLenBits,
+                    MacLenBits = pdu.MacLenBits,
+                },
+                Key = keyStore.GetKey(pdu.KeyId),
+                Mode = ParseMode(pdu.Mode),
+                InitialFv = pdu.InitialFv,
+            };
+        }
+        return result;
+    }
+
+    /// <summary>Phase 4：从 suite 块构建，密钥由本机 DPAPI KeyStore 解析（headless 默认路径）。</summary>
+    [SupportedOSPlatform("windows")]
+    public static IReadOnlyDictionary<uint, SecOcPduConfig> LoadFromBlock(
+        SecOcBlock block, string? storeDir = null, string? entropy = null)
+        => LoadFromBlock(block, new DpapiKeyStore(storeDir ?? SecOcKeyCommand.DefaultStoreDir, entropy));
 
     private static SecOcPduMode ParseMode(string mode) => mode.ToLowerInvariant() switch
     {

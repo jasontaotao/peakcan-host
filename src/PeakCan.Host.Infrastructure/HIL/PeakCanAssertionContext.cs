@@ -12,13 +12,15 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Preserves the original class name so <see cref="HeadlessHostBuilder"/> (line 108)
 /// compiles without changes. All members delegate to the internal SingleChannelContext.
 /// </summary>
-internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable
+internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFrames, IStepVariableStore, IHasFrameSink, IDisposable,
+    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource, PeakCan.Host.Core.HIL.Contracts.IPerCaseReset
 {
     private readonly SingleChannelContext _inner;
 
-    public PeakCanAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null)
+    public PeakCanAssertionContext(ICanChannel channel, IDbcLookup dbcLookup, ILogger? logger = null,
+        PeakCan.Host.Core.HIL.Contracts.ISecOcStats? secOcStats = null)
     {
-        _inner = new SingleChannelContext(channel, dbcLookup, logger);
+        _inner = new SingleChannelContext(channel, dbcLookup, logger, secOcStats: secOcStats);
     }
 
     public double CurrentTimestamp => _inner.CurrentTimestamp;
@@ -54,6 +56,11 @@ internal sealed class PeakCanAssertionContext : IAssertionContext, IHasRecentFra
 
     public IReadOnlyList<DecodedFrame> GetRecentDecodedFrames(string? channelName)
         => _inner.GetRecentDecodedFrames(channelName);
+
+    // --- ISecOcStatsSource / IPerCaseReset (spec §5-D6.2 / Rev7) ---
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats => _inner.SecOcStats;
+
+    public void ResetPerCase() => _inner.ResetPerCase();
 
     public void Dispose() => _inner.Dispose();
 }

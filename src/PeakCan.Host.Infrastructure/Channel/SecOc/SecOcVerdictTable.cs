@@ -58,7 +58,8 @@ public sealed record SecOcStatsBucket(long Accepted, long Rejected, RejectReason
 /// the HIL assertion layer (Phase 2: expression registry, M2.4).
 /// Thread-safe; RX path is the only writer.
 /// </summary>
-public sealed class SecOcStats : global::PeakCan.Host.Core.HIL.Contracts.ISecOcStats
+public sealed class SecOcStats : global::PeakCan.Host.Core.HIL.Contracts.ISecOcStats,
+    global::PeakCan.Host.Core.HIL.Contracts.IPerCaseReset
 {
     private readonly ConcurrentDictionary<uint, (long Accepted, long Rejected, RejectReason? LastReason)> _buckets = new();
 
@@ -79,6 +80,13 @@ public sealed class SecOcStats : global::PeakCan.Host.Core.HIL.Contracts.ISecOcS
         bucket = new SecOcStatsBucket(0, 0, null);
         return false;
     }
+
+    /// <summary>
+    /// Clear all per-canId buckets (spec Rev7). Called by the HIL engine at each
+    /// case start so <c>secocRejected(id)</c> / <c>secocAccepted(id)</c> reflect
+    /// only the current case, not the whole process run.
+    /// </summary>
+    public void ResetPerCase() => _buckets.Clear();
 
     public long TotalAccepted => _buckets.Values.Sum(b => b.Accepted);
     public long TotalRejected => _buckets.Values.Sum(b => b.Rejected);
