@@ -312,3 +312,11 @@ AUTOSAR 不公开完整 SecOC PDU 测试向量，自造 crypto 必须交叉验�
   - **范围**：host 内部；无 schema 变化，**未 bump hil-core**；studio 生成器与 suite 格式不变。硬件单通道 `PeakCanAssertionContext`/`SingleChannelContext` 同步接入 `ISecOcStatsSource` + `IPerCaseReset`（`secocRejected` 在 `--hw` 模式可用且每 case 复位）；多通道 v1 已在 P4-1 显式拒绝 security 块，故 `MultiChannelAssertionContext` 不实现该能力。
   - **fail-loud**：`SecOcStatsReset.ResetPerCase` 对「接了 stats 但未实现 `IPerCaseReset`」的实现直接抛 `InvalidOperationException`，杜绝静默 no-op 重新引入假通过。
   - **残余时序边界（文档化）**：case 末尾 in-flight 的 RX 帧（延迟故障派发）可能在下一 case reset 后到达并计入下一 case；trace 回放按时间序分发，正常无此问题。攻击用例的 `<c>delay</c>` 之后才断言，足以覆盖本 case 注入。
+
+- Rev8（2026-09-14，Phase 4 / Rev7 复核与收尾）：
+  - **复核修复（MEDIUM，已落地）**：原拒绝条件为 `HardwareChannels is { Count: > 1 }`，但 `channels[]` 路径（含**单个**声明通道）同样走 `MultiChannelAssertionContext`，后者不透出 `ISecOcStatsSource` / `IPerCaseReset` → 会**静默禁用** `secocRejected` 与 per-case 复位（攻击断言查询未知函数）。改为 `Count: > 0` 时即显式拒绝（fail-loud），并给出改为传统单通道运行模式的提示。Rev6 里"多通道 + security 块显式拒绝"的描述据此收紧为"`channels[]` 路径一律拒绝"。
+  - **遗留（未做，待排期）**：
+    1. **（MEDIUM）reset 非结构化强制**：`TestSuiteEngine` 用 `(ctx as IPerCaseReset)?.ResetPerCase()` 可选转换；对「接了 `ISecOcStatsSource` 但漏实现 `IPerCaseReset`」的 context 无编译期约束（当前仅 `SecOcStats` 实现该接口，无活体假通过）。建议：引擎对带 stats 却无 reset 的 context 直接抛，或把 reset 并入 stats-source 契约。
+    2. **（MEDIUM）密钥擦除不彻底 + 生命周期可疑**：`SecOcChannel.DisposeAsync` 的 `Wipe()` 未清除宿主 options / `secOcPdus` 字典中 `IKeyStore.GetKey` 返回的**源副本**（`IKeyStore` 约定调用方负责归零）；且 `ICanChannel : IAsyncDisposable` 而运行路径（`Program.cs` / `HilRunnerService`）为**同步** `Dispose`，`DisposeAsync` 可能从不执行（MS DI 同步释放不触发 `DisposeAsync`）。建议：归零源 `SecOcPduConfig.Key`，并让 `SecOcChannel` 实现 `IDisposable` 或在 suite 结束显式擦除；补一条经 host 释放的测试。
+    3. **（LOW）测试缺口**：`TestSuiteEnginePerCaseResetTests` 只断言"每 case 一次"，未断言"setup 之前"；无 `SecOcChannel.DisposeAsync → Wipe()` 的覆盖。
+    4. **（LOW）`SecOcBlockReader` 细节**：`TryGetProperty("security")` 大小写敏感（第三方手改 `Security` 会被静默忽略 → 无保护运行）；`Deserialize` 失败抛出裸 `JsonException`，与 `JsonDocument.Parse` 包装的 `InvalidOperationException` 不一致。
