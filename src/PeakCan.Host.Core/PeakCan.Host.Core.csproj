@@ -10,9 +10,13 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
-  <!-- Restbus unification M1: use sibling repo project reference when available (local dev).
-       Fall back to NuGet PackageReference for CI / standalone clones.
-       TODO: Remove ProjectReference and publish hil-core 0.18.0 before merging to main. -->
+  <!-- Restbus unification M1: prefer a sibling-repo project reference, else the NuGet package.
+       The sibling path resolves only when the two repos sit next to each other on disk (dev box:
+       D:\claude_proj2\{peakcan-host,peakcan-hil-core}); on CI the Exists() condition is FALSE and
+       the PackageReference branch is used. CI gets the package from the local feed it fills in
+       .github/workflows/ci.yml ("Build + pack hil-core into local feed"), which packs hil-core's
+       DEFAULT branch — so Directory.Packages.props' pinned version MUST match that branch (a
+       lockstep guard step in ci.yml fails the run if it does not). -->
   <ItemGroup Condition="Exists('..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj')">
     <ProjectReference Include="..\..\..\peakcan-hil-core\src\PeakCan.HIL.Core\PeakCan.HIL.Core.csproj" />
   </ItemGroup>

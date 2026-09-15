@@ -25,6 +25,9 @@ jobs:
       # 本地 pack 进 D:\nuget-local（与开发机 feed 路径一致，nuget.config
       # 无需改动）。token 用 fine-grained PAT（仅 peakcan-hil-core
       # Contents:read），存于 repo secret HIL_CORE_PAT。
+      # 注意：此处刻意不指定 ref —— 打包的是 hil-core 的**默认分支**，因此该分支
+      # 的版本必须等于 Directory.Packages.props 的 pin（下方 lockstep guard 会校验；
+      # 不等就早失败，而不是留给 restore 报晦涩的找不到包）。
       - name: Checkout hil-core (private, via PAT)
         uses: actions/checkout@v4
         with:
@@ -33,7 +36,7 @@ jobs:
           path: peakcan-hil-core
 
       # Plan §19 specifies .NET 8.0.x but the project is built against
-      # the .NET 10 SDK (verified in Task 1 �?`dotnet --list-sdks` on
+      # the .NET 10 SDK (verified in Task 1 - the dev box ``dotnet --list-sdks`` reports
       # the dev box reports only 10.0.300). Bump to 10.0.x so CI
       # matches the local toolchain.
       - name: Setup .NET 10 SDK
@@ -49,6 +52,29 @@ jobs:
           dotnet build peakcan-hil-core/PeakCan.HIL.Core.slnx -c Release
           New-Item -ItemType Directory -Force -Path D:\nuget-local | Out-Null
           dotnet pack peakcan-hil-core/src/PeakCan.HIL.Core/PeakCan.HIL.Core.csproj -c Release -o D:\nuget-local --no-build
+
+      # Lockstep guard. Directory.Packages.props pins an exact hil-core version and
+      # the checkout above has NO `ref:`, so CI always packs hil-core's DEFAULT
+      # branch. If that branch is not at the pinned version, the restore below dies
+      # with an opaque "unable to find package PeakCan.HIL.Core x.y.z". Fail here
+      # instead, naming the real cause and the release ordering that avoids it.
+      - name: Verify packed hil-core version matches the pin
+        run: |
+          [xml]$props = Get-Content Directory.Packages.props
+          $pin = ($props.Project.ItemGroup.PackageVersion |
+                  Where-Object { $_.Include -eq 'PeakCan.HIL.Core' }).Version
+          $expected = "D:\nuget-local\PeakCan.HIL.Core.$pin.nupkg"
+          if (-not (Test-Path $expected)) {
+            $packed = Get-ChildItem D:\nuget-local -Filter 'PeakCan.HIL.Core.*.nupkg' |
+                      Sort-Object Name | Select-Object -Last 1
+            $packedName = if ($packed) { $packed.Name } else { '(nothing packed)' }
+            Write-Host "::error::hil-core lockstep broken - the host pins $pin but CI packed '$packedName' from hil-core's default branch."
+            Write-Host "Land hil-core's release commits on its default branch BEFORE pushing the host commit that bumps the pin."
+            Write-Host "Do not work around this by pinning a feature branch here; fix the release order."
+            Write-Host "Missing expected artifact: $expected"
+            exit 1
+          }
+          Write-Host "hil-core lockstep OK: packed $pin"
 
       - name: Restore
         run: dotnet restore PeakCan.Host.slnx
