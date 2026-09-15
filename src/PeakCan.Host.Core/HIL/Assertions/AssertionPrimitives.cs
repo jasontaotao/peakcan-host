@@ -1,3 +1,4 @@
+using System.Globalization;
 using PeakCan.HIL.Core;
 namespace PeakCan.Host.Core.HIL.Assertions;
 
@@ -49,7 +50,7 @@ public sealed class AssertionPrimitives
         {
             // Timeout/cancellation during wait → return failure result
             return AssertionResult.Fail($"timeout waiting for {name} = {expected} ±{tolerance}",
-                actual: _ctx.GetSignalValue(name)?.ToString());
+                actual: _ctx.GetSignalValue(name)?.ToString(CultureInfo.InvariantCulture));
         }
 
         throw new OperationCanceledException(ct); // Fallback
@@ -64,7 +65,7 @@ public sealed class AssertionPrimitives
         return Math.Abs(val.Value - expected) <= tolerance
             ? AssertionResult.Pass()
             : AssertionResult.Fail($"signal {name} out of tolerance",
-                actual: val.Value.ToString(), expected: expected.ToString());
+                actual: val.Value.ToString(CultureInfo.InvariantCulture), expected: expected.ToString(CultureInfo.InvariantCulture));
     }
 
     public AssertionResult AssertRange(string name, double min, double max)

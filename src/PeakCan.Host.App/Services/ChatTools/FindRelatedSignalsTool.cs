@@ -78,7 +78,7 @@ public sealed class FindRelatedSignalsTool : ChatToolBase
     }
 
     /// <summary>Format a CAN ID (with IDE bit stripped) as <c>0x</c>-hex.</summary>
-    internal static string FormatCanId(uint id) => "0x" + (id & 0x7FFFFFFFu).ToString("X");
+    internal static string FormatCanId(uint id) => "0x" + (id & 0x7FFFFFFFu).ToString("X", CultureInfo.InvariantCulture);
 
     /// <summary>Shared signal-list serializer (name + start_bit + length +
     /// factor + offset + min + max + unit + comment). v12: added

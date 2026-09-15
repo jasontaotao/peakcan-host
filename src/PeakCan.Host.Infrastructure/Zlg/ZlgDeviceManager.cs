@@ -69,7 +69,7 @@ public sealed class ZlgDeviceManager : IDisposable
             // 关闭所有仍持有的设备
             foreach (var key in _refCount.Keys)
             {
-                try { ZlgNative.ZCAN_CloseDevice(key.Item1, key.Item2); }
+                try { _ = ZlgNative.ZCAN_CloseDevice(key.Item1, key.Item2); }
                 catch { /* best-effort */ }
             }
             _refCount.Clear();

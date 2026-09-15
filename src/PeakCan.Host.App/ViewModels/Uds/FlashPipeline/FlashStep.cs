@@ -11,7 +11,7 @@ namespace PeakCan.Host.App.ViewModels.Uds.FlashPipeline;
 /// is <see cref="FlashStepKind.PreCheck"/>.</summary>
 public sealed record PreCheckParams
 {
-    public ushort RoutineId { get; set; } = 0x0000;  // 操作员填写预检查 routine
+    public ushort RoutineId { get; set; }  // 操作员填写预检查 routine
 }
 
 /// <summary>SecurityAccess (0x27) parameters. Only meaningful when <see cref="FlashStep.Kind"/>
@@ -26,7 +26,7 @@ public sealed record SecurityAccessParams
     /// Seed byte length. null = auto (use ECU response seed as-is).
     /// Non-null = ODX-derived or operator-specified; DLL wrapper pads/truncates to 16 bytes.
     /// </summary>
-    public int? SeedLength { get; set; } = null;
+    public int? SeedLength { get; set; }
 }
 
 /// <summary>
@@ -342,7 +342,7 @@ public sealed partial class FlashStep : ObservableObject
 
     // ODX-derived baseline values for computed "🔗 ODX" markers (R1).
     private byte _odxDerivedLevel = 0x01;
-    private int? _odxDerivedSeedLength = null;
+    private int? _odxDerivedSeedLength;
     [ObservableProperty] private ushort _routineId;
     [ObservableProperty] private string _firmwarePath = string.Empty;
     [ObservableProperty] private uint _memoryAddress;

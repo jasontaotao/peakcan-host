@@ -36,7 +36,7 @@ public static class HtmlReportGenerator
         sb.AppendLine("<html lang=\"en\">");
         sb.AppendLine("<head>");
         sb.AppendLine("<meta charset=\"utf-8\">");
-        sb.AppendLine($"<title>HIL Report — {HtmlEncode(result.SuiteName)}</title>");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<title>HIL Report — {HtmlEncode(result.SuiteName)}</title>"));
         sb.AppendLine("<style>");
         sb.AppendLine(EmbedCss());
         sb.AppendLine("</style>");
@@ -45,7 +45,7 @@ public static class HtmlReportGenerator
 
         sb.AppendLine("<div class=\"container\">");
         sb.AppendLine($"<h1>HIL Test Report</h1>");
-        sb.AppendLine($"<h2>{HtmlEncode(result.SuiteName)}</h2>");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<h2>{HtmlEncode(result.SuiteName)}</h2>"));
 
         // Sparkline (if trends provided)
         if (trends is { Count: > 0 })
@@ -92,7 +92,7 @@ public static class HtmlReportGenerator
         sb.AppendLine("<table><thead><tr><th>Node</th><th>Frames Sent</th><th>Rules Matched</th><th>UDS Responses</th></tr></thead><tbody>");
         foreach (var s in stats)
         {
-            sb.AppendLine($"<tr><td>{HtmlEncode(s.NodeName)}</td><td>{s.FramesSent}</td><td>{s.RulesMatched}</td><td>{s.UdsResponses}</td></tr>");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<tr><td>{HtmlEncode(s.NodeName)}</td><td>{s.FramesSent}</td><td>{s.RulesMatched}</td><td>{s.UdsResponses}</td></tr>"));
         }
         sb.AppendLine("</tbody></table></details>");
         return sb.ToString();
@@ -142,13 +142,13 @@ public static class HtmlReportGenerator
         bool isControlFlow = c.StepResults.Any(s => s.Path is not null ||
             s.Kind is TestCaseStepKind.If or TestCaseStepKind.Repeat or TestCaseStepKind.Loop);
 
-        sb.AppendLine($"<div class=\"case {statusClass}\">");
-        sb.AppendLine($"<h3>{HtmlEncode(c.TestCaseName)} <span class=\"badge {statusClass}\">{statusText}</span></h3>");
-        sb.AppendLine($"<div class=\"case-meta\">{c.PassedSteps}/{c.TotalSteps} steps passed · {c.ElapsedMs} ms</div>");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<div class=\"case {statusClass}\">"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<h3>{HtmlEncode(c.TestCaseName)} <span class=\"badge {statusClass}\">{statusText}</span></h3>"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<div class=\"case-meta\">{c.PassedSteps}/{c.TotalSteps} steps passed · {c.ElapsedMs} ms</div>"));
 
         if (c.FailureReason is not null)
         {
-            sb.AppendLine($"<div class=\"failure-reason\">{HtmlEncode(c.FailureReason)}</div>");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<div class=\"failure-reason\">{HtmlEncode(c.FailureReason)}</div>"));
         }
 
         // Step table
@@ -261,7 +261,7 @@ public static class HtmlReportGenerator
 
                 if (step.FramesAroundFailure.Count > MaxFramesInReport)
                 {
-                    sb.AppendLine($"<tr><td colspan=\"4\" class=\"muted\">... {step.FramesAroundFailure.Count - MaxFramesInReport} more frames (capped at {MaxFramesInReport})</td></tr>");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<tr><td colspan=\"4\" class=\"muted\">... {step.FramesAroundFailure.Count - MaxFramesInReport} more frames (capped at {MaxFramesInReport})</td></tr>"));
                 }
 
                 sb.AppendLine("</tbody></table>");
@@ -302,17 +302,17 @@ public static class HtmlReportGenerator
         {
             var x = pad + (width - 2 * pad) * i / (rates.Count - 1);
             var y = pad + (height - 2 * pad) * (1.0 - (rates[i] - minRate) / range);
-            points.Append($"{x:F1},{y:F1} ");
+            points.Append(string.Create(CultureInfo.InvariantCulture, $"{x:F1},{y:F1} "));
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine($"<div class=\"sparkline\"><h3>Pass Rate Trend (last {entries.Count} runs)</h3>");
-        sb.AppendLine($"<svg viewBox=\"0 0 {width} {height}\" width=\"100%\" height=\"{height}\">");
-        sb.AppendLine($"<polyline points=\"{points}\" fill=\"none\" stroke=\"var(--accent)\" stroke-width=\"2\"/>");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<div class=\"sparkline\"><h3>Pass Rate Trend (last {entries.Count} runs)</h3>"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<svg viewBox=\"0 0 {width} {height}\" width=\"100%\" height=\"{height}\">"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<polyline points=\"{points}\" fill=\"none\" stroke=\"var(--accent)\" stroke-width=\"2\"/>"));
 
         // Min/max labels
-        sb.AppendLine($"<text x=\"4\" y=\"{pad + 4}\" font-size=\"10\" fill=\"var(--muted)\">{maxRate:F0}%</text>");
-        sb.AppendLine($"<text x=\"4\" y=\"{height - pad + 4}\" font-size=\"10\" fill=\"var(--muted)\">{minRate:F0}%</text>");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<text x=\"4\" y=\"{pad + 4}\" font-size=\"10\" fill=\"var(--muted)\">{maxRate:F0}%</text>"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<text x=\"4\" y=\"{height - pad + 4}\" font-size=\"10\" fill=\"var(--muted)\">{minRate:F0}%</text>"));
 
         sb.AppendLine("</svg></div>");
         return sb.ToString();
@@ -442,7 +442,7 @@ public static class HtmlReportGenerator
         var header = capped
             ? $"<div class=\"timeline-note\">showing {signals.Count}/{ordered.Count} signals</div>"
             : "";
-        sb.AppendLine($"{header}<svg class=\"signal-timeline\" viewBox=\"0 0 {width} {height}\" width=\"100%\" height=\"{height}\" role=\"img\" aria-label=\"Signal timeline\">");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{header}<svg class=\"signal-timeline\" viewBox=\"0 0 {width} {height}\" width=\"100%\" height=\"{height}\" role=\"img\" aria-label=\"Signal timeline\">"));
 
         for (int i = 0; i < signals.Count; i++)
         {
@@ -485,7 +485,7 @@ public static class HtmlReportGenerator
             double Y(double val) => yBot - (val - vMin) / vRange * (yBot - yTop - 8) - 4;
             double X(double t) => pad + (width - 2 * pad) * t / tMax;
 
-            sb.AppendLine($"<text x=\"{pad}\" y=\"{yTop - 4}\" font-size=\"10\" fill=\"{color}\">{HtmlEncode(sig.Name)}</text>");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<text x=\"{pad}\" y=\"{yTop - 4}\" font-size=\"10\" fill=\"{color}\">{HtmlEncode(sig.Name)}</text>"));
 
             // 逐段 polyline：连续有效点成段，遇无效帧断开（断线不插值）
             var segments = new List<List<(int idx, double x, double y, double val, double t)>>();
@@ -508,12 +508,12 @@ public static class HtmlReportGenerator
                 if (seg.Count >= 2)
                 {
                     var pts = string.Join(" ", seg.Select(p => $"{p.x:F1},{p.y:F1}"));
-                    sb.AppendLine($"<polyline points=\"{pts}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"><title>{HtmlEncode(tooltip)}</title></polyline>");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<polyline points=\"{pts}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"><title>{HtmlEncode(tooltip)}</title></polyline>"));
                 }
                 else
                 {
                     var p = seg[0];
-                    sb.AppendLine($"<circle cx=\"{p.x:F1}\" cy=\"{p.y:F1}\" r=\"3\" fill=\"{color}\"><title>{HtmlEncode(tooltip)}</title></circle>");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"<circle cx=\"{p.x:F1}\" cy=\"{p.y:F1}\" r=\"3\" fill=\"{color}\"><title>{HtmlEncode(tooltip)}</title></circle>"));
                 }
             }
         }

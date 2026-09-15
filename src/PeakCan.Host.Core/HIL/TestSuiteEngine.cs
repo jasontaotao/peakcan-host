@@ -41,11 +41,11 @@ public sealed class TestSuiteEngine
         Contracts.IAssertionContext ctx,
         TestSuiteConfig config,
         IProgress<TestProgress>? progress = null,
-        CancellationToken externalCt = default,
         Contracts.IHilFrameSinkFactory? sinkFactory = null,
         // B2-R1：帧统计注入（可空）。null 时 frameCount/frameSeen/elapsedMs 在求值器侧
         // 退化为 UNKNOWN_FUNCTION（Cli 场景可接受）；HilRunnerService 注入真实 collector。
-        IFrameStatistics? frameStats = null)
+        IFrameStatistics? frameStats = null,
+        CancellationToken externalCt = default)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
         if (suite.TimeoutMs > 0) linkedCts.CancelAfter(suite.TimeoutMs);
@@ -88,8 +88,8 @@ public sealed class TestSuiteEngine
                     break;
 
                 var caseResult = await ExecuteCaseAsync(
-                    caseModel, ctx, config, linkedCt, externalCt, caseIndex,
-                    sinkFactory, frameStats, suite.Parameters);
+                    caseModel, ctx, config, caseIndex,
+                    sinkFactory, frameStats, suite.Parameters, linkedCt, externalCt);
                 caseResults.Add(caseResult);
 
                 progress?.Report(new TestProgress(caseIndex + 1, suite.Cases.Count, caseModel.Name));
@@ -125,9 +125,9 @@ public sealed class TestSuiteEngine
     }
 
     private async Task<TestCaseResult> ExecuteCaseAsync(
-        TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, CancellationToken ct,
-        CancellationToken externalCt, int caseIndex, Contracts.IHilFrameSinkFactory? sinkFactory,
-        IFrameStatistics? frameStats, IReadOnlyDictionary<string, ParameterValue>? suiteParams)
+        TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, int caseIndex,
+        Contracts.IHilFrameSinkFactory? sinkFactory, IFrameStatistics? frameStats,
+        IReadOnlyDictionary<string, ParameterValue>? suiteParams, CancellationToken ct, CancellationToken externalCt)
     {
         // 清空步骤间变量，防止上一 case 拋留值污染（review M-1）：
         // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
@@ -195,10 +195,10 @@ public sealed class TestSuiteEngine
 
                 // v11 H1：单解释器路径。非控制流 suite 递归退化为扁平循环（顶层步骤列表，无嵌套 body）。
                 await ExecuteStepListAsync(
-                    testCase.Steps, scope, ctx, ct,
+                    testCase.Steps, scope, ctx,
                     containerStepIndex: null, pathPrefix: null,
                     config, stepResults, iteration: null,
-                    frameStats, caseStart, failure, dtcPresentSet);
+                    frameStats, caseStart, failure, dtcPresentSet, ct);
             }
             }
             catch (OperationCanceledException)
@@ -272,7 +272,6 @@ public sealed class TestSuiteEngine
         IReadOnlyList<TestCaseStep> steps,
         StepScope scope,
         Contracts.IAssertionContext ctx,
-        CancellationToken ct,
         int? containerStepIndex,
         string? pathPrefix,
         TestSuiteConfig config,
@@ -282,7 +281,8 @@ public sealed class TestSuiteEngine
         long caseStart,
         FailureCtx failure,
         // §3 dtcPresent 预查 set 透传（case 级，if/while 条件求值前引擎预查填 active DTC codes）
-        HashSet<uint>? dtcPresentSet)
+        HashSet<uint>? dtcPresentSet,
+        CancellationToken ct)
     {
         for (int i = 0; i < steps.Count; i++)
         {
@@ -296,7 +296,7 @@ public sealed class TestSuiteEngine
             // pathSegment：当前步骤的路径段。顶层（pathPrefix=null）→ 顶层叶/容器的 recordedPath=null，
             // 但其 body 子步骤的 pathPrefix = i.ToString()（如顶层 index 1 的 If → body 子 Path="1.0"）
             string? recordedPath = pathPrefix is null ? null : $"{pathPrefix}.{i}";
-            string? childPathPrefix = pathPrefix is null ? i.ToString() : recordedPath;
+            string? childPathPrefix = pathPrefix is null ? i.ToString(CultureInfo.InvariantCulture) : recordedPath;
 
             // ── Comment：原样记录（不计入通过/失败）──
             if (step.Kind == TestCaseStepKind.Comment)
@@ -379,9 +379,9 @@ public sealed class TestSuiteEngine
                     var body = branchTrue ? ifParams.Body : ifParams.ElseBody;
                     if (body is { Count: > 0 })
                     {
-                        await ExecuteStepListAsync(body, scope, ctx, ct,
+                        await ExecuteStepListAsync(body, scope, ctx,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration, frameStats, caseStart, failure, dtcPresentSet);
+                            config, stepResults, iteration, frameStats, caseStart, failure, dtcPresentSet, ct);
                         // body 内 Assign/ReadDid 可能写入 Variables → 刷新 scope，使后续兄弟步骤可读
                         scope = RefreshScope(scope, ctx);
                     }
@@ -435,9 +435,9 @@ public sealed class TestSuiteEngine
                             {
                                 ct.ThrowIfCancellationRequested();
                                 var iterScope = WithIndexVar(scope, rp.IndexVar, ExpressionValue.FromLong(k));
-                                await ExecuteStepListAsync(rp.Body, iterScope, ctx, ct,
+                                await ExecuteStepListAsync(rp.Body, iterScope, ctx,
                                     containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                    config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
+                                    config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
                                 // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                                 scope = RefreshScope(scope, ctx);
                             }
@@ -468,9 +468,9 @@ public sealed class TestSuiteEngine
                             break;
                         }
                         if (!guard.Value) break;  // 条件 false → 退出循环
-                        await ExecuteStepListAsync(rp.Body, iterScope, ctx, ct,
+                        await ExecuteStepListAsync(rp.Body, iterScope, ctx,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
+                            config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
                         // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代 guard 可读
                         scope = RefreshScope(scope, ctx);
                         k++;
@@ -536,9 +536,9 @@ public sealed class TestSuiteEngine
                                 break;
                             }
                             var iterScope = WithIndexVar(scope, lp.IndexVar, ExpressionValue.FromDouble(v));
-                            await ExecuteStepListAsync(lp.Body, iterScope, ctx, ct,
+                            await ExecuteStepListAsync(lp.Body, iterScope, ctx,
                                 containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet);
+                                config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
                             // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                             scope = RefreshScope(scope, ctx);
                             k++;
@@ -582,7 +582,7 @@ public sealed class TestSuiteEngine
             step = interpStep;
 
             // ── 叶步骤（executor 分派）── 逐字保留原 for 循环体（executed/负测试两分支/帧捕获）
-            var result = await ExecuteLeafAsync(step, ctx, ct, stepIndex, recordedPath, iteration);
+            var result = await ExecuteLeafAsync(step, ctx, stepIndex, recordedPath, iteration, ct);
             stepResults.Add(result);
             // 叶步骤可能写入 Variables（如 ReadDid）→ 刷新 scope，使后续 ${name} 可读
             scope = RefreshScope(scope, ctx);
@@ -605,8 +605,8 @@ public sealed class TestSuiteEngine
     /// 返回自身的最终 StepResult（负测试 in-place 改自己经返回值带出，不改兄弟，§⑦）。
     /// </summary>
     private async Task<StepResult> ExecuteLeafAsync(
-        TestCaseStep step, Contracts.IAssertionContext ctx, CancellationToken ct,
-        int stepIndex, string? path, int? iteration)
+        TestCaseStep step, Contracts.IAssertionContext ctx,
+        int stepIndex, string? path, int? iteration, CancellationToken ct)
     {
         // executed 标记步骤是否真正经由执行器产生结果（review finding）：
         // 引擎合成的失败（No executor 配置错误 / Executor 抛异常）代表步骤从未执行，

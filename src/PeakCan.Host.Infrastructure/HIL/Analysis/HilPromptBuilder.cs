@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using PeakCan.HIL.Core.HIL;
 
@@ -18,17 +19,17 @@ public static class HilPromptBuilder
 
         foreach (var c in result.CaseResults.Where(c => !c.Passed))
         {
-            sb.AppendLine($"- Case: {c.TestCaseName}");
-            sb.AppendLine($"  Reason: {c.FailureReason ?? "unknown"}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- Case: {c.TestCaseName}"));
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"  Reason: {c.FailureReason ?? "unknown"}"));
 
             foreach (var s in c.StepResults.Where(s => s.Status == StepStatus.Failed))
             {
-                sb.AppendLine($"  Step {s.StepIndex} ({s.Kind}): {s.Message}");
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"  Step {s.StepIndex} ({s.Kind}): {s.Message}"));
                 // G5: 通道归属（多通道失败分析不被误导根因；仅非空时渲染）
                 if (s.Channel is not null)
-                    sb.AppendLine($"    Channel: {s.Channel}");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"    Channel: {s.Channel}"));
                 if (s.ActualValue is not null)
-                    sb.AppendLine($"    Actual: {s.ActualValue}, Expected: {s.ExpectedValue}");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"    Actual: {s.ActualValue}, Expected: {s.ExpectedValue}"));
 
                 if (s.FramesAroundFailure is { Count: > 0 })
                 {
@@ -37,7 +38,7 @@ public static class HilPromptBuilder
                     {
                         var idStr = f.Id.IsExtended ? $"0x{f.Id.Raw:X8}" : $"0x{f.Id.Raw:X3}";
                         var dataHex = BitConverter.ToString(f.Data.Span.ToArray()).Replace("-", " ");
-                        sb.AppendLine($"      {idStr} [{dataHex}] @ {f.Timestamp.TotalMicroseconds}µs");
+                        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"      {idStr} [{dataHex}] @ {f.Timestamp.TotalMicroseconds}µs"));
                     }
                 }
             }
@@ -46,7 +47,7 @@ public static class HilPromptBuilder
         if (ecuScript is not null)
         {
             sb.AppendLine("## ECU Configuration");
-            sb.AppendLine($"ECU: {ecuScript.Name}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"ECU: {ecuScript.Name}"));
             // Note: State machine states are inferred from transitions during analysis.
             // The LLM can deduce state names from the failure context above.
         }

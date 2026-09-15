@@ -20,7 +20,7 @@ public sealed record J1939TpOptions
     public int BamIntervalMs { get; init; } = 50;
 
     /// <summary>接收方每 CTS 放行包数；0 = 放行全部剩余。</summary>
-    public byte CtsMaxPackets { get; init; } = 0;
+    public byte CtsMaxPackets { get; init; }
 
     /// <summary>发送方 RTS 中宣告的"每 CTS 最大包数"；0xFF = 不限制。</summary>
     public byte RtsMaxPacketsPerCts { get; init; } = 0xFF;
@@ -35,7 +35,7 @@ public sealed record J1939TpOptions
     public bool AutoRespondToRts { get; init; } = true;
 
     /// <summary>离线模式（回放分析）：不启 watchdog、禁止一切主动发送、完整性判定移交调用方。</summary>
-    public bool OfflineMode { get; init; } = false;
+    public bool OfflineMode { get; init; }
 
     /// <summary>回放分析专用的离线配置。</summary>
     public static J1939TpOptions Offline => new() { OfflineMode = true };

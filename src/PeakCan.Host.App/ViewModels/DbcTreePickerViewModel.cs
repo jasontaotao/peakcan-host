@@ -160,9 +160,7 @@ public sealed partial class DbcTreePickerViewModel : ObservableObject
     public void ToggleSelection(DbcTreeNode node)
     {
         if (!node.IsSignal) return;  // only signals are selectable
-        if (SelectedSignals.Contains(node))
-            SelectedSignals.Remove(node);
-        else
+        if (!SelectedSignals.Remove(node))
             SelectedSignals.Add(node);
     }
 

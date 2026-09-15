@@ -74,8 +74,7 @@ public sealed class BusStatisticsCollector : IFrameSink
     /// </summary>
     public BusStatisticsCollector(long nominalBitrateBps = 1_000_000)
     {
-        if (nominalBitrateBps <= 0)
-            throw new ArgumentOutOfRangeException(nameof(nominalBitrateBps));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nominalBitrateBps, nameof(nominalBitrateBps));
         _nominalBitrateBps = nominalBitrateBps;
     }
 
@@ -87,8 +86,7 @@ public sealed class BusStatisticsCollector : IFrameSink
     /// </summary>
     public void SetBitrate(long nominalBitrateBps)
     {
-        if (nominalBitrateBps <= 0)
-            throw new ArgumentOutOfRangeException(nameof(nominalBitrateBps));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nominalBitrateBps, nameof(nominalBitrateBps));
         lock (_recentLock)
         {
             _nominalBitrateBps = nominalBitrateBps;

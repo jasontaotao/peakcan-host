@@ -16,6 +16,7 @@
 // IDbcDecoder 在更复杂版本需要 — 现阶段为简化占位。
 
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.Host.App.Services.J1939;
 using PeakCan.Host.Core.Replay;
@@ -86,7 +87,7 @@ public sealed partial class TraceViewerViewModel
                 MessageName: watch.MessageName,
                 SignalName: watch.SignalName,
                 Unit: watch.Unit,
-                Value: value?.ToString("F2") ?? "—")
+                Value: value?.ToString("F2", CultureInfo.InvariantCulture) ?? "—")
             {
                 TpInfo = f is null ? "" : J1939TpAnnotation.Annotate(f) ?? "",
             });

@@ -27,6 +27,7 @@ public sealed partial class TraceViewerViewModel
     private readonly IChatProvider? _chatProvider;
     private IReadOnlyList<IChatTool> _chatTools = Array.Empty<IChatTool>();
     private IReadOnlyList<ChatToolDefinition> _chatToolDefs = Array.Empty<ChatToolDefinition>();
+    private static readonly System.Text.Json.JsonSerializerOptions s_exportJsonOptions = new() { WriteIndented = true };
 
     /// <summary>Cross-round LLM message history (system prompt rebuilt
     /// per send; this list holds user/assistant/tool turns).</summary>
@@ -144,7 +145,7 @@ public sealed partial class TraceViewerViewModel
             $"peakcan-chat-{DateTime.Now:yyyyMMdd-HHmmss}.json");
         var json = System.Text.Json.JsonSerializer.Serialize(
             _chatHistory,
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            s_exportJsonOptions);
         System.IO.File.WriteAllText(path, json);
         StatusMessage = $"聊天记录已导出: {path}";
     }
@@ -265,27 +266,27 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine();
         sb.AppendLine("当前 trace 状态:");
         // 统一时间格式：WallClockOrigin 从首个 source 取，与图表 X 轴一致。
-        var wallClockOrigin = Sources.FirstOrDefault()?.WallClockOrigin;
-        sb.AppendLine($"- 绿锚: {FormatTs(_anchorTimestampSeconds, wallClockOrigin)}");
-        sb.AppendLine($"- 蓝锚: {FormatTs(_blueAnchorTimestampSeconds, wallClockOrigin)}");
+        var wallClockOrigin = Sources.Count > 0 ? Sources[0].WallClockOrigin : null;
+        sb.AppendLine(FormattableString.Invariant($"- 绿锚: {FormatTs(_anchorTimestampSeconds, wallClockOrigin)}"));
+        sb.AppendLine(FormattableString.Invariant($"- 蓝锚: {FormatTs(_blueAnchorTimestampSeconds, wallClockOrigin)}"));
         var watchCount = WatchedSignals.Count(r => !r.IsPlaceholder);
-        sb.AppendLine($"- watch list: {watchCount} 条信号");
+        sb.AppendLine(FormattableString.Invariant($"- watch list: {watchCount} 条信号"));
         var dbc = _dbcService.Current;
-        sb.AppendLine($"- DBC: {(dbc is null
+        sb.AppendLine(FormattableString.Invariant($"- DBC: {(dbc is null
             ? "未加载"
-            : (string.IsNullOrEmpty(dbc.SourcePath) ? "已加载" : System.IO.Path.GetFileName(dbc.SourcePath)))}");
+            : (string.IsNullOrEmpty(dbc.SourcePath) ? "已加载" : System.IO.Path.GetFileName(dbc.SourcePath)))}"));
         // v12 Step 4: inject DBC node list so the AI knows which ECUs are present.
         if (dbc is not null && dbc.Nodes.Count > 0)
-            sb.AppendLine($"- DBC 节点: {string.Join(", ", dbc.Nodes.Select(n => n.Name))}");
+            sb.AppendLine(FormattableString.Invariant($"- DBC 节点: {string.Join(", ", dbc.Nodes.Select(n => n.Name))}"));
         // v12: inject current playback timestamp + chart viewport so the AI
         // knows what time range the user is currently looking at.
         var currentTs = _masterService?.CurrentTimestamp ?? 0.0;
-        sb.AppendLine($"- 当前播放时间戳: {FormatTraceTime(currentTs, wallClockOrigin)}");
+        sb.AppendLine(FormattableString.Invariant($"- 当前播放时间戳: {FormatTraceTime(currentTs, wallClockOrigin)}"));
         var viewports = ChartViewModel.CaptureViewports();
         if (viewports.Count > 0)
         {
             var vp = viewports[0];
-            sb.AppendLine($"- chart 视口范围: {FormatTraceTime(vp.XMin, wallClockOrigin)} ~ {FormatTraceTime(vp.XMax, wallClockOrigin)}");
+            sb.AppendLine(FormattableString.Invariant($"- chart 视口范围: {FormatTraceTime(vp.XMin, wallClockOrigin)} ~ {FormatTraceTime(vp.XMax, wallClockOrigin)}"));
         }
         if (AutoConfirm)
             sb.AppendLine("- 静默模式: 开启（直接执行合理操作，不需要逐步反问确认）");

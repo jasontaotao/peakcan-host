@@ -25,7 +25,7 @@ public sealed partial class TraceViewerViewModel
     [RelayCommand]
     public void TogglePlot(WatchedSignalRow row)
     {
-        if (row is null) throw new ArgumentNullException(nameof(row));
+        ArgumentNullException.ThrowIfNull(row);
         if (row.IsPlotted)
             PlotSignalFromTableRow(row);
         else
@@ -41,7 +41,7 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     public void SetPlotOptIn(WatchedSignalRow row, bool optIn)
     {
-        if (row is null) throw new ArgumentNullException(nameof(row));
+        ArgumentNullException.ThrowIfNull(row);
         if (optIn)
             PlotSignalFromTableRow(row);
         else
@@ -59,7 +59,7 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     public void SetPlotOptIn(TraceSignalRow row, bool optIn)
     {
-        if (row is null) throw new ArgumentNullException(nameof(row));
+        ArgumentNullException.ThrowIfNull(row);
         var transient = new WatchedSignalRow(
             canIdHex: row.CanIdHex,
             messageName: "",

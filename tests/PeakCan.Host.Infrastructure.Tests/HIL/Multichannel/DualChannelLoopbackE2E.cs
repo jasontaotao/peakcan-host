@@ -184,7 +184,7 @@ public sealed class DualChannelLoopbackE2E : IDisposable
             ExpectFrameStep(0x300, "bus-b"));
 
         var engine = CreateEngine();
-        var result = await engine.ExecuteAsync(suite, _ctx, new TestSuiteConfig(), null, default,
+        var result = await engine.ExecuteAsync(suite, _ctx, new TestSuiteConfig(), null,
             sinkFactory, frameStats: null);
 
         // 等待 sink 收到两路帧（ConsumerLoop 异步消费，全量跑时线程竞争可能慢；

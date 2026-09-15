@@ -256,7 +256,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
     public async Task<FramePage> GetFramesAsync(long traceId, FrameQuery query, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        if (query.Limit <= 0) throw new ArgumentOutOfRangeException(nameof(query.Limit));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(query.Limit, nameof(query));
         await ReadyAsync(ct).ConfigureAwait(false);
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -512,7 +512,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
         long traceId, uint canId, double? tStart, double? tEnd,
         int limit = 20000, CancellationToken ct = default)
     {
-        if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         await ReadyAsync(ct).ConfigureAwait(false);
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -566,7 +566,7 @@ public sealed class TraceCacheStore : ITraceCacheStore
 
     public async Task<IReadOnlyList<TraceCacheSummary>> ListTracesAsync(int limit = 100, CancellationToken ct = default)
     {
-        if (limit <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         await ReadyAsync(ct).ConfigureAwait(false);
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
@@ -134,7 +135,7 @@ public sealed class HilRunnerService : IHilRunnerService
                 try
                 {
                     Directory.CreateDirectory(dir);
-                    var runTimestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+                    var runTimestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
                     sinkFactory = new AscFrameSinkFactory(dir, runTimestamp);
                     LastCaseLogDirectory = dir;
                 }
@@ -150,7 +151,7 @@ public sealed class HilRunnerService : IHilRunnerService
             // 无法路由到非默认通道，导致 frameCount/frameSeen 表达式多通道失效。
             // DI 注册的 IFrameStatistics 由 host Dispose 负责释放（退订 FrameReceived），无需手动 Dispose。
             var frameStats = host.Services.GetService<IFrameStatistics>();
-            var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, ct, sinkFactory, frameStats);
+            var result = await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), progress, sinkFactory, frameStats, ct);
             var envStats = environmentRuntime.GetStats();
             return result with { EnvironmentStats = envStats.Count > 0 ? envStats : null };
         }

@@ -126,7 +126,7 @@ public sealed partial class TraceViewerViewModel
                 ? null
                 : _dbcService.Current!.SourcePath,
             CurrentTimestamp: _masterService?.CurrentTimestamp ?? 0.0,
-            WallClockOrigin: sources.FirstOrDefault()?.WallClockOrigin,
+            WallClockOrigin: sources.Count > 0 ? sources[0].WallClockOrigin : null,
             Sources: sourceInfos);
     }
 

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PeakCan.HIL.Core.Uds.Odx;
@@ -81,8 +82,8 @@ public sealed partial class DidRow : ObservableObject
                           || f.BaseType == DidBaseType.Unicode2String
                           || f.BaseType == DidBaseType.ByteField;
             var size = isBytelike
-                ? (f.BitLength / 8).ToString() + "B"
-                : f.BitLength.ToString();
+                ? (f.BitLength / 8).ToString(CultureInfo.InvariantCulture) + "B"
+                : f.BitLength.ToString(CultureInfo.InvariantCulture);
             return $"{f.BaseType}[{size}]";
         }
         // 多字段复合 DID: 取首字段 Base 类型 × 数量

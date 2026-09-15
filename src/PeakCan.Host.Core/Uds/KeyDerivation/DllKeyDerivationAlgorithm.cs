@@ -82,7 +82,7 @@ public sealed class DllKeyDerivationAlgorithm : IKeyDerivationAlgorithm, IDispos
     /// <param name="dllPath">Absolute or DLL-search-path-relative path to the OEM DLL.</param>
     /// <param name="functionName">Exported function name. Defaults to "GenerateKey".</param>
     /// <exception cref="ArgumentNullException">A null argument was passed.</exception>
-    /// <exception cref="SystemException">
+    /// <exception cref="InvalidOperationException">
     ///   The DLL could not be loaded or the export was not found. The path
     ///   (and function name, when applicable) appears in the message so the
     ///   operator can locate the missing file rather than diagnose a silent
@@ -105,7 +105,7 @@ public sealed class DllKeyDerivationAlgorithm : IKeyDerivationAlgorithm, IDispos
         }
         catch (Exception ex) when (ex is DllNotFoundException or BadImageFormatException or IOException)
         {
-            throw new SystemException(
+            throw new InvalidOperationException(
                 $"OEM SecurityAccess DLL could not be loaded: '{dllPath}'. " +
                 $"Verify the path and that the correct DLL is present for the target ECU " +
                 $"(underlying failure: {ex.Message}).",
@@ -116,7 +116,7 @@ public sealed class DllKeyDerivationAlgorithm : IKeyDerivationAlgorithm, IDispos
         // instead of throwing, also surface the failure explicitly.
         if (handle == IntPtr.Zero)
         {
-            throw new SystemException(
+            throw new InvalidOperationException(
                 $"OEM SecurityAccess DLL could not be loaded: '{dllPath}'. " +
                 "Verify the path and that the correct DLL is present for the target ECU.");
         }
@@ -124,7 +124,7 @@ public sealed class DllKeyDerivationAlgorithm : IKeyDerivationAlgorithm, IDispos
         if (!NativeLibrary.TryGetExport(handle, functionName, out var exportPtr))
         {
             NativeLibrary.Free(handle);
-            throw new SystemException(
+            throw new InvalidOperationException(
                 $"OEM SecurityAccess DLL '{dllPath}' is missing the exported " +
                 $"function '{functionName}'. The OEM DLL must export a cdecl " +
                 $"function with the GenerateKey(seed, seedLen, keyOut, " +
@@ -166,8 +166,7 @@ public sealed class DllKeyDerivationAlgorithm : IKeyDerivationAlgorithm, IDispos
     public byte[] ComputeKey(byte[] seed, byte securityLevel)
     {
         ArgumentNullException.ThrowIfNull(seed);
-        if (_disposed)
-            throw new ObjectDisposedException(nameof(DllKeyDerivationAlgorithm));
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var keyOut = new byte[KeyBufferCapacity];
         var keyOutLen = KeyBufferCapacity;

@@ -96,7 +96,7 @@ internal sealed class DataFlowScanner
         for (int i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
-            string path = pathPrefix is null ? i.ToString() : $"{pathPrefix}.{i}";
+            string path = pathPrefix is null ? i.ToString(CultureInfo.InvariantCulture) : $"{pathPrefix}.{i}";
             WalkStep(step, depth, path, state, issues);
         }
     }

@@ -39,7 +39,7 @@ public sealed class ZlgChannelProbe : IChannelProbe
             }
 
             // 快速初始化/复位测试
-            try { ZlgNative.ZCAN_ResetCAN(devType, devIdx, canIdx); }
+            try { _ = ZlgNative.ZCAN_ResetCAN(devType, devIdx, canIdx); }
             catch { /* best-effort */ }
             return new ProbeResult(true, $"ZLG dev {devType}/{devIdx} ch{canIdx} detected");
         }
@@ -50,7 +50,7 @@ public sealed class ZlgChannelProbe : IChannelProbe
         finally
         {
             // 确保设备关闭，不泄漏
-            try { ZlgNative.ZCAN_CloseDevice(devType, devIdx); }
+            try { _ = ZlgNative.ZCAN_CloseDevice(devType, devIdx); }
             catch { /* best-effort */ }
         }
     }

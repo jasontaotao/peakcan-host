@@ -52,7 +52,7 @@ internal sealed class AssertResponseTimeStepExecutor : IStepExecutor
                 withinTime ? StepStatus.Passed : StepStatus.Failed,
                 withinTime ? $"Response in {sw.ElapsedMilliseconds}ms"
                            : $"Response too slow: {sw.ElapsedMilliseconds}ms > {maxMs}ms",
-                sw.ElapsedMilliseconds.ToString(), $"<= {maxMs}ms", 0);
+                sw.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture), $"<= {maxMs}ms", 0);
         }
         catch (OperationCanceledException)
         {

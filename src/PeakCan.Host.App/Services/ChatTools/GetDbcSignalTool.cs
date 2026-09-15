@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Dbc;
@@ -48,7 +49,7 @@ public sealed class GetDbcSignalTool : ChatToolBase
             {
                 enums = new JsonObject();
                 foreach (var (k, v) in vt.Entries)
-                    enums[k.ToString()] = v;
+                    enums[k.ToString(CultureInfo.InvariantCulture)] = v;
             }
 
             var root = new JsonObject

@@ -66,7 +66,7 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel, IDisposa
     private readonly Dictionary<uint, PduRuntime> _pdus;
     private long _rxSequence;
 
-    private sealed class PduRuntime
+    private sealed class PduRuntime : IDisposable
     {
         public required SecOcPduConfig Config { get; init; }
         public required SecOcAuthenticator Authenticator { get; init; }
@@ -78,6 +78,8 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel, IDisposa
         /// <summary>Serializes RX verify per PDU: Verify mutates lastAcceptedFv.
         /// The delay-fault path dispatches from thread-pool threads (spec D1).>/summary>
         public readonly object VerifyGate = new();
+
+        public void Dispose() => TxGate.Dispose();
     }
 
     public ChannelId Id => _inner.Id;
@@ -242,7 +244,7 @@ public sealed partial class SecOcChannel : ICanChannel, ISecureChannel, IDisposa
         {
             pdu.Authenticator.Wipe();
             CryptographicOperations.ZeroMemory(pdu.Config.Key);
-            pdu.TxGate.Dispose();
+            pdu.Dispose();
         }
     }
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Replay;
@@ -10,7 +11,7 @@ internal static class AscFileFormat
 {
     public static void WriteHeader(StringBuilder sb)
     {
-        sb.AppendLine($"date Fri Jan 01 00:00:00.000 {DateTime.Now:yyyy}");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"date Fri Jan 01 00:00:00.000 {DateTime.Now:yyyy}"));
         sb.AppendLine("base hex  timestamps absolute");
         sb.AppendLine("internal events logged");
         sb.AppendLine("// version 8.5.0");

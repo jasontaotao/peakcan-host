@@ -16,7 +16,7 @@ namespace PeakCan.Host.Infrastructure.HIL.Environment;
 /// 统一环境执行器。10ms 单扫描定时器驱动周期帧和 pending 规则。
 /// spec §6.1: Start 后 enabled 周期帧先立即发送一次，后续按量化周期调度。
 /// </summary>
-public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvironmentRuntimeBridge
+public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvironmentRuntimeBridge, IDisposable
 {
     private const int ScanIntervalMs = 10;
     private const int QueueCapacity = 256;
@@ -70,6 +70,9 @@ public sealed class EnvironmentRuntime : PeakCan.HIL.Core.HIL.StepExecutor.IEnvi
             _pendingUdsResponses.Clear();
         }
     }
+
+    /// <summary>释放本类型拥有的扫描定时器（幂等：Stop 可重复调用）。</summary>
+    public void Dispose() => Stop();
 
     public void UpdateFrameData(string nodeName, MessageRef msgRef, byte[] data)
     {

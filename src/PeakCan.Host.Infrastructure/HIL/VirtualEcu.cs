@@ -13,7 +13,10 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// </summary>
 public sealed class VirtualEcu : IDisposable
 {
-    public static int InstanceCount;
+    private static int s_instanceCount;
+
+    /// <summary>当前存活实例数（测试/E2E 可观测）。</summary>
+    public static int InstanceCount => s_instanceCount;
 
     private readonly ICanChannel _channel;
     private readonly IsoTpLayer _isoTp;
@@ -31,7 +34,7 @@ public sealed class VirtualEcu : IDisposable
         _ecuCanIds = ecuCanIds;
         _rules = rules.ToList();
         _logger = logger;
-        Interlocked.Increment(ref InstanceCount);
+        Interlocked.Increment(ref s_instanceCount);
 
         // ECU-side IsoTpLayer — CanIdConfig already swapped to ECU perspective by EcuScriptLoader.
         // After swap: ECU.RequestId=0x7E8 (HIL listens here), ECU.ResponseId=0x7E0 (HIL sends here).

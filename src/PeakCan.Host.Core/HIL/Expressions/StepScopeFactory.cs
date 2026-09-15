@@ -1,3 +1,4 @@
+using System.Globalization;
 using PeakCan.Host.Core.HIL.Contracts;
 using PeakCan.HIL.Core.HIL;
 using PeakCan.HIL.Core.HIL.Expressions;
@@ -148,8 +149,8 @@ public static class StepScopeFactory
 
         return pv.Kind switch
         {
-            ParameterKind.Number => ExpressionValue.FromDouble(Convert.ToDouble(pv.Value)),
-            ParameterKind.Integer => ExpressionValue.FromLong(Convert.ToInt64(pv.Value)),
+            ParameterKind.Number => ExpressionValue.FromDouble(Convert.ToDouble(pv.Value, CultureInfo.InvariantCulture)),
+            ParameterKind.Integer => ExpressionValue.FromLong(Convert.ToInt64(pv.Value, CultureInfo.InvariantCulture)),
             ParameterKind.Bool => ExpressionValue.FromBool((bool)pv.Value),
             ParameterKind.String => ExpressionValue.FromString((string)pv.Value),
             ParameterKind.HexBytes => ExpressionValue.FromBytes((byte[])pv.Value),

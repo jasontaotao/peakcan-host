@@ -19,7 +19,7 @@ public interface ITrialEnvironmentRuntime
 }
 
 /// <summary>真实 EnvironmentRuntime 适配器。</summary>
-public sealed class TrialEnvironmentRuntime : ITrialEnvironmentRuntime
+public sealed class TrialEnvironmentRuntime : ITrialEnvironmentRuntime, IDisposable
 {
     private readonly EnvironmentRuntime _runtime;
     public TrialEnvironmentRuntime(ICanChannel channel, DbcDocument? dbc)
@@ -28,6 +28,7 @@ public sealed class TrialEnvironmentRuntime : ITrialEnvironmentRuntime
         => _runtime.Start(nodes, channels);
     public void Stop() => _runtime.Stop();
     public IReadOnlyList<NodeRunStats> GetStats() => _runtime.GetStats();
+    public void Dispose() => _runtime.Dispose();
 }
 
 /// <summary>按通道启动 EnvironmentRuntime 并执行 TrialRunner；绝不断开宿主连接。</summary>

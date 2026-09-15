@@ -19,6 +19,12 @@ namespace PeakCan.Host.Infrastructure.Channel.SecOc;
 /// </summary>
 public static class SecOcConfigLoader
 {
+    private static readonly JsonSerializerOptions s_pduEntryJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
+
     public sealed record SecOcPduEntry
     {
         public string CanId { get; init; } = "";
@@ -40,7 +46,7 @@ public static class SecOcConfigLoader
 
         var entries = JsonSerializer.Deserialize<List<SecOcPduEntry>>(
             File.ReadAllText(configPath),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip })
+            s_pduEntryJsonOptions)
             ?? throw new InvalidOperationException($"SecOC config '{configPath}' is empty.");
         if (entries.Count == 0)
             throw new InvalidOperationException(

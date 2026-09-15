@@ -13,7 +13,7 @@ public sealed class FrameRingBuffer
 
     public FrameRingBuffer(int capacity)
     {
-        if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
         _buffer = new FrameRow[capacity];
     }
 

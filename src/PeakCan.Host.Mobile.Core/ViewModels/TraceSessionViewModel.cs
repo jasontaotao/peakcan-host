@@ -602,7 +602,7 @@ public sealed partial class TraceSessionViewModel : ObservableObject, IMobileCha
     }
 
     private static string FormatTime(double seconds) =>
-        seconds <= 0 ? "00:00:00" : TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss");
+        seconds <= 0 ? "00:00:00" : TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
 
     public void Dispose()
     {

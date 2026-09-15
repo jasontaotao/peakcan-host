@@ -21,6 +21,17 @@ dotnet_diagnostic.CA1000.severity = none
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1720.severity = none
 
+# --- Intentionally downgraded under AnalysisMode=Recommended (perf-only rules) ---
+# CA1848/CA1873: converting every _logger.LogX(...) call to the [LoggerMessage]
+#   source-generated delegate form is a large per-area refactor (154+ sites) and
+#   logging is not on this app's hot paths. Tracked as a follow-up; revisit per area.
+# CA1859: "use concrete types" rewrites public/protected signatures for a micro
+#   optimisation that is irrelevant at this app's call volumes, and it fights the
+#   interface-based abstractions the codebase deliberately uses.
+dotnet_diagnostic.CA1848.severity = suggestion
+dotnet_diagnostic.CA1873.severity = suggestion
+dotnet_diagnostic.CA1859.severity = suggestion
+
 [*.Tests.cs]
 # xUnit convention: underscored BDD-style test method names (Method_Condition_Expected).
 dotnet_diagnostic.CA1707.severity = none

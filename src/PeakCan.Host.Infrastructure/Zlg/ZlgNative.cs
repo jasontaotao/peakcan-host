@@ -118,41 +118,41 @@ public static class ZlgNative
     private const string Dll = "zlgcan.dll";
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_OpenDevice(uint deviceType, uint deviceIndex, uint reserved);
+    internal static extern uint ZCAN_OpenDevice(uint deviceType, uint deviceIndex, uint reserved);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_CloseDevice(uint deviceType, uint deviceIndex);
+    internal static extern uint ZCAN_CloseDevice(uint deviceType, uint deviceIndex);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_InitCAN(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgInitConfig config);
+    internal static extern uint ZCAN_InitCAN(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgInitConfig config);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_StartCAN(uint deviceType, uint deviceIndex, uint canIndex);
+    internal static extern uint ZCAN_StartCAN(uint deviceType, uint deviceIndex, uint canIndex);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_ResetCAN(uint deviceType, uint deviceIndex, uint canIndex);
+    internal static extern uint ZCAN_ResetCAN(uint deviceType, uint deviceIndex, uint canIndex);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_ClearBuffer(uint deviceType, uint deviceIndex, uint canIndex);
+    internal static extern uint ZCAN_ClearBuffer(uint deviceType, uint deviceIndex, uint canIndex);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_GetDeviceInf(uint deviceType, uint deviceIndex, out ZlgDeviceInfo info);
+    internal static extern uint ZCAN_GetDeviceInf(uint deviceType, uint deviceIndex, out ZlgDeviceInfo info);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_GetReceiveNum(uint deviceType, uint deviceIndex, uint canIndex);
+    internal static extern uint ZCAN_GetReceiveNum(uint deviceType, uint deviceIndex, uint canIndex);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_Transmit(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanMsg msg, uint len);
+    internal static extern uint ZCAN_Transmit(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanMsg msg, uint len);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_Receive(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanMsg[] msg, uint len, int waitTime);
+    internal static extern uint ZCAN_Receive(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanMsg[] msg, uint len, int waitTime);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_TransmitFD(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanFdMsg msg, uint len);
+    internal static extern uint ZCAN_TransmitFD(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanFdMsg msg, uint len);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_ReceiveFD(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanFdMsg[] msg, uint len, int waitTime);
+    internal static extern uint ZCAN_ReceiveFD(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanFdMsg[] msg, uint len, int waitTime);
 
     [DllImport(Dll)]
-    public static extern uint ZCAN_SetReference(uint deviceType, uint deviceIndex, uint canIndex, uint refCode, IntPtr data);
+    internal static extern uint ZCAN_SetReference(uint deviceType, uint deviceIndex, uint canIndex, uint refCode, IntPtr data);
 }

@@ -40,7 +40,7 @@ public static class MatrixConfigLoader
                 {
                     var baseFullPath = Path.GetFullPath(basePath);
                     var resolvedFullPath = Path.GetFullPath(fullPath);
-                    if (!resolvedFullPath.StartsWith(baseFullPath + Path.DirectorySeparatorChar)
+                    if (!resolvedFullPath.StartsWith(baseFullPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                         && resolvedFullPath != baseFullPath)
                     {
                         throw new InvalidOperationException(

@@ -16,7 +16,7 @@ public sealed class ProgressiveScatterSource : IScatterSource
 
     /// <summary>渲染窗口结束点（不包含）。递增此值以显示更多点。
     /// 使用 Volatile 保证跨线程可见性（后台线程写 → UI 线程读）。</summary>
-    private int _maxRenderIndex = 0;
+    private int _maxRenderIndex;
     public int MaxRenderIndex
     {
         get => System.Threading.Volatile.Read(ref _maxRenderIndex);
@@ -24,12 +24,12 @@ public sealed class ProgressiveScatterSource : IScatterSource
     }
 
     /// <summary>渲染窗口起始点（包含）。通常保持 0。</summary>
-    public int MinRenderIndex { get; set; } = 0;
+    public int MinRenderIndex { get; set; }
 
     public int Count { get { lock (_lock) return _points.Count; } }
 
     /// <summary>填充完成后为 true，GetScatterPoints 返回缓存（零分配）</summary>
-    private volatile bool _completed = false;
+    private volatile bool _completed;
 
     /// <summary>v3.62.0: 填充是否已完成（View 用于检测竞态条件）</summary>
     public bool IsCompleted => _completed;

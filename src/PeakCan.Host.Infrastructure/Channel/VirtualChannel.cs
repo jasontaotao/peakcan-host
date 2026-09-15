@@ -52,7 +52,7 @@ public sealed class VirtualChannel : ICanChannel
             return Task.FromResult(Result<Unit>.Fail(ErrorCode.InvalidState, "Channel disposed"));
 
         // Use internal CTS — do not bind to caller's CancellationToken
-        _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token));
+        _consumerTask = Task.Run(() => ConsumerLoop(_consumerCts.Token), ct);
         return Task.FromResult(Result<Unit>.Ok(default));
     }
 

@@ -486,7 +486,7 @@ public class TestSuiteEngineTests
         var factory = new RecordingFactory();
         var suite = MakeSuite("A", "B");
 
-        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, factory);
 
         Assert.Equal(2, factory.Creates.Count);
         Assert.All(factory.Created, s => Assert.True(s.Disposed));
@@ -500,7 +500,7 @@ public class TestSuiteEngineTests
         var factory = new RecordingFactory();
         var suite = MakeSuiteWithFailingFixture();
 
-        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, factory);
 
         Assert.Empty(factory.Creates);
     }
@@ -513,7 +513,7 @@ public class TestSuiteEngineTests
         var factory = new RecordingFactory();
         var suite = MakeSuite("A");
 
-        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, default, factory);
+        await engine.ExecuteAsync(suite, ctx, new TestSuiteConfig(), null, factory);
 
         Assert.Equal(1, ctx.DrainCalls);              // drain 被调用
         Assert.Null(ctx.ActiveSink);                  // detach 后无残留

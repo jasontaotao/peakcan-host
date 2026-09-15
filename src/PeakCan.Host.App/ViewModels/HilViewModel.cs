@@ -23,7 +23,7 @@ using PeakCan.Host.Core.HIL;
 
 namespace PeakCan.Host.App.ViewModels;
 
-public sealed partial class HilViewModel : ObservableObject
+public sealed partial class HilViewModel : ObservableObject, IDisposable
 {
     private readonly IHilRunnerService _runner;
     private readonly ILogger<HilViewModel> _logger;
@@ -44,6 +44,7 @@ public sealed partial class HilViewModel : ObservableObject
     private System.Threading.Timer? _caseFilterTimer;
     private bool _declaredChannelsValid = true;
     private Stopwatch? _runStopwatch;
+    private bool _disposed;
 
     [ObservableProperty] private string _dbcPath = "";
     [ObservableProperty] private string _suitePath = "";
@@ -287,6 +288,24 @@ public sealed partial class HilViewModel : ObservableObject
             connectedChannelsSource.Changed += OnConnectedChannelsChanged;
             RefreshAvailableChannels();
         }
+    }
+
+    // CA1001: the VM owns disposable timer / CancellationTokenSource fields; as a DI
+    // singleton the host disposes it at app shutdown. Idempotent (safe if no run is active).
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _suiteChangeTimer?.Dispose();
+        _suiteChangeTimer = null;
+        _runTimer?.Dispose();
+        _runTimer = null;
+        _caseFilterTimer?.Dispose();
+        _caseFilterTimer = null;
+        _preflightCts?.Dispose();
+        _preflightCts = null;
+        _runCts?.Dispose();
+        _runCts = null;
     }
 
     private void OnConnectedChannelsChanged()

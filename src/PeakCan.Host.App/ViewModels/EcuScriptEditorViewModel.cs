@@ -22,6 +22,7 @@ public partial class EcuScriptEditorViewModel : ObservableObject
     private readonly IFileDialogService _fileDialog;
     private readonly IMessageBoxPrompt _messageBox;
     private readonly ILogger<EcuScriptEditorViewModel> _logger;
+    private static readonly JsonSerializerOptions s_formatOptions = new() { WriteIndented = true };
 
     [ObservableProperty] private string _editorText = "";
     [ObservableProperty] private string? _filePath;
@@ -97,8 +98,7 @@ public partial class EcuScriptEditorViewModel : ObservableObject
         try
         {
             using var doc = JsonDocument.Parse(EditorText);
-            EditorText = JsonSerializer.Serialize(doc.RootElement,
-                new JsonSerializerOptions { WriteIndented = true });
+            EditorText = JsonSerializer.Serialize(doc.RootElement, s_formatOptions);
             ErrorMessage = null;
         }
         catch (JsonException ex)

@@ -46,5 +46,11 @@ public enum DtcControlSubFunction : byte
     ReportDTCWithPermanentStatus = 0x15,
 
     /// <summary>Clear all DTCs (service 0x14 with this sub-function).</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Design",
+        "CA1069",
+        Justification = "The value intentionally mirrors the ISO 14229 service 0x14 " +
+            "(ClearDiagnosticInformation) used by the DtcControl flash step, not a 0x19 " +
+            "sub-function; splitting this SID out of a 0x19-sub-function enum is a tracked refactor.")]
     ClearDTCInformation = 0x14,
 }

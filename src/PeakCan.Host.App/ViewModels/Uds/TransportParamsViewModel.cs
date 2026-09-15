@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
@@ -151,7 +152,7 @@ public sealed partial class TransportParamsViewModel : ObservableObject
         (DiagStMin, DiagBlockSize) = FormatFlowControl(snap);
         DiagNBs = $"{transport.FlowControlTimeout.TotalMilliseconds:0} ms";
         DiagNCr = $"{transport.ReceiveTimeout.TotalMilliseconds:0} ms";
-        DiagS3Failures = session.S3FailureCount.ToString();
+        DiagS3Failures = session.S3FailureCount.ToString(CultureInfo.InvariantCulture);
     }
 
     private void PollFlashStack()
@@ -187,7 +188,7 @@ public sealed partial class TransportParamsViewModel : ObservableObject
     private static string FormatCanIds(CanIdConfig config)
     {
         var fmt = config.IsExtendedFrame ? "X8" : "X3";
-        return $"0x{config.RequestId.ToString(fmt)} → 0x{config.ResponseId.ToString(fmt)}";
+        return $"0x{config.RequestId.ToString(fmt, CultureInfo.InvariantCulture)} → 0x{config.ResponseId.ToString(fmt, CultureInfo.InvariantCulture)}";
     }
 
     private static string FormatSession(byte sessionType) => sessionType switch
@@ -213,7 +214,7 @@ public sealed partial class TransportParamsViewModel : ObservableObject
         var stMin = snap.StMinDelay.Ticks > 0 && snap.StMinDelay.TotalMilliseconds < 1
             ? $"{snap.StMinDelay.Ticks * 100} µs"
             : $"{snap.StMinDelay.TotalMilliseconds:0} ms";
-        var bs = snap.BlockSize == 0 ? "0 (不限)" : snap.BlockSize.ToString();
+        var bs = snap.BlockSize == 0 ? "0 (不限)" : snap.BlockSize.ToString(CultureInfo.InvariantCulture);
         return ($"0x{snap.StMinRaw:X2} ({stMin})", bs);
     }
 }

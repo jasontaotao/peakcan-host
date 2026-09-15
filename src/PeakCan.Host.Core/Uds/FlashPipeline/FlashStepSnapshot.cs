@@ -105,7 +105,7 @@ public sealed record FlashStepSnapshot
     public string DllPath { get; init; } = string.Empty;
 
     /// <summary>Seed byte length (null = auto). Drives DLL seed padding/truncation.</summary>
-    public int? SeedLength { get; init; } = null;
+    public int? SeedLength { get; init; }
 
     /// <summary>2-byte routine ID. 0xFF00 for Erase default, operator-filled for Verify.</summary>
     public ushort RoutineId { get; init; }

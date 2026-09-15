@@ -90,7 +90,7 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
             var startRet = ZlgNative.ZCAN_StartCAN(_devType, _devIdx, _canIdx);
             if (startRet != ZlgError.Success)
             {
-                ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx);
+                _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx);
                 _deviceManager.ReleaseDevice(_devType, _devIdx);
                 var (code, msg) = ZlgErrorMapper.ToErrorCode(startRet);
                 return Result<Unit>.Fail(code, $"StartCAN failed: {msg}");
@@ -145,7 +145,7 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
             }
 
             // 复位 CAN 通道
-            try { ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
+            try { _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
             catch { /* best-effort */ }
 
             // 释放设备
@@ -182,7 +182,7 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
         // 读循环已自行退出（未 Cancel），安全释放。
         try { staleCts?.Dispose(); } catch { /* best-effort */ }
 
-        try { ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
+        try { _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
         catch { /* best-effort：设备可能已不在（DLL 缺失/拔出），忽略 */ }
 
         _deviceManager.ReleaseDevice(_devType, _devIdx);

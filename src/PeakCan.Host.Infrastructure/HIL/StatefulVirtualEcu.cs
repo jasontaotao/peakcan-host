@@ -27,7 +27,10 @@ public sealed class StatefulVirtualEcu : IDisposable
     private readonly SecurityAccessServer _securityServer;
     private int _disposed;
 
-    public static int InstanceCount;
+    private static int s_instanceCount;
+
+    /// <summary>当前存活实例数（测试/E2E 可观测）。</summary>
+    public static int InstanceCount => s_instanceCount;
 
     /// <summary>Current ECU state name (delegated to state machine).</summary>
     public string CurrentState => _stateMachine.CurrentState;
@@ -52,7 +55,7 @@ public sealed class StatefulVirtualEcu : IDisposable
         _stateMachine = stateMachine;
         _logger = logger;
         _securityServer = securityServer ?? new SecurityAccessServer();
-        Interlocked.Increment(ref InstanceCount);
+        Interlocked.Increment(ref s_instanceCount);
 
         _isoTp = new IsoTpLayer(ecuCanIds, SendFrameAsync, logger: null);
         _isoTp.MessageReceived += OnUdsRequestReceived;
@@ -135,7 +138,7 @@ public sealed class StatefulVirtualEcu : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
-        Interlocked.Decrement(ref InstanceCount);
+        Interlocked.Decrement(ref s_instanceCount);
         _channel.FrameReceived -= OnCanFrameReceived;
         _isoTp.MessageReceived -= OnUdsRequestReceived;
         _isoTp.Dispose();

@@ -129,13 +129,13 @@ public sealed partial class TraceViewerViewModel
     {
         const uint IdeBit = 0x80000000u;
         return (id & IdeBit) == 0
-            ? "0x" + id.ToString("X3")
-            : "0x" + id.ToString("X8");
+            ? "0x" + id.ToString("X3", CultureInfo.InvariantCulture)
+            : "0x" + id.ToString("X8", CultureInfo.InvariantCulture);
     }
 
     public void PlotSignal(TraceChartSeries series)
     {
-        if (series is null) throw new ArgumentNullException(nameof(series));
+        ArgumentNullException.ThrowIfNull(series);
         if (!series.IsPlotPending) return;
 
         var dot = series.SignalKey.IndexOf('.');

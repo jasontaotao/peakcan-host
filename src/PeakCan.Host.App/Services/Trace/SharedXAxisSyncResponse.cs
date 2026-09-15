@@ -36,14 +36,14 @@ public sealed class SharedXAxisSyncResponse : IUserActionResponse
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
-    public ResponseInfo Execute(IPlotControl control, IUserAction action, KeyboardState keys)
+    public ResponseInfo Execute(IPlotControl plotControl, IUserAction userActions, KeyboardState keys)
     {
         if (!_isEnabled()) return ResponseInfo.NoActionRequired;
 
-        bool isDiscrete = action is MouseWheelUp or MouseWheelDown;
-        bool isDragStart = action is LeftMouseDown;
-        bool isDragMove = action is MouseMove && _isDragging;
-        bool isDragEnd = action is LeftMouseUp;
+        bool isDiscrete = userActions is MouseWheelUp or MouseWheelDown;
+        bool isDragStart = userActions is LeftMouseDown;
+        bool isDragMove = userActions is MouseMove && _isDragging;
+        bool isDragEnd = userActions is LeftMouseUp;
 
         if (isDragStart)
             _isDragging = true;
@@ -51,7 +51,7 @@ public sealed class SharedXAxisSyncResponse : IUserActionResponse
         if (!isDiscrete && !isDragMove && !isDragEnd)
             return ResponseInfo.NoActionRequired;
 
-        var xAxis = control.Plot.Axes.Bottom;
+        var xAxis = plotControl.Plot.Axes.Bottom;
         _pending = (xAxis.Min, xAxis.Max);
         var now = _utcNow();
 
@@ -68,7 +68,7 @@ public sealed class SharedXAxisSyncResponse : IUserActionResponse
         return ResponseInfo.NoActionRequired;
     }
 
-    public void ResetState(IPlotControl control)
+    public void ResetState(IPlotControl plotControl)
     {
         _isDragging = false;
         _pending = null;

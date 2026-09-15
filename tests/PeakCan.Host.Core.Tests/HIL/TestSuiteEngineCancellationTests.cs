@@ -20,7 +20,7 @@ public class TestSuiteEngineCancellationTests
         var engine = new TestSuiteEngine(new RecordingResolver(fixture), new IStepExecutor[] { new CancelAtBoundaryExecutor(fixture) });
         var suite = MakeSuite();
 
-        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token);
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, externalCt: fixture.Token);
 
         Assert.Single(result.CaseResults);
         Assert.Equal(1, result.PassedCases);
@@ -37,7 +37,7 @@ public class TestSuiteEngineCancellationTests
         var engine = new TestSuiteEngine(resolver, new IStepExecutor[] { executor });
         var suite = MakeSuite(fixtureKey: "cancel");
 
-        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token);
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, externalCt: fixture.Token);
 
         Assert.Single(result.CaseResults);
         Assert.Equal(1, result.SkippedCases);
@@ -55,7 +55,7 @@ public class TestSuiteEngineCancellationTests
         var engine = new TestSuiteEngine(resolver, Array.Empty<IStepExecutor>());
         var suite = MakeSuite(fixtureKey: "cancel");
 
-        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token);
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, externalCt: fixture.Token);
 
         Assert.Single(result.CaseResults);
         Assert.Equal(1, result.SkippedCases);
@@ -73,7 +73,7 @@ public class TestSuiteEngineCancellationTests
         var engine = new TestSuiteEngine(resolver, new IStepExecutor[] { executor });
         var suite = MakeSuite(fixtureKey: "cancel", timeoutMs: 10);
 
-        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token);
+        var result = await engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, externalCt: fixture.Token);
 
         Assert.Single(result.CaseResults);
         Assert.Equal(1, result.SkippedCases);
@@ -91,7 +91,7 @@ public class TestSuiteEngineCancellationTests
         var suite = MakeSuite(suiteFixtureKey: "cancel");
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, fixture.Token));
+            engine.ExecuteAsync(suite, new FakeAssertionContext(), new TestSuiteConfig(), null, externalCt: fixture.Token));
     }
 
     private static TestSuite MakeSuite(

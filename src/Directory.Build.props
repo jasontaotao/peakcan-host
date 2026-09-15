@@ -15,13 +15,9 @@
     <FileVersion>3.65.0.0</FileVersion>
     <InformationalVersion>3.65.0</InformationalVersion>
 
-    <!-- The root enables the full Recommended analyzer rule set, but the shipped
-         code still carries ~750 outstanding CA-rule findings (CA1848 x216,
-         CA1305 x182, CA1873 x62, ...). Promoting src/ to Recommended is a tracked
-         follow-up; until then keep the compiler-warning gate (TreatWarningsAsErrors,
-         inherited above) while analysis stays at the default level so the build
-         stays green. -->
-    <AnalysisMode>Default</AnalysisMode>
-    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- src/ now runs the same Recommended analyzer set as tests/tools
+         (inherited from the repo-root file). The three performance-only rules
+         (CA1848/CA1873/CA1859) are downgraded to suggestion in /.editorconfig
+         with a documented rationale; everything else is fixed. -->
   </PropertyGroup>
 </Project>

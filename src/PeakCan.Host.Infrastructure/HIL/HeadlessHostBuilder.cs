@@ -64,7 +64,7 @@ public static class HeadlessHostBuilder
                 new SecOcKeyMaterialZeroizer(secOcPdus.Values.Select(p => p.Key)));
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
-        System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString())}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
+        System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString(CultureInfo.InvariantCulture))}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
         if (args.HardwareChannels is { Count: > 0 } multiHw)
         {
             // 多厂商通道工厂（产品 review: PEAK + ZLG + 未来厂商）。硬件模式注册
@@ -397,8 +397,8 @@ public static class HeadlessHostBuilder
 
         // Logging
         builder.Logging.AddSerilog(new LoggerConfiguration()
-            .WriteTo.Console()
-            .WriteTo.File("hil.log")
+            .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
+            .WriteTo.File("hil.log", formatProvider: CultureInfo.InvariantCulture)
             .CreateLogger());
 
         IHost host;
@@ -574,7 +574,7 @@ public static ushort ResolveChannelHandle(string handle)
     public static ushort ParseChannelHandle(string hw)
     {
         if (hw.StartsWith("USB", StringComparison.OrdinalIgnoreCase)
-            && ushort.TryParse(hw[3..], out var n)
+            && ushort.TryParse(hw[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
             && n is >= 1 and <= 16)
         {
             return (ushort)(0x50 + n);  // USB1 → 0x51, USB2 → 0x52, ...

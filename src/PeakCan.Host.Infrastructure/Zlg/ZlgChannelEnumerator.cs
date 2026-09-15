@@ -75,7 +75,7 @@ public sealed class ZlgChannelEnumerator : IChannelEnumerator
                     }
                     finally
                     {
-                        ZlgNative.ZCAN_CloseDevice(devType, devIdx);
+                        _ = ZlgNative.ZCAN_CloseDevice(devType, devIdx);
                     }
                 }
                 catch (DllNotFoundException dllEx)

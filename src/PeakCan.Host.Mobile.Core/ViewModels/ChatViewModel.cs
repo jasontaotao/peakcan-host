@@ -307,20 +307,20 @@ public sealed partial class ChatViewModel : ObservableObject
         sb.AppendLine("你是一个汽车 CAN 总线故障诊断专家。");
         sb.AppendLine();
         sb.AppendLine("当前 trace 状态:");
-        sb.AppendLine($"- 锚点: {(_context.AnchorTimestamp is { } a
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- 锚点: {(_context.AnchorTimestamp is { } a
             ? a.ToString("F6", CultureInfo.InvariantCulture) + "s"
             : "未设")}");
-        sb.AppendLine($"- DBC: {(_context.Dbc is null ? "未加载" : _context.Dbc.SourceName)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- DBC: {(_context.Dbc is null ? "未加载" : _context.Dbc.SourceName)}");
         sb.AppendLine(_context.IsDurationKnown && _context.DurationSeconds is { } d
             ? $"- 时长: {d.ToString("F3", CultureInfo.InvariantCulture)}s"
             : "- 时长: 未知");
-        sb.AppendLine($"- 当前播放时间: {FormatTs(_context.CurrentTimestamp)}");
-        sb.AppendLine($"- ID 过滤: {(_context.FilterText is { Length: > 0 } f ? f : "无")}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- 当前播放时间: {FormatTs(_context.CurrentTimestamp)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- ID 过滤: {(_context.FilterText is { Length: > 0 } f ? f : "无")}");
         sb.AppendLine();
         sb.AppendLine("时间格式约定:");
         sb.AppendLine("- 时间戳统一用秒数（保留4位小数，如 158340.5101），不要换算成其他形式");
         sb.AppendLine();
-        sb.AppendLine($"可用工具（{_chatTools.Count} 个）: {string.Join(", ", _chatTools.Select(t => t.Name))}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"可用工具（{_chatTools.Count} 个）: {string.Join(", ", _chatTools.Select(t => t.Name))}");
         sb.AppendLine();
         sb.AppendLine("分析原则:");
         sb.AppendLine("1. 信息不足时问用户，不编造");

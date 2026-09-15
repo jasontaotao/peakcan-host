@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using PeakCan.HIL.Core.HIL;
 
@@ -22,17 +23,13 @@ public static class ConsoleSummaryFormatter
         var sb = new StringBuilder();
 
         // Header
-        sb.AppendLine($"Suite: {result.SuiteName}");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"Suite: {result.SuiteName}"));
         sb.AppendLine(new string('─', 40));
 
         // Summary line
         var rate = result.PassRate * 100.0;
-        sb.AppendLine($"Total: {result.TotalCases}  " +
-                      $"Passed: {result.PassedCases}  " +
-                      $"Failed: {result.FailedCases}  " +
-                      $"Skipped: {result.SkippedCases}  " +
-                      $"Elapsed: {result.ElapsedMs}ms  " +
-                      $"Rate: {rate:F1}%");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"Total: {result.TotalCases}  Passed: {result.PassedCases}  Failed: {result.FailedCases}  Skipped: {result.SkippedCases}  Elapsed: {result.ElapsedMs}ms  Rate: {rate:F1}%"));
 
         sb.AppendLine();
 
@@ -41,18 +38,18 @@ public static class ConsoleSummaryFormatter
         {
             var symbol = c.Passed ? PassSymbol : FailSymbol;
             var stepInfo = $"({c.PassedSteps}/{c.TotalSteps} steps)";
-            sb.AppendLine($"  {symbol} {c.TestCaseName} {stepInfo} {c.ElapsedMs}ms");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"  {symbol} {c.TestCaseName} {stepInfo} {c.ElapsedMs}ms"));
 
             // List failed steps with actual vs expected
             foreach (var step in c.StepResults)
             {
                 if (step.Status != StepStatus.Failed) continue;
 
-                sb.AppendLine($"      ✘ Step {step.StepIndex} [{step.Kind}]: {step.Message}");
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"      ✘ Step {step.StepIndex} [{step.Kind}]: {step.Message}"));
                 if (step.ActualValue is not null || step.ExpectedValue is not null)
                 {
-                    sb.AppendLine($"          Expected: {step.ExpectedValue ?? "(null)"}");
-                    sb.AppendLine($"          Actual:   {step.ActualValue ?? "(null)"}");
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"          Expected: {step.ExpectedValue ?? "(null)"}"));
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"          Actual:   {step.ActualValue ?? "(null)"}"));
                 }
             }
         }

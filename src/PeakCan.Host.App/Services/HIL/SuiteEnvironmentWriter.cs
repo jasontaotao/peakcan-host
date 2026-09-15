@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using PeakCan.HIL.Core.HIL;
@@ -91,9 +92,9 @@ public sealed class SuiteEnvironmentWriter
                     break;
 
                 case J1939MessageRef j1939:
-                    var jKey = $"{channel}|j1939|{j1939.Priority}|{j1939.Pgn:X}|{j1939.Sa?.ToString() ?? "*"}|{j1939.Da?.ToString() ?? "*"}";
+                    var jKey = $"{channel}|j1939|{j1939.Priority}|{j1939.Pgn:X}|{j1939.Sa?.ToString(CultureInfo.InvariantCulture) ?? "*"}|{j1939.Da?.ToString(CultureInfo.InvariantCulture) ?? "*"}";
                     if (!j1939Keys.Add(jKey))
-                        return $"Duplicate J1939 send key PGN 0x{j1939.Pgn:X} (SA={j1939.Sa?.ToString("X2") ?? "*"}, DA={j1939.Da?.ToString("X2") ?? "*"}, channel='{node.Channel ?? "default"}').";
+                        return $"Duplicate J1939 send key PGN 0x{j1939.Pgn:X} (SA={j1939.Sa?.ToString("X2", CultureInfo.InvariantCulture) ?? "*"}, DA={j1939.Da?.ToString("X2", CultureInfo.InvariantCulture) ?? "*"}, channel='{node.Channel ?? "default"}').";
                     break;
             }
         }

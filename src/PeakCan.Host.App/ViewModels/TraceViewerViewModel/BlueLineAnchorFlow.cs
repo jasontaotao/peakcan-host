@@ -132,8 +132,9 @@ public sealed partial class TraceViewerViewModel
         if (!IsBlueLineAnchorActive) return;
         if (WatchedSignals.Count == 0) return;
 
-        var masterSource = Sources.FirstOrDefault(s => s.SourceId == MasterSourceId)
-                           ?? Sources.FirstOrDefault();
+        var masterSource = Sources.FirstOrDefault(s => s.SourceId == MasterSourceId);
+        if (masterSource is null && Sources.Count > 0)
+            masterSource = Sources[0];
         var allFrames = masterSource is null
             ? null
             : _registry.GetFrames(masterSource.SourceId);

@@ -145,9 +145,7 @@ public partial class DbcTreePickerWindow : Window
         if (DataContext is not DbcTreePickerViewModel vm) return;
         foreach (var node in GetVisibleSignalNodes(vm))
         {
-            if (vm.SelectedSignals.Contains(node))
-                vm.SelectedSignals.Remove(node);
-            else
+            if (!vm.SelectedSignals.Remove(node))
                 vm.SelectedSignals.Add(node);
         }
         _lastSignalIndex = -1;  // anchor no longer meaningful after invert

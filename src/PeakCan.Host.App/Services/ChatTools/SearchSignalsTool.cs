@@ -109,7 +109,7 @@ public sealed class SearchSignalsTool : ChatToolBase
             {
                 enums = new JsonObject();
                 foreach (var (k, v) in vt.Entries)
-                    enums[k.ToString()] = v;
+                    enums[k.ToString(CultureInfo.InvariantCulture)] = v;
             }
 
             jsonResults.Add(new JsonObject
@@ -153,17 +153,16 @@ public sealed class SearchSignalsTool : ChatToolBase
     {
         matchedIn = "";
         double score = 0;
-        var termLower = term.ToLowerInvariant();
 
         // Signal name match (highest weight).
-        if (sig.Name.ToLowerInvariant().Contains(termLower))
+        if (sig.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
         {
             score = 100;
             matchedIn = "signal_name";
         }
 
         // Message name match.
-        if (score == 0 && msg.Name.ToLowerInvariant().Contains(termLower))
+        if (score == 0 && msg.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
         {
             score = 60;
             matchedIn = "message_name";
@@ -173,7 +172,7 @@ public sealed class SearchSignalsTool : ChatToolBase
         {
             // Signal comment match.
             if (sig.Comment is not null &&
-                sig.Comment.ToLowerInvariant().Contains(termLower))
+                sig.Comment.Contains(term, StringComparison.OrdinalIgnoreCase))
             {
                 double commentScore = 50;
                 // Chinese comment boost.
@@ -188,7 +187,7 @@ public sealed class SearchSignalsTool : ChatToolBase
 
             // Message comment match.
             if (msg.Comment is not null &&
-                msg.Comment.ToLowerInvariant().Contains(termLower))
+                msg.Comment.Contains(term, StringComparison.OrdinalIgnoreCase))
             {
                 double commentScore = 30;
                 if (HasChinese(msg.Comment))
@@ -207,7 +206,7 @@ public sealed class SearchSignalsTool : ChatToolBase
         {
             foreach (var (_, v) in vt.Entries)
             {
-                if (v.ToLowerInvariant().Contains(termLower))
+                if (v.Contains(term, StringComparison.OrdinalIgnoreCase))
                 {
                     if (20 > score)
                     {
