@@ -28,6 +28,23 @@ jobs:
       # 注意：此处刻意不指定 ref —— 打包的是 hil-core 的**默认分支**，因此该分支
       # 的版本必须等于 Directory.Packages.props 的 pin（下方 lockstep guard 会校验；
       # 不等就早失败，而不是留给 restore 报晦涩的找不到包）。
+      # Fail with a readable message when the PAT secret is absent. Without this,
+      # actions/checkout aborts the job with the opaque
+      # "Input required and not supplied: token" — which is how CI sat 100% red
+      # (60/60 runs, 2026-07-17 .. 2026-09-09) with nobody noticing, because that
+      # error reads like a workflow bug rather than a missing repo secret.
+      - name: Verify HIL_CORE_PAT secret is set
+        env:
+          HIL_CORE_PAT: ${{ secrets.HIL_CORE_PAT }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:HIL_CORE_PAT)) {
+            Write-Host "::error::The HIL_CORE_PAT repository secret is missing (gh secret list --repo jasontaotao/peakcan-host is empty)."
+            Write-Host "Create a fine-grained PAT with Contents:read on jasontaotao/peakcan-hil-core, then run:"
+            Write-Host "  gh secret set HIL_CORE_PAT --repo jasontaotao/peakcan-host"
+            exit 1
+          }
+          Write-Host "HIL_CORE_PAT present."
+
       - name: Checkout hil-core (private, via PAT)
         uses: actions/checkout@v4
         with:
