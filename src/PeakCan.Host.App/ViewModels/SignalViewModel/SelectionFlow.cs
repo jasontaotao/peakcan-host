@@ -31,6 +31,8 @@ public sealed partial class SignalViewModel
     /// </summary>
     public void Dispose()
     {
+        if (_chartVm is not null)
+            _chartVm.PropertyChanged -= OnChartVmPropertyChanged;
         _drainTimer.Dispose();
         GC.SuppressFinalize(this);
     }

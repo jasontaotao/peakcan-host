@@ -11,7 +11,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- System.Text.Encoding.CodePages is provided transitively (NU1510); the
+         explicit reference was redundant. DbcTextReader still uses
+         CodePagesEncodingProvider via that transitive dependency. -->
   </ItemGroup>
 
   <ItemGroup>

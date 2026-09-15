@@ -19,6 +19,10 @@ public sealed class AscFileFormatChannelTests
         return sb.ToString();
     }
 
+    /// <summary>Second whitespace token of the emitted data line = the ASC channel number.</summary>
+    private static string ChannelToken(CanFrame frame) =>
+        WriteLine(frame).Split(' ', StringSplitOptions.RemoveEmptyEntries)[1];
+
     private static CanId StdId(uint raw) => new(raw, FrameFormat.Standard);
 
     [Theory]
@@ -46,10 +50,8 @@ public sealed class AscFileFormatChannelTests
     {
         // PEAK USB2 (0x52) → channel 2 in the asc line (not hardcoded 1)
         var frame = new CanFrame(StdId(0x123), new byte[] { 0xAA }, FrameFlags.None, new ChannelId(0x52), default);
-        var line = WriteLine(frame);
-        // channel 2 (from 0x52) appears between the seconds field and the id,
-        // not the old hardcoded 1.
-        Assert.Contains(" 2  0x123", line);
+        // channel 2 (from 0x52), not the old hardcoded 1.
+        Assert.Equal("02", ChannelToken(frame));
     }
 
     [Fact]
@@ -57,8 +59,7 @@ public sealed class AscFileFormatChannelTests
     {
         // 单通道帧（Channel=None/0）→ channel 1（与旧硬编码一致，零回归）
         var frame = new CanFrame(StdId(0x100), new byte[] { 0x01 }, FrameFlags.None, default, default);
-        var line = WriteLine(frame);
-        Assert.Contains(" 1  ", line);
+        Assert.Equal("01", ChannelToken(frame));
     }
 
     [Fact]
@@ -66,7 +67,7 @@ public sealed class AscFileFormatChannelTests
     {
         var f1 = new CanFrame(StdId(0x111), new byte[] { 0x01 }, FrameFlags.None, new ChannelId(0x51), default);
         var f2 = new CanFrame(StdId(0x222), new byte[] { 0x02 }, FrameFlags.None, new ChannelId(0x52), default);
-        Assert.Contains(" 1  ", WriteLine(f1));
-        Assert.Contains(" 2  ", WriteLine(f2));
+        Assert.Equal("01", ChannelToken(f1));
+        Assert.Equal("02", ChannelToken(f2));
     }
 }

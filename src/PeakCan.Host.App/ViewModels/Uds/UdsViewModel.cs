@@ -146,6 +146,17 @@ public sealed partial class UdsViewModel : ObservableObject
         if (dialog.ShowDialog() != true) return;
 
         await OdxImport.ImportAsync(dialog.FileName);
+
+        // F1-5: surface the import outcome. OdxImportViewModel.LastStatus is the
+        // only result channel and no view binds it, so a bad/corrupt ODX used to
+        // fail silently (no error, no warning count, no busy indicator). Echo it
+        // into the visible OutputLog.
+        if (!string.IsNullOrWhiteSpace(OdxImport.LastStatus))
+        {
+            OutputLog.Add(new UdsLogLine(
+                $"{DateTime.Now:HH:mm:ss.fff}", "ODX", OdxImport.LastStatus));
+        }
+
         // v2.0.6 PATCH Bug-1: refresh all three database-backed panels
         // after ODX import. Previously only Dtc.RefreshFromDatabase()
         // was called — Did and Routine panels populated their

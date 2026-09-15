@@ -78,6 +78,14 @@ public sealed partial class SignalViewModel : ObservableObject, IHostedService, 
     /// </summary>
     public bool HasChartedSignals => _chartVm?.HasSignals == true;
 
+    private void OnChartVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not nameof(SignalChartViewModel.HasSignals)) return;
+        OnPropertyChanged(nameof(HasChartedSignals));
+        ExportChartCsvCommand.NotifyCanExecuteChanged();
+        ClearChartCommand.NotifyCanExecuteChanged();
+    }
+
     /// <summary>
     /// Per-signal statistics for the charted window. Returns an empty
     /// list when no chart VM is injected.
@@ -126,6 +134,12 @@ public sealed partial class SignalViewModel : ObservableObject, IHostedService, 
     public SignalViewModel(SignalChartViewModel? chartVm = null)
     {
         _chartVm = chartVm;
+
+        // F1-2: HasChartedSignals is derived from the chart VM, so re-raise it
+        // (and re-evaluate the toolbar commands) whenever the charted-signal
+        // count changes. Without this the ExportChartCsv button stayed disabled.
+        if (_chartVm is not null)
+            _chartVm.PropertyChanged += OnChartVmPropertyChanged;
 
         // v1.2.3 PATCH-2: a <see cref="System.Threading.Timer"/> (not
         // <see cref="DispatcherTimer"/>) so the tick fires regardless

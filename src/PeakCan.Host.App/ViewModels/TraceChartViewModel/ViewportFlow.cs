@@ -47,8 +47,10 @@ public sealed partial class TraceChartViewModel
         {
             var cur = Series[i];
             if (!byKey.TryGetValue(cur.EffectiveKey, out var vp)) continue;
-            // v3.62.0 MINOR: SetLimitsX replaces xAxis.Minimum/Maximum
-            if (!double.IsNaN(vp.XMin) && !double.IsNaN(vp.XMax))
+            // v3.62.0 MINOR: SetLimitsX replaces xAxis.Minimum/Maximum.
+            // Plot is null until the View creates its own Plot (same reason as
+            // CaptureViewports above) — guard before dereferencing.
+            if (!double.IsNaN(vp.XMin) && !double.IsNaN(vp.XMax) && cur.Plot is not null)
             {
                 cur.Plot.Axes.SetLimitsX(vp.XMin, vp.XMax);
                 cur.RefreshCallback?.Invoke();

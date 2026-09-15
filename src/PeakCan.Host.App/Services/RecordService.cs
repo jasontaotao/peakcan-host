@@ -84,7 +84,9 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
     // 收敛条件并置位 _drainConverged；停止方 Reset 后等待该信号（有 5s 上限兜底，
     // 覆盖 DropOldest 丢帧导致计数永不收敛的场景）。
     private readonly ManualResetEventSlim _drainConverged = new(initialState: false);
-    private volatile bool _stopPending;
+    // Not volatile: every access goes through Volatile.Read/Write (a `volatile`
+    // field would yield CS0420 when passed by ref and give false assurance).
+    private bool _stopPending;
 
     // 录制代次：StartRecording 每开新 writer 递增。StopRecordingInner 等待期间若代次
     // 变化（并发 StartRecording 已换 writer），本次停止不得 footer/dispose 新 writer
@@ -163,7 +165,7 @@ public sealed partial class RecordService : BackgroundService, IFrameSink
                             Interlocked.Increment(ref _frameCount);
                             // 停止等待方（StopRecordingInner）在等收敛信号：写完一帧后
                             // 检查计数是否追平入队数，追平则置位事件（见 _drainConverged 注释）。
-                            if (_stopPending
+                            if (Volatile.Read(ref _stopPending)
                                 && Interlocked.Read(ref _frameCount) >= Interlocked.Read(ref _frameEnqueuedCount))
                             {
                                 // Dispose 竞态兜底：宿主关停路径 Dispose 事件时 drain 可能仍在写最后一帧。

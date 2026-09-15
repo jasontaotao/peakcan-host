@@ -6,6 +6,18 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class SignalChartViewModel
 {
     /// <summary>
+    /// Raise change notifications for the count-derived properties so the
+    /// toolbar buttons (ExportChartCsv / ClearChart CanExecute) and the chart
+    /// visibility binding re-evaluate. Before F1-2 these were non-observable,
+    /// so the export button stayed disabled after signals were plotted.
+    /// </summary>
+    private void RaiseSeriesCountChanged()
+    {
+        OnPropertyChanged(nameof(HasSignals));
+        OnPropertyChanged(nameof(SignalCount));
+    }
+
+    /// <summary>
     /// Add a signal to the chart. Creates a new <see cref="LineSeries"/>
     /// with the next palette color. No-op if the signal is already
     /// charted.
@@ -33,6 +45,7 @@ public sealed partial class SignalChartViewModel
         PlotModel.Series.Add(series);
         EnsureTimer();
         PlotModel.InvalidatePlot(false);
+        RaiseSeriesCountChanged();
     }
 
     /// <summary>
@@ -55,6 +68,7 @@ public sealed partial class SignalChartViewModel
         }
 
         PlotModel.InvalidatePlot(false);
+        RaiseSeriesCountChanged();
     }
     /// <summary>
     /// Remove all signals and clear the chart. Called on DBC reload.
@@ -70,5 +84,6 @@ public sealed partial class SignalChartViewModel
         _t0 = null;
         _nextColorSlot = 0;
         PlotModel.InvalidatePlot(false);
+        RaiseSeriesCountChanged();
     }
 }

@@ -71,6 +71,17 @@ public static class AscFormat
     /// 与现有 RecordService/Format.partial.cs L54-L55 1:1 等价 (含双空格分隔)。
     /// </summary>
     public static void WriteDataLine(StreamWriter writer, CanFrame frame, TimeSpan elapsed)
+        => writer.WriteLine(FormatDataLine(frame, elapsed.TotalSeconds, frame.Channel.Handle));
+
+    /// <summary>
+    /// Format one ASC data line as a string — the single source of the data-line
+    /// token grammar, shared by the StreamWriter sink here and the
+    /// StringBuilder sinks in Infrastructure (HIL AscFrameSink /
+    /// CLI FrameCaptureExporter), so every producer emits exactly what
+    /// <see cref="TryParseDataLine"/> accepts. <paramref name="channelNumber"/>
+    /// is the ASC channel number (producers may map a native handle to it).
+    /// </summary>
+    public static string FormatDataLine(CanFrame frame, double elapsedSeconds, int channelNumber)
     {
         var dataHex = Convert.ToHexString(frame.Data.Span);
 
@@ -79,8 +90,7 @@ public static class AscFormat
         var esiFlag = (frame.Flags & FrameFlags.ErrorStateIndicator) != 0 ? $" {FlagEsi}" : "";
         var errFlag = frame.IsError ? $" {FlagError}" : "";
 
-        writer.WriteLine(
-            $"{elapsed.TotalSeconds:F6} {frame.Channel.Handle:X2}  {frame.Id.Raw:X}  {frame.Dlc}  {dataHex}{fdFlag}{brsFlag}{esiFlag}{errFlag}");
+        return $"{elapsedSeconds:F6} {channelNumber:X2}  {frame.Id.Raw:X}  {frame.Dlc}  {dataHex}{fdFlag}{brsFlag}{esiFlag}{errFlag}";
     }
 
     /// <summary>

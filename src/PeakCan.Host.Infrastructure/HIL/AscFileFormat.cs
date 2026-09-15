@@ -1,5 +1,6 @@
 using System.Text;
 using PeakCan.HIL.Core;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.Infrastructure.HIL;
 
@@ -17,12 +18,11 @@ internal static class AscFileFormat
 
     public static void WriteFrameLine(StringBuilder sb, CanFrame frame, double elapsedUs)
     {
-        var seconds = elapsedUs / 1_000_000.0;
-        var idStr = frame.Id.IsExtended ? $"0x{frame.Id.Raw:X8}" : $"0x{frame.Id.Raw:X3}";
-        var dlc = frame.Data.Length;
-        var dataHex = BitConverter.ToString(frame.Data.Span.ToArray()).Replace("-", " ");
-        var chNum = ChannelIdToAscNumber(frame.Channel);
-        sb.AppendLine($"{seconds,12:F6} {chNum}  {idStr,-12}x       Rx d {dlc} {dataHex}");
+        // 委托给 Core 单源 formatter（F1-1）：之前内联格式发出 `0x` 前缀 id +
+        // 空格分隔的独立 `x` token，AscParser 无法解析 → 导出的 .asc 无法回放。
+        // 通道号经 ChannelIdToAscNumber 映射（PEAK USB1..16 → 1..16）。
+        sb.AppendLine(AscFormat.FormatDataLine(
+            frame, elapsedUs / 1_000_000.0, ChannelIdToAscNumber(frame.Channel)));
     }
 
     /// <summary>

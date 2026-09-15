@@ -85,7 +85,7 @@ public partial class DbcService
                 // which DBC is currently loaded. SetCurrentForTests leaves
                 // SourcePath empty by design — tests that need a path can
                 // stamp it manually.
-                Current = r.Value with { SourcePath = path };
+                Current = r.Value! with { SourcePath = path };
                 LogLoadSucceeded(_logger, path, Current!.Messages.Count);
                 DbcLoaded?.Invoke(Current);
             }

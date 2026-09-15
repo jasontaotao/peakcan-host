@@ -35,7 +35,17 @@ public sealed class TraceDrivenChannel : ICanChannel
     /// <summary>Diagnostic: peak number of frames emitted in a single OnTick call. For testing MaxFramesPerTick.</summary>
     internal int MaxEmittedPerTick => _maxEmittedPerTick;
     public event Action<CanFrame>? FrameReceived;
-    public event Action<ReadLoopError>? ReadLoopError;
+
+    /// <summary>
+    /// Replay channel has no physical read loop, so this event never fires; it
+    /// exists only to satisfy <see cref="ICanChannel"/>. Mirrors the no-op accessor
+    /// pattern used by <see cref="VirtualChannel"/> (also hardware-free).
+    /// </summary>
+    public event Action<ReadLoopError>? ReadLoopError
+    {
+        add { /* no hardware read loop to report errors from */ }
+        remove { /* no hardware read loop to report errors from */ }
+    }
 
     public TraceDrivenChannel(
         ChannelId id,

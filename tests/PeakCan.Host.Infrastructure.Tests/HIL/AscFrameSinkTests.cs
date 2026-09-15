@@ -19,10 +19,10 @@ public class AscFrameSinkTests
             sink.Write(F(2000000, 0x03, 0x04));
         }
         var content = new System.Text.UTF8Encoding(true).GetString(ms.ToArray());
-        // Golden literals match AscFileFormat.WriteFrameLine byte-exact:
-        // {seconds,12:F6} -> 4 leading spaces; {idStr,-12} -> 7 trailing spaces.
-        Assert.Contains("    0.000000 1  0x123       x       Rx d 2 01 02", content);
-        Assert.Contains("    1.000000 1  0x123       x       Rx d 2 03 04", content);
+        // Golden literals match AscFileFormat.WriteFrameLine byte-exact (Core单源 format:
+        // {ts:F6} {ch:X2}  {id:X}  {dlc}  {hex}{flags}).
+        Assert.Contains("0.000000 01  123  2  0102", content);
+        Assert.Contains("1.000000 01  123  2  0304", content);
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class AscFrameSinkTests
         var sink = new AscFrameSink(ms);
         sink.Write(F(1000000, 0x01));
         sink.Dispose();
-        Assert.Contains("Rx d 1 01", new System.Text.UTF8Encoding(true).GetString(ms.ToArray()));
+        Assert.Contains("123  1  01", new System.Text.UTF8Encoding(true).GetString(ms.ToArray()));
     }
 
     [Fact]

@@ -374,7 +374,14 @@ base hex  timestamps absolute
 
             var content = File.ReadAllText(ascFiles[0]);
             content.Should().Contain("base hex", "ASC 应有标准 header");
-            content.Should().Contain("Rx d", "case 期间的 CAN 帧应写入 .asc");
+            // F1-1: the old assertion looked for the "Rx d" token that only the
+            // removed inline format emitted. Assert the stronger property instead:
+            // the logged frames are re-parseable by the project's own ASC parser.
+            using (var fs = File.OpenRead(ascFiles[0]))
+            {
+                var logged = await PeakCan.Host.Core.Replay.AscParser.ParseAsync(fs, CancellationToken.None);
+                logged.Should().NotBeEmpty("case 期间的 CAN 帧应写入 .asc 且可被回放解析");
+            }
         }
         finally
         {
@@ -437,7 +444,11 @@ base hex  timestamps absolute
 
             var content = File.ReadAllText(ascFiles[0]);
             content.Should().Contain("base hex");
-            content.Should().Contain("Rx d", "负测试 case 期间发送/接收的帧也应落盘");
+            using (var fs = File.OpenRead(ascFiles[0]))
+            {
+                var logged = await PeakCan.Host.Core.Replay.AscParser.ParseAsync(fs, CancellationToken.None);
+                logged.Should().NotBeEmpty("负测试 case 期间发送/接收的帧也应落盘且可被回放解析");
+            }
         }
         finally
         {

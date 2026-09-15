@@ -1,9 +1,10 @@
 <Project>
   <PropertyGroup>
-    <Version>3.61.0</Version>
-    <AssemblyVersion>3.61.0.0</AssemblyVersion>
-    <FileVersion>3.61.0.0</FileVersion>
-    <InformationalVersion>3.61.0</InformationalVersion>
+    <!-- Shared build defaults for every project (src + tests + tools).
+         The SHIPPING version is deliberately NOT declared here: it lives only in
+         src/Directory.Build.props (the Tier 3 ship script's target) so there is a
+         single source of truth. src/Directory.Build.props imports this file and
+         then overrides AnalysisMode/EnforceCodeStyleInBuild (see that file). -->
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

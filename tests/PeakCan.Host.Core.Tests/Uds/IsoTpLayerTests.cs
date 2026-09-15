@@ -897,6 +897,53 @@ public sealed class IsoTpLayerTests
                logger);
 
     [Fact]
+    public void HandleFirstFrame_AsyncCtor_EmitsFlowControlFrame()
+    {
+        // Regression (v1.2.15) — the RX-side counterpart of the v1.2.12 "M-6"
+        // single-frame fix. SendFlowControl used the sync-only SendCanFrame and
+        // therefore emitted NOTHING when the layer was built with the async ctor
+        // (the production default), stalling every multi-frame receive until the
+        // ECU's N_Bs timeout.
+        var sent = new List<byte[]>();
+        var layer = new IsoTpLayer(
+            new CanIdConfig { RequestId = ReqId, ResponseId = RespId },
+            frame => { lock (sent) sent.Add(frame.Data.ToArray()); return Task.CompletedTask; });
+
+        layer.ProcessFrame(MakeFfFrame(RespId, 50, new byte[] { 1, 2, 3, 4, 5, 6 }));
+
+        // FC is dispatched fire-and-forget from the synchronous RX path.
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (sent) { if (sent.Count > 0) break; }
+            Thread.Sleep(5);
+        }
+
+        byte[] fc;
+        lock (sent) { fc = sent.Count > 0 ? sent[0] : Array.Empty<byte>(); }
+        fc.Should().NotBeEmpty("the async-ctor path must emit a Flow Control frame after a First Frame");
+        (fc[0] & 0xF0).Should().Be(0x30, "byte 0 must be the Flow Control PCI (0x3N, N=0 ContinueToSend)");
+
+        layer.Dispose();
+    }
+
+    [Fact]
+    public void HandleFirstFrame_SyncCtor_StillEmitsFlowControlFrame()
+    {
+        // Companion guard: the legacy Action<CanFrame> ctor path must keep
+        // emitting the FC synchronously (no regression from the async routing).
+        var sent = new ObservableCollection<byte[]>();
+        var layer = NewLayer(sent);
+
+        layer.ProcessFrame(MakeFfFrame(RespId, 50, new byte[] { 1, 2, 3, 4, 5, 6 }));
+
+        sent.Should().ContainSingle("the sync-ctor path must emit the FC frame synchronously");
+        (sent[0][0] & 0xF0).Should().Be(0x30);
+
+        layer.Dispose();
+    }
+
+    [Fact]
     public void MessageReceived_Handler_Throws_Does_Not_Corrupt_State()
     {
         // CountingLogger tracks ErrorCount without an NSubstitute dependency.

@@ -1451,10 +1451,12 @@ public class AppShellViewModelTests
     public void MainTabs_RightTabs_ExposeExpectedHeaders()
     {
         var vm = NewVm();
-        vm.MainTabs.Should().HaveCount(3);
+        vm.MainTabs.Should().HaveCount(4);
         vm.MainTabs[0].Header.Should().Be("追踪");
         vm.MainTabs[1].Header.Should().Be("DBC");
         vm.MainTabs[2].Header.Should().Be("回放");
+        // F1-3: the script tab is the (previously orphaned) ScriptView host.
+        vm.MainTabs[3].Header.Should().Be("脚本");
         vm.RightTabs.Should().HaveCount(3);
         vm.RightTabs[0].Header.Should().Be("发送");
         vm.RightTabs[1].Header.Should().Be("信号");

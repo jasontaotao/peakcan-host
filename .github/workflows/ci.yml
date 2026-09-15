@@ -56,10 +56,13 @@ jobs:
       - name: Build (Release)
         run: dotnet build PeakCan.Host.slnx -c Release --no-restore
 
-      # Test + coverage. coverlet.collector (already a project
-      # reference in all 3 test projects) drives the per-test-project
-      # coverage report and applies the project-local thresholds:
-      # Core 95 % line/branch, Infrastructure 80 %, App 70 %.
+      # Test + coverage. coverlet.collector (a PackageReference in every test
+      # project) is driven by --collect and emits
+      # TestResults/<guid>/coverage.cobertura.xml per test project.
+      # NOTE: there are NO per-project <Threshold> properties — coverlet.collector
+      # does not support them (the old comment here claiming Core 95 % / Infra 80 %
+      # / App 70 % gates was false). The explicit "Enforce coverage floor" step
+      # below is the real gate.
       #
       # --filter "Performance!=true" excludes [Trait("Performance","true")]
       # tests (e.g. AscParserTests.Parse_LargeFile_Performance). Those
@@ -69,22 +72,76 @@ jobs:
       # must not be blocked by an environment-sensitive timing assertion.
       # To run the excluded timing tests locally:
       #   dotnet test --filter "Performance=true"
+      #
+      # FullyQualifiedName!~Manual excludes [Trait("Manual","true")] tests
+      # (BlfParserManualTests / BlfRealVectorReproTests) whose local-only
+      # fixtures make them no-op vacuously — matching what the test doc-comments
+      # already promise.
       - name: Test + Coverage
-        run: dotnet test PeakCan.Host.slnx -c Release --no-build --verbosity normal --filter "Performance!=true" --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test PeakCan.Host.slnx -c Release --no-build --verbosity normal --filter "Performance!=true&FullyQualifiedName!~Manual" --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+
+      # Real coverage gate: aggregate the coverlet.collector cobertura reports
+      # and fail the build if overall line coverage drops below the floor.
+      # (Raise the floor as the suite improves; it is set below the current
+      # measured baseline so it catches regressions without being brittle.)
+      - name: Enforce coverage floor
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Recurse -Filter coverage.cobertura.xml)
+          if ($files.Count -eq 0) { throw "No coverage reports were produced." }
+          # Every test project's report covers the assemblies it references, so the
+          # same source line appears in several reports. Union the hits per
+          # (assembly, file, line) before scoring — summing report totals would
+          # double-count and understate coverage badly.
+          $cov = @{}
+          foreach ($f in $files) {
+            [xml]$x = Get-Content -LiteralPath $f.FullName
+            foreach ($p in $x.coverage.packages.package) {
+              $n = [string]$p.name
+              foreach ($cl in $p.classes.class) {
+                $fn = [string]$cl.filename
+                foreach ($l in $cl.lines.line) {
+                  $key = "$n|$fn|$($l.number)"
+                  $h = [int]$l.hits
+                  if (-not $cov.ContainsKey($key) -or $h -gt $cov[$key]) { $cov[$key] = $h }
+                }
+              }
+            }
+          }
+          $pattern = '^PeakCan\.(Host|Host\.Core|Host\.Infrastructure|Host\.Mobile\.Core|Security)$'
+          $agg = @{}
+          foreach ($k in $cov.Keys) {
+            $n = $k.Split('|')[0]
+            if ($n -notmatch $pattern) { continue }
+            if (-not $agg.ContainsKey($n)) { $agg[$n] = @{ Covered = 0; Valid = 0 } }
+            $agg[$n].Valid++
+            if ($cov[$k] -gt 0) { $agg[$n].Covered++ }
+          }
+          if ($agg.Count -eq 0) { throw "No in-repo product assemblies were found in the coverage reports." }
+          $covered = 0; $total = 0
+          foreach ($n in ($agg.Keys | Sort-Object)) {
+            $v = $agg[$n]
+            $rate = [math]::Round(100.0 * $v.Covered / [math]::Max($v.Valid, 1), 1)
+            Write-Host ("  {0,-32} {1,6}%  ({2}/{3})" -f $n, $rate, $v.Covered, $v.Valid)
+            $covered += $v.Covered; $total += $v.Valid
+          }
+          $overall = [math]::Round(100.0 * $covered / [math]::Max($total, 1), 2)
+          Write-Host "In-repo product line coverage: $overall% ($covered/$total)"
+          # Floor is set just below the measured baseline (2026-09-15: 76.6%).
+          $floor = 70.0
+          if ($overall -lt $floor) { throw "Product line coverage $overall% is below the $floor% floor." }
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: |
-            **/TestResults/*.trx
-            **/coverage/*.cobertura.xml
+          path: '**/TestResults/*.trx'
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage
-          path: coverage/
+          path: '**/TestResults/**/coverage.cobertura.xml'
 

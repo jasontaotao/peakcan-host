@@ -93,7 +93,13 @@ public sealed partial class IsoTpLayer
     /// </summary>
     /// <param name="data">Encoded ISO-TP frame payload.</param>
     /// <param name="frameIndex">Position in the multi-frame burst (0 for FF/SF, 1..N for CF).</param>
-    private async Task SendCanFrameAsync(byte[] data, int frameIndex)
+    /// <param name="throwOnFailure">
+    /// When true (default) a send-callback failure is surfaced as
+    /// <see cref="IsoTpSendFailedException"/> so burst callers abort. When false
+    /// the failure is logged + counted but swallowed — used by the synchronous
+    /// RX path (<see cref="SendFlowControl"/>) which has no caller to propagate to.
+    /// </param>
+    private async Task SendCanFrameAsync(byte[] data, int frameIndex, bool throwOnFailure = true)
     {
         var frame = new CanFrame(
             new CanId(_txCanId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
@@ -117,7 +123,8 @@ public sealed partial class IsoTpLayer
                 if (_logger is not null)
                     LogIsoTpSendFailed(_logger, ex, frame.Id.Raw);
                 Interlocked.Increment(ref SendFailureCount);
-                throw new IsoTpSendFailedException(frame.Id.Raw, frameIndex, ex);
+                if (throwOnFailure)
+                    throw new IsoTpSendFailedException(frame.Id.Raw, frameIndex, ex);
             }
             return;
         }

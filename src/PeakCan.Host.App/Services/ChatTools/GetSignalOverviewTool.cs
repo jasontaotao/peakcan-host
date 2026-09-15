@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis.Chat;
@@ -211,10 +212,12 @@ public sealed class GetSignalOverviewTool : ChatToolBase
 
     internal static bool TryResolveSignal(
         DbcDocument dbc, string signalKey,
-        out Message msg, out Signal sig, out uint canId)
+        [NotNullWhen(true)] out Message? msg,
+        [NotNullWhen(true)] out Signal? sig,
+        out uint canId)
     {
-        msg = null!;
-        sig = null!;
+        msg = null;
+        sig = null;
         canId = 0;
         var dot1 = signalKey.IndexOf('.');
         if (dot1 <= 0) return false;

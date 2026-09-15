@@ -47,9 +47,26 @@ public sealed class HilViewModelExecutionFlowTests
 
         await vm.RunAsync();
 
+        // The fake runner reports progress through IProgress<T>; Progress<T>
+        // dispatches the callback asynchronously, so under full-suite CPU load
+        // (all test assemblies in parallel) the report can land just after
+        // RunAsync returns. Poll with a bound instead of asserting immediately —
+        // this previously flaked only in whole-solution runs.
+        await WaitUntilAsync(() => vm.CurrentCaseName == "Case 1", TimeSpan.FromSeconds(5));
+
         Assert.Equal("Case 1", vm.CurrentCaseName);
         Assert.Equal(1, vm.CompletedCases);
         Assert.Equal(50, vm.ProgressPercent);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition()) return;
+            await Task.Delay(10);
+        }
     }
 
     [Fact]

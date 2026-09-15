@@ -33,7 +33,7 @@ public class FrameCaptureExporterTests
 
             var content = await File.ReadAllTextAsync(files[0]);
             Assert.Contains("date", content);
-            Assert.Contains("01 02 03", content); // frame data
+            Assert.Contains("010203", content); // frame data (Core single-source hex form)
             Assert.Contains("0.000000", content); // timestamp
         }
         finally
@@ -97,7 +97,7 @@ public class FrameCaptureExporterTests
         {
             await FrameCaptureExporter.ExportAsync(result, dir);
             var content = await File.ReadAllTextAsync(Directory.GetFiles(dir, "*.asc")[0]);
-            Assert.Contains("    0.000000 1  0x123       x       Rx d 3 01 02 03", content);
+            Assert.Contains("0.000000 01  123  3  010203", content);
         }
         finally
         {

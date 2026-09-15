@@ -214,8 +214,14 @@ internal sealed class HILAssertionContext : IAssertionContext, IFaultInjectionCo
         lock (_decodedFramesLock) return _decodedRecentFrames.ToList();
     }
 
+    private int _disposed; // 0=active, 1=disposed (CAS for idempotency)
+
     public void Dispose()
     {
+        // 幂等（与 SingleChannelContext / FaultInjector 一致）：DI 容器与引擎会各释放一次，
+        // 非幂等的 `_consumerCts.Cancel()` 二次调用会抛 ObjectDisposedException（--ecu/--matrix/--trace 关停时）。
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         // 1. 先取消 consumer loop（阻止处理新帧）
         _consumerCts.Cancel();
 

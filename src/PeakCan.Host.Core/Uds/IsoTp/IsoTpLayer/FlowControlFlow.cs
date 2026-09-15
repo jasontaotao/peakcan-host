@@ -33,6 +33,23 @@ public sealed partial class IsoTpLayer
             stMin: 0);          // No delay
 
         var canData = fc.Encode();
+
+        // v1.2.15 PATCH: route the FC through the async send helper so the
+        // async-ctor path (the production default) actually emits it. This is
+        // the RX-side counterpart of the v1.2.12 "M-6" SF fix: SendFlowControl
+        // used to call the sync-only SendCanFrame and therefore sent NOTHING when
+        // the layer was built with the Func<CanFrame,Task> ctor, stalling every
+        // multi-frame receive until the ECU's N_Bs timeout.
+        // ProcessFrame is synchronous (invoked from the CAN read handler), so the
+        // send cannot be awaited here: fire-and-forget with the failure observed
+        // inside SendCanFrameAsync (logged + counted, not thrown) to keep the SDK
+        // read thread alive.
+        if (_sendFrameAsync is not null)
+        {
+            _ = SendCanFrameAsync(canData, frameIndex: 0, throwOnFailure: false);
+            return;
+        }
+
         SendCanFrame(canData);
     }
 }

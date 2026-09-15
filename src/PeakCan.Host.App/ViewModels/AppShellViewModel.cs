@@ -449,6 +449,11 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             new("追踪", () => new TraceView { DataContext = _traceViewModel }),
             new("DBC", () => new DbcView { DataContext = _dbcViewModel }),
             new("回放", () => new ReplayView { DataContext = _replayViewModel }),
+            // F1-3: the JS-scripting surface was orphaned — the VM was constructed
+            // and injected into the shell but no tab/menu ever hosted ScriptView,
+            // so the whole feature (WebView2 + CodeMirror + CAN/DBC script API) was
+            // unreachable from the product.
+            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
         };
         MainTabs = mainTabs;
         RightTabs = new[]

@@ -9,7 +9,8 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 > **状态:** v3.65.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
 > 多通道录制与回放、报告侧 per-channel DBC 解码。
-> **3357 个单元测试通过**（Core 1130 + Infrastructure 689 + App 1465 + Cli 73，2026-09-14 全绿）；
+> **3732 个单元测试通过、11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /
+> Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-09-15 全绿）；
 > 依赖 **PeakCan.HIL.Core 0.21.0**（控制流/参数化/多通道模型；sibling 仓库存在时走 ProjectReference，
 > 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
@@ -104,8 +105,9 @@ host / studio 双 pin 同一版本（sibling ProjectReference 优先，否则 Nu
 dotnet build PeakCan.Host.slnx -c Release
 ```
 
-解决方案包含 3 个生产项目（Core / Infrastructure / App）和 3 个测试项目（每层一个）。
-另有独立于解决方案的 `src/PeakCan.Host.Cli`（HIL CLI 入口）与其测试项目。
+`PeakCan.Host.slnx` 包含 6 个生产项目（Core / Infrastructure / App / Cli /
+Mobile.Core / Security）和 7 个测试项目（逐层一个 + Cli / Mobile.Core / Security / PromptCacheProbe）。
+Android 头项目 `src/PeakCan.Host.Mobile` 单独放在 `PeakCan.Host.Mobile.slnx`（需要 android workload，不在 CI 中构建）。
 构建输出在 `src/<project>/bin/Release/<TFM>/`。
 
 ## 运行（从源码）
@@ -137,9 +139,11 @@ artifacts/win-x64/PeakCan.Host.exe
 dotnet test PeakCan.Host.slnx -c Debug
 ```
 
-输出：**3357 通过**（Core 1130 / Infrastructure 689 / App 1465 /
-Cli 73 — Cli.Tests 独立于 slnx 单独跑）。使用 `dotnet test --collect:"XPlat Code Coverage"`
-可生成每个测试项目的 `cobertura.xml` 覆盖率报告。
+输出：**3732 通过 / 11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /
+Mobile.Core 275 / Security 48 / PromptCacheProbe 23）。所有测试项目都已纳入 `PeakCan.Host.slnx`
+（Android 头项目 `src/PeakCan.Host.Mobile` 除外，它需要 android workload，见 `PeakCan.Host.Mobile.slnx`）。
+使用 `dotnet test --collect:"XPlat Code Coverage"` 可生成每个测试项目的 `cobertura.xml`
+覆盖率报告；CI 会用并集后的 in-repo 产品程序集行覆盖率（2026-09-15 实测 76.6%）与下限比较并据此 gate。
 
 ## 项目结构
 
