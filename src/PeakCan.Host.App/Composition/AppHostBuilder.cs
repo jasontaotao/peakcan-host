@@ -162,7 +162,8 @@ public partial class AppHostBuilder
 
         // SecOC App 接线（2026-09-16 plan）：徽章 joiner 单例 + 连接路径 PDU
         // provider。provider 读 App 固定配置并经 CLI 同款 loader 校验（keyId
-        // 缺失 fail-loud）。AppShellViewModel ctor 可选参数由 DI 按类型注入。
+        // 缺失 fail-loud）。AppShellViewModel 为显式工厂注册，实参在工厂内
+        // GetRequiredService 转发（fix round 1：工厂不回填可选参数）。
         builder.Services.AddSingleton<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>();
         builder.Services.AddSingleton<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(_ =>
             () => PeakCan.Host.Infrastructure.Channel.SecOc.SecOcConfigLoader.LoadOptional(
@@ -425,7 +426,12 @@ public partial class AppHostBuilder
             connectedChannelsSource: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>(),
             // 2026-09-06 设计层 MEDIUM：连接成功时更新总线负载分母（标称波特率）。
             busStats: sp.GetRequiredService<PeakCan.Host.Infrastructure.Statistics.BusStatisticsCollector>(),
-            hilPanelStateStore: sp.GetRequiredService<PeakCan.Host.App.Services.HilPanel.HilPanelStateStore>()));
+            hilPanelStateStore: sp.GetRequiredService<PeakCan.Host.App.Services.HilPanel.HilPanelStateStore>(),
+            // SecOC App 接线（2026-09-16 plan fix round 1）：显式工厂必须显式
+            // 转发——MS DI 对工厂注册不回填未提供的可选参数，遗漏即生产静默裸跑。
+            secOcVerdicts: sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable>(),
+            secOcPduProvider: sp.GetRequiredService<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(),
+            secOcBadgeJoiner: sp.GetRequiredService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);

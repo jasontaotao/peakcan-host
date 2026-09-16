@@ -95,6 +95,18 @@ public class AppHostBuilderTests
     }
 
     [Fact]
+    public void Build_Wires_SecOc_Triple_Into_AppShellViewModel()
+    {
+        // Fix round 1 闭环（plan 2026-09-16）：AppShellViewModel 为显式工厂注册，
+        // MS DI 不回填可选参数——SecOC 三件套（verdicts/provider/joiner）必须在
+        // 工厂内显式转发，否则生产连接路径永远裸跑（provider null → 不包装）。
+        using var host = new AppHostBuilder().Build();
+        host.Services.GetService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>().Should().NotBeNull();
+        host.Services.GetService<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>().Should().NotBeNull();
+        host.Services.GetService<AppShellViewModel>().Should().NotBeNull();
+    }
+
+    [Fact]
     [Trait("category", "ui")]
     public void Build_Registers_AppShell_As_Singleton()
     {
