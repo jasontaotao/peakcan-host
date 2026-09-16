@@ -40,6 +40,21 @@ public static class SecOcAppConfigStore
         return entries ?? new List<SecOcConfigLoader.SecOcPduEntry>();
     }
 
+    /// <summary>
+    /// 连接路径 PDU 配置读取（AppHostBuilder provider 用）：文件缺失返回
+    /// null（= 未配置过 SecOC，零回归——全新安装默认可正常连接）；文件存在
+    /// 则委托 CLI 同款 LoadOptional（keyId 缺失 / JSON 损坏 fail-loud）。
+    /// 刻意区分"没配过"（null）与"配了但坏了"（抛）。
+    /// </summary>
+    public static IReadOnlyDictionary<uint, SecOcPduConfig>? LoadForConnectPath(
+        string? path = null, string? storeDir = null)
+    {
+        var fullPath = path ?? DefaultConfigPath;
+        if (!File.Exists(fullPath))
+            return null;
+        return SecOcConfigLoader.LoadOptional(fullPath, storeDir);
+    }
+
     /// <summary>写入配置；父目录不存在时创建。JSON 序列化错误原样上抛（fail-loud）。</summary>
     public static void Save(IReadOnlyList<SecOcConfigLoader.SecOcPduEntry> entries, string? path = null)
     {

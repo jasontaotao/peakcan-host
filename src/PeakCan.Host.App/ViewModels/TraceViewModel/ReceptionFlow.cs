@@ -86,7 +86,15 @@ public sealed partial class TraceViewModel
             _messageCounts[f.Id.Raw] = _messageCounts.GetValueOrDefault(f.Id.Raw) + 1;
 
             // v0.9.2: pause still tracks counts but skips display.
-            if (IsPaused) continue;
+            if (IsPaused)
+            {
+                // final review I1：暂停只是不显示，SecOC seq 对齐不能停——通道
+                // _rxSequence 对所有受保护帧递增（SDK 读线程），joiner 计数只在
+                // Join 时推进；若暂停期间不推进，恢复后徽章会取到 N 帧前的
+                // verdict（张冠李戴）。join 结果丢弃，仅消耗计数。
+                SecOcBadgeResolver?.Invoke(f);
+                continue;
+            }
 
             var data = f.Data.ToArray();
             var entry = new TraceEntry

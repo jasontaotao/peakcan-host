@@ -165,9 +165,10 @@ public partial class AppHostBuilder
         // 缺失 fail-loud）。AppShellViewModel 为显式工厂注册，实参在工厂内
         // GetRequiredService 转发（fix round 1：工厂不回填可选参数）。
         builder.Services.AddSingleton<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>();
-        builder.Services.AddSingleton<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(_ =>
-            () => PeakCan.Host.Infrastructure.Channel.SecOc.SecOcConfigLoader.LoadOptional(
-                PeakCan.Host.App.Services.SecOc.SecOcAppConfigStore.DefaultConfigPath));
+        // final review C1：缺失配置文件必须返回 null（零回归）而非 FileNotFoundException——
+        // 全新安装未配置过 SecOC 的用户点"连接"不能崩溃。文件存在但损坏仍 fail-loud。
+        builder.Services.AddSingleton<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(
+            _ => () => PeakCan.Host.App.Services.SecOc.SecOcAppConfigStore.LoadForConnectPath());
 
         // v1.0.0: Scripting engine. P1-2（2026-09-06，Lazy<T> 清零）：输出走
         // ScriptOutputHub 单向流（ScriptUtilities → hub → ScriptEngine 转发到

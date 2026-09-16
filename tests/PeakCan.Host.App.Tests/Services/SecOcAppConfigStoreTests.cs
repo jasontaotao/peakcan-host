@@ -48,6 +48,38 @@ public class SecOcAppConfigStoreTests : IDisposable
         loaded[1].FvLenBits.Should().Be(16); // default survives round-trip
     }
 
+    // final review C1 守卫（零回归）：连接路径对"未配置过 SecOC"必须返回 null，
+    // 而非 FileNotFoundException——否则全新安装用户点"连接"即崩溃。
+    [Fact]
+    public void LoadForConnectPath_FileMissing_ReturnsNull()
+    {
+        SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir).Should().BeNull();
+    }
+
+    [Fact]
+    public void LoadForConnectPath_CorruptJson_FailLoud()
+    {
+        File.WriteAllText(_path, "{ not valid json ###");
+        var act = () => SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir);
+        act.Should().Throw<System.Text.Json.JsonException>();
+    }
+
+    [Fact]
+    public void LoadForConnectPath_ExistingFile_DelegatesToLoader()
+    {
+        // 文件存在 → 走 LoadOptional 校验层（keyId 缺失 fail-loud —— 证明
+        // 不是 null 也不是 JSON 错，而是密钥解析错误 = schema 兼容且校验生效）。
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "k1" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir));
+        ex.Message.Should().Contain("k1");
+    }
+
     [Fact]
     public void LoadedFile_IsConsumableBySecOcConfigLoader_SameSchema()
     {
