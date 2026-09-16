@@ -688,7 +688,7 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void BrowseSecOcConfig()
     {
-        var path = _fileDialog.ShowOpenDialog("SecOc 配置 (*.secoc;*.json)|*.secoc;*.json");
+        var path = _fileDialog.ShowOpenDialog("SecOc 配置 (*.secoc;*.json)|*.secoc;*.json|All Files|*.*");
         if (path is not null)
             SecOcConfigPath = path;
     }

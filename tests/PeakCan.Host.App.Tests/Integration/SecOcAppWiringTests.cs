@@ -27,11 +27,9 @@ public class SecOcAppWiringTests
     {
         public ChannelId Id { get; }
         public bool IsConnected { get; private set; }
+        public event Action<CanFrame>? FrameReceived;   // Emit() 中 Invoke，非未使用
 #pragma warning disable CS0067
-        public event Action<CanFrame>? FrameReceived;
-#pragma warning disable CS0067
-        public event Action<ReadLoopError>? ReadLoopError;
-#pragma warning restore CS0067
+        public event Action<ReadLoopError>? ReadLoopError; // 测试不触发 read-loop 错误
 #pragma warning restore CS0067
         public List<CanFrame> Written { get; } = new();
 
@@ -98,7 +96,8 @@ public class SecOcAppWiringTests
         router.RegisterChannel(coordinator.Connections.Single().Channel);
         router.AttachSink(new FrameCaptureSink(trace));
 
-        // Act: 伪造 MAC 帧上 RX 路径（16bit FV + 24bit MAC 全 0 → BadMac）。
+        // Act: 伪造帧上 RX 路径（data + 16bit FV + 24bit MAC 全 0 → 验签拒绝；
+        // 具体 reason 依赖首帧 freshness 判定，断言只锁 Rejected + ✗）。
         raw.Emit(MakeFrame(0x123, new byte[] { 0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00, 0x00 }));
 
         // Assert: trace 徽章 = ✗ BadMac。

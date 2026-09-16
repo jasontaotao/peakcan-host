@@ -6,7 +6,7 @@
 ## 1. 导入密钥
 
 1. 点工具栏 **🔒 SecOc 设置**。
-2. 在「密钥管理」区填 **KeyId**（自命名，如 `vcu_charger_key`）。
+2. 窗口顶部填 **KeyId**（自命名，如 `vcu_charger_key`）。
 3. 点 **导入密钥…**，选择 hex 文本文件（**16 字节 AES-128**，允许空白分隔：
    `00 11 22 … FF`）。
 4. 密钥存于 **Windows DPAPI 密钥库**（与 CLI `peakcan-hil --secoc-key import` **共用同一目录**），
