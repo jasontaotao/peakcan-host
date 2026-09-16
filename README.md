@@ -211,6 +211,8 @@ App 层禁止直接引用厂商 SDK（PEAK / ZLG）；所有硬件调用通过 I
   通道装饰器单点组装 + trace 徽标 + secoc* 表达式、0x27 虚拟 ECU server、
   **suite 内嵌 `security` 块消费**（`SecOcBlockReader` + `SecOcConfigLoader.LoadFromBlock`，
   块优先于 `--secoc-config`）；`PeakCan.HIL.Core` 0.21.0 双 pin lockstep。
+  操作指南见 [docs/secoc-app-usage.md](docs/secoc-app-usage.md)（密钥导入 / PDU 声明 /
+  Trace 验签徽章 / HIL 集成）。
 - **HIL 多通道 UDS（已完成，Task B 第二步）** — 每通道独立 `IsoTpLayer`/`UdsClient` 栈
   （`Channels[].UdsRequestId/UdsResponseId` 非空时），`IUdsSessionResolver` 按 step 的
   `TargetChannel` 解析；全部 UDS step executor（ReadDid/WriteDid/SessionControl/AssertDtc/
