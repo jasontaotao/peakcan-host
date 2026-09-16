@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.SecOc;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core;
@@ -150,7 +151,15 @@ public partial class AppHostBuilder
 
         // 2026-09-06 P1-2（Bind 模式清零）：TraceViewModel 改 ctor 注入 DbcService
         // （参数less 重载保留给测试）。显式工厂确保解析到带 DBC 的单例。
-        services.AddSingleton(sp => new TraceViewModel(sp.GetRequiredService<DbcService>()));
+        // 2026-09-16 SecOC plan：工厂内赋徽章 resolver（joiner 未注册时保持
+        // null → 全"离线不验"，零回归；joiner 单例在 AppHostBuilder 注册）。
+        services.AddSingleton(sp =>
+        {
+            var vm = new TraceViewModel(sp.GetRequiredService<DbcService>());
+            if (sp.GetService<SecOcBadgeJoiner>() is { } joiner)
+                vm.SecOcBadgeResolver = joiner.Join;
+            return vm;
+        });
         // A4 orphan PATCH (v3.0.8): SendViewModel needs a
         // Func<long> that returns the current rate-limit rejected
         // frame count. Resolved by pattern-matching the registered

@@ -190,12 +190,38 @@
                 </DataGridTemplateColumn.CellTemplate>
             </DataGridTemplateColumn>
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="50" />
-            <!-- F1-4: the SecOC verdict column was removed here. The desktop app
-                 never composes SecOcChannel nor assigns TraceViewModel.SecOcBadgeResolver,
-                 so the badge was permanently "离线不适用" (SecOcBadge.Offline) — a column
-                 that could never show Accepted/Rejected. Restore this template (spec
-                 §5-D6.7) once the App wires SecOC config/keys into its connect path
-                 (currently CLI-only). The SecOcBadge model + resolver remain in place. -->
+            <!-- F1-4: SecOC verdict column restored (2026-09-16 plan). The App
+                 now wires SecOcChannel into its connect path and assigns
+                 TraceViewModel.SecOcBadgeResolver (ViewModelsBatch2Flow), so the
+                 badge renders ✓ (green) / ✗ reason (red) / 未保护 (gray) /
+                 离线不验 (gray). -->
+            <DataGridTemplateColumn Header="SecOC" Width="90">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding SecOcBadge.Text}" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Accepted}">
+                                            <Setter Property="Foreground" Value="#2E9E44" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Rejected}">
+                                            <Setter Property="Foreground" Value="#D13438" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Unprotected}">
+                                            <Setter Property="Foreground" Value="Gray" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Offline}">
+                                            <Setter Property="Foreground" Value="Gray" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="数据" Binding="{Binding DataHex}" Width="*" />
             <DataGridTextColumn Header="解码" Binding="{Binding Decoded}" Width="200" />
         </DataGrid.Columns>
