@@ -344,7 +344,11 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // M2.4b（spec §5-D6.7）：SecOC 旁路 verdict 表（DI 注入；测试构造点
         // 缺省 null = 无 SecOC，零回归）。断开时由 coordinator 清空防悬空标注。
         PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null,
-        HilPanelStateStore? hilPanelStateStore = null)
+        HilPanelStateStore? hilPanelStateStore = null,
+        // SecOC App 接线（2026-09-16 plan）：连接路径 PDU provider + 徽章 joiner。
+        // null = 测试构造点/未启用零回归（与 secOcVerdicts 同模式）。
+        Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>? secOcPduProvider = null,
+        PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner? secOcBadgeJoiner = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
@@ -375,7 +379,8 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // ConnectionsChanged 统一入口（对应旧 per-slot StateChanged →
         // NotifyConnectionStateChanged 路径，订阅在下方 H1 注释处）。
         _coordinator = new ChannelConnectionCoordinator(
-            channelFactory, router, sendService, busStats, OnReadLoopError, logger, secOcVerdicts);
+            channelFactory, router, sendService, busStats, OnReadLoopError, logger, secOcVerdicts,
+            secOcPduProvider, secOcBadgeJoiner);
         // P1-2（2026-09-06）: 已连接通道快照源（IConnectedChannelsSource）。
         // 本类是生产者：连接状态变化（NotifyConnectionStateChanged 统一入口）时
         // publish 快照，HilViewModel 读 .Current——不再 setter 直连 HilViewModel。

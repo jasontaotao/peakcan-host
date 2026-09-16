@@ -160,6 +160,14 @@ public partial class AppHostBuilder
         // 接线在 Phase 3 落地；本单例先行供徽标 join / 断开清理钩子使用）。
         builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable>();
 
+        // SecOC App 接线（2026-09-16 plan）：徽章 joiner 单例 + 连接路径 PDU
+        // provider。provider 读 App 固定配置并经 CLI 同款 loader 校验（keyId
+        // 缺失 fail-loud）。AppShellViewModel ctor 可选参数由 DI 按类型注入。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>();
+        builder.Services.AddSingleton<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(_ =>
+            () => PeakCan.Host.Infrastructure.Channel.SecOc.SecOcConfigLoader.LoadOptional(
+                PeakCan.Host.App.Services.SecOc.SecOcAppConfigStore.DefaultConfigPath));
+
         // v1.0.0: Scripting engine. P1-2（2026-09-06，Lazy<T> 清零）：输出走
         // ScriptOutputHub 单向流（ScriptUtilities → hub → ScriptEngine 转发到
         // OutputReceived），依赖图无环——ScriptEngine 直接 ctor 持有 ScriptUtilities。

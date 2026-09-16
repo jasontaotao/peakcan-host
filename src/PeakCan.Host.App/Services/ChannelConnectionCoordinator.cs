@@ -6,6 +6,8 @@ using PeakCan.Host.Core;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 using PeakCan.Host.App.ViewModels;
+using PeakCan.Host.Infrastructure.Channel.SecOc;
+using PeakCan.Host.App.Services.SecOc;
 
 namespace PeakCan.Host.App.Services;
 
@@ -49,6 +51,12 @@ internal sealed partial class ChannelConnectionCoordinator
     // M2.4b（spec §5-D6.7）：SecOC 旁路 verdict 表。断开时清空，防悬空标注
     // （旧 handle 的 verdict 不得落到重连后的新帧上）。null = 测试构造点无 SecOC。
     private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
+    // SecOC App 接线（spec 2026-09-16 plan）：连接时按 provider 结果包装通道；
+    // null provider = 无 SecOC（测试构造点/未启用零回归）。provider 抛（keyId
+    // 缺失等配置错误）上浮给 VM —— 安全配置错误必须可见，禁止静默裸跑。
+    private readonly Func<IReadOnlyDictionary<uint, SecOcPduConfig>?>? _secOcPduProvider;
+    // 徽章 joiner：连接时 Configure 受保护集合，断开时 ResetAll（与 verdict 表清理同步）。
+    private readonly SecOcBadgeJoiner? _secOcBadgeJoiner;
 
     public ChannelConnectionCoordinator(
         IChannelFactory channelFactory,
@@ -57,7 +65,9 @@ internal sealed partial class ChannelConnectionCoordinator
         BusStatisticsCollector? busStats = null,
         Action<ReadLoopError>? readLoopErrorSink = null,
         ILogger? logger = null,
-        PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null)
+        PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null,
+        Func<IReadOnlyDictionary<uint, SecOcPduConfig>?>? secOcPduProvider = null,
+        SecOcBadgeJoiner? secOcBadgeJoiner = null)
     {
         _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
         _router = router ?? throw new ArgumentNullException(nameof(router));
@@ -66,6 +76,8 @@ internal sealed partial class ChannelConnectionCoordinator
         _readLoopErrorSink = readLoopErrorSink;
         _logger = logger ?? NullLogger<ChannelConnectionCoordinator>.Instance;
         _secOcVerdicts = secOcVerdicts;
+        _secOcPduProvider = secOcPduProvider;
+        _secOcBadgeJoiner = secOcBadgeJoiner;
     }
 
     /// <summary>
@@ -95,12 +107,22 @@ internal sealed partial class ChannelConnectionCoordinator
         ArgumentNullException.ThrowIfNull(configs);
         string? lastFailureText = null;
 
+        // SecOC：每槽共用同一份 PDU 字典；provider 抛（keyId 缺失/配置畸形）
+        // 直接上浮——整次连接失败，用户看到错误后去 SecOc 设置修复。
+        var secOcPdus = _secOcPduProvider?.Invoke();
+
         foreach (var cfg in configs)
         {
             if (cfg.Channel is null) continue; // null 组跳过
             var handle = cfg.Channel.Handle;
             var rate = cfg.BaudRate;
             var channel = _channelFactory.Create(new ChannelId(handle));
+            if (secOcPdus is { Count: > 0 })
+            {
+                channel = HilChannelComposer.Compose(channel, enableFaultInjection: false,
+                    secOcPdus, _secOcVerdicts, stats: null, _logger);
+                _secOcBadgeJoiner?.Configure(handle, secOcPdus.Keys);
+            }
             try
             {
                 var result = await channel.ConnectAsync(rate, fd: cfg.IsFd).ConfigureAwait(true);
@@ -216,6 +238,7 @@ internal sealed partial class ChannelConnectionCoordinator
         // M2.4b（spec §5-D6.7）：全部通道断开 → 清空 SecOC 旁路 verdict 表，
         // 防旧 verdict 悬空标注到重连后的新帧。
         _secOcVerdicts?.Clear();
+        _secOcBadgeJoiner?.ResetAll();
     }
 
     private void AddRow(ChannelConnection row)
