@@ -160,6 +160,18 @@
                       VerticalAlignment="Center" Margin="0,0,12,0" />
         </WrapPanel>
 
+        <!-- SecOC（2026-09-16 plan, Task 6）：HIL run 的 PDU 配置文件（CLI secoc-config 等价） -->
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="SecOc 配置:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <Grid MinWidth="220" Margin="0,0,4,0">
+                <TextBox x:Name="SecOcConfigBox" Text="{Binding SecOcConfigPath}" ToolTip="SecOC PDU 配置 JSON（可选；suite 内嵌 security 块优先）" />
+                <TextBlock Text="SecOC PDU 配置 JSON（可选）" Style="{StaticResource HintTextStyle}"
+                           Visibility="{Binding Text, ElementName=SecOcConfigBox,
+                                        Converter={StaticResource EmptyStringToVisibilityConverter}}" />
+            </Grid>
+            <Button Content="浏览..." Command="{Binding BrowseSecOcConfigCommand}" />
+        </WrapPanel>
+
         <!-- ECU editor + Run / Analyze buttons -->
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <Button Content="打开 ECU 编辑器" Command="{Binding OpenEcuEditorCommand}" Padding="16,4" Margin="0,0,8,0" />

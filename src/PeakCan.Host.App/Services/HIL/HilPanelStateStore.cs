@@ -17,7 +17,9 @@ public sealed record HilPanelStateDto(
     [property: JsonPropertyName("enableFaultInjection")] bool EnableFaultInjection,
     [property: JsonPropertyName("captureCaseLogs")] bool CaptureCaseLogs,
     [property: JsonPropertyName("enableAnalyze")] bool EnableAnalyze,
-    [property: JsonPropertyName("selectedCaseIds")] IReadOnlyList<string> SelectedCaseIds);
+    [property: JsonPropertyName("selectedCaseIds")] IReadOnlyList<string> SelectedCaseIds,
+    // 2026-09-16 SecOC plan：HIL 面板 SecOc 配置文件路径（旧状态 JSON 反序列化时缺省 null）。
+    [property: JsonPropertyName("secOcConfigPath")] string? SecOcConfigPath = null);
 
 /// <summary>HIL panel state persistence: schema envelope, atomic save, corrupt/oversize tolerance.</summary>
 public sealed partial class HilPanelStateStore

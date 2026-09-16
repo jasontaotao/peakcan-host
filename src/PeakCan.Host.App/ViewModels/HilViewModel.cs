@@ -65,6 +65,9 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _suiteChangedExternally;
     [ObservableProperty] private string _caseFilter = "";
     [ObservableProperty] private string _caseLogDirectory = "";
+    // SecOC（2026-09-16 plan）：HIL run 的 PDU 配置文件（CLI --secoc-config 等价）。
+    // 空 = 不用 SecOC（零回归）；suite 内嵌 security 块优先级更高（HeadlessHostBuilder 已处理）。
+    [ObservableProperty] private string? _secOcConfigPath;
     [ObservableProperty] private int _declaredChannelCount;
     [ObservableProperty] private double _progressPercent = 0;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -682,6 +685,14 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
         }
     }
 
+    [RelayCommand]
+    private void BrowseSecOcConfig()
+    {
+        var path = _fileDialog.ShowOpenDialog("SecOc 配置 (*.secoc;*.json)|*.secoc;*.json");
+        if (path is not null)
+            SecOcConfigPath = path;
+    }
+
     // --- ECU editor integration ---
 
     /// <summary>Raised when user clicks "Open ECU Editor" button in HIL view.</summary>
@@ -1119,6 +1130,7 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
         EnableFaultInjection = state.EnableFaultInjection;
         CaptureCaseLogs = state.CaptureCaseLogs;
         EnableAnalyze = state.EnableAnalyze;
+        SecOcConfigPath = state.SecOcConfigPath;
         if (!string.IsNullOrEmpty(SuitePath))
         {
             LoadCaseList(SuitePath);
@@ -1141,7 +1153,8 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
         EnableFaultInjection,
         CaptureCaseLogs,
         EnableAnalyze,
-        AvailableCases.Where(c => c.IsSelected).Select(c => c.Id).ToList());
+        AvailableCases.Where(c => c.IsSelected).Select(c => c.Id).ToList(),
+        SecOcConfigPath);
 
     internal HilRunRequest BuildRunRequest(IReadOnlyList<ChannelConfig>? hardwareChannels)
     {
@@ -1162,7 +1175,10 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
             CaptureCaseLogs: CaptureCaseLogs,
             CaseLogDirectory: string.IsNullOrWhiteSpace(CaseLogDirectory)
                 ? null
-                : CaseLogDirectory);
+                : CaseLogDirectory,
+            SecOcConfigPath: string.IsNullOrWhiteSpace(SecOcConfigPath)
+                ? null
+                : SecOcConfigPath);
     }
     [RelayCommand]
     private void OpenCaseLogDirectory()
