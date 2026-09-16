@@ -23,6 +23,8 @@ using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Channel;
 using PeakCan.Host.Infrastructure.Statistics;
 using PeakCan.Host.Core;
+using PeakCan.Host.Infrastructure.Cli;
+using PeakCan.Security.Keystore;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -513,6 +515,20 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     {
         var vm = new ConnectionSettingsViewModel(_deviceProviders, this);
         var win = new ConnectionSettingsWindow { DataContext = vm };
+        if (Application.Current?.MainWindow is { } owner && owner != win)
+        {
+            win.Owner = owner;
+        }
+        win.ShowDialog();
+    }
+
+    [RelayCommand]
+    private void OpenSecOcSettings()
+    {
+        var vm = new SecOcSettingsViewModel(
+            () => new DpapiKeyStore(SecOcKeyCommand.DefaultStoreDir, null),
+            _fileDialogs);
+        var win = new SecOcSettingsWindow { DataContext = vm };
         if (Application.Current?.MainWindow is { } owner && owner != win)
         {
             win.Owner = owner;

@@ -67,6 +67,14 @@
                         <TextBlock Text="设备设置" />
                     </StackPanel>
                 </Button>
+                <!-- SecOC App 接线（2026-09-16 plan）：密钥 + PDU 配置入口。 -->
+                <Button Command="{Binding OpenSecOcSettingsCommand}" Padding="6,2"
+                        AutomationProperties.Name="SecOc 设置">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🔒" Margin="0,0,4,0" />
+                        <TextBlock Text="SecOc 设置" />
+                    </StackPanel>
+                </Button>
                 <Separator />
                 <TextBlock Text="{Binding ChannelList}" VerticalAlignment="Center" Margin="4,0" />
                 <Separator />
