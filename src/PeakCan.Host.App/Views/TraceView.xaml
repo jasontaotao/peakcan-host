@@ -204,16 +204,16 @@
                                 <Style TargetType="TextBlock">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Accepted}">
-                                            <Setter Property="Foreground" Value="#2E9E44" />
+                                            <Setter Property="Foreground" Value="{StaticResource Ok}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Rejected}">
-                                            <Setter Property="Foreground" Value="#D13438" />
+                                            <Setter Property="Foreground" Value="{StaticResource Error}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Unprotected}">
-                                            <Setter Property="Foreground" Value="Gray" />
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding SecOcBadge.Kind}" Value="{x:Static vm:SecOcBadgeKind.Offline}">
-                                            <Setter Property="Foreground" Value="Gray" />
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
