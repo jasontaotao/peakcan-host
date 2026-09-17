@@ -45,23 +45,26 @@ public static class HeadlessHostBuilder
         // 故在此探取并一次性解析（keyId → KeyStore fail-loud 在任何模式下都即刻发生），
         // 结果闭包传给各模式 ComposeChannel（块优先于 --secoc-config）。
         var secOcBlock = SecOcBlockReader.TryRead(args.SuitePath);
-        // v1 suite 块仅支持传统单通道运行模式（--hw / --ecu / --matrix / --trace）：
-        // channels[] 路径一律走 MultiChannelAssertionContext，而后者不透出 ISecOcStatsSource /
-        // IPerCaseReset（无 per-channel PDU 绑定），会静默禁用 secocRejected 与 per-case 复位。
-        // 因此块存在时显式拒绝 channels[]（含单个声明通道），fail-loud 而非静默降级。
-        if (secOcBlock is not null && args.HardwareChannels is { Count: > 0 })
-            throw new InvalidOperationException(
-                "SecOC suite block is not supported on the channels[] run path (spec §8 Phase 4): the multi-channel " +
-                "assertion context does not carry SecOC verdict statistics / per-case reset. Use a single-channel run " +
-                "(--hw / --ecu / --matrix / --trace); per-channel SecOC binding is not supported yet.");
+        // 缺口 1b（2026-09-17）：per-channel 块（channels[].security）优先于顶层全局块。
+        // MultiChannelAssertionContext 现已透出 ISecOcStatsSource/IPerCaseReset，故 channels[]
+        // 与 security 块可共存——移除旧的 fail-loud 互斥（channel 级块按 name 绑定）。
+        var perChannelBlocks = SecOcBlockReader.TryReadPerChannel(args.SuitePath);
         var secOcPdus = secOcBlock is not null
             ? SecOcConfigLoader.LoadFromBlock(secOcBlock, args.SecOcStoreDir, args.SecOcEntropy)
             : null;
+        var perChannelPdus = perChannelBlocks.ToDictionary(
+            kv => kv.Key,
+            kv => SecOcConfigLoader.LoadFromBlock(kv.Value, args.SecOcStoreDir, args.SecOcEntropy),
+            StringComparer.Ordinal);
+        IReadOnlyDictionary<uint, SecOcPduConfig>? PdusFor(string channelName)
+            => perChannelPdus.TryGetValue(channelName, out var p) ? p : secOcPdus;
         // block 路径的源密钥副本由 DI 在 host 释放时归零（spec D4 / Rev9）；该字典被各模式闭包共享，
-        // 若在 compose 后立即归零会破坏 DI 工厂被多次调用时的第 2 次组装。
-        if (secOcPdus is not null)
-            builder.Services.AddSingleton(_ =>
-                new SecOcKeyMaterialZeroizer(secOcPdus.Values.Select(p => p.Key)));
+        // 若在 compose 后立即归零会破坏 DI 工厂被多次调用时的第 2 次组装。per-channel 副本同样归零。
+        var zeroableKeys = new List<byte[]>();
+        if (secOcPdus is not null) zeroableKeys.AddRange(secOcPdus.Values.Select(p => p.Key));
+        foreach (var p in perChannelPdus.Values) zeroableKeys.AddRange(p.Values.Select(pd => pd.Key));
+        if (zeroableKeys.Count > 0)
+            builder.Services.AddSingleton(_ => new SecOcKeyMaterialZeroizer(zeroableKeys));
 
         // Channel factory (hardware / trace / virtual-ECU / matrix)
         System.Diagnostics.Debug.WriteLine($"[Build] HardwareChannel={args.HardwareChannel}, HardwareChannels={(args.HardwareChannels is null ? "null" : args.HardwareChannels.Count.ToString(CultureInfo.InvariantCulture))}, EcuScriptPath={args.EcuScriptPath}, MatrixPath={args.MatrixPath}, TracePath={args.TracePath}");
@@ -89,7 +92,7 @@ public static class HeadlessHostBuilder
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<PeakCanAssertionContext>>();
                 return ComposeChannel(raw, args, logger,
                     sp.GetService<Channel.SecOc.SecOcVerdictTable>(), sp.GetService<Channel.SecOc.SecOcStats>(),
-                    enableFaultInjection: false, secOcPdus: secOcPdus);
+                    enableFaultInjection: false, secOcPdus: PdusFor(multiHw[0].Name));
             });
         }
         else if (args.HardwareChannel is not null)
@@ -216,6 +219,12 @@ public static class HeadlessHostBuilder
                 for (int i = 0; i < multiCfg.Count; i++)
                 {
                     var cfg = multiCfg[i];
+                    // 缺口 1b（2026-09-17）：每通道独立 SecOC stats（per-channel 统计 +
+                    // secoc 表达式按通道查）。首通道复用 DI 全局 SecOcStats（与 L86-93 默认
+                    // 通道组装一致）；其余通道各自 new（互不串扰）。
+                    var channelStats = i == 0
+                        ? sp.GetService<Channel.SecOc.SecOcStats>()
+                        : new Channel.SecOc.SecOcStats();
                     // 首通道复用 DI 默认 ICanChannel singleton（防同一 handle 双 InitializeFD/双读循环）；
                     // 其余通道按 handle 厂商分派（PEAK/ZLG，产品 review 多厂商）。
                     ICanChannel channel = i == 0
@@ -227,9 +236,9 @@ public static class HeadlessHostBuilder
                             factory.Create(new ChannelId(ResolveChannelHandle(cfg.Handle, index: i))),
                             args, logger,
                             sp.GetService<Channel.SecOc.SecOcVerdictTable>(),
-                            sp.GetService<Channel.SecOc.SecOcStats>(),
+                            stats: channelStats,
                             enableFaultInjection: false,
-                            secOcPdus: secOcPdus);
+                            secOcPdus: PdusFor(cfg.Name));
                     // Per-channel DBC (Q8: each channel = one network = one DBC).
                     DbcDocument dbcDoc;
                     if (i == 0 && cfg.DbcPath is null && globalDbc is not null)
@@ -245,7 +254,8 @@ public static class HeadlessHostBuilder
                     var dbcLookup = new HeadlessDbcLookup(dbcDoc);
                     // Per-channel DBC for report: map ChannelId → DbcDocument
                     perChannelDbcs[channel.Id] = dbcDoc;
-                    contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name);
+                    contexts[cfg.Name] = new SingleChannelContext(channel, dbcLookup, logger, channelName: cfg.Name,
+                        secOcStats: channelStats);
 
                     // Task B 第二步（spec §2.2）：Channels[].UdsRequestId/UdsResponseId 非空 →
                     // 独立 UDS 栈（独立 IsoTp 过滤 ID + 独立安全访问锁状态机），绑定本通道 ICanChannel。
@@ -409,8 +419,11 @@ public static class HeadlessHostBuilder
         catch
         {
             // Build 失败时 DI 不会创建/释放密钥归零器 → 源密钥副本只被 GC。此处显式归零（spec Rev9）。
-            if (secOcPdus is not null)
-                new Channel.SecOc.SecOcKeyMaterialZeroizer(secOcPdus.Values.Select(p => p.Key)).Dispose();
+            var allPdus = new List<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>();
+            if (secOcPdus is not null) allPdus.AddRange(secOcPdus.Values);
+            foreach (var p in perChannelPdus.Values) allPdus.AddRange(p.Values);
+            if (allPdus.Count > 0)
+                new Channel.SecOc.SecOcKeyMaterialZeroizer(allPdus.Select(p => p.Key)).Dispose();
             throw;
         }
         // M3.4 devlog 遗留修复：HilIsoTpBridge 是懒注册单例，无人解析则 client isotp 的

@@ -69,4 +69,84 @@ public static class SecOcBlockReader
         security = default;
         return false;
     }
+
+    // 缺口 1b（2026-09-17）：per-channel security 块。
+
+    /// <summary>
+    /// 读取 suite <c>channels[]</c> 每项的 <c>security</c> 子块，按 channel <c>name</c>
+    /// 键控返回（channel 级块优先于顶层块）。channels 数组缺失 / 无 security 项 →
+    /// 空字典（该 run 回落顶层块 / --secoc-config）。channel 级块畸形时 fail-loud
+    /// （安全配置错误必须可见，禁止静默降级为无保护）。
+    /// </summary>
+    public static IReadOnlyDictionary<string, SecOcBlock> TryReadPerChannel(string? suitePath)
+    {
+        var result = new Dictionary<string, SecOcBlock>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(suitePath) || !File.Exists(suitePath))
+            return result;
+
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(File.ReadAllText(suitePath));
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Suite '{suitePath}' is not valid JSON (while reading per-channel security blocks): {ex.Message}", ex);
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !TryGetProperty(doc.RootElement, "channels", out var channels) ||
+                channels.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            foreach (var ch in channels.EnumerateArray())
+            {
+                if (ch.ValueKind != JsonValueKind.Object ||
+                    !TryGetProperty(ch, "name", out var nameEl) ||
+                    nameEl.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(nameEl.GetString()))
+                {
+                    continue;
+                }
+                var name = nameEl.GetString()!;
+                if (!TryGetSecurityProperty(ch, out var sec) || sec.ValueKind == JsonValueKind.Null)
+                    continue;
+
+                SecOcBlock block;
+                try
+                {
+                    block = sec.Deserialize<SecOcBlock>(HILJsonOptions.Default)
+                        ?? throw new InvalidOperationException(
+                            $"Suite '{suitePath}' channel '{name}' security block is null.");
+                }
+                catch (JsonException ex)
+                {
+                    throw new InvalidOperationException(
+                        $"Suite '{suitePath}' channel '{name}' security block is malformed: {ex.Message}", ex);
+                }
+                result[name] = block;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>大小写不敏感属性查找（参照 <see cref="TryGetSecurityProperty"/>）。</summary>
+    private static bool TryGetProperty(JsonElement obj, string propertyName, out JsonElement value)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
 }

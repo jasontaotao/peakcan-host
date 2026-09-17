@@ -271,24 +271,133 @@ public class SecOcBlockConsumerTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    public void HostBuild_ChannelsPathWithSuiteBlock_FailsLoud(int channelCount)
+    public void HostBuild_ChannelsPathWithGlobalBlock_AssemblesSecOcChannels(int channelCount)
     {
-        // SecOC 块 v1 仅支持传统单通道模式；channels[] 路径（含单个声明通道）一律走
-        // MultiChannelAssertionContext，不透出 SecOC 统计 / 每-case 复位 —— 必须显式拒绝，
-        // 而非静默禁用 secocRejected（否则攻击断言会查询未知函数）。
+        // 缺口 1b（2026-09-17）：channels[] + 顶层 security 块不再互斥——顶层块为全局
+        // 兜底（每通道回落），MultiChannelAssertionContext 透出默认通道 stats
+        // （ISecOcStatsSource + IPerCaseReset），secoc 表达式在 channels[] 路径可用。
+        var storeDir = Path.Combine(Path.GetTempPath(), $"p4_store_{Guid.NewGuid():N}");
+        new DpapiKeyStore(storeDir).SetKey("KEY_SLOT_05", Key);
         var (dbc, suite, ecu) = WriteEcuFixtures(OnePdu);
         try
         {
             var channels = Enumerable.Range(0, channelCount)
                 .Select(i => new PeakCan.HIL.Core.HIL.ChannelConfig($"bus-{i}", "", null, false, null, null, null))
                 .ToArray();
-            var cli = new CliArgs(dbc, suite, EcuScriptPath: ecu, HardwareChannels: channels);
-            var act = () => HeadlessHostBuilder.Build(cli);
-            act.Should().Throw<InvalidOperationException>().WithMessage("*not supported on the channels*");
+            var cli = new CliArgs(dbc, suite, EcuScriptPath: ecu, HardwareChannels: channels, SecOcStoreDir: storeDir);
+            using var host = HeadlessHostBuilder.Build(cli);
+
+            var ctx = host.Services.GetRequiredService<global::PeakCan.Host.Core.HIL.Contracts.IAssertionContext>();
+            // 顶层块全局兜底 → 每通道被 wrap；上下文透出默认通道 stats。
+            ((global::PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource)ctx).SecOcStats.Should().NotBeNull();
         }
         finally
         {
             File.Delete(dbc); File.Delete(suite); File.Delete(ecu);
+            if (Directory.Exists(storeDir)) Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    // ── 缺口 1b：per-channel 块（channels[].security）探取 + 绑定 ────────────────
+
+    [Fact]
+    public void Reader_PerChannel_ReturnsEmpty_WhenNoChannels()
+    {
+        var path = WriteTemp("json", """{"name":"x","cases":[]}""");
+        try { SecOcBlockReader.TryReadPerChannel(path).Should().BeEmpty(); }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Reader_PerChannel_KeysByChannelName()
+    {
+        var path = WriteTemp("json", $$"""
+            {
+              "name": "x",
+              "channels": [
+                { "name": "bus-a", "handle": "", "baudRate": null, "fd": false,
+                  "security": {"pdus":[{"pduName":"T","canId":{"raw":291,"format":"Standard","type":"Data"},"dataId":1,"fvLenBits":16,"macLenBits":24,"keyId":"K"}]} },
+                { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "security": null }
+              ],
+              "cases": []
+            }
+            """);
+        try
+        {
+            var blocks = SecOcBlockReader.TryReadPerChannel(path);
+            blocks.Keys.Should().Equal("bus-a");
+            blocks["bus-a"].Pdus.Should().HaveCount(1);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Reader_PerChannel_MalformedBlock_FailsLoud()
+    {
+        var path = WriteTemp("json", $$"""
+            {
+              "name": "x",
+              "channels": [ { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "security": 42 } ],
+              "cases": []
+            }
+            """);
+        try
+        {
+            var act = () => SecOcBlockReader.TryReadPerChannel(path);
+            act.Should().Throw<InvalidOperationException>().WithMessage("*bus-a*malformed*");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void HostBuild_PerChannelSecurity_BindsEachChannel()
+    {
+        // 缺口 1b：bus-a 有 channel 级块（KEY_SLOT_05）→ wrap；bus-b 无块且无顶层
+        // 块 → 回落 --secoc-config（null）→ 裸通道。逐通道绑定各自独立。
+        var storeDir = Path.Combine(Path.GetTempPath(), $"p4_store_{Guid.NewGuid():N}");
+        new DpapiKeyStore(storeDir).SetKey("KEY_SLOT_05", Key);
+        var dbc = WriteTemp("dbc", """
+            VERSION "1.0";
+            NS_ :
+            BS_:
+            BU_: ECU
+            BO_ 256 TestMsg: 8 ECU
+             SG_ TestSignal : 0|8@1+ (1,0) [0|255] "V"  ECU
+            """);
+        var suite = WriteTemp("json", $$"""
+            {
+              "name": "P4Suite",
+              "channels": [
+                { "name": "bus-a", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null,
+                  "security": { "pdus": [ { "pduName":"TestMsg","canId":{"raw":291,"format":"Standard","type":"Data"},"dataId":1,"fvLenBits":16,"macLenBits":24,"keyId":"KEY_SLOT_05","mode":"both","initialFv":0 } ] } },
+                { "name": "bus-b", "handle": "", "baudRate": null, "fd": false, "dbcPath": null, "udsRequestId": null, "udsResponseId": null }
+              ],
+              "cases": [ { "id": "c1", "name": "d", "steps": [ { "parameters": { "$kind": "delay", "milliseconds": 10 } } ] } ],
+              "globalCaseFixtureKeys": [], "suiteFixtureKeys": [],
+              "config": { "failurePolicy": "ContinueAll", "continueAfterSetupFailure": true }
+            }
+            """);
+        var ecu = WriteTemp("json", """
+            { "name": "P4Ecu", "canIds": { "requestId": "0x7E0", "responseId": "0x7E8" }, "states": [ { "name": "default", "transitions": [] } ] }
+            """);
+        var channels = new[]
+        {
+            new PeakCan.HIL.Core.HIL.ChannelConfig("bus-a", "", null, false, null, null, null),
+            new PeakCan.HIL.Core.HIL.ChannelConfig("bus-b", "", null, false, null, null, null),
+        };
+        try
+        {
+            var cli = new CliArgs(dbc, suite, EcuScriptPath: ecu, HardwareChannels: channels, SecOcStoreDir: storeDir);
+            using var host = HeadlessHostBuilder.Build(cli);
+            var ctx = (MultiChannelAssertionContext)host.Services
+                .GetRequiredService<global::PeakCan.Host.Core.HIL.Contracts.IAssertionContext>();
+            ctx.GetChannel("bus-a").Channel.Should().BeOfType<SecOcChannel>();
+            ctx.GetChannel("bus-b").Channel.Should().NotBeOfType<SecOcChannel>();
+        }
+        finally
+        {
+            File.Delete(dbc); File.Delete(suite); File.Delete(ecu);
+            if (Directory.Exists(storeDir)) Directory.Delete(storeDir, recursive: true);
         }
     }
 }

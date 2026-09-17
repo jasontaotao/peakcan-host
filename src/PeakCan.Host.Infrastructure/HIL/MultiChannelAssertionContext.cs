@@ -12,7 +12,8 @@ namespace PeakCan.Host.Infrastructure.HIL;
 /// Sink fan-out：SetFrameSink(null, sink) 将所有通道的帧写入同一 sink（合并 .asc）；
 /// SetFrameSink("bus-a", sink) 只挂载到 bus-a。
 /// </summary>
-internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFrameSink, IHasRecentFrames, IStepVariableStore, IDisposable
+internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFrameSink, IHasRecentFrames, IStepVariableStore,
+    PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource, PeakCan.Host.Core.HIL.Contracts.IPerCaseReset, IDisposable
 {
     private readonly IReadOnlyDictionary<string, SingleChannelContext> _channels;
     private readonly string _defaultChannelName;
@@ -142,6 +143,24 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
 
     /// <summary>共享步骤变量（跨所有通道）。</summary>
     public IDictionary<string, object> Variables { get; } = new Dictionary<string, object>();
+
+    // 缺口 1b（2026-09-17）：透出默认通道的 SecOC 统计 + per-case 复位——解除
+    // channels[] 路径 secoc 表达式不可用限制（TestSuiteEngine L139 要求透出统计者
+    // 必须实现 IPerCaseReset，否则 fail-loud）。每通道 SingleChannelContext 已实现二者。
+
+    // ── ISecOcStatsSource / IPerCaseReset ──
+
+    /// <summary>默认通道的 SecOC 统计（secocAccepted/secocRejected 表达式经此解析）。
+    /// 多通道逐通道表达式路由为后续 H2，本次只透出默认通道。</summary>
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats
+        => _channels.TryGetValue(_defaultChannelName, out var ctx) ? ctx.SecOcStats : null;
+
+    /// <summary>per-case 复位所有通道的 SecOC 统计（spec Rev7，防跨 case 泄漏）。</summary>
+    public void ResetPerCase()
+    {
+        foreach (var ctx in _channels.Values)
+            ctx.ResetPerCase();
+    }
 
     // ── ResolveChannelId ──
 

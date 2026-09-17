@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using FluentAssertions;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
 using PeakCan.HIL.Core.HIL.Contracts;
@@ -371,6 +372,23 @@ public class MultiChannelAssertionContextTests
 
         Assert.False(chA.IsConnected, "chA should be disconnected");
         Assert.False(chB.IsConnected, "chB should be disconnected");
+    }
+
+    // ── 缺口 1b（2026-09-17）：SecOC stats 透出 + per-case 复位 ──
+
+    [Fact]
+    public void Implements_SecOcStatsSource_And_IPerCaseReset()
+    {
+        // channels[] 路径现在可承载 security 块：MultiChannelAssertionContext 必须
+        // 实现 ISecOcStatsSource + IPerCaseReset（TestSuiteEngine L139 fail-loud 要求），
+        // 否则 secoc 表达式被禁用或 per-case 复位静默 no-op。
+        var (multi, _, _) = CreateTwoChannelContext();
+
+        multi.Should().BeAssignableTo<ISecOcStatsSource>();
+        multi.Should().BeAssignableTo<IPerCaseReset>();
+        // 透出默认通道（bus-a）的 stats（测试构造未注入 → null）；复位遍历所有通道（no-op 安全）。
+        ((ISecOcStatsSource)multi).SecOcStats.Should().BeNull();
+        ((IPerCaseReset)multi).ResetPerCase();
     }
 
     // ── Helpers ──
