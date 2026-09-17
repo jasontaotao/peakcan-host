@@ -102,7 +102,8 @@ public class AppHostBuilderTests
         // 工厂内显式转发，否则生产连接路径永远裸跑（provider null → 不包装）。
         using var host = new AppHostBuilder().Build();
         host.Services.GetService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>().Should().NotBeNull();
-        host.Services.GetService<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>().Should().NotBeNull();
+        // 缺口 1a（2026-09-17）：provider 签名改 per-handle（Func<ushort, ...>）。
+        host.Services.GetService<Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>().Should().NotBeNull();
         host.Services.GetService<AppShellViewModel>().Should().NotBeNull();
     }
 

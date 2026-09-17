@@ -349,7 +349,7 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         HilPanelStateStore? hilPanelStateStore = null,
         // SecOC App 接线（2026-09-16 plan）：连接路径 PDU provider + 徽章 joiner。
         // null = 测试构造点/未启用零回归（与 secOcVerdicts 同模式）。
-        Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>? secOcPduProvider = null,
+        Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>? secOcPduProvider = null,
         PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner? secOcBadgeJoiner = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));

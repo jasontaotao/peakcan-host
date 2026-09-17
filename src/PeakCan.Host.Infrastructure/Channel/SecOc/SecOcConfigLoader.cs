@@ -34,6 +34,8 @@ public static class SecOcConfigLoader
         public string KeyId { get; init; } = "";
         public string Mode { get; init; } = "both";
         public uint InitialFv { get; init; }
+        /// <summary>通道 Handle（hex，如 "0x51"）。空 = 全局兜底（所有通道适用）。</summary>
+        public string Handle { get; init; } = "";
     }
 
     /// <summary>Loads PDU configs from JSON, or null when no config path given.</summary>
@@ -51,6 +53,20 @@ public static class SecOcConfigLoader
         if (entries.Count == 0)
             throw new InvalidOperationException(
                 $"SecOC config '{configPath}' declares no PDUs; remove --secoc-config instead of silently running unprotected.");
+        return BuildFromEntries(entries, storeDir, entropy);
+    }
+
+    /// <summary>
+    /// 把 entries 解析为 CAN-id → PDU 配置字典（keyId → KeyStore fail-loud、duplicate 校验、
+    /// mode 校验）。App 连接路径 per-handle 过滤后复用本方法（2026-09-17 缺口 1a）。
+    /// </summary>
+    public static IReadOnlyDictionary<uint, SecOcPduConfig> BuildFromEntries(
+        IReadOnlyList<SecOcPduEntry> entries, string? storeDir = null, string? entropy = null)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count == 0)
+            throw new InvalidOperationException(
+                "SecOC config declares no PDUs; remove the SecOC config instead of silently running unprotected.");
 
         var keyStore = new DpapiKeyStore(storeDir ?? SecOcKeyCommand.DefaultStoreDir, entropy);
         var result = new Dictionary<uint, SecOcPduConfig>();

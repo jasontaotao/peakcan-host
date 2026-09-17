@@ -52,9 +52,11 @@ internal sealed partial class ChannelConnectionCoordinator
     // （旧 handle 的 verdict 不得落到重连后的新帧上）。null = 测试构造点无 SecOC。
     private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
     // SecOC App 接线（spec 2026-09-16 plan）：连接时按 provider 结果包装通道；
-    // null provider = 无 SecOC（测试构造点/未启用零回归）。provider 抛（keyId
-    // 缺失等配置错误）上浮给 VM —— 安全配置错误必须可见，禁止静默裸跑。
-    private readonly Func<IReadOnlyDictionary<uint, SecOcPduConfig>?>? _secOcPduProvider;
+    // 缺口 1a（2026-09-17）：per-handle provider——逐槽按通道 handle 取对应
+    // PDU 配置（entry.Handle 空 = 全局兜底）。null provider = 无 SecOC（测试构造
+    // 点/未启用零回归）。provider 抛（keyId 缺失等配置错误）上浮给 VM —— 安全
+    // 配置错误必须可见，禁止静默裸跑。
+    private readonly Func<ushort, IReadOnlyDictionary<uint, SecOcPduConfig>?>? _secOcPduProvider;
     // 徽章 joiner：连接时 Configure 受保护集合，断开时 ResetAll（与 verdict 表清理同步）。
     private readonly SecOcBadgeJoiner? _secOcBadgeJoiner;
 
@@ -66,7 +68,7 @@ internal sealed partial class ChannelConnectionCoordinator
         Action<ReadLoopError>? readLoopErrorSink = null,
         ILogger? logger = null,
         PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? secOcVerdicts = null,
-        Func<IReadOnlyDictionary<uint, SecOcPduConfig>?>? secOcPduProvider = null,
+        Func<ushort, IReadOnlyDictionary<uint, SecOcPduConfig>?>? secOcPduProvider = null,
         SecOcBadgeJoiner? secOcBadgeJoiner = null)
     {
         _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
@@ -107,16 +109,16 @@ internal sealed partial class ChannelConnectionCoordinator
         ArgumentNullException.ThrowIfNull(configs);
         string? lastFailureText = null;
 
-        // SecOC：每槽共用同一份 PDU 字典；provider 抛（keyId 缺失/配置畸形）
-        // 直接上浮——整次连接失败，用户看到错误后去 SecOc 设置修复。
-        var secOcPdus = _secOcPduProvider?.Invoke();
-
         foreach (var cfg in configs)
         {
             if (cfg.Channel is null) continue; // null 组跳过
             var handle = cfg.Channel.Handle;
             var rate = cfg.BaudRate;
             var channel = _channelFactory.Create(new ChannelId(handle));
+            // SecOC（缺口 1a）：逐槽按 handle 取对应 PDU 配置（entry.Handle 空 =
+            // 全局兜底；该槽无归属 = 不启用）。provider 抛（keyId 缺失/配置畸形）
+            // 直接上浮——整次连接失败，用户看到错误后去 SecOc 设置修复。
+            var secOcPdus = _secOcPduProvider?.Invoke(handle);
             if (secOcPdus is { Count: > 0 })
             {
                 channel = HilChannelComposer.Compose(channel, enableFaultInjection: false,

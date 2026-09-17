@@ -54,16 +54,20 @@ public class ChannelConnectionCoordinatorSecOcTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private static IReadOnlyDictionary<uint, SecOcPduConfig> OnePdu()
+    private static IReadOnlyDictionary<uint, SecOcPduConfig> OnePdu(uint canId = 0x123)
         => new Dictionary<uint, SecOcPduConfig>
         {
-            [0x123] = new()
+            [canId] = new()
             {
                 Profile = new SecOcProfile { DataId = 0x0A, FvLenBits = 16, MacLenBits = 24 },
                 Key = new byte[16],
                 Mode = SecOcPduMode.Both,
             },
         };
+
+    private static CanFrame MakeFrame(uint canId, ushort handle = 0x51) => new(
+        new CanId(canId, FrameFormat.Standard), new byte[] { 0xAA, 0xBB },
+        FrameFlags.None, new ChannelId(handle), Timestamp.FromMicroseconds(1_000_000UL));
 
     private static ConnectionConfig Cfg(ushort handle = 0x51) => new(
         new ChannelInfo(handle, $"PCAN_USBBUS{handle - 0x50}"),
@@ -79,7 +83,7 @@ public class ChannelConnectionCoordinatorSecOcTests
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
             secOcVerdicts: new SecOcVerdictTable(),
-            secOcPduProvider: OnePdu);
+            secOcPduProvider: _ => OnePdu());
 
         var result = await coordinator.ConnectAllAsync(new[] { Cfg() });
 
@@ -115,7 +119,7 @@ public class ChannelConnectionCoordinatorSecOcTests
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
             secOcVerdicts: new SecOcVerdictTable(),
-            secOcPduProvider: OnePdu);
+            secOcPduProvider: _ => OnePdu());
         await coordinator.ConnectAllAsync(new[] { Cfg() });
 
         var frame = new CanFrame(new CanId(0x123, FrameFormat.Standard), new byte[] { 0xAA, 0xBB },
@@ -138,7 +142,7 @@ public class ChannelConnectionCoordinatorSecOcTests
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
             secOcVerdicts: verdicts,
-            secOcPduProvider: OnePdu,
+            secOcPduProvider: _ => OnePdu(),
             secOcBadgeJoiner: joiner);
         await coordinator.ConnectAllAsync(new[] { Cfg() });
 
@@ -162,7 +166,7 @@ public class ChannelConnectionCoordinatorSecOcTests
         var coordinator = new ChannelConnectionCoordinator(
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
-            secOcPduProvider: () => throw new InvalidOperationException("keyId 'k1' not found"));
+            secOcPduProvider: _ => throw new InvalidOperationException("keyId 'k1' not found"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             coordinator.ConnectAllAsync(new[] { Cfg() }));
@@ -185,5 +189,34 @@ public class ChannelConnectionCoordinatorSecOcTests
         joiner.Join(new CanFrame(new CanId(0x123, FrameFormat.Standard), new byte[] { 1 },
             FrameFlags.None, new ChannelId(0x51), Timestamp.FromMicroseconds(1UL)))
             .Should().Be(PeakCan.Host.App.ViewModels.SecOcBadge.Offline);
+    }
+
+    // 缺口 1a（2026-09-17）：per-handle provider——两槽各自按 handle 取配置。
+    [Fact]
+    public async Task Connect_TwoSlots_DifferentHandle_EachGetsItsOwnPdus()
+    {
+        var raw51 = new FakeCanChannel(new ChannelId(0x51));
+        var raw52 = new FakeCanChannel(new ChannelId(0x52));
+        var factory = Substitute.For<IChannelFactory>();
+        factory.Create(new ChannelId(0x51)).Returns(raw51);
+        factory.Create(new ChannelId(0x52)).Returns(raw52);
+        var coordinator = new ChannelConnectionCoordinator(
+            factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
+            new SendService(NullLogger<SendService>.Instance),
+            secOcPduProvider: handle => handle == 0x51 ? OnePdu(0x123) : OnePdu(0x456));
+
+        await coordinator.ConnectAllAsync(new[] { Cfg(0x51), Cfg(0x52) });
+
+        coordinator.Connections.Should().HaveCount(2);
+        // 0x51 槽：0x123 受保护（签名帧 +2+3 字节）、0x456 未保护（原样）。
+        await coordinator.Connections[0].Channel.WriteAsync(MakeFrame(0x123));
+        await coordinator.Connections[0].Channel.WriteAsync(MakeFrame(0x456));
+        raw51.Written[0].Data.Length.Should().Be(2 + 2 + 3);
+        raw51.Written[1].Data.Length.Should().Be(2);
+        // 0x52 槽：0x456 受保护、0x123 未保护（各自独立，互不串扰）。
+        await coordinator.Connections[1].Channel.WriteAsync(MakeFrame(0x456, 0x52));
+        await coordinator.Connections[1].Channel.WriteAsync(MakeFrame(0x123, 0x52));
+        raw52.Written[0].Data.Length.Should().Be(2 + 2 + 3);
+        raw52.Written[1].Data.Length.Should().Be(2);
     }
 }

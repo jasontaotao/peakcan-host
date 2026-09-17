@@ -88,7 +88,7 @@ public class SecOcAppWiringTests
         var coordinator = new ChannelConnectionCoordinator(
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
-            secOcVerdicts: verdicts, secOcPduProvider: OnePdu, secOcBadgeJoiner: joiner);
+            secOcVerdicts: verdicts, secOcPduProvider: _ => OnePdu(), secOcBadgeJoiner: joiner);
         await coordinator.ConnectAllAsync(new[] { Cfg() });
 
         var trace = new TraceViewModel { SecOcBadgeResolver = joiner.Join };
@@ -118,7 +118,7 @@ public class SecOcAppWiringTests
         var coordinator = new ChannelConnectionCoordinator(
             factory, new ChannelRouter(NullLogger<ChannelRouter>.Instance),
             new SendService(NullLogger<SendService>.Instance),
-            secOcVerdicts: verdicts, secOcPduProvider: OnePdu, secOcBadgeJoiner: joiner);
+            secOcVerdicts: verdicts, secOcPduProvider: _ => OnePdu(), secOcBadgeJoiner: joiner);
         await coordinator.ConnectAllAsync(new[] { Cfg() });
 
         var trace = new TraceViewModel { SecOcBadgeResolver = joiner.Join };

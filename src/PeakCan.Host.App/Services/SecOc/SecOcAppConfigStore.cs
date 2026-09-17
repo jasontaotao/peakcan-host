@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using PeakCan.Host.Infrastructure.Channel.SecOc;
@@ -41,18 +42,39 @@ public static class SecOcAppConfigStore
     }
 
     /// <summary>
-    /// 连接路径 PDU 配置读取（AppHostBuilder provider 用）：文件缺失返回
-    /// null（= 未配置过 SecOC，零回归——全新安装默认可正常连接）；文件存在
-    /// 则委托 CLI 同款 LoadOptional（keyId 缺失 / JSON 损坏 fail-loud）。
-    /// 刻意区分"没配过"（null）与"配了但坏了"（抛）。
+    /// 连接路径 PDU 配置读取（AppHostBuilder provider 用）：按通道 handle 过滤——
+    /// 文件缺失或该通道无归属 PDU 返回 null（= 该通道不启用 SecOC，零回归）；
+    /// 存在则委托 CLI 同款 BuildFromEntries（keyId 缺失 / JSON 损坏 fail-loud）。
+    /// 归属规则（2026-09-17 缺口 1a）：entry.Handle 空 = 全局兜底（所有通道适用）；
+    /// 非空 = 仅匹配该 handle 的通道。旧配置（无 handle 字段）→ 全部兜底，向后兼容。
     /// </summary>
     public static IReadOnlyDictionary<uint, SecOcPduConfig>? LoadForConnectPath(
-        string? path = null, string? storeDir = null)
+        ushort handle, string? path = null, string? storeDir = null)
     {
-        var fullPath = path ?? DefaultConfigPath;
-        if (!File.Exists(fullPath))
+        var entries = Load(path);
+        if (entries.Count == 0)
             return null;
-        return SecOcConfigLoader.LoadOptional(fullPath, storeDir);
+        var scoped = entries
+            .Where(e => string.IsNullOrWhiteSpace(e.Handle) || ParseHandle(e.Handle) == handle)
+            .ToList();
+        if (scoped.Count == 0)
+            return null;
+        return SecOcConfigLoader.BuildFromEntries(scoped, storeDir);
+    }
+
+    /// <summary>解析通道 Handle（hex "0x51" / dec "81"）；非法值抛（配置错误必须可见）。</summary>
+    private static ushort ParseHandle(string raw)
+    {
+        var text = raw.Trim();
+        var isHex = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
+        var ok = ushort.TryParse(
+            isHex ? text[2..] : text,
+            isHex ? NumberStyles.HexNumber : NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var value);
+        if (!ok)
+            throw new InvalidOperationException($"SecOC config: invalid channel Handle '{raw}'.");
+        return value;
     }
 
     /// <summary>写入配置；父目录不存在时创建。JSON 序列化错误原样上抛（fail-loud）。</summary>

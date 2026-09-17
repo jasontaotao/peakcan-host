@@ -2,6 +2,7 @@ using System.IO;
 using FluentAssertions;
 using PeakCan.Host.App.Services.SecOc;
 using PeakCan.Host.Infrastructure.Channel.SecOc;
+using PeakCan.Security.Keystore;
 using Xunit;
 
 namespace PeakCan.Host.App.Tests.Services;
@@ -53,21 +54,21 @@ public class SecOcAppConfigStoreTests : IDisposable
     [Fact]
     public void LoadForConnectPath_FileMissing_ReturnsNull()
     {
-        SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir).Should().BeNull();
+        SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir).Should().BeNull();
     }
 
     [Fact]
     public void LoadForConnectPath_CorruptJson_FailLoud()
     {
         File.WriteAllText(_path, "{ not valid json ###");
-        var act = () => SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir);
+        var act = () => SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir);
         act.Should().Throw<System.Text.Json.JsonException>();
     }
 
     [Fact]
     public void LoadForConnectPath_ExistingFile_DelegatesToLoader()
     {
-        // 文件存在 → 走 LoadOptional 校验层（keyId 缺失 fail-loud —— 证明
+        // 文件存在 → 走 BuildFromEntries 校验层（keyId 缺失 fail-loud —— 证明
         // 不是 null 也不是 JSON 错，而是密钥解析错误 = schema 兼容且校验生效）。
         var entries = new List<SecOcConfigLoader.SecOcPduEntry>
         {
@@ -76,8 +77,80 @@ public class SecOcAppConfigStoreTests : IDisposable
         SecOcAppConfigStore.Save(entries, _path);
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            SecOcAppConfigStore.LoadForConnectPath(_path, storeDir: _dir));
+            SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir));
         ex.Message.Should().Contain("k1");
+    }
+
+    // 缺口 1a（2026-09-17）：per-channel handle 过滤。storeDir 指向临时目录的
+    // 真实 DPAPI KeyStore（Windows-only，本机测试环境满足）。
+    private static DpapiKeyStore NewTempStore(string dir)
+    {
+#pragma warning disable CA1416
+        return new DpapiKeyStore(dir, null);
+#pragma warning restore CA1416
+    }
+
+    [Fact]
+    public void LoadForConnectPath_HandleScoped_OnlyMatchingHandlePdus()
+    {
+        var store = NewTempStore(_dir);
+        store.SetKey("kA", new byte[16]);
+        store.SetKey("kB", new byte[16]);
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "kA", Handle = "0x51" },
+            new() { CanId = "0x456", DataId = "0x0B", KeyId = "kB", Handle = "0x52" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        var pdus = SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir);
+
+        pdus.Should().ContainKey(0x123u);    // 0x51 专属命中
+        pdus.Should().NotContainKey(0x456u); // 0x52 专属被过滤（若误选，kB keyId 也会被查）
+    }
+
+    [Fact]
+    public void LoadForConnectPath_GlobalEntry_FallsBackForAnyHandle()
+    {
+        var store = NewTempStore(_dir);
+        store.SetKey("kG", new byte[16]);
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "kG" }, // 无 handle = 全局兜底
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir)
+            .Should().ContainKey(0x123u);
+        // 全局兜底也适用于其它 handle（向后兼容：旧配置全兜底）。
+        SecOcAppConfigStore.LoadForConnectPath(0x52, _path, storeDir: _dir)
+            .Should().ContainKey(0x123u);
+    }
+
+    [Fact]
+    public void LoadForConnectPath_NoPduForHandle_ReturnsNull()
+    {
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "kX", Handle = "0x52" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        // 0x51 无归属 PDU（0x52 专属被过滤）→ 该通道不启用，null；kX 不存在也不触发。
+        SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir).Should().BeNull();
+    }
+
+    [Fact]
+    public void LoadForConnectPath_InvalidHandle_Throws()
+    {
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "kX", Handle = "USB9" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        var act = () => SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir);
+        act.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain("Handle");
     }
 
     [Fact]

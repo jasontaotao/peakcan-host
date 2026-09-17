@@ -165,10 +165,11 @@ public partial class AppHostBuilder
         // 缺失 fail-loud）。AppShellViewModel 为显式工厂注册，实参在工厂内
         // GetRequiredService 转发（fix round 1：工厂不回填可选参数）。
         builder.Services.AddSingleton<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>();
-        // final review C1：缺失配置文件必须返回 null（零回归）而非 FileNotFoundException——
-        // 全新安装未配置过 SecOC 的用户点"连接"不能崩溃。文件存在但损坏仍 fail-loud。
-        builder.Services.AddSingleton<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(
-            _ => () => PeakCan.Host.App.Services.SecOc.SecOcAppConfigStore.LoadForConnectPath());
+        // 缺口 1a（2026-09-17）：per-handle provider——连接时按通道 handle 取对应
+        // PDU 配置（entry.Handle 空 = 全局兜底）。缺失配置返回 null（零回归）；配
+        // 置错误（keyId 缺失/畸形）fail-loud。
+        builder.Services.AddSingleton<Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(
+            _ => handle => PeakCan.Host.App.Services.SecOc.SecOcAppConfigStore.LoadForConnectPath(handle));
 
         // v1.0.0: Scripting engine. P1-2（2026-09-06，Lazy<T> 清零）：输出走
         // ScriptOutputHub 单向流（ScriptUtilities → hub → ScriptEngine 转发到
@@ -431,7 +432,7 @@ public partial class AppHostBuilder
             // SecOC App 接线（2026-09-16 plan fix round 1）：显式工厂必须显式
             // 转发——MS DI 对工厂注册不回填未提供的可选参数，遗漏即生产静默裸跑。
             secOcVerdicts: sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable>(),
-            secOcPduProvider: sp.GetRequiredService<Func<IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(),
+            secOcPduProvider: sp.GetRequiredService<Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(),
             secOcBadgeJoiner: sp.GetRequiredService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
