@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Services.SecOc;
 using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.Services.HilPanel;
 using PeakCan.Host.App.Services.Ui;
@@ -226,6 +227,14 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
 
     [ObservableProperty]
     private string _connectionState = "已断开";
+
+    // 缺口 3（2026-09-17）：SecOC 启用状态可见性（工具栏指示）。
+    [ObservableProperty]
+    private SecOcConfigStatusKind _secOcStatusKind = SecOcConfigStatusKind.NotConfigured;
+    [ObservableProperty]
+    private string _secOcStatusText = "SecOc: 未启用";
+    [ObservableProperty]
+    private System.Windows.Media.Brush _secOcStatusBrush = System.Windows.Media.Brushes.Gray;
 
     /// <summary>
     /// Task 3 (phase 2 A-3): derived — any multi-channel slot holds a connected
@@ -527,14 +536,41 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     {
         var vm = new SecOcSettingsViewModel(
             () => new DpapiKeyStore(SecOcKeyCommand.DefaultStoreDir, null),
-            _fileDialogs);
+            _fileDialogs,
+            hasActiveConnection: () => IsConnected);
         var win = new SecOcSettingsWindow { DataContext = vm };
         if (Application.Current?.MainWindow is { } owner && owner != win)
         {
             win.Owner = owner;
         }
         win.ShowDialog();
+        // 缺口 3：设置窗口关闭后刷新工具栏状态（可能已改配置）。
+        RefreshSecOcStatus();
     }
+
+    /// <summary>刷新工具栏 SecOC 状态指示（全局配置三态）。AppShell 打开后、
+    /// 连接/断开后、SecOc 设置窗口关闭后调用。</summary>
+    public void RefreshSecOcStatus()
+    {
+        var s = SecOcAppConfigStore.GetStatus();
+        SecOcStatusKind = s.Kind;
+        SecOcStatusText = s.Kind switch
+        {
+            SecOcConfigStatusKind.Ready => $"SecOc: 就绪 {s.PduCount} 条",
+            SecOcConfigStatusKind.Error => "SecOc: 配置错误",
+            _ => "SecOc: 未启用",
+        };
+        SecOcStatusBrush = s.Kind switch
+        {
+            SecOcConfigStatusKind.Ready => Res("Ok"),
+            SecOcConfigStatusKind.Error => Res("Error"),
+            _ => Res("TextSecondary"),
+        };
+    }
+
+    private static System.Windows.Media.Brush Res(string key)
+        => System.Windows.Application.Current?.Resources[key] as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Gray;
 
     // === v3.50.1 PATCH-A: Recording panel public location ===
     // Recording was a Trace Viewer Expander in v3.49 Q2 (conflated

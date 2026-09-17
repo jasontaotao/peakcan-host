@@ -125,6 +125,29 @@ public class SecOcSettingsViewModelTests : IDisposable
         _vm.Pdus[0].Mode.Should().Be("both");
     }
 
+    // 缺口 2（2026-09-17）：活跃连接时保存 → 明示需断开重连才生效。
+    [Fact]
+    public void Save_WithActiveConnection_AppendsReconnectHint()
+    {
+        var vm = new SecOcSettingsViewModel(() => _store, new FakeFileDialogs("x"), _configPath,
+            hasActiveConnection: () => true);
+        vm.AddPduCommand.Execute(null);
+        vm.SaveCommand.Execute(null);
+
+        vm.StatusMessage.Should().Contain("需断开重连");
+    }
+
+    [Fact]
+    public void Save_NoActiveConnection_NoReconnectHint()
+    {
+        var vm = new SecOcSettingsViewModel(() => _store, new FakeFileDialogs("x"), _configPath,
+            hasActiveConnection: () => false);
+        vm.AddPduCommand.Execute(null);
+        vm.SaveCommand.Execute(null);
+
+        vm.StatusMessage.Should().NotContain("需断开重连");
+    }
+
     [Fact]
     public void Save_RoundTripsChannelHandle()
     {

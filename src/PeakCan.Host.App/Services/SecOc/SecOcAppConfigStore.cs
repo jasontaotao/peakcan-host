@@ -5,6 +5,12 @@ using PeakCan.Host.Infrastructure.Channel.SecOc;
 
 namespace PeakCan.Host.App.Services.SecOc;
 
+/// <summary>App 固定配置的三态状态（未启用 / 就绪 / 配置错误）。</summary>
+public enum SecOcConfigStatusKind { NotConfigured, Ready, Error }
+
+/// <summary>工具栏状态指示数据（PduCount 仅 Ready 时有效）。</summary>
+public sealed record SecOcConfigStatus(SecOcConfigStatusKind Kind, int PduCount, string? Error);
+
 /// <summary>
 /// App 级 SecOC 配置读写（AppShell 连接路径使用）。Schema 与 CLI --secoc-config
 /// 完全一致（SecOcPduEntry 数组），写入 camelCase + indented，读取
@@ -75,6 +81,29 @@ public static class SecOcAppConfigStore
         if (!ok)
             throw new InvalidOperationException($"SecOC config: invalid channel Handle '{raw}'.");
         return value;
+    }
+
+    // 缺口 3（2026-09-17）：工具栏启用状态可见性。
+
+    /// <summary>
+    /// 全局配置状态评估（不过滤 handle——状态是 App 级指示）：文件缺失/空 →
+    /// NotConfigured；可解析（含 keyId 校验）→ Ready(count)；JSON 损坏 / keyId 缺失 /
+    /// 空 PDU 列表 → Error(message)。供 AppShell 工具栏状态指示用。
+    /// </summary>
+    public static SecOcConfigStatus GetStatus(string? path = null, string? storeDir = null)
+    {
+        try
+        {
+            var entries = Load(path);
+            if (entries.Count == 0)
+                return new(SecOcConfigStatusKind.NotConfigured, 0, null);
+            var pdus = SecOcConfigLoader.BuildFromEntries(entries, storeDir);
+            return new(SecOcConfigStatusKind.Ready, pdus.Count, null);
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException)
+        {
+            return new(SecOcConfigStatusKind.Error, 0, ex.Message);
+        }
     }
 
     /// <summary>写入配置；父目录不存在时创建。JSON 序列化错误原样上抛（fail-loud）。</summary>

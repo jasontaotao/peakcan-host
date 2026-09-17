@@ -54,6 +54,8 @@ public partial class AppShell : Window
         if (DataContext is AppShellViewModel shell)
         {
             shell.ShowTraceCommand.Execute(null);
+            // 缺口 3（2026-09-17）：窗口打开即刷新 SecOC 状态指示。
+            shell.RefreshSecOcStatus();
         }
         // P2-6 review r1: restore the persisted layout AFTER ShowTrace so the
         // saved main-tab selection wins over the default Trace landing tab.

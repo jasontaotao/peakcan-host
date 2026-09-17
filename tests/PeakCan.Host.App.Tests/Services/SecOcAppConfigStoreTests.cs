@@ -140,6 +140,58 @@ public class SecOcAppConfigStoreTests : IDisposable
         SecOcAppConfigStore.LoadForConnectPath(0x51, _path, storeDir: _dir).Should().BeNull();
     }
 
+    // 缺口 3（2026-09-17）：GetStatus 三态（工具栏状态指示数据源）。
+    [Fact]
+    public void GetStatus_NoConfigFile_NotConfigured()
+    {
+        SecOcAppConfigStore.GetStatus(_path).Kind.Should().Be(SecOcConfigStatusKind.NotConfigured);
+    }
+
+    [Fact]
+    public void GetStatus_ReadyConfig_ReportsCount()
+    {
+        var store = NewTempStore(_dir);
+        store.SetKey("k1", new byte[16]);
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "k1" },
+            new() { CanId = "0x456", DataId = "0x0B", KeyId = "k1" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        var s = SecOcAppConfigStore.GetStatus(_path, storeDir: _dir);
+
+        s.Kind.Should().Be(SecOcConfigStatusKind.Ready);
+        s.PduCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void GetStatus_CorruptJson_Error()
+    {
+        File.WriteAllText(_path, "{ not valid json ###");
+
+        var s = SecOcAppConfigStore.GetStatus(_path, storeDir: _dir);
+
+        s.Kind.Should().Be(SecOcConfigStatusKind.Error);
+        s.Error.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public void GetStatus_MissingKeyId_Error()
+    {
+        // 配了 PDU 但 keyId 缺失 → Error（不是 NotConfigured——用户配了东西但坏了）。
+        var entries = new List<SecOcConfigLoader.SecOcPduEntry>
+        {
+            new() { CanId = "0x123", DataId = "0x0A", KeyId = "k_missing" },
+        };
+        SecOcAppConfigStore.Save(entries, _path);
+
+        var s = SecOcAppConfigStore.GetStatus(_path, storeDir: _dir);
+
+        s.Kind.Should().Be(SecOcConfigStatusKind.Error);
+        s.Error.Should().Contain("k_missing");
+    }
+
     [Fact]
     public void LoadForConnectPath_InvalidHandle_Throws()
     {

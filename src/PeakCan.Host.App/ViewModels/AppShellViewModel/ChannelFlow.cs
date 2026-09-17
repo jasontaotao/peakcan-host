@@ -225,6 +225,8 @@ public sealed partial class AppShellViewModel
         ConnectCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
         PublishConnectedChannels();
+        // 缺口 3：连接/断开后刷新 SecOC 状态（断开即状态可能失效）。
+        RefreshSecOcStatus();
     }
 
     /// <summary>

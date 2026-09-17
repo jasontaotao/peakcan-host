@@ -127,6 +127,10 @@
                 </ToggleButton>
                 <Separator />
                 <TextBlock Text="{Binding ConnectionState}" VerticalAlignment="Center" Margin="4,0" Foreground="{StaticResource Ok}" FontWeight="SemiBold" />
+                <!-- 缺口 3（2026-09-17）：SecOC 启用状态（未启用灰 / 就绪绿 / 配置错误红）。 -->
+                <TextBlock Text="{Binding SecOcStatusText}" VerticalAlignment="Center" Margin="4,0"
+                           Foreground="{Binding SecOcStatusBrush}"
+                           ToolTip="SecOC 启用状态：未启用 = 无 PDU 配置；配置错误 = 检查 SecOc 设置（密钥/格式）" />
             </ToolBar>
         </ToolBarTray>
         <StatusBar DockPanel.Dock="Bottom">

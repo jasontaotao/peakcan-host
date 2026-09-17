@@ -49,6 +49,8 @@ public sealed partial class SecOcSettingsViewModel : ObservableObject
     private readonly Func<IKeyStore> _keyStoreFactory;
     private readonly IFileDialogService _fileDialogs;
     private readonly string _configPath;
+    // 缺口 2（2026-09-17）：当前是否有活跃连接（重连生效提示用）。null = 未知/不提示。
+    private readonly Func<bool>? _hasActiveConnection;
 
     public ObservableCollection<string> KeyIds { get; } = new();
     public ObservableCollection<SecOcPduEntryModel> Pdus { get; } = new();
@@ -59,11 +61,13 @@ public sealed partial class SecOcSettingsViewModel : ObservableObject
     public SecOcSettingsViewModel(
         Func<IKeyStore> keyStoreFactory,
         IFileDialogService fileDialogs,
-        string? configPath = null)
+        string? configPath = null,
+        Func<bool>? hasActiveConnection = null)
     {
         _keyStoreFactory = keyStoreFactory ?? throw new ArgumentNullException(nameof(keyStoreFactory));
         _fileDialogs = fileDialogs ?? throw new ArgumentNullException(nameof(fileDialogs));
         _configPath = configPath ?? SecOcAppConfigStore.DefaultConfigPath;
+        _hasActiveConnection = hasActiveConnection;
 
         foreach (var e in SecOcAppConfigStore.Load(_configPath))
             Pdus.Add(SecOcPduEntryModel.FromEntry(e));
@@ -135,6 +139,9 @@ public sealed partial class SecOcSettingsViewModel : ObservableObject
         {
             SecOcAppConfigStore.Save(Pdus.Select(p => p.ToEntry()).ToList(), _configPath);
             StatusMessage = $"已保存 {Pdus.Count} 条 PDU → {_configPath}";
+            // 缺口 2（2026-09-17）：配置变更需重连才生效，活跃连接时必须明示。
+            if (_hasActiveConnection?.Invoke() == true)
+                StatusMessage += "；已连接会话需断开重连后生效";
         }
         catch (Exception ex)
         {
