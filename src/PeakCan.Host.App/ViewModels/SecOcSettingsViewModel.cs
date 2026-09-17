@@ -19,17 +19,21 @@ public sealed partial class SecOcPduEntryModel : ObservableObject
     [ObservableProperty] private string _keyId = "";
     [ObservableProperty] private string _mode = "both";
     [ObservableProperty] private uint _initialFv;
+    // 缺口 1a（2026-09-17）：通道 Handle（hex "0x51"）。空 = 全局兜底（所有通道适用）。
+    [ObservableProperty] private string _handle = "";
 
     public static SecOcPduEntryModel FromEntry(SecOcConfigLoader.SecOcPduEntry e) => new()
     {
         CanId = e.CanId, DataId = e.DataId, FvLenBits = e.FvLenBits,
         MacLenBits = e.MacLenBits, KeyId = e.KeyId, Mode = e.Mode, InitialFv = e.InitialFv,
+        Handle = e.Handle,
     };
 
     public SecOcConfigLoader.SecOcPduEntry ToEntry() => new()
     {
         CanId = CanId, DataId = DataId, FvLenBits = FvLenBits,
         MacLenBits = MacLenBits, KeyId = KeyId, Mode = Mode, InitialFv = InitialFv,
+        Handle = Handle,
     };
 }
 

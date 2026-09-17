@@ -33,6 +33,14 @@
                 <DataGridTextColumn Header="KeyId" Binding="{Binding KeyId}" Width="100" />
                 <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70" />
                 <DataGridTextColumn Header="InitFv" Binding="{Binding InitialFv}" Width="70" />
+                <!-- 缺口 1a（2026-09-17）：通道 Handle 归属。空 = 全局兜底（所有通道适用）。 -->
+                <DataGridTextColumn Header="通道 Handle" Binding="{Binding Handle}" Width="90">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="ToolTip" Value="通道 Handle（如 0x51）。空 = 全局兜底（所有通道适用）" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
                 <DataGridTemplateColumn Header="" Width="60">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

@@ -126,6 +126,25 @@ public class SecOcSettingsViewModelTests : IDisposable
     }
 
     [Fact]
+    public void Save_RoundTripsChannelHandle()
+    {
+        // 缺口 1a（2026-09-17）：Handle 归属列随配置保存/重载。
+        _vm.AddPduCommand.Execute(null);
+        _vm.Pdus[0].CanId = "0x123";
+        _vm.Pdus[0].KeyId = "k1";
+        _vm.Pdus[0].Handle = "0x52";
+        _vm.SaveCommand.Execute(null);
+
+        var reloaded = new SecOcSettingsViewModel(() => _store, new FakeFileDialogs("x"), _configPath);
+        reloaded.Pdus.Should().ContainSingle();
+        reloaded.Pdus[0].Handle.Should().Be("0x52");
+        // 落盘 JSON 含 handle 字段（camelCase）+ 值。
+        var text = File.ReadAllText(_configPath);
+        text.Should().Contain("handle");
+        text.Should().Contain("0x52");
+    }
+
+    [Fact]
     public void Save_WritesConfigFile_InCliCompatibleSchema()
     {
         _vm.AddPduCommand.Execute(null);
