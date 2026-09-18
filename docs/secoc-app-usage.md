@@ -55,8 +55,9 @@ schema 与 CLI `--secoc-config` **完全一致**（camelCase 写出、大小写�
 
 - **方式一（推荐）**：suite JSON 内嵌 `security` 块（PDU + keyId 引用），HIL run 自动生效。
   **多通道**：`channels[]` 每项可带独立 `security` 块（channel 级优先于顶层块；无则回落顶层块/面板字段）。
-  `secocAccepted(id)` / `secocRejected(id)` / `secocLastReason(id)` 表达式可用于断言
-  （多通道下解析默认通道统计）。
+  `secocAccepted(id)` / `secocRejected(id)` / `secocLastReason(id)` 表达式可用于断言——
+  **表达式自动跟随所在步骤的 `TargetChannel`**（该通道级 security 块的验签统计）；
+  步骤无 `TargetChannel`（如 if/while 容器条件）→ 解析默认通道统计。
   **suite 内嵌块优先于面板字段**。
 - **方式二**：HIL 面板「SecOc 配置」选配置文件（等价 CLI `--secoc-config`；
   默认空 = 该 run 不使用 SecOC，零回归）。

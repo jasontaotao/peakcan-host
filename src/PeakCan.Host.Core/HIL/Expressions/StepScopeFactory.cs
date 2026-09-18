@@ -39,7 +39,13 @@ public static class StepScopeFactory
         IReadOnlyDictionary<string, ExpressionValue>? outerLoopIndexVar = null,
         // §3 dtcPresent 预查 set（case 级，引擎预查填 active DTC codes）；
         // null（Cli/trace 无 UDS）时不挂 DtcPresence registry → dtcPresent → UNKNOWN_FUNCTION。
-        HashSet<uint>? dtcPresentSet = null)
+        HashSet<uint>? dtcPresentSet = null,
+        // 项 2（2026-09-17）：多通道逐通道路由。ctx 实现 ISecOcStatsSource 时，
+        // secoc 表达式按「当前作用通道」解析统计（step 级 TargetChannel 由引擎在
+        // 步骤执行前设置）；null/未实现 → 单通道向后兼容（默认 stats）。
+        Func<IAssertionContext, string?, Contracts.ISecOcStats?>? secocStatsResolver = null,
+        // 当前作用通道名提供者（引擎逐 step 设置；null = 无通道上下文 → 默认通道）。
+        Func<string?>? currentChannelProvider = null)
     {
         // 创建 resolver 实现：DidResolver 内部 TryGetDid 访问 store.Variables，
         // store=null 时 Variables 为空字典（NSubstitute 默认）→ TryGetDid 返回 false。
@@ -54,10 +60,10 @@ public static class StepScopeFactory
             ? null
             : new DtcPresenceFunctionRegistry(dtcPresentSet);
         // §5-D6.2：SecOC verdict 函数（secocAccepted/secocRejected/secocLastReason）——
-        // 经能力接口从 ctx 解析（ISecOcStatsSource），引擎与 hil-core 零改动。
-        var secocReg = (ctx as global::PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource)?.SecOcStats is { } secocStats
-            ? new SecOcFunctionRegistry(secocStats)
-            : null;
+        // 经能力接口从 ctx 解析（ISecOcStatsSource）。
+        // 项 2：多通道时按当前通道名解析（resolver + currentChannelProvider）；
+        // 单通道（无 resolver）走默认 SecOcStats，向后兼容。
+        var secocReg = BuildSecocRegistry(ctx, secocStatsResolver, currentChannelProvider);
         IFunctionRegistry? functionRegistry = null;
         foreach (var reg in new[] { frameReg, dtcReg, secocReg })
         {
@@ -83,6 +89,32 @@ public static class StepScopeFactory
             functionRegistry: functionRegistry,
             signalResolver: signalResolver,
             didResolver: didResolver);
+    }
+
+    /// <summary>
+    /// 构造 SecOC verdict 函数注册表。
+    /// 项 2：有 <paramref name="secocStatsResolver"/>（多通道 ctx）→ resolver 版（按当前通道解析）；
+    /// 否则回落 ctx 的 ISecOcStatsSource.SecOcStats（单通道向后兼容）。ctx 无能力 → null（无 secoc 函数）。
+    /// </summary>
+    private static IFunctionRegistry? BuildSecocRegistry(
+        IAssertionContext ctx,
+        Func<IAssertionContext, string?, Contracts.ISecOcStats?>? secocStatsResolver,
+        Func<string?>? currentChannelProvider)
+    {
+        if (ctx is not Contracts.ISecOcStatsSource source)
+            return null;
+        if (secocStatsResolver is not null)
+        {
+            // M-1（review 2026-09-18）语义说明：只要 ctx 实现 ISecOcStatsSource 就无条件建
+            // registry，即使某通道 stats 解析为 null 也返回零计数（静默）。这改变了旧的
+            // 「stats null → 不建 registry → UNKNOWN_FUNCTION 响亮失败」语义。
+            // 生产路径不可达（HeadlessHostBuilder DI 恒注册 SecOcStats；多通道非默认通道
+            // new SecOcStats()），此处静默零计数是「未配置该通道 security」的合理读法。
+            return new SecOcFunctionRegistry(
+                channel => secocStatsResolver(ctx, channel),
+                currentChannelProvider);
+        }
+        return source.SecOcStats is { } stats ? new SecOcFunctionRegistry(stats) : null;
     }
 
     /// <summary>

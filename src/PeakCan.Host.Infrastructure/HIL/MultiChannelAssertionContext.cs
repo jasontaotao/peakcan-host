@@ -150,10 +150,19 @@ internal sealed class MultiChannelAssertionContext : IAssertionContext, IHasFram
 
     // ── ISecOcStatsSource / IPerCaseReset ──
 
-    /// <summary>默认通道的 SecOC 统计（secocAccepted/secocRejected 表达式经此解析）。
-    /// 多通道逐通道表达式路由为后续 H2，本次只透出默认通道。</summary>
+    /// <summary>默认通道的 SecOC 统计（secocAccepted/secocRejected 表达式经此解析）。</summary>
     public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats
-        => _channels.TryGetValue(_defaultChannelName, out var ctx) ? ctx.SecOcStats : null;
+        => SecOcStatsFor(null);
+
+    /// <summary>
+    /// 项 2（2026-09-17）：逐通道路由——按通道名取对应 SingleChannelContext 的 SecOC
+    /// 统计；null/空 = 默认通道；未知名 = null（无该通道统计，表达式读零计数）。
+    /// </summary>
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStatsFor(string? channelName)
+    {
+        var name = string.IsNullOrEmpty(channelName) ? _defaultChannelName : channelName;
+        return _channels.TryGetValue(name, out var ctx) ? ctx.SecOcStats : null;
+    }
 
     /// <summary>per-case 复位所有通道的 SecOC 统计（spec Rev7，防跨 case 泄漏）。</summary>
     public void ResetPerCase()

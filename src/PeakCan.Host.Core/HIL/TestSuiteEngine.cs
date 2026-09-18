@@ -29,6 +29,39 @@ public sealed class TestSuiteEngine
     /// <summary>Loop 步骤硬上限（LoopStep 无 MaxIterations 字段，用常量兜底防死循环，§8.3）。</summary>
     private const int MaxLoopIterations = 100_000;
 
+    /// <summary>
+    /// 项 2（2026-09-17）：当前作用通道的引用容器。每次 ExecuteAsync 新建一个实例，
+    /// 传给 StepScopeFactory 的 currentChannelProvider（secoc 表达式按它解析统计）；
+    /// ExecuteStepListAsync 在每步执行前设置 Current = 该步的 TargetChannel。
+    /// 用引用容器而非裸字段：TestSuiteEngine 可并发跑多个 suite，不共享实例状态。
+    /// </summary>
+    private sealed class ChannelContext
+    {
+        public string? Current;
+        public Func<string?> Provider => () => Current;
+    }
+
+    /// <summary>
+    /// 读取步骤声明的目标通道（TargetChannel）。带该属性的 StepParameters 类型返回其值，
+    /// 其余（if/while/loop/assign/delay/comment 等）→ null（该步骤 secoc 表达式走默认通道）。
+    /// 用反射读取（缓存 PropertyInfo）：避免在 host 侧枚举 16 个步骤类型，hil-core 零改动；
+    /// 表达式求值是 step 级低频操作，反射开销可忽略。
+    /// </summary>
+    private static string? GetStepTargetChannel(TestCaseStep step)
+    {
+        var type = step.Parameters.GetType();
+        if (!s_targetChannelProps.TryGetValue(type, out var prop))
+        {
+            prop = type.GetProperty("TargetChannel",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            s_targetChannelProps.TryAdd(type, prop);
+        }
+        return prop?.GetValue(step.Parameters) as string;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, System.Reflection.PropertyInfo?>
+        s_targetChannelProps = new();
+
     public TestSuiteEngine(IFixtureResolver fixtureResolver, IEnumerable<IStepExecutor> executors, Contracts.IUdsSession? uds = null)
     {
         _fixtureResolver = fixtureResolver;
@@ -64,6 +97,9 @@ public sealed class TestSuiteEngine
         suiteStopwatch.Stop(); // Will be restarted properly below
         suiteStopwatch.Restart();
 
+        // 项 2：每次 ExecuteAsync 新建当前通道容器（多 suite 并发不共享）。
+        var channelCtx = new ChannelContext();
+
         // Suite Fixtures
         var suiteFixtures = ResolveFixtures(suite.SuiteFixtureKeys);
         var setupFailures = new List<string>();
@@ -89,7 +125,8 @@ public sealed class TestSuiteEngine
 
                 var caseResult = await ExecuteCaseAsync(
                     caseModel, ctx, config, caseIndex,
-                    sinkFactory, frameStats, suite.Parameters, linkedCt, externalCt);
+                    sinkFactory, frameStats, suite.Parameters, linkedCt, externalCt,
+                    channelCtx);
                 caseResults.Add(caseResult);
 
                 progress?.Report(new TestProgress(caseIndex + 1, suite.Cases.Count, caseModel.Name));
@@ -124,10 +161,14 @@ public sealed class TestSuiteEngine
             CaseResults: caseResults.AsReadOnly());
     }
 
+    // CA1068 例外：channelCtx 追加在两 CT 之后（实现细节透传，非 API 契约），
+    // 项目无全局 disable 时用 pragma 局部压制（与仓库既有 CA 例外惯例一致）。
+#pragma warning disable CA1068 // CancellationToken 参数应放在最后
     private async Task<TestCaseResult> ExecuteCaseAsync(
         TestCase testCase, Contracts.IAssertionContext ctx, TestSuiteConfig config, int caseIndex,
         Contracts.IHilFrameSinkFactory? sinkFactory, IFrameStatistics? frameStats,
-        IReadOnlyDictionary<string, ParameterValue>? suiteParams, CancellationToken ct, CancellationToken externalCt)
+        IReadOnlyDictionary<string, ParameterValue>? suiteParams, CancellationToken ct, CancellationToken externalCt,
+        ChannelContext channelCtx)
     {
         // 清空步骤间变量，防止上一 case 拋留值污染（review M-1）：
         // case A 的 ReadDid 写入 did_0xF190，case B 的 AssertDidValue 若读到残留会产生假阳性
@@ -188,17 +229,22 @@ public sealed class TestSuiteEngine
                 // 非控制流 suite 不用表达式，无影响）。
                 // §3 dtcPresent 预查 set（case 级；_uds=null 时 null → dtcPresent 不可用 → UNKNOWN_FUNCTION）
                 var dtcPresentSet = _uds is null ? null : new HashSet<uint>();
+                // 项 2：resolver 经 ISecOcStatsSource 按通道名取统计；currentChannelProvider
+                // 读 ChannelContext（每步执行前设置）——表达式自动跟随步骤 TargetChannel。
                 var scope = StepScopeFactory.Create(
                     ctx, ctx as IStepVariableStore, frameStats, caseStart,
                     suiteParams: suiteParams, caseParams: testCase.Parameters,
-                    dtcPresentSet: dtcPresentSet);
+                    dtcPresentSet: dtcPresentSet,
+                    secocStatsResolver: (c, channel) => (c as Contracts.ISecOcStatsSource)?.SecOcStatsFor(channel),
+                    currentChannelProvider: channelCtx.Provider);
 
                 // v11 H1：单解释器路径。非控制流 suite 递归退化为扁平循环（顶层步骤列表，无嵌套 body）。
                 await ExecuteStepListAsync(
                     testCase.Steps, scope, ctx,
                     containerStepIndex: null, pathPrefix: null,
                     config, stepResults, iteration: null,
-                    frameStats, caseStart, failure, dtcPresentSet, ct);
+                    frameStats, caseStart, failure, dtcPresentSet, ct,
+                    channelCtx);
             }
             }
             catch (OperationCanceledException)
@@ -282,12 +328,18 @@ public sealed class TestSuiteEngine
         FailureCtx failure,
         // §3 dtcPresent 预查 set 透传（case 级，if/while 条件求值前引擎预查填 active DTC codes）
         HashSet<uint>? dtcPresentSet,
-        CancellationToken ct)
+        CancellationToken ct,
+        ChannelContext? channelCtx)
     {
         for (int i = 0; i < steps.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
             var step = steps[i];
+
+            // 项 2：设置当前作用通道为该步的 TargetChannel（叶步骤有；容器步骤无 → null → 默认通道）。
+            // secoc 表达式在该步的参数/条件求值时经 currentChannelProvider 读到它。
+            if (channelCtx is not null)
+                channelCtx.Current = GetStepTargetChannel(step);
 
             // ⑤ StepIndex/Path 填充规则：
             // - StepIndex = 外层透传的顶层 index（递归进 body 时不递增，body 内所有叶共享外层容器的 StepIndex）
@@ -381,7 +433,8 @@ public sealed class TestSuiteEngine
                     {
                         await ExecuteStepListAsync(body, scope, ctx,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration, frameStats, caseStart, failure, dtcPresentSet, ct);
+                            config, stepResults, iteration, frameStats, caseStart, failure, dtcPresentSet, ct,
+                            channelCtx);
                         // body 内 Assign/ReadDid 可能写入 Variables → 刷新 scope，使后续兄弟步骤可读
                         scope = RefreshScope(scope, ctx);
                     }
@@ -437,7 +490,8 @@ public sealed class TestSuiteEngine
                                 var iterScope = WithIndexVar(scope, rp.IndexVar, ExpressionValue.FromLong(k));
                                 await ExecuteStepListAsync(rp.Body, iterScope, ctx,
                                     containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                    config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
+                                    config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct,
+                                    channelCtx);
                                 // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                                 scope = RefreshScope(scope, ctx);
                             }
@@ -470,7 +524,8 @@ public sealed class TestSuiteEngine
                         if (!guard.Value) break;  // 条件 false → 退出循环
                         await ExecuteStepListAsync(rp.Body, iterScope, ctx,
                             containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                            config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
+                            config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct,
+                            channelCtx);
                         // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代 guard 可读
                         scope = RefreshScope(scope, ctx);
                         k++;
@@ -538,7 +593,8 @@ public sealed class TestSuiteEngine
                             var iterScope = WithIndexVar(scope, lp.IndexVar, ExpressionValue.FromDouble(v));
                             await ExecuteStepListAsync(lp.Body, iterScope, ctx,
                                 containerStepIndex: stepIndex, pathPrefix: childPathPrefix,
-                                config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct);
+                                config, stepResults, iteration: k, frameStats, caseStart, failure, dtcPresentSet, ct,
+                                channelCtx);
                             // body 内 Assign/ReadDid 写入 Variables → 刷新 scope，使下一迭代可读
                             scope = RefreshScope(scope, ctx);
                             k++;
@@ -604,6 +660,7 @@ public sealed class TestSuiteEngine
     /// 不负责：StopCase 跳过后续兄弟（列表级逻辑，在 <see cref="ExecuteStepListAsync"/>）。
     /// 返回自身的最终 StepResult（负测试 in-place 改自己经返回值带出，不改兄弟，§⑦）。
     /// </summary>
+#pragma warning restore CA1068
     private async Task<StepResult> ExecuteLeafAsync(
         TestCaseStep step, Contracts.IAssertionContext ctx,
         int stepIndex, string? path, int? iteration, CancellationToken ct)

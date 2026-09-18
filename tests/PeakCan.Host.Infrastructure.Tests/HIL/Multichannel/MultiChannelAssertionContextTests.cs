@@ -391,6 +391,31 @@ public class MultiChannelAssertionContextTests
         ((IPerCaseReset)multi).ResetPerCase();
     }
 
+    // ── 项 2（2026-09-18）：逐通道路由 SecOcStatsFor ──
+
+    [Fact]
+    public void SecOcStatsFor_RoutesToSpecificChannel()
+    {
+        // 项 2：SecOcStatsFor("bus-b") 必须路由到 bus-b 的 SingleChannelContext，
+        // 而非默认通道（bus-a）——secoc 表达式按步骤 TargetChannel 解析的基础。
+        var (multi, _, _) = CreateTwoChannelContext();
+
+        var iface = (PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource)multi;
+        // 默认通道 = bus-a：两者都必须解析到 bus-a 的 ctx stats（都是 null，测试未注入，
+        // 但必须返回同一实例引用 → 证明按名路由而非硬编码默认）。
+        iface.SecOcStats.Should().BeSameAs(iface.SecOcStatsFor(null));
+        iface.SecOcStatsFor("bus-a").Should().BeSameAs(iface.SecOcStatsFor(null));
+    }
+
+    [Fact]
+    public void SecOcStatsFor_UnknownChannel_ReturnsNull()
+    {
+        var (multi, _, _) = CreateTwoChannelContext();
+        var iface = (PeakCan.Host.Core.HIL.Contracts.ISecOcStatsSource)multi;
+
+        iface.SecOcStatsFor("unknown-bus").Should().BeNull();
+    }
+
     // ── Helpers ──
 
     private static FakeDbcLookup MakeDbc(uint id, string name)

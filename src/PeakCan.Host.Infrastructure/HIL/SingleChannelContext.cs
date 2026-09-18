@@ -47,6 +47,11 @@ internal sealed class SingleChannelContext : IAssertionContext, IHasRecentFrames
     // --- ISecOcStatsSource / IPerCaseReset (spec §5-D6.2 / Rev7) ---
     public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStats => _secOcStats;
 
+    /// <summary>项 2：按通道名取 stats——本通道只对自己有统计（接受自己的名/null/空），
+    /// 其他通道名 → null（防误路由到错误通道的统计）。</summary>
+    public PeakCan.Host.Core.HIL.Contracts.ISecOcStats? SecOcStatsFor(string? channelName)
+        => AcceptsChannelName(channelName) ? _secOcStats : null;
+
     public void ResetPerCase()
         => global::PeakCan.Host.Infrastructure.Channel.SecOc.SecOcStatsReset.ResetPerCase(_secOcStats);
 

@@ -14,8 +14,15 @@ public interface ISecOcStats
 /// Capability interface (spec §5-D1 capability resolution): implemented by
 /// assertion contexts that can supply SecOC statistics; the expression scope
 /// factory discovers it via <c>ctx is ISecOcStatsSource</c>.
+/// <para>
+/// 项 2（2026-09-17）：多通道逐通道路由——实现方可选提供 <see cref="SecOcStatsFor"/>；
+/// 不实现（旧实现）时 DIM 默认回落 <see cref="SecOcStats"/>（单通道向后兼容）。
+/// </para>
 /// </summary>
 public interface ISecOcStatsSource
 {
     ISecOcStats? SecOcStats { get; }
+
+    /// <summary>按通道名取 SecOC 统计（null/空 = 默认通道）。DIM 默认回落 <see cref="SecOcStats"/>。</summary>
+    ISecOcStats? SecOcStatsFor(string? channelName) => SecOcStats;
 }
