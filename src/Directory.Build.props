@@ -10,10 +10,10 @@
          script (its target is src/Directory.Build.props). Manual edits get
          overwritten on the next ship. This is the SINGLE SOURCE OF TRUTH for
          the shipping version — the repo-root file deliberately declares none. -->
-    <Version>3.65.0</Version>
-    <AssemblyVersion>3.65.0.0</AssemblyVersion>
-    <FileVersion>3.65.0.0</FileVersion>
-    <InformationalVersion>3.65.0</InformationalVersion>
+    <Version>3.66.0</Version>
+    <AssemblyVersion>3.66.0.0</AssemblyVersion>
+    <FileVersion>3.66.0.0</FileVersion>
+    <InformationalVersion>3.66.0</InformationalVersion>
 
     <!-- src/ now runs the same Recommended analyzer set as tests/tools
          (inherited from the repo-root file). The three performance-only rules
