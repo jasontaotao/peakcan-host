@@ -65,8 +65,8 @@ public class J1939ReassemblyServiceTests
 
         result.Should().ContainSingle();
         result[0].Status.Should().Be(ReassemblyStatus.Complete);
-        result[0].Message.Payload.Should().Equal(Payload);
-        result[0].Message.CompletedTimestampSec.Should().Be(1.07);
+        result[0].Message!.Payload.Should().Equal(Payload);
+        result[0].Message!.CompletedTimestampSec.Should().Be(1.07);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class J1939ReassemblyServiceTests
 
         result.Should().ContainSingle();
         result[0].Status.Should().Be(ReassemblyStatus.Truncated);
-        result[0].Message.Payload.Should().HaveCount(49);   // 部分载荷保留（0xFF 填充）
+        result[0].Message!.Payload.Should().HaveCount(49);   // 部分载荷保留（0xFF 填充）
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class J1939ReassemblyServiceTests
 
         var result = Service.Reassemble(frames);
 
-        result.Select(r => r.Message.Pgn).Should().ContainInOrder(0x00F002, 0x00F001);
+        result.Select(r => r.Message!.Pgn).Should().ContainInOrder(0x00F002, 0x00F001);
     }
 
     [Fact]
@@ -112,9 +112,9 @@ public class J1939ReassemblyServiceTests
 
         result.Should().ContainSingle();
         result[0].Status.Should().Be(ReassemblyStatus.Complete);
-        result[0].Message.Mode.Should().Be(TpMode.RtsCts);
-        result[0].Message.Payload.Should().Equal(Payload);
-        result[0].Message.CompletedTimestampSec.Should().Be(1.08);
+        result[0].Message!.Mode.Should().Be(TpMode.RtsCts);
+        result[0].Message!.Payload.Should().Equal(Payload);
+        result[0].Message!.CompletedTimestampSec.Should().Be(1.08);
     }
 
     [Fact]
@@ -141,5 +141,45 @@ public class J1939ReassemblyServiceTests
         });
 
         result.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// 发散审查 MEDIUM-3：离线层 EvictIfFull 照跑——超过 MaxConcurrentSessions（默认 32）时
+    /// 被驱逐的会话不得静默消失，须产出 Message=null 的 Evicted 诊断行。
+    /// </summary>
+    [Fact]
+    public void Table_Full_Eviction_Surfaces_Dropped_Row()
+    {
+        var frames = new List<ReplayFrame>();
+        // 33 个不同 SA 的 BAM CM（仅 CM，无 DT → 会话保持打开不完成）→ 第 33 个触发驱逐（默认上限 32）
+        for (byte sa = 0x01; sa <= 0x21; sa++)
+            frames.AddRange(BamFrames(new byte[] { 1, 2, 3, 4, 5, 6, 7 }, 0x000200, sa, startSec: sa).Take(1));
+
+        var result = Service.Reassemble(frames);
+
+        var evicted = result.Should().ContainSingle(r => r.Status == ReassemblyStatus.Evicted).Subject;
+        evicted.Message.Should().BeNull();
+        evicted.Detail.Should().Be("session table full");
+        result.Count(r => r.Status == ReassemblyStatus.Truncated).Should().Be(32);   // 其余 32 会话仍在（截断）
+    }
+
+    /// <summary>
+    /// 发散审查 MEDIUM-3：同 (SA,DA) 新 CM supersede 进行中会话时，被取代会话须产出
+    /// Message=null 的 Superseded 诊断行（此前静默丢弃，原消息消失无痕迹）。
+    /// </summary>
+    [Fact]
+    public void Repeated_Cm_Surfaces_Superseded_Dropped_Row()
+    {
+        var frames = new List<ReplayFrame>();
+        // 会话 (0xF4, 0xFF) 0x200 进行中：CM + DT#1
+        frames.AddRange(BamFrames(Payload, 0x000200, 0xF4, startSec: 1.0).Take(2));
+        // 同 SA 新 CM（0x300）→ supersede 旧会话（restarted）
+        frames.AddRange(BamFrames(new byte[] { 1, 2, 3, 4, 5, 6, 7 }, 0x000300, 0xF4, startSec: 2.0).Take(1));
+
+        var result = Service.Reassemble(frames);
+
+        var superseded = result.Should().ContainSingle(r => r.Status == ReassemblyStatus.Superseded).Subject;
+        superseded.Message.Should().BeNull();
+        superseded.Detail.Should().Be("restarted");
     }
 }

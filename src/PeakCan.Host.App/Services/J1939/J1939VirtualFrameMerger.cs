@@ -32,7 +32,9 @@ public static class J1939VirtualFrameMerger
 
     private static ReplayFrame ToVirtualFrame(ReassembledJ1939Message m)
     {
-        var msg = m.Message;
+        // 不变式：仅 Complete 行被调用（上方 Where 过滤），Complete 必有消息。
+        // Evicted/Superseded 诊断行（Message=null）不产虚拟帧，永不至此。
+        var msg = m.Message ?? throw new InvalidOperationException("Complete 状态的重组行必须有 Message");
         var id = J1939Id.IsPdu1Pgn(msg.Pgn)
             ? J1939Id.Compose(msg.Priority, msg.Pgn, msg.Sa, msg.Da)
             : J1939Id.Compose(msg.Priority, msg.Pgn, msg.Sa);

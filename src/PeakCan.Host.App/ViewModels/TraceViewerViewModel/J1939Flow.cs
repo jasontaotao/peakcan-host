@@ -67,7 +67,8 @@ public sealed partial class TraceViewerViewModel
     [RelayCommand]
     private void SeekToReassembled(ReassembledJ1939Message? message)
     {
-        if (message is null || _masterService is null)
+        // Message 可为 null（Evicted/Superseded 诊断行无消息可跳转）。
+        if (message is null || message.Message is null || _masterService is null)
             return;
         // 本地副本：字段的可空流态不跨 lambda 边界。RunOnUi（DispatcherExtensions 同款三路径）：
         // 无 Application（单测）或已在 UI 线程 → 内联执行；生产 worker → Dispatcher.Invoke 同步 marshal。

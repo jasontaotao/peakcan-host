@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Core.J1939;
 
@@ -29,13 +30,13 @@ public sealed partial class J1939TpLayer
         List<J1939SessionEvent>? timeouts = null;
         lock (_gate)
         {
-            List<SessionKey>? expired = null;
+            List<RxSessionKey>? expired = null;
             foreach (var (key, s) in _rxSessions)
             {
                 var elapsed = _timeProvider.GetElapsedTime(s.LastFrameTimestampTicks);
                 if (elapsed.TotalMilliseconds < _options.T1Ms)
                     continue;
-                (expired ??= new List<SessionKey>()).Add(key);
+                (expired ??= new List<RxSessionKey>()).Add(key);
             }
 
             if (expired is not null)
@@ -46,7 +47,8 @@ public sealed partial class J1939TpLayer
                     if (!_rxSessions.Remove(key, out var s))
                         continue;
                     LogSessionTimeout(_logger ?? NullLogger<J1939TpLayer>.Instance, key.Sa, key.Da, s.Pgn);
-                    timeouts.Add(new J1939SessionEvent(SessionEventKind.Timeout, key.Sa, key.Da, s.Pgn, s.Mode, "T1"));
+                    // T1 超时时间戳 = 会话最后活动帧的 bus 秒（与握手/丢包事件同基准）。
+                    timeouts.Add(new J1939SessionEvent(SessionEventKind.Timeout, key.Channel, key.Sa, key.Da, s.Pgn, s.Mode, s.LastFrameTimestampSec, "T1"));
                 }
             }
         }
@@ -78,6 +80,34 @@ public sealed partial class J1939TpLayer
 
             _rxSessions.Clear();
             return results;
+        }
+    }
+
+    /// <summary>
+    /// 清空接收会话表（<paramref name="channel"/> 为 null = 全部；否则只清该通道的会话）。
+    /// 通道断开后调用，防 stale 会话悬空到重连后的新帧（发散审查 MEDIUM-1 生命周期侧；
+    /// 目前断线接线延后，API 先落供调用方择机接入）。
+    /// </summary>
+    public void ClearSessions(ChannelId? channel = null)
+    {
+        lock (_gate)
+        {
+            if (channel is null)
+            {
+                _rxSessions.Clear();
+                return;
+            }
+
+            List<RxSessionKey>? toRemove = null;
+            foreach (var key in _rxSessions.Keys)
+            {
+                if (key.Channel == channel)
+                    (toRemove ??= new List<RxSessionKey>()).Add(key);
+            }
+            if (toRemove is null)
+                return;
+            foreach (var key in toRemove)
+                _rxSessions.Remove(key);
         }
     }
 

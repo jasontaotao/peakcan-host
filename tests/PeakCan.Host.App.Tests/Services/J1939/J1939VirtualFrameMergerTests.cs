@@ -38,8 +38,8 @@ public class J1939VirtualFrameMergerTests
         };
         var messages = new List<ReassembledJ1939Message>
         {
-            new(Msg(0x000200, 0xF4, 0xFF), ReassemblyStatus.Complete),
-            new(Msg(0x00F001, 0x11, 0xFF), ReassemblyStatus.Truncated),   // 非完整 → 不产虚拟帧
+            new(1.07, Msg(0x000200, 0xF4, 0xFF), ReassemblyStatus.Complete),
+            new(1.0, Msg(0x00F001, 0x11, 0xFF), ReassemblyStatus.Truncated),   // 非完整 → 不产虚拟帧
         };
 
         var merged = J1939VirtualFrameMerger.Merge(raw, messages);

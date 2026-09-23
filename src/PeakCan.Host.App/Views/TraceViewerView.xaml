@@ -395,12 +395,15 @@
                                           CommandParameter="{Binding SelectedReassembled}" />
                         </DataGrid.InputBindings>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="完成时刻" Binding="{Binding Message.CompletedTimestampSec, StringFormat=F3}" Width="90" />
+                            <!-- 完成时刻 → 顶层 TimestampSec：诊断行（Message=null）也显示事件时刻。
+                                 SA/PGN/模式/长度 走 Message.*：null 行空白即可（WPF 对 null 路径静默留空）。 -->
+                            <DataGridTextColumn Header="完成时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
                             <DataGridTextColumn Header="SA" Binding="{Binding Message.Sa, StringFormat=0x{0:X2}}" Width="60" />
                             <DataGridTextColumn Header="PGN" Binding="{Binding Message.Pgn, StringFormat=0x{0:X4}}" Width="80" />
                             <DataGridTextColumn Header="模式" Binding="{Binding Message.Mode}" Width="70" />
                             <DataGridTextColumn Header="长度" Binding="{Binding Message.Payload.Length}" Width="60" />
                             <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
+                            <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </GroupBox>

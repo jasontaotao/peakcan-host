@@ -43,7 +43,7 @@ public sealed partial class J1939TpLayer
         switch (cm.Control)
         {
             case TpCmControl.Bam:
-                CreateOrReplaceSession(new SessionKey(id.SourceAddress, 0xFF), id.Priority, cm, TpMode.Bam, ts);
+                CreateOrReplaceSession(new RxSessionKey(frame.Channel, id.SourceAddress, 0xFF), id.Priority, cm, TpMode.Bam, ts);
                 break;
 
             case TpCmControl.Rts:
@@ -64,11 +64,11 @@ public sealed partial class J1939TpLayer
     // 在锁内记 3106 并引发 Evicted 事件——订阅者同步回调可能再进本层取 _gate 而自死锁；
     // 现改为锁内仅采集元数据（superseded/oversized/evicted），锁外记日志并引发事件
     // （与 HandleDt 的 lossEvent/completed 锁外引发同模式）。事件顺序不变：Evicted → Superseded。
-    private void CreateOrReplaceSession(SessionKey key, byte priority, TpCmMessage cm, TpMode mode, double ts)
+    private void CreateOrReplaceSession(RxSessionKey key, byte priority, TpCmMessage cm, TpMode mode, double ts)
     {
         TpSession? superseded = null;
         bool oversized = false;
-        (SessionKey Key, TpSession Victim)? evicted = null;
+        (RxSessionKey Key, TpSession Victim)? evicted = null;
         lock (_gate)
         {
             if (_rxSessions.TryGetValue(key, out var existing))
@@ -102,20 +102,20 @@ public sealed partial class J1939TpLayer
         {
             LogDeclaredLengthExceeds(_logger ?? NullLogger<J1939TpLayer>.Instance, cm.TotalSize, _options.MaxPayloadBytes);
             if (superseded is not null)
-                RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "superseded by oversized declaration"));
+                RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Channel, key.Sa, key.Da, superseded.Pgn, mode, ts, "superseded by oversized declaration"));
             return;
         }
 
         if (evicted is not null)
         {
             LogSessionEvicted(_logger ?? NullLogger<J1939TpLayer>.Instance, _options.MaxConcurrentSessions);
-            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Evicted, evicted.Value.Key.Sa, evicted.Value.Key.Da, evicted.Value.Victim.Pgn, evicted.Value.Victim.Mode, "session table full"));
+            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Evicted, evicted.Value.Key.Channel, evicted.Value.Key.Sa, evicted.Value.Key.Da, evicted.Value.Victim.Pgn, evicted.Value.Victim.Mode, ts, "session table full"));
         }
 
         if (superseded is not null)
         {
             LogSessionSuperseded(_logger ?? NullLogger<J1939TpLayer>.Instance, key.Sa, key.Da, superseded.Pgn);
-            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Sa, key.Da, superseded.Pgn, mode, "restarted"));
+            RaiseSessionEvent(new J1939SessionEvent(SessionEventKind.Superseded, key.Channel, key.Sa, key.Da, superseded.Pgn, mode, ts, "restarted"));
         }
     }
 
@@ -131,18 +131,18 @@ public sealed partial class J1939TpLayer
                       // （TP.DT 目标为实际对端地址而非 0xFF），若不建会话则整条会话被丢弃、
                       // 无虚拟帧产出，多帧信号取不到（J1939ReassemblyServiceTests 回归钉住）。
 
-        CreateOrReplaceSession(new SessionKey(id.SourceAddress, id.PduSpecific), id.Priority, cm, TpMode.RtsCts, ts);
+        CreateOrReplaceSession(new RxSessionKey(frame.Channel, id.SourceAddress, id.PduSpecific), id.Priority, cm, TpMode.RtsCts, ts);
 
         // Task 8 hardening（Task 6 review 路由）：OfflineMode 的 xmldoc 承诺"禁止一切主动发送"——
         // 离线回放即使注册了本机地址并收到指向本机的 RTS，也绝不注入初始 CTS（续授权 CTS 与
         // EOM_ACK 分别由 HandleDt 的 !OfflineMode 条件把关）。会话仍建立，供 DT 重组与离线 flush 结算。
         if (_options.OfflineMode)
             return;
-        SendCts(id.SourceAddress, id.PduSpecific, id.Priority, cm);
+        SendCts(frame.Channel, id.SourceAddress, id.PduSpecific, id.Priority, cm);
     }
 
     /// <summary>接收方 CTS：grant = 策略放行包数（0=全部剩余，恒 ≥1）。</summary>
-    private void SendCts(byte peerSa, byte localDa, byte priority, TpCmMessage rts)
+    private void SendCts(ChannelId channel, byte peerSa, byte localDa, byte priority, TpCmMessage rts)
     {
         int remaining = rts.TotalPackets;
         byte grant = _options.CtsMaxPackets == 0
@@ -157,7 +157,7 @@ public sealed partial class J1939TpLayer
         // 未建会话）时到此无会话可记账——绝不对不存在的会话授予 CTS（线上"无主"授权），静默返回。
         lock (_gate)
         {
-            if (!_rxSessions.TryGetValue(new SessionKey(peerSa, localDa), out var s))
+            if (!_rxSessions.TryGetValue(new RxSessionKey(channel, peerSa, localDa), out var s))
                 return;
             s.CurrentGrant = grant;
         }
@@ -174,7 +174,7 @@ public sealed partial class J1939TpLayer
     private void HandleDt(J1939Id id, TpDtMessage dt, CanFrame frame)
     {
         double ts = ToSeconds(frame);
-        var key = new SessionKey(id.SourceAddress, id.PduSpecific);
+        var key = new RxSessionKey(frame.Channel, id.SourceAddress, id.PduSpecific);
         TpSession? completed = null;
         J1939SessionEvent? lossEvent = null;
         CanFrame? ctsContinuation = null;   // Task 4 review：锁内仅构造帧，锁外 FireAndForget
@@ -223,8 +223,8 @@ public sealed partial class J1939TpLayer
                 {
                     // 在线：会话作废 + PacketLoss 事件（spec §12）
                     _rxSessions.Remove(key);
-                    lossEvent = new J1939SessionEvent(SessionEventKind.PacketLoss, key.Sa, key.Da, s.Pgn, s.Mode,
-                        $"expected seq {s.NextExpectedSeq}, got {dt.SequenceNumber}");
+                    lossEvent = new J1939SessionEvent(SessionEventKind.PacketLoss, key.Channel, key.Sa, key.Da, s.Pgn, s.Mode,
+                        ts, $"expected seq {s.NextExpectedSeq}, got {dt.SequenceNumber}");
                 }
             }
             else
@@ -289,7 +289,7 @@ public sealed partial class J1939TpLayer
 
     /// <summary>构造 CTS 续授权帧。必须在 _gate 内调用（读取会话状态）；发送由调用方在锁外
     /// FireAndForget（Task 4 review：原 SendCtsContinuation 在锁内发送，回调可能自死锁）。</summary>
-    private static CanFrame BuildCtsContinuation(SessionKey key, TpSession s, byte grant)
+    private static CanFrame BuildCtsContinuation(RxSessionKey key, TpSession s, byte grant)
     {
         return new CanFrame(
             new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
@@ -299,7 +299,7 @@ public sealed partial class J1939TpLayer
 
     /// <summary>构造 EOM.ACK 帧。必须在 _gate 内调用（读取会话状态）；发送由调用方在锁外
     /// FireAndForget（Task 4 review：原 SendEomAck 在锁内发送，回调可能自死锁）。</summary>
-    private static CanFrame BuildEomAck(SessionKey key, TpSession s)
+    private static CanFrame BuildEomAck(RxSessionKey key, TpSession s)
     {
         return new CanFrame(
             new CanId(J1939Id.Compose(s.Priority, TpCmPgn, key.Da, key.Sa), FrameFormat.Extended),
@@ -310,12 +310,12 @@ public sealed partial class J1939TpLayer
     /// <summary>容量防御：接收会话超上限时驱逐最近活动最旧者（近似 LRU）。
     /// 必须在 _gate 内调用：仅摘除受害者并返回其 (key, session)；3106 日志与 Evicted 事件
     /// 由调用方在锁外记日志/引发（Task 4 review：锁内引发会与需要 _gate 的同步订阅者死锁）。</summary>
-    private (SessionKey Key, TpSession Victim)? EvictIfFull_Locked()
+    private (RxSessionKey Key, TpSession Victim)? EvictIfFull_Locked()
     {
         if (_rxSessions.Count < _options.MaxConcurrentSessions)
             return null;
 
-        byte evictSa = 0, evictDa = 0;
+        RxSessionKey? victimKey = null;
         double oldest = double.MaxValue;
         TpSession? victim = null;
         foreach (var (key, s) in _rxSessions)
@@ -324,14 +324,13 @@ public sealed partial class J1939TpLayer
             {
                 oldest = s.LastFrameTimestampSec;
                 victim = s;
-                (evictSa, evictDa) = key;
+                victimKey = key;
             }
         }
 
-        if (victim is null)
+        if (victim is null || victimKey is null)
             return null;
-        var victimKey = new SessionKey(evictSa, evictDa);
-        _rxSessions.Remove(victimKey);
-        return (victimKey, victim);
+        _rxSessions.Remove(victimKey.Value);
+        return (victimKey.Value, victim);
     }
 }

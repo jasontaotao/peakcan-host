@@ -298,7 +298,9 @@
                     </Style>
                 </DataGrid.RowStyle>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="时刻" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="90" />
+                    <!-- 时刻 = bus 秒（F3，与主网格/离线面板同基准）；通道 = 触发帧所属通道 -->
+                    <DataGridTextColumn Header="时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
+                    <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="60" />
                     <DataGridTextColumn Header="事件" Binding="{Binding Kind}" Width="90" />
                     <DataGridTextColumn Header="SA" Binding="{Binding Sa, StringFormat=0x{0:X2}}" Width="50" />
                     <DataGridTextColumn Header="DA" Binding="{Binding Da, StringFormat=0x{0:X2}}" Width="50" />

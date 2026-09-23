@@ -20,8 +20,17 @@ public sealed partial class J1939TpLayer
     /// <summary>TP.DT 的 PGN（60160）。</summary>
     public const uint TpDtPgn = 0x00EB00;
 
-    /// <summary>会话归属键：DT 帧不含 PGN，按 (源地址, 目标地址) 归属；BAM 会话 Da=0xFF。</summary>
+    /// <summary>
+    /// 发送会话归属键：RTS/CTS 对端 (SA, DA)。发送是"活动通道单活动会话"（J1939 限制：
+    /// 同 (SA,DA) 只允许一个发送状态机），无通道维度。
+    /// </summary>
     internal readonly record struct SessionKey(byte Sa, byte Da);
+
+    /// <summary>
+    /// 接收会话归属键：按 (通道, 源地址, 目标地址)——多通道同 Sa 的 BAM/RTS 会话互不碰撞
+    /// （发散审查 MEDIUM-1）；BAM 会话 Da=0xFF。DT 帧不含 PGN，靠此键归属。
+    /// </summary>
+    internal readonly record struct RxSessionKey(ChannelId Channel, byte Sa, byte Da);
 
     /// <summary>接收会话（BAM 与 RTS/CTS 接收方共用）。</summary>
     internal sealed class TpSession
@@ -66,7 +75,7 @@ public sealed partial class J1939TpLayer
     private readonly ILogger<J1939TpLayer>? _logger;
     private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
-    private readonly Dictionary<SessionKey, TpSession> _rxSessions = new();
+    private readonly Dictionary<RxSessionKey, TpSession> _rxSessions = new();
     private readonly Dictionary<SessionKey, RtsCtsTxSession> _txSessions = new();   // RTS/CTS 发送会话（RtsCtsFlow，Task 7）
     private readonly HashSet<byte> _localAddresses = new();
     private double _lastActivityTimestampSec;

@@ -51,7 +51,7 @@ public class TraceViewerGbt27930ClosedLoopTests
         // Assert — 5 个完整 BRM 会话全部重组成 Complete 虚拟帧
         var complete = vm.ReassembledMessages.Where(m => m.Status == ReassemblyStatus.Complete).ToList();
         complete.Should().HaveCount(5, "fixture 含 5 个完整 RTS/CTS BRM 会话");
-        complete.Should().OnlyContain(m => m.Message.Pgn == 0x000200, "BRM PGN");
+        complete.Should().OnlyContain(m => m.Message!.Pgn == 0x000200, "BRM PGN");
         vm.DecodeFrames.Should().Contain(
             f => (f.Id & 0x7FFFFFFFu) == BrmVirtualId,
             "DecodeFrames 必须并入重组 BRM 虚拟帧");

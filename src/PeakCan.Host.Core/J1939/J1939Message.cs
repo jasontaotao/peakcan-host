@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.J1939;
 namespace PeakCan.Host.Core.J1939;
 
@@ -25,13 +26,19 @@ public enum SessionEventKind : byte
     Evicted,
 }
 
-/// <summary>会话异常事件（在调用 ProcessFrame 的线程同步引发）。</summary>
+/// <summary>
+/// 会话异常事件（在调用 ProcessFrame 的线程同步引发；Timeout 在看门狗定时器线程）。
+/// </summary>
+/// <param name="Channel">触发帧所属通道（离线回放恒 ChannelId.None）。</param>
+/// <param name="TimestampSec">bus 秒（SDK 微秒 / 1e6，与主网格时间同基准；Timeout 用会话最后活动时刻）。</param>
 public sealed record J1939SessionEvent(
     SessionEventKind Kind,
+    ChannelId Channel,
     byte Sa,
     byte Da,
     uint Pgn,
     TpMode Mode,
+    double TimestampSec,
     string Detail);
 
 /// <summary>离线 flush 的未闭合会话结局。</summary>
