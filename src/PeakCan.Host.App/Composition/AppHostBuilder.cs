@@ -258,6 +258,10 @@ public partial class AppHostBuilder
                 j1939Logger);
         });
         builder.Services.AddSingleton<PeakCan.Host.App.Composition.J1939TpSinkAdapter>();
+        // J1939TP 在线会话异常（SessionEvent）→ 实时 Trace 面板：IHostedService 随宿主
+        // 启动订阅、停止退订（详见 J1939TpSessionEventSink 的类注释）。不用 SinkWiringService
+        // 构造依赖——其测试是手搭最小 DI 图，加构造参需同步改测试。
+        builder.Services.AddHostedService<PeakCan.Host.App.Composition.J1939TpSessionEventSink>();
 
         // v1.1.0: SecurityAccess KeyProvider default. OEM overrides this at deploy time.
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IKeyDerivationAlgorithm, PeakCan.Host.Core.Uds.PlaceholderKeyAlgorithm>();

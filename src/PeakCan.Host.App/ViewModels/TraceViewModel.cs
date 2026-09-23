@@ -158,6 +158,8 @@ public sealed partial class TraceViewModel : ObservableObject
     private void Clear()
     {
         Entries.Clear();
+        // J1939TP 会话事件随清空一并丢弃（与 Entries 同生命周期；桥接层后续新事件仍会入列）。
+        J1939SessionEvents.Clear();
         TotalFrameCount = 0;
         _messageCounts.Clear();
         // v1.2.11: drop pending-decode entries so stale lookups don't fill
