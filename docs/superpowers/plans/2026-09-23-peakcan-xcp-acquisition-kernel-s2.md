@@ -345,3 +345,8 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 2. 每个 Phase 收尾跑一次全仓 `dotnet test`（Release 等价 ci.yml 过滤器 `Performance!=true&FullyQualifiedName!~Manual`）+ 覆盖率聚合复核 ≥70%；全程不 push。
 3. T5 之后每新增一个 Core.Xcp 公开类型都要过 NetArchTest 守卫（T18 之前靠临时断言文件，T18 落地后合并）。
 4. 本计划实施期间**不改 a2l-editor 代码**（缺口只记录不修）；App 层零改动；`src/` 之外只允许动 `ci.yml`、`Directory.Packages.props`，`Directory.Build.props` 不动。
+
+
+## 评审补遗（T2 评审 2026-09-23）
+
+- T4 决策点（T2 评审要求落纸面）：(a) XcpMaster 收到 EV 0xFD 帧（如 SYNCH 后 EV_SLAVE_CMD_SYNC）——消费并忽略，不算协议错误；(b) 收到 ERR_CMD_SYNCH(0x00)——不自动重发 SYNCH，直接上抛（归因层决定恢复动作）。(c) 负响应 PID 笔误更正：负响应是 [0xFE, ERR]，计划原文 FF+ERR 作废。(d) ValidatePositiveResponse 的 expectedPid 死参已删（c598adc4）；XcpGoldenSamples CONNECT commModeBasic=0x01 语义已钉死（SLAVE_BLOCK_MODE=1+Intel，对应 A2L BLOCK SLAVE）。
