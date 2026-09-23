@@ -11,7 +11,7 @@ public static class XcpGoldenSamples
     /// <summary>CONNECT 请求 [FF, mode=00, reserved×6]。</summary>
     public static ReadOnlyMemory<byte> ConnectRequest { get; } = new byte[] { 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>CONNECT 正响应 [FF, protocolVersion=01, transportVersion=01, resources=04(DAQ), commModeBasic=01(Motorola), reserved×3]。</summary>
+    /// <summary>CONNECT 正响应 [FF, protocolVersion=01, transportVersion=01, resources=04(DAQ), commModeBasic=01(SLAVE_BLOCK_MODE=1+Intel，对应 A2L BLOCK SLAVE；字节序冲突见台架 A-5), reserved×3]。</summary>
     public static ReadOnlyMemory<byte> ConnectPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x01, 0x04, 0x01, 0x00, 0x00, 0x00 };
 
     /// <summary>CONNECT 负响应 [FE, ERR_OUT_OF_RANGE]（mode ≠ 0 时）。</summary>

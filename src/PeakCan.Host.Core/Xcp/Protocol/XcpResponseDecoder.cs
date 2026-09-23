@@ -12,7 +12,7 @@ public static class XcpResponseDecoder
     /// </summary>
     public static XcpConnectResponse Connect(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, XcpPid.Connect, minLength: 5);
+        ValidatePositiveResponse(response, minLength: 5);
 
         return new XcpConnectResponse(
             ProtocolVersion: response[1],
@@ -24,7 +24,7 @@ public static class XcpResponseDecoder
     /// <summary>CMD_DISCONNECT 正响应：[FF]，无字段。</summary>
     public static void Disconnect(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, XcpPid.Disconnect, minLength: 1);
+        ValidatePositiveResponse(response, minLength: 1);
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public static class XcpResponseDecoder
     /// </summary>
     public static XcpGetStatusResponse GetStatus(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, XcpPid.GetStatus, minLength: 5);
+        ValidatePositiveResponse(response, minLength: 5);
 
         return new XcpGetStatusResponse(
             SessionStatus: response[1],
@@ -43,7 +43,7 @@ public static class XcpResponseDecoder
     /// <summary>CMD_SYNCH 正响应：[FF]，无字段。</summary>
     public static void Synch(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, XcpPid.Synch, minLength: 1);
+        ValidatePositiveResponse(response, minLength: 1);
     }
 
     /// <summary>
@@ -51,7 +51,7 @@ public static class XcpResponseDecoder
     /// </summary>
     public static XcpGetCommModeInfoResponse GetCommModeInfo(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, XcpPid.GetCommModeInfo, minLength: 8);
+        ValidatePositiveResponse(response, minLength: 8);
 
         return new XcpGetCommModeInfoResponse(
             CommModeOptional: response[2],
@@ -77,7 +77,7 @@ public static class XcpResponseDecoder
         return new XcpErrorResponse((XcpError)response[1]);
     }
 
-    private static void ValidatePositiveResponse(ReadOnlySpan<byte> response, byte expectedPid, int minLength)
+    private static void ValidatePositiveResponse(ReadOnlySpan<byte> response, int minLength)
     {
         if (response.Length < minLength)
             throw new ArgumentException($"Response too short: expected ≥{minLength} bytes, got {response.Length}.", nameof(response));
