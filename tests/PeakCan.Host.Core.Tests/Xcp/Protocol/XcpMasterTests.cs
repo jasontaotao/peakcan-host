@@ -222,6 +222,23 @@ public class XcpMasterTests
         await first.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    // T4 评审：响应等待期间调用方取消 → 立即 OCE，而非挂到 T1 定时器
+    //（FakeTimeProvider 不 Advance ⇒ 若仍挂在 T1 上本测试会永久阻塞）。
+    [Fact]
+    public async Task Caller_cancellation_during_response_wait_throws_immediately()
+    {
+        var transport = new FakeXcpTransport();
+        using var master = new XcpMaster(transport, new XcpMasterOptions(MasterCanId), _time);
+        using var cts = new CancellationTokenSource();
+
+        var task = master.SendAsync(XcpCommandEncoder.Synch(), cts.Token);
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+        // 取消发生在响应等待期：请求已上总线一次，且未进入重试。
+        Assert.Equal(1, transport.WriteCount);
+    }
+
     // 对齐 UdsClient C-8 fix 先例：无 pending 时到达的正响应（迟到/错位帧）丢弃，
     // 让超时语义接管，不得被当作下一个请求的响应。
     [Fact]

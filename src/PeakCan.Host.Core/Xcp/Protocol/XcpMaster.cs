@@ -20,6 +20,12 @@ namespace PeakCan.Host.Core.Xcp.Protocol;
 /// Thread-safety: 单请求互斥——pending 期间第二个请求直接拒绝（不排队，写死
 /// 于 T4：排队会拖慢 DAQ 调度，调用侧应自行串行化命令序列）。
 /// </para>
+/// <para>
+/// 残余风险（T4 评审裁决 (1) 的跨命令变体）：重试用尽抛出 XcpTimeoutException
+/// 后，命令 A 的迟到正响应仍可能到达并被误配给其后的新命令 B——XCP 无命令
+/// 关联 ID，本层 pending 存在即配对（见 OnFrameReceived）。调用侧（归因层
+/// T11+）在超时后应保持 quiesce 间隙（≥ T1）再发起下一条命令。
+/// </para>
 /// </summary>
 public sealed class XcpMaster : IDisposable
 {
@@ -82,11 +88,14 @@ public sealed class XcpMaster : IDisposable
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
             Volatile.Write(ref _responseTcs, new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously));
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             // T1 超时由 TimeProvider 驱动的定时器触发（测试用 FakeTimeProvider
             // 虚拟时钟推进）；回调只取消 pending TCS。
             using var timer = _timeProvider.CreateTimer(
                 static state => ((XcpMaster)state!).CancelPendingResponse(), this, _options.Timeout, Timeout.InfiniteTimeSpan);
+            // Caller cancellation while awaiting the response must throw OCE
+            // immediately instead of being deferred to the T1 timer.
+            using var ctRegistration = ct.Register(static (state, token) =>
+                Volatile.Read(ref ((XcpMaster)state!)._responseTcs)?.TrySetCanceled(token), this);
 
             try
             {
@@ -102,8 +111,9 @@ public sealed class XcpMaster : IDisposable
             }
             finally
             {
-                // 先摘定时器再清 TCS，避免 dispose 竞态（UdsClient 严格排序先例）。
+                // 先摘定时器/取消注册再清 TCS，避免 dispose 竞态（UdsClient 严格排序先例）。
                 timer.Dispose();
+                ctRegistration.Dispose();
                 Volatile.Write(ref _responseTcs, null);
             }
         }
