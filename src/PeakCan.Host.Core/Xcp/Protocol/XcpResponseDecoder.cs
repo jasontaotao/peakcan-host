@@ -77,6 +77,116 @@ public static class XcpResponseDecoder
         return new XcpErrorResponse((XcpError)response[1]);
     }
 
+    /// <summary>CMD_SET_MTA 正响应：[FF]，无字段。</summary>
+    public static void SetMta(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_UPLOAD 正响应：[FF, data…]。返回 data 切片（不含 PID）。</summary>
+    public static byte[] Upload(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 2);
+        return response[1..].ToArray();
+    }
+
+    /// <summary>CMD_SHORT_UPLOAD 正响应：[FF, data…]。返回 data 切片（不含 PID）。</summary>
+    public static byte[] ShortUpload(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 2);
+        return response[1..].ToArray();
+    }
+
+    /// <summary>
+    /// CMD_DOWNLOAD 正响应：[FF]，无字段。
+    /// <b>S2 编解码实现、调度禁用</b>（spec 决策 D2）——仅供协议层测试与 S5 预留。
+    /// </summary>
+    public static void Download(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_SET_DAQ_PTR 正响应：[FF]，无字段。</summary>
+    public static void SetDaqPtr(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_WRITE_DAQ 正响应：[FF]，无字段。</summary>
+    public static void WriteDaq(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_CLEAR_DAQ_LIST 正响应：[FF]，无字段。</summary>
+    public static void ClearDaqList(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_START_STOP_DAQ_LIST 正响应：[FF, firstPid(2B LE), reserved×5]。</summary>
+    public static XcpStartStopDaqListResponse StartStopDaqList(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 3);
+
+        return new XcpStartStopDaqListResponse(
+            FirstPid: (ushort)(response[1] | (response[2] << 8)));
+    }
+
+    /// <summary>CMD_START_STOP_SYNCH 正响应：[FF]，无字段。</summary>
+    public static void StartStopSynch(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 1);
+    }
+
+    /// <summary>CMD_GET_DAQ_PROCESSOR_INFO 正响应：[FF, maxDaq(2B LE), maxEventChannel(2B LE), minDaq, daqKeyByte, reserved]。</summary>
+    public static XcpGetDaqProcessorInfoResponse GetDaqProcessorInfo(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 7);
+
+        return new XcpGetDaqProcessorInfoResponse(
+            MaxDaq: (ushort)(response[1] | (response[2] << 8)),
+            MaxEventChannel: (ushort)(response[3] | (response[4] << 8)),
+            MinDaq: response[5],
+            DaqKeyByte: response[6]);
+    }
+
+    /// <summary>CMD_GET_DAQ_RESOLUTION_INFO 正响应：[FF, granularityDaq, maxIdentifierDaq, granularityStim, maxIdentifierStim, timestampTicks(3B LE)]。</summary>
+    public static XcpGetDaqResolutionInfoResponse GetDaqResolutionInfo(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 8);
+
+        return new XcpGetDaqResolutionInfoResponse(
+            GranularityDaq: response[1],
+            MaxIdentifierDaq: response[2],
+            GranularityStim: response[3],
+            MaxIdentifierStim: response[4],
+            TimestampTicks: (uint)(response[5] | (response[6] << 8) | (response[7] << 16)));
+    }
+
+    /// <summary>CMD_GET_DAQ_LIST_INFO 正响应：[FF, mode, maxOdt, maxDaqList, firstPid(2B LE), reserved×2]。</summary>
+    public static XcpGetDaqListInfoResponse GetDaqListInfo(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 6);
+
+        return new XcpGetDaqListInfoResponse(
+            Mode: response[1],
+            MaxOdt: response[2],
+            MaxDaqList: response[3],
+            FirstPid: (ushort)(response[4] | (response[5] << 8)));
+    }
+
+    /// <summary>CMD_GET_DAQ_EVENT_INFO 正响应：[FF, eventChInfo, maxDaqList, eventChannel(2B LE), eventCycle(3B LE)]。</summary>
+    public static XcpGetDaqEventInfoResponse GetDaqEventInfo(ReadOnlySpan<byte> response)
+    {
+        ValidatePositiveResponse(response, minLength: 8);
+
+        return new XcpGetDaqEventInfoResponse(
+            EventChInfo: response[1],
+            MaxDaqList: response[2],
+            EventChannel: (ushort)(response[3] | (response[4] << 8)),
+            EventCycle: (uint)(response[5] | (response[6] << 8) | (response[7] << 16)));
+    }
     private static void ValidatePositiveResponse(ReadOnlySpan<byte> response, int minLength)
     {
         if (response.Length < minLength)
@@ -85,6 +195,38 @@ public static class XcpResponseDecoder
         if (response[0] != XcpPid.PositiveResponse)
             throw new ArgumentException($"Expected positive response PID 0x{XcpPid.PositiveResponse:X2}, got 0x{response[0]:X2}.", nameof(response));
     }
+
+/// <summary>CMD_START_STOP_DAQ_LIST 正响应字段。</summary>
+public readonly record struct XcpStartStopDaqListResponse(ushort FirstPid);
+
+/// <summary>CMD_GET_DAQ_PROCESSOR_INFO 正响应字段。</summary>
+public readonly record struct XcpGetDaqProcessorInfoResponse(
+    ushort MaxDaq,
+    ushort MaxEventChannel,
+    byte MinDaq,
+    byte DaqKeyByte);
+
+/// <summary>CMD_GET_DAQ_RESOLUTION_INFO 正响应字段。</summary>
+public readonly record struct XcpGetDaqResolutionInfoResponse(
+    byte GranularityDaq,
+    byte MaxIdentifierDaq,
+    byte GranularityStim,
+    byte MaxIdentifierStim,
+    uint TimestampTicks);
+
+/// <summary>CMD_GET_DAQ_LIST_INFO 正响应字段。</summary>
+public readonly record struct XcpGetDaqListInfoResponse(
+    byte Mode,
+    byte MaxOdt,
+    byte MaxDaqList,
+    ushort FirstPid);
+
+/// <summary>CMD_GET_DAQ_EVENT_INFO 正响应字段。</summary>
+public readonly record struct XcpGetDaqEventInfoResponse(
+    byte EventChInfo,
+    byte MaxDaqList,
+    ushort EventChannel,
+    uint EventCycle);
 }
 
 /// <summary>CMD_CONNECT 正响应字段。</summary>

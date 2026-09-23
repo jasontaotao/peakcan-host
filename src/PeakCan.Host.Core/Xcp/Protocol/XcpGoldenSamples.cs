@@ -60,4 +60,150 @@ public static class XcpGoldenSamples
 
     /// <summary>GET_COMM_MODE_INFO 负响应 [FE, ERR_CMD_UNKNOWN]。</summary>
     public static ReadOnlyMemory<byte> GetCommModeInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.CmdUnknown };
+
+    // ---- SET_MTA (0xF6) ----
+
+    /// <summary>SET_MTA 请求 [F6, reserved×2, addrExt=00, addr=0x00001000 LE]。</summary>
+    public static ReadOnlyMemory<byte> SetMtaRequest { get; } = new byte[] { 0xF6, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00 };
+
+    /// <summary>SET_MTA 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> SetMtaPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>SET_MTA 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
+    public static ReadOnlyMemory<byte> SetMtaErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
+
+    // ---- UPLOAD (0xF5) ----
+
+    /// <summary>UPLOAD 请求 [F5, blockMode=00, reserved, nbytes=04, reserved×4]。</summary>
+    public static ReadOnlyMemory<byte> UploadRequest { get; } = new byte[] { 0xF5, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>UPLOAD 正响应 [FF, d0..d3]（4B 数据，最小自然帧长）。</summary>
+    public static ReadOnlyMemory<byte> UploadPositiveResponse { get; } = new byte[] { 0xFF, 0x12, 0x34, 0x56, 0x78 };
+
+    /// <summary>UPLOAD 负响应 [FE, ERR_SEQUENCE]（未 SET_MTA 就 UPLOAD）。</summary>
+    public static ReadOnlyMemory<byte> UploadErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.Sequence };
+
+    // ---- SHORT_UPLOAD (0xF4) ----
+
+    /// <summary>SHORT_UPLOAD 请求 [F4, reserved×2, nbytes=02, addr=0x00002000 LE]——CTO 8B 无 ADDR_EXT 字段。</summary>
+    public static ReadOnlyMemory<byte> ShortUploadRequest { get; } = new byte[] { 0xF4, 0x00, 0x00, 0x02, 0x00, 0x20, 0x00, 0x00 };
+
+    /// <summary>SHORT_UPLOAD 正响应 [FF, d0, d1]（2B 数据）。</summary>
+    public static ReadOnlyMemory<byte> ShortUploadPositiveResponse { get; } = new byte[] { 0xFF, 0xAB, 0xCD };
+
+    /// <summary>SHORT_UPLOAD 负响应 [FE, ERR_OUT_OF_RANGE]（nbytes 超限）。</summary>
+    public static ReadOnlyMemory<byte> ShortUploadErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
+
+    // ---- DOWNLOAD (0xF0) —— 编解码实现、调度禁用（spec 决策 D2 / §0 非目标）----
+
+    /// <summary>DOWNLOAD 请求 [F0, blockMode=00, reserved, nbytes=02, data AB CD, pad×2]。</summary>
+    public static ReadOnlyMemory<byte> DownloadRequest { get; } = new byte[] { 0xF0, 0x00, 0x00, 0x02, 0xAB, 0xCD, 0x00, 0x00 };
+
+    /// <summary>DOWNLOAD 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> DownloadPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>DOWNLOAD 负响应 [FE, ERR_WRITE_PROTECTED]。</summary>
+    public static ReadOnlyMemory<byte> DownloadErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.WriteProtected };
+
+    // ---- SET_DAQ_PTR (0xE2) ----
+
+    /// <summary>SET_DAQ_PTR 请求 [E2, reserved×2, addrExt=00, addr=0x00000000 LE]——与 SET_MTA 同构。</summary>
+    public static ReadOnlyMemory<byte> SetDaqPtrRequest { get; } = new byte[] { 0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>SET_DAQ_PTR 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> SetDaqPtrPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>SET_DAQ_PTR 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
+    public static ReadOnlyMemory<byte> SetDaqPtrErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
+
+    // ---- WRITE_DAQ (0xE1) ----
+
+    /// <summary>WRITE_DAQ 请求 [E1, bitOffset=00, entrySize=02, addrExt=00, addr=0x00001000 LE]。</summary>
+    public static ReadOnlyMemory<byte> WriteDaqRequest { get; } = new byte[] { 0xE1, 0x00, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00 };
+
+    /// <summary>WRITE_DAQ 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> WriteDaqPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>WRITE_DAQ 负响应 [FE, ERR_DAQ_ACTIVE]（表运行中拒绝重写）。</summary>
+    public static ReadOnlyMemory<byte> WriteDaqErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.DaqActive };
+
+    // ---- CLEAR_DAQ_LIST (0xE3) ----
+
+    /// <summary>CLEAR_DAQ_LIST 请求 [E3, mode=00, reserved×4, daqListNum=0000 LE]。</summary>
+    public static ReadOnlyMemory<byte> ClearDaqListRequest { get; } = new byte[] { 0xE3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>CLEAR_DAQ_LIST 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> ClearDaqListPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>CLEAR_DAQ_LIST 负响应 [FE, ERR_DAQ_ACTIVE]（表运行中拒绝清除）。</summary>
+    public static ReadOnlyMemory<byte> ClearDaqListErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.DaqActive };
+
+    // ---- START_STOP_DAQ_LIST (0xDE) ----
+
+    /// <summary>START_STOP_DAQ_LIST stop 请求 [DE, mode=00, daqList=00, reserved×5]。</summary>
+    public static ReadOnlyMemory<byte> StartStopDaqListStopRequest { get; } = new byte[] { 0xDE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>START_STOP_DAQ_LIST start 请求 [DE, mode=01, daqList=00, reserved×5]。</summary>
+    public static ReadOnlyMemory<byte> StartStopDaqListStartRequest { get; } = new byte[] { 0xDE, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>START_STOP_DAQ_LIST 正响应 [FF, firstPid=0000 LE, reserved×5]。</summary>
+    public static ReadOnlyMemory<byte> StartStopDaqListPositiveResponse { get; } = new byte[] { 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>START_STOP_DAQ_LIST 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
+    public static ReadOnlyMemory<byte> StartStopDaqListErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
+
+    // ---- START_STOP_SYNCH (0xDD) ----
+
+    /// <summary>START_STOP_SYNCH 请求 [DD, reserved×7]。</summary>
+    public static ReadOnlyMemory<byte> StartStopSynchRequest { get; } = new byte[] { 0xDD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>START_STOP_SYNCH 正响应 [FF]。</summary>
+    public static ReadOnlyMemory<byte> StartStopSynchPositiveResponse { get; } = new byte[] { 0xFF };
+
+    /// <summary>START_STOP_SYNCH 负响应 [FE, ERR_CMD_BUSY]。</summary>
+    public static ReadOnlyMemory<byte> StartStopSynchErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.CmdBusy };
+
+    // ---- GET_DAQ_PROCESSOR_INFO (0xD8) ----
+
+    /// <summary>GET_DAQ_PROCESSOR_INFO 请求 [D8, reserved×7]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqProcessorInfoRequest { get; } = new byte[] { 0xD8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_PROCESSOR_INFO 正响应 [FF, maxDaq=0001 LE, maxEventCh=0001 LE, minDaq=00, daqKeyByte=00, reserved]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqProcessorInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_PROCESSOR_INFO 负响应 [FE, ERR_CMD_UNKNOWN]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqProcessorInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.CmdUnknown };
+
+    // ---- GET_DAQ_RESOLUTION_INFO (0xD7) ----
+
+    /// <summary>GET_DAQ_RESOLUTION_INFO 请求 [D7, reserved×7]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqResolutionInfoRequest { get; } = new byte[] { 0xD7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_RESOLUTION_INFO 正响应 [FF, granDaq=01, maxIdDaq=01, granStim=00, maxIdStim=00, timestamp=000000 LE]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqResolutionInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_RESOLUTION_INFO 负响应 [FE, ERR_CMD_UNKNOWN]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqResolutionInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.CmdUnknown };
+
+    // ---- GET_DAQ_LIST_INFO (0xD9) ----
+
+    /// <summary>GET_DAQ_LIST_INFO 请求 [D9, reserved×3, daqListNum=0000 LE, reserved×2]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqListInfoRequest { get; } = new byte[] { 0xD9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_LIST_INFO 正响应 [FF, mode=00, maxOdt=0F, maxDaqList=01, firstPid=0000 LE, reserved×2]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqListInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x00, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_LIST_INFO 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqListInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
+
+    // ---- GET_DAQ_EVENT_INFO (0xDA) ----
+
+    /// <summary>GET_DAQ_EVENT_INFO 请求 [DA, reserved×2, eventChannel=0000 LE, reserved×3]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqEventInfoRequest { get; } = new byte[] { 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_EVENT_INFO 正响应 [FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle=000001 LE (3B)]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqEventInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x01, 0x00, 0x00 };
+
+    /// <summary>GET_DAQ_EVENT_INFO 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
+    public static ReadOnlyMemory<byte> GetDaqEventInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
 }
