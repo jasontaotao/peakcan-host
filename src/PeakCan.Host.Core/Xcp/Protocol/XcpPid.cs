@@ -20,11 +20,11 @@ public static class XcpPid
     /// <summary>DAQ DTO 的最后一个 PID（0xFB；0x00–0xFB 均为合法 ODT 号空间）。</summary>
     public const byte DaqDtoLast = 0xFB;
 
-    /// <summary>Event packet PID（0xFC，S2 不产生）。</summary>
-    public const byte EventPacket = 0xFC;
+    /// <summary>Event packet PID（EV，0xFD；slave→master，S2 不产生）。</summary>
+    public const byte EventPacket = 0xFD;
 
-    /// <summary>Request packet PID（0xFD，S2 不产生）。</summary>
-    public const byte RequestPacket = 0xFD;
+    /// <summary>Service request packet PID（SERV，0xFC；master→slave，接收路径不出现）。</summary>
+    public const byte ServiceRequestPacket = 0xFC;
 
     // ---- 命令码（XCP 1.0 Part 2 Table 14 中的 S2 命令清单）----
 

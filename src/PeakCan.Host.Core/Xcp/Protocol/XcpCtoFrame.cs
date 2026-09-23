@@ -33,14 +33,14 @@ public readonly record struct XcpCtoFrame
     public bool IsError => Pid == XcpPid.Error;
 
     /// <summary>
-    /// DAQ DTO 流（PID 0x00–0xFB 均为 ODT 号空间；0xFC/0xFD 为 EV/RQM 包，
+    /// DAQ DTO 流（PID 0x00–0xFB 均为 ODT 号空间；0xFD(EV)/0xFC(SERV) 为事件/服务请求包，
     /// 不属于 DAQ DTO——S2-T1-review 修正原 `Pid &lt; 0xFE` 把 EV/RQM 误判为 DTO 的语义）。
     /// </summary>
     public bool IsDaqDto => Pid <= XcpPid.DaqDtoLast;
 
-    /// <summary>Event packet 流（PID 0xFC；S2 不产生）。</summary>
+    /// <summary>Event packet 流（EV，PID 0xFD；S2 不产生）。</summary>
     public bool IsEventPacket => Pid == XcpPid.EventPacket;
 
-    /// <summary>Request packet 流（PID 0xFD；S2 不产生）。</summary>
-    public bool IsRequestPacket => Pid == XcpPid.RequestPacket;
+    /// <summary>Service request packet 流（SERV，PID 0xFC；master→slave，接收路径不出现）。</summary>
+    public bool IsServiceRequestPacket => Pid == XcpPid.ServiceRequestPacket;
 }

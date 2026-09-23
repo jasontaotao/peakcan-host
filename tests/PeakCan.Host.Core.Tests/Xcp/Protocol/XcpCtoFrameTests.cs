@@ -24,10 +24,10 @@ public class XcpCtoFrameTests
     [InlineData(0xFE, false, true, false, false, false)]
     [InlineData(0x00, false, false, true, false, false)]
     [InlineData(0xFB, false, false, true, false, false)]
-    [InlineData(0xFC, false, false, false, true, false)]
-    [InlineData(0xFD, false, false, false, false, true)]
+    [InlineData(0xFC, false, false, false, false, true)]
+    [InlineData(0xFD, false, false, false, true, false)]
     public void Pid_classifies_the_receive_streams(
-        byte pid, bool positive, bool error, bool daq, bool eventPacket, bool requestPacket)
+        byte pid, bool positive, bool error, bool daq, bool eventPacket, bool serviceRequestPacket)
     {
         var frame = new XcpCtoFrame(new byte[] { pid, 0x01 });
 
@@ -36,6 +36,6 @@ public class XcpCtoFrameTests
         Assert.Equal(error, frame.IsError);
         Assert.Equal(daq, frame.IsDaqDto);
         Assert.Equal(eventPacket, frame.IsEventPacket);
-        Assert.Equal(requestPacket, frame.IsRequestPacket);
+        Assert.Equal(serviceRequestPacket, frame.IsServiceRequestPacket);
     }
 }
