@@ -79,8 +79,18 @@ public class MemoryCommandsTests
     [Fact]
     public void ShortUpload_request_matches_golden_sample()
     {
-        var frame = XcpCommandEncoder.ShortUpload(numberOfBytes: 2, address: 0x00002000);
+        var frame = XcpCommandEncoder.ShortUpload(numberOfBytes: 2, address: 0x00002000, addressExtension: 0x00);
 
+        // 逐字节钉死新格式：[F4, 00, 00, nbytes, addrExt, addr 低 3B LE]——
+        // XCP on CAN 8B 装得下，addrExt 字节必须存在（A2L ADDRESS_EXTENSION_FREE=0 时恒 0 也要传）。
+        Assert.Equal((byte)0xF4, frame.Bytes.Span[0]);
+        Assert.Equal((byte)0x00, frame.Bytes.Span[1]);
+        Assert.Equal((byte)0x00, frame.Bytes.Span[2]);
+        Assert.Equal((byte)0x02, frame.Bytes.Span[3]);
+        Assert.Equal((byte)0x00, frame.Bytes.Span[4]);
+        Assert.Equal((byte)0x00, frame.Bytes.Span[5]);
+        Assert.Equal((byte)0x20, frame.Bytes.Span[6]);
+        Assert.Equal((byte)0x00, frame.Bytes.Span[7]);
         Assert.True(
             XcpGoldenSamples.ShortUploadRequest.Span.SequenceEqual(frame.Bytes.Span),
             $"Expected {BitConverter.ToString(XcpGoldenSamples.ShortUploadRequest.ToArray())}, got {BitConverter.ToString(frame.Bytes.ToArray())}");
@@ -108,7 +118,15 @@ public class MemoryCommandsTests
     [InlineData(8)]
     public void ShortUpload_rejects_byte_count_outside_cto_limit(byte numberOfBytes)
     {
-        Assert.Throws<ArgumentException>(() => XcpCommandEncoder.ShortUpload(numberOfBytes, address: 0x00001000));
+        Assert.Throws<ArgumentException>(() => XcpCommandEncoder.ShortUpload(numberOfBytes, address: 0x00001000, addressExtension: 0x00));
+    }
+
+    [Fact]
+    public void ShortUpload_rejects_address_above_24bit()
+    {
+        // 地址高 8 位非零必须改走 ADDR_EXT，编码器不得静默截断。
+        Assert.Throws<ArgumentException>(
+            () => XcpCommandEncoder.ShortUpload(numberOfBytes: 2, address: 0x01000000, addressExtension: 0x00));
     }
 
     // ---- DOWNLOAD（编解码实现、调度禁用——spec D2）----

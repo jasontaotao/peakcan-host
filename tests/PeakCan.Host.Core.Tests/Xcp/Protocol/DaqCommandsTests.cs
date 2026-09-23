@@ -121,7 +121,12 @@ public class DaqCommandsTests
     {
         var response = XcpResponseDecoder.StartStopDaqList(XcpGoldenSamples.StartStopDaqListPositiveResponse.Span);
 
-        Assert.Equal((ushort)0x0000, response.FirstPid);
+        Assert.Equal((byte)0x00, response.FirstPid);
+
+        // 单字节钉死：firstPid 只取 response[1]，response[2] 保留位不得折叠进 PID。
+        var synthetic = new byte[] { 0xFF, 0x2A, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00 };
+        var decoded = XcpResponseDecoder.StartStopDaqList(synthetic);
+        Assert.Equal((byte)0x2A, decoded.FirstPid);
     }
 
     [Fact]
@@ -220,7 +225,12 @@ public class DaqCommandsTests
         Assert.Equal(1, response.MaxIdentifierDaq);
         Assert.Equal(0, response.GranularityStim);
         Assert.Equal(0, response.MaxIdentifierStim);
-        Assert.Equal(0u, response.TimestampTicks);
+        Assert.Equal((byte)0x00, response.TimestampTicks);
+
+        // 单字节钉死：timestampTicks 只取 response[5]，response[6..7] 保留位不得折叠。
+        var synthetic = new byte[] { 0xFF, 0x01, 0x01, 0x00, 0x00, 0x07, 0x99, 0x66 };
+        var decoded = XcpResponseDecoder.GetDaqResolutionInfo(synthetic);
+        Assert.Equal((byte)0x07, decoded.TimestampTicks);
     }
 
     [Fact]
@@ -280,7 +290,20 @@ public class DaqCommandsTests
         Assert.Equal(0x40, response.EventChInfo);
         Assert.Equal(15, response.MaxDaqList);
         Assert.Equal((ushort)0, response.EventChannel);
-        Assert.Equal(1u, response.EventCycle);
+        Assert.Equal((byte)0x01, response.EventCycle);
+        Assert.Equal((byte)0x00, response.EventChannelTimeUnit);
+        Assert.Equal((byte)0x00, response.Priority);
+    }
+
+    [Fact]
+    public void GetDaqEventInfo_time_unit_nonzero_response_decodes_fields()
+    {
+        // TIME_UNIT≠0 黄金样本：钉死 [5]=eventCycle、[6]=eventChannelTimeUnit、[7]=priority 三个独立单字节，不再折叠成 3B 字段。
+        var response = XcpResponseDecoder.GetDaqEventInfo(XcpGoldenSamples.GetDaqEventInfoTimeUnitNonZeroPositiveResponse.Span);
+
+        Assert.Equal((byte)0x05, response.EventCycle);
+        Assert.Equal((byte)0x02, response.EventChannelTimeUnit);
+        Assert.Equal((byte)0x01, response.Priority);
     }
 
     [Fact]

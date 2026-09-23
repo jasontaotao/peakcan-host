@@ -84,20 +84,24 @@ public static class XcpCommandEncoder
     }
 
     /// <summary>
-    /// CMD_SHORT_UPLOAD：请求 [F4, reserved×2, nbytes, addr(4B LE)]。
-    /// CTO 8B 无 ADDR_EXT 字段（与 SET_MTA 不同：nbytes 挤掉了 ADDR_EXT 槽位）。
+    /// CMD_SHORT_UPLOAD：请求 [F4, reserved×2, nbytes, addrExt, addr 低 3B LE]。
+    /// addrExt 字节必须存在（A2L ADDRESS_EXTENSION_FREE=0 时恒 0 也要传）；
+    /// 地址取低 24 位，高 8 位非零时必须改走 ADDR_EXT（抛 ArgumentException）。
     /// 响应 = [FF, data×nbytes]；nbytes ≤ 7。
     /// </summary>
-    public static XcpCtoFrame ShortUpload(byte numberOfBytes, uint address)
+    public static XcpCtoFrame ShortUpload(byte numberOfBytes, uint address, byte addressExtension)
     {
         if (numberOfBytes is < 1 or > XcpCtoFrame.MaxByteLength - 1)
             throw new ArgumentException($"SHORT_UPLOAD byte count must be 1..{XcpCtoFrame.MaxByteLength - 1} (CTO 8B − PID), got {numberOfBytes}.", nameof(numberOfBytes));
 
+        if ((address >> 24) != 0)
+            throw new ArgumentException($"SHORT_UPLOAD address 0x{address:X8} exceeds 24 bits; use ADDR_EXT instead.", nameof(address));
+
         return new XcpCtoFrame(new byte[]
         {
-            XcpPid.ShortUpload, 0x00, 0x00, numberOfBytes,
+            XcpPid.ShortUpload, 0x00, 0x00, numberOfBytes, addressExtension,
             (byte)(address & 0xFF), (byte)((address >> 8) & 0xFF),
-            (byte)((address >> 16) & 0xFF), (byte)((address >> 24) & 0xFF),
+            (byte)((address >> 16) & 0xFF),
         });
     }
 

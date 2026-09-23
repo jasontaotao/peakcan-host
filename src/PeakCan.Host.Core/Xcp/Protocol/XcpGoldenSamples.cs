@@ -85,8 +85,8 @@ public static class XcpGoldenSamples
 
     // ---- SHORT_UPLOAD (0xF4) ----
 
-    /// <summary>SHORT_UPLOAD 请求 [F4, reserved×2, nbytes=02, addr=0x00002000 LE]——CTO 8B 无 ADDR_EXT 字段。</summary>
-    public static ReadOnlyMemory<byte> ShortUploadRequest { get; } = new byte[] { 0xF4, 0x00, 0x00, 0x02, 0x00, 0x20, 0x00, 0x00 };
+    /// <summary>SHORT_UPLOAD 请求 [F4, reserved×2, nbytes=02, addrExt=00, addr=0x00002000 低 3B LE]——addrExt 必须存在（A2L ADDRESS_EXTENSION_FREE=0）。</summary>
+    public static ReadOnlyMemory<byte> ShortUploadRequest { get; } = new byte[] { 0xF4, 0x00, 0x00, 0x02, 0x00, 0x00, 0x20, 0x00 };
 
     /// <summary>SHORT_UPLOAD 正响应 [FF, d0, d1]（2B 数据）。</summary>
     public static ReadOnlyMemory<byte> ShortUploadPositiveResponse { get; } = new byte[] { 0xFF, 0xAB, 0xCD };
@@ -146,7 +146,7 @@ public static class XcpGoldenSamples
     /// <summary>START_STOP_DAQ_LIST start 请求 [DE, mode=01, daqList=00, reserved×5]。</summary>
     public static ReadOnlyMemory<byte> StartStopDaqListStartRequest { get; } = new byte[] { 0xDE, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>START_STOP_DAQ_LIST 正响应 [FF, firstPid=0000 LE, reserved×5]。</summary>
+    /// <summary>START_STOP_DAQ_LIST 正响应 [FF, firstPid(1B)=00, reserved×6]。</summary>
     public static ReadOnlyMemory<byte> StartStopDaqListPositiveResponse { get; } = new byte[] { 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
     /// <summary>START_STOP_DAQ_LIST 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
@@ -179,7 +179,7 @@ public static class XcpGoldenSamples
     /// <summary>GET_DAQ_RESOLUTION_INFO 请求 [D7, reserved×7]。</summary>
     public static ReadOnlyMemory<byte> GetDaqResolutionInfoRequest { get; } = new byte[] { 0xD7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>GET_DAQ_RESOLUTION_INFO 正响应 [FF, granDaq=01, maxIdDaq=01, granStim=00, maxIdStim=00, timestamp=000000 LE]。</summary>
+    /// <summary>GET_DAQ_RESOLUTION_INFO 正响应 [FF, granDaq=01, maxIdDaq=01, granStim=00, maxIdStim=00, timestampTicks(1B)=00, reserved×2]。</summary>
     public static ReadOnlyMemory<byte> GetDaqResolutionInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
     /// <summary>GET_DAQ_RESOLUTION_INFO 负响应 [FE, ERR_CMD_UNKNOWN]。</summary>
@@ -201,8 +201,11 @@ public static class XcpGoldenSamples
     /// <summary>GET_DAQ_EVENT_INFO 请求 [DA, reserved×2, eventChannel=0000 LE, reserved×3]。</summary>
     public static ReadOnlyMemory<byte> GetDaqEventInfoRequest { get; } = new byte[] { 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>GET_DAQ_EVENT_INFO 正响应 [FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle=000001 LE (3B)]。</summary>
+    /// <summary>GET_DAQ_EVENT_INFO 正响应 [FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle(1B)=01, timeUnit=00, priority=00]。</summary>
     public static ReadOnlyMemory<byte> GetDaqEventInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x01, 0x00, 0x00 };
+    /// <summary>GET_DAQ_EVENT_INFO 正响应（TIME_UNIT≠0）：[FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle=05, timeUnit=02, priority=01]——钉死三个单字节不再折叠。</summary>
+    public static ReadOnlyMemory<byte> GetDaqEventInfoTimeUnitNonZeroPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x05, 0x02, 0x01 };
+
 
     /// <summary>GET_DAQ_EVENT_INFO 负响应 [FE, ERR_OUT_OF_RANGE]。</summary>
     public static ReadOnlyMemory<byte> GetDaqEventInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.OutOfRange };
