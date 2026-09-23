@@ -17,6 +17,15 @@ public static class XcpPid
     /// <summary>DAQ DTO 的起始 PID（0x00 起，ODT 编号）。</summary>
     public const byte DaqDtoFirst = 0x00;
 
+    /// <summary>DAQ DTO 的最后一个 PID（0xFB；0x00–0xFB 均为合法 ODT 号空间）。</summary>
+    public const byte DaqDtoLast = 0xFB;
+
+    /// <summary>Event packet PID（0xFC，S2 不产生）。</summary>
+    public const byte EventPacket = 0xFC;
+
+    /// <summary>Request packet PID（0xFD，S2 不产生）。</summary>
+    public const byte RequestPacket = 0xFD;
+
     // ---- 命令码（XCP 1.0 Part 2 Table 14 中的 S2 命令清单）----
 
     /// <summary>CMD_CONNECT (0xFF)。</summary>

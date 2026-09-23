@@ -32,6 +32,15 @@ public readonly record struct XcpCtoFrame
     /// <summary>错误响应流（PID 0xFE）。</summary>
     public bool IsError => Pid == XcpPid.Error;
 
-    /// <summary>DAQ DTO 流（PID 0x00 起；S2 无 STIM，0xFC/0xFD 的 EV/RQM PID 不产生）。</summary>
-    public bool IsDaqDto => Pid < XcpPid.Error;
+    /// <summary>
+    /// DAQ DTO 流（PID 0x00–0xFB 均为 ODT 号空间；0xFC/0xFD 为 EV/RQM 包，
+    /// 不属于 DAQ DTO——S2-T1-review 修正原 `Pid &lt; 0xFE` 把 EV/RQM 误判为 DTO 的语义）。
+    /// </summary>
+    public bool IsDaqDto => Pid <= XcpPid.DaqDtoLast;
+
+    /// <summary>Event packet 流（PID 0xFC；S2 不产生）。</summary>
+    public bool IsEventPacket => Pid == XcpPid.EventPacket;
+
+    /// <summary>Request packet 流（PID 0xFD；S2 不产生）。</summary>
+    public bool IsRequestPacket => Pid == XcpPid.RequestPacket;
 }

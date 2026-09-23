@@ -112,6 +112,17 @@ public class XcpCanTransportTests
         for (var i = 0; i < 1000; i++)
             channel.FrameReceived += Raise.Event<Action<CanFrame>>(Frame(0x00));
 
+        // 排空屏障：哨兵帧（0x0F）派发即代表此前全部入队帧已处理完毕。
+        // 没有它，分发线程追赶积压期间订阅会先收到积压 DTO（先来先派发
+        // 的固有 FIFO 竞态），断言会随机失败。
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.FrameReceived += f =>
+        {
+            if (f.Data.Span[0] == 0x0F) drained.TrySetResult();
+        };
+        channel.FrameReceived += Raise.Event<Action<CanFrame>>(Frame(0x0F));
+        await drained.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
         var received = new TaskCompletionSource<CanFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         transport.FrameReceived += f => received.TrySetResult(f);
         var sent = Frame(0x01);
@@ -121,6 +132,47 @@ public class XcpCanTransportTests
         Assert.Equal(sent.Data.ToArray(), got.Data.ToArray());
     }
 
+    [Theory]
+    [InlineData(XcpPid.PositiveResponse)]
+    [InlineData(XcpPid.Error)]
+    public async Task Response_frames_survive_dto_flood_and_drops_are_counted(byte responsePid)
+    {
+        var channel = Substitute.For<ICanChannel>();
+        await using var transport = new XcpCanTransport(channel, queueCapacity: 4);
+
+        var firstDtoDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDto = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var responsesSeen = 0;
+
+        transport.FrameReceived += f =>
+        {
+            var pid = f.Data.Span[0];
+            if (pid == XcpPid.PositiveResponse || pid == XcpPid.Error)
+            {
+                responsesSeen++;
+                return;
+            }
+
+            // 首个 DTO 到达分发端后阻塞分发循环，制造确定性的洪泛积压，
+            // 保证后续 DTO 入队必然触发 DropOldest（丢帧计数可断言）。
+            firstDtoDispatched.TrySetResult();
+            releaseDto.Task.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        // 响应先入队，随后 DTO 洪泛挤占有界队列：修复前 DropOldest 会把
+        // 已入队的响应挤掉（红）；修复后响应走独立通道永不丢失（绿）。
+        channel.FrameReceived += Raise.Event<Action<CanFrame>>(Frame(responsePid));
+        for (var i = 0; i < 1000; i++)
+            channel.FrameReceived += Raise.Event<Action<CanFrame>>(Frame(XcpPid.DaqDtoFirst));
+
+        await firstDtoDispatched.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        // 响应在任何 DTO 之前派发（响应优先通道），且洪泛期间不得被丢弃。
+        Assert.Equal(1, responsesSeen);
+        Assert.True(transport.FramesDropped > 0, "DTO 洪泛必须产生可观测的丢帧计数");
+
+        releaseDto.TrySetResult();
+    }
     /// <summary>
     /// 写门可控的假通道：WriteAsync 挂在 TaskCompletionSource 上，
     /// 用于复现“订阅者在回调里同步等待写完成”的死锁场景。

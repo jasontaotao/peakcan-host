@@ -11,6 +11,9 @@ public class XcpPidTests
     [InlineData(nameof(XcpPid.PositiveResponse), 0xFF)]
     [InlineData(nameof(XcpPid.Error), 0xFE)]
     [InlineData(nameof(XcpPid.DaqDtoFirst), 0x00)]
+    [InlineData(nameof(XcpPid.DaqDtoLast), 0xFB)]
+    [InlineData(nameof(XcpPid.EventPacket), 0xFC)]
+    [InlineData(nameof(XcpPid.RequestPacket), 0xFD)]
     public void Response_pid_values_are_pinned(string name, byte expected)
     {
         Assert.Equal(expected, Value(name));
