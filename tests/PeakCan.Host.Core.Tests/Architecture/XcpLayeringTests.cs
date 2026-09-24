@@ -371,7 +371,7 @@ public class XcpLayeringTests
                             if (target?.DeclaringType == declaringType && target.Name == memberName)
                                 return true;
                         }
-                        catch (ArgumentException)
+                        catch (Exception) // 解析失败不算命中（MissingMethod/BadImageFormat 同类）；探针锚保证解析器坏了不会静默
                         {
                             // Unresolvable tokens are not treated as hits; the
                             // StartStopDaqList probe in the rule guards the
@@ -400,5 +400,6 @@ public class XcpLayeringTests
         .Where(f => f.FieldType == typeof(OpCode))
         .Select(f => (OpCode)f.GetValue(null)!)
         .Where(op => op.Size == size)
+        // ToDictionary 对重复 opcode 值抛异常——故意 fail loud，防未来 .NET 表变化被静默吞。
         .ToDictionary(op => size == 1 ? unchecked((byte)op.Value) : (byte)(op.Value & 0xFF));
 }
