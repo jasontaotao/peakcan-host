@@ -54,6 +54,9 @@ public sealed record RotationResult(
 /// <summary>
 /// 轮转终态失败（恢复耗尽 / stop、start 阶段失败）。
 /// <see cref="TableState"/> 是归因值：stop 成功后的失败恒为 Stopped（spec §1）。
+/// <para>ErrorCode == null（T1 超时）时，调用方在发起下一条命令前必须保持 ≥T1
+/// quiesce 间隙（T4 评审裁决的责任链延伸：调度器内部恢复路径已自守，此契约
+/// 约束异常外溢后的调用侧——T13 组合根 / T15 接线方）。</para>
 /// </summary>
 public sealed class RotationFailedException : InvalidOperationException
 {
@@ -182,6 +185,8 @@ public sealed class RotationScheduler
     /// <summary>
     /// 停表换表一轮：stop → 重写全部条目 → start。成功返回终态 Running 与
     /// 成功恢复的失败清单；恢复耗尽抛 <see cref="RotationFailedException"/>。
+    /// <para>若异常的 <see cref="RotationFailure.ErrorCode"/> 为 null（T1 超时），
+    /// 调用方在发起下一条命令前必须保持 ≥T1 quiesce 间隙（T4 评审裁决责任链）。</para>
     /// </summary>
     public async Task<RotationResult> ConfigureRotationAsync(
         PlannedAcquisitionMap plan,
@@ -379,8 +384,8 @@ public sealed class RotationScheduler
     /// + 2×MaxRecoveryDecisions（每次恢复至多重发 setptr+write 各一帧）。</item>
     /// <item>单命令最坏耗时 = T1 × (MaxRetries + 1)——T1 即 XcpMasterOptions.Timeout、
     /// MaxRetries 即 XcpMasterOptions.MaxRetries（spec §3 Protocol 超时策略，T4）。</item>
-    /// <item>quiesce 预算 = MaxRecoveryDecisions × QuiesceDelay（T4 评审裁决：
-    /// 每次超时恢复前 ≥T1 间隙）。</item>
+    /// <item>quiesce 预算 = (MaxRecoveryDecisions + 1) × QuiesceDelay（T4 评审裁决：
+    /// 每次超时恢复前 ≥T1 间隙 ×D 次 + 重写→START 之间的收尾 quiesce ×1 次）。</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -390,10 +395,13 @@ public sealed class RotationScheduler
             return;
 
         var entryCount = plan.Odts.Sum(o => o.Entries.Count);
-        var commands = 1 + 2 * entryCount + 1 + 2 * _maxRecoveryDecisions;
+        // RebuildTable 最坏形态：初始重写 + D 次整表重来 = (1+D)×2n（对 RetryRewrite
+        // 形态是更松但正确的上界）；命令数 = 1×stop + (1+D)×2n + 1×start。
+        var commands = 1 + (1 + _maxRecoveryDecisions) * 2 * entryCount + 1;
         var perCommandWorst = TimeSpan.FromTicks(_masterTimeout.Ticks * (_maxRetries + 1));
+        // quiesce 预算 = D 次恢复间隙 + 1 次重写→START 收尾间隙（最坏全部发生）。
         var budget = TimeSpan.FromTicks(
-            commands * perCommandWorst.Ticks + (long)_maxRecoveryDecisions * _quiesceDelay.Ticks);
+            commands * perCommandWorst.Ticks + (_maxRecoveryDecisions + 1) * _quiesceDelay.Ticks);
         _gapNotifier.OnPlanGapWindow(new RotationGapWindow(plan.OdtCount, entryCount, budget));
     }
 

@@ -213,10 +213,12 @@ public class RotationSchedulerTests
         Assert.Equal((ushort)15, gap.OdtCount);
         Assert.Equal(91, gap.EntryCount);
 
-        // 真实上界（I2 公式，T1=2000ms、MaxRetries=1、恢复上限=3、quiesce=T1）：
-        //   commands = 1(stop) + 2×91(setptr+write) + 1(start) + 2×3(恢复) = 190
-        //   上界 = 190 × T1×2 + 3 × T1 = 760000 + 6000 = 766000ms
-        Assert.Equal(TimeSpan.FromMilliseconds(766000), gap.ExpectedMaxDuration);
+        // 真实上界（I2-R 公式，T1=2000ms、MaxRetries=1、恢复上限 D=3、quiesce=T1）：
+        //   commands = 1(stop) + (1+D)×2×91(整表重写最坏形态) + 1(start) = 730
+        //   命令预算 = 730 × T1×(MaxRetries+1) = 730 × 4000 = 2920000ms
+        //   quiesce 预算 = (D+1) × T1 = 4 × 2000 = 8000ms（D 次恢复 + 1 次 START 收尾）
+        //   上界 = 2920000 + 8000 = 2928000ms
+        Assert.Equal(TimeSpan.FromMilliseconds(2928000), gap.ExpectedMaxDuration);
 
         // 空窗起点 = stop 应答刚落地（线上只有 stop 一帧）且从机侧已停。
         Assert.Equal(1, notifier.SentCounts[0]);
