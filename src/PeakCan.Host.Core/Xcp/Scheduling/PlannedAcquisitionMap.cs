@@ -23,6 +23,9 @@ public enum PlannedPollingCause
 /// DAQ 打包后的单条目（planner 自产编号，spec §3 Scheduling [H2]：不是解析期占位三元组）。
 /// <para>协议字段口径：Pid 是 DTO 首字节的 DAQ PID（ODT 序号 = Pid − FIRST_PID）；
 /// EntryIndex 是 ODT 内条目序；OffsetInOdt 是本条目在 ODT 数据场内的字节偏移。</para>
+/// <para>S2-T11 增量：补 ECU 地址（WRITE_DAQ 定义条目必需）。物理地址与轮询条目
+/// 同走包侧 XcpAddressMap.TryTranslate 唯一入口求出，覆盖不到为 null——
+/// 调度层（RotationScheduler）在发任何线上帧前 fail-loud 校验。</para>
 /// </summary>
 public sealed record PlannedDaqEntry(
     uint Pid,
@@ -31,7 +34,9 @@ public sealed record PlannedDaqEntry(
     string ObjectName,
     int SegmentIndex,
     int ByteLength,
-    int OffsetInOdt);
+    int OffsetInOdt,
+    ulong LogicalAddress,
+    ulong? PhysicalAddress);
 
 /// <summary>打包后的单个 ODT：同类同箱（同一 ODT 内条目字节长恒等于 <see cref="SizeClassBytes"/>）。</summary>
 public sealed record PlannedOdt(

@@ -113,9 +113,12 @@ public static class AcquisitionPlanner
                 while (entryIndex < perOdt && cursor < items.Count)
                 {
                     var item = items[cursor];
+                    // S2-T11 增量：DAQ 条目补 ECU 地址（WRITE_DAQ 需要）；物理地址
+                    // 与轮询条目同走 Translate 唯一入口，不改 ODT 分配与轮转分批。
                     entries.Add(new PlannedDaqEntry(
                         (uint)(firstPid + odtIndex), odtIndex, entryIndex,
-                        item.ObjectName, item.SegmentIndex, item.ByteLength, offset));
+                        item.ObjectName, item.SegmentIndex, item.ByteLength, offset,
+                        item.Address, Translate(doc, item.Address)));
                     offset += item.ByteLength;
                     entryIndex++;
                     cursor++;
