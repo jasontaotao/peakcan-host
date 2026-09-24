@@ -1,3 +1,6 @@
+using NetArchTest.Rules;
+using PeakCan.Host.Core.Xcp.Scheduling;
+
 namespace PeakCan.Host.Core.Tests.Architecture;
 
 /// <summary>
@@ -18,5 +21,35 @@ public class XcpLayeringTests
         Assert.DoesNotContain("System.Windows", refs);
         Assert.DoesNotContain("PeakCan.Host.Infrastructure", refs);
         Assert.DoesNotContain("PeakCan.Host.App", refs);
+    }
+
+    [Fact]
+    public void Xcp_Scheduling_does_not_touch_package_segment_address_types()
+    {
+        // S2-T10 (e)：地址换算唯一入口是包侧 XcpAddressMap.TryTranslate（spec [H1]）。
+        // Scheduling 命名空间（AcquisitionPlanner / PlannedAcquisitionMap）禁止直接
+        // 引用包侧三类 segment 地址载体——XcpAddressMapping（Logical/Physical/Length）、
+        // XcpSegment（内嵌份容器）、A2lMemorySegment（OFFSET 基址）。谁引用了谁，
+        // 谁就能重建第二套换算。ValueSegment.Address 是 [H1] 钦定的翻译输入，
+        // 合法引用，不在此列。Receive 侧守卫随 T14 建命名空间时补入。
+        var core = typeof(AcquisitionPlanner).Assembly;
+
+        // 非空守卫：过滤器必须真的选中 Scheduling 类型（防 vacuous pass）。
+        Assert.Contains(core.GetTypes(), t => t.Namespace == "PeakCan.Host.Core.Xcp.Scheduling");
+
+        foreach (var banned in new[]
+                 {
+                     "A2lEditor.Core.IfData.XcpAddressMapping",
+                     "A2lEditor.Core.IfData.XcpSegment",
+                     "A2lEditor.Core.Model.A2lMemorySegment",
+                 })
+        {
+            var result = Types.InAssembly(core)
+                .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Scheduling")
+                .ShouldNot().HaveDependencyOn(banned)
+                .GetResult();
+            Assert.True(result.IsSuccessful,
+                $"{banned}: {string.Join(", ", result.FailingTypeNames ?? Array.Empty<string>())}");
+        }
     }
 }
