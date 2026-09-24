@@ -197,8 +197,9 @@ public class ReceiveLoopTests
         // loop 不重建、不复制 planner 自产映射——反查必须落在同一实例上。
         Assert.Same(map, loop.Map);
 
-        // 暴露面只读：Odts / Entries 均为 IReadOnlyList，无任何变更入口
-        // （PlannedAcquisitionMap 的反查字典私有，构造期一次建好后只读）。
+        // 暴露面无变更入口：Odts / Entries 均为 IReadOnlyList（接口形状断言
+        // ≠ 深不可变——底层若为 List 仍可强转改写；深不可变由 T9 PlannedAcquisitionMap
+        // 的私有反查字典 + 无变更成员的类型面保证，此处只钉接口形状与并发读稳定）。
         Assert.IsAssignableFrom<IReadOnlyList<PlannedOdt>>(map.Odts);
         Assert.All(map.Odts, o => Assert.IsAssignableFrom<IReadOnlyList<PlannedDaqEntry>>(o.Entries));
 
@@ -255,6 +256,94 @@ public class ReceiveLoopTests
     }
 
     // ------------------------------------------------------------------
+    // (T14-review M2) 回调异常契约：抛异常不终结帧分发
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Sample_Callback_Exception_Is_Attributed_And_Never_Kills_The_Frame_Path()
+    {
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var samples = new ConcurrentBag<XcpDaqSample>();
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+        var sampleCalls = 0;
+        using var loop = NewLoop(transport, map, contracts, samples, attributions, s =>
+        {
+            // 首次调用抛异常（模拟 sink 故障），之后恢复。
+            if (Interlocked.Increment(ref sampleCalls) <= 1)
+                throw new InvalidOperationException("sample sink exploded");
+            samples.Add(s);
+        });
+
+        // 帧 1：D0 解码成功但回调抛 → CallbackFailed 归因出站（Attributed 正常）。
+        transport.Raise(Dto(0x00, 0x44, 0x33, 0x22, 0x11, 0, 0, 0));
+        var attribution = Assert.Single(attributions);
+        Assert.Equal(XcpReceiveAttributionKind.CallbackFailed, attribution.Kind);
+        Assert.Contains("D0", attribution.Detail);
+
+        // 帧 2：分发路径未死，正常出样本。
+        transport.Raise(Dto(0x00, 0x44, 0x33, 0x22, 0x11, 0, 0, 0));
+        var sample = Assert.Single(samples);
+        Assert.Equal("D0", sample.Entry.ObjectName);
+        GC.KeepAlive(loop);
+    }
+
+    [Fact]
+    public void Attributed_Callback_Exception_Abandons_That_Attribution_Only()
+    {
+        // 不可消除的残余（T14-review M2 钉死）：Attributed 自身抛异常时无处再归因，
+        // 只得放弃该条——但帧分发不得中断，后续帧照常。
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var samples = new ConcurrentBag<XcpDaqSample>();
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+        var attributionCalls = 0;
+        var sampleCalls = 0;
+        using var loop = new XcpReceiveLoop(transport, new XcpReceiveOptions
+        {
+            Map = map,
+            Contracts = contracts,
+            SampleDecoded = s => { if (Interlocked.Increment(ref sampleCalls) <= 1) throw new InvalidOperationException("sample sink exploded"); samples.Add(s); },
+            Attributed = _ => { if (Interlocked.Increment(ref attributionCalls) <= 1) throw new InvalidOperationException("attribution sink exploded"); attributions.Add(_); },
+        });
+
+        // 帧 1：样本回调抛 → 归因回调也抛 → 该条归因放弃，且异常不外溢。
+        transport.Raise(Dto(0x00, 0x44, 0x33, 0x22, 0x11, 0, 0, 0));
+
+        // 帧 2：两个回调都恢复 → 样本正常出站，分发链路完好。
+        transport.Raise(Dto(0x00, 0x44, 0x33, 0x22, 0x11, 0, 0, 0));
+        var sample = Assert.Single(samples);
+        Assert.Equal("D0", sample.Entry.ObjectName);
+        Assert.Empty(attributions); // 帧 1 的 CallbackFailed 已随抛异常放弃；帧 2 无归因
+        GC.KeepAlive(loop);
+    }
+
+    // ------------------------------------------------------------------
+    // (T14-review M3) 两个出站口 null fail-loud：null 即静默黑洞
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Null_Callbacks_Fail_Loud_At_Construction()
+    {
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+
+        Assert.Throws<ArgumentNullException>(() => new XcpReceiveLoop(transport, new XcpReceiveOptions
+        {
+            Map = map,
+            Contracts = contracts,
+            SampleDecoded = null!,
+            Attributed = _ => { },
+        }));
+        Assert.Throws<ArgumentNullException>(() => new XcpReceiveLoop(transport, new XcpReceiveOptions
+        {
+            Map = map,
+            Contracts = contracts,
+            SampleDecoded = _ => { },
+            Attributed = null!,
+        }));
+    }
+    // ------------------------------------------------------------------
     // 测试基础设施
     // ------------------------------------------------------------------
 
@@ -289,12 +378,13 @@ public class ReceiveLoopTests
         PlannedAcquisitionMap map,
         ContractSet contracts,
         ConcurrentBag<XcpDaqSample> samples,
-        ConcurrentBag<XcpReceiveAttribution> attributions)
+        ConcurrentBag<XcpReceiveAttribution> attributions,
+        Action<XcpDaqSample>? sampleSink = null)
         => new(transport, new XcpReceiveOptions
         {
             Map = map,
             Contracts = contracts,
-            SampleDecoded = samples.Add,
+            SampleDecoded = sampleSink ?? samples.Add,
             Attributed = attributions.Add,
         });
 

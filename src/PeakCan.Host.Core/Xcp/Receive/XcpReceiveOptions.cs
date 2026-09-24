@@ -25,6 +25,9 @@ public enum XcpReceiveAttributionKind
 
     /// <summary>包侧 Decode 抛 DecodeException；<see cref="XcpReceiveAttribution.MissingCause"/> 承接包侧归因。</summary>
     DecodeFailed,
+
+    /// <summary>订阅方 SampleDecoded 回调抛异常（T14-review M2：转归因出站，帧分发不中断）。</summary>
+    CallbackFailed,
 }
 
 /// <summary>接收层归因条目（T15 空窗归因的逐帧原料；空窗聚合归 T15）。</summary>
@@ -51,9 +54,9 @@ public sealed class XcpReceiveOptions
     /// <summary>包侧合同集（解析期一次建好；loop 构造期快照方案涉及的对象）。</summary>
     public required ContractSet Contracts { get; init; }
 
-    /// <summary>解码成功出站（T14 回调出站；T15 换 sink，接口预留）。</summary>
+    /// <summary>解码成功出站（T14 回调出站；T15 换 sink）。loop 构造期强制非 null——null 即静默黑洞。</summary>
     public Action<XcpDaqSample>? SampleDecoded { get; init; }
 
-    /// <summary>归因出站（未知帧/解码失败；T15 聚合空窗）。</summary>
+    /// <summary>归因出站（未知帧/解码失败/回调失败；T15 聚合空窗）。loop 构造期强制非 null。</summary>
     public Action<XcpReceiveAttribution>? Attributed { get; init; }
 }

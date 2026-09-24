@@ -29,8 +29,14 @@ namespace PeakCan.Host.Core.Xcp.Receive;
 /// 分发循环承担（XcpCanTransport 离读线程派发，spec §3 Infrastructure；XCP 侧只入队）。
 /// 本层单帧路径为有界轻活（一次字典探查 + ≤7B 拷贝 + 一次标量解码，≤7 条目/ODT），
 /// 重活（sink IO / 批量落盘）归 T15 sink，依 IFrameSink 契约自行入队。
-/// 订阅方回调（<see cref="XcpReceiveOptions.SampleDecoded"/> /
-/// <see cref="XcpReceiveOptions.Attributed"/>）同样不得阻塞、不得抛出。
+/// </para>
+/// <para>
+/// 回调异常契约（T14-review M2）：订阅方回调抛异常<b>不终结帧分发</b>——
+/// <see cref="XcpReceiveOptions.SampleDecoded"/> 抛出 → 转归因出站
+/// （<see cref="XcpReceiveAttributionKind.CallbackFailed"/>，Detail 注明回调失败）；
+/// <see cref="XcpReceiveOptions.Attributed"/> 自身抛出时只得放弃该条归因——
+/// 本层之上再无归因出口，这是不可消除的残余，爆炸半径仅限该条归因丢失，
+/// 帧分发不中断、后续帧照常。
 /// </para>
 /// </summary>
 public sealed class XcpReceiveLoop : IDisposable
@@ -43,6 +49,10 @@ public sealed class XcpReceiveLoop : IDisposable
 
     /// <summary>对象名 → 包侧合同快照（仅方案涉及对象；构造期一次建好，之后只读）。</summary>
     private readonly Dictionary<string, ValueContract> _contracts;
+
+    /// <summary>出站口（构造期校验非 null 后快照，调用点免空检查）。</summary>
+    private readonly Action<XcpDaqSample> _sampleDecoded;
+    private readonly Action<XcpReceiveAttribution> _attributed;
 
     private bool _disposed;
 
@@ -57,6 +67,15 @@ public sealed class XcpReceiveLoop : IDisposable
             throw new ArgumentNullException(nameof(options), "XcpReceiveOptions.Map must not be null.");
         if (options.Contracts is null)
             throw new ArgumentNullException(nameof(options), "XcpReceiveOptions.Contracts must not be null.");
+        // T14-review M3：两个出站口都强制非 null——null 即静默黑洞
+        //（样本/归因解码完直接扔掉，违背"未知帧不静默丢"同源的防静默纪律）。
+        // T15 sink 接管前，测试/组合根必须显式给消费者（哪怕是 no-op）。
+        if (options.SampleDecoded is null)
+            throw new ArgumentNullException(nameof(options),
+                "XcpReceiveOptions.SampleDecoded must not be null (a null sink would silently discard decoded samples).");
+        if (options.Attributed is null)
+            throw new ArgumentNullException(nameof(options),
+                "XcpReceiveOptions.Attributed must not be null (a null sink would silently discard unknown-frame attributions).");
 
         _odtByPid = new Dictionary<uint, PlannedOdt>();
         foreach (var odt in options.Map.Odts)
@@ -66,6 +85,9 @@ public sealed class XcpReceiveLoop : IDisposable
                     $"Planned acquisition map contains duplicate ODT PID 0x{odt.Pid:X2} (planner contract violation).",
                     nameof(options));
         }
+
+        _sampleDecoded = options.SampleDecoded;
+        _attributed = options.Attributed;
 
         _contracts = new Dictionary<string, ValueContract>(StringComparer.Ordinal);
         foreach (var entry in options.Map.Odts.SelectMany(o => o.Entries))
@@ -146,13 +168,33 @@ public sealed class XcpReceiveLoop : IDisposable
                 continue;
             }
 
-            _options.SampleDecoded?.Invoke(new XcpDaqSample(entry, value));
+            // T14-review M2：订阅方回调抛异常不终结帧分发——转归因出站。
+            try
+            {
+                _sampleDecoded(new XcpDaqSample(entry, value));
+            }
+            catch (Exception ex)
+            {
+                Attribute(XcpReceiveAttributionKind.CallbackFailed, pid,
+                    $"sample callback failed for '{entry.ObjectName}': {ex.Message}");
+            }
         }
     }
 
     private void Attribute(XcpReceiveAttributionKind kind, byte firstByte, string detail,
         A2lEditor.Core.Layout.MissingCause? cause = null)
-        => _options.Attributed?.Invoke(new XcpReceiveAttribution(kind, firstByte, detail, cause));
+    {
+        // T14-review M2 残余钉死：Attributed 自身抛异常时本层之上再无归因出口，
+        // 只得放弃该条归因（爆炸半径：仅该条丢失；帧分发不中断、后续帧照常）。
+        try
+        {
+            _attributed(new XcpReceiveAttribution(kind, firstByte, detail, cause));
+        }
+        catch
+        {
+            // Attribution sink failure is unrecoverable at this layer — see doc above.
+        }
+    }
 
     public void Dispose()
     {

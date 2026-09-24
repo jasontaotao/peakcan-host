@@ -30,7 +30,6 @@ public class XcpLayeringTests
         // Scheduling 命名空间禁止引用 XcpAddressMapping（Logical/Physical/Length——
         // 地址算术载体，全量封禁）；谁引用了它，谁就能重建第二套换算。
         // ValueSegment.Address 是 [H1] 钦定的翻译输入，合法引用，不在此列。
-        // Receive 侧守卫随 T14 建命名空间时补入。
         //
         // T12 review F1 修订（窄幅收窄，评审定案）：EXTENSION≠0 段 fail-loud 守卫
         // （AcquisitionPlanner.GuardAddressExtension）需要读包侧声明元数据
@@ -81,4 +80,27 @@ public class XcpLayeringTests
             "AcquisitionPlanner no longer reads XcpSegment.AddressExtension — " +
             "the T12 review F1 EXTENSION guard is gone or renamed; revisit this carve-out.");
     }
+    [Fact]
+    public void Xcp_Receive_does_not_touch_package_segment_address_types()
+    {
+        // S2-T14-review M1：Receive 命名空间兑现 T14 到期承诺——反查只准走
+        // planner 自产 PlannedAcquisitionMap（spec [H2]），地址算术载体
+        // XcpAddressMapping 全量封禁（与 Scheduling 守卫同一宾语）。
+        var core = typeof(PeakCan.Host.Core.Xcp.Receive.XcpReceiveLoop).Assembly;
+
+        // 非空守卫：过滤器必须真的选中 Receive 类型（防 vacuous pass；
+        // XcpReceiveLoop 为非空锚）。
+        Assert.Contains(core.GetTypes(), t => t.Namespace == "PeakCan.Host.Core.Xcp.Receive");
+
+        // 宾语侧守卫：包侧重命名时这里先炸，而不是 HaveDependencyOn 对
+        // 不存在的名字永远空通过（与 Scheduling 守卫同型）。
+        Assert.Equal("A2lEditor.Core.IfData.XcpAddressMapping", typeof(A2lEditor.Core.IfData.XcpAddressMapping).FullName);
+        var mappingBan = Types.InAssembly(core)
+            .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Receive")
+            .ShouldNot().HaveDependencyOn("A2lEditor.Core.IfData.XcpAddressMapping")
+            .GetResult();
+        Assert.True(mappingBan.IsSuccessful,
+            "XcpAddressMapping: " + string.Join(", ", mappingBan.FailingTypeNames ?? Array.Empty<string>()));
+    }
 }
+
