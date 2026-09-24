@@ -78,7 +78,7 @@
   - `canIds` / `canIdCompliance` 的 `*Hex` 值（取决于 A-4 实发 ID）；
   - `queryFailures` 出现 §5 已钉死的预期偏差；
   - `deviceLayout = "nonconformant-see-S1§15"`（当且仅当存在上述预期查询失败）。
-  - `reconciliation.rejectedStart == true`——归因：GET_DAQ_EVENT_INFO 7B → `EVENT_PERIOD_NOT_MEASURED` Reject（§5-1 已钉死偏差），非对账面新增异常；
+  - `reconciliation.rejectedStart == true`——归因：GET_DAQ_EVENT_INFO 7B → 同根因两条 Reject：`EVENT_PERIOD_NOT_MEASURED`（事件周期解不出）+ `COMMAND_DECLARED_NOT_MEASURED`（OPTIONAL_CMD 声明了 GET_DAQ_EVENT_INFO，仅解码成功才计入实测命令集——§5-1 已钉死偏差），非对账面新增异常；
   - 探针退出码 1（对账拒绝，JSON 仍落盘）——归因同上，不得误记为真机偏差；
   - `CAN_ID_MISMATCH` 告警——归因：host 实发 ID（§1.3 记录值）与 A2L 声明 `CAN_ID_MASTER` 的比对路径在 A-4 核实前必然告警，非真机偏差。
 - [ ] 其余字段与基线不一致 = 真机偏差，逐条记入 §5 核死表或 §2 对应项。
@@ -92,7 +92,7 @@
 
 - 来源：`connect.*`（`protocolVersion/transportVersion/resources/commModeBasic/queueSize`，CONNECT + GET_COMM_MODE_INFO）、`measured.*`（GET_DAQ_PROCESSOR_INFO/GET_DAQ_LIST_INFO/GET_DAQ_RESOLUTION_INFO + 观察帧长）、对账 `reconciliation.findings[{severity,code,message}]`。
 - 回填槽位：`connect` 全字段 = __________；`measured` 全字段 = __________；findings 摘录 = __________
-- 判定：**除 `EVENT_PERIOD_NOT_MEASURED` 外无 Reject**（真机 7B 事件周期偏差——§5-1 已钉死——必触发该 Reject ⇒ `rejectedStart=true`/退出码 1 属预期结果；事件周期以 §2 A-2 的手工换算值兜底）；MAX_DAQ=1、MAX_ODT 与 A2L 声明同口径（基线 0x0F=15）、MAX_ODT_ENTRY_SIZE_DAQ=4、MAX_CTO/MAX_DTO=8；105 B/拍 = 15 ODT × 7B 模型不被实测推翻。
+- 判定：**除 `EVENT_PERIOD_NOT_MEASURED` 与 `COMMAND_DECLARED_NOT_MEASURED`（GET_DAQ_EVENT_INFO，同一根因）外无 Reject**（真机 7B 事件周期偏差——§5-1 已钉死——必触发这两条 Reject ⇒ `rejectedStart=true`/退出码 1 属预期结果；事件周期以 §2 A-2 的手工换算值兜底）；MAX_DAQ=1、MAX_ODT 与 A2L 声明同口径（基线 0x0F=15）、MAX_ODT_ENTRY_SIZE_DAQ=4、MAX_CTO/MAX_DTO=8；105 B/拍 = 15 ODT × 7B 模型不被实测推翻。
 
 ### A-2 事件节拍
 
