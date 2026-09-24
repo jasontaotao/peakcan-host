@@ -131,7 +131,10 @@
 
 ## 风险与挂钩
 
+- T2 评审遗留 LOW（不阻塞，后续顺手项）：probe 路径 ContractSet 双重构建（loader 已建一次、BitfieldStatisticsOf 又建一次）——可让 ParseDeclaration 穿出 loaded.Contracts 复用；XcpA2lLoader.Load 的 IO 异常归 T3 VM 预检处理（已转执行者）。
+
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
 
