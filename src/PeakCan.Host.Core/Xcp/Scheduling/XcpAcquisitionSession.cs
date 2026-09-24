@@ -1,6 +1,7 @@
 using A2lEditor.Core.Layout;
 using PeakCan.Host.Core.Xcp.Abstractions;
 using PeakCan.Host.Core.Xcp.Protocol;
+using PeakCan.Host.Core.Xcp.Receive;
 
 namespace PeakCan.Host.Core.Xcp.Scheduling;
 
@@ -34,6 +35,16 @@ public sealed class XcpAcquisitionSessionOptions
 
     /// <summary>计划空窗通知接收口（stop 后、首条重写前触发，T11 挂点）。</summary>
     public IXcpPlanGapNotifier? GapNotifier { get; init; }
+
+    /// <summary>
+    /// Receive 三件套接入口（T16，spec §5 验收 2；T15 评审钉死「必须同装」）：非 null 时
+    /// 组合根在构造期装配 <see cref="PlanGapWatcher"/>（gapNotifier）、在
+    /// <see cref="XcpAcquisitionSession.Plan"/> 时装配 <see cref="XcpReceiveLoop"/>，
+    /// 其 SampleDecoded/Attributed 两个出站口经 <see cref="XcpAcquisitionSinkWiring"/>
+    /// 全部接到本 sink——三件套缺一即拒装。null（默认）= 不接 Receive 层，保持
+    /// T13 纯调度行为。
+    /// </summary>
+    public IXcpAcquisitionSink? Sink { get; init; }
 }
 
 /// <summary>
@@ -51,6 +62,10 @@ public sealed class XcpAcquisitionSessionOptions
 /// 一个周期，经注入 TimeProvider 计时。</item>
 /// <item>采集覆盖（<see cref="ComputeCoverage"/>）：planner 自产方案 + 包侧
 /// MissingCause，不经 IMapAlignmentService（spec §5 验收 2）。</item>
+/// <item>Receive 三件套（T16，spec §5 验收 2）：options.Sink 非 null 时，gapNotifier=
+/// PlanGapWatcher（构造期）、SampleDecoded=sink 接线（先关窗后入队）、Attributed=sink
+/// 归因接线（包侧 MissingCause 五值并入）三件同装于 Plan 时新建的 XcpReceiveLoop；
+/// 重 Plan 即替换 loop（旧实例 Dispose）。Sink 为 null 时三件全不装（T13 原行为）。</item>
 /// <item>DOWNLOAD 禁用（spec §0 / 决策 D2）：S2 编解码已实现但调度层无任何
 /// DOWNLOAD 发送路径——本类不引用 XcpCommandEncoder 的 Download 命令，线上零 DOWNLOAD
 /// 由 e2e 的 Spy 断言与 T18 静态守卫共同钉住。</item>
@@ -65,8 +80,11 @@ public sealed class XcpAcquisitionSession : IDisposable
     private readonly RotationScheduler _rotation;
     private readonly XcpAcquisitionSessionOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IXcpTransport _transport;
     private readonly RotationGate _gate = new();
     private PollingScheduler? _polling;
+    private PlanGapWatcher? _gapWatcher;
+    private XcpReceiveLoop? _receiveLoop;
     private bool _disposed;
 
     /// <summary>协议引擎（CONNECT/能力对账等由调用方在会话外驱动；本类只管采集调度）。</summary>
@@ -74,6 +92,12 @@ public sealed class XcpAcquisitionSession : IDisposable
 
     /// <summary>轮转状态机当前表运行态（透传 T11；只随 START_STOP 正应答迁移）。</summary>
     public RotationTableState RotationTableState => _rotation.TableState;
+
+    /// <summary>
+    /// Receive 线程（T16 接线证据；Sink 未配置或尚未 Plan 时为 null）。
+    /// 只读暴露：loop 归组合根生命周期管，调用方不得 Dispose。
+    /// </summary>
+    public XcpReceiveLoop? ReceiveLoop => _receiveLoop;
 
     public XcpAcquisitionSession(
         IXcpTransport transport,
@@ -84,8 +108,21 @@ public sealed class XcpAcquisitionSession : IDisposable
         _options = options ?? new XcpAcquisitionSessionOptions();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _masterOptions = masterOptions ?? throw new ArgumentNullException(nameof(masterOptions));
-        _master = new XcpMaster(transport ?? throw new ArgumentNullException(nameof(transport)), masterOptions, _timeProvider);
-        _rotation = new RotationScheduler(_master, masterOptions, _options.Rotation, _options.GapNotifier, _timeProvider);
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+
+        // Receive 三件套之一（T16/T15 评审义务）：sink 在场即装配 watcher，并作为
+        // 轮转的空窗通知口；调用方另给 GapNotifier 时 fan-out 兼容（两者都收到通知）。
+        IXcpPlanGapNotifier? gapNotifier = _options.GapNotifier;
+        if (_options.Sink is not null)
+        {
+            _gapWatcher = new PlanGapWatcher(_options.Sink, _timeProvider);
+            gapNotifier = gapNotifier is null
+                ? _gapWatcher
+                : new FanOutGapNotifier(_gapWatcher, gapNotifier);
+        }
+
+        _master = new XcpMaster(_transport, masterOptions, _timeProvider);
+        _rotation = new RotationScheduler(_master, masterOptions, _options.Rotation, gapNotifier, _timeProvider);
     }
 
     /// <summary>
@@ -100,6 +137,22 @@ public sealed class XcpAcquisitionSession : IDisposable
         var plan = AcquisitionPlanner.Plan(contracts, placeholders);
         _polling?.Dispose();
         _polling = null;
+
+        // Receive 三件套之二/三（T16）：方案产出即反查索引就位——loop 的
+        // SampleDecoded/Attributed 两个出站口全部接到 sink（先关计划空窗再入队 /
+        // 包侧 MissingCause 五值并入），不接即静默黑洞（T14 fail-loud 同源纪律）。
+        if (_options.Sink is not null)
+        {
+            _receiveLoop?.Dispose();
+            _receiveLoop = new XcpReceiveLoop(_transport, new XcpReceiveOptions
+            {
+                Map = plan,
+                Contracts = contracts,
+                SampleDecoded = XcpAcquisitionSinkWiring.SampleDecoded(_options.Sink, _gapWatcher),
+                Attributed = XcpAcquisitionSinkWiring.Attributed(_options.Sink),
+            });
+        }
+
         return plan;
     }
 
@@ -199,6 +252,8 @@ public sealed class XcpAcquisitionSession : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        _receiveLoop?.Dispose();
+        _gapWatcher?.Dispose();
         _polling?.Dispose();
         _master.Dispose();
     }
@@ -210,6 +265,16 @@ public sealed class XcpAcquisitionSession : IDisposable
 
     private void ThrowIfDisposed() =>
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+    /// <summary>组合根持有的多路空窗通知 fan-out（watcher + 调用方 GapNotifier 并存时）。</summary>
+    private sealed class FanOutGapNotifier(params IXcpPlanGapNotifier[] targets) : IXcpPlanGapNotifier
+    {
+        public void OnPlanGapWindow(RotationGapWindow window)
+        {
+            foreach (var target in targets)
+                target.OnPlanGapWindow(window);
+        }
+    }
 
     /// <summary>组合根持有的 gate 实现（T12 让位观察口；置位/复位只发生在轮转接线内）。</summary>
     private sealed class RotationGate : IXcpRotationGate
