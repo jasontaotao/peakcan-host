@@ -194,6 +194,8 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 - [ ] **门禁**：同 Global；commit `(S2-T9)`。
 - **spec 条款**：§3 Scheduling、§5 验收 2（规划器部分）、§1（7B 硬上限）。
 
+  - **决策记录（2026-09-24 T9 review）**：打包按**同类同箱**定案（每 ODT 单一尺寸类，4B×1 / 2B×3 / 1B×7），混装放弃——spec §3 括号枚举按齐次填充口径执行，混装收益不足且破坏反查判别；降级判据钉死为 **ODT 预算（15 个）而非 105 B 字节数**（16×4B=64B≤105B 但需 16 ODT，仍降级）；MAX_ODT_ENTRY_SIZE_DAQ 消费包侧声明值（null fail-loud，min(声明,4) 收紧）；FIRST_PID 起 15 ODT 的 PID 区不得越过 0xFB（0xFF/0xFE 是响应区）。
+
 ### T10 — XcpAddressMap.TryTranslate 段映射唯一入口
 
 **上下文指路**：spec §3 Segment 映射段（[H1]：`SourceOffset` 是对象数据 blob 内偏移、单段恒 0，不是 ECU 地址；地址翻译输入是 `ValueSegment.Address`）。

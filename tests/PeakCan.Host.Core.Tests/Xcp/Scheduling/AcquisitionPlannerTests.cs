@@ -163,13 +163,13 @@ public class AcquisitionPlannerTests
     [Fact]
     public void Placeholder_Indexes_Are_Replaced_By_Planner_Packing()
     {
-        // FIRST_PID=0x100：占位三元组 = (0x100+文档序 k, ODT=0, Entry=k)。
+        // FIRST_PID=0x50（0x50+14=0x5E，落在 DTO PID 区内）：占位三元组 = (0x50+文档序 k, ODT=0, Entry=k)。
         // 文档序首位放 1B 对象 → 它进不了 ODT0（4B 类先占箱），占位/输出必然错位。
         var measurements = new List<A2lMeasurement> { Meas("B_A", A2lDataType.UBYTE, 0x1000) };
         measurements.AddRange(Uniform("D", A2lDataType.ULONG, 2, 0x1100));
         measurements.AddRange(Uniform("W", A2lDataType.UWORD, 3, 0x1200));
         measurements.AddRange(Uniform("B", A2lDataType.UBYTE, 7, 0x1300));
-        const ushort firstPid = 0x100;
+        const ushort firstPid = 0x50;
 
         var spec = new ModuleSpec
         {
@@ -197,21 +197,19 @@ public class AcquisitionPlannerTests
         // [H2] 占位编号不得出现在输出：对文档序 k 的对象，凡被打包挪动过的
         //（输出三元组 ≠ 其占位三元组），用占位三元组反查输出映射绝不允许命中
         // 它自己——占位索引没有一条被当作真实配置沿用。
-        var movedCount = 0;
+        // [H2] 判别收紧：任何打包对象的输出三元组都不得等于其自身占位三元组，
+        // 重合必须进显式白名单。白名单恒空——耦合说明：装箱填充顺序钉死为
+        // SizeClasses 首类 4B 先占箱（4B→2B→1B），docOrder 0 的 1B 对象永远
+        // 进不了 ODT0 Entry0，故本夹具不存在巧合重合；若改填充顺序，必须
+        // 重审白名单（重合 = 占位编号被沿用 = [H2] 违例）。
+        var ownPlaceholderOverlapWhitelist = new HashSet<int>();
         for (var k = 0; k < docOrder.Count; k++)
         {
             var packed = output.Single(e => e.ObjectName == docOrder[k]);
-            var moved = packed.OdtIndex != 0 || packed.EntryIndex != (ushort)k || packed.Pid != firstPid + (uint)k;
-            if (moved)
-                movedCount++;
-            // 被打包挪动过的对象，其占位坐标在输出映射里绝不能再指向它自己
-            //（占位坐标未命中不算违例——输出映射根本不是按占位编号组织的）。
-            if (moved && map.TryResolve(firstPid + (uint)k, 0, (ushort)k, out var atPlaceholder))
-                Assert.NotEqual(docOrder[k], atPlaceholder.ObjectName);
+            var isOwnPlaceholder = packed.Pid == firstPid + (uint)k &&
+                                   packed.OdtIndex == 0 && packed.EntryIndex == (ushort)k;
+            Assert.True(!isOwnPlaceholder || ownPlaceholderOverlapWhitelist.Contains(k));
         }
-
-        // 正向证据：装箱确实替换了占位索引（至少一个对象的输出三元组 ≠ 占位三元组）。
-        Assert.True(movedCount > 0);
 
         // 每个打包对象在其输出坐标可反查（planner 自产映射自洽）。
         foreach (var entry in output)
@@ -264,6 +262,100 @@ public class AcquisitionPlannerTests
     }
 
     // ------------------------------------------------------------------
+    // (F1) PID 区与单表约束 fail-loud
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void FirstPid_Encroaching_Response_Pid_Range_Fails_Loud()
+    {
+        // FIRST_PID=0xF8：15 个 ODT 的 PID 区 (0xF8..0x106) 越过 DTO PID 上界
+        // 0xFB，触到 0xFF/0xFE 响应区——接收线程按 DTO 首字节分流，规划必须拒绝。
+        var map = () => Plan(m =>
+        {
+            m.Measurements = Uniform("B", A2lDataType.UBYTE, 8, 0x1000);
+            m.DaqList = DaqList(firstPid: 0xF8, maxOdtEntries: 100);
+        });
+
+        Assert.Throws<InvalidOperationException>(map);
+    }
+
+    [Fact]
+    public void NonZero_DaqList_Number_Fails_Loud()
+    {
+        // 单 DAQ 表约束（spec §1：MAX_DAQ=1，轮转只控 list 0）：DAQ_LIST_NUMBER≠0
+        // 显式拒绝，禁止静默配成 list 0。
+        var map = () => Plan(m =>
+        {
+            m.Measurements = Uniform("B", A2lDataType.UBYTE, 8, 0x1000);
+            m.DaqList = DaqList(firstPid: 0, maxOdtEntries: 100, number: 1);
+        });
+
+        Assert.Throws<InvalidOperationException>(map);
+    }
+
+    // ------------------------------------------------------------------
+    // (F2) MAX_ODT_ENTRY_SIZE_DAQ 声明值消费（对账前置，宁可不采）
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Declared_MaxOdtEntrySizeDaq_Two_Tightens_Size_Classes()
+    {
+        // 声明 2 → 尺寸类收紧为 {1,2}：4B 对象整类降级轮询（ObjectTooLarge），
+        // 2B/1B 类照常装箱。
+        var map = Plan(m =>
+        {
+            m.Measurements = new List<A2lMeasurement>(
+                Uniform("D", A2lDataType.ULONG, 2, 0x1000)
+                    .Concat(Uniform("W", A2lDataType.UWORD, 2, 0x1100))
+                    .Concat(Uniform("B", A2lDataType.UBYTE, 2, 0x1200)));
+            m.DaqList = DaqList(firstPid: 0, maxOdtEntries: 100);
+            m.MaxOdtEntrySizeDaq = 2;
+        });
+
+        Assert.All(map.Odts, o => Assert.True(o.SizeClassBytes <= 2));
+        Assert.All(map.Odts.SelectMany(o => o.Entries), e => Assert.True(e.ByteLength <= 2));
+        var downgraded = map.PollingEntries.Where(e => e.ObjectName.StartsWith('D')).ToList();
+        Assert.True(downgraded.Count == 2);
+        Assert.All(downgraded, e => Assert.Equal(PlannedPollingCause.ObjectTooLarge, e.Cause));
+    }
+
+    [Fact]
+    public void Missing_MaxOdtEntrySizeDaq_Fails_Loud()
+    {
+        // 声明 null = 装箱判据缺依据（对账前置）：拒绝规划，绝不按缺省 4 静默放行。
+        var map = () => Plan(m =>
+        {
+            m.Measurements = Uniform("B", A2lDataType.UBYTE, 8, 0x1000);
+            m.DaqList = DaqList(firstPid: 0, maxOdtEntries: 100);
+            m.MaxOdtEntrySizeDaq = null;
+        });
+
+        Assert.Throws<InvalidOperationException>(map);
+    }
+
+    // ------------------------------------------------------------------
+    // (F3) 判别性钉死：降级判据是 ODT 预算，不是 105 B 字节数
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void SixteenFourByteObjects_Degraded_Despite_Bytes_Under_105B()
+    {
+        // 16×4B = 64B ≤ 105B，但需 16 个 ODT > 15 → 超预算的第 16 条降级
+        // DaqCapacityExceeded。判据钉死为 ODT 预算；装满的 15 条照常打包
+        //（部分装箱语义与 (b)/(c) 一致——整类降级会把它们一起清空）。
+        var map = Plan(m =>
+        {
+            m.Measurements = Uniform("D", A2lDataType.ULONG, 16, 0x1000);
+            m.DaqList = DaqList(firstPid: 0, maxOdtEntries: 100);
+        });
+
+        Assert.True(map.Odts.Count == MaxOdts);
+        Assert.True(map.Odts.SelectMany(o => o.Entries).Sum(e => e.ByteLength) <= MaxOdts * OdtDataFieldBytes);
+        Assert.True(map.PollingEntries.Count == 1);
+        Assert.All(map.PollingEntries, e => Assert.Equal(PlannedPollingCause.DaqCapacityExceeded, e.Cause));
+    }
+
+    // ------------------------------------------------------------------
     // 测试脚手架（构造包侧 A2L 模型，与 a2l-editor 测试同构）
     // ------------------------------------------------------------------
 
@@ -274,6 +366,9 @@ public class AcquisitionPlannerTests
         public A2lRecordLayout[] Layouts = [];
         public XcpDaqList? DaqList;
         public A2lMemorySegment[] Segments = [];
+
+        // 包侧声明值（XcpDaq.MaxOdtEntrySizeDaq）；默认 4 = spec §1 实测基线。
+        public uint? MaxOdtEntrySizeDaq = 4;
     }
 
     private static PlannedAcquisitionMap Plan(ModuleSpec spec)
@@ -309,7 +404,7 @@ public class AcquisitionPlannerTests
             var daq = new XcpDaq(
                 Dynamic: false, MaxDaq: 1, MaxEventChannel: 1, MinDaq: null,
                 OptimisationType: "STATIC", AddressExtension: "", IdentificationFieldType: "",
-                GranularityOdtEntrySizeDaq: "", MaxOdtEntrySizeDaq: 4, OverloadIndication: false,
+                GranularityOdtEntrySizeDaq: "", MaxOdtEntrySizeDaq: spec.MaxOdtEntrySizeDaq, OverloadIndication: false,
                 new[] { spec.DaqList }, Array.Empty<XcpEventChannel>(),
                 Array.Empty<XcpMissingField>(), "");
             ifData = new XcpIfData(XcpIfDataScope.ModuleLevel, null, daq, null, null,
@@ -325,8 +420,8 @@ public class AcquisitionPlannerTests
             new LineRange(1, 1), MemorySegments: spec.Segments, IfDataXcp: ifData);
     }
 
-    private static XcpDaqList DaqList(ushort firstPid, uint maxOdtEntries) =>
-        new(0, "DAQ", MaxOdts, maxOdtEntries, firstPid, 0, "");
+    private static XcpDaqList DaqList(ushort firstPid, uint maxOdtEntries, uint number = 0) =>
+        new(number, "DAQ", MaxOdts, maxOdtEntries, firstPid, 0, "");
 
     private static A2lCompuMethod CmIdentical =>
         new("CM_ID", "id", "IDENTICAL", "%d", "-", new IdenticalConversion(), new LineRange(1, 1));
