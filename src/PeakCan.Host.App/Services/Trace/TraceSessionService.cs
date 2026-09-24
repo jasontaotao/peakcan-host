@@ -36,6 +36,9 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
 
     /// <summary>信号分组（get-only）。</summary>
     public ObservableCollection<WatchedSignalGroup> SignalGroups { get; } = new();
+    /// <summary>S3-T1 (D2): XCP 关注集（对象名 + 类别；get-only）。与
+    /// watch 列表同一持久化语义——随会话显式保存，不做逐变更自动落盘。</summary>
+    public ObservableCollection<XcpWatchRow> XcpWatchedObjects { get; } = new();
 
     /// <summary>master source 的 SourceId（INPC）。</summary>
     [ObservableProperty]
@@ -133,6 +136,10 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             {
                 Id = g.Id, Name = g.Name, Notes = g.Notes, SignalKeys = g.SignalKeys.ToList(),
             }).ToList();
+        // S3-T1 (D2): XCP 关注集收进 bundle（与 watchedSignals 同口径）。
+        dto.XcpWatch = XcpWatchedObjects
+            .Select(r => new BundleXcpWatchDto { Name = r.Name, Category = r.Category })
+            .ToList();
         return dto;
     }
 
@@ -243,6 +250,15 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
             {
                 SignalGroups.Add(new WatchedSignalGroup(
                     g.Id, g.Name, g.Notes, g.SignalKeys));
+            }
+        }        // S3-T1 (D2): 恢复 XCP 关注集。旧 bundle 无 xcpWatch 键 → 反序列化为
+        // 空列表 → 集合清空（空集不报错，前向兼容）。
+        XcpWatchedObjects.Clear();
+        if (dto.XcpWatch is not null)
+        {
+            foreach (var w in dto.XcpWatch)
+            {
+                XcpWatchedObjects.Add(new XcpWatchRow(w.Name, w.Category));
             }
         }
         // v3.x (会话状态剥离 Task 5 final, Important #2): watch/groups 恢复完成后
