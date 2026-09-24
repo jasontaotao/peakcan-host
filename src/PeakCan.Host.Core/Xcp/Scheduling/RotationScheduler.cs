@@ -106,10 +106,11 @@ public interface IXcpPlanGapNotifier
 public sealed class RotationSchedulerOptions
 {
     /// <summary>
-    /// 空窗时长上界的单命令预算（标称值，非协议超时——协议 T1 由 XcpMaster 管理）。
-    /// 空窗上界 = 重写+start 命令数 × 本值；T15 生产端据此升级断流判据。
+    /// 超时后恢复命令前的 quiesce 间隙（T4 评审裁决：XcpMaster 超时抛出后，调用侧
+    /// 须保持 ≥T1 间隙再发下一条命令，防迟到正响应误配给新命令）。null = 与 master
+    /// 的 T1 同源（XcpMasterOptions.Timeout）；非负，0 仅测试可显式关闭。
     /// </summary>
-    public TimeSpan PerCommandTimeout { get; init; } = XcpMasterOptions.DefaultTimeout;
+    public TimeSpan? QuiesceDelay { get; init; }
 
     /// <summary>单次轮转允许的恢复决定次数上限（防"永远重建"活锁），耗尽即终态失败。</summary>
     public int MaxRecoveryDecisions { get; init; } = 3;
@@ -126,27 +127,56 @@ public sealed class RotationSchedulerOptions
 /// <item>失败路径：stop 成功但重写负响应 → 按注入策略恢复（重试重写/整表重建），
 /// 恢复耗尽抛 <see cref="RotationFailedException"/>，<see cref="TableState"/>
 /// 恒为 Stopped（归因值），绝不带半成品条目 start。</item>
+/// <item>quiesce 间隙（T4 评审裁决）：重写阶段发生 XcpTimeoutException 后、恢复
+/// 命令前等 ≥T1；重写完成→START 之间若发生过任何超时同样插 ≥T1（无超时零延迟快路径）。
+/// 延迟经注入的 <see cref="TimeProvider"/> 计时，与 XcpMaster 的 T1 同钟源可测。</item>
 /// <item>单飞：同一实例并发轮转请求直接拒绝（XcpMaster 单发单收，排队无意义）。</item>
 /// </list>
 /// </summary>
 public sealed class RotationScheduler
 {
     private readonly XcpMaster _master;
-    private readonly RotationSchedulerOptions _options;
     private readonly IXcpPlanGapNotifier? _gapNotifier;
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _quiesceDelay;
+    private readonly int _maxRecoveryDecisions;
+    private readonly TimeSpan _masterTimeout;
+    private readonly int _maxRetries;
     private int _busy;
+
+    /// <summary>本轮重写阶段是否发生过 XcpTimeoutException（决定 START 前 quiesce）。</summary>
+    private bool _timeoutSeen;
 
     /// <summary>当前 DAQ 表运行态（只随 START_STOP 正应答迁移；失败归因消费）。</summary>
     public RotationTableState TableState { get; private set; } = RotationTableState.Stopped;
 
+    /// <summary>
+    /// 构造。T1/MaxRetries 从 <paramref name="masterOptions"/> 同源取用（空窗上界与
+    /// quiesce 默认值），保证与 XcpMaster 的超时策略永不脱钩。
+    /// </summary>
     public RotationScheduler(
         XcpMaster master,
+        XcpMasterOptions masterOptions,
         RotationSchedulerOptions? options = null,
-        IXcpPlanGapNotifier? gapNotifier = null)
+        IXcpPlanGapNotifier? gapNotifier = null,
+        TimeProvider? timeProvider = null)
     {
         _master = master ?? throw new ArgumentNullException(nameof(master));
-        _options = options ?? new RotationSchedulerOptions();
+        _masterTimeout = (masterOptions ?? throw new ArgumentNullException(nameof(masterOptions))).Timeout;
+        _maxRetries = masterOptions.MaxRetries;
         _gapNotifier = gapNotifier;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+
+        var effective = options ?? new RotationSchedulerOptions();
+        var quiesce = effective.QuiesceDelay ?? _masterTimeout;
+        if (quiesce < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(options), quiesce, "QuiesceDelay must be non-negative.");
+        if (effective.MaxRecoveryDecisions < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options), effective.MaxRecoveryDecisions, "MaxRecoveryDecisions must be non-negative.");
+
+        _quiesceDelay = quiesce;
+        _maxRecoveryDecisions = effective.MaxRecoveryDecisions;
     }
 
     /// <summary>
@@ -167,6 +197,7 @@ public sealed class RotationScheduler
         {
             // 恢复策略默认重试重写（最小破坏面）；整表重建必须显式注入选择。
             var policy = recoveryPolicy ?? new FixedRotationRecoveryPolicy(RotationRecoveryAction.RetryRewrite);
+            _timeoutSeen = false;
 
             // 发线上帧前 fail-loud：地址未翻译/超 32 位线上地址空间的一律拒绝
             //（宁可不采不错采，且绝不把表打停后再发现配不齐条目）。
@@ -175,6 +206,12 @@ public sealed class RotationScheduler
             await StopAsync(plan, ct).ConfigureAwait(false);
             NotifyPlanGap(plan);
             var failures = await RewriteAsync(plan, policy, ct).ConfigureAwait(false);
+            if (_timeoutSeen)
+            {
+                // T4 评审裁决：重写阶段发生过超时（迟到正响应风险窗口）→ START 前保持 ≥T1。
+                // 无超时路径零延迟（快路径不因防御性等待变慢）。
+                await QuiesceAsync(ct).ConfigureAwait(false);
+            }
             await StartAsync(plan, ct).ConfigureAwait(false);
             return new RotationResult(TableState, failures);
         }
@@ -184,7 +221,7 @@ public sealed class RotationScheduler
         }
     }
 
-    /// <summary>线上帧前的静态校验：单表 list 0、条目尺寸类、物理地址可上 32 位线上地址。</summary>
+    /// <summary>线上帧前的静态校验：单表 list 0、ODT 计数一致、条目尺寸类、物理地址可上 32 位线上地址。</summary>
     private static void Validate(PlannedAcquisitionMap plan)
     {
         if (plan.DaqNumber != 0)
@@ -193,6 +230,9 @@ public sealed class RotationScheduler
         if (plan.Odts.Count is < 1 or > AcquisitionPlanner.MaxOdts)
             throw new InvalidOperationException(
                 $"Plan must declare 1..{AcquisitionPlanner.MaxOdts} ODTs; got {plan.Odts.Count}.");
+        if (plan.OdtCount != plan.Odts.Count)
+            throw new InvalidOperationException(
+                $"Plan self-inconsistency: OdtCount={plan.OdtCount} but Odts.Count={plan.Odts.Count}.");
 
         foreach (var odt in plan.Odts)
         {
@@ -223,8 +263,9 @@ public sealed class RotationScheduler
         }
         catch (Exception ex) when (ex is XcpErrorResponseException or XcpTimeoutException or InvalidOperationException)
         {
-            // stop 失败：表仍在从机侧运行，状态不迁移（归因 Running）。
-            throw ToFailure(RotationPhase.Stopping, odt: 0, entry: 0, ex, TableState);
+            // stop 失败：表仍在从机侧运行——归因值钉死 Running（不随本实例
+            // acked 状态走：新实例从未观测到运行态，但 stop 未生效是客观事实）。
+            throw ToFailure(RotationPhase.Stopping, odt: 0, entry: 0, ex, RotationTableState.Running);
         }
 
         TableState = RotationTableState.Stopped;
@@ -248,13 +289,13 @@ public sealed class RotationScheduler
     /// <summary>
     /// 重写主循环：游标 (odt, entry) 推进；失败时按注入策略决定
     /// RetryRewrite（游标停在失败条目，原位重发）或 RebuildTable（游标归零整表重来）。
-    /// 恢复决定次数耗尽抛终态失败（表恒处 stop 态）。
+    /// 超时失败先保持 quiesce 间隙再进入恢复；恢复决定次数耗尽抛终态失败（表恒处 stop 态）。
     /// </summary>
     private async Task<List<RotationFailure>> RewriteAsync(
         PlannedAcquisitionMap plan, IRotationRecoveryPolicy policy, CancellationToken ct)
     {
         var failures = new List<RotationFailure>();
-        var decisionsLeft = _options.MaxRecoveryDecisions;
+        var decisionsLeft = _maxRecoveryDecisions;
         var odt = 0;
         var entry = 0;
 
@@ -277,6 +318,10 @@ public sealed class RotationScheduler
                 if (decisionsLeft == 0)
                     throw new RotationFailedException(bailout.Failure, TableState);
                 decisionsLeft--;
+
+                // T4 评审裁决：超时后恢复命令前保持 quiesce 间隙（负响应失败无需等待）。
+                if (bailout.IsTimeout)
+                    await QuiesceAsync(ct).ConfigureAwait(false);
 
                 if (policy.OnRewriteFailure(bailout.Failure) == RotationRecoveryAction.RebuildTable)
                 {
@@ -312,20 +357,43 @@ public sealed class RotationScheduler
         }
         catch (Exception ex) when (ex is XcpErrorResponseException or XcpTimeoutException or InvalidOperationException)
         {
-            throw new RewriteBailout(ToFailureValue(RotationPhase.Rewriting, odt.OdtIndex, entry.EntryIndex, ex));
+            var isTimeout = ex is XcpTimeoutException;
+            if (isTimeout)
+                _timeoutSeen = true;
+            throw new RewriteBailout(ToFailureValue(RotationPhase.Rewriting, odt.OdtIndex, entry.EntryIndex, ex), isTimeout);
         }
     }
 
-    /// <summary>空窗通知挂点：stop 应答刚落地、首条重写前（T11 测试钉时序，生产端 T15）。</summary>
+    /// <summary>T4 裁决的 quiesce 间隙（注入 TimeProvider 计时，与 master T1 同钟源可测）。</summary>
+    private Task QuiesceAsync(CancellationToken ct) =>
+        _quiesceDelay > TimeSpan.Zero
+            ? Task.Delay(_quiesceDelay, _timeProvider, ct)
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// 空窗通知挂点：stop 应答刚落地、首条重写前（T11 测试钉时序，生产端 T15）。
+    /// <para>
+    /// 空窗真实上界（每项来源）：
+    /// <list type="bullet">
+    /// <item>命令数 = 1×stop + 2×条目（SET_DAQ_PTR+WRITE_DAQ） + 1×start
+    /// + 2×MaxRecoveryDecisions（每次恢复至多重发 setptr+write 各一帧）。</item>
+    /// <item>单命令最坏耗时 = T1 × (MaxRetries + 1)——T1 即 XcpMasterOptions.Timeout、
+    /// MaxRetries 即 XcpMasterOptions.MaxRetries（spec §3 Protocol 超时策略，T4）。</item>
+    /// <item>quiesce 预算 = MaxRecoveryDecisions × QuiesceDelay（T4 评审裁决：
+    /// 每次超时恢复前 ≥T1 间隙）。</item>
+    /// </list>
+    /// </para>
+    /// </summary>
     private void NotifyPlanGap(PlannedAcquisitionMap plan)
     {
         if (_gapNotifier is null)
             return;
 
         var entryCount = plan.Odts.Sum(o => o.Entries.Count);
-        // 空窗覆盖重写 + start：命令数 = 2×条目 + 1，预算按标称单命令超时线性放大。
-        var commandCount = 2 * entryCount + 1;
-        var budget = TimeSpan.FromTicks(commandCount * _options.PerCommandTimeout.Ticks);
+        var commands = 1 + 2 * entryCount + 1 + 2 * _maxRecoveryDecisions;
+        var perCommandWorst = TimeSpan.FromTicks(_masterTimeout.Ticks * (_maxRetries + 1));
+        var budget = TimeSpan.FromTicks(
+            commands * perCommandWorst.Ticks + (long)_maxRecoveryDecisions * _quiesceDelay.Ticks);
         _gapNotifier.OnPlanGapWindow(new RotationGapWindow(plan.OdtCount, entryCount, budget));
     }
 
@@ -343,11 +411,18 @@ public sealed class RotationScheduler
     private static uint ElementPointer(byte daqNumber, ushort odtIndex, ushort entryIndex) =>
         ((uint)daqNumber << 16) | ((uint)odtIndex << 8) | entryIndex;
 
-    /// <summary>重写条目失败的内部跃迁载体（携带归因值上抛给恢复循环）。</summary>
+    /// <summary>重写条目失败的内部跃迁载体（携带归因值与超时标志上抛给恢复循环）。</summary>
     private sealed class RewriteBailout : Exception
     {
         public RotationFailure Failure { get; }
 
-        public RewriteBailout(RotationFailure failure) => Failure = failure;
+        /// <summary>失败是否为 T1 超时（决定恢复前 quiesce；负响应不需要）。</summary>
+        public bool IsTimeout { get; }
+
+        public RewriteBailout(RotationFailure failure, bool isTimeout)
+        {
+            Failure = failure;
+            IsTimeout = isTimeout;
+        }
     }
 }

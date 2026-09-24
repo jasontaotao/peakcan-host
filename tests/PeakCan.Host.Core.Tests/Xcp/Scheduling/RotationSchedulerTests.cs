@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Xcp.Abstractions;
@@ -10,11 +11,15 @@ namespace PeakCan.Host.Core.Tests.Xcp.Scheduling;
 /// S2-T11 RotationScheduler（spec §1 轮转形状 + §3 Scheduling）：
 /// stop → SET_DAQ_PTR/WRITE_DAQ 重写 → start 的顺序写死状态机、
 /// mode 0/1 直控 list 0、stop 后重写失败的归因与可注入恢复（重试重写/整表重建）、
+/// 超时后 quiesce 间隙（T4 评审裁决）、stop/start 阶段失败归因、
 /// 换表计划空窗通知挂点（生产端 T15 接线）。
 /// </summary>
 public class RotationSchedulerTests
 {
     private static readonly CanId MasterCanId = new(0x18FFF667, FrameFormat.Extended);
+
+    /// <summary>T1（XcpMasterOptions.DefaultTimeout）——quiesce 间隙与超时测试的钟源基准。</summary>
+    private static readonly TimeSpan T1 = TimeSpan.FromMilliseconds(2000);
 
     private readonly FakeTimeProvider _time = new();
 
@@ -24,13 +29,15 @@ public class RotationSchedulerTests
     {
         var slave = new ScriptedXcpSlave();
         var map = Map15Odts();
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
+        var before = _time.GetUtcNow(); // 无超时路径不得推进时钟（quiesce 零延迟快路径）
         var result = await scheduler.ConfigureRotationAsync(map).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(RotationTableState.Running, result.TableState);
         Assert.Empty(result.RecoveredFailures);
+        Assert.Equal(before, _time.GetUtcNow());
 
         var sent = slave.Sent;
         Assert.Equal(XcpPid.StartStopDaqList, sent[0][0]);
@@ -68,14 +75,16 @@ public class RotationSchedulerTests
     public async Task WriteDaq_never_precedes_stop_even_with_running_state_enforcement()
     {
         var slave = new ScriptedXcpSlave();
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
         await scheduler.ConfigureRotationAsync(Map15Odts()).WaitAsync(TimeSpan.FromSeconds(5));
 
         var sent = slave.Sent;
         var stopIndex = sent.FindIndex(f => f[0] == XcpPid.StartStopDaqList && f[1] == 0x00);
         var firstWriteIndex = sent.FindIndex(f => f[0] == XcpPid.WriteDaq);
+        Assert.NotEqual(-1, stopIndex);
+        Assert.NotEqual(-1, firstWriteIndex);
         Assert.True(firstWriteIndex > stopIndex, "WRITE_DAQ must only be issued after START_STOP_DAQ_LIST(stop).");
 
         // 模拟从机钉死：表运行中收到 WRITE_DAQ 必回负响应——全程零负响应
@@ -88,8 +97,8 @@ public class RotationSchedulerTests
     public async Task Only_mode0_and_mode1_directly_control_daq_list0_and_synch_is_never_sent()
     {
         var slave = new ScriptedXcpSlave();
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
         await scheduler.ConfigureRotationAsync(Map15Odts()).WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -112,8 +121,8 @@ public class RotationSchedulerTests
     {
         var slave = new ScriptedXcpSlave();
         slave.FailWriteDaqOnce(4); // 第 4 条 WRITE_DAQ（ODT1 entry2）负响应一次
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
         var result = await scheduler.ConfigureRotationAsync(
             Map15Odts(),
@@ -141,8 +150,8 @@ public class RotationSchedulerTests
     {
         var slave = new ScriptedXcpSlave();
         slave.FailWriteDaqOnce(4);
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
         var result = await scheduler.ConfigureRotationAsync(
             Map15Odts(),
@@ -168,8 +177,8 @@ public class RotationSchedulerTests
     {
         var slave = new ScriptedXcpSlave();
         slave.FailWriteDaqFrom(4); // 从第 4 条起全部负响应
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master);
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
 
         var ex = await Assert.ThrowsAsync<RotationFailedException>(() =>
             scheduler.ConfigureRotationAsync(
@@ -195,27 +204,177 @@ public class RotationSchedulerTests
     {
         var slave = new ScriptedXcpSlave();
         var notifier = new RecordingGapNotifier(slave);
-        using var master = NewMaster(slave);
-        var scheduler = new RotationScheduler(master, gapNotifier: notifier);
+        var (master, scheduler) = NewSession(slave, gapNotifier: notifier);
+        using var _ = master;
 
         await scheduler.ConfigureRotationAsync(Map15Odts()).WaitAsync(TimeSpan.FromSeconds(5));
 
         var gap = Assert.Single(notifier.Windows);
         Assert.Equal((ushort)15, gap.OdtCount);
         Assert.Equal(91, gap.EntryCount);
-        Assert.True(gap.ExpectedMaxDuration > TimeSpan.Zero);
+
+        // 真实上界（I2 公式，T1=2000ms、MaxRetries=1、恢复上限=3、quiesce=T1）：
+        //   commands = 1(stop) + 2×91(setptr+write) + 1(start) + 2×3(恢复) = 190
+        //   上界 = 190 × T1×2 + 3 × T1 = 760000 + 6000 = 766000ms
+        Assert.Equal(TimeSpan.FromMilliseconds(766000), gap.ExpectedMaxDuration);
+
         // 空窗起点 = stop 应答刚落地（线上只有 stop 一帧）且从机侧已停。
         Assert.Equal(1, notifier.SentCounts[0]);
         Assert.False(notifier.RunningFlags[0]);
     }
 
+    // ---- (C1) 超时后 quiesce：恢复重发前与 START 前都保持 ≥T1 间隙 ----
+    [Fact]
+    public async Task Timeout_recovery_waits_quiesce_before_retry_and_before_start()
+    {
+        var slave = new ScriptedXcpSlave();
+        slave.SilenceWriteDaqOnce(4); // write#4 两 attempt 都无应答 → master T1 超时
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
+
+        // 帧序：0 stop；1-2 ODT0e0；3-4 ODT1e0；5-6 ODT1e1；7 setptr；8 write#4（attempt1）。
+        var rotation = scheduler.ConfigureRotationAsync(
+            Map15Odts(), new FixedRotationRecoveryPolicy(RotationRecoveryAction.RetryRewrite));
+        await WaitFor(() => slave.Sent.Count >= 9); // attempt1 在途（无响应）
+
+        await AdvanceUntil(() => slave.Sent.Count >= 10, TimeSpan.FromMilliseconds(200)); // master attempt2 重发
+        await AdvanceUntil(() => slave.Sent.Count >= 11, TimeSpan.FromMilliseconds(100)); // 超时→quiesce→恢复重发
+        // 继续步进假时钟直到轮转完成：恢复后写完全部条目，且 START 前还有一次
+        // ≥T1 的 quiesce（重写阶段发生过超时）——都需要假时钟推进。
+        await AdvanceUntil(
+            () => rotation.IsCompleted,
+            TimeSpan.FromMilliseconds(100));
+        var result = await rotation; // IsCompleted 已保证立即完成
+
+        Assert.Equal(RotationTableState.Running, result.TableState);
+        var failure = Assert.Single(result.RecoveredFailures);
+        Assert.Null(failure.ErrorCode); // 超时非负响应，ErrorCode 归因 null
+
+        // 恢复重发前的 quiesce：attempt2 → 下一帧间隔 ≥ T1。
+        Assert.True(slave.SentAt[10] - slave.SentAt[9] >= T1, "recovery command must wait >= T1 after timeout");
+        // 重写完成 → START 之间的 quiesce：发生过超时 → 最后一帧写 → START 间隔 ≥ T1。
+        Assert.True(slave.SentAt[^1] - slave.SentAt[^2] >= T1, "START must wait >= T1 after a rewrite timeout");
+    }
+
+    // ---- (I1) stop 失败：归因 Running（状态不迁移）、绝不起表 ----
+    [Fact]
+    public async Task Stop_failure_attributes_running_state_and_never_starts()
+    {
+        var slave = new ScriptedXcpSlave();
+        slave.FailStopOnce();
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
+
+        var ex = await Assert.ThrowsAsync<RotationFailedException>(() =>
+            scheduler.ConfigureRotationAsync(Map15Odts()).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(RotationPhase.Stopping, ex.Failure.Phase);
+        Assert.Equal(XcpError.CmdBusy, ex.Failure.ErrorCode);
+        Assert.Equal(RotationTableState.Running, ex.TableState); // 归因值：stop 失败，表仍在从机侧运行
+        Assert.Equal(RotationTableState.Stopped, scheduler.TableState); // 本实例从未观测到运行态，acked 状态不迁移
+        Assert.Single(slave.Sent); // 终态失败：stop 之后再无任何命令
+    }
+
+    // ---- (I1) start 失败：归因 Stopped（安全侧）、条目已写齐但表不上线 ----
+    [Fact]
+    public async Task Start_failure_attributes_stopped_safe_side()
+    {
+        var slave = new ScriptedXcpSlave();
+        slave.FailStartOnce();
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
+
+        var ex = await Assert.ThrowsAsync<RotationFailedException>(() =>
+            scheduler.ConfigureRotationAsync(Map15Odts()).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(RotationPhase.Starting, ex.Failure.Phase);
+        Assert.Equal(XcpError.CmdBusy, ex.Failure.ErrorCode);
+        Assert.Equal(RotationTableState.Stopped, ex.TableState); // 归因值：安全侧 stop 态
+        Assert.Equal(RotationTableState.Stopped, scheduler.TableState);
+        Assert.False(slave.Running); // start 负响应 → 从机未上线
+        // 条目重写已完成：91 条 setptr 都发出；START 只尝试一次（负响应）且从机未上线。
+        Assert.Equal(91, slave.Sent.Count(f => f[0] == XcpPid.SetDaqPtr));
+        Assert.Single(slave.Sent, f => f[0] == XcpPid.StartStopDaqList && f[1] == 0x01);
+        Assert.Equal(XcpError.CmdBusy, slave.LastStartStopNegative);
+    }
+
+    // ---- (M2) 单飞：第一轮未完成时第二轮并发调用被拒绝 ----
+    [Fact]
+    public async Task Concurrent_rotation_is_rejected_as_single_flight()
+    {
+        var slave = new ScriptedXcpSlave();
+        slave.HoldUntilReleased(XcpPid.StartStopDaqList); // 第一轮卡在 stop 应答前
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
+
+        var first = scheduler.ConfigureRotationAsync(Map15Odts());
+        await WaitFor(() => slave.Sent.Count >= 1); // 第一轮已发出 stop、pending 中
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            scheduler.ConfigureRotationAsync(Map15Odts()));
+
+        slave.ReleaseHold();
+        var result = await first.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(RotationTableState.Running, result.TableState);
+    }
+
+    // ---- (M3) OdtCount 与 Odts.Count 不一致：线上帧前 fail-loud ----
+    [Fact]
+    public async Task Odt_count_mismatch_fails_loud_before_any_wire_traffic()
+    {
+        var slave = new ScriptedXcpSlave();
+        var (master, scheduler) = NewSession(slave);
+        using var _ = master;
+
+        // Odts 有 15 个，OdtCount 谎报 14。
+        var inconsistent = new PlannedAcquisitionMap(0, 14, BuildOdts(), Array.Empty<PlannedPollingEntry>());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            scheduler.ConfigureRotationAsync(inconsistent));
+        Assert.Empty(slave.Sent); // 钉死：校验在任何线上流量之前
+    }
+
     // ---- 测试脚手架 ----
 
-    private XcpMaster NewMaster(ScriptedXcpSlave slave) =>
-        new(slave, new XcpMasterOptions(MasterCanId), _time);
+    private static XcpMasterOptions MasterOptions() => new(MasterCanId);
 
-    /// <summary>15 ODT 满载方案：4B×1 + 2B×3×2 + 1B×7×12，共 91 条目。</summary>
-    private static PlannedAcquisitionMap Map15Odts()
+    private (XcpMaster Master, RotationScheduler Scheduler) NewSession(
+        ScriptedXcpSlave slave,
+        RotationSchedulerOptions? options = null,
+        IXcpPlanGapNotifier? gapNotifier = null)
+    {
+        slave.Clock = () => _time.GetUtcNow();
+        var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = new RotationScheduler(master, MasterOptions(), options, gapNotifier, _time);
+        return (master, scheduler);
+    }
+
+    private static async Task WaitFor(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (sw.ElapsedMilliseconds > timeoutMs)
+                throw new TimeoutException($"condition not met within {timeoutMs} ms");
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>推进 FakeTimeProvider 直至条件满足（步进 + 真实等待让续体跑完，无离散推进竞态）。</summary>
+    private async Task AdvanceUntil(Func<bool> condition, TimeSpan step, int timeoutMs = 5000)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (sw.ElapsedMilliseconds > timeoutMs)
+                throw new TimeoutException($"fake-time condition not met within {timeoutMs} ms");
+            _time.Advance(step);
+            await Task.Delay(1);
+        }
+    }
+
+    /// <summary>构建 15 个 ODT：4B×1 + 2B×3×2 + 1B×7×12，共 91 条目。</summary>
+    private static List<PlannedOdt> BuildOdts()
     {
         var odts = new List<PlannedOdt>();
         for (ushort odt = 0; odt < 15; odt++)
@@ -235,8 +394,11 @@ public class RotationSchedulerTests
             }
             odts.Add(new PlannedOdt(odt, 0x50u + odt, size, entries));
         }
-        return new PlannedAcquisitionMap(0, (ushort)odts.Count, odts, Array.Empty<PlannedPollingEntry>());
+        return odts;
     }
+
+    private static PlannedAcquisitionMap Map15Odts() =>
+        new(0, 15, BuildOdts(), Array.Empty<PlannedPollingEntry>());
 
     private static uint EntryAddress(ushort odt, ushort entry) => 0x1000u + (uint)(odt * 8 + entry);
 
@@ -248,20 +410,37 @@ public class RotationSchedulerTests
 
     /// <summary>
     /// 脚本化模拟从机：状态机强制"表运行中 WRITE_DAQ 必负响应"（spec §1 顺序写死的
-    /// 从机侧判据）；响应在 WriteAsync 内同步派发（XcpVirtualSlave 同款简化）。
+    /// 从机侧判据）；响应在 WriteAsync 内派发（XcpVirtualSlave 同款简化）；
+    /// Clock 注入 FakeTimeProvider 时刻，用于断言 quiesce 间隙。
     /// </summary>
     private sealed class ScriptedXcpSlave : IXcpTransport
     {
         private static readonly CanId SlaveCanId = new(0x18FFF666, FrameFormat.Extended);
 
         private readonly HashSet<int> _failWriteAt = new();
+        private readonly List<DateTimeOffset> _sentAt = new();
         private int _writeCount;
+        private int _failWriteFrom = int.MaxValue;
+        private int _silenceWriteAt = -1;
+        private bool _silencingWrite;
+        private XcpError? _lastStartStopNegative;
+        private bool _failStopOnce;
+        private bool _failStartOnce;
+        private TaskCompletionSource<object?>? _holdGate;
+        private byte _holdPid;
 
         public List<byte[]> Sent { get; } = new();
+
+        public IReadOnlyList<DateTimeOffset> SentAt => _sentAt;
+
+        public Func<DateTimeOffset>? Clock { private get; set; }
 
         public bool Running { get; private set; }
 
         public int NegativesSent { get; private set; }
+
+        /// <summary>最近一次 START_STOP 负响应的错误码（start 失败测试用）。</summary>
+        public XcpError? LastStartStopNegative => _lastStartStopNegative;
 
         public event Action<CanFrame>? FrameReceived;
 
@@ -273,26 +452,69 @@ public class RotationSchedulerTests
         /// <summary>从第 index 条（1 起）起 WRITE_DAQ 全部负响应（恢复耗尽路径）。</summary>
         public void FailWriteDaqFrom(int firstIndex) => _failWriteFrom = firstIndex;
 
-        private int _failWriteFrom = int.MaxValue;
+        /// <summary>第 index 条（1 起）WRITE_DAQ 首次无应答（master T1 超时路径）。</summary>
+        public void SilenceWriteDaqOnce(int index) => _silenceWriteAt = index;
 
-        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+        /// <summary>下一次 START_STOP_DAQ_LIST(stop) 负响应（I1 归因测试）。</summary>
+        public void FailStopOnce() => _failStopOnce = true;
+
+        /// <summary>下一次 START_STOP_DAQ_LIST(start) 负响应（I1 归因测试）。</summary>
+        public void FailStartOnce() => _failStartOnce = true;
+
+        /// <summary>指定 PID 的下一帧挂起不响应，直到 ReleaseHold（单飞测试）。</summary>
+        public void HoldUntilReleased(byte pid)
+        {
+            _holdPid = pid;
+            _holdGate = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public void ReleaseHold() => _holdGate?.TrySetResult(null);
+
+        public async ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
         {
             var bytes = frame.Data.ToArray();
             Sent.Add(bytes);
+            _sentAt.Add(Clock?.Invoke() ?? DateTimeOffset.MinValue);
+            if (_holdGate is not null && bytes[0] == _holdPid)
+                await _holdGate.Task.ConfigureAwait(false);
             Respond(bytes);
-            return ValueTask.FromResult(Result<Unit>.Ok(default));
+            return Result<Unit>.Ok(default);
         }
 
         private void Respond(byte[] cmd)
         {
+            // 静默窗只针对同一条 WRITE_DAQ 命令的连续重发；
+            // 任何其他命令（恢复重发的 SET_DAQ_PTR / START_STOP）到达即解除。
+            if (cmd[0] != XcpPid.WriteDaq)
+                _silencingWrite = false;
+
             switch (cmd[0])
             {
                 case XcpPid.StartStopDaqList:
-                    Running = cmd[1] == 0x01;
-                    Positive();
+                    var isStop = cmd[1] == 0x00;
+                    var failList = isStop ? _failStopOnce : _failStartOnce;
+                    if (failList) _lastStartStopNegative = XcpError.CmdBusy;
+                    if (failList)
+                    {
+                        if (isStop) _failStopOnce = false; else _failStartOnce = false;
+                        Negative(XcpError.CmdBusy);
+                    }
+                    else
+                    {
+                        Running = !isStop; // 只有正应答才迁移从机运行态
+                        Positive();
+                    }
                     break;
                 case XcpPid.WriteDaq:
                     _writeCount++;
+                    if (_silencingWrite || _writeCount == _silenceWriteAt)
+                    {
+                        // 静默覆盖同一条命令的连续重发（master 两次 attempt 都无应答才超时）；
+                        // 一旦出现非 WRITE_DAQ 命令（恢复重发的 setptr）即解除静默。
+                        _silencingWrite = true;
+                        _silenceWriteAt = -1;
+                        return;
+                    }
                     if (Running || _writeCount >= _failWriteFrom || _failWriteAt.Remove(_writeCount))
                     {
                         NegativesSent++;
