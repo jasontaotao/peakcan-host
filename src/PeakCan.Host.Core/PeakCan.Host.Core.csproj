@@ -24,4 +24,16 @@
     <PackageReference Include="PeakCan.HIL.Core" />
   </ItemGroup>
 
+  <!-- S2-T5: ASAP2 consumption (XCP capability reconciliation in Core/Xcp). Same dual-pin
+       pattern as PeakCan.HIL.Core above: sibling-repo project reference when the repos sit
+       next to each other (D:\claude_proj2\{peakcan-host,a2l-editor}), else the pinned
+       PeakCan.ASAP2 0.1.1 package from the local feed (CI: packed in ci.yml, see S2-T17).
+       A2lEditor.Core targets netstandard2.1, which is consumable from this net10.0 project. -->
+  <ItemGroup Condition="Exists('..\..\..\a2l-editor\src\A2lEditor.Core\A2lEditor.Core.csproj')">
+    <ProjectReference Include="..\..\..\a2l-editor\src\A2lEditor.Core\A2lEditor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('..\..\..\a2l-editor\src\A2lEditor.Core\A2lEditor.Core.csproj')">
+    <PackageReference Include="PeakCan.ASAP2" />
+  </ItemGroup>
+
 </Project>

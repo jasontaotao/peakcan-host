@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -27,6 +27,7 @@
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="NetArchTest.Rules" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="xunit" />
@@ -43,6 +44,11 @@
 
   <ItemGroup>
     <Content Include="..\PeakCan.Host.App.Tests\Fixtures\Can\*.asc" LinkBase="Fixtures\Can\" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- S2-T7: 真机 A2L 冒烟夹具（CapabilityReconcilerTests (g)），SHA256 与 a2l-editor samples 副本一致 -->
+  <ItemGroup>
+    <Content Include="TestData\App_merge_INCA.a2l" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

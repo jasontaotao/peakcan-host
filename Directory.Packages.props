@@ -23,6 +23,9 @@
     <!-- J1939TP: TimeProvider 测试替身（spec §5.4 单测确定性要求） -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.1.0" />
     <PackageVersion Include="PeakCan.HIL.Core" Version="0.22.0" />
+    <!-- S2-T5: ASAP2 (A2L) package consumed by PeakCan.Host.Core.Xcp capability reconciliation.
+         Pinned to the version packed into the local feed by a2l-editor S1 (see T17 lockstep guard). -->
+    <PackageVersion Include="PeakCan.ASAP2" Version="0.1.1" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="Serilog" Version="4.3.1" />

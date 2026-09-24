@@ -11,6 +11,7 @@ using PeakCan.Host.Infrastructure.HIL;
 using PeakCan.Host.Infrastructure.HIL.Generators;
 using PeakCan.Host.Infrastructure.HIL.Odx;
 using PeakCan.Host.Infrastructure.Peak;
+using PeakCan.Host.Infrastructure.Xcp;
 using PeakCan.Host.Core.HIL;
 using PeakCan.Host.Core;
 
@@ -22,6 +23,13 @@ public static class Program
     {
         try
         {
+            // D3: xcp-probe 子命令 —— 早于 CliArgsParser 分发（探针参数独立解析，
+            // 与 --dbc/--suite 常规 HIL 流程互不相干）。
+            if (args.Length > 0 && args[0].Equals("xcp-probe", StringComparison.OrdinalIgnoreCase))
+            {
+                return await RunXcpProbeAsync(args[1..]);
+            }
+
             var cli = CliArgsParser.Parse(args);
 
             // SecOc key management mode (spec D4): no DI container needed
@@ -225,6 +233,37 @@ public static class Program
         {
             Console.Error.WriteLine($"Fatal: {ex.Message}");
             return 2;
+        }
+    }
+
+    /// <summary>
+    /// xcp-probe 真机入口：--hw 指定 PCAN 通道，波特率取 A2L 声明值（XCP_ON_CAN.BAUDRATE，
+    /// 不猜）。CI/测试路径不走这里——直接调 XcpProbeCommand.RunAsync 注入模拟从机 transport。
+    /// </summary>
+    private static async Task<int> RunXcpProbeAsync(string[] args)
+    {
+        var options = XcpProbeCommand.ParseArgs(args);
+        if (options.HardwareChannel is not { } hardwareChannel)
+            throw new ArgumentException("xcp-probe requires --hw <channel> — no default CAN channel (D3).");
+
+        var baudRate = XcpProbeCommand.ResolveDeclaredBaudRate(options.A2LPath);
+        var handle = HeadlessHostBuilder.ParseChannelHandle(hardwareChannel);
+        var channel = new PeakCanChannel(new ChannelId(handle), null);
+        try
+        {
+            var connectResult = await channel.ConnectAsync(baudRate, fd: false);
+            if (!connectResult.IsSuccess)
+            {
+                Console.Error.WriteLine($"Error: XCP probe channel connect failed: {connectResult.Error?.Message}");
+                return 2;
+            }
+
+            await using var transport = new XcpCanTransport(channel);
+            return await XcpProbeCommand.RunAsync(options, transport);
+        }
+        finally
+        {
+            await channel.DisconnectAsync();
         }
     }
 }

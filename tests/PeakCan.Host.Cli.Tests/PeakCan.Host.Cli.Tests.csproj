@@ -13,6 +13,18 @@
     <ProjectReference Include="..\..\src\PeakCan.Security\PeakCan.Security.csproj" />
   </ItemGroup>
 
+  <!-- S2-T8: 探针测试复用 Core.Tests 的 XcpVirtualSlave（T6 测试台架）——
+       引用测试工程仅为共享 TestKit；vstest 只发现本工程容器，Core.Tests 用例不会重复执行。
+       禁止通配 vstest **\*.Tests.dll（会双跑 Core.Tests）——只跑 .slnx 或具名工程。 -->
+  <ItemGroup>
+    <ProjectReference Include="..\PeakCan.Host.Core.Tests\PeakCan.Host.Core.Tests.csproj" />
+  </ItemGroup>
+
+  <!-- S2-T8: 真机 A2L 冒烟夹具（与 Core.Tests TestData 同一文件，SHA256 基线一致） -->
+  <ItemGroup>
+    <Content Include="..\PeakCan.Host.Core.Tests\TestData\App_merge_INCA.a2l" LinkBase="TestData\" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
