@@ -34,7 +34,9 @@ public enum XcpCardLimitState
 public sealed class XcpCardViewModel : ObservableObject
 {
     /// <summary>A2L FORMAT 是 C printf 风格（"%.2f"/"%6.2"/"%8.3e"）；host 只取精度语义，
-    /// 用 .NET 标准数字格式渲染（不引入 printf 依赖）。无法识别的形状回退不变文化 G。</summary>
+    /// 用 .NET 标准数字格式渲染（不引入 printf 依赖）。结构不匹配（无数字部分）时
+    /// 回退不变文化 G；未识别的字母后缀按 F 精度渲染（T5 评审 LOW：正则宽松，注释原
+    /// 称"无法识别回退 G"与实现不符，已如实更正）。</summary>
     private static readonly Regex FormatPattern =
         new(@"^%?(\d+)?(?:\.(\d+))?([a-zA-Z])?$", RegexOptions.Compiled);
 
@@ -92,6 +94,7 @@ public sealed class XcpCardViewModel : ObservableObject
         OnPropertyChanged(nameof(LimitState));
 
         _lastUpdate = sample.ReceivedAt;
+        OnPropertyChanged(nameof(LastUpdate)); // T5 评审 MEDIUM：绑定属性必须随更新通知（原漏报）
     }
 
     /// <summary>停更刷新（Flush 每拍重算"距今多久"，计时经 VM 注入的 TimeProvider）。</summary>
@@ -199,7 +202,10 @@ public partial class XcpCardPanelViewModel : ObservableObject
     {
         _sink = sink ?? new XcpCardPanelSink();
         _time = timeProvider ?? TimeProvider.System;
-        _stalePeriod = stalePeriod ?? TimeSpan.FromMilliseconds(DefaultStalePeriodMilliseconds);
+        var effective = stalePeriod ?? TimeSpan.FromMilliseconds(DefaultStalePeriodMilliseconds);
+        if (effective <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(stalePeriod), effective, "采集周期必须为正——0/负值会让全部卡片永久停更（T5 评审 LOW）。");
+        _stalePeriod = effective;
     }
 
     /// <summary>D3 管线 sink（视图层接线用同一实例灌样本；sink 归 App 层自持）。</summary>

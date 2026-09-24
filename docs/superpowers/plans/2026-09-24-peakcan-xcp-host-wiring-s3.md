@@ -93,6 +93,8 @@
 
 ### T8 — XcpView.xaml + 主 tab 接线（D1）
 
+**T5 评审移交（本任务必须吸收）**：(1) stalePeriod 接线不得照抄全局 100 Hz——轮转表中更新周期 >30ms 的对象会常驻停更灰显，按对象实际节奏设置；(2) 视图绑定不得越 XcpCardViewModel.Contract 允许消费面（Unit/Format/Limits——评审发现 Contract 属性暴露了完整 ValueContract，T8 review 查绑定）。
+
 **上下文指路**：spec D1；AppShell MainTabs `TabSpec` 懒创建先例（Nodes tab 追加同款）；AppHostBuilder UdsViewModel 注册先例。
 
 **新文件**：`src/PeakCan.Host.App/Views/Xcp/XcpView.xaml`（+ .cs）。
@@ -138,6 +140,7 @@
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
 
 
 

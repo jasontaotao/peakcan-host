@@ -355,6 +355,49 @@ public class XcpCardPanelViewModelTests
         observed!.Kind.Should().Be(XcpAcquisitionGapKind.AcquisitionInterrupted);
     }
 
+    [Fact]
+    public void GapObserved_PreservesFullRecordFields_ParityContract()
+    {
+        // T5 评审 LOW：接力契约钉死——事件透传完整 record（Kind/Detail/Cause/
+        // ExpectedMaxDuration/ReceiveKind 五字段逐字段相等），防止未来改窄成 string。
+        var vm = NewVm(out var sink, out _);
+        vm.AddWatch("Rpm", "MEASUREMENT", Contract("Rpm"));
+
+        XcpAcquisitionGap? observed = null;
+        vm.GapObserved += gap => observed = gap;
+        var gap = new XcpAcquisitionGap(
+            XcpAcquisitionGapKind.PlanGapOpened, "rotation window",
+            ExpectedMaxDuration: TimeSpan.FromMilliseconds(120));
+        sink.OnGap(gap);
+        vm.Flush();
+
+        observed.Should().Be(gap);
+    }
+
+    [Fact]
+    public void Update_RaisesPropertyChanged_ForLastUpdate()
+    {
+        // T5 评审 MEDIUM：LastUpdate 是公开绑定属性，更新必须通知（原漏报）。
+        var vm = NewVm(out var sink, out var time);
+        vm.AddWatch("Rpm", "MEASUREMENT", Contract("Rpm"));
+
+        var changes = new List<string?>();
+        vm.Cards[0].PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+
+        sink.OnValues(Sample("Rpm", 1, time.GetUtcNow()));
+        vm.Flush();
+
+        changes.Should().Contain(nameof(XcpCardViewModel.LastUpdate));
+    }
+
+    [Fact]
+    public void Constructor_RejectsNonPositiveStalePeriod()
+    {
+        // T5 评审 LOW：与 sink capacity 校验对称——0/负周期 = 全卡片永久停更。
+        var act = () => new XcpCardPanelViewModel(stalePeriod: TimeSpan.Zero);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     // ------------------------------------------------------------------
     // (f) 关注集动态增删（AddWatch/RemoveWatch，去重）
     // ------------------------------------------------------------------
