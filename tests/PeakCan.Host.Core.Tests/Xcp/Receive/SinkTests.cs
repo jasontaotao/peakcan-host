@@ -197,6 +197,21 @@ public class SinkTests
         Assert.Equal("short dto", gap.Detail);
     }
 
+    [Fact]
+    public void LocalFrameDrop_Attribution_Routes_To_Sink_Gap_Channel_With_FrameKind()
+    {
+        var sink = new InMemoryAcquisitionSink(16);
+        var attributed = XcpAcquisitionSinkWiring.Attributed(sink);
+
+        attributed(new XcpReceiveAttribution(
+            XcpReceiveAttributionKind.LocalFrameDrop, 0x00, "transport dropped 3 DTO frame(s) locally."));
+
+        var gap = Assert.Single(Drain(sink.Gaps));
+        Assert.Equal(XcpAcquisitionGapKind.ReceiveAttribution, gap.Kind);
+        Assert.Equal(XcpReceiveAttributionKind.LocalFrameDrop, gap.ReceiveKind);
+        Assert.Contains('3', gap.Detail);
+    }
+
     // ------------------------------------------------------------------
     // (e) 重配细分归 host，不改包枚举 —— API 面审计断言
     // ------------------------------------------------------------------
@@ -298,7 +313,8 @@ public class SinkTests
         new(new PlannedDaqEntry(
                 Pid: 0, OdtIndex: 0, EntryIndex: 0, ObjectName: objectName, SegmentIndex: 0,
                 ByteLength: 4, OffsetInOdt: 0, LogicalAddress: 0x1000, PhysicalAddress: 0x90001000),
-            value);
+            value,
+            ReceivedAt: default);
 
     private static XcpAcquisitionGap Gap(int marker) =>
         new(XcpAcquisitionGapKind.ReceiveAttribution, $"gap {marker}");

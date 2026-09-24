@@ -34,7 +34,10 @@ public enum XcpAcquisitionGapKind
     /// <summary>包侧 MissingCause 并入（五值全通过，spec 定为并入）。</summary>
     MissingCauseAttributed,
 
-    /// <summary>接收层逐帧归因直通（MalformedFrame/UnknownPid/UnmappedDto/无 cause 的 DecodeFailed/CallbackFailed）。</summary>
+    /// <summary>
+    /// 接收层逐帧归因直通（MalformedFrame/UnknownPid/UnmappedDto/无 cause 的
+    /// DecodeFailed/CallbackFailed/LocalFrameDrop——本机 DTO DropOldest 丢帧归因）。
+    /// </summary>
     ReceiveAttribution,
 
     /// <summary>计划内换表空窗开窗（Receive 层新增类型，携带预期时长上界）。</summary>
@@ -47,9 +50,11 @@ public enum XcpAcquisitionGapKind
 /// <summary>
 /// 空窗/断流归因条目。
 /// <para>
-/// T14-review 前瞻观察落纸（sink 聚合的边界条件）：XcpCanTransport DTO DropOldest
-/// 丢帧无本地归因，空窗升级断流只能靠 PlanGapWindow 的时长上界兜底 ——
-/// sink 聚合<b>不得假设每个空窗必有逐帧归因事件</b>。
+/// T14-review 前瞻观察落纸（sink 聚合的边界条件）与 S2-audit-fix1 修订：
+/// XcpCanTransport DTO DropOldest 丢帧现已有本地归因（<see cref="XcpReceiveAttributionKind.LocalFrameDrop"/>，
+/// 搭载其后首个被派发的帧），但最后一轮丢帧后若无后续帧，归因无从搭载、
+/// 空窗升级断流仍只能靠 PlanGapWindow 的时长上界兜底 ——
+/// sink 聚合<b>仍不得假设每个空窗必有逐帧归因事件</b>。
 /// </para>
 /// </summary>
 /// <param name="Kind">归因种类。</param>

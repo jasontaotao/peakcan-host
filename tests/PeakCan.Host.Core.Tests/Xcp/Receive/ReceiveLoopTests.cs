@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using A2lEditor.Core.IfData;
 using A2lEditor.Core.Layout;
 using A2lEditor.Core.Model;
+using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Tests.Xcp.TestKit;
 using PeakCan.Host.Core.Xcp.Abstractions;
@@ -90,6 +91,110 @@ public class ReceiveLoopTests
 
         var sample = Assert.Single(samples);
         Assert.Equal("D0", sample.Entry.ObjectName);
+        Assert.Empty(attributions);
+        GC.KeepAlive(loop);
+    }
+
+    // ------------------------------------------------------------------
+    // (b+) host 接收时刻（spec §1"主机接收时刻"承接）：ReceivedAt =
+    // 分发循环处理该帧时刻，经 XcpReceiveOptions.TimeProvider 注入、随帧走。
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Dto_Samples_Carry_Host_ReceivedAt_From_Injected_TimeProvider()
+    {
+        var clock = new FakeTimeProvider();
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var samples = new ConcurrentBag<XcpDaqSample>();
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+        using var loop = NewLoop(transport, map, contracts, samples, attributions, timeProvider: clock);
+
+        var t0 = clock.GetUtcNow();
+        transport.Raise(Dto(0x01, 0x78, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+        clock.Advance(TimeSpan.FromMilliseconds(5));
+        var t1 = clock.GetUtcNow();
+        transport.Raise(Dto(0x01, 0x79, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+
+        Assert.Equal(6, samples.Count);
+        Assert.Equal(3, samples.Count(s => s.ReceivedAt == t0));
+        Assert.Equal(3, samples.Count(s => s.ReceivedAt == t1));
+        Assert.Empty(attributions);
+        GC.KeepAlive(loop);
+    }
+
+    [Fact]
+    public void Sink_Consumers_Observe_ReceivedAt_Through_Wiring()
+    {
+        var clock = new FakeTimeProvider();
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var sink = new InMemoryAcquisitionSink(16);
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+        using var loop = NewLoop(
+            transport, map, contracts, [], attributions,
+            sampleSink: XcpAcquisitionSinkWiring.SampleDecoded(sink),
+            timeProvider: clock);
+
+        var t0 = clock.GetUtcNow();
+        transport.Raise(Dto(0x01, 0x78, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+
+        var drained = new List<XcpDaqSample>();
+        while (sink.Values.TryRead(out var sample))
+            drained.Add(sample);
+        Assert.Equal(3, drained.Count);
+        Assert.All(drained, s => Assert.Equal(t0, s.ReceivedAt));
+        GC.KeepAlive(loop);
+    }
+
+    // ------------------------------------------------------------------
+    // (b++) DTO 本机丢帧归因（T15 移交悬空承接）：transport FramesDropped
+    // delta → LocalFrameDrop 归因出站，Detail 带丢失计数 delta。
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Transport_Drop_Delta_Attributes_LocalFrameDrop_With_Count_Delta()
+    {
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var samples = new ConcurrentBag<XcpDaqSample>();
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+        using var loop = NewLoop(transport, map, contracts, samples, attributions);
+
+        transport.ReportDroppedFrames(3);
+        transport.Raise(Dto(0x01, 0x78, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+
+        var attribution = Assert.Single(attributions);
+        Assert.Equal(XcpReceiveAttributionKind.LocalFrameDrop, attribution.Kind);
+        Assert.Contains("3", attribution.Detail);
+
+        transport.ReportDroppedFrames(2);
+        transport.Raise(Dto(0x01, 0x78, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+
+        var drops = attributions
+            .Where(a => a.Kind == XcpReceiveAttributionKind.LocalFrameDrop).ToArray();
+        Assert.Equal(2, drops.Length);
+        Assert.Single(drops, d => d.Detail.Contains('3'));
+        Assert.Single(drops, d => d.Detail.Contains('2'));
+        // 丢帧归因不阻断帧分发：两帧各 3 条样本照常出站。
+        Assert.Equal(6, samples.Count);
+    }
+
+    [Fact]
+    public void Drops_Before_Loop_Attachment_Are_Baselined_Not_Attributed()
+    {
+        var (map, contracts) = Plan(Fixture());
+        var transport = new ManualXcpTransport();
+        var samples = new ConcurrentBag<XcpDaqSample>();
+        var attributions = new ConcurrentBag<XcpReceiveAttribution>();
+
+        // loop 挂接前 transport 已积累的丢帧属于历史：构造期快照为基线，不回溯归因。
+        transport.ReportDroppedFrames(5);
+        using var loop = NewLoop(transport, map, contracts, samples, attributions);
+
+        transport.Raise(Dto(0x01, 0x78, 0x56, 0x21, 0x43, 0xEF, 0xCD, 0));
+
+        Assert.Equal(3, samples.Count);
         Assert.Empty(attributions);
         GC.KeepAlive(loop);
     }
@@ -355,7 +460,12 @@ public class ReceiveLoopTests
         /// <summary>WriteAsync 内同步派发的响应帧脚本（XcpVirtualSlave 同型）。</summary>
         public Func<byte[]>? WriteResponse { get; init; }
 
-        public long FramesDropped => 0;
+        public long FramesDropped => _framesDropped;
+
+        /// <summary>模拟 transport 本机 DropOldest 丢帧（只抬计数、不出帧）。</summary>
+        public void ReportDroppedFrames(long count) => _framesDropped += count;
+
+        private long _framesDropped;
 
         public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
         {
@@ -379,13 +489,15 @@ public class ReceiveLoopTests
         ContractSet contracts,
         ConcurrentBag<XcpDaqSample> samples,
         ConcurrentBag<XcpReceiveAttribution> attributions,
-        Action<XcpDaqSample>? sampleSink = null)
+        Action<XcpDaqSample>? sampleSink = null,
+        TimeProvider? timeProvider = null)
         => new(transport, new XcpReceiveOptions
         {
             Map = map,
             Contracts = contracts,
             SampleDecoded = sampleSink ?? samples.Add,
             Attributed = attributions.Add,
+            TimeProvider = timeProvider,
         });
 
     private static CanFrame Dto(byte pid, params byte[] payload)

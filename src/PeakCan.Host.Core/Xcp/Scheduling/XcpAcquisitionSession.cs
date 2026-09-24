@@ -150,6 +150,8 @@ public sealed class XcpAcquisitionSession : IDisposable
                 Contracts = contracts,
                 SampleDecoded = XcpAcquisitionSinkWiring.SampleDecoded(_options.Sink, _gapWatcher),
                 Attributed = XcpAcquisitionSinkWiring.Attributed(_options.Sink),
+                // host 接收时刻与 watcher/master 计时同源：组合根 TimeProvider 直通。
+                TimeProvider = _timeProvider,
             });
         }
 

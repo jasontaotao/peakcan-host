@@ -54,6 +54,16 @@ public sealed class XcpReceiveLoop : IDisposable
     private readonly Action<XcpDaqSample> _sampleDecoded;
     private readonly Action<XcpReceiveAttribution> _attributed;
 
+    /// <summary>主机时钟（ReceivedAt 取时刻来源；构造期快照，null 已在 Options 兜底）。</summary>
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// 本机丢帧基线（构造期快照 transport.FramesDropped）：挂接前积累的历史丢帧
+    /// 不回溯归因；此后每次派发帧核对 delta（OnFrameReceived 单线程串行调用，
+    /// Interlocked 仅为防御）。
+    /// </summary>
+    private long _framesDroppedSeen;
+
     private bool _disposed;
 
     /// <summary>planner 自产方案（原样暴露；loop 不复制、不重建、不写）。</summary>
@@ -101,11 +111,16 @@ public sealed class XcpReceiveLoop : IDisposable
             _contracts.Add(entry.ObjectName, contract);
         }
 
+        _timeProvider = options.TimeProvider ?? TimeProvider.System;
+        _framesDroppedSeen = _transport.FramesDropped;
+
         _transport.FrameReceived += OnFrameReceived;
     }
 
     private void OnFrameReceived(CanFrame frame)
     {
+        AttributeLocalFrameDrops();
+
         if (frame.Data.Length < 1)
         {
             Attribute(XcpReceiveAttributionKind.MalformedFrame, 0x00,
@@ -140,6 +155,11 @@ public sealed class XcpReceiveLoop : IDisposable
 
     private void DispatchDto(byte pid, PlannedOdt odt, ReadOnlySpan<byte> data)
     {
+        // host 接收时刻（spec §1 承接）：分发循环处理该帧时刻（UTC，TimeProvider 注入）。
+        // transport 入队到派发的排队延迟不计——DTO DropOldest 语义下这是可得且一致的
+        // 最早口径（同帧条目共用同一时刻）；与 XcpMaster/PlanGapWatcher 时钟同源。
+        var receivedAt = _timeProvider.GetUtcNow();
+
         Span<byte> buffer = stackalloc byte[XcpCtoFrame.MaxByteLength];
         foreach (var entry in odt.Entries)
         {
@@ -171,7 +191,7 @@ public sealed class XcpReceiveLoop : IDisposable
             // T14-review M2：订阅方回调抛异常不终结帧分发——转归因出站。
             try
             {
-                _sampleDecoded(new XcpDaqSample(entry, value));
+                _sampleDecoded(new XcpDaqSample(entry, value, receivedAt));
             }
             catch (Exception ex)
             {
@@ -179,6 +199,23 @@ public sealed class XcpReceiveLoop : IDisposable
                     $"sample callback failed for '{entry.ObjectName}': {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// 本机丢帧归因：transport <see cref="IXcpTransport.FramesDropped"/> 相对基线的
+    /// delta &gt; 0 时随当前帧出站（丢帧不出帧，只能搭载其后首个被派发的帧）。
+    /// </summary>
+    private void AttributeLocalFrameDrops()
+    {
+        var dropped = _transport.FramesDropped;
+        var delta = dropped - Interlocked.Read(ref _framesDroppedSeen);
+        if (delta <= 0)
+            return;
+        Interlocked.Exchange(ref _framesDroppedSeen, dropped);
+
+        Attribute(XcpReceiveAttributionKind.LocalFrameDrop, 0x00,
+            $"transport dropped {delta} DTO frame(s) locally (bounded queue DropOldest) " +
+            "before dispatch.");
     }
 
     private void Attribute(XcpReceiveAttributionKind kind, byte firstByte, string detail,
