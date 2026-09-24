@@ -217,6 +217,9 @@ public sealed class PollingScheduler : IDisposable
     /// XcpTimeoutException 后，同拍下一条命令前插 ≥T1；拍终（有过超时）返回前
     /// 再插 ≥T1——返回即安全，任何后续命令（本拍/下一拍/调用方侧）都不会与
     /// 迟到正响应错配。负响应为带内应答，无迟到风险，不插。
+    /// 取消边界（R4）：若 <see cref="OperationCanceledException"/> 打断了拍内或
+    /// 拍终 quiesce，T4 义务随调用方重启流程负责——取消后重新发起采集/命令的
+    /// 调用侧必须在第一条命令前自行保持 ≥T1 间隙。
     /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">同实例并发第二轮询（单飞拒绝）。</exception>
@@ -226,10 +229,6 @@ public sealed class PollingScheduler : IDisposable
         if (_plan.PollingEntries.Count == 0)
             return PollingCycleResult.Empty;
 
-        // 互斥规则（T12 定死）：轮转进行中整拍让位——不排队不发帧。
-        if (_rotationGate is { IsRotationInProgress: true })
-            return PollingCycleResult.Skipped;
-
         // 单飞：try-0 抢闩失败即拒绝（排队即与 XcpMaster 单发单收语义串扰）。
         if (!await _cycleGate.WaitAsync(0, ct).ConfigureAwait(false))
             throw new InvalidOperationException(
@@ -238,6 +237,14 @@ public sealed class PollingScheduler : IDisposable
 
         try
         {
+            // 互斥规则（T12 定死）：轮转进行中整拍让位——不排队不发帧。
+            // R1 顺序定死（review）：先抢闩、后查 gate——"拍未上闩 ⇒ 必然看到
+            // gate 已置位"，WaitForQuietAsync 握手因此无洞：gate 置位后开启的
+            // 握手只可能被 (a) 已过 gate 检查的在途拍或 (b) 无在途拍（立即返回）
+            // 压住，绝不存在"gate 检查通过但闩还没上"的中间态溜进轮转期。
+            if (_rotationGate is { IsRotationInProgress: true })
+                return PollingCycleResult.Skipped;
+
             var values = new List<PolledValue>(_plan.PollingEntries.Count);
             var failures = new List<PollingEntryFailure>();
             var timeoutSeen = false;

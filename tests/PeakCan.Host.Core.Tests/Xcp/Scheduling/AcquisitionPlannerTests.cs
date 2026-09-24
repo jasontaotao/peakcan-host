@@ -390,6 +390,25 @@ public class AcquisitionPlannerTests
         Assert.Contains("CAL", pollingPath.Message);
     }
 
+    // ------------------------------------------------------------------
+    // (T12 review R3) EXTENSION token 缺失（null）同样 fail-loud：
+    // 包侧解析对缺位只留痕不报错（§4.8 Missing），planner 必须替它把关。
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Segment_Missing_Address_Extension_Token_Fails_Loud_At_Planning()
+    {
+        var missing = Assert.Throws<InvalidOperationException>(() => Plan(new ModuleSpec
+        {
+            Measurements = { Meas("OK4B", A2lDataType.ULONG, 0x1000) },
+            Layouts = new[] { UbyteLayout() },
+            DaqList = DaqList(firstPid: 0, maxOdtEntries: 100),
+            Segments = new[] { CalSegment(addressExtension: null) },
+        }));
+        Assert.Contains("OK4B", missing.Message);
+        Assert.Contains("missing", missing.Message);
+    }
+
     private sealed class ModuleSpec
     {
         public List<A2lMeasurement> Measurements = [];
@@ -472,7 +491,7 @@ public class AcquisitionPlannerTests
         new(name, "d", "VAL_BLK", "RL_U8", addr, "0", "100", null, "CM_ID", new LineRange(1, 1),
             MatrixDim: new uint[] { 3, 1, 1 });
 
-    private static A2lMemorySegment CalSegment(uint addressExtension = 0) =>
+    private static A2lMemorySegment CalSegment(uint? addressExtension = 0) =>
         new("CAL", "cal", "DATA", "FLASH", "INTERN", 0x1000, 0x1000,
             Array.Empty<string>(), new LineRange(1, 1),
             IfDataXcp: new XcpIfData(XcpIfDataScope.MemorySegmentLevel, null, null, null, null,

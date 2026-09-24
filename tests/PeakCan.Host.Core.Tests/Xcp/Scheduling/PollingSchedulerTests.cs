@@ -292,6 +292,11 @@ public class PollingSchedulerTests
         // quiesce 时钟断言：A 最后一次 attempt 与 B 命令之间 ≥T1（同拍内下一命令前）。
         var quiesceGap = slave.SentAt[2] - slave.SentAt[1];
         Assert.True(quiesceGap >= T1, $"gap before next command was {quiesceGap}, expected >= T1.");
+
+        // (R2) 拍终 quiesce 专属断言：最后一帧与本拍返回之间 ≥T1
+        //（timeoutSeen → 返回前再插 ≥T1，下一拍入口/调用方侧命令皆安全）。
+        var tailGap = after - slave.SentAt[^1];
+        Assert.True(tailGap >= T1, $"gap between last frame and cycle return was {tailGap}, expected >= T1.");
     }
 
     // ---- (F3) RunAsync 存活：一次失败拍不杀死循环，连续失败计数可被 T13 观察 ----
@@ -372,6 +377,29 @@ public class PollingSchedulerTests
         // 闩已归还：后续拍可正常开跑（gate 复用无泄漏）。
         var next = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(PollingCycleOutcome.Executed, next.Outcome);
+    }
+
+    // ---- (R1) 输赢分支反向钉死：拍先过闩、gate 后置位 → 握手被在途拍压住 ----
+    // 顺序不变式：抢闩严格先于 gate 检查。gate 检查通过后才置位 gate 的在途拍
+    // 必须压住 WaitForQuietAsync（否则握手放行轮转，在途拍会在轮转期上线）。
+    [Fact]
+    public async Task WaitForQuietAsync_is_held_by_inflight_cycle_that_passed_gate_before_it_was_set()
+    {
+        var gate = new TestRotationGate { InRotation = false };
+        var slave = new ScriptedPollingSlave(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 });
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(master, Map(Entry("Big", 8, 0x1000)), rotationGate: gate);
+
+        slave.HoldUpload(); // 拍抢到闩、通过 gate 检查（当时 gate 开），随后挂在 UPLOAD 上
+        var cycle = scheduler.PollOnceAsync();
+
+        gate.InRotation = true; // 拍已在途后才置位
+        var quiet = scheduler.WaitForQuietAsync();
+        await Task.Delay(50);
+        Assert.False(quiet.IsCompleted); // 在途拍压住握手
+
+        slave.ReleaseHold();
+        await Task.WhenAll(cycle, quiet).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     // ---- 空轮询集合：零线上流量 ----

@@ -229,18 +229,22 @@ public static class AcquisitionPlanner
     {
         // 覆盖性判定完全交给包侧 SegmentsCovering（[H1] 唯一入口，本守卫零地址算术）；
         // 只读声明元数据 XcpSegment.AddressExtension。保守口径：覆盖内存段内任一
-        // XcpSegment 声明 EXTENSION≠0 即拒绝——真机单段恒 0（T19 例行核实），
+        // XcpSegment 的 EXTENSION 声明不是 0 即拒绝——真机单段恒 0（T19 例行核实），
         // 多段混合 EXTENSION 属第三方 A2L，宁可不采。
+        // R3（review）：null（token 缺失）同样拒绝——包侧解析对缺位只留痕不报错
+        //（Asap131Parser.Xcp.cs TryBlock → XcpMissingField，§4.8），null 若放行等于
+        // 对"未声明的 addrExt 语义"静默兜底，违反宁可不采原则。
         foreach (var memorySegment in XcpAddressMap.SegmentsCovering(doc, logicalAddress))
         {
             var offending = (memorySegment.IfDataXcp?.Segments ?? Array.Empty<XcpSegment>())
-                .FirstOrDefault(seg => seg.AddressExtension is { } extension && extension != 0);
+                .FirstOrDefault(seg => seg.AddressExtension is not 0);
             if (offending is null)
                 continue;
 
+            var declared = offending.AddressExtension?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "missing";
             throw new InvalidOperationException(
                 $"Memory segment '{memorySegment.Name}' covering address 0x{logicalAddress:X} " +
-                $"of object '{objectName}' declares ADDRESS_EXTENSION {offending.AddressExtension} != 0: the addrExt " +
+                $"of object '{objectName}' declares ADDRESS_EXTENSION {declared} (only 0 is supported): the addrExt " +
                 "wire semantics are not modeled in S2 (bench-verified EXTENSION=0, T19); " +
                 "refusing to plan rather than silently mis-addressing uploads.");
         }
