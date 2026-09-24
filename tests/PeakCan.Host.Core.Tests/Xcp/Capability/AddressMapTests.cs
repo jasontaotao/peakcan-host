@@ -115,6 +115,9 @@ public class AddressMapTests
     {
         // 合同侧：真机样本全部合同段 SourceOffset == 0（单段恒 0——它是对象数据
         // blob 内偏移，不是 ECU 地址），Address 才是进翻译的逻辑地址。
+        // 时代钉：SourceOffset 由包侧 ValueContractFactory 生成，包侧拆条目落地后
+        // 会非零——届时此断言失效属预期（[H1] 语义由下方 API 形状断言独立把守），
+        // 按包侧演进同步更新，不是翻译语义回归。
         var contracts = Asap2PackageApi.Contracts(ParseRealSample());
         var segments = contracts.All.SelectMany(c => c.Segments).ToList();
         Assert.NotEmpty(segments);

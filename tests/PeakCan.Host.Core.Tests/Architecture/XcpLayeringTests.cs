@@ -37,6 +37,14 @@ public class XcpLayeringTests
         // 非空守卫：过滤器必须真的选中 Scheduling 类型（防 vacuous pass）。
         Assert.Contains(core.GetTypes(), t => t.Namespace == "PeakCan.Host.Core.Xcp.Scheduling");
 
+        // 宾语侧守卫：封禁串与包侧类型全名逐一比对——包侧重命名时这里先炸，
+        // 而不是 HaveDependencyOn 对不存在的名字永远空通过。
+        var bannedFullNames = new Dictionary<string, Type>
+        {
+            ["A2lEditor.Core.IfData.XcpAddressMapping"] = typeof(A2lEditor.Core.IfData.XcpAddressMapping),
+            ["A2lEditor.Core.IfData.XcpSegment"] = typeof(A2lEditor.Core.IfData.XcpSegment),
+            ["A2lEditor.Core.Model.A2lMemorySegment"] = typeof(A2lEditor.Core.Model.A2lMemorySegment),
+        };
         foreach (var banned in new[]
                  {
                      "A2lEditor.Core.IfData.XcpAddressMapping",
@@ -44,6 +52,7 @@ public class XcpLayeringTests
                      "A2lEditor.Core.Model.A2lMemorySegment",
                  })
         {
+            Assert.Equal(banned, bannedFullNames[banned].FullName);
             var result = Types.InAssembly(core)
                 .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Scheduling")
                 .ShouldNot().HaveDependencyOn(banned)
