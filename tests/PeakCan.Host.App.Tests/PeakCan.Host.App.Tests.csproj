@@ -41,6 +41,12 @@
     <ProjectReference Include="..\..\src/PeakCan.Host.Infrastructure\PeakCan.Host.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!-- S3-T3 (T3 评审 MEDIUM-2): 真机 A2L 冒烟夹具，照 Cli.Tests.csproj 先例
+       拷进 bin/TestData——不再依赖"输出目录嵌在源码树内"的布局假设。 -->
+  <ItemGroup>
+    <Content Include="..\PeakCan.Host.Core.Tests\TestData\App_merge_INCA.a2l" LinkBase="TestData\" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- v3.50.2: copy real CAN fixtures to bin/ for integration tests.
        SDK-style csproj auto-includes None items, so explicit copy
        directives are required. Without these, AppContext.BaseDirectory

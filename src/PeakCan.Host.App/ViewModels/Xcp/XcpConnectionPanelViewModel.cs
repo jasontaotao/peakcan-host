@@ -196,10 +196,15 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
     public void MarkConnected() => ConnectionState = XcpConnectionState.Connected;
 
     /// <summary>
-    /// 断开回调（T7 Stop / 通道快照清空时驱动）→ 回 Disconnected，
-    /// D5 "未连总线"格重新生效，Start 允许标志收回。
+    /// 断开回调（T7 Stop / 通道快照清空时驱动）。A2L 仍有效（LoadedResult 非空）→
+    /// 回 Loaded——D6 的 Stop 不要求重载 A2L，重连后须能直接再次 Start，不得推进
+    /// "必须重新 LoadA2L"死胡同（T3 评审 MEDIUM-1）；否则回 Disconnected。两态 D5
+    /// 归因格同为 UnconnectedBus，归因语义零变化。
     /// </summary>
-    public void MarkDisconnected() => ConnectionState = XcpConnectionState.Disconnected;
+    public void MarkDisconnected() =>
+        ConnectionState = LoadedResult is not null
+            ? XcpConnectionState.Loaded
+            : XcpConnectionState.Disconnected;
 
     private void RefreshChannels()
     {
@@ -219,9 +224,10 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
     private static bool SnapshotContains(
         IReadOnlyList<HilViewModel.ConnectedChannel> snapshot,
         HilViewModel.ConnectedChannel channel) =>
-        // ConnectedChannel 是含 ICanChannel 引用的 record，默认 EqualityComparer
-        // 会比较引用成员；快照语义下按值身份（Handle/Name）比对即可。
-        snapshot.Count > 0 && snapshot.Contains(channel);
+        // 快照语义下按值身份（Handle/Name）比对：重连会新建 ICanChannel 实例，
+        // record 默认相等（含引用成员比较）会把同口通道误判失效（T3 评审 LOW-1）。
+        snapshot.Count > 0 && snapshot.Any(c =>
+            c.Handle == channel.Handle && c.Name == channel.Name);
 
     private void UpdateCanStart() =>
         CanStart = ConnectionState is XcpConnectionState.Loaded or XcpConnectionState.Connected

@@ -29,7 +29,7 @@ namespace PeakCan.Host.App.Tests.ViewModels.Xcp;
 ///（T2 评审 LOW 发现：XcpA2lLoader.Load 不捕获 IO 异常）。
 /// </para>
 /// </summary>
-public class XcpConnectionPanelViewModelTests
+public class XcpConnectionPanelViewModelTests : IDisposable
 {
     // ------------------------------------------------------------------
     // helpers
@@ -79,21 +79,38 @@ public class XcpConnectionPanelViewModelTests
 
     private static HilViewModel.ConnectedChannel Channel(string name) =>
         new(Handle: 0x51, BaudRate.Can500kbps, Fd: false, Name: name);
-    /// <summary>注入委托类用例的占位 A2L 文件（预检 File.Exists 必须能命中）。</summary>
-    private static string TempA2lFile()
+    private readonly List<string> _tempFiles = new();
+
+    /// <summary>注入委托类用例的占位 A2L 文件（预检 File.Exists 必须能命中）。
+    /// 登记进 _tempFiles，Dispose 统一删除——不留 %TEMP% 残留（T3 评审 LOW-2）。</summary>
+    private string TempA2lFile()
     {
         var path = Path.Combine(Path.GetTempPath(), $"xcp-t3-vm-{Guid.NewGuid():N}.a2l");
         File.WriteAllText(path, "ASAP2_VERSION 1 40\n");
+        _tempFiles.Add(path);
         return path;
+    }
+
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+        foreach (var path in _tempFiles)
+        {
+            try { File.Delete(path); } catch (IOException) { /* best effort */ }
+        }
     }
 
 
     /// <summary>
-    /// 真机 A2L 冒烟夹具（App.Tests 未复制该文件，按 repo 布局回溯到
-    /// PeakCan.Host.Core.Tests/TestData——与 Cli.Tests 共用同一份夹具）。
+    /// 真机 A2L 冒烟夹具。首选 bin/TestData（csproj Content 拷贝，Cli.Tests 同款
+    /// 先例——T3 评审 MEDIUM-2：不依赖"输出目录嵌在源码树内"假设）；拷贝缺失时
+    /// 回溯源码树降级（本地开发布局）。
     /// </summary>
     private static string FindSharedRealA2L()
     {
+        var inOutput = Path.Combine(AppContext.BaseDirectory, "TestData", "App_merge_INCA.a2l");
+        if (File.Exists(inOutput)) return inOutput;
+
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
         {
@@ -338,12 +355,13 @@ public class XcpConnectionPanelViewModelTests
 
         // 断开 → 回 Disconnected，"未连总线"格重新生效。
         vm.MarkDisconnected();
-        vm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
+        // T3 评审 MEDIUM-1：A2L 仍有效 → 回 Loaded，不推死胡同；"未连总线"格同格生效。
+        vm.ConnectionState.Should().Be(XcpConnectionState.Loaded);
         vm.AttributionCell.Should().Be(XcpHostAttributionCell.UnconnectedBus);
     }
 
     [Fact]
-    public void Start_disabled_again_after_disconnect()
+    public void Start_allowed_again_after_disconnect_when_a2l_still_loaded()
     {
         var source = NewSource(Channel("USB1"));
         var vm = new XcpConnectionPanelViewModel(
@@ -355,6 +373,17 @@ public class XcpConnectionPanelViewModelTests
 
         vm.MarkDisconnected();
 
-        vm.CanStart.Should().BeFalse("断开后不允许 Start（通道快照语义由上层重新对账）");
+        vm.ConnectionState.Should().Be(XcpConnectionState.Loaded, "A2L 仍有效——D6 的 Stop 不要求重载 A2L（T3 评审 MEDIUM-1）");
+        vm.CanStart.Should().BeTrue("通道快照未变，重连后允许直接再次 Start");
+    }
+
+    [Fact]
+    public void Disconnect_without_loaded_a2l_falls_back_to_disconnected()
+    {
+        var vm = new XcpConnectionPanelViewModel();
+
+        vm.MarkDisconnected();
+
+        vm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
     }
 }
