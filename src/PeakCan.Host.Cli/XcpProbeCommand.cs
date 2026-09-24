@@ -139,9 +139,8 @@ public static class XcpProbeCommand
         XcpResponseDecoder.Disconnect(await session.SendAsync(XcpCommandEncoder.Disconnect(), ct));
 
         // ---- 实测能力：全部值来自响应解码 / 线上帧长观察，禁止散写期望值 ----
-        // ASAM 标准 CONNECT byte5/byte6-7 即 MAX_CTO/MAX_DTO（见 XcpResponseDecoder.Connect 注释）；
-        // 本 ECU 真机为非标准布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
-        // （Xcp_Std.c:191-198），探针按标准解码真机 CONNECT 会解出垃圾值——已标注（T8 评审 Important-2）。
+        // ASAM XCP Part 1 标准布局（Xcp_Std.c:191-198 一致，round-3 修正：早先“真机非标准”
+        // 口径作废）：[FF, RESOURCE, COMM_MODE_BASIC, MAX_CTO, MAX_DTO(LSB,MSB), PROTO_VER, TRANSPORT_VER]。
         // 事实清单取值：MaxCto = 观察到的最大响应帧长；MaxDto = spec 常量 8B，非实测（T19 抓包回填）。
         var measured = new XcpMeasuredCapabilities(
             MaxDaq: processor.MaxDaq,

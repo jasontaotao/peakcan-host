@@ -33,26 +33,32 @@ public class ConnectCommandTests
     {
         var response = XcpResponseDecoder.Connect(XcpGoldenSamples.ConnectPositiveResponse.Span);
 
+        // ASAM XCP Part 1 CONNECT 正响应标准布局（与 Xcp_Std.c:191-198 一致）：
+        // [FF, RESSOURCE, COMM_MODE_BASIC, MAX_CTO, MAX_DTO(LSB,MSB), PROTOCOL_VERSION, TRANSPORT_VERSION]。
         Assert.Equal(0x01, response.ProtocolVersion);
         Assert.Equal(0x01, response.TransportVersion);
         Assert.Equal(0x04, response.Resources);
         Assert.Equal(0x01, response.CommModeBasic);
-        // 黄金样本 byte5-7 在标准布局下是 MAX_CTO/MAX_DTO——黄金样本按 T6 时代注释生成，
-        // 这三个字节为 0；值本身由下一条测试用标准样本断言，此处只钉字段语义。
-        Assert.Equal(0x00, response.MaxCto);
-        Assert.Equal(0x0000, response.MaxDto);
+        Assert.Equal(0x08, response.MaxCto);
+        Assert.Equal(0x0040, response.MaxDto);
     }
 
     [Fact]
-    public void Positive_response_decodes_max_cto_and_max_dto_from_standard_bytes_5_to_7()
+    public void Positive_response_decodes_all_fields_from_asam_standard_layout()
     {
-        // ASAM 标准布局：byte5=MAX_CTO、byte6-7=MAX_DTO（LE）——S2-T8 评审 Important-2 钉死。
-        var response = new byte[] { 0xFF, 0x01, 0x01, 0x04, 0x01, 0x08, 0x08, 0x00 };
+        // ASAM 标准布局全字段钉死：byte1=RESSOURCE、byte2=COMM_MODE_BASIC、byte3=MAX_CTO、
+        // byte4-5=MAX_DTO（LE）、byte6=PROTOCOL_VERSION、byte7=TRANSPORT_VERSION。
+        // 早先“真机非标准 CONNECT”是评审口径错误——Xcp_Std.c 布局即 ASAM 标准（round-3 修正）。
+        var response = new byte[] { 0xFF, 0x07, 0x03, 0x08, 0x40, 0x00, 0x01, 0x01 };
 
         var connect = XcpResponseDecoder.Connect(response);
 
+        Assert.Equal(0x07, connect.Resources);
+        Assert.Equal(0x03, connect.CommModeBasic);
         Assert.Equal(0x08, connect.MaxCto);
-        Assert.Equal(0x0008, connect.MaxDto);
+        Assert.Equal(0x0040, connect.MaxDto);
+        Assert.Equal(0x01, connect.ProtocolVersion);
+        Assert.Equal(0x01, connect.TransportVersion);
     }
 
     [Fact]

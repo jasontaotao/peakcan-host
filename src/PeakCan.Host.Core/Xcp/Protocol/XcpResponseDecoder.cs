@@ -8,23 +8,21 @@ namespace PeakCan.Host.Core.Xcp.Protocol;
 public static class XcpResponseDecoder
 {
     /// <summary>
-    /// CMD_CONNECT 正响应（标准布局）：
-    /// [FF, protocolVersion, transportVersion, resources, commModeBasic, maxCto, maxDto(2B LE)]。
-    /// ASAM 标准 byte5/byte6-7 即 MAX_CTO/MAX_DTO（S2-T8 评审 Important-2 钉死）；
-    /// 本 ECU 真机为非标准布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
-    /// （Xcp_Std.c:191-198），探针按标准解码真机 CONNECT 会解出垃圾值——已标注，A-2 台架核死（T19 抓包回填）。
+    /// CMD_CONNECT 正响应（ASAM XCP Part 1 标准布局，与 Xcp_Std.c:191-198 一致）：
+    /// [FF, RESOURCE, COMM_MODE_BASIC, MAX_CTO, MAX_DTO(2B LE), PROTOCOL_VERSION, TRANSPORT_VERSION]。
+    /// round-3 修正：早先“真机非标准 CONNECT”是评审口径错误——Xcp_Std.c 布局即 ASAM 标准。
     /// </summary>
     public static XcpConnectResponse Connect(ReadOnlySpan<byte> response)
     {
         ValidatePositiveResponse(response, minLength: 8);
 
         return new XcpConnectResponse(
-            ProtocolVersion: response[1],
-            TransportVersion: response[2],
-            Resources: response[3],
-            CommModeBasic: response[4],
-            MaxCto: response[5],
-            MaxDto: (ushort)(response[6] | (response[7] << 8)));
+            Resources: response[1],
+            CommModeBasic: response[2],
+            MaxCto: response[3],
+            MaxDto: (ushort)(response[4] | (response[5] << 8)),
+            ProtocolVersion: response[6],
+            TransportVersion: response[7]);
     }
 
     /// <summary>CMD_DISCONNECT 正响应：[FF]，无字段。</summary>
@@ -239,7 +237,7 @@ public readonly record struct XcpGetDaqEventInfoResponse(
     byte EventChannelTimeUnit,
     byte Priority);
 
-/// <summary>CMD_CONNECT 正响应字段（MAX_CTO/MAX_DTO 布局与真机偏差见 XcpResponseDecoder.Connect 注释）。</summary>
+/// <summary>CMD_CONNECT 正响应字段（ASAM 标准布局，字段顺序按字节位次）。</summary>
 public readonly record struct XcpConnectResponse(
     byte ProtocolVersion,
     byte TransportVersion,

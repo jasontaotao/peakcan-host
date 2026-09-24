@@ -306,9 +306,9 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
   1. GET_DAQ_EVENT_INFO 正响应仅 7B，且 EVENT_CYCLE/EVENT_CHANNEL_TIME_UNIT 在 wire byte4/5（标准 8B、byte5/6）；
   2. GET_DAQ_PROCESSOR_INFO 的 MAX_DAQ/MAX_EVENT_CHANNEL 为大端（标准 LE）；
   3. GET_DAQ_LIST_INFO 字段错位（逐字节抓包对表）。
-  附带：CONNECT 真机布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
-  （Xcp_Std.c:191-198），按标准解码会解出垃圾值——探针已按"查询失败即归因 + deviceLayout=
-  nonconformant-see-S1§15"存活（T8 评审修复轮），抓包回填后重定黄金基线。
+  附带：CONNECT 曾被记为"真机非标准布局"——round-3 已证伪：Xcp_Std.c:191-198 的
+  [FF,RESOURCE,COMM_MODE_BASIC,MAX_CTO,MAX_DTO(LSB,MSB),PROTO_VER,TRANSPORT_VER] 即 ASAM XCP
+  Part 1 标准布局，解码器已按标准实现；T19 抓包只需例行核对，无回填歧义。
 - [ ] commit `(S2-T19)`。
 - **spec 条款**：§4、§5 验收 4（真机部分）、§1（CAN 号合规待核实）。
 
