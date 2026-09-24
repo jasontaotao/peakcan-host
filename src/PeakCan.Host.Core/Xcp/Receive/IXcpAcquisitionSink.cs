@@ -7,18 +7,24 @@ namespace PeakCan.Host.Core.Xcp.Receive;
 /// <see cref="OnValues"/> 承接解码样本、<see cref="OnGap"/> 承接空窗/断流归因。
 /// <para>
 /// 队列纪律（照抄 IFrameSink 先例，src/PeakCan.Host.Infrastructure/Channel/IFrameSink.cs）：
-/// 同步入队方法签名，实现 MUST NOT block —— 接收分发线程（XcpReceiveLoop）直接调用，
-/// 重活（IO / 批量落盘 / 聚合落盘）必须由实现自行入队 + 后台消费；
-/// 实现 MUST NOT throw —— 抛出的异常会被 XcpReceiveLoop 转为 CallbackFailed 归因
-/// （T14-review 钉死的回调契约，不回退），但那会烧掉一条归因路径，实现不应依赖该兜底。
+/// 同步入队方法签名，实现 MUST NOT block —— 接收分发线程（XcpReceiveLoop）与计划空窗
+/// 状态机线程直接调用，重活（IO / 批量落盘 / 聚合落盘）必须由实现自行入队 + 后台消费。
+/// </para>
+/// <para>
+/// M-2：两条出站口的异常去向不同，实现者须知——
+/// <see cref="OnValues"/> 抛异常：被 XcpReceiveLoop 转为 CallbackFailed 归因出站
+/// （T14-review 钉死的回调契约，不回退）——异常有归因去向，但样本本身丢失；
+/// <see cref="OnGap"/> 抛异常：本层之上再无归因出口，只得放弃该条归因
+/// （T14-review Attributed 残余语义如实延续）——<b>静默丢弃、无归因去向</b>，
+/// 仅爆炸半径限该条。实现不应依赖任何一侧的兜底。
 /// </para>
 /// </summary>
 public interface IXcpAcquisitionSink
 {
-    /// <summary>解码样本入队（接收分发线程调用；不阻塞、不抛）。</summary>
+    /// <summary>解码样本入队（接收分发线程调用；不阻塞；异常 → CallbackFailed 归因）。</summary>
     void OnValues(XcpDaqSample sample);
 
-    /// <summary>空窗/断流归因入队（接收分发线程或计划空窗状态机调用；不阻塞、不抛）。</summary>
+    /// <summary>空窗/断流归因入队（接收分发线程/超时回调线程/轮转线程调用；不阻塞；异常 → 该条归因静默丢弃）。</summary>
     void OnGap(XcpAcquisitionGap gap);
 }
 
@@ -50,18 +56,21 @@ public enum XcpAcquisitionGapKind
 /// <param name="Detail">人类可读归因细节。</param>
 /// <param name="Cause">包侧 MissingCause（MissingCauseAttributed / AcquisitionInterrupted 时非 null；不改包枚举）。</param>
 /// <param name="ExpectedMaxDuration">计划空窗的预期时长上界（仅 PlanGapOpened 携带，来源 T11 RotationGapWindow）。</param>
+/// <param name="ReceiveKind">触发本条的 XcpReceiveLoop 帧级归因种类（仅 FromAttribution 两条路径携带；M-3 帧级 Kind 不并入 Detail 糊掉）。</param>
 public sealed record XcpAcquisitionGap(
     XcpAcquisitionGapKind Kind,
     string Detail,
     A2lEditor.Core.Layout.MissingCause? Cause = null,
-    TimeSpan? ExpectedMaxDuration = null)
+    TimeSpan? ExpectedMaxDuration = null,
+    XcpReceiveAttributionKind? ReceiveKind = null)
 {
-    /// <summary>T14 逐帧归因 → 空窗通道的并入转换（包侧五值全通过）。</summary>
+    /// <summary>T14 逐帧归因 → 空窗通道的并入转换（包侧五值全通过；帧级 Kind 保留在 ReceiveKind）。</summary>
     public static XcpAcquisitionGap FromAttribution(XcpReceiveAttribution attribution) =>
         attribution.MissingCause is { } cause
-            ? new XcpAcquisitionGap(XcpAcquisitionGapKind.MissingCauseAttributed, attribution.Detail, cause)
-            : new XcpAcquisitionGap(XcpAcquisitionGapKind.ReceiveAttribution,
-                $"{attribution.Kind}: {attribution.Detail}");
+            ? new XcpAcquisitionGap(XcpAcquisitionGapKind.MissingCauseAttributed, attribution.Detail, cause,
+                ReceiveKind: attribution.Kind)
+            : new XcpAcquisitionGap(XcpAcquisitionGapKind.ReceiveAttribution, attribution.Detail,
+                ReceiveKind: attribution.Kind);
 
     /// <summary>计划空窗开窗事件（携带 T11 ExpectedMaxDuration 上界）。</summary>
     public static XcpAcquisitionGap PlanGapOpened(PlanGapWindow window) =>
@@ -97,7 +106,7 @@ public static class XcpAcquisitionSinkWiring
             sink.OnValues(sample);
         };
 
-    /// <summary>归因出站接线：逐帧归因并入空窗通道（包侧 MissingCause 五值全通过）。</summary>
+    /// <summary>归因出站接线：逐帧归因并入空窗通道（包侧 MissingCause 五值全通过，帧级 Kind 保留）。</summary>
     public static Action<XcpReceiveAttribution> Attributed(IXcpAcquisitionSink sink) =>
         attribution => sink.OnGap(XcpAcquisitionGap.FromAttribution(attribution));
 }

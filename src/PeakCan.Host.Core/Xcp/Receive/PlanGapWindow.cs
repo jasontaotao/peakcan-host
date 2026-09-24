@@ -28,6 +28,12 @@ public sealed record PlanGapWindow(ushort OdtCount, int EntryCount, TimeSpan Exp
 /// 断流只对未结束的当班窗口成立）。
 /// </para>
 /// <para>
+/// I-1 代际纪律：定时器回调携带开窗代际（state）；被取代窗口的残留回调可能阻塞在
+/// <c>_gate</c> 上直到新窗落位，续跑后凭代际不符直接返回 —— 不得宣判断流、不得销毁
+/// 新窗的定时器。真实线程回归测试（SinkTests.Stale_Timer_Callback_Does_Not_Kill_Superseded_Window）
+/// 用门闩钉住该时序，FakeTimeProvider 同步驱动抓不住它。
+/// </para>
+/// <para>
 /// T14-review 前瞻观察落纸：XcpCanTransport DTO DropOldest 丢帧无本地归因，
 /// 空窗升级断流只能靠本窗口的时长上界兜底 —— 聚合端不得假设每个空窗必有
 /// 逐帧归因事件。
@@ -44,6 +50,7 @@ public sealed class PlanGapWatcher : IXcpPlanGapNotifier, IDisposable
     private readonly object _gate = new();
     private ITimer? _timer;
     private PlanGapWindow? _open;
+    private int _generation;
     private bool _disposed;
 
     public PlanGapWatcher(IXcpAcquisitionSink sink, TimeProvider? timeProvider = null)
@@ -96,11 +103,19 @@ public sealed class PlanGapWatcher : IXcpPlanGapNotifier, IDisposable
         {
             if (_disposed)
                 return;
-            _timer?.Dispose();
+
+            // M-1：先建定时器后落状态——CreateTimer 失败时 _open/_generation 原样不动，
+            // 旧窗保持武装，不留"开着却没有超时机制"的幽灵窗。
+            var generation = _generation + 1;
+            var timer = _timeProvider.CreateTimer(
+                OnWindowExpired, generation, window.ExpectedMaxDuration, Timeout.InfiniteTimeSpan);
+
+            var staleTimer = _timer;
+            _timer = timer;
+            _generation = generation;
             opened = new PlanGapWindow(window.OdtCount, window.EntryCount, window.ExpectedMaxDuration);
             _open = opened;
-            _timer = _timeProvider.CreateTimer(
-                OnWindowExpired, null, window.ExpectedMaxDuration, Timeout.InfiniteTimeSpan);
+            staleTimer?.Dispose();
         }
 
         _sink.OnGap(XcpAcquisitionGap.PlanGapOpened(opened));
@@ -123,8 +138,10 @@ public sealed class PlanGapWatcher : IXcpPlanGapNotifier, IDisposable
         PlanGapWindow expired;
         lock (_gate)
         {
-            if (_open is null)
-                return; // 已恢复或已被新窗取代
+            // I-1 代际核对：被取代窗口的残留回调（阻塞在 _gate 上直到新窗落位）续跑时，
+            // state 非当班代际即直接返回——不得错杀新窗、不得销毁新窗的定时器。
+            if (_open is null || state is not int generation || generation != _generation)
+                return;
             expired = _open;
             _timer?.Dispose();
             _timer = null;

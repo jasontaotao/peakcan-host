@@ -183,6 +183,8 @@ public class SinkTests
         var gaps = Drain(sink.Gaps);
         Assert.Equal(5, gaps.Count);
         Assert.All(gaps, g => Assert.Equal(XcpAcquisitionGapKind.MissingCauseAttributed, g.Kind));
+        // M-3：帧级 Kind 不并入 Detail 糊掉——独立字段保留。
+        Assert.All(gaps, g => Assert.Equal(XcpReceiveAttributionKind.DecodeFailed, g.ReceiveKind));
         Assert.Equal(five, gaps.Select(g => g.Cause!.Value).ToArray());
 
         // 无包侧 cause 的逐帧归因也过通道（spec 定为并入，不丢 kind 信息之外的事实）。
@@ -191,7 +193,8 @@ public class SinkTests
         var gap = Assert.Single(passthrough);
         Assert.Equal(XcpAcquisitionGapKind.ReceiveAttribution, gap.Kind);
         Assert.Null(gap.Cause);
-        Assert.Contains("MalformedFrame", gap.Detail);
+        Assert.Equal(XcpReceiveAttributionKind.MalformedFrame, gap.ReceiveKind);
+        Assert.Equal("short dto", gap.Detail);
     }
 
     // ------------------------------------------------------------------
@@ -215,8 +218,81 @@ public class SinkTests
     }
 
     // ------------------------------------------------------------------
+    // I-1 回归：被取代窗口的残留定时器回调不得错杀新窗（真实线程 + 门闩）
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Stale_Timer_Callback_Does_Not_Kill_Superseded_Window()
+    {
+        var provider = new LatchedTimeProvider();
+        var sink = new InMemoryAcquisitionSink(16);
+        using var watcher = new PlanGapWatcher(sink, provider);
+
+        // 窗 A：旧回调由 Fire() 拉起在真实线程上，先被门闩按在进入状态机临界区之前
+        // （与"阻塞在 _gate"等价的先行关系，且确定性——不靠 sleep 碰运气）。
+        watcher.OnPlanGapWindow(new RotationGapWindow(1, 1, TimeSpan.FromMilliseconds(50)));
+        var timerA = provider.Timers[0];
+        timerA.Fire();
+
+        // A 的回调被按住期间，主线程完整跑完 Open(B)（新窗落位 + 新定时器武装）。
+        watcher.OnPlanGapWindow(new RotationGapWindow(2, 2, TimeSpan.FromMilliseconds(50)));
+        var timerB = provider.Timers[1];
+
+        // 放行旧回调：旧代际 state 与当班窗 B 不匹配 → 不得宣判断流、不得销毁 B 的定时器。
+        timerA.Release.Set();
+        Assert.NotNull(timerA.Worker);
+        Assert.True(timerA.Worker!.Join(TimeSpan.FromSeconds(5)), "stale callback did not finish");
+
+        Assert.False(timerB.Disposed, "stale callback destroyed the live window's timer");
+        Assert.True(watcher.IsOpen);
+        var gaps = Drain(sink.Gaps);
+        Assert.DoesNotContain(gaps, g => g.Kind == XcpAcquisitionGapKind.AcquisitionInterrupted);
+        Assert.Equal(2, gaps.Count); // 两次开窗事件，无任何断流
+    }
+
+    // ------------------------------------------------------------------
     // 夹具
     // ------------------------------------------------------------------
+
+    /// <summary>I-1 门闩定时器：Fire() 在真实线程上拉起回调，Release 门闩控制续跑时序。</summary>
+    private sealed class LatchedTimer(TimerCallback callback, object? state) : ITimer
+    {
+        public ManualResetEventSlim Release { get; } = new(false);
+        public Thread? Worker { get; private set; }
+        public bool Disposed { get; private set; }
+
+        public void Fire()
+        {
+            Worker = new Thread(() =>
+            {
+                Release.Wait();
+                callback(state);
+            })
+            { IsBackground = true };
+            Worker.Start();
+        }
+
+        public bool Change(TimeSpan dueTime, TimeSpan period) => !Disposed;
+        public void Dispose() => Disposed = true;
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>记录 CreateTimer 产物的 TimeProvider 替身（I-1 时序控制用）。</summary>
+    private sealed class LatchedTimeProvider : TimeProvider
+    {
+        public List<LatchedTimer> Timers { get; } = [];
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new LatchedTimer(callback, state);
+            Timers.Add(timer);
+            return timer;
+        }
+    }
 
     private static XcpDaqSample Sample(string objectName = "D0", double value = 1d) =>
         new(new PlannedDaqEntry(

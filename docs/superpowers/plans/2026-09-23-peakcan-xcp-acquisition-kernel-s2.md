@@ -255,6 +255,8 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 ### T15 — sink 抽象 + 归因生产
 
 **上下文指路**：决策 D4（倾向 sink 抽象对齐 `IFrameSink` 模式，但必须遵守"入队不阻塞、队列有界"契约——先例 `src/PeakCan.Host.Infrastructure/Channel/IFrameSink.cs:10` 的 `OnFrame/OnError` 形状）；spec §3 Receive 空窗归因段。
+
+> **D4 落定（T15）**：XCP 专用接口 `IXcpAcquisitionSink`（OnValues/OnGap），队列纪律（不阻塞/有界/不抛）照抄 IFrameSink 先例。
 **新文件**：`Xcp/Receive/IXcpAcquisitionSink.cs`、`Xcp/Receive/InMemoryAcquisitionSink.cs`、`Xcp/Receive/PlanGapWindow.cs`。
 
 - [ ] **红**：`tests/.../Xcp/Receive/SinkTests.cs`——(a) 入队不阻塞（满队列丢最旧/拒新按定死策略断言，绝不阻塞接收线程）；(b) `AcquisitionInterrupted` 由 Receive 层生产（包枚举槽位首次有生产者）；(c) **计划空窗**：`PlanGapWindow` 携带预期时长上界，超时未恢复升级为断流（FakeTimeProvider）；(d) 包 MissingCause 五值并入通道；(e) 重配细分归 host，不改包枚举（不改包枚举用 API 面审计断言钉住）。
