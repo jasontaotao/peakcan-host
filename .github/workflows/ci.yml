@@ -144,13 +144,26 @@ jobs:
                   Where-Object { $_.Include -eq 'PeakCan.ASAP2' }).Version
           $expected = "D:\nuget-local\PeakCan.ASAP2.$pin.nupkg"
           if (-not (Test-Path $expected)) {
+            # 诊断查询排除 .symbols.nupkg，只报主包。
             $packed = Get-ChildItem D:\nuget-local -Filter 'PeakCan.ASAP2.*.nupkg' |
+                      Where-Object { $_.Name -notlike '*.symbols.nupkg' } |
                       Sort-Object Name | Select-Object -Last 1
             $packedName = if ($packed) { $packed.Name } else { '(nothing packed)' }
             Write-Host "::error::xcp-asap2 lockstep broken - the host pins $pin but CI packed '$packedName' from a2l-editor's default branch."
             Write-Host "Land a2l-editor's version commit on its default branch BEFORE pushing the host commit that bumps the PeakCan.ASAP2 pin."
             Write-Host "Do not work around this by pinning a feature branch here; fix the release order."
             Write-Host "Missing expected artifact: $expected"
+            exit 1
+          }
+          # 残留防御（I-1）：期望主包存在后，feed 里仍不得残留任何非 pin 的
+          # PeakCan.ASAP2 主包——自托管持久 runner / 未来 cache / 本地预演的
+          # 旧版本残留会让 restore 解析到非 pin 版本而假绿，早失败。
+          $stale = Get-ChildItem D:\nuget-local -Filter 'PeakCan.ASAP2.*.nupkg' |
+                   Where-Object { $_.Name -ne "PeakCan.ASAP2.$pin.nupkg" -and
+                                  $_.Name -notlike '*.symbols.nupkg' }
+          if ($stale) {
+            Write-Host "::error::xcp-asap2 lockstep broken - stale PeakCan.ASAP2 main package(s) in D:\nuget-local: $(($stale | ForEach-Object Name) -join ', ') (pin is $pin)."
+            Write-Host "Remove the stale main package(s) so restore cannot resolve a version other than the pin."
             exit 1
           }
           Write-Host "xcp-asap2 lockstep OK: packed $pin"
