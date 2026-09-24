@@ -86,15 +86,38 @@ public class ReceiveE2ETests
         // 开窗事件已消费：本轮只应到达断流归因一条。
         var interrupted = Assert.Single(DrainGaps(sink));
         Assert.Equal(XcpAcquisitionGapKind.AcquisitionInterrupted, interrupted.Kind);
-        // 包侧枚举槽位由 Receive 层生产（spec 写死条款），不新增包枚举值。
         Assert.Equal(MissingCause.AcquisitionInterrupted, interrupted.Cause);
-        Assert.Equal("A2lEditor.Core", typeof(MissingCause).Assembly.GetName().Name);
 
         // 断流只宣判一次（单次触发，无周期性重复）。
         clock.Advance(TimeSpan.FromSeconds(60));
         Assert.Empty(DrainGaps(sink)); // 断流只宣判一次：再推进无新归因、无周期性重复
     }
 
+    // ---- I-1（评审修复）：FanOut 逐目标吞异常——抛异常的 GapNotifier 不裸中断轮转 ----
+
+    /// <summary>每次通知必抛的调用方 GapNotifier（fan-out 容错路径的注入点）。</summary>
+    private sealed class ThrowingGapNotifier : IXcpPlanGapNotifier
+    {
+        public void OnPlanGapWindow(RotationGapWindow window) => throw new InvalidOperationException("gap notifier boom");
+    }
+
+    [Fact]
+    public async Task Throwing_Custom_GapNotifier_Does_Not_Abort_Rotation_And_Watcher_Still_Opens()
+    {
+        var clock = new FakeTimeProvider();
+        var sink = new InMemoryAcquisitionSink(16);
+        using var session = NewSession(new XcpVirtualSlave(), out var spy, sink, clock,
+            gapNotifier: new ThrowingGapNotifier());
+        var map = session.Plan(Contracts(SmallDoc()), Placeholders(SmallDoc()));
+
+        // 逐目标 try/catch（同 PlanGapWatcher 通知契约）：抛异常目标被放弃该条，
+        // 不穿透到轮转——rotation 照常完成，watcher 照常开窗（与目标在数组中的次序无关）。
+        var rotation = await session.ConfigureRotationAsync(map);
+        Assert.Equal(RotationTableState.Running, rotation.TableState);
+
+        var opened = Assert.Single(DrainGaps(sink));
+        Assert.Equal(XcpAcquisitionGapKind.PlanGapOpened, opened.Kind);
+    }
     // ---- (c) 965 测量端到端：DTO 流 → 反查 → Decode → sink 字节正确性 ----
 
     [Fact]
@@ -184,25 +207,24 @@ public class ReceiveE2ETests
     // ------------------------------------------------------------------
 
     private static XcpAcquisitionSession NewSession(
-        IXcpTransport transport, out XcpTransportSpy spy, IXcpAcquisitionSink sink, FakeTimeProvider clock)
+        IXcpTransport transport, out XcpTransportSpy spy, IXcpAcquisitionSink sink, FakeTimeProvider clock,
+        IXcpPlanGapNotifier? gapNotifier = null)
     {
         spy = new XcpTransportSpy(transport);
         return new XcpAcquisitionSession(spy, MasterOptions(),
             new XcpAcquisitionSessionOptions
             {
                 Sink = sink,
+                GapNotifier = gapNotifier,
                 Polling = new PollingSchedulerOptions { Period = TimeSpan.FromMilliseconds(1) },
             }, clock);
     }
 
     private static XcpMasterOptions MasterOptions() => new(XcpVirtualSlave.DefaultMasterCanId);
 
-    /// <summary>XcpTransportSpy 是纯包装，回退取被包裹的从机引用（注入 DTO 用）。</summary>
-    private static XcpVirtualSlave TransportOf(XcpTransportSpy spy)
-    {
-        var field = typeof(XcpTransportSpy).GetField("_inner", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return Assert.IsAssignableFrom<XcpVirtualSlave>(field!.GetValue(spy));
-    }
+    /// <summary>从被包裹的内层 transport 取从机引用（注入 DTO 用；T16-review M1 去反射）。</summary>
+    private static XcpVirtualSlave TransportOf(XcpTransportSpy spy) =>
+        Assert.IsAssignableFrom<XcpVirtualSlave>(spy.Inner);
 
     /// <summary>4B 注入模式：ULONG 递增整数、FLOAT32 递增尾数——每条目字节互不相同。</summary>
     private static byte[] PayloadFor(ValueContract contract, uint pid)

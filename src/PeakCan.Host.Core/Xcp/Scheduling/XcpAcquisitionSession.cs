@@ -272,7 +272,18 @@ public sealed class XcpAcquisitionSession : IDisposable
         public void OnPlanGapWindow(RotationGapWindow window)
         {
             foreach (var target in targets)
-                target.OnPlanGapWindow(window);
+            {
+                try
+                {
+                    target.OnPlanGapWindow(window);
+                }
+                catch
+                {
+                    // 同 PlanGapWatcher 通知契约（T11/T15 同源纪律）：不得抛异常——
+                    // 穿透会让 ConfigureRotationAsync 在 stop 后裸中断、表停无归因。
+                    // 吞掉并放弃"该目标该条"，其余目标照常收到通知（次序无关）。
+                }
+            }
         }
     }
 

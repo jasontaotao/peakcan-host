@@ -32,6 +32,9 @@ public sealed class XcpTransportSpy : IXcpTransport
     /// <summary>请求帧计数。</summary>
     public int WriteCount => _sent.Count;
 
+    /// <summary>被包裹的内层 transport（T16-review M1：测试取从机引用免反射）。</summary>
+    internal IXcpTransport Inner => _inner;
+
     /// <inheritdoc />
     public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
     {
