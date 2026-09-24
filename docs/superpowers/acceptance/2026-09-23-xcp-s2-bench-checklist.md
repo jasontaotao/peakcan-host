@@ -65,6 +65,8 @@
   ```
 
 - [ ] 记录实际可用组合（= A-4 回填，见 §2）：实发 master/slave ID = __________ / __________；原样值是否可发：____
+- [ ] 方向语义（避坑）：`--xcp-master-id` = host 发送 ID（对应 A2L `CAN_ID_SLAVE`），`--xcp-slave-id` = 从机→host 方向 ID（对应 A2L `CAN_ID_MASTER`）。
+- [ ] 超时排障：CONNECT 超时先查波特率/通道，再按**方向对调**重试一次（master/slave ID 互换），仍超时再查总线占用；对调成功的结论直接进 A-4 回填。
 - [ ] 探针退出码：0 = 对账允许启动；1 = 对账拒绝（JSON 仍落盘）；2 = 用法/协议错误。实测退出码：____
 - [ ] `queryFailures` 非空时逐条抄录：command / exceptionType / marker：__________
   （已知预期偏差：GET_DAQ_EVENT_INFO 帧长 7B < 解码器 minLength 8 → 必现 `ArgumentException` + `expected-deviation`，见 §5-1，不得当作意外失败。）
@@ -76,6 +78,9 @@
   - `canIds` / `canIdCompliance` 的 `*Hex` 值（取决于 A-4 实发 ID）；
   - `queryFailures` 出现 §5 已钉死的预期偏差；
   - `deviceLayout = "nonconformant-see-S1§15"`（当且仅当存在上述预期查询失败）。
+  - `reconciliation.rejectedStart == true`——归因：GET_DAQ_EVENT_INFO 7B → `EVENT_PERIOD_NOT_MEASURED` Reject（§5-1 已钉死偏差），非对账面新增异常；
+  - 探针退出码 1（对账拒绝，JSON 仍落盘）——归因同上，不得误记为真机偏差；
+  - `CAN_ID_MISMATCH` 告警——归因：host 实发 ID（§1.3 记录值）与 A2L 声明 `CAN_ID_MASTER` 的比对路径在 A-4 核实前必然告警，非真机偏差。
 - [ ] 其余字段与基线不一致 = 真机偏差，逐条记入 §5 核死表或 §2 对应项。
 - [ ] diff 结论记录：__________
 
@@ -87,7 +92,7 @@
 
 - 来源：`connect.*`（`protocolVersion/transportVersion/resources/commModeBasic/queueSize`，CONNECT + GET_COMM_MODE_INFO）、`measured.*`（GET_DAQ_PROCESSOR_INFO/GET_DAQ_LIST_INFO/GET_DAQ_RESOLUTION_INFO + 观察帧长）、对账 `reconciliation.findings[{severity,code,message}]`。
 - 回填槽位：`connect` 全字段 = __________；`measured` 全字段 = __________；findings 摘录 = __________
-- 判定：`reconciliation.rejectedStart == false`；MAX_DAQ=1、MAX_ODT 与 A2L 声明同口径（基线 0x0F=15）、MAX_ODT_ENTRY_SIZE_DAQ=4、MAX_CTO/MAX_DTO=8；105 B/拍 = 15 ODT × 7B 模型不被实测推翻。
+- 判定：**除 `EVENT_PERIOD_NOT_MEASURED` 外无 Reject**（真机 7B 事件周期偏差——§5-1 已钉死——必触发该 Reject ⇒ `rejectedStart=true`/退出码 1 属预期结果；事件周期以 §2 A-2 的手工换算值兜底）；MAX_DAQ=1、MAX_ODT 与 A2L 声明同口径（基线 0x0F=15）、MAX_ODT_ENTRY_SIZE_DAQ=4、MAX_CTO/MAX_DTO=8；105 B/拍 = 15 ODT × 7B 模型不被实测推翻。
 
 ### A-2 事件节拍
 
@@ -100,7 +105,7 @@
 - 来源：探针 JSON `dtoIntervalJitter` 只有占位（`status="placeholder"` + `measuredTimestampTicks`，从机 `timestampTicks=0` 不给时间戳）；真实抖动只能抓包量 DTO 到达时刻。
 - 操作：`START_STOP_DAQ_LIST(mode 1)` 起表 → 抓 ≥100 个连续 DTO 帧（CAN_ID_SLAVE，首字节 PID 0x00 起）→ 主机接收时刻算间隔序列。
 - 回填槽位：样本数 = ____；间隔均值/最小/最大 = ____ / ____ / ____ µs；最大抖动 = ____ µs
-- 判定：记录性评估——把"主机接收时刻做时基"的精度上界写死为（均值 ± 最大抖动），供 §4.4 的 2.6–5 Hz 估算替换为实测；无需通过/失败门限，但结论必须落纸面。
+- 判定：记录性评估——把"主机接收时刻做时基"的精度上界写死为（均值 ± 最大抖动），供 S1 spec §4.4 的 2.6–5 Hz 估算替换为实测；无需通过/失败门限，但结论必须落纸面。
 
 ### A-4 CAN 号 29 位合规
 
@@ -125,7 +130,7 @@
 
 - 来源：包侧统计（探针 JSON 无此字段）：A2L 965 个 MEASUREMENT 中位域 / 不足 1 字节宽的量计数（结合 RECORD_LAYOUT 位定义）；本机 `XCP_BITOFFSET_SUPPORT STD_OFF` ⇒ 位域进不了 DAQ，只能走轮询。
 - 回填槽位：位域/亚字节量计数 = ____；其中经 S2 轮询路径可采的数量 = ____
-- 判定：数字落纸面即可（无通过门限）；若计数 >0，§4.4.1 成本模型按"仅轮询"真实负载重排并回 plan 同步。
+- 判定：数字落纸面即可（无通过门限）；若计数 >0，S1 spec §4.4.1 成本模型按"仅轮询"真实负载重排并回 plan 同步。
 
 ## 3. MTA 自增交叉验证（T12 review F6）
 
@@ -185,9 +190,9 @@ PollingScheduler 分块读依赖 XCP 标准"UPLOAD 后 MTA 按读出字节数自
 - 证伪背景：CONNECT 曾被记为"真机非标准布局"——round-3 已证伪：`Xcp_Std.c:191-198` 的 `[FF, RESOURCE, COMM_MODE_BASIC, MAX_CTO, MAX_DTO(LSB,MSB), PROTO_VER, TRANSPORT_VER]` 即 ASAM XCP Part 1 标准布局，解码器已按标准实现；**抓包只需例行核对，无回填歧义**。
 - 步骤：
   - [ ] 抓 CONNECT 正响应（8B）逐字节列出：`FF __ __ __ __ __ __ __` = ____________________
-  - [ ] 核对：byte1=resources、byte2=commModeBasic（模拟基线 0x01 = BYTE_ORDER=Intel、bit6 块模式位=0）、byte3=MAX_CTO=8、byte4/5=MAX_DTO LSB/MSB=08 00、byte6/7=proto/transport ver。
+  - [ ] 核对：byte1=resources、byte2=commModeBasic（模拟基线 0x01 = BYTE_ORDER=Intel、bit6 块模式位=0）、byte3=MAX_CTO=8、byte4/5=MAX_DTO 逐字节记录 = ____（布局按 LSB,MSB 核对；对照模拟基线 golden `40 00`；值差异按数据坑记录、不推翻布局结论）、byte6/7=proto/transport ver。
 - 回填槽位：逐字节 hex = __________；与标准布局一致 = 是/否
-- 判定：一致 ⇒ 例行通过归档；不一致 ⇒ 真偏差（round-3 证伪被推翻），按新偏差走 §5-1~5-3 同规格核死流程。
+- 判定：**字节位角色（布局）一致** ⇒ 例行通过归档——即使 MAX_DTO/commModeBasic 等字段**值**与模拟基线不同，也按数据坑单独记录，不改判布局；字节位角色不一致 ⇒ 布局真偏差（round-3 证伪被推翻），按 §5-1~5-3 同规格核死流程。
 
 ## 6. 回填完成后的收尾
 
@@ -216,7 +221,7 @@ canIdCompliance.declaredMasterCanIdRaw/.declaredSlaveCanIdRaw (+*Hex)
 canIdCompliance.usedMasterCanIdRaw/.usedSlaveCanIdRaw (+*Hex)
 canIdCompliance.status                "pending-bench-verification" 占位
 odtPacking.dtoPayloadCapBytes/.measuredMaxOdtEntrySizeDaq/.maxEntriesPerOdt/.measuredMaxOdt
-measuredCommands[]                    OPTIONAL_CMD 逐命令探测结果
+measuredCommands[]                    信息类查询成功项 + OPTIONAL_CMD 逐命令探测成功项合并（非纯 OPTIONAL_CMD）
 reconciliation.rejectedStart/.findings[{severity,code,message}]
 deviceLayout                          null | "nonconformant-see-S1§15"
 queryFailures[{command,exceptionType,marker}]
