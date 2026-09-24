@@ -57,7 +57,7 @@ public class AcquisitionE2ETests
         // 计划空窗通知挂点（T11 IXcpPlanGapNotifier 经组合根接线）：stop 后恰一次。
         Assert.Equal(15, Assert.Single(flow.Gaps).OdtCount);
 
-        // DAQ 侧 N 拍：按方案注入 3 拍 DTO，节奏 = 每拍 15 帧、60B（≤105B 上界）、PID 全部命中方案。
+        // DAQ 侧 N 拍：按方案注入 3 拍 DTO，节奏 = 每拍 15 帧、60B（≤105B 上界）。注：DTO 的 PID 命中由注入侧保证（T6 从机对 DAQ 状态零建模），本用例 DTO 侧证据力 = 帧不损坏地到达 spy；轮转命令侧序列断言才是守护点。
         Assert.Equal(3, flow.DaqBeats.Count);
         Assert.All(flow.DaqBeats, b =>
         {
@@ -120,7 +120,7 @@ public class AcquisitionE2ETests
         Assert.Equal(PollingCycleOutcome.Executed, result.Outcome);
         Assert.Empty(result.Failures);
 
-        // 兜底量真实被采到：数据 = 模拟从机脚本回放的字节（7B chunk + MTA 自增后第 2 chunk 首字节）。
+        // 兜底量真实被采到：数据 = 模拟从机脚本回放的字节（OverrideResponse 为地址无关静态脚本，无 MTA 状态——第 2 chunk 是同一份 7B 载荷的回放切片，两种机制下期望值恰好相同，MTA 自增语义由 PollingSchedulerTests 单元钉）。
         var value = Assert.Single(result.Values);
         Assert.Equal("BigBlk", value.ObjectName);
         Assert.Equal(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x11 }, value.Data);

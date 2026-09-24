@@ -54,7 +54,7 @@ public sealed class XcpAcquisitionSessionOptions
 /// <item>DOWNLOAD 禁用（spec §0 / 决策 D2）：S2 编解码已实现但调度层无任何
 /// DOWNLOAD 发送路径——本类不引用 XcpCommandEncoder 的 Download 命令，线上零 DOWNLOAD
 /// 由 e2e 的 Spy 断言与 T18 静态守卫共同钉住。</item>
-/// <item>线程安全：会话方法非并发安全（XcpMaster 单发单收）；Plan 重跑会替换
+/// <item>并发模型：单轮转驱动 + 单轮询循环并发受支持（gate/WaitForQuiet 为此存在，XcpMaster 单发单收）；重复 Configure / 重 Plan / Dispose 不得与在途操作并发——Plan 重跑会替换
 /// 轮询调度器（旧实例 Dispose）。Dispose 与 master 生命周期同管。</item>
 /// </list>
 /// </summary>
@@ -206,7 +206,7 @@ public sealed class XcpAcquisitionSession : IDisposable
     private PollingScheduler RequirePolling() =>
         _polling
             ?? throw new InvalidOperationException(
-                "XcpAcquisitionSession.Plan() must be called before running polling beats.");
+                "XcpAcquisitionSession.Polling requires ConfigureRotationAsync(map) to lazily bind the polling scheduler first (Plan() alone does not bind).");
 
     private void ThrowIfDisposed() =>
         ObjectDisposedException.ThrowIf(_disposed, this);
