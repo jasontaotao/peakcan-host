@@ -251,7 +251,8 @@ public sealed partial class TraceSessionService : ObservableObject, ITraceSessio
                 SignalGroups.Add(new WatchedSignalGroup(
                     g.Id, g.Name, g.Notes, g.SignalKeys));
             }
-        }        // S3-T1 (D2): 恢复 XCP 关注集。旧 bundle 无 xcpWatch 键 → 反序列化为
+        }
+        // S3-T1 (D2): 恢复 XCP 关注集。旧 bundle 无 xcpWatch 键 → 反序列化为
         // 空列表 → 集合清空（空集不报错，前向兼容）。
         XcpWatchedObjects.Clear();
         if (dto.XcpWatch is not null)

@@ -134,3 +134,4 @@
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+

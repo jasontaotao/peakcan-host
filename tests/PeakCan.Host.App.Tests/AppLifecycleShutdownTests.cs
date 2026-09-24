@@ -123,7 +123,8 @@ public class AppLifecycleShutdownTests : IDisposable
         private readonly ITraceSessionService _inner;
         public RecordingTraceSessionService(ITraceSessionService inner) => _inner = inner;
 
-        public ObservableCollection<WatchedSignalRow> WatchedSignals => _inner.WatchedSignals;        public ObservableCollection<XcpWatchRow> XcpWatchedObjects => _inner.XcpWatchedObjects;
+        public ObservableCollection<WatchedSignalRow> WatchedSignals => _inner.WatchedSignals;
+        public ObservableCollection<XcpWatchRow> XcpWatchedObjects => _inner.XcpWatchedObjects;
         public ObservableCollection<WatchedSignalGroup> SignalGroups => _inner.SignalGroups;
         public string? MasterSourceId
         {
