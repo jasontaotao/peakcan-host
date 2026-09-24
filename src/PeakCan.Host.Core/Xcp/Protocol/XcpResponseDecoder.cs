@@ -237,7 +237,7 @@ public readonly record struct XcpGetDaqEventInfoResponse(
     byte EventChannelTimeUnit,
     byte Priority);
 
-/// <summary>CMD_CONNECT 正响应字段（ASAM 标准布局，字段顺序按字节位次）。</summary>
+/// <summary>CMD_CONNECT 正响应字段（ASAM 标准布局；record 位次仅为可读性，命名构造防错位）。</summary>
 public readonly record struct XcpConnectResponse(
     byte ProtocolVersion,
     byte TransportVersion,

@@ -356,4 +356,4 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 
 ## 评审补遗（T2 评审 2026-09-23）
 
-- T4 决策点（T2 评审要求落纸面）：(a) XcpMaster 收到 EV 0xFD 帧（如 SYNCH 后 EV_SLAVE_CMD_SYNC）——消费并忽略，不算协议错误；(b) 收到 ERR_CMD_SYNCH(0x00)——不自动重发 SYNCH，直接上抛（归因层决定恢复动作）。(c) 负响应 PID 笔误更正：负响应是 [0xFE, ERR]，计划原文 FF+ERR 作废。(d) ValidatePositiveResponse 的 expectedPid 死参已删（c598adc4）；XcpGoldenSamples CONNECT commModeBasic=0x01 语义已钉死（SLAVE_BLOCK_MODE=1+Intel，对应 A2L BLOCK SLAVE）。
+- T4 决策点（T2 评审要求落纸面）：(a) XcpMaster 收到 EV 0xFD 帧（如 SYNCH 后 EV_SLAVE_CMD_SYNC）——消费并忽略，不算协议错误；(b) 收到 ERR_CMD_SYNCH(0x00)——不自动重发 SYNCH，直接上抛（归因层决定恢复动作）。(c) 负响应 PID 笔误更正：负响应是 [0xFE, ERR]，计划原文 FF+ERR 作废。(d) ValidatePositiveResponse 的 expectedPid 死参已删（c598adc4）；XcpGoldenSamples CONNECT commModeBasic=0x01 语义 round-3 更正：0x01=BYTE_ORDER=Intel、SLAVE_BLOCK_MODE=0（bit6 才是块模式；T4 时误注）。

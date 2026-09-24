@@ -400,8 +400,7 @@ public class CapabilityReconcilerTests
             MaxEventChannel: processor.MaxEventChannel,
             MinDaq: processor.MinDaq,
             MaxOdt: listInfo.MaxOdt,
-            // ASAM 标准 CONNECT byte5/byte6-7 即 MAX_CTO/MAX_DTO（本 ECU 真机为非标准布局，
-            // Xcp_Std.c:191-198，探针按标准解码真机 CONNECT 会解出垃圾值——已标注）。
+            // CONNECT 按 ASAM 标准布局解码（Xcp_Std.c 布局即标准，round-3 证伪"真机非标准"）。
             // 实测口径：MaxCto = 观察到的最大响应帧长（黄金样本 8B）；
             // MaxDto = spec 常量 8B，非实测（T19 抓包回填）。
             MaxCto: (byte)XcpGoldenSamples.ConnectPositiveResponse.Length,
