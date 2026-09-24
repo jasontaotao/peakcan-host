@@ -86,6 +86,52 @@ public class XcpProbeCommandTests
         File.Delete(outputPath);
     }
 
+    /// <summary>
+    /// Important-1（T8 评审）：单个能力查询解码异常不终止探针——失败项带归因
+    /// （异常类型 + 预期偏差标记），已捕获项照常入事实清单，deviceLayout 输出
+    /// "nonconformant-see-S1§15" 占位。用真机偏差 #1（GET_DAQ_EVENT_INFO 仅 7B）模拟。
+    /// </summary>
+    [Fact]
+    public async Task Probe_capability_query_failure_is_attributed_and_does_not_kill_probe()
+    {
+        await using var slave = new XcpVirtualSlave();
+        // 真机偏差 #1（T8 评审钉死，源码：从机固件 Xcp_Std.c）：
+        // GET_DAQ_EVENT_INFO 正响应仅 7B 且 EVENT_CYCLE/EVENT_CHANNEL_TIME_UNIT 在 wire byte4/5。
+        slave.OverrideResponse(XcpPid.GetDaqEventInfo, 0xFF, 0x01, 0x02, 0x03, 0x0A, 0x06);
+        var outputPath = TempJsonPath();
+
+        var options = XcpProbeCommand.ParseArgs(
+        [
+            "--a2l", RealA2LPath,
+            "--xcp-master-id", "0x18FFF667",
+            "--xcp-slave-id", "0x18FFF666",
+            "--output", outputPath,
+        ]);
+        var exit = await XcpProbeCommand.RunAsync(options, slave);
+
+        // 探针存活：事件周期缺测 → 对账拒绝（宁可不采不错采），但事实清单照常输出。
+        Assert.Equal(1, exit);
+        Assert.True(File.Exists(outputPath), "capability query failure must not prevent the fact list.");
+
+        var doc = JsonDocument.Parse(File.ReadAllText(outputPath));
+        Assert.Equal("nonconformant-see-S1§15", doc.RootElement.GetProperty("deviceLayout").GetString());
+
+        var failure = doc.RootElement.GetProperty("queryFailures").EnumerateArray().Single();
+        Assert.Equal("GET_DAQ_EVENT_INFO", failure.GetProperty("command").GetString());
+        Assert.Equal("ArgumentException", failure.GetProperty("exceptionType").GetString());
+        Assert.Equal("expected-deviation", failure.GetProperty("marker").GetString());
+
+        // 已捕获项照常入事实清单（MAX_DAQ 来自 GET_DAQ_PROCESSOR_INFO 黄金样本）。
+        Assert.Equal(1u, doc.RootElement.GetProperty("measured").GetProperty("maxDaq").GetUInt32());
+
+        // 失败项不得冒充实测支持命令。
+        var measuredCommands = doc.RootElement.GetProperty("measuredCommands").EnumerateArray()
+            .Select(e => e.GetString()).ToHashSet(StringComparer.Ordinal);
+        Assert.DoesNotContain("GET_DAQ_EVENT_INFO", measuredCommands);
+
+        File.Delete(outputPath);
+    }
+
     [Fact]
     public async Task Probe_reconciliation_reject_exits_nonzero_and_still_outputs_fact_list()
     {

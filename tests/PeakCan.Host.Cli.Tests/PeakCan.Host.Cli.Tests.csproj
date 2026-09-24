@@ -14,7 +14,8 @@
   </ItemGroup>
 
   <!-- S2-T8: 探针测试复用 Core.Tests 的 XcpVirtualSlave（T6 测试台架）——
-       引用测试工程仅为共享 TestKit；vstest 只发现本工程容器，Core.Tests 用例不会重复执行。 -->
+       引用测试工程仅为共享 TestKit；vstest 只发现本工程容器，Core.Tests 用例不会重复执行。
+       禁止通配 vstest **\*.Tests.dll（会双跑 Core.Tests）——只跑 .slnx 或具名工程。 -->
   <ItemGroup>
     <ProjectReference Include="..\PeakCan.Host.Core.Tests\PeakCan.Host.Core.Tests.csproj" />
   </ItemGroup>

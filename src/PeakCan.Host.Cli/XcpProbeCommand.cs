@@ -103,27 +103,46 @@ public static class XcpProbeCommand
 
         var connectBytes = await session.SendAsync(XcpCommandEncoder.Connect(), ct);
         var connect = XcpResponseDecoder.Connect(connectBytes);
-        var commMode = XcpResponseDecoder.GetCommModeInfo(
-            await session.SendAsync(XcpCommandEncoder.GetCommModeInfo(), ct));
-        var processor = XcpResponseDecoder.GetDaqProcessorInfo(
-            await session.SendAsync(XcpCommandEncoder.GetDaqProcessorInfo(), ct));
-        var resolution = XcpResponseDecoder.GetDaqResolutionInfo(
-            await session.SendAsync(XcpCommandEncoder.GetDaqResolutionInfo(), ct));
-        var listInfo = XcpResponseDecoder.GetDaqListInfo(
-            await session.SendAsync(XcpCommandEncoder.GetDaqListInfo(daqListNumber: 0), ct));
-        var eventInfo = XcpResponseDecoder.GetDaqEventInfo(
-            await session.SendAsync(XcpCommandEncoder.GetDaqEventInfo(eventChannel: 0), ct));
+
+        // ---- 能力查询全链：每个查询独立 try-catch（S2-T8 评审 Important-1）——
+        // 单个查询的解码异常/负响应只归因入清单，不终止探针；已捕获项照常入事实清单。
+        // 真机三条已钉死布局偏差（GET_DAQ_EVENT_INFO 7B / PROCESSOR_INFO 大端 / LIST_INFO 错位，
+        // 源码：从机固件 Xcp_Std.c，评审报告 S2-T8）由此存活下来，交 T19 台架核死。
+        var queryFailures = new List<XcpProbeQueryFailure>();
+        var (commMode, commModeOk) = await TryQueryAsync(
+            session, XcpCommandEncoder.GetCommModeInfo(), "GET_COMM_MODE_INFO",
+            static bytes => XcpResponseDecoder.GetCommModeInfo(bytes), queryFailures, ct);
+        var (processor, processorOk) = await TryQueryAsync(
+            session, XcpCommandEncoder.GetDaqProcessorInfo(), "GET_DAQ_PROCESSOR_INFO",
+            static bytes => XcpResponseDecoder.GetDaqProcessorInfo(bytes), queryFailures, ct);
+        var (resolution, resolutionOk) = await TryQueryAsync(
+            session, XcpCommandEncoder.GetDaqResolutionInfo(), "GET_DAQ_RESOLUTION_INFO",
+            static bytes => XcpResponseDecoder.GetDaqResolutionInfo(bytes), queryFailures, ct);
+        var (listInfo, listInfoOk) = await TryQueryAsync(
+            session, XcpCommandEncoder.GetDaqListInfo(daqListNumber: 0), "GET_DAQ_LIST_INFO",
+            static bytes => XcpResponseDecoder.GetDaqListInfo(bytes), queryFailures, ct);
+        var (eventInfo, eventInfoOk) = await TryQueryAsync(
+            session, XcpCommandEncoder.GetDaqEventInfo(eventChannel: 0), "GET_DAQ_EVENT_INFO",
+            static bytes => XcpResponseDecoder.GetDaqEventInfo(bytes), queryFailures, ct);
 
         // ---- OPTIONAL_CMD 逐命令探测（只发良性/0 效应帧，见 ProbeMutableCommands）----
-        var measuredCommands = await ProbeOptionalCommandsAsync(session, ct);
+        // 信息类命令：仅本次查询实际得到正响应的才计入实测支持集（失败项不得冒充）。
+        List<string> infoCommandSupport = [];
+        if (commModeOk) infoCommandSupport.Add("GET_COMM_MODE_INFO");
+        if (processorOk) infoCommandSupport.Add("GET_DAQ_PROCESSOR_INFO");
+        if (resolutionOk) infoCommandSupport.Add("GET_DAQ_RESOLUTION_INFO");
+        if (listInfoOk) infoCommandSupport.Add("GET_DAQ_LIST_INFO");
+        if (eventInfoOk) infoCommandSupport.Add("GET_DAQ_EVENT_INFO");
+        var measuredCommands = await ProbeOptionalCommandsAsync(session, infoCommandSupport, ct);
 
         // 收尾断连：强制命令，不入对账（A2L OPTIONAL_CMD 不含 CONNECT/DISCONNECT）。
         XcpResponseDecoder.Disconnect(await session.SendAsync(XcpCommandEncoder.Disconnect(), ct));
 
         // ---- 实测能力：全部值来自响应解码 / 线上帧长观察，禁止散写期望值 ----
-        // MAX_CTO/MAX_DTO 不在任何 XCP 响应字段内（CONNECT byte[3]=RESOURCE、byte[4]=COMM_MODE_BASIC
-        // 是 XCP 1.0 定义，不是 CTO/DTO）——属传输层观察：CTO = 观察到的最大响应帧长，
-        // DTO = CAN 经典帧 DLC（spec §1：DTO 8B）。
+        // ASAM 标准 CONNECT byte5/byte6-7 即 MAX_CTO/MAX_DTO（见 XcpResponseDecoder.Connect 注释）；
+        // 本 ECU 真机为非标准布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
+        // （Xcp_Std.c:191-198），探针按标准解码真机 CONNECT 会解出垃圾值——已标注（T8 评审 Important-2）。
+        // 事实清单取值：MaxCto = 观察到的最大响应帧长；MaxDto = spec 常量 8B，非实测（T19 抓包回填）。
         var measured = new XcpMeasuredCapabilities(
             MaxDaq: processor.MaxDaq,
             MaxEventChannel: processor.MaxEventChannel,
@@ -145,7 +164,7 @@ public static class XcpProbeCommand
         var reconciliation = XcpCapabilityReconciler.Reconcile(declared, validationNotes, measured);
 
         // ---- 事实清单（spec §4：直接兑现附录 A-1/2/3/4/5 的探针侧字段）----
-        var report = BuildReport(options, declared, connect, commMode, processor, resolution, listInfo, eventInfo, measured, measuredCommands, reconciliation);
+        var report = BuildReport(options, declared, connect, commMode, processor, resolution, listInfo, eventInfo, measured, measuredCommands, reconciliation, queryFailures);
         var json = JsonSerializer.Serialize(report, JsonOptions);
 
         if (options.OutputPath is { } outputPath)
@@ -194,18 +213,9 @@ public static class XcpProbeCommand
     /// DOWNLOAD 用 0 字节请求（BYTE_COUNT=0，无数据可写）——探针绝不产生真实写流量
     /// （spec 决策 D2 的禁用语义同样约束探针）。
     /// </summary>
-    private static async Task<List<string>> ProbeOptionalCommandsAsync(ProbeSession session, CancellationToken ct)
+    private static async Task<List<string>> ProbeOptionalCommandsAsync(
+        ProbeSession session, List<string> supported, CancellationToken ct)
     {
-        // 信息类命令已在能力查询全链中发出并得到正响应——直接计入实测支持集。
-        List<string> supported =
-        [
-            "GET_COMM_MODE_INFO",
-            "GET_DAQ_PROCESSOR_INFO",
-            "GET_DAQ_RESOLUTION_INFO",
-            "GET_DAQ_LIST_INFO",
-            "GET_DAQ_EVENT_INFO",
-        ];
-
         foreach (var (name, frame) in MutableCommandProbes())
         {
             try
@@ -216,11 +226,44 @@ public static class XcpProbeCommand
             {
                 continue;
             }
+            catch (XcpErrorResponseException)
+            {
+                // 其他负响应（参数被拒等）仍算命令存在——原实现会把这类异常漏出探针，
+                // 违反本文档语义（S2-T8 评审 Important-1 一并修正）。
+            }
 
             supported.Add(name);
         }
 
         return supported;
+    }
+
+    /// <summary>单个能力查询失败归因（异常类型 + 预期偏差标记）。</summary>
+    private const string ExpectedDeviationMarker = "expected-deviation";
+
+    /// <summary>
+    /// 单个能力查询 + 解码的独立异常边界（S2-T8 评审 Important-1）：解码异常/负响应/
+    /// 超时不终止探针——按 (命令, 异常类型, 预期偏差标记) 归因入清单，返回类型默认值。
+    /// OperationCanceledException（外部取消）不吞。
+    /// </summary>
+    private static async Task<(T Value, bool Ok)> TryQueryAsync<T>(
+        ProbeSession session,
+        XcpCtoFrame command,
+        string commandName,
+        Func<byte[], T> decode,
+        List<XcpProbeQueryFailure> failures,
+        CancellationToken ct)
+    {
+        try
+        {
+            var response = await session.SendAsync(command, ct);
+            return (decode(response), true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failures.Add(new XcpProbeQueryFailure(commandName, ex.GetType().Name, ExpectedDeviationMarker));
+            return (default!, false);
+        }
     }
 
     private static IEnumerable<(string Name, XcpCtoFrame Frame)> MutableCommandProbes()
@@ -247,7 +290,8 @@ public static class XcpProbeCommand
         XcpGetDaqEventInfoResponse eventInfo,
         XcpMeasuredCapabilities measured,
         List<string> measuredCommands,
-        XcpCapabilityReport reconciliation)
+        XcpCapabilityReport reconciliation,
+        List<XcpProbeQueryFailure> queryFailures)
     {
         var declaredOnCan = declared.OnCan.Count > 0 ? declared.OnCan[0] : null;
         var declaredEvent = declared.Daq is { } daq && daq.Events.Count > 0 ? daq.Events[0] : null;
@@ -258,6 +302,10 @@ public static class XcpProbeCommand
         int? maxEntriesPerOdt = resolution.MaxOdtEntrySizeDaq > 0
             ? dtoPayloadCapBytes / resolution.MaxOdtEntrySizeDaq
             : null;
+
+        // 真机路径占位（S2-T8 评审 Important-1）：任一能力查询失败 = 设备布局偏差已现身，
+        // 输出 deviceLayout 指向 S1§15；CI 模拟从机全绿 → null。
+        var deviceLayout = queryFailures.Count > 0 ? "nonconformant-see-S1§15" : null;
 
         return new XcpProbeReport(
             SchemaVersion: "1",
@@ -285,7 +333,9 @@ public static class XcpProbeCommand
             OdtPacking: new XcpProbeOdtPackingFacts(
                 dtoPayloadCapBytes, resolution.MaxOdtEntrySizeDaq, maxEntriesPerOdt, listInfo.MaxOdt),
             MeasuredCommands: measuredCommands,
-            Reconciliation: reconciliation);
+            Reconciliation: reconciliation,
+            DeviceLayout: deviceLayout,
+            QueryFailures: queryFailures);
     }
 
     private static FrameFormat FrameFormatOf(uint canIdRaw) =>
@@ -351,7 +401,13 @@ public sealed record XcpProbeReport(
     XcpProbeCanIdComplianceFacts CanIdCompliance,
     XcpProbeOdtPackingFacts OdtPacking,
     IReadOnlyList<string> MeasuredCommands,
-    XcpCapabilityReport Reconciliation);
+    XcpCapabilityReport Reconciliation,
+    /// <summary>设备布局偏差占位：任一能力查询失败即置位（真机偏差清单归 T19 台架核死）。</summary>
+    string? DeviceLayout,
+    IReadOnlyList<XcpProbeQueryFailure> QueryFailures);
+
+/// <summary>单个能力查询失败归因（S2-T8 评审 Important-1：异常类型 + 预期偏差标记）。</summary>
+public sealed record XcpProbeQueryFailure(string Command, string ExceptionType, string Marker);
 
 /// <summary>探针实际使用的 CAN ID（命令显式给出值，无默认兜底）。</summary>
 public sealed record XcpProbeCanIdFacts(uint MasterUsed, uint SlaveUsed)

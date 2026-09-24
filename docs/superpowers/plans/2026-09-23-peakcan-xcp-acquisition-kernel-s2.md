@@ -302,6 +302,13 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 - [ ] 探针真机握手步骤清单（App_merge_INCA.a2l 所示 CAN 号 0x98FFF666/67、29 位合规核实 = A-4）；输出 JSON 与模拟从机基线 diff。
 - [ ] 附录 A 逐项回填表：A-1 能力 / A-2 事件节拍 / A-3 DTO 间隔抖动（时基精度评估，S2 无时钟同步的唯一评估途径）/ A-4 / A-5 / A-10（块模式 MAX_BS/MIN_ST——**实测到手前 BlockModeReader 保持禁用**）/ A-11（位域量统计）。
 - [ ] 标注：本任务是**人工验收项**，CI 不可自动化；未回填前 S2 状态为"模拟从机全绿、真机待验"。
+- [ ] **真机三条已钉死布局偏差逐条核死**（T8 评审钉死；源码证据：从机固件 Xcp_Std.c，见 S2-T8 评审报告）：
+  1. GET_DAQ_EVENT_INFO 正响应仅 7B，且 EVENT_CYCLE/EVENT_CHANNEL_TIME_UNIT 在 wire byte4/5（标准 8B、byte5/6）；
+  2. GET_DAQ_PROCESSOR_INFO 的 MAX_DAQ/MAX_EVENT_CHANNEL 为大端（标准 LE）；
+  3. GET_DAQ_LIST_INFO 字段错位（逐字节抓包对表）。
+  附带：CONNECT 真机布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
+  （Xcp_Std.c:191-198），按标准解码会解出垃圾值——探针已按"查询失败即归因 + deviceLayout=
+  nonconformant-see-S1§15"存活（T8 评审修复轮），抓包回填后重定黄金基线。
 - [ ] commit `(S2-T19)`。
 - **spec 条款**：§4、§5 验收 4（真机部分）、§1（CAN 号合规待核实）。
 

@@ -5,8 +5,9 @@ namespace PeakCan.Host.Core.Xcp.Protocol;
 /// S2-T8 探针职责——对账引擎只消费换算后的 µs，绝不做线上换算）。
 /// <para>
 /// 线上表 0=1ns 起：0=1ns, 1=10ns, 2=100ns, 3=1µs, 4=10µs, 5=100µs, 6=1ms,
-/// 7=10ms, 8=100ms, 9=1s。<b>与 A2L 侧 A2ML EVENT.TIME_UNIT 枚举不是一回事</b>
-/// （两套编号体系，spec §1 坑）：A2L 声明值的换算归 a2l-editor（PeriodMicroseconds），
+/// 7=10ms, 8=100ms, 9=1s。<b>A2ML 编号与线上表的对应关系不预判</b>——spec §1 "差 3 档"
+/// 与 S1 §4.4 的同表证据两说矛盾，统一为 A-2 台架核死（T19 抓包回填编号）：
+/// A2L 声明值的换算归 a2l-editor（PeriodMicroseconds），
 /// 线上值的换算归本表——两边换出的 µs 才允许比对，禁止拿原始字节码直比。
 /// </para>
 /// <para>

@@ -400,16 +400,17 @@ public class CapabilityReconcilerTests
             MaxEventChannel: processor.MaxEventChannel,
             MinDaq: processor.MinDaq,
             MaxOdt: listInfo.MaxOdt,
-            // MAX_CTO/MAX_DTO 不在任何 XCP 响应字段内（CONNECT byte[3]=RESOURCE、byte[4]=COMM_MODE_BASIC
-            // 是 XCP 1.0 定义，不是 CTO/DTO）——属传输层帧长观察，T8 探针同口径：
-            // CTO = CONNECT 正响应帧长（8B）；DTO = CAN 经典帧 DLC（spec §1：DTO 8B）。
+            // ASAM 标准 CONNECT byte5/byte6-7 即 MAX_CTO/MAX_DTO（本 ECU 真机为非标准布局，
+            // Xcp_Std.c:191-198，探针按标准解码真机 CONNECT 会解出垃圾值——已标注）。
+            // 实测口径：MaxCto = 观察到的最大响应帧长（黄金样本 8B）；
+            // MaxDto = spec 常量 8B，非实测（T19 抓包回填）。
             MaxCto: (byte)XcpGoldenSamples.ConnectPositiveResponse.Length,
             MaxDto: (byte)XcpCtoFrame.MaxByteLength,
             MaxOdtEntrySizeDaq: resolution.MaxOdtEntrySizeDaq,
             // 线上 (EVENT_CYCLE=0x0A, TIME_UNIT=0x06)：XCP 线上 TIME_UNIT 表 0=1ns 起、6=1ms
-            // → 10×1000µs = 10000µs（100Hz，spec §1）。注意 A2L 侧 TIME_CYCLE/TIME_UNIT 是
-            // A2ML 编号（UNIT_1MS=6）——两套编号体系不是一回事，此处一致是模拟从机按 spec §1
-            // 设定的结果；换算只经 XcpWireTimeUnit，禁止拿线上字节值直比。
+            // → 10×1000µs = 10000µs（100Hz，spec §1）。A2ML 编号与线上表的对应关系——
+            // spec §1 "差 3 档"与 S1 §4.4 同表证据两说矛盾，统一为 A-2 台架核死（T19 回填）；
+            // 此处一致是模拟从机按 spec §1 设定的结果；换算只经 XcpWireTimeUnit，禁止拿线上字节值直比。
             EventPeriodMicroseconds: XcpWireTimeUnit.TryConvertMicroseconds(
                 eventInfo.EventCycle, eventInfo.EventChannelTimeUnit, out var measuredPeriodUs)
                 ? measuredPeriodUs

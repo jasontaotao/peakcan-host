@@ -8,17 +8,23 @@ namespace PeakCan.Host.Core.Xcp.Protocol;
 public static class XcpResponseDecoder
 {
     /// <summary>
-    /// CMD_CONNECT 正响应：[FF, protocolVersion, transportVersion, resources, commModeBasic, reserved×3]。
+    /// CMD_CONNECT 正响应（标准布局）：
+    /// [FF, protocolVersion, transportVersion, resources, commModeBasic, maxCto, maxDto(2B LE)]。
+    /// ASAM 标准 byte5/byte6-7 即 MAX_CTO/MAX_DTO（S2-T8 评审 Important-2 钉死）；
+    /// 本 ECU 真机为非标准布局 [FF,RESOURCE,COMM_MODE_BASIC,MaxCto,MaxDtoH,MaxDtoL,protoVer,transportVer]
+    /// （Xcp_Std.c:191-198），探针按标准解码真机 CONNECT 会解出垃圾值——已标注，A-2 台架核死（T19 抓包回填）。
     /// </summary>
     public static XcpConnectResponse Connect(ReadOnlySpan<byte> response)
     {
-        ValidatePositiveResponse(response, minLength: 5);
+        ValidatePositiveResponse(response, minLength: 8);
 
         return new XcpConnectResponse(
             ProtocolVersion: response[1],
             TransportVersion: response[2],
             Resources: response[3],
-            CommModeBasic: response[4]);
+            CommModeBasic: response[4],
+            MaxCto: response[5],
+            MaxDto: (ushort)(response[6] | (response[7] << 8)));
     }
 
     /// <summary>CMD_DISCONNECT 正响应：[FF]，无字段。</summary>
@@ -233,12 +239,14 @@ public readonly record struct XcpGetDaqEventInfoResponse(
     byte EventChannelTimeUnit,
     byte Priority);
 
-/// <summary>CMD_CONNECT 正响应字段。</summary>
+/// <summary>CMD_CONNECT 正响应字段（MAX_CTO/MAX_DTO 布局与真机偏差见 XcpResponseDecoder.Connect 注释）。</summary>
 public readonly record struct XcpConnectResponse(
     byte ProtocolVersion,
     byte TransportVersion,
     byte Resources,
-    byte CommModeBasic);
+    byte CommModeBasic,
+    byte MaxCto,
+    ushort MaxDto);
 
 /// <summary>CMD_GET_STATUS 正响应字段。</summary>
 public readonly record struct XcpGetStatusResponse(

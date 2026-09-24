@@ -37,6 +37,30 @@ public class ConnectCommandTests
         Assert.Equal(0x01, response.TransportVersion);
         Assert.Equal(0x04, response.Resources);
         Assert.Equal(0x01, response.CommModeBasic);
+        // 黄金样本 byte5-7 在标准布局下是 MAX_CTO/MAX_DTO——黄金样本按 T6 时代注释生成，
+        // 这三个字节为 0；值本身由下一条测试用标准样本断言，此处只钉字段语义。
+        Assert.Equal(0x00, response.MaxCto);
+        Assert.Equal(0x0000, response.MaxDto);
+    }
+
+    [Fact]
+    public void Positive_response_decodes_max_cto_and_max_dto_from_standard_bytes_5_to_7()
+    {
+        // ASAM 标准布局：byte5=MAX_CTO、byte6-7=MAX_DTO（LE）——S2-T8 评审 Important-2 钉死。
+        var response = new byte[] { 0xFF, 0x01, 0x01, 0x04, 0x01, 0x08, 0x08, 0x00 };
+
+        var connect = XcpResponseDecoder.Connect(response);
+
+        Assert.Equal(0x08, connect.MaxCto);
+        Assert.Equal(0x0008, connect.MaxDto);
+    }
+
+    [Fact]
+    public void Positive_response_shorter_than_8_bytes_throws()
+    {
+        // 标准布局 8B 起才有完整 MAX_CTO/MAX_DTO；<8B 一律拒绝（不静默截断）。
+        Assert.Throws<ArgumentException>(
+            () => XcpResponseDecoder.Connect(new byte[] { 0xFF, 0x01, 0x01, 0x04, 0x01, 0x08, 0x08 }));
     }
 
     [Fact]
