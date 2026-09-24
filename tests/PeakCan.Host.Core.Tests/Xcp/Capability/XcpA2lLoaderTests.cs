@@ -55,14 +55,15 @@ public class XcpA2lLoaderTests
     [Fact]
     public void Load_a2l_without_xcp_if_data_returns_explicit_failure_not_exception()
     {
-        var path = TempA2l("ASAP2_VERSION 1 40\n/begin PROJECT P \"c\"\n" +
-            "/begin MODULE M \"m\"\n/end MODULE\n/end PROJECT\n");
-
+        WithTempA2l("ASAP2_VERSION 1 40\n/begin PROJECT P \"c\"\n" +
+            "/begin MODULE M \"m\"\n/end MODULE\n/end PROJECT\n", path =>
+        {
         var result = XcpA2lLoader.Load(path);
 
         var failed = result.Should().BeOfType<XcpA2lLoadResult.Failed>().Subject;
         failed.Kind.Should().Be(XcpA2lLoadFailureKind.NoXcpIfData);
         failed.Message.Should().Contain("no XCP IF_DATA").And.Contain(path);
+        });
     }
 
     [Fact]
@@ -70,14 +71,15 @@ public class XcpA2lLoaderTests
     {
         // Fatal 级错误（不支持的 ASAP2 版本）才会让 ParseResult.Value = null——
         // 普通语法噪音只会降级出空文档，那走的是 NoXcpIfData 分支（上面那条测）。
-        var path = TempA2l("ASAP2_VERSION 2 70\n/begin PROJECT P \"c\"\n" +
-            "/begin MODULE M \"m\"\n/end MODULE\n/end PROJECT\n");
-
+        WithTempA2l("ASAP2_VERSION 2 70\n/begin PROJECT P \"c\"\n" +
+            "/begin MODULE M \"m\"\n/end MODULE\n/end PROJECT\n", path =>
+        {
         var result = XcpA2lLoader.Load(path);
 
         var failed = result.Should().BeOfType<XcpA2lLoadResult.Failed>().Subject;
         failed.Kind.Should().Be(XcpA2lLoadFailureKind.ParseFailed);
         failed.Message.Should().Contain("parse failed").And.Contain(path);
+        });
     }
 
     // ------------------------------------------------------------------
@@ -138,13 +140,19 @@ public class XcpA2lLoaderTests
         MasterCanIdLine: 0, SlaveCanIdLine: 0,
         Missing: Array.Empty<XcpMissingField>(), SourceText: string.Empty);
 
-    /// <summary>写临时 A2L 文件（Asap2PackageApi.ParseFile 只收路径），用完即删。</summary>
-    private static string TempA2l(string content)
+    /// <summary>写临时 A2L 文件（Asap2PackageApi.ParseFile 只收路径），finally 里删除——不留 %TEMP% 残留（T2 评审 LOW）。</summary>
+    private static void WithTempA2l(string content, Action<string> run)
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"xcp-a2l-loader-{Guid.NewGuid():N}.a2l");
-        File.WriteAllText(path, content);
-        return path;
+        try
+        {
+            File.WriteAllText(path, content);
+            run(path);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }
-
 

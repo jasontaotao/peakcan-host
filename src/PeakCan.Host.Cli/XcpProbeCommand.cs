@@ -196,7 +196,7 @@ public static class XcpProbeCommand
     /// IF_DATA 提取 + ContractSet 一次建齐），本方法只转发并把显式失败结果翻回探针
     /// 原有的 InvalidDataException 边界——CLI 退出码语义（Program 顶层 catch → 2）不变。
     /// 唯一例外：无 XCP_ON_CAN 块在波特率解析处现在抛 NotSupportedException 而非
-    /// InvalidDataException（Core 口径"按声明值走不猜"，退出码仍为 2，输出消息等价）。
+    /// InvalidDataException（Core 口径"按声明值走不猜"）。退出码仍为 2（同一顶层 catch）；
     /// </summary>
     private static XcpIfData ParseDeclaration(
         string a2lPath, out IReadOnlyList<ValidationNote> validationNotes, out A2lDocument document)
@@ -505,5 +505,3 @@ public sealed record XcpProbeBitfieldStatisticsFacts(
     int NonByteAlignedObjects,
     int? BitMaskObjects,
     string Status);
-
-
