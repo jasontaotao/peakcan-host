@@ -332,4 +332,31 @@ public class XcpAttributionPanelViewModelTests
 
         act.Should().Throw<InvalidOperationException>();
     }
+
+    [Fact]
+    public void MissingCauseAttributed_WithCauseOutsideFiveValues_FailsLoud()
+    {
+        // T6 评审 LOW-1：Cause 越五值（如 AcquisitionInterrupted 槽位误落包侧格）
+        // 无对应格 → fail loud，上游 FromAttribution 构造保证不发生，防御路径钉住。
+        var vm = NewVm();
+        var gap = new XcpAcquisitionGap(
+            XcpAcquisitionGapKind.MissingCauseAttributed, "cause out of range",
+            Cause: A2lEditor.Core.Layout.MissingCause.AcquisitionInterrupted);
+
+        var act = () => vm.ObserveGap(gap);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void UnknownGapKind_FailsLoud()
+    {
+        // T6 评审 LOW-1：未知 GapKind（枚举将来扩值未同步）→ default 分支 fail loud。
+        var vm = NewVm();
+        var gap = new XcpAcquisitionGap((XcpAcquisitionGapKind)999, "unknown kind");
+
+        var act = () => vm.ObserveGap(gap);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
 }

@@ -55,7 +55,7 @@ CLI probe 已有 `ParseDeclaration` / `ResolveDeclaredBaudRate`（XcpProbeComman
 | 被过滤 | host（显示集过滤状态） | 关注集筛选 |
 | NotAcquired / SegmentMissing / ConversionUnsupported / AccessBlocked / AccessInferred | 包侧（S2 Receive 经 sink.MissingCauseAttributed 并入） | `XcpAcquisitionGap.Cause` |
 | AcquisitionInterrupted | S2 Receive 层（PlanGap 超时升级） | 同上槽位 |
-| 逐帧归因（MalformedFrame/UnknownPid/UnmappedDto/CallbackFailed/LocalFrameDrop） | S2 Receive 层 | `Gap.ReceiveKind` |
+| 逐帧归因（MalformedFrame/UnknownPid/UnmappedDto/CallbackFailed/LocalFrameDrop；无 cause 的 DecodeFailed——T6 评审 LOW-2 回写：FromAttribution 在 MissingCause==null 时产出该路径，有 cause 的 DecodeFailed 走包侧格） | S2 Receive 层 | `Gap.ReceiveKind` |
 | 计划空窗（换表中） | S2 Receive 层 PlanGapOpened | `Gap.ExpectedMaxDuration` |
 
 卡片格只显示"该对象当前归因"；采集总览面板显示逐帧/空窗聚合计数。`未连总线`/`被过滤` 是 host 运行时状态，不进记录文件（S4 口径不动）。
