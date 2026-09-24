@@ -93,6 +93,68 @@ jobs:
           }
           Write-Host "hil-core lockstep OK: packed $pin"
 
+      # a2l-editor（PeakCan.ASAP2 包上游）同为私有仓库 + 本地 feed 分发
+      # （spec §2 [H3] / 决策 D5 方案一）：CI runner 拿不到 D:\nuget-local，
+      # 因此照抄 hil-core 模式——checkout 远端默认分支 → pack A2lEditor.Core
+      # 入 D:\nuget-local → lockstep guard 早失败。不发 nuget.org。
+      # token 用 fine-grained PAT（仅 jasontaotao/a2l-editor Contents:read），
+      # 存于 repo secret A2L_EDITOR_PAT（hil-core 同款 fail-loud 检查）。
+      # 注意：同样刻意不指定 ref —— 打包的是 a2l-editor 的**默认分支**，其
+      # A2lEditor.Core.csproj 的版本必须等于 Directory.Packages.props 的
+      # PeakCan.ASAP2 pin（下方 guard 校验；不等就早失败，不留给 restore
+      # 报晦涩的找不到包）。
+      - name: Verify A2L_EDITOR_PAT secret is set
+        env:
+          A2L_EDITOR_PAT: ${{ secrets.A2L_EDITOR_PAT }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:A2L_EDITOR_PAT)) {
+            Write-Host "::error::The A2L_EDITOR_PAT repository secret is missing."
+            Write-Host "Create a fine-grained PAT with Contents:read on jasontaotao/a2l-editor, then run:"
+            Write-Host "  gh secret set A2L_EDITOR_PAT --repo jasontaotao/peakcan-host"
+            exit 1
+          }
+          Write-Host "A2L_EDITOR_PAT present."
+
+      - name: Checkout a2l-editor (private, via PAT)
+        uses: actions/checkout@v4
+        with:
+          repository: jasontaotao/a2l-editor
+          token: ${{ secrets.A2L_EDITOR_PAT }}
+          path: a2l-editor
+
+      # 与 hil-core 的差异点：只 build/pack A2lEditor.Core 单项目（a2l-editor
+      # sln 还含 WPF App/Cli 等与包无关的宿主工程，Core 是唯一发包产物）。
+      # pack 落点与 hil-core 相同：D:\nuget-local（nuget.config 的 local 源）。
+      # IncludeSymbols=true 会同产 .symbols.nupkg，guard 只认主包。
+      - name: Build + pack A2lEditor.Core into local feed
+        run: |
+          dotnet build a2l-editor/src/A2lEditor.Core/A2lEditor.Core.csproj -c Release
+          New-Item -ItemType Directory -Force -Path D:\nuget-local | Out-Null
+          dotnet pack a2l-editor/src/A2lEditor.Core/A2lEditor.Core.csproj -c Release -o D:\nuget-local --no-build
+
+      # Lockstep guard（hil-core lockstep 的 ASAP2 等价物）。a2l-editor checkout
+      # 无 `ref:`，CI 永远 pack 其默认分支；若默认分支的包版本 ≠ host pin，
+      # 下面的 restore 会死于晦涩的 "unable to find package PeakCan.ASAP2 x.y.z"。
+      # 在这里早失败，指名真实原因与发布顺序（先落 a2l-editor 默认分支的
+      # 版本提交，再 push host 的 pin bump commit）。
+      - name: Verify packed ASAP2 version matches the pin
+        run: |
+          [xml]$props = Get-Content Directory.Packages.props
+          $pin = ($props.Project.ItemGroup.PackageVersion |
+                  Where-Object { $_.Include -eq 'PeakCan.ASAP2' }).Version
+          $expected = "D:\nuget-local\PeakCan.ASAP2.$pin.nupkg"
+          if (-not (Test-Path $expected)) {
+            $packed = Get-ChildItem D:\nuget-local -Filter 'PeakCan.ASAP2.*.nupkg' |
+                      Sort-Object Name | Select-Object -Last 1
+            $packedName = if ($packed) { $packed.Name } else { '(nothing packed)' }
+            Write-Host "::error::xcp-asap2 lockstep broken - the host pins $pin but CI packed '$packedName' from a2l-editor's default branch."
+            Write-Host "Land a2l-editor's version commit on its default branch BEFORE pushing the host commit that bumps the PeakCan.ASAP2 pin."
+            Write-Host "Do not work around this by pinning a feature branch here; fix the release order."
+            Write-Host "Missing expected artifact: $expected"
+            exit 1
+          }
+          Write-Host "xcp-asap2 lockstep OK: packed $pin"
+
       - name: Restore
         run: dotnet restore PeakCan.Host.slnx
 
