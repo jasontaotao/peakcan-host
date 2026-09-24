@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -181,35 +182,35 @@ public static class XcpProbeCommand
     /// <summary>
     /// A2L 声明的 XCP_ON_CAN.BAUDRATE → 经典 CAN 预设（真机路径用，按声明值走不猜；
     /// 不在预设表 = 异常）。CI/测试路径不经过本方法（直接注入模拟从机 transport）。
+    /// S3-T2 (D4)：逻辑已下沉 Core XcpA2lLoader.ResolveBaudRate，本方法只转发——
+    /// probe 与 App VM 同源消费，杜绝双份解析路径漂移。
     /// </summary>
     public static BaudRate ResolveDeclaredBaudRate(string a2lPath)
     {
         var declared = ParseDeclaration(a2lPath, out _, out _);
-        if (declared.OnCan.Count == 0)
-            throw new InvalidDataException($"A2L has no XCP_ON_CAN block: {a2lPath}");
-
-        return declared.OnCan[0].Baudrate switch
-        {
-            125000 => BaudRate.Can125kbps,
-            250000 => BaudRate.Can250kbps,
-            500000 => BaudRate.Can500kbps,
-            1000000 => BaudRate.Can1Mbps,
-            _ => throw new NotSupportedException(
-                $"XCP_ON_CAN.BAUDRATE {declared.OnCan[0].Baudrate} has no classic CAN preset — refusing to guess."),
-        };
+        return XcpA2lLoader.ResolveBaudRate(declared);
     }
 
+    /// <summary>
+    /// S3-T2 (D4)：A2L 声明侧加载已下沉 Core XcpA2lLoader.Load（parse + cross-checks +
+    /// IF_DATA 提取 + ContractSet 一次建齐），本方法只转发并把显式失败结果翻回探针
+    /// 原有的 InvalidDataException 边界——CLI 退出码语义（Program 顶层 catch → 2）不变。
+    /// 唯一例外：无 XCP_ON_CAN 块在波特率解析处现在抛 NotSupportedException 而非
+    /// InvalidDataException（Core 口径"按声明值走不猜"，退出码仍为 2，输出消息等价）。
+    /// </summary>
     private static XcpIfData ParseDeclaration(
         string a2lPath, out IReadOnlyList<ValidationNote> validationNotes, out A2lDocument document)
     {
-        var parsed = Asap2PackageApi.ParseFile(a2lPath);
-        if (parsed.Value is not { } doc)
-            throw new InvalidDataException($"A2L parse failed: {a2lPath}");
+        var loaded = XcpA2lLoader.Load(a2lPath) switch
+        {
+            XcpA2lLoadResult.Loaded ok => ok,
+            XcpA2lLoadResult.Failed failed => throw new InvalidDataException(failed.Message),
+            _ => throw new UnreachableException("XcpA2lLoadResult 只有 Loaded/Failed 两态"),
+        };
 
-        validationNotes = Asap2PackageApi.CollectCrossChecks(doc);
-        document = doc;
-        return doc.Modules.Select(m => m.IfDataXcp).FirstOrDefault(x => x is not null)
-            ?? throw new InvalidDataException($"A2L has no XCP IF_DATA: {a2lPath}");
+        validationNotes = loaded.ValidationNotes;
+        document = loaded.Document;
+        return loaded.IfData;
     }
 
     /// <summary>
@@ -504,3 +505,5 @@ public sealed record XcpProbeBitfieldStatisticsFacts(
     int NonByteAlignedObjects,
     int? BitMaskObjects,
     string Status);
+
+
