@@ -98,8 +98,8 @@ public class CapabilityReconcilerTests
 
     /// <summary>
     /// 实测能力基线 = XcpGoldenSamples（模拟从机默认应答）经 XcpResponseDecoder 解码的值。
-    /// 事件周期 10000 µs（100 Hz）为线上 (EVENT_CYCLE, TIME_UNIT) 换算后的结果——
-    /// 换算表归 T8 探针，对账只消费 µs（spec：不得直比线上字节值）。
+    /// 事件周期 10000 µs（100 Hz）为黄金样本 (EVENT_CYCLE=0x0A, TIME_UNIT=0x06) 经
+    /// XcpWireTimeUnit（线上表 6=1ms）换算的结果——对账只消费 µs（spec：不得直比线上字节值）。
     /// </summary>
     private static XcpMeasuredCapabilities BuildBaselineMeasured(
         ushort maxDaq = 1, byte maxCto = 8, byte maxDto = 8, byte maxOdt = 0x0F,
@@ -389,22 +389,31 @@ public class CapabilityReconcilerTests
         var notes = Asap2PackageApi.CollectCrossChecks(doc);
 
         // 实测值 = 模拟从机黄金样本（XcpGoldenSamples）经 XcpResponseDecoder 解码——
-        // 保证对账消费的是"响应解码值"而非测试散写的期望值。
+        // 保证对账消费的是"响应解码值"而非测试散写的期望值（T7 评审 MEDIUM 债修正）。
         var processor = XcpResponseDecoder.GetDaqProcessorInfo(XcpGoldenSamples.GetDaqProcessorInfoPositiveResponse.Span);
         var listInfo = XcpResponseDecoder.GetDaqListInfo(XcpGoldenSamples.GetDaqListInfoPositiveResponse.Span);
-        _ = XcpResponseDecoder.Connect(XcpGoldenSamples.ConnectPositiveResponse.Span);
-        _ = XcpResponseDecoder.GetCommModeInfo(XcpGoldenSamples.GetCommModeInfoPositiveResponse.Span);
-        _ = XcpResponseDecoder.GetDaqResolutionInfo(XcpGoldenSamples.GetDaqResolutionInfoPositiveResponse.Span);
+        var resolution = XcpResponseDecoder.GetDaqResolutionInfo(XcpGoldenSamples.GetDaqResolutionInfoPositiveResponse.Span);
+        var eventInfo = XcpResponseDecoder.GetDaqEventInfo(XcpGoldenSamples.GetDaqEventInfoPositiveResponse.Span);
 
         var measured = new XcpMeasuredCapabilities(
             MaxDaq: processor.MaxDaq,
             MaxEventChannel: processor.MaxEventChannel,
             MinDaq: processor.MinDaq,
             MaxOdt: listInfo.MaxOdt,
-            MaxCto: 8,                       // 线上 CTO=8B：CONNECT/CTO 帧长观察派生（T8 探针职责）
-            MaxDto: 8,
-            MaxOdtEntrySizeDaq: 4,           // WRITE_DAQ 条目尺寸观测（S2 基线 ≤4B）
-            EventPeriodMicroseconds: 10000,  // 线上 (01,00) 换算 = 100 Hz（spec §1 基线；换算归 T8）
+            // MAX_CTO/MAX_DTO 不在任何 XCP 响应字段内（CONNECT byte[3]=RESOURCE、byte[4]=COMM_MODE_BASIC
+            // 是 XCP 1.0 定义，不是 CTO/DTO）——属传输层帧长观察，T8 探针同口径：
+            // CTO = CONNECT 正响应帧长（8B）；DTO = CAN 经典帧 DLC（spec §1：DTO 8B）。
+            MaxCto: (byte)XcpGoldenSamples.ConnectPositiveResponse.Length,
+            MaxDto: (byte)XcpCtoFrame.MaxByteLength,
+            MaxOdtEntrySizeDaq: resolution.MaxOdtEntrySizeDaq,
+            // 线上 (EVENT_CYCLE=0x0A, TIME_UNIT=0x06)：XCP 线上 TIME_UNIT 表 0=1ns 起、6=1ms
+            // → 10×1000µs = 10000µs（100Hz，spec §1）。注意 A2L 侧 TIME_CYCLE/TIME_UNIT 是
+            // A2ML 编号（UNIT_1MS=6）——两套编号体系不是一回事，此处一致是模拟从机按 spec §1
+            // 设定的结果；换算只经 XcpWireTimeUnit，禁止拿线上字节值直比。
+            EventPeriodMicroseconds: XcpWireTimeUnit.TryConvertMicroseconds(
+                eventInfo.EventCycle, eventInfo.EventChannelTimeUnit, out var measuredPeriodUs)
+                ? measuredPeriodUs
+                : null,
             OptionalCommands: RealOptionalCommands,
             SlaveCanIdRaw: 0x18FFF666,
             MasterCanIdRaw: 0x18FFF667);

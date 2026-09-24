@@ -179,8 +179,12 @@ public static class XcpGoldenSamples
     /// <summary>GET_DAQ_RESOLUTION_INFO 请求 [D7, reserved×7]。</summary>
     public static ReadOnlyMemory<byte> GetDaqResolutionInfoRequest { get; } = new byte[] { 0xD7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>GET_DAQ_RESOLUTION_INFO 正响应 [FF, granDaq=01, maxIdDaq=01, granStim=00, maxIdStim=00, timestampTicks(1B)=00, reserved×2]。</summary>
-    public static ReadOnlyMemory<byte> GetDaqResolutionInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    /// <summary>
+    /// GET_DAQ_RESOLUTION_INFO 正响应 [FF, granularityDaq=01, maxOdtEntrySizeDaq=04,
+/// granularityStim=00, maxOdtEntrySizeStim=00, timestampTicks(1B)=00, reserved×2]。
+    /// byte[2] = MAX_ODT_ENTRY_SIZE_DAQ（XCP 1.0 GET_DAQ_RESOLUTION_INFO 表）——
+    /// 0x04 对齐 spec §1（单条目 ≤4B）与 App_merge_INCA.a2l 声明 0x04。</summary>
+    public static ReadOnlyMemory<byte> GetDaqResolutionInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
     /// <summary>GET_DAQ_RESOLUTION_INFO 负响应 [FE, ERR_CMD_UNKNOWN]。</summary>
     public static ReadOnlyMemory<byte> GetDaqResolutionInfoErrorResponse { get; } = new byte[] { 0xFE, (byte)XcpError.CmdUnknown };
@@ -201,8 +205,14 @@ public static class XcpGoldenSamples
     /// <summary>GET_DAQ_EVENT_INFO 请求 [DA, reserved×2, eventChannel=0000 LE, reserved×3]。</summary>
     public static ReadOnlyMemory<byte> GetDaqEventInfoRequest { get; } = new byte[] { 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    /// <summary>GET_DAQ_EVENT_INFO 正响应 [FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle(1B)=01, timeUnit=00, priority=00]。</summary>
-    public static ReadOnlyMemory<byte> GetDaqEventInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x01, 0x00, 0x00 };
+    /// <summary>
+    /// GET_DAQ_EVENT_INFO 正响应 [FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE,
+    /// eventCycle(1B)=0A, timeUnit=06, priority=00]。
+    /// (0x0A, 0x06)：XCP 线上 TIME_UNIT 表 0=1ns 起、6=1ms → 10×1ms = 10ms = 100Hz（spec §1）。
+    /// 数值恰与 A2L 声明 TIME_CYCLE=0x0A/TIME_UNIT=0x06 相同，但两套编号体系不是一回事
+    /// （线上 0=1ns；A2L 是 A2ML UNIT_1MS=6）——一致纯属模拟从机按 spec §1 的设定。
+    /// 旧样本 (01,00)=1×1ns 曾被误注为"100Hz"（T7 评审修正）。</summary>
+    public static ReadOnlyMemory<byte> GetDaqEventInfoPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x0A, 0x06, 0x00 };
     /// <summary>GET_DAQ_EVENT_INFO 正响应（TIME_UNIT≠0）：[FF, eventChInfo=40, maxDaqList=0F, eventChannel=0000 LE, eventCycle=05, timeUnit=02, priority=01]——钉死三个单字节不再折叠。</summary>
     public static ReadOnlyMemory<byte> GetDaqEventInfoTimeUnitNonZeroPositiveResponse { get; } = new byte[] { 0xFF, 0x40, 0x0F, 0x00, 0x00, 0x05, 0x02, 0x01 };
 

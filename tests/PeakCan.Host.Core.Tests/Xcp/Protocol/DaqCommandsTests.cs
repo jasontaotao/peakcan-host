@@ -222,9 +222,9 @@ public class DaqCommandsTests
         var response = XcpResponseDecoder.GetDaqResolutionInfo(XcpGoldenSamples.GetDaqResolutionInfoPositiveResponse.Span);
 
         Assert.Equal(1, response.GranularityDaq);
-        Assert.Equal(1, response.MaxIdentifierDaq);
+        Assert.Equal(4, response.MaxOdtEntrySizeDaq);
         Assert.Equal(0, response.GranularityStim);
-        Assert.Equal(0, response.MaxIdentifierStim);
+        Assert.Equal(0, response.MaxOdtEntrySizeStim);
         Assert.Equal((byte)0x00, response.TimestampTicks);
 
         // 单字节钉死：timestampTicks 只取 response[5]，response[6..7] 保留位不得折叠。
@@ -290,8 +290,8 @@ public class DaqCommandsTests
         Assert.Equal(0x40, response.EventChInfo);
         Assert.Equal(15, response.MaxDaqList);
         Assert.Equal((ushort)0, response.EventChannel);
-        Assert.Equal((byte)0x01, response.EventCycle);
-        Assert.Equal((byte)0x00, response.EventChannelTimeUnit);
+        Assert.Equal((byte)0x0A, response.EventCycle);
+        Assert.Equal((byte)0x06, response.EventChannelTimeUnit);
         Assert.Equal((byte)0x00, response.Priority);
     }
 

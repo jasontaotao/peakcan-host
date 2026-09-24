@@ -8,9 +8,10 @@ namespace PeakCan.Host.Core.Xcp.Capability;
 /// 为什么不用字符串直比：A2ML 枚举存在历史别名——XCP 1.0 前身把
 /// START_STOP_DAQ_LIST 称作 SET_DAQ_LIST_MODE，真机 A2L（App_merge_INCA.a2l
 /// 行 765-766）两个名字都出现在 OPTIONAL_CMD 里，而其 A2ML 枚举自带的数值
-///（SET_DAQ_LIST_MODE=224、START_STOP_DAQ_LIST=222）与线上命令码**不是一套**，
-/// 不能拿枚举数值归一。别名表按命令语义归一到线上命令码：
-/// SET_DAQ_LIST_MODE ≡ START_STOP_DAQ_LIST ≡ 0xDE。
+///（SET_DAQ_LIST_MODE=224=0xE0、START_STOP_DAQ_LIST=222=0xDE）与线上命令码
+/// **不是一套**编号——START_STOP_DAQ_LIST 的 222≡0xDE 与线上码 0xDE 相等纯属
+/// 巧合（同表内 SET_DAQ_LIST_MODE=224=0xE0≠0xDE 即证），不能拿枚举数值归一。
+/// 别名表按命令语义归一到线上命令码：SET_DAQ_LIST_MODE ≡ START_STOP_DAQ_LIST ≡ 0xDE。
 /// </para>
 /// <para>
 /// 归一后的比对在 XcpCapabilityReconciler 内按字节码集合进行；

@@ -151,16 +151,16 @@ public static class XcpResponseDecoder
             DaqKeyByte: response[6]);
     }
 
-    /// <summary>CMD_GET_DAQ_RESOLUTION_INFO 正响应：[FF, granularityDaq, maxIdentifierDaq, granularityStim, maxIdentifierStim, timestampTicks(1B), reserved×2]。</summary>
+    /// <summary>CMD_GET_DAQ_RESOLUTION_INFO 正响应：[FF, granularityOdtDaq, maxOdtEntrySizeDaq, granularityOdtStim, maxOdtEntrySizeStim, timestampTicks(1B), reserved×2]（XCP 1.0 字段名——旧实现误用旧草案 "MaxIdentifier" 命名，T8 修正）。</summary>
     public static XcpGetDaqResolutionInfoResponse GetDaqResolutionInfo(ReadOnlySpan<byte> response)
     {
         ValidatePositiveResponse(response, minLength: 8);
 
         return new XcpGetDaqResolutionInfoResponse(
             GranularityDaq: response[1],
-            MaxIdentifierDaq: response[2],
+            MaxOdtEntrySizeDaq: response[2],
             GranularityStim: response[3],
-            MaxIdentifierStim: response[4],
+            MaxOdtEntrySizeStim: response[4],
             TimestampTicks: response[5]);
     }
 
@@ -198,6 +198,7 @@ public static class XcpResponseDecoder
             throw new ArgumentException($"Expected positive response PID 0x{XcpPid.PositiveResponse:X2}, got 0x{response[0]:X2}.", nameof(response));
     }
 
+}
 /// <summary>CMD_START_STOP_DAQ_LIST 正响应字段。</summary>
 public readonly record struct XcpStartStopDaqListResponse(byte FirstPid);
 
@@ -211,9 +212,9 @@ public readonly record struct XcpGetDaqProcessorInfoResponse(
 /// <summary>CMD_GET_DAQ_RESOLUTION_INFO 正响应字段。</summary>
 public readonly record struct XcpGetDaqResolutionInfoResponse(
     byte GranularityDaq,
-    byte MaxIdentifierDaq,
+    byte MaxOdtEntrySizeDaq,
     byte GranularityStim,
-    byte MaxIdentifierStim,
+    byte MaxOdtEntrySizeStim,
     byte TimestampTicks);
 
 /// <summary>CMD_GET_DAQ_LIST_INFO 正响应字段。</summary>
@@ -231,7 +232,6 @@ public readonly record struct XcpGetDaqEventInfoResponse(
     byte EventCycle,
     byte EventChannelTimeUnit,
     byte Priority);
-}
 
 /// <summary>CMD_CONNECT 正响应字段。</summary>
 public readonly record struct XcpConnectResponse(
