@@ -156,6 +156,8 @@ public static class XcpCapabilityReconciler
                     findings.Add(Warning("EVENT_CHANNEL_MULTIPLE",
                         $"{daqBlock.Events.Count} EVENTs declared — S2 only reconciles event 0."));
 
+                // F6 值域：PeriodMicroseconds ≥ 1；0 保留既有 EVENT_PERIOD_UNCONVERTED 路径
+                //（0 = TIME_UNIT 未换算，不是"病态数字"）；负值在包侧 uint 模型不可表达。
                 var declaredPeriod = daqBlock.Events[0].PeriodMicroseconds;
                 if (declaredPeriod == 0)
                 {
@@ -180,6 +182,13 @@ public static class XcpCapabilityReconciler
                 findings.Add(Warning("MAX_ODT_ENTRY_SIZE_UNDECLARED",
                     "MAX_ODT_ENTRY_SIZE_DAQ not declared (raw null) — recorded as undeclared; " +
                     "Suitability's default backfill of 4 is NOT applied."));
+            }
+            else if (declaredEntrySize == 0)
+            {
+                // F6 病态声明 sanity：声明 0 本身非法（值域 ≥ 1），先于未测得/比对判定。
+                findings.Add(Reject("DECLARED_VALUE_INVALID",
+                    "MAX_ODT_ENTRY_SIZE_DAQ declared 0 — pathological declaration (valid range >= 1); " +
+                    "comparison against measurement skipped."));
             }
             else if (measured.MaxOdtEntrySizeDaq is not { } measuredEntrySize)
             {
@@ -252,12 +261,27 @@ public static class XcpCapabilityReconciler
                 $"Command 0x{code:X2} supported by the slave but not declared in A2L OPTIONAL_CMD."));
     }
 
-    /// <summary>硬字段通用核对：声明 null → 无法核对拒绝；实测缺已由调用方按字段细分；不一致 → 拒绝。</summary>
+    /// <summary>
+    /// 硬字段通用核对：声明 null → 无法核对拒绝；声明 0 → 病态声明拒绝（F6 sanity，
+    /// 跳过常规比对）；实测缺已由调用方按字段细分；不一致 → 拒绝。
+    /// </summary>
     private static void ReconcileHardField(List<XcpCapabilityFinding> findings, string name, uint? declared, uint measured)
     {
         if (declared is not { } declaredValue)
         {
             findings.Add(Reject($"{name}_UNDECLARED", $"{name} not declared — hard constraint unverifiable, refusing to start."));
+            return;
+        }
+
+        // F6 病态声明 sanity：0 不是合法声明值（值域 ≥ 1）——声明与实测无关，归因
+        // DECLARED_VALUE_INVALID（Detail 带字段名与值），不产出失真的 {name}_MISMATCH
+        //（declared=0 vs measured=8 不是"不一致"，是"声明本身非法"）。
+        // 值域 uint ≥ 0：负值在包侧模型（uint）里不可表达，0 是唯一病态形态。
+        if (declaredValue == 0)
+        {
+            findings.Add(Reject("DECLARED_VALUE_INVALID",
+                $"{name} declared 0 — pathological declaration (valid range >= 1); " +
+                "comparison against measurement skipped."));
             return;
         }
 

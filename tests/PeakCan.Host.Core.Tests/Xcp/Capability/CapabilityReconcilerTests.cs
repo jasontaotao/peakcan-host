@@ -36,12 +36,16 @@ public class CapabilityReconcilerTests
     private static XcpIfData BuildBaselineDeclaration(
         string[]? optionalCommands = null,
         uint? maxOdtEntrySizeDaq = 4,
-        uint periodMicroseconds = 10000)
+        uint periodMicroseconds = 10000,
+        uint maxCto = 8,
+        uint maxDto = 8,
+        uint maxDaq = 1,
+        uint maxOdt = 0x0F)
     {
         var protocolLayer = new XcpProtocolLayer(
             SourceVersion: string.Empty, XcpVersion: 0x0100,
             T1Ms: 2000, T2Ms: 10000, T3Ms: 0, T4Ms: 0, T5Ms: 0, T6Ms: 0, T7Ms: 0,
-            MaxCto: 8, MaxDto: 8,
+            MaxCto: maxCto, MaxDto: maxDto,
             ByteOrder: XcpByteOrder.MsbFirst, AddressGranularity: XcpAddressGranularity.Byte,
             OptionalCommands: optionalCommands ?? RealOptionalCommands,
             BlockModeSupportedBySlave: true, BlockModeSupportedByMaster: false,
@@ -50,7 +54,7 @@ public class CapabilityReconcilerTests
             Missing: Array.Empty<XcpMissingField>(), SourceText: string.Empty);
 
         var daqList = new XcpDaqList(
-            Number: 0, Direction: "DAQ", MaxOdt: 0x0F, MaxOdtEntries: 0x64,
+            Number: 0, Direction: "DAQ", MaxOdt: maxOdt, MaxOdtEntries: 0x64,
             FirstPid: 0x00, EventFixed: 0x00, SourceText: string.Empty);
 
         // TIME_CYCLE=0x0A、TIME_UNIT=0x06（本文件 A2ML UNIT_1MS=6）→ 10 × 1000 µs = 10000 µs。
@@ -61,7 +65,7 @@ public class CapabilityReconcilerTests
             TimeUnitBasis: "A2ML EVENT.TIME_UNIT (UNIT_1MS=6)");
 
         var daq = new XcpDaq(
-            Dynamic: false, MaxDaq: 1, MaxEventChannel: 1, MinDaq: 0,
+            Dynamic: false, MaxDaq: maxDaq, MaxEventChannel: 1, MinDaq: 0,
             OptimisationType: "OPTIMISATION_TYPE_DEFAULT",
             AddressExtension: "ADDRESS_EXTENSION_FREE",
             IdentificationFieldType: "IDENTIFICATION_FIELD_TYPE_ABSOLUTE",
@@ -203,6 +207,45 @@ public class CapabilityReconcilerTests
         Assert.True(report.RejectedStart);
         Assert.Contains(report.Findings, f =>
             f.Severity == XcpCapabilitySeverity.Reject && f.Code == "EVENT_PERIOD_UNCONVERTED");
+    }
+
+    // ---- (c2) F6 parked：病态声明值 sanity——声明 0 本身非法，直接拒绝，不产出失真 MISMATCH ----
+    // 值域定案（F6）：MAX_DAQ / MAX_ODT / MAX_CTO / MAX_DTO / MAX_ODT_ENTRY_SIZE_DAQ ≥ 1。
+    // 声明 =0 与实测无关，报 DECLARED_VALUE_INVALID（Detail 带字段名与值）并跳过常规比对；
+    // 事件周期 0 仍走既有 EVENT_PERIOD_UNCONVERTED 路径（上方测试钉死），不归本 code。
+
+    [Theory]
+    [InlineData("MAX_DAQ", 0u)]
+    [InlineData("MAX_ODT", 0u)]
+    [InlineData("MAX_CTO", 0u)]
+    [InlineData("MAX_DTO", 0u)]
+    [InlineData("MAX_ODT_ENTRY_SIZE_DAQ", 0u)]
+    public void Pathological_declared_zero_is_rejected_as_declared_value_invalid_not_mismatch(string fieldName, uint value)
+    {
+        var declared = fieldName switch
+        {
+            "MAX_DAQ" => BuildBaselineDeclaration(maxDaq: value),
+            "MAX_ODT" => BuildBaselineDeclaration(maxOdt: value),
+            "MAX_CTO" => BuildBaselineDeclaration(maxCto: value),
+            "MAX_DTO" => BuildBaselineDeclaration(maxDto: value),
+            "MAX_ODT_ENTRY_SIZE_DAQ" => BuildBaselineDeclaration(maxOdtEntrySizeDaq: value),
+            _ => throw new ArgumentOutOfRangeException(nameof(fieldName)),
+        };
+
+        var report = Reconcile(declared, BuildBaselineMeasured());
+
+        // 病态声明：Reject 级 DECLARED_VALUE_INVALID，Detail 带字段名与值。
+        var invalid = report.Findings.Where(f => f.Code == "DECLARED_VALUE_INVALID").ToList();
+        Assert.Single(invalid);
+        Assert.Equal(XcpCapabilitySeverity.Reject, invalid[0].Severity);
+        Assert.Contains(fieldName, invalid[0].Message);
+        Assert.Contains(value.ToString(System.Globalization.CultureInfo.InvariantCulture), invalid[0].Message);
+
+        // 不产出误导性 MISMATCH：该字段跳过常规比对（declared=0 vs measured=8 不是"不一致"）。
+        Assert.DoesNotContain(report.Findings, f => f.Code == $"{fieldName}_MISMATCH");
+
+        // 病态声明 = 拒绝启动（声明本身非法，采集不可信）。
+        Assert.True(report.RejectedStart);
     }
 
     // ---- (d) MAX_ODT_ENTRY_SIZE_DAQ 用 XcpDaq 原值（null=未声明），禁用 Suitability 回填 4 ----

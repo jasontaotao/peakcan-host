@@ -71,7 +71,19 @@ public class XcpProbeCommandTests
         // A-5 ODT 打包上限：DTO 数据场 7B（8B−PID），条目 ≤4B → 每 ODT 至多 1 个完整 4B 条目。
         var odtPacking = doc.RootElement.GetProperty("odtPacking");
         Assert.Equal(7, odtPacking.GetProperty("dtoPayloadCapBytes").GetInt32());
-        Assert.Equal(1, odtPacking.GetProperty("maxEntriesPerOdt").GetInt32());
+
+        // A-11 位域量统计：包 API 无位域建模（BitWidth/BitOffset 不上接口，§5.6 判据 3：
+        // 真机对象级 BIT_MASK 0 处）→ bitMaskObjects 恒 null（不可得）；可得口径只有对象
+        // 计数：totalObjects = 全文档合同对象数（965 MEASUREMENT + 1377 CHARACTERISTIC
+        // + 49 AXIS_PTS = 2391），nonByteAlignedObjects = TotalByteLength ∉ {1,2,4,8}
+        // （聚合对象口径，不能识别子字节位域——位域在标准模型里就是 1 字节）。
+        var bitfieldStatistics = doc.RootElement.GetProperty("bitfieldStatistics");
+        Assert.Equal(2391, bitfieldStatistics.GetProperty("totalObjects").GetInt32());
+        Assert.Equal(188, bitfieldStatistics.GetProperty("nonByteAlignedObjects").GetInt32());
+        // 188 = 45 VAL_BLK + 81 CURVE + 15 MAP + 47 AXIS_PTS（临时工程按包 API 复算交叉验证；
+        // 965 个 MEASUREMENT 全部标准标量型 → 0）。
+        Assert.Equal(JsonValueKind.Null, bitfieldStatistics.GetProperty("bitMaskObjects").ValueKind);
+        Assert.Equal("degraded-package-has-no-bit-model", bitfieldStatistics.GetProperty("status").GetString());
 
         // 对账结论：真机声明 vs 模拟从机黄金样本一致 → 允许启动。
         Assert.False(doc.RootElement.GetProperty("reconciliation").GetProperty("rejectedStart").GetBoolean());

@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using A2lEditor.Core;
 using PeakCan.HIL.Core;
 using A2lEditor.Core.IfData;
+using A2lEditor.Core.Layout;
+using A2lEditor.Core.Model;
 using PeakCan.Host.Core;
 using PeakCan.Host.Core.Xcp.Abstractions;
 using PeakCan.Host.Core.Xcp.Capability;
@@ -92,7 +94,7 @@ public static class XcpProbeCommand
         ArgumentNullException.ThrowIfNull(transport);
 
         // ---- A2L 声明侧（按声明值走；能力对账不匹配即告警/拒绝，宁可不采不错采）----
-        var declared = ParseDeclaration(options.A2LPath, out var validationNotes);
+        var declared = ParseDeclaration(options.A2LPath, out var validationNotes, out var document);
 
         // ---- XCP 会话：CONNECT → 能力查询全链 ----
         var masterOptions = new XcpMasterOptions(
@@ -163,7 +165,10 @@ public static class XcpProbeCommand
         var reconciliation = XcpCapabilityReconciler.Reconcile(declared, validationNotes, measured);
 
         // ---- 事实清单（spec §4：直接兑现附录 A-1/2/3/4/5 的探针侧字段）----
-        var report = BuildReport(options, declared, connect, commMode, processor, resolution, listInfo, eventInfo, measured, measuredCommands, reconciliation, queryFailures);
+        // A-11 位域量统计（spec §4）：包侧可得口径最小化——解析期合同一次建好，只读计数。
+        var bitfieldStatistics = BitfieldStatisticsOf(Asap2PackageApi.Contracts(document));
+
+        var report = BuildReport(options, declared, connect, commMode, processor, resolution, listInfo, eventInfo, measured, measuredCommands, reconciliation, bitfieldStatistics, queryFailures);
         var json = JsonSerializer.Serialize(report, JsonOptions);
 
         if (options.OutputPath is { } outputPath)
@@ -179,7 +184,7 @@ public static class XcpProbeCommand
     /// </summary>
     public static BaudRate ResolveDeclaredBaudRate(string a2lPath)
     {
-        var declared = ParseDeclaration(a2lPath, out _);
+        var declared = ParseDeclaration(a2lPath, out _, out _);
         if (declared.OnCan.Count == 0)
             throw new InvalidDataException($"A2L has no XCP_ON_CAN block: {a2lPath}");
 
@@ -194,15 +199,38 @@ public static class XcpProbeCommand
         };
     }
 
-    private static XcpIfData ParseDeclaration(string a2lPath, out IReadOnlyList<ValidationNote> validationNotes)
+    private static XcpIfData ParseDeclaration(
+        string a2lPath, out IReadOnlyList<ValidationNote> validationNotes, out A2lDocument document)
     {
         var parsed = Asap2PackageApi.ParseFile(a2lPath);
         if (parsed.Value is not { } doc)
             throw new InvalidDataException($"A2L parse failed: {a2lPath}");
 
         validationNotes = Asap2PackageApi.CollectCrossChecks(doc);
+        document = doc;
         return doc.Modules.Select(m => m.IfDataXcp).FirstOrDefault(x => x is not null)
             ?? throw new InvalidDataException($"A2L has no XCP IF_DATA: {a2lPath}");
+    }
+
+    /// <summary>
+    /// A-11 位域量统计（包侧可得口径最小化，spec §4 已同步降级）：包 API 刻意不上
+    /// BitWidth/BitOffset（§5.6 判据 3：真机对象级 BIT_MASK 0 处，无来源的字段上了
+    /// 接口就是骗下游）→ 位域专属计数无来源，BitMaskObjects 恒 null。
+    /// <para>
+    /// TotalByteLength 只能粗分聚合对象：≠1/2/4/8（与包 ByteLayout 标准宽度表一致，
+    /// 含 FLOAT64 的 8B）的对象全是 CURVE/MAP/VAL_BLK 等聚合体，不是位域信号——
+    /// 子字节位域在标准模型里就是 1 字节对象，此口径识别不了。位域数量只能台架手工
+    /// 统计（A-11 降级口径，spec §4 那一句已同步修正）。
+    /// </para>
+    /// </summary>
+    private static XcpProbeBitfieldStatisticsFacts BitfieldStatisticsOf(ContractSet contracts)
+    {
+        var all = contracts.All;
+        return new XcpProbeBitfieldStatisticsFacts(
+            TotalObjects: all.Count,
+            NonByteAlignedObjects: all.Count(c => c.TotalByteLength is not (1 or 2 or 4 or 8)),
+            BitMaskObjects: null,
+            Status: "degraded-package-has-no-bit-model");
     }
 
     /// <summary>
@@ -290,6 +318,7 @@ public static class XcpProbeCommand
         XcpMeasuredCapabilities measured,
         List<string> measuredCommands,
         XcpCapabilityReport reconciliation,
+        XcpProbeBitfieldStatisticsFacts bitfieldStatistics,
         List<XcpProbeQueryFailure> queryFailures)
     {
         var declaredOnCan = declared.OnCan.Count > 0 ? declared.OnCan[0] : null;
@@ -332,6 +361,7 @@ public static class XcpProbeCommand
             OdtPacking: new XcpProbeOdtPackingFacts(
                 dtoPayloadCapBytes, resolution.MaxOdtEntrySizeDaq, maxEntriesPerOdt, listInfo.MaxOdt),
             MeasuredCommands: measuredCommands,
+            BitfieldStatistics: bitfieldStatistics,
             Reconciliation: reconciliation,
             DeviceLayout: deviceLayout,
             QueryFailures: queryFailures);
@@ -399,6 +429,7 @@ public sealed record XcpProbeReport(
     XcpProbeJitterFacts DtoIntervalJitter,
     XcpProbeCanIdComplianceFacts CanIdCompliance,
     XcpProbeOdtPackingFacts OdtPacking,
+    XcpProbeBitfieldStatisticsFacts BitfieldStatistics,
     IReadOnlyList<string> MeasuredCommands,
     XcpCapabilityReport Reconciliation,
     /// <summary>设备布局偏差占位：任一能力查询失败即置位（真机偏差清单归 T19 台架核死）。</summary>
@@ -459,3 +490,17 @@ public sealed record XcpProbeOdtPackingFacts(
     byte MeasuredMaxOdtEntrySizeDaq,
     int? MaxEntriesPerOdt,
     byte MeasuredMaxOdt);
+
+/// <summary>
+/// A-11 位域量统计（包侧可得口径最小化；位域专属计数不可得 → 降级，spec §4）。
+/// </summary>
+/// <param name="TotalObjects">全文档合同对象数（MEASUREMENT + CHARACTERISTIC + AXIS_PTS）。</param>
+/// <param name="NonByteAlignedObjects">TotalByteLength ∉ {1,2,4,8} 的对象数——聚合对象
+///（CURVE/MAP/VAL_BLK）口径，不能识别子字节位域（位域在标准模型里就是 1 字节）。</param>
+/// <param name="BitMaskObjects">包 API 无 BIT_MASK 建模（§5.6 判据 3）——恒 null，台架手工统计。</param>
+/// <param name="Status">降级标记：degraded-package-has-no-bit-model。</param>
+public sealed record XcpProbeBitfieldStatisticsFacts(
+    int TotalObjects,
+    int NonByteAlignedObjects,
+    int? BitMaskObjects,
+    string Status);
