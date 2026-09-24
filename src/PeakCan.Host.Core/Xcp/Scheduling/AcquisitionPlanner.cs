@@ -118,7 +118,7 @@ public static class AcquisitionPlanner
                     entries.Add(new PlannedDaqEntry(
                         (uint)(firstPid + odtIndex), odtIndex, entryIndex,
                         item.ObjectName, item.SegmentIndex, item.ByteLength, offset,
-                        item.Address, Translate(doc, item.Address)));
+                        item.Address, TranslateGuarded(doc, item.ObjectName, item.Address)));
                     offset += item.ByteLength;
                     entryIndex++;
                     cursor++;
@@ -185,7 +185,7 @@ public static class AcquisitionPlanner
             var segment = contract.Segments[i];
             polling.Add(new PlannedPollingEntry(
                 contract.ObjectName, i, segment.ByteLength, segment.SourceOffset,
-                segment.Address, Translate(doc, segment.Address), cause));
+                segment.Address, TranslateGuarded(doc, contract.ObjectName, segment.Address), cause));
         }
     }
 
@@ -198,7 +198,51 @@ public static class AcquisitionPlanner
         {
             polling.Add(new PlannedPollingEntry(
                 item.ObjectName, item.SegmentIndex, item.ByteLength, item.SourceOffset,
-                item.Address, Translate(doc, item.Address), cause));
+                item.Address, TranslateGuarded(doc, item.ObjectName, item.Address), cause));
+        }
+    }
+
+    /// <summary>
+    /// 条目级地址出口（T12 review F1 守卫 + [H1] 翻译唯一入口）：先查覆盖段的
+    /// 包侧 <c>XcpSegment.AddressExtension</c>（≠0 即构造期 fail-loud），再走
+    /// <see cref="XcpAddressMap.TryTranslate"/>；覆盖不到返回 null（调用侧既有
+    /// fail-loud 校验接管）。
+    /// </summary>
+    private static ulong? TranslateGuarded(A2lDocument doc, string objectName, ulong logicalAddress)
+    {
+        GuardAddressExtension(doc, objectName, logicalAddress);
+        return Translate(doc, logicalAddress);
+    }
+
+    /// <summary>
+    /// EXTENSION≠0 段 fail-loud（T12 review F1 定案，宁可不采不错采）：
+    /// 包侧 XcpSegment.AddressExtension ≠0 的段，其线上地址语义（addrExt 字节）
+    /// S2 不穿透 wire——真机 EXTENSION=0 已由 T19 台架核实，非零段属于第三方 A2L，
+    /// 构造期拒绝是 S2 定案（轮询与 DAQ 条目同守卫）。
+    /// <para>
+    /// 分工说明：包侧 <c>TryTranslate</c> 不消费 EXTENSION 是包侧行为，本守卫不改包
+    /// （S2 计划：实施期间不改 a2l-editor 代码）；S5 演进方向——若需支持 EXTENSION
+    /// 段，从本守卫处扩展 addrExt wire 层，而非放宽此处。
+    /// </para>
+    /// </summary>
+    private static void GuardAddressExtension(A2lDocument doc, string objectName, ulong logicalAddress)
+    {
+        // 覆盖性判定完全交给包侧 SegmentsCovering（[H1] 唯一入口，本守卫零地址算术）；
+        // 只读声明元数据 XcpSegment.AddressExtension。保守口径：覆盖内存段内任一
+        // XcpSegment 声明 EXTENSION≠0 即拒绝——真机单段恒 0（T19 例行核实），
+        // 多段混合 EXTENSION 属第三方 A2L，宁可不采。
+        foreach (var memorySegment in XcpAddressMap.SegmentsCovering(doc, logicalAddress))
+        {
+            var offending = (memorySegment.IfDataXcp?.Segments ?? Array.Empty<XcpSegment>())
+                .FirstOrDefault(seg => seg.AddressExtension is { } extension && extension != 0);
+            if (offending is null)
+                continue;
+
+            throw new InvalidOperationException(
+                $"Memory segment '{memorySegment.Name}' covering address 0x{logicalAddress:X} " +
+                $"of object '{objectName}' declares ADDRESS_EXTENSION {offending.AddressExtension} != 0: the addrExt " +
+                "wire semantics are not modeled in S2 (bench-verified EXTENSION=0, T19); " +
+                "refusing to plan rather than silently mis-addressing uploads.");
         }
     }
 

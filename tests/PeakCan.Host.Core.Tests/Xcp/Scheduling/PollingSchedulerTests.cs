@@ -18,10 +18,16 @@ namespace PeakCan.Host.Core.Tests.Xcp.Scheduling;
 /// 轮询插队会拉长空窗并违反换表时序假设；轮询是低频兜底，丢一拍无业务损失。
 /// RotationScheduler 侧零改动：gate 由组合根（T13）在调用 ConfigureRotationAsync
 /// 前后开关——比反向轮询 busy 标志更小侵入。
+/// <para>T12 review 增量：失败归因出站不终止 RunAsync（F3）、超时 quiesce ≥T1
+/// 时钟断言（F3）、WaitForQuietAsync 静默握手（F4）、8B padding 宽容切片（F2）、
+/// 超 32 位地址 fail-loud（F5）。</para>
 /// </summary>
 public class PollingSchedulerTests
 {
     private static readonly CanId MasterCanId = new(0x18FFF667, FrameFormat.Extended);
+
+    /// <summary>T1（XcpMasterOptions.DefaultTimeout）——quiesce 与超时测试的钟源基准。</summary>
+    private static readonly TimeSpan T1 = TimeSpan.FromMilliseconds(2000);
 
     private readonly FakeTimeProvider _time = new();
 
@@ -32,8 +38,7 @@ public class PollingSchedulerTests
         var payload = new byte[] { 0xDE, 0xAD };
         var slave = new ScriptedPollingSlave(payload);
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
-            master, Map(Entry("BitField", byteLength: 2, physical: 0x00001234)), timeProvider: _time);
+        var scheduler = NewScheduler(master, Map(Entry("BitField", byteLength: 2, physical: 0x00001234)));
 
         var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -47,6 +52,26 @@ public class PollingSchedulerTests
         Assert.Equal(new byte[] { 0xF4, 0x00, 0x00, 0x02, 0x00, 0x34, 0x12, 0x00 }, request);
     }
 
+    // ---- (F2) 正响应允许 DLC 8B padding：取前 expectedBytes，短帧仍 fail-loud ----
+    [Fact]
+    public async Task PollOnce_tolerates_fixed_dlc_padding_in_upload_response()
+    {
+        var slave = new ScriptedPollingSlave(new byte[] { 0xA1, 0xB2 }) { PadUploadResponses = true };
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(master, Map(Entry("Padded", byteLength: 2, physical: 0x10)));
+
+        var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(PollingCycleOutcome.Executed, result.Outcome);
+        Assert.Equal(new byte[] { 0xA1, 0xB2 }, Assert.Single(result.Values).Data);
+        Assert.Empty(result.Failures);
+
+        // 从机确实回了 8B DLC（FF + 2B 数据 + 5B padding）。
+        var response = Assert.Single(slave.Received);
+        Assert.Equal(8, response.Length);
+        Assert.Equal(0xFF, response[0]);
+    }
+
     // ---- 路径二：SET_MTA + UPLOAD 分块（>7B 量，或地址超 SHORT_UPLOAD 24bit 上限）----
     [Theory]
     [InlineData(8, 0x00001234u)]  // >7B：低地址也必须分块（SHORT_UPLOAD 单帧装不下）
@@ -57,8 +82,7 @@ public class PollingSchedulerTests
         var payload = Enumerable.Range(0, byteLength).Select(i => (byte)(0x10 + i)).ToArray();
         var slave = new ScriptedPollingSlave(payload);
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
-            master, Map(Entry("Object", byteLength, address)), timeProvider: _time);
+        var scheduler = NewScheduler(master, Map(Entry("Object", byteLength, address)));
 
         var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -95,9 +119,23 @@ public class PollingSchedulerTests
             PlannedPollingCause.ObjectTooLarge);
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => new PollingScheduler(master, Map(entry), timeProvider: _time));
+            () => NewScheduler(master, Map(entry)));
         Assert.Contains("Untranslated", ex.Message);
         Assert.Empty(slave.Sent); // 线上零流量
+    }
+
+    // ---- (F5) fail-loud：物理地址超 32 位线上地址空间 ----
+    [Fact]
+    public void Ctor_fails_loud_when_physical_address_exceeds_32bit_wire_space()
+    {
+        var slave = new ScriptedPollingSlave(new byte[] { 0x01 });
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var entry = Entry("Beyond32Bit", byteLength: 8, physical: 0x1_0000_0000);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => NewScheduler(master, Map(entry)));
+        Assert.Contains("Beyond32Bit", ex.Message);
+        Assert.Contains("32-bit", ex.Message);
+        Assert.Empty(slave.Sent);
     }
 
     // ---- 低频兜底节奏：周期可注入，FakeTimeProvider 驱动 ----
@@ -109,11 +147,10 @@ public class PollingSchedulerTests
         var period = TimeSpan.FromMilliseconds(periodMs);
         var slave = new ScriptedPollingSlave(new byte[] { 0x2A });
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
+        var scheduler = NewScheduler(
             master,
             Map(Entry("Small", byteLength: 1, physical: 0x10)),
-            new PollingSchedulerOptions { Period = period },
-            timeProvider: _time);
+            new PollingSchedulerOptions { Period = period });
         Assert.Equal(period, scheduler.Period);
 
         var results = new ConcurrentQueue<PollingCycleResult>();
@@ -124,7 +161,7 @@ public class PollingSchedulerTests
         Assert.True(results.IsEmpty); // 首拍前不轮询（等待先行）
 
         _time.Advance(period);
-        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 1, run: run);
+        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 1);
         _time.Advance(period);
         await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 2);
 
@@ -140,8 +177,8 @@ public class PollingSchedulerTests
         var gate = new TestRotationGate { InRotation = true };
         var slave = new ScriptedPollingSlave(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 });
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
-            master, Map(Entry("Obj", 8, 0x1000)), rotationGate: gate, timeProvider: _time);
+        var scheduler = NewScheduler(
+            master, Map(Entry("Obj", 8, 0x1000)), rotationGate: gate);
 
         var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -163,12 +200,11 @@ public class PollingSchedulerTests
         var period = TimeSpan.FromMilliseconds(250);
         var slave = new ScriptedPollingSlave(new byte[] { 0x2A });
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
+        var scheduler = NewScheduler(
             master,
             Map(Entry("Small", byteLength: 1, physical: 0x10)),
             new PollingSchedulerOptions { Period = period },
-            rotationGate: gate,
-            timeProvider: _time);
+            rotationGate: gate);
 
         var results = new ConcurrentQueue<PollingCycleResult>();
         var cycleCount = 0;
@@ -176,7 +212,7 @@ public class PollingSchedulerTests
         var run = scheduler.RunAsync(r => { results.Enqueue(r); Interlocked.Increment(ref cycleCount); }, cts.Token);
 
         _time.Advance(period);
-        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 1, run: run);
+        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 1);
         Assert.Equal(PollingCycleOutcome.SkippedRotation, results.First().Outcome);
         Assert.Empty(slave.Sent);
 
@@ -189,14 +225,119 @@ public class PollingSchedulerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
     }
 
+    // ---- (F3) 负响应：归因出站、不插 quiesce（带内应答零时钟推进）、下一拍自愈 ----
+    [Fact]
+    public async Task Negative_response_is_attributed_without_quiesce_and_next_cycle_recovers()
+    {
+        var slave = new ScriptedPollingSlave(new byte[] { 0x2A });
+        slave.FailShortUpload(0x10); // 条目 A 恒负响应
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(master, Map(
+            Entry("Neg", byteLength: 1, physical: 0x10),
+            Entry("Ok1", byteLength: 1, physical: 0x12),
+            Entry("Ok2", byteLength: 1, physical: 0x14)));
+
+        var before = _time.GetUtcNow();
+        var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(before, _time.GetUtcNow()); // 负响应不插 quiesce（零时钟推进快路径）
+
+        Assert.Equal(2, result.Values.Count);
+        Assert.Equal("Ok1|Ok2", string.Join("|", result.Values.Select(v => v.ObjectName)));
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal("Neg", failure.ObjectName);
+        Assert.Equal(PollingFailureKind.NegativeResponse, failure.Kind);
+        Assert.NotNull(failure.ErrorCode);
+        Assert.Equal(1, scheduler.ConsecutiveFailedCycles);
+
+        // 解除负响应 → 下一拍全量恢复 + 计数归零。
+        slave.ClearShortUploadFailures();
+        var recovered = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(recovered.Failures);
+        Assert.Equal(3, recovered.Values.Count);
+        Assert.Equal(0, scheduler.ConsecutiveFailedCycles);
+    }
+
+    // ---- (F3) 超时：归因出站 + 同拍下一命令前 quiesce ≥T1（时钟断言）----
+    [Fact]
+    public async Task Timeout_is_attributed_and_next_command_waits_quiesce_of_at_least_t1()
+    {
+        var slave = new ScriptedPollingSlave(new byte[] { 0x2A });
+        slave.Clock = () => _time.GetUtcNow();
+        slave.SilenceShortUpload(0x10); // 条目 A 两次 attempt 都无应答 → T1 超时 ×2
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(master, Map(
+            Entry("Silent", byteLength: 1, physical: 0x10),
+            Entry("Ok", byteLength: 1, physical: 0x12)));
+
+        var before = _time.GetUtcNow();
+        var poll = scheduler.PollOnceAsync();
+        await AdvanceUntil(() => poll.IsCompleted, step: TimeSpan.FromMilliseconds(100));
+        var result = await poll;
+
+        var after = _time.GetUtcNow();
+        Assert.True(after - before >= 3 * T1, $"fake clock advanced {after - before}, expected >= 3×T1 " +
+                                               "(2 timeout attempts + quiesce).");
+
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal("Silent", failure.ObjectName);
+        Assert.Equal(PollingFailureKind.Timeout, failure.Kind);
+        Assert.Equal(new byte[] { 0x2A }, Assert.Single(result.Values).Data);
+
+        // 帧序列：A 的两次 attempt（同一 SHORT_UPLOAD 重发）+ B 一次。
+        Assert.Equal(3, slave.Sent.Count);
+        Assert.Equal(0x10u, ShortUploadAddress(slave.Sent[0]));
+        Assert.Equal(0x10u, ShortUploadAddress(slave.Sent[1]));
+        Assert.Equal(0x12u, ShortUploadAddress(slave.Sent[2]));
+
+        // quiesce 时钟断言：A 最后一次 attempt 与 B 命令之间 ≥T1（同拍内下一命令前）。
+        var quiesceGap = slave.SentAt[2] - slave.SentAt[1];
+        Assert.True(quiesceGap >= T1, $"gap before next command was {quiesceGap}, expected >= T1.");
+    }
+
+    // ---- (F3) RunAsync 存活：一次失败拍不杀死循环，连续失败计数可被 T13 观察 ----
+    [Fact]
+    public async Task RunAsync_survives_failing_cycles_and_tracks_consecutive_failures()
+    {
+        var period = TimeSpan.FromMilliseconds(250);
+        var slave = new ScriptedPollingSlave(new byte[] { 0x2A });
+        slave.FailShortUpload(0x10);
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(
+            master,
+            Map(Entry("Neg", byteLength: 1, physical: 0x10)),
+            new PollingSchedulerOptions { Period = period });
+
+        var results = new ConcurrentQueue<PollingCycleResult>();
+        var cycleCount = 0;
+        using var cts = new CancellationTokenSource();
+        var run = scheduler.RunAsync(r => { results.Enqueue(r); Interlocked.Increment(ref cycleCount); }, cts.Token);
+
+        _time.Advance(period);
+        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 1);
+        _time.Advance(period);
+        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 2);
+
+        Assert.False(run.IsFaulted); // 失败拍不杀死 RunAsync
+        Assert.All(results, r => Assert.Single(r.Failures));
+        Assert.Equal(2, scheduler.ConsecutiveFailedCycles);
+
+        slave.ClearShortUploadFailures();
+        _time.Advance(period);
+        await AdvanceUntil(() => Volatile.Read(ref cycleCount) >= 3);
+        Assert.Empty(results.Last().Failures);
+        Assert.Equal(0, scheduler.ConsecutiveFailedCycles);
+
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
     // ---- 单飞：与 RotationScheduler 同型（XcpMaster 单发单收，排队即串扰）----
     [Fact]
     public async Task PollOnce_rejects_concurrent_invocation_while_previous_cycle_pending()
     {
         var slave = new ScriptedPollingSlave(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 });
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
-            master, Map(Entry("Big", 8, 0x1000)), timeProvider: _time);
+        var scheduler = NewScheduler(master, Map(Entry("Big", 8, 0x1000)));
 
         slave.HoldUpload();
         var first = scheduler.PollOnceAsync();
@@ -210,16 +351,38 @@ public class PollingSchedulerTests
         Assert.Equal(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 }, Assert.Single(result.Values).Data);
     }
 
+    // ---- (F4) 静默握手：在途拍挂住时 WaitForQuietAsync 不完成，释放后完成 ----
+    [Fact]
+    public async Task WaitForQuietAsync_completes_only_after_inflight_cycle_drains()
+    {
+        var slave = new ScriptedPollingSlave(new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 });
+        using var master = new XcpMaster(slave, MasterOptions(), _time);
+        var scheduler = NewScheduler(master, Map(Entry("Big", 8, 0x1000)));
+
+        slave.HoldUpload();
+        var cycle = scheduler.PollOnceAsync();
+
+        var quiet = scheduler.WaitForQuietAsync();
+        await Task.Delay(50); // 在途拍被门闩挂住 → 握手不得完成
+        Assert.False(quiet.IsCompleted);
+
+        slave.ReleaseHold();
+        await Task.WhenAll(cycle, quiet).WaitAsync(TimeSpan.FromSeconds(5));
+
+        // 闩已归还：后续拍可正常开跑（gate 复用无泄漏）。
+        var next = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(PollingCycleOutcome.Executed, next.Outcome);
+    }
+
     // ---- 空轮询集合：零线上流量 ----
     [Fact]
     public async Task PollOnce_with_no_polling_entries_produces_no_traffic()
     {
         var slave = new ScriptedPollingSlave(Array.Empty<byte>());
         using var master = new XcpMaster(slave, MasterOptions(), _time);
-        var scheduler = new PollingScheduler(
+        var scheduler = NewScheduler(
             master,
-            new PlannedAcquisitionMap(0, 0, Array.Empty<PlannedOdt>(), Array.Empty<PlannedPollingEntry>()),
-            timeProvider: _time);
+            new PlannedAcquisitionMap(0, 0, Array.Empty<PlannedOdt>(), Array.Empty<PlannedPollingEntry>()));
 
         var result = await scheduler.PollOnceAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -231,18 +394,27 @@ public class PollingSchedulerTests
 
     private static XcpMasterOptions MasterOptions() => new(MasterCanId);
 
+    private PollingScheduler NewScheduler(
+        XcpMaster master,
+        PlannedAcquisitionMap map,
+        PollingSchedulerOptions? options = null,
+        IXcpRotationGate? rotationGate = null) =>
+        new(master, MasterOptions(), map, options, rotationGate, _time);
+
     private static PlannedPollingEntry Entry(string name, int byteLength, ulong physical) =>
         new(name, 0, byteLength, 0, physical, physical, PlannedPollingCause.ObjectTooLarge);
 
     private static PlannedAcquisitionMap Map(params PlannedPollingEntry[] entries) =>
         new(0, 0, Array.Empty<PlannedOdt>(), entries);
 
-    private async Task AdvanceUntil(Func<bool> condition, TimeSpan? step = null, int timeoutMs = 5000, Task? run = null)
+    private static uint ShortUploadAddress(byte[] cmd) =>
+        cmd[5] | ((uint)cmd[6] << 8) | ((uint)cmd[7] << 16);
+
+    private async Task AdvanceUntil(Func<bool> condition, TimeSpan? step = null, int timeoutMs = 15000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (!condition())
         {
-            if (run is { IsFaulted: true }) throw run.Exception!.Flatten().InnerException ?? run.Exception!;
             if (sw.ElapsedMilliseconds > timeoutMs)
                 throw new TimeoutException($"fake-time condition not met within {timeoutMs} ms");
             _time.Advance(step ?? TimeSpan.FromMilliseconds(1));
@@ -258,12 +430,15 @@ public class PollingSchedulerTests
     }
 
     /// <summary>
-    /// 脚本化轮询从机：UPLOAD/SHORT_UPLOAD 按配置的载荷顺序吐数据
-    /// （MTA 按 XCP 标准随 UPLOAD 后自增），SET_MTA 记录并正应答。
+    /// 脚本化轮询从机：UPLOAD/SHORT_UPLOAD 按配置的载荷吐数据（SHORT_UPLOAD
+    /// 自包含恒读载荷起点；SET_MTA 重置游标、MTA 随 UPLOAD 后自增——XCP 标准）。
+    /// 支持按地址负响应/静默（T12 review F3 用例）与固定 8B DLC padding（F2 用例）。
     /// </summary>
     private sealed class ScriptedPollingSlave : IXcpTransport
     {
         private readonly byte[] _payload;
+        private readonly HashSet<uint> _negativeShortUpload = new();
+        private readonly HashSet<uint> _silentShortUpload = new();
         private int _cursor;
         private uint _mta;
         private TaskCompletionSource<object?>? _hold;
@@ -276,6 +451,25 @@ public class PollingSchedulerTests
 
         public List<byte[]> Sent { get; } = new();
 
+        public List<byte[]> Received { get; } = new();
+
+        public List<DateTimeOffset> SentAt { get; } = new();
+
+        public Func<DateTimeOffset>? Clock { get; set; }
+
+        /// <summary>正响应固定 8B DLC（数据后补零 padding）——F2 宽容切片用例。</summary>
+        public bool PadUploadResponses;
+
+        public void FailShortUpload(uint address) => _negativeShortUpload.Add(address);
+
+        public void SilenceShortUpload(uint address) => _silentShortUpload.Add(address);
+
+        public void ClearShortUploadFailures()
+        {
+            _negativeShortUpload.Clear();
+            _silentShortUpload.Clear();
+        }
+
         public void HoldUpload() =>
             _hold = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -285,6 +479,7 @@ public class PollingSchedulerTests
         {
             var cmd = frame.Data.ToArray();
             Sent.Add(cmd);
+            SentAt.Add(Clock?.Invoke() ?? DateTimeOffset.MinValue);
             if (_hold is not null && cmd[0] == XcpPid.Upload)
                 await _hold.Task.ConfigureAwait(false);
             Respond(cmd);
@@ -303,13 +498,25 @@ public class PollingSchedulerTests
                 case XcpPid.Upload or XcpPid.ShortUpload:
                 {
                     var count = cmd[3];
-                    // SHORT_UPLOAD 自包含单帧读（恒从载荷起点）；UPLOAD 按 MTA 连续分块。
-                    var offset = cmd[0] == XcpPid.Upload ? _cursor : 0;
-                    var data = new byte[count];
-                    Array.Copy(_payload, offset, data, 0, count);
-                    if (cmd[0] == XcpPid.Upload)
-                        _cursor += count;
-                    Emit(data);
+                    if (cmd[0] == XcpPid.ShortUpload)
+                    {
+                        var address = ShortUploadAddress(cmd);
+                        if (_silentShortUpload.Contains(address))
+                            return; // 静默：master 两次 attempt 都无应答才超时
+                        if (_negativeShortUpload.Contains(address))
+                        {
+                            Negative(XcpError.AccessDenied);
+                            return;
+                        }
+                        Emit(_payload.Take(count).ToArray(), pad: PadUploadResponses);
+                        return;
+                    }
+
+                    // UPLOAD：MTA 连续分块。
+                    var chunk = new byte[count];
+                    Array.Copy(_payload, _cursor, chunk, 0, count);
+                    _cursor += count;
+                    Emit(chunk, pad: PadUploadResponses);
                     break;
                 }
                 default:
@@ -318,20 +525,28 @@ public class PollingSchedulerTests
             }
         }
 
-        private void Positive() => Emit(Array.Empty<byte>());
+        private void Positive() => Emit(Array.Empty<byte>(), pad: false);
 
-        private void Emit(byte[] data)
+        private void Negative(XcpError error) =>
+            FrameReceived?.Invoke(Frame(new byte[] { XcpPid.Error, (byte)error }));
+
+        private void Emit(byte[] data, bool pad)
         {
-            var frame = new byte[1 + data.Length];
-            frame[0] = XcpPid.PositiveResponse;
-            data.CopyTo(frame, 1);
-            FrameReceived?.Invoke(new CanFrame(
-                new CanId(0x18FFF666, FrameFormat.Extended),
-                new ReadOnlyMemory<byte>(frame),
-                FrameFlags.None,
-                ChannelId.None,
-                default));
+            // pad = 固定 8B DLC（DLC 对齐 padding），S2 主站侧必须宽容切片（F2）。
+            var length = pad ? 8 : 1 + data.Length;
+            var frameBytes = new byte[length];
+            frameBytes[0] = XcpPid.PositiveResponse;
+            data.CopyTo(frameBytes, 1);
+            Received.Add(frameBytes);
+            FrameReceived?.Invoke(Frame(frameBytes));
         }
+
+        private static CanFrame Frame(byte[] data) => new(
+            new CanId(0x18FFF666, FrameFormat.Extended),
+            new ReadOnlyMemory<byte>(data),
+            FrameFlags.None,
+            ChannelId.None,
+            default);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

@@ -27,11 +27,17 @@ public class XcpLayeringTests
     public void Xcp_Scheduling_does_not_touch_package_segment_address_types()
     {
         // S2-T10 (e)：地址换算唯一入口是包侧 XcpAddressMap.TryTranslate（spec [H1]）。
-        // Scheduling 命名空间（AcquisitionPlanner / PlannedAcquisitionMap）禁止直接
-        // 引用包侧三类 segment 地址载体——XcpAddressMapping（Logical/Physical/Length）、
-        // XcpSegment（内嵌份容器）、A2lMemorySegment（OFFSET 基址）。谁引用了谁，
-        // 谁就能重建第二套换算。ValueSegment.Address 是 [H1] 钦定的翻译输入，
-        // 合法引用，不在此列。Receive 侧守卫随 T14 建命名空间时补入。
+        // Scheduling 命名空间禁止引用 XcpAddressMapping（Logical/Physical/Length——
+        // 地址算术载体，全量封禁）；谁引用了它，谁就能重建第二套换算。
+        // ValueSegment.Address 是 [H1] 钦定的翻译输入，合法引用，不在此列。
+        // Receive 侧守卫随 T14 建命名空间时补入。
+        //
+        // T12 review F1 修订（窄幅收窄，评审定案）：EXTENSION≠0 段 fail-loud 守卫
+        // （AcquisitionPlanner.GuardAddressExtension）需要读包侧声明元数据
+        // XcpSegment.AddressExtension 与段名 A2lMemorySegment.Name——这是只读声明
+        // 检查、零地址算术，覆盖判定仍全权走包侧 SegmentsCovering。故
+        // XcpSegment / A2lMemorySegment 从"全量封禁"收窄为"仅 AcquisitionPlanner
+        // 一个类型可依赖"（其余 Scheduling 类型维持封禁，防扩散）。
         var core = typeof(AcquisitionPlanner).Assembly;
 
         // 非空守卫：过滤器必须真的选中 Scheduling 类型（防 vacuous pass）。
@@ -39,26 +45,40 @@ public class XcpLayeringTests
 
         // 宾语侧守卫：封禁串与包侧类型全名逐一比对——包侧重命名时这里先炸，
         // 而不是 HaveDependencyOn 对不存在的名字永远空通过。
-        var bannedFullNames = new Dictionary<string, Type>
-        {
-            ["A2lEditor.Core.IfData.XcpAddressMapping"] = typeof(A2lEditor.Core.IfData.XcpAddressMapping),
-            ["A2lEditor.Core.IfData.XcpSegment"] = typeof(A2lEditor.Core.IfData.XcpSegment),
-            ["A2lEditor.Core.Model.A2lMemorySegment"] = typeof(A2lEditor.Core.Model.A2lMemorySegment),
-        };
-        foreach (var banned in new[]
+        // XcpAddressMapping：地址算术载体，Scheduling 全量封禁（T10 原语义不变）。
+        Assert.Equal("A2lEditor.Core.IfData.XcpAddressMapping", typeof(A2lEditor.Core.IfData.XcpAddressMapping).FullName);
+        var mappingBan = Types.InAssembly(core)
+            .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Scheduling")
+            .ShouldNot().HaveDependencyOn("A2lEditor.Core.IfData.XcpAddressMapping")
+            .GetResult();
+        Assert.True(mappingBan.IsSuccessful,
+            "XcpAddressMapping: " + string.Join(", ", mappingBan.FailingTypeNames ?? Array.Empty<string>()));
+
+        // XcpSegment / A2lMemorySegment：声明元数据，仅 AcquisitionPlanner 可依赖（T12 review F1）。
+        // DoNotHaveName 排除守卫本体后维持全量封禁（防依赖面扩散）。
+        foreach (var metadataType in new[]
                  {
-                     "A2lEditor.Core.IfData.XcpAddressMapping",
                      "A2lEditor.Core.IfData.XcpSegment",
                      "A2lEditor.Core.Model.A2lMemorySegment",
                  })
         {
-            Assert.Equal(banned, bannedFullNames[banned].FullName);
-            var result = Types.InAssembly(core)
+            var metadataBan = Types.InAssembly(core)
                 .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Scheduling")
-                .ShouldNot().HaveDependencyOn(banned)
+                .And().DoNotHaveName("AcquisitionPlanner")
+                .ShouldNot().HaveDependencyOn(metadataType)
                 .GetResult();
-            Assert.True(result.IsSuccessful,
-                $"{banned}: {string.Join(", ", result.FailingTypeNames ?? Array.Empty<string>())}");
+            Assert.True(metadataBan.IsSuccessful,
+                $"{metadataType}: {string.Join(", ", metadataBan.FailingTypeNames ?? Array.Empty<string>())}");
         }
+
+        // 非空守卫：F1 守卫本体必须真实依赖声明元数据（守卫被移走/改名时这里先炸，
+        // 防 carve-out 退化成 vacuous pass）。
+        var plannerUsesMetadata = Types.InAssembly(core)
+            .That().HaveName("AcquisitionPlanner")
+            .Should().HaveDependencyOn("A2lEditor.Core.IfData.XcpSegment")
+            .GetResult();
+        Assert.True(plannerUsesMetadata.IsSuccessful,
+            "AcquisitionPlanner no longer reads XcpSegment.AddressExtension — " +
+            "the T12 review F1 EXTENSION guard is gone or renamed; revisit this carve-out.");
     }
 }

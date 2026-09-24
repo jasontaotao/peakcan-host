@@ -359,6 +359,37 @@ public class AcquisitionPlannerTests
     // 测试脚手架（构造包侧 A2L 模型，与 a2l-editor 测试同构）
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // (T12 review F1) EXTENSION≠0 段 fail-loud：轮询与 DAQ 条目同守卫
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void Segment_With_Nonzero_Address_Extension_Fails_Loud_At_Planning()
+    {
+        // DAQ 路径：4B 合格对象落在 EXTENSION≠0 段——构造期拒绝，消息含对象名与段名。
+        var daqPath = Assert.Throws<InvalidOperationException>(() => Plan(new ModuleSpec
+        {
+            Measurements = { Meas("OK4B", A2lDataType.ULONG, 0x1000) },
+            Layouts = new[] { UbyteLayout() },
+            DaqList = DaqList(firstPid: 0, maxOdtEntries: 100),
+            Segments = new[] { CalSegment(addressExtension: 3) },
+        }));
+        Assert.Contains("OK4B", daqPath.Message);
+        Assert.Contains("CAL", daqPath.Message);
+        Assert.Contains("3", daqPath.Message);
+
+        // 轮询路径：>4B 对象降级轮询同样被守卫（宁可不采不错采）。
+        var pollingPath = Assert.Throws<InvalidOperationException>(() => Plan(new ModuleSpec
+        {
+            Measurements = { Meas("BIG8", A2lDataType.FLOAT64_IEEE, 0x1000) },
+            Layouts = new[] { UbyteLayout() },
+            DaqList = DaqList(firstPid: 0, maxOdtEntries: 100),
+            Segments = new[] { CalSegment(addressExtension: 3) },
+        }));
+        Assert.Contains("BIG8", pollingPath.Message);
+        Assert.Contains("CAL", pollingPath.Message);
+    }
+
     private sealed class ModuleSpec
     {
         public List<A2lMeasurement> Measurements = [];
@@ -441,14 +472,14 @@ public class AcquisitionPlannerTests
         new(name, "d", "VAL_BLK", "RL_U8", addr, "0", "100", null, "CM_ID", new LineRange(1, 1),
             MatrixDim: new uint[] { 3, 1, 1 });
 
-    private static A2lMemorySegment CalSegment() =>
+    private static A2lMemorySegment CalSegment(uint addressExtension = 0) =>
         new("CAL", "cal", "DATA", "FLASH", "INTERN", 0x1000, 0x1000,
             Array.Empty<string>(), new LineRange(1, 1),
             IfDataXcp: new XcpIfData(XcpIfDataScope.MemorySegmentLevel, null, null, null, null,
                 Array.Empty<XcpOnCan>(),
                 new[]
                 {
-                    new XcpSegment(0, 1, 0, 0, 0,
+                    new XcpSegment(0, 1, addressExtension, 0, 0,
                         new[]
                         {
                             new XcpAddressMapping(0x1000, 0x9000, 0x1000, Array.Empty<XcpMissingField>(), ""),
