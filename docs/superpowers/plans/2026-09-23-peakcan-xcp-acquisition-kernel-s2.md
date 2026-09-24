@@ -303,11 +303,11 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
 **上下文指路**：spec §4（探针兑现 A-1/2/3/4/5，A-10 由探针+包侧统计共同覆盖）与 S1 spec 附录 A。
 **新文件**：`docs/superpowers/acceptance/2026-09-23-xcp-s2-bench-checklist.md`（人工验收记录模板）。
 
-- [ ] 探针真机握手步骤清单（App_merge_INCA.a2l 所示 CAN 号 0x98FFF666/67、29 位合规核实 = A-4）；输出 JSON 与模拟从机基线 diff。
-- [ ] 附录 A 逐项回填表：A-1 能力 / A-2 事件节拍 / A-3 DTO 间隔抖动（时基精度评估，S2 无时钟同步的唯一评估途径）/ A-4 / A-5 / A-10（块模式 MAX_BS/MIN_ST——**实测到手前 BlockModeReader 保持禁用**）/ A-11（位域量统计）。
-- [ ] MTA 自增规范义务（T12 review F6）：用 SHORT_UPLOAD 交叉验证 UPLOAD 后 MTA 自增的首 chunk 地址（PollingScheduler 分块读依赖 XCP 标准自增语义，探针例行核实）。
-- [ ] EXTENSION≠0 段 fail-loud 已由 planner 守卫（T12 review F1：AcquisitionPlanner.GuardAddressExtension），真机 EXTENSION=0 例行核实即可（非零段属第三方 A2L，S2 定案不采）。
-- [ ] 标注：本任务是**人工验收项**，CI 不可自动化；未回填前 S2 状态为"模拟从机全绿、真机待验"。
+- [x] 探针真机握手步骤清单（App_merge_INCA.a2l 所示 CAN 号 0x98FFF666/67、29 位合规核实 = A-4）；输出 JSON 与模拟从机基线 diff。
+- [x] 附录 A 逐项回填表：A-1 能力 / A-2 事件节拍 / A-3 DTO 间隔抖动（时基精度评估，S2 无时钟同步的唯一评估途径）/ A-4 / A-5 / A-10（块模式 MAX_BS/MIN_ST——**实测到手前 BlockModeReader 保持禁用**）/ A-11（位域量统计）。
+- [x] MTA 自增规范义务（T12 review F6）：用 SHORT_UPLOAD 交叉验证 UPLOAD 后 MTA 自增的首 chunk 地址（PollingScheduler 分块读依赖 XCP 标准自增语义，探针例行核实）。
+- [x] EXTENSION≠0 段 fail-loud 已由 planner 守卫（T12 review F1：AcquisitionPlanner.GuardAddressExtension），真机 EXTENSION=0 例行核实即可（非零段属第三方 A2L，S2 定案不采）。
+- [x] 标注：本任务是**人工验收项**，CI 不可自动化；未回填前 S2 状态为"模拟从机全绿、真机待验"。
 - [ ] **真机三条已钉死布局偏差逐条核死**（T8 评审钉死；源码证据：从机固件 Xcp_Std.c，见 S2-T8 评审报告）：
   1. GET_DAQ_EVENT_INFO 正响应仅 7B，且 EVENT_CYCLE/EVENT_CHANNEL_TIME_UNIT 在 wire byte4/5（标准 8B、byte5/6）；
   2. GET_DAQ_PROCESSOR_INFO 的 MAX_DAQ/MAX_EVENT_CHANNEL 为大端（标准 LE）；
@@ -315,7 +315,7 @@ tests/PeakCan.Host.Cli.Tests/Xcp/XcpProbeCommandTests.cs             (T8)
   附带：CONNECT 曾被记为"真机非标准布局"——round-3 已证伪：Xcp_Std.c:191-198 的
   [FF,RESOURCE,COMM_MODE_BASIC,MAX_CTO,MAX_DTO(LSB,MSB),PROTO_VER,TRANSPORT_VER] 即 ASAM XCP
   Part 1 标准布局，解码器已按标准实现；T19 抓包只需例行核对，无回填歧义。
-- [ ] commit `(S2-T19)`。
+- [x] commit `(S2-T19)`。
 - **spec 条款**：§4、§5 验收 4（真机部分）、§1（CAN 号合规待核实）。
 
 ---
