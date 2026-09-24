@@ -23,9 +23,10 @@ public sealed class XcpCardPanelSink : IXcpAcquisitionSink
 {
     /// <summary>
     /// 默认容量依据：上游 transport DTO 队列默认 1024（"100 Hz × 15 ODT 量级下远超够用"，
-    /// XcpCanTransport.DefaultQueueCapacity），全量采集最坏约 1500 样本/秒；20 Hz flush 每
-    /// 50 ms 窗口约 75 条。4096 = 上游容量 × 4，即 flush 侧停摆约 2.7 s 才开始 DropOldest，
-    /// 与 host 有界队列先例（transport 1024 / DbcDecode 10000）同量级。
+    /// XcpCanTransport.DefaultQueueCapacity）。注意 XcpReceiveLoop 是逐 ODT entry 出样本
+    ///（T4 评审 MEDIUM）：样本速率 = 100 Hz × entry 总数，多 entry ODT 下成倍高于 DTO 速率
+    ///（1500/s 只是"每 ODT 1 entry"口径）。4096 = 上游容量 × 4，与 host 有界队列先例
+    ///（transport 1024 / DbcDecode 10000）同量级；20 Hz flush 每 50 ms 消费约 75-600 条。
     /// </summary>
     public const int DefaultCapacity = 4096;
 
@@ -101,11 +102,10 @@ public sealed class XcpCardPanelSink : IXcpAcquisitionSink
             Interlocked.Decrement(ref _count);
             Interlocked.Increment(ref _dropped);
         }
-        else
-        {
-            // 并发 drain 抢先把刚计数的条目取走（计数已被 drain 方扣过）：回滚本次 +1。
-            Interlocked.Decrement(ref _count);
-        }
+        // TryDequeue 失败（队列瞬时为空）= 本条刚 Enqueue 就被并发 drainer 取走：
+        // 本方法的 +1 与 drainer 的 -1 已配平，此处不做任何补偿（T4 评审 HIGH：
+        // 原回滚分支是双重扣减，会让 _count 永久漂移为负、有界性腐蚀——已删）。
+        // 下一次入队会重新检查容量，有界性自恢复。
     }
 }
 

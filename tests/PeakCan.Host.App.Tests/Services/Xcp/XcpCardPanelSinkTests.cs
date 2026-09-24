@@ -33,7 +33,9 @@ public class XcpCardPanelSinkTests
             sink.OnValues(Sample(value: i));
         watch.Stop();
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1),
+        // T4 评审 LOW：1s 上限在 CI 高负载下有 flaky 风险，放宽到 10s——
+        // 阻塞型实现是"挂死"而非"慢"，10s 上限仍保有检错力。
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10),
             $"sink enqueue blocked the caller for {watch.Elapsed.TotalMilliseconds:F0} ms");
         Assert.Equal(1024, sink.Count);
         Assert.Equal(100_000 - 1024, sink.DroppedCount);
@@ -153,8 +155,9 @@ public class XcpCardPanelSinkTests
         var sink = new XcpCardPanelSink(capacity);
         var producersDone = 0;
 
-        // 生产者 4 × 25k 与消费者 2 并发：压力下唯一可守的口径是守恒式——
-        // 灌入总数 = 已取走 + 队列残余 + 已丢弃（丢弃必须可见，不静默）。
+        // 生产者 4 × 25k 与消费者 2 并发：守恒式（灌入 = 已取走 + 残余 + 丢弃）
+        // 数学上恒真，真正的检错断言是末尾 Count == 0（T4 评审 LOW：曾能捕捉
+        // Enqueue 回滚分支的计数漂移 flaky——该缺陷已修，本测试留作回归哨兵）。
         var producers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
             for (var i = 0; i < total / 4; i++)
