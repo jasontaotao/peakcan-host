@@ -52,7 +52,7 @@ Core/Xcp/
                 START_STOP_SYNCH / GET_DAQ_PROCESSOR_INFO / GET_DAQ_RESOLUTION_INFO /
                 GET_DAQ_LIST_INFO / GET_DAQ_EVENT_INFO
                 —— CTO/DTO 8B，一帧一 CTO；超时策略：T1=2000ms（A2L）超时即判失败并
-                中止 pending，重试 N 次（默认 1）后进断流归因；T2=10000ms 及 T3–T7
+                中止 pending，重试 N 次（默认 1）后进断流归因；T2=10000ms 及 T3–T7（S2-audit 备案："记录"指 spec 文本自身记录这些声明值供台架核对，host 不做运行时消费——探针事实清单是对账天然载体）
                 声明值记录但 S2 不依赖。无 INTERLEAVED（从机 OFF）⇒ 单发单收。
   Capability/   能力对账：A2L XcpIfData 声明 vs CONNECT/GET_DAQ_*_INFO 实测。
                 对账输入：XcpProtocolLayer/XcpDaq/XcpOnCan/XcpSegment 声明值（含各自
@@ -68,7 +68,7 @@ Core/Xcp/
                 一 entry），不得当从机真实 DAQ 配置；DAQ 打包方案（ODT 分配、事件
                 绑定、轮转分批）由 planner 产出，打包反查按 planner 输出自建映射，
                 替换占位索引。** 打包按 ODT 数据场 7B 装箱（4B×1 / 2B×3 / 1B×7），
-                超 105 B/拍 的量自动降级轮询。
+                超 105 B/拍 的量自动降级轮询（S2-audit 备案：实现判据为 ODT 预算 15 耗尽——字节判据有 16×4B=64B≤105B 但需 16 ODT 的反例，ODT 预算才是唯一完备判据，见 plan T9 review F3）。
                 RotationScheduler（ODT 分批轮转 + 停表换，顺序与失败路径见 §1）。
                 PollingScheduler / BlockModeReader（参数化，台架实测前不可启用）。
   Receive/      接收线程：**按 CAN 帧首字节分流**（PID 0xFF=正响应 / 0xFE=错误 /
@@ -84,14 +84,14 @@ Core/Xcp/
                 socketcan 等以新 transport 扩展）。
 Infrastructure/
   Xcp/XcpCanTransport.cs  复用 ICanChannel（ConnectAsync/WriteAsync/FrameReceived，
-                读线程事件不得阻塞——XCP 侧只入队），对齐 VirtualEcu→IsoTpLayer 先例。
+                读线程事件不得阻塞——**CAN 读线程**回调只入队，派发/解码在 transport 分发循环执行（S2-audit 备案措辞）），对齐 VirtualEcu→IsoTpLayer 先例。
 ```
 
 Segment 映射：`ValueSegment.Address` / `ValueFragment.Address`（ECU 逻辑地址）经 `XcpAddressMap.TryTranslate` 换算物理地址——**包的唯一入口，禁止 planner 侧自建映射**（且只认 MEMORY_SEGMENT 内嵌份 SEGMENT）；`SourceOffset` 仅用于拆条目后回对对象 raw 切片，不参与地址翻译。App 层本轮零改动（S3 接线）。
 
 ## 4. 台架实测（S1 spec 附录 A）与 S2 的关系
 
-S2 交付内含**最小握手探针**：CONNECT → 能力查询（含 GET_DAQ_EVENT_INFO）→ 逐项对账 → 输出事实清单，直接兑现 A-1/2/3/4/5；A-10（块模式能力）由探针覆盖；A-11（位域量统计）包 API 无位域建模（BitWidth/BitOffset 不上接口，§5.6 判据 3），降级为台架手工统计——探针只输出 bitfieldStatistics 对象计数粗口径（总对象数 + 非标准标量字节数聚合体，识别不了子字节位域），位域专属计数不可得。**台架数据到手前**：实现按 A2L 声明值走，能力对账不匹配即告警/拒绝启动（宁可不采，不许静默错采）。
+S2 交付内含**最小握手探针**：CONNECT → 能力查询（含 GET_DAQ_EVENT_INFO）→ 逐项对账 → 输出事实清单，直接兑现 A-1/2/3/4/5（A-3/A-4 由探针输出槽位、台架实测回填——S2-audit 备案：模拟从机上测不出有效事实）；A-10（块模式能力）由探针覆盖；A-11（位域量统计）包 API 无位域建模（BitWidth/BitOffset 不上接口，§5.6 判据 3），降级为台架手工统计——探针只输出 bitfieldStatistics 对象计数粗口径（总对象数 + 非标准标量字节数聚合体，识别不了子字节位域），位域专属计数不可得。**台架数据到手前**：实现按 A2L 声明值走，能力对账不匹配即告警/拒绝启动（宁可不采，不许静默错采）。
 
 ## 5. 验收标准草案
 
