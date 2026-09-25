@@ -20,9 +20,9 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T2 Core XcpMdfRecordSink 样本落盘（D2 前半，TDD）
 
-- [ ] 测试先红：OnValues 入有界队列不阻塞（满队列 DropOldest + DroppedCount）；后台写线程消费；Stop 落盘完整；文件名 `xcp_{ts}.mf4`
-- [ ] 实现：队列纪律照 XcpCardPanelSink 先例；MF4 时间通道（ReceivedAt UTC ns）+ 每对象原始值通道（通道名=ObjectName，注释=类别）
-- [ ] 记录状态出站口：已写条数/丢条数/时长（VM 消费）
+- [x] 测试先红 → 9/9 绿（队列纪律 5 + 写入器结构 4：ID/块链/cycles 回写/UnFinMF 崩溃语义）
+- [x] 实现：XcpMdfRecordSink（有界队列 DropOldest + 后台消费 + UnknownSampleCount + IsFaulted/LastError 故障面）+ Mdf4StreamWriter（自研未压缩 MDF 4.10：**DG-per-object + DL 数据列表流式追加**，DT 16MB 分块，Finalize 回写 cycles/flags）
+- [x] 记录状态出站口：WrittenCount/DroppedCount/Duration/FilePath/IsFaulted（VM 消费）；**asammdf 实测读回验证通过**（2 组 × 100 样本、数值/时间轴一致）
 
 ## T3 ContractSnapshot 附件（D2 后半，TDD）
 
@@ -63,5 +63,6 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 - MdfLibrary license/可用性不过 → T0 即回退自研（T2-T4 实现面换手写 MF4 写子集，接口面不变）
 - asammdf CI 不可用（python 依赖）→ 判据 1 拆模拟档（golden 字节断言）+ 真机人工档，待台架
 - 触发环内存：60 s × 1500 条/s × 8B ≈ 720 KB 量级，安全；按条率动态核算并在配置拒绝时提示
+
 
 
