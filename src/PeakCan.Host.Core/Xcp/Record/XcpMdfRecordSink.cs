@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using A2lEditor.Core.Layout;
 using PeakCan.Host.Core.Xcp.Receive;
 
 namespace PeakCan.Host.Core.Xcp.Record;
@@ -21,6 +22,9 @@ public sealed class XcpMdfRecordSinkOptions
 
     /// <summary>写入器工厂 seam（测试注入故障/替身；缺省 Mdf4StreamWriter）。</summary>
     public Func<string, IReadOnlyList<MdfChannelSpec>, IMdfRecordWriter>? WriterFactory { get; init; }
+
+    /// <summary>契约快照（spec D2：Start 时落 AT 附件，单文件自包含；null = 不落附件）。</summary>
+    public ContractSnapshot? ContractSnapshot { get; init; }
 }
 
 /// <summary>
@@ -110,6 +114,18 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
                 _writer = _options.WriterFactory(FilePath, _options.Channels);
             else
                 _writer = Mdf4StreamWriter.Create(FilePath, _options.Channels, startTimeUtc);
+
+            // S4-T3：契约快照 Start 即落附件（spec D2）——崩溃语义下 UnFinMF 抢救
+            // 文件同样带得上快照；附件写失败视同启动失败，不静默。
+            if (_options.ContractSnapshot is { } snapshot)
+            {
+                var comment =
+                    $"contractSchemaVersion={snapshot.ContractSchemaVersion}; packageVersion={snapshot.PackageVersion}";
+                await _writer!.WriteAttachmentAsync(
+                    "application/json", comment,
+                    System.Text.Encoding.UTF8.GetBytes(ContractSnapshotCodec.Encode(snapshot)),
+                    ct).ConfigureAwait(false);
+            }
 
             _startedUtc = startTimeUtc;
             _stoppedUtc = null;

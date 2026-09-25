@@ -44,6 +44,7 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
     private readonly long[] _openDt;     // 当前未封口的 DT 块偏移（0 = 无）
     private readonly long[] _dtPayload;  // 当前 DT 已写载荷
     private readonly int[] _dlSlot;      // 当前 DL 槽位游标
+    private long _atTail;    // 附件链尾（0 = 链空）
     private long _total;
     private bool _finalized;
     private bool _disposed;
@@ -113,6 +114,59 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
         _bufferLens[channelIndex] = off + 16;
         _counts[channelIndex]++;
         Interlocked.Increment(ref _total);
+    }
+
+    /// <summary>
+    /// 追加附件块（S4-T3：ContractSnapshot JSON 落 ATBLOCK，spec D2 单文件自包含）。
+    /// 写子集只支持嵌入式未压缩附件；mime/comment 落 TX 块。多附件沿 at_next 串链，
+    /// 链首回写 HD.at。附件走文件尾追加，与 DT 流式追加互不干扰（都按文件长度寻址）。
+    /// </summary>
+    public async Task WriteAttachmentAsync(string mimeType, string comment, ReadOnlyMemory<byte> data, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_finalized)
+            throw new InvalidOperationException("Finalize 后不可再写附件");
+        ArgumentException.ThrowIfNullOrWhiteSpace(mimeType);
+
+        _stream.Seek(0, SeekOrigin.End);
+        var mimeAddr = WriteTx(mimeType);
+        var commentAddr = comment.Length == 0 ? 0L : WriteTx(comment);
+
+        // ATBLOCK 数据区按 MDF 4.1 spec（asammdf 8.8.27 实测解析口径）：
+        // 头(24) + 4 links + flags(2) + creator_index(2) + zip_type(2) + path_syntax(1)
+        // + reserved1(1) + md5(16) + original_size(8) + embedded_size(8) = 96，数据 @96。
+        const int dataOffset = 96;
+        var blockLen = (dataOffset + data.Length + 7) & ~7;
+
+        var at = new byte[blockLen];
+        WriteBlockHead(at, "##AT", blockLen, 4);
+        // links @24: next / file_name(0=embedded) / mime / comment
+        BinaryPrimitives.WriteUInt64LittleEndian(at.AsSpan(32, 8), 0UL);
+        BinaryPrimitives.WriteUInt64LittleEndian(at.AsSpan(40, 8), (ulong)mimeAddr);
+        BinaryPrimitives.WriteUInt64LittleEndian(at.AsSpan(48, 8), (ulong)commentAddr);
+        // flags(2)=embedded(0x1)|md5_valid(0x4)；快照自带 SHA-256 指纹，md5 作附件级完整性冗余。
+        BinaryPrimitives.WriteUInt16LittleEndian(at.AsSpan(56, 2), 0x0005);
+        BinaryPrimitives.WriteUInt16LittleEndian(at.AsSpan(58, 2), 0);  // creator_index
+        BinaryPrimitives.WriteUInt16LittleEndian(at.AsSpan(60, 2), 0);  // zip_type（未压缩）
+        // MDF 4.1 ATBLOCK mandates MD5 as the attachment checksum (integrity, not security).
+#pragma warning disable CA5351
+        System.Security.Cryptography.MD5.HashData(data.Span).CopyTo(at.AsSpan(64, 16));
+#pragma warning restore CA5351
+        BinaryPrimitives.WriteUInt64LittleEndian(at.AsSpan(80, 8), (ulong)data.Length);
+        BinaryPrimitives.WriteUInt64LittleEndian(at.AsSpan(88, 8), (ulong)data.Length);
+        data.Span.CopyTo(at.AsSpan(dataOffset, data.Length));
+
+        var atOffset = _stream.Position;
+        await _stream.WriteAsync(at, ct).ConfigureAwait(false);
+
+        // 链接回写：链首挂 HD.at（hd+24+3*8），后续沿上一附件的 at_next 串链。
+        var linkAddr = _atTail == 0 ? 64 + 24 + 3 * 8 : _atTail + 24;
+        _stream.Seek(linkAddr, SeekOrigin.Begin);
+        var link = new byte[8];
+        BinaryPrimitives.WriteUInt64LittleEndian(link, (ulong)atOffset);
+        await _stream.WriteAsync(link, ct).ConfigureAwait(false);
+        _atTail = atOffset;
+        _stream.Seek(0, SeekOrigin.End);
     }
 
     /// <summary>收尾：缓冲落盘 → 封口未满 DT → 回写 DL count / CG cycles → 翻转 ID 终态。幂等。</summary>

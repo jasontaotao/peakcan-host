@@ -26,7 +26,7 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T3 ContractSnapshot 附件（D2 后半，TDD）
 
-- [ ] 测试先红：ExportSnapshot JSON 落 AT 附件块；读回 JSON → `ImportSnapshot` 还原 ContractSet（判据 2）
+- [x] 测试先红：ExportSnapshot JSON 落 AT 附件块；读回 JSON → `ImportSnapshot` 还原 ContractSet（判据 2）
 - [ ] 实现：Stop 时（或 Start 时）写附件；附件注释带 contractSchemaVersion + packageVersion
 
 ## T4 invalidation bits + 归因事件组（D3/Q1，TDD）

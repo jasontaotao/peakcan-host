@@ -281,6 +281,9 @@ internal sealed class ExplodingWriter : IMdfRecordWriter
     public Task WriteRecordAsync(int channelIndex, double timeSeconds, double value, CancellationToken ct = default) =>
         throw new IOException("disk exploded");
 
+    public Task WriteAttachmentAsync(string mimeType, string comment, ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
+        throw new IOException("disk exploded");
+
     public Task FinalizeAsync(CancellationToken ct = default) => throw new IOException("disk exploded");
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
