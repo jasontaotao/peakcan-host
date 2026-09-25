@@ -33,11 +33,17 @@ public class XcpAppLayeringTests
     [Fact]
     public void App_assembly_does_not_directly_reference_peak_can_driver_packages()
     {
-        // 直接引用面检查（补充线）：csproj 里"只引用不用"的脏引用也要拦——
+        // 直接引用面检查（补充线，T10 评审 MEDIUM-1 措辞修正）：拦的是"实际使用
+        // Peak.Can.* 类型"的编译期引用——Roslyn 只对实际使用的程序集发射 AssemblyRef，csproj
+        // 里"只引用不用"的 PackageReference 不会出现在这里，那条由 csproj 审计兜，本断言不覆盖。
         // Peak.Can.* 是 PCAN 驱动包，App 只准经 Infrastructure 摸硬件。
         var refs = AppAssembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
 
         Assert.DoesNotContain(refs, n => n.StartsWith("Peak.Can", StringComparison.Ordinal));
+
+        // T10 评审 MEDIUM-1：正向机器锚点——App 确实引用 PeakCan.Host.Core（App.csproj
+        // 事实），Contains 命中证明 refs 列表机器存活，(a) 的 DoesNotContain 才有检错力。
+        Assert.Contains(refs, n => n.StartsWith("PeakCan.Host.Core", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -66,7 +72,7 @@ public class XcpAppLayeringTests
         var encoder = "PeakCan.Host.Core.Xcp.Protocol.XcpCommandEncoder";
 
         // 宾语锚点：Encoder 在 Protocol 命名空间且公开存在，禁令宾语未漂移。
-        Assert.Equal("PeakCan.Host.Core.Xcp.Protocol", typeof(XcpPid).Namespace);
+        Assert.Equal("PeakCan.Host.Core.Xcp.Protocol", typeof(PeakCan.Host.Core.Xcp.Protocol.XcpCommandEncoder).Namespace);
 
         // 机制锚点（非空守卫）：App XCP 采集面板确实依赖 Core.Xcp.Scheduling
         //（XcpAcquisitionSession 是当前事实）——依赖检测机器坏了这里先炸，
