@@ -129,12 +129,21 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(AttributionCell));
         UpdateCanStart();
+        // T8 评审移交（T10 落地）：Connected 态禁用 LoadA2L 的门下沉到 VM
+        // CanExecute——视图层 IsEnabled 只覆盖单按钮实例，VM 层门对任何
+        // 未来命令宿主（快捷键/菜单/第二视图）同样生效。
+        LoadA2LCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedChannelChanged(HilViewModel.ConnectedChannel? value) => UpdateCanStart();
 
-    /// <summary>加载 A2L 声明侧（成功 → Loaded；三类失败均只进状态区，不裸抛）。</summary>
-    [RelayCommand]
+    /// <summary>
+    /// 加载 A2L 声明侧（成功 → Loaded；三类失败均只进状态区，不裸抛）。
+    /// <para>T8 评审移交（T10）：Connected 态 CanExecute=false——重载成功会把
+    /// 状态降回 Loaded，归因格存在说谎窗口期（T3 评审 LOW-3）。主门在 VM
+    ///（CanExecute），XcpView 的 DataTrigger 保留作视图层双保险。</para>
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanLoadA2l))]
     private void LoadA2L()
     {
         var path = A2lPath;
@@ -194,6 +203,9 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
     /// XCP CONNECT 成功回调（生产者：T7 采集生命周期；连接面板自身不发起连接）。
     /// </summary>
     public void MarkConnected() => ConnectionState = XcpConnectionState.Connected;
+
+    // T10：LoadA2L 的 CanExecute 门（Connected 态禁用，防归因格说谎窗口期）。
+    private bool CanLoadA2l() => ConnectionState != XcpConnectionState.Connected;
 
     /// <summary>
     /// 断开回调（T7 Stop / 通道快照清空时驱动）。A2L 仍有效（LoadedResult 非空）→

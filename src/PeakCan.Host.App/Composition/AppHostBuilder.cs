@@ -353,9 +353,14 @@ public partial class AppHostBuilder
             new PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>(),
                 stalePeriod: TimeSpan.FromMilliseconds(100)));
-        // T3 连接面板：可空可选参 auto-resolve——loadA2l 缺省 Core XcpA2lLoader.Load（D4 单源），
-        // connectedChannels 解析 IConnectedChannelsSource singleton（Q2 已连接通道快照）。
-        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+        // T3 连接面板（T8 评审移交 T10 落地）：显式工厂——loadA2l 显式传
+        // Core XcpA2lLoader.Load（D4 单源），防止未来注册 Func<string, XcpA2lLoadResult>
+        // 时被可选参 auto-resolve 静默顶掉默认 loader；connectedChannels 解析
+        // IConnectedChannelsSource singleton（Q2 已连接通道快照）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel(
+                loadA2l: PeakCan.Host.Core.Xcp.Capability.XcpA2lLoader.Load,
+                connectedChannels: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>()));
         // T6 归因面板：ctor 注入卡片面板即完成 GapObserved 接力订阅（Attach 幂等）。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAttributionPanelViewModel>();
         // T7 采集面板：显式工厂转发连接面板 + 卡片 sink（MS DI 工厂不回填可选参，

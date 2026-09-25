@@ -26,6 +26,9 @@
          offline J1939TpLayer ctor (same package Core.Tests uses). -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- S3-T10: App 层架构守卫（XcpAppLayeringTests）——包版本走 Directory.Packages.props，
+         与 Core.Tests 的 XcpLayeringTests 同一先例。 -->
+    <PackageReference Include="NetArchTest.Rules" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />

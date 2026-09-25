@@ -386,4 +386,80 @@ public class XcpConnectionPanelViewModelTests : IDisposable
 
         vm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
     }
+
+    // ------------------------------------------------------------------
+    // (d) T10 L2 下沉：LoadA2LCommand CanExecute 门（Connected 态禁用，
+    //     T3 评审 LOW-3 / T8 评审移交）。视图 DataTrigger 保留作双保险。
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void LoadA2LCommand_executable_before_connection()
+    {
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(LoadedResultWith()));
+
+        vm.LoadA2LCommand.CanExecute(null)
+            .Should().BeTrue("Disconnected 态必须允许加载 A2L");
+    }
+
+    [Fact]
+    public void LoadA2LCommand_disabled_in_connected_state()
+    {
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(LoadedResultWith()));
+        vm.A2lPath = TempA2lFile();
+        vm.LoadA2LCommand.Execute(null);
+        vm.ConnectionState.Should().Be(XcpConnectionState.Loaded);
+        vm.LoadA2LCommand.CanExecute(null).Should().BeTrue();
+
+        vm.MarkConnected();
+
+        // 门下沉 VM 后对所有命令宿主生效（原视图 DataTrigger 只覆盖单按钮实例）。
+        // 注：CommunityToolkit 的 ICommand.Execute 本身不查 CanExecute，门由
+        // 命令宿主（WPF 按钮/快捷键）执行前查询——本测试钉的是 CanExecute 语义。
+        vm.LoadA2LCommand.CanExecute(null)
+            .Should().BeFalse("Connected 态重载成功会把状态降回 Loaded——归因格说谎窗口期");
+    }
+
+    [Fact]
+    public void LoadA2LCommand_disabled_even_when_connected_without_loaded_a2l()
+    {
+        // 边角：未加载 A2L 直接 MarkConnected（通道快照驱动的连接路径）同样禁用。
+        var vm = new XcpConnectionPanelViewModel();
+
+        vm.MarkConnected();
+
+        vm.LoadA2LCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void LoadA2LCommand_re_enabled_after_disconnect()
+    {
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(LoadedResultWith()));
+        vm.A2lPath = TempA2lFile();
+        vm.LoadA2LCommand.Execute(null);
+        vm.MarkConnected();
+        vm.LoadA2LCommand.CanExecute(null).Should().BeFalse();
+
+        // T3 评审 MEDIUM-1：A2L 仍有效 → 回 Loaded，重载必须重新可用（D6：Stop
+        // 不要求重载 A2L，禁用门不得把用户推进死胡同）。
+        vm.MarkDisconnected();
+
+        vm.ConnectionState.Should().Be(XcpConnectionState.Loaded);
+        vm.LoadA2LCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void LoadA2LCommand_notifies_can_execute_changed_on_state_transitions()
+    {
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(LoadedResultWith()));
+        var notifications = 0;
+        vm.LoadA2LCommand.CanExecuteChanged += (_, _) => notifications++;
+
+        vm.MarkConnected();
+        var afterConnect = notifications;
+
+        vm.MarkDisconnected();
+
+        afterConnect.Should().BeGreaterThan(0, "进入 Connected 必须通知命令宿主重查 CanExecute");
+        notifications.Should().BeGreaterThan(afterConnect, "退出 Connected 也必须通知");
+    }
 }

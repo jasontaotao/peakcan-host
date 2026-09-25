@@ -32,8 +32,9 @@
                              Margin="0,0,4,0"
                              ToolTip="A2L 文件路径（D4：Core XcpA2lLoader 单源加载）" />
                     <Button Grid.Column="1" Content="浏览..." Click="OnBrowseA2l" Margin="0,0,4,0" />
-                    <!-- T3 评审 LOW-3 移交：Connected 态禁用重载——重载成功会把状态降回
-                         Loaded，归因格存在说谎窗口期。门走视图层触发器（T8 不改 T3 文件）。 -->
+                    <!-- T3 评审 LOW-3 移交 + T10：Connected 态禁用重载——重载成功会把状态降回
+                         Loaded，归因格存在说谎窗口期。主门已下沉 VM CanExecute（T8 评审移交），
+                         本 DataTrigger 保留作视图层双保险（IsEnabled 只覆盖单按钮实例）。 -->
                     <Button Grid.Column="2" Content="加载 A2L"
                             Command="{Binding Connection.LoadA2LCommand}" Margin="0,0,12,0">
                         <Button.Style>

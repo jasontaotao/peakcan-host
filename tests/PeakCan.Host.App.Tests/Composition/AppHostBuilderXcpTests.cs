@@ -4,8 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Tests.Collections;
+using PeakCan.HIL.Core;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Xcp;
+using PeakCan.Host.Core.Xcp.Capability;
 using PeakCan.Host.App.Views.Xcp;
 using PeakCan.Host.Core.Xcp.Receive;
 using Xunit;
@@ -150,6 +152,38 @@ public class AppHostBuilderXcpTests
             view.Should().BeOfType<XcpView>();
             ((XcpView)view).DataContext.Should().BeSameAs(xcp);
         });
+    }
+
+    [Fact]
+    public void Build_Binds_ConnectionPanel_To_Core_XcpA2lLoader_Explicitly()
+    {
+        using var host = new AppHostBuilder().Build();
+        var vm = host.Services.GetRequiredService<XcpConnectionPanelViewModel>();
+
+        // T8 评审移交（T10 L4）：连接面板必须显式绑定 Core XcpA2lLoader.Load（D4 单源）
+        // ——显式工厂防止未来注册 Func<string, XcpA2lLoadResult> 被可选参 auto-resolve
+        // 静默顶掉默认 loader。
+        var field = typeof(XcpConnectionPanelViewModel)
+            .GetField("_loadA2l", BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull("loadA2l 是组合根显式接线项，必须有可断言的存储位");
+        var bound = (Func<string, XcpA2lLoadResult>)field!.GetValue(vm)!;
+        bound.Method.DeclaringType.Should().Be(typeof(PeakCan.Host.Core.Xcp.Capability.XcpA2lLoader));
+        bound.Method.Name.Should().Be(nameof(PeakCan.Host.Core.Xcp.Capability.XcpA2lLoader.Load));
+    }
+
+    [Fact]
+    public void Build_ConnectionPanel_Wires_ConnectedChannels_Snapshot()
+    {
+        using var host = new AppHostBuilder().Build();
+        var sp = host.Services;
+        var source = sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>();
+        var channel = new HilViewModel.ConnectedChannel(Handle: 0x51, BaudRate.Can500kbps, Fd: false, Name: "USB1");
+        source.Publish(new[] { channel });
+
+        var vm = sp.GetRequiredService<XcpConnectionPanelViewModel>();
+
+        // T10 显式工厂必须同样转发 connectedChannels（Q2：通道唯一来源是快照）。
+        vm.Channels.Should().Contain(channel);
     }
 
     private static void AssertSingleton<T>(IServiceProvider sp) where T : class
