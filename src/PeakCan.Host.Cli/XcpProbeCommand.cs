@@ -41,6 +41,8 @@ public sealed record XcpProbeOptions(
 /// 退出码：0 = 对账允许启动；1 = 对账拒绝（事实清单仍输出——宁可不采不错采）；
 /// 2 = 用法/协议错误（由 Program 统一捕获）。
 /// 真机握手是 T19 人工验收项；CI 只跑模拟从机（Core.Tests 的 XcpVirtualSlave）。
+/// <para>S3-T7b（D7 裁决）：实测链已下沉 Core XcpCapabilityProber，本命令只装配
+/// master、转发调用并收尾 DISCONNECT——CLI 与 App VM 单源消费，零行为变化。</para>
 /// </para>
 /// </summary>
 public static class XcpProbeCommand
@@ -97,71 +99,29 @@ public static class XcpProbeCommand
         // ---- A2L 声明侧（按声明值走；能力对账不匹配即告警/拒绝，宁可不采不错采）----
         var declared = ParseDeclaration(options.A2LPath, out var validationNotes, out var document);
 
-        // ---- XCP 会话：CONNECT → 能力查询全链 ----
+        // ---- XCP 会话：CONNECT → 能力实测链（S3-T7b / D7：链路下沉 Core
+        // XcpCapabilityProber，CLI 与 App VM 同源消费；本命令只装配 master 与收尾断连）----
         var masterOptions = new XcpMasterOptions(
             new CanId(options.MasterCanIdRaw, FrameFormatOf(options.MasterCanIdRaw)),
             options.Timeout,
             options.MaxRetries);
-        using var session = new ProbeSession(transport, masterOptions);
+        using var master = new XcpMaster(transport, masterOptions);
+        var probe = await XcpCapabilityProber.ProbeAsync(master, options.MasterCanIdRaw, options.SlaveCanIdRaw, ct);
 
-        var connectBytes = await session.SendAsync(XcpCommandEncoder.Connect(), ct);
-        var connect = XcpResponseDecoder.Connect(connectBytes);
-
-        // ---- 能力查询全链：每个查询独立 try-catch（S2-T8 评审 Important-1）——
-        // 单个查询的解码异常/负响应只归因入清单，不终止探针；已捕获项照常入事实清单。
-        // 真机三条已钉死布局偏差（GET_DAQ_EVENT_INFO 7B / PROCESSOR_INFO 大端 / LIST_INFO 错位，
-        // 源码：从机固件 Xcp_Std.c，评审报告 S2-T8）由此存活下来，交 T19 台架核死。
-        var queryFailures = new List<XcpProbeQueryFailure>();
-        var (commMode, commModeOk) = await TryQueryAsync(
-            session, XcpCommandEncoder.GetCommModeInfo(), "GET_COMM_MODE_INFO",
-            static bytes => XcpResponseDecoder.GetCommModeInfo(bytes), queryFailures, ct);
-        var (processor, processorOk) = await TryQueryAsync(
-            session, XcpCommandEncoder.GetDaqProcessorInfo(), "GET_DAQ_PROCESSOR_INFO",
-            static bytes => XcpResponseDecoder.GetDaqProcessorInfo(bytes), queryFailures, ct);
-        var (resolution, resolutionOk) = await TryQueryAsync(
-            session, XcpCommandEncoder.GetDaqResolutionInfo(), "GET_DAQ_RESOLUTION_INFO",
-            static bytes => XcpResponseDecoder.GetDaqResolutionInfo(bytes), queryFailures, ct);
-        var (listInfo, listInfoOk) = await TryQueryAsync(
-            session, XcpCommandEncoder.GetDaqListInfo(daqListNumber: 0), "GET_DAQ_LIST_INFO",
-            static bytes => XcpResponseDecoder.GetDaqListInfo(bytes), queryFailures, ct);
-        var (eventInfo, eventInfoOk) = await TryQueryAsync(
-            session, XcpCommandEncoder.GetDaqEventInfo(eventChannel: 0), "GET_DAQ_EVENT_INFO",
-            static bytes => XcpResponseDecoder.GetDaqEventInfo(bytes), queryFailures, ct);
-
-        // ---- OPTIONAL_CMD 逐命令探测（只发良性/0 效应帧，见 ProbeMutableCommands）----
-        // 信息类命令：仅本次查询实际得到正响应的才计入实测支持集（失败项不得冒充）。
-        List<string> infoCommandSupport = [];
-        if (commModeOk) infoCommandSupport.Add("GET_COMM_MODE_INFO");
-        if (processorOk) infoCommandSupport.Add("GET_DAQ_PROCESSOR_INFO");
-        if (resolutionOk) infoCommandSupport.Add("GET_DAQ_RESOLUTION_INFO");
-        if (listInfoOk) infoCommandSupport.Add("GET_DAQ_LIST_INFO");
-        if (eventInfoOk) infoCommandSupport.Add("GET_DAQ_EVENT_INFO");
-        var measuredCommands = await ProbeOptionalCommandsAsync(session, infoCommandSupport, ct);
+        var connect = probe.Connect;
+        var commMode = probe.CommMode;
+        var processor = probe.Processor;
+        var resolution = probe.Resolution;
+        var listInfo = probe.ListInfo;
+        var eventInfo = probe.EventInfo;
+        var measured = probe.Measured;
+        var measuredCommands = measured.OptionalCommands;
+        var queryFailures = probe.QueryFailures
+            .Select(f => new XcpProbeQueryFailure(f.Command, f.ExceptionType, f.Marker))
+            .ToList();
 
         // 收尾断连：强制命令，不入对账（A2L OPTIONAL_CMD 不含 CONNECT/DISCONNECT）。
-        XcpResponseDecoder.Disconnect(await session.SendAsync(XcpCommandEncoder.Disconnect(), ct));
-
-        // ---- 实测能力：全部值来自响应解码 / 线上帧长观察，禁止散写期望值 ----
-        // ASAM XCP Part 1 标准布局（Xcp_Std.c:191-198 一致，round-3 修正：早先“真机非标准”
-        // 口径作废）：[FF, RESOURCE, COMM_MODE_BASIC, MAX_CTO, MAX_DTO(LSB,MSB), PROTO_VER, TRANSPORT_VER]。
-        // 事实清单取值：MaxCto = 观察到的最大响应帧长；MaxDto = spec 常量 8B，非实测（T19 抓包回填）。
-        var measured = new XcpMeasuredCapabilities(
-            MaxDaq: processor.MaxDaq,
-            MaxEventChannel: processor.MaxEventChannel,
-            MinDaq: processor.MinDaq,
-            MaxOdt: listInfo.MaxOdt,
-            MaxCto: (byte)Math.Max(session.MaxObservedResponseLength, 1),
-            MaxDto: (byte)XcpCtoFrame.MaxByteLength,
-            MaxOdtEntrySizeDaq: resolution.MaxOdtEntrySizeDaq,
-            // 事件周期只经 XcpWireTimeUnit（线上表 0=1ns 起）换算成 µs；换不出（亚微秒档/
-            // 周期未知/表外编号）= null = 对账拒绝（宁缺不猜，spec §1 TIME_UNIT 坑）。
-            EventPeriodMicroseconds: XcpWireTimeUnit.TryConvertMicroseconds(
-                eventInfo.EventCycle, eventInfo.EventChannelTimeUnit, out var measuredPeriodUs)
-                ? measuredPeriodUs
-                : null,
-            OptionalCommands: measuredCommands,
-            SlaveCanIdRaw: options.SlaveCanIdRaw,
-            MasterCanIdRaw: options.MasterCanIdRaw);
+        XcpResponseDecoder.Disconnect(await master.SendAsync(XcpCommandEncoder.Disconnect(), ct));
 
         var reconciliation = XcpCapabilityReconciler.Reconcile(declared, validationNotes, measured);
 
@@ -234,78 +194,6 @@ public static class XcpProbeCommand
             Status: "degraded-package-has-no-bit-model");
     }
 
-    /// <summary>
-    /// OPTIONAL_CMD 逐命令探测。XCP 没有"支持命令清单"响应——标准做法是逐命令发
-    /// 良性参数帧，按 ERR_CMD_UNKNOWN 判定不支持；其他负响应（参数被拒等）仍算
-    /// 命令存在。全部探测帧 0 效应：地址 0 读、DAQ 未运行态的配置/停表。
-    /// DOWNLOAD 用 0 字节请求（BYTE_COUNT=0，无数据可写）——探针绝不产生真实写流量
-    /// （spec 决策 D2 的禁用语义同样约束探针）。
-    /// </summary>
-    private static async Task<List<string>> ProbeOptionalCommandsAsync(
-        ProbeSession session, List<string> supported, CancellationToken ct)
-    {
-        foreach (var (name, frame) in MutableCommandProbes())
-        {
-            try
-            {
-                _ = await session.SendAsync(frame, ct);
-            }
-            catch (XcpErrorResponseException ex) when (ex.Response.Code == XcpError.CmdUnknown)
-            {
-                continue;
-            }
-            catch (XcpErrorResponseException)
-            {
-                // 其他负响应（参数被拒等）仍算命令存在——原实现会把这类异常漏出探针，
-                // 违反本文档语义（S2-T8 评审 Important-1 一并修正）。
-            }
-
-            supported.Add(name);
-        }
-
-        return supported;
-    }
-
-    /// <summary>单个能力查询失败归因（异常类型 + 预期偏差标记）。</summary>
-    private const string ExpectedDeviationMarker = "expected-deviation";
-
-    /// <summary>
-    /// 单个能力查询 + 解码的独立异常边界（S2-T8 评审 Important-1）：解码异常/负响应/
-    /// 超时不终止探针——按 (命令, 异常类型, 预期偏差标记) 归因入清单，返回类型默认值。
-    /// OperationCanceledException（外部取消）不吞。
-    /// </summary>
-    private static async Task<(T Value, bool Ok)> TryQueryAsync<T>(
-        ProbeSession session,
-        XcpCtoFrame command,
-        string commandName,
-        Func<byte[], T> decode,
-        List<XcpProbeQueryFailure> failures,
-        CancellationToken ct)
-    {
-        try
-        {
-            var response = await session.SendAsync(command, ct);
-            return (decode(response), true);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            failures.Add(new XcpProbeQueryFailure(commandName, ex.GetType().Name, ExpectedDeviationMarker));
-            return (default!, false);
-        }
-    }
-
-    private static IEnumerable<(string Name, XcpCtoFrame Frame)> MutableCommandProbes()
-    {
-        yield return ("SET_MTA", XcpCommandEncoder.SetMta(0x00, 0x00000000));
-        yield return ("UPLOAD", XcpCommandEncoder.Upload(1));
-        yield return ("SHORT_UPLOAD", XcpCommandEncoder.ShortUpload(1, 0x00000000, 0x00));
-        yield return ("DOWNLOAD", new XcpCtoFrame(new byte[] { XcpPid.Download, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
-        yield return ("SET_DAQ_PTR", XcpCommandEncoder.SetDaqPtr(0x00, 0x00000000));
-        yield return ("WRITE_DAQ", XcpCommandEncoder.WriteDaq(0, 1, 0x00, 0x00000000));
-        yield return ("CLEAR_DAQ_LIST", XcpCommandEncoder.ClearDaqList(0x00, 0));
-        yield return ("START_STOP_DAQ_LIST", XcpCommandEncoder.StartStopDaqList(0x00, 0));
-        yield return ("START_STOP_SYNCH", XcpCommandEncoder.StartStopSynch());
-    }
 
     private static XcpProbeReport BuildReport(
         XcpProbeOptions options,
@@ -317,7 +205,7 @@ public static class XcpProbeCommand
         XcpGetDaqListInfoResponse listInfo,
         XcpGetDaqEventInfoResponse eventInfo,
         XcpMeasuredCapabilities measured,
-        List<string> measuredCommands,
+        IReadOnlyList<string> measuredCommands,
         XcpCapabilityReport reconciliation,
         XcpProbeBitfieldStatisticsFacts bitfieldStatistics,
         List<XcpProbeQueryFailure> queryFailures)
@@ -395,28 +283,6 @@ public static class XcpProbeCommand
         return args[i];
     }
 
-    /// <summary>XcpMaster 会话 + 线上响应帧长观察（MAX_CTO 的观察派生来源）。</summary>
-    private sealed class ProbeSession : IDisposable
-    {
-        private readonly XcpMaster _master;
-
-        public ProbeSession(IXcpTransport transport, XcpMasterOptions options)
-        {
-            _master = new XcpMaster(transport, options);
-        }
-
-        public int MaxObservedResponseLength { get; private set; }
-
-        public async Task<byte[]> SendAsync(XcpCtoFrame command, CancellationToken ct)
-        {
-            var response = await _master.SendAsync(command, ct);
-            if (response.Length > MaxObservedResponseLength)
-                MaxObservedResponseLength = response.Length;
-            return response;
-        }
-
-        public void Dispose() => _master.Dispose();
-    }
 }
 
 /// <summary>探针事实清单（机读 JSON，供 T19 台架回填 diff；camelCase 落盘）。</summary>

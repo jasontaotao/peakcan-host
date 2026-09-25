@@ -233,9 +233,27 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         private readonly List<CanFrame> _sentFrames = new();
         private readonly HashSet<byte> _silentPids = new();
 
-        public event Action<CanFrame>? FrameReceived;
+        // 事件定制（M3 测试）：ThrowOnEventSubscribe 时订阅即抛——模拟会话构造失败。
+        private event Action<CanFrame>? _frameReceived;
+        public event Action<CanFrame>? FrameReceived
+        {
+            add
+            {
+                if (ThrowOnEventSubscribe)
+                    throw new InvalidOperationException("simulated FrameReceived subscribe failure");
+                _frameReceived += value;
+            }
+            remove { _frameReceived -= value; }
+        }
+
         public long FramesDropped => 0;
         public bool Disposed { get; private set; }
+
+        /// <summary>事件订阅抛异常（M3：会话构造失败路径）。</summary>
+        public bool ThrowOnEventSubscribe { get; set; }
+
+        /// <summary>响应扣门（H1 并发占位测试）：置位前不派发响应帧（Start 停在实测链在途）。</summary>
+        public TaskCompletionSource? WriteGate { get; set; }
 
         /// <summary>写帧抛异常（模拟底层 channel 写失败路径）。</summary>
         public bool ThrowOnWrite { get; set; }
@@ -261,7 +279,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
             lock (_gate) _overrides[pid] = response;
         }
 
-        public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+        public async ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
         {
             if (ThrowOnWrite)
                 throw new InvalidOperationException("simulated channel write failure");
@@ -280,15 +298,18 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
                             ? golden
                             : new byte[] { XcpPid.PositiveResponse };
             }
-
             if (response is null)
-                return ValueTask.FromResult(Result<Unit>.Ok(default)); // 静默：不派发响应帧（超时语义）
+                return Result<Unit>.Ok(default); // 静默：不派发响应帧（超时语义）
 
-            FrameReceived?.Invoke(new CanFrame(
+            // H1 测试扣门：响应悬置，Start 停在实测链在途（占位被持有）。
+            if (WriteGate is not null)
+                await WriteGate.Task;
+
+            _frameReceived?.Invoke(new CanFrame(
                 SlaveCanId,
                 new ReadOnlyMemory<byte>(response),
                 FrameFlags.None, ChannelId.None, default));
-            return ValueTask.FromResult(Result<Unit>.Ok(default));
+            return Result<Unit>.Ok(default);
         }
 
         public ValueTask DisposeAsync()
@@ -506,6 +527,95 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
     }
 
     // ------------------------------------------------------------------
+    // (H1) 入口原子占位：并发第二个 StartAsync 立即拒绝（S3-T7b 评审修复）
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task Concurrent_second_start_is_rejected_while_first_start_is_in_flight()
+    {
+        var connection = ConnectionPanel(out _);
+        // 扣门 transport：CONNECT 响应悬置 → 第一次 StartAsync 停在实测链在途。
+        var transport = new ScriptedTransport
+        {
+            WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var vm = NewVm(connection, transport, FastPollingOptions());
+
+        var first = Task.Run(() => vm.StartAsync());
+        await WaitUntilAsync(() => transport.SentPids.Count > 0);
+
+        var second = await vm.StartAsync();
+
+        second.Should().BeFalse("H1：启动中（占位被持有）并发第二个 StartAsync 立即拒绝");
+        vm.IsAcquiring.Should().BeFalse("第一次尚未完成启动，IsAcquiring 尚未置位——占位门禁独立生效");
+        vm.StatusLines.Should().Contain(l => l.Contains("并发启动被拒绝"));
+
+        transport.WriteGate!.SetResult();
+        (await first).Should().BeTrue("两并发 StartAsync 恰一个成功");
+        vm.IsAcquiring.Should().BeTrue();
+        await vm.StopAsync();
+    }
+
+    [Fact]
+    public async Task Start_failure_releases_start_gate_so_next_start_can_proceed()
+    {
+        var connection = ConnectionPanel(out _);
+        var first = new ScriptedTransport();
+        // 篡改 MAX_DAQ → 第一次启动因对账拒绝失败（失败路径必须释放占位）。
+        first.OverrideResponse(XcpPid.GetDaqProcessorInfo, 0xFF, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00);
+        var second = new ScriptedTransport();
+        var queue = new Queue<ScriptedTransport>(new[] { first, second });
+        var vm = new XcpAcquisitionPanelViewModel(
+            connection: connection,
+            transportFactory: _ => queue.Dequeue(),
+            sessionOptions: FastPollingOptions());
+
+        (await vm.StartAsync()).Should().BeFalse("第一次启动因对账拒绝失败");
+        (await vm.StartAsync()).Should().BeTrue("H1：启动失败路径必须释放占位，否则后续 Start 永远被拒");
+        vm.IsAcquiring.Should().BeTrue();
+        await vm.StopAsync();
+    }
+
+    // ------------------------------------------------------------------
+    // (M3/L5) 会话构造失败释放 transport；拒绝路径清空旧覆盖清单（S3-T7b 评审修复）
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task Session_construction_failure_disposes_transport()
+    {
+        var connection = ConnectionPanel(out _);
+        // FrameReceived 订阅即抛 → XcpMaster 构造失败 → XcpAcquisitionSession 构造失败。
+        var transport = new ScriptedTransport { ThrowOnEventSubscribe = true };
+        var vm = NewVm(connection, transport);
+
+        (await vm.StartAsync()).Should().BeFalse();
+        vm.StatusLines.Should().Contain(l => l.Contains("会话构造失败"));
+        transport.Disposed.Should().BeTrue("M3：会话构造失败也必须释放已构造的 transport");
+        vm.IsAcquiring.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconciliation_reject_clears_previous_coverage_entries()
+    {
+        var connection = ConnectionPanel(out _);
+        var good = new ScriptedTransport();
+        var bad = new ScriptedTransport();
+        bad.OverrideResponse(XcpPid.GetDaqProcessorInfo, 0xFF, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00);
+        var queue = new Queue<ScriptedTransport>(new[] { good, bad });
+        var vm = new XcpAcquisitionPanelViewModel(
+            connection: connection,
+            transportFactory: _ => queue.Dequeue(),
+            sessionOptions: FastPollingOptions());
+
+        (await vm.StartAsync()).Should().BeTrue();
+        vm.CoverageEntries.Should().NotBeEmpty("先成功启动一次，让覆盖清单有旧数据");
+        await vm.StopAsync();
+
+        (await vm.StartAsync()).Should().BeFalse("第二次启动对账拒绝（MAX_DAQ 失配）");
+
+        vm.CoverageEntries.Should().BeEmpty("L5：对账拒绝路径必须清空旧覆盖清单");
+    }
+    // ------------------------------------------------------------------
     // 门禁 / 失败路径 / 审计证据补充（D6 生命周期语义内）
     // ------------------------------------------------------------------
 
@@ -650,19 +760,57 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         vm.IsAcquiring.Should().BeFalse();
     }
 
+    /// <summary>
+    /// S3-T7b（D7 裁决改断言）：原 T7 断言"DOWNLOAD 声明未探测 → 对账拒绝"，语义随
+    /// 实测链下沉 Core 改变——实测链含 0 字节 DOWNLOAD 良性探测（恰 1 次、BYTE_COUNT=0，
+    /// 从机零效应；良性探测 ≠ 写流量），声明 DOWNLOAD 的 A2L 对账放行。
+    /// </summary>
     [Fact]
-    public async Task Reconcile_rejects_download_declared_but_never_probed()
+    public async Task Download_declared_is_probed_exactly_once_with_zero_byte_count_and_reconciliation_passes()
     {
         var connection = ConnectionPanelWithLoaded(DefaultLoaded(declaresDownload: true), out _);
         var transport = new ScriptedTransport();
-        var vm = NewVm(connection, transport);
+        var vm = NewVm(connection, transport, FastPollingOptions());
 
-        (await vm.StartAsync()).Should().BeFalse();
-        vm.CapabilityReport!.RejectedStart.Should().BeTrue();
-        vm.CapabilityReport.Findings.Should().Contain(f =>
+        (await vm.StartAsync()).Should().BeTrue("D7：0 字节良性探测使 DOWNLOAD 进入实测集，对账放行");
+        vm.CapabilityReport!.RejectedStart.Should().BeFalse();
+        vm.CapabilityReport.Findings.Should().NotContain(f => f.Code == "COMMAND_DECLARED_NOT_MEASURED");
+
+        // Spy 断言：DOWNLOAD 恰 1 次，BYTE_COUNT=0（无数据可写）。
+        var downloads = transport.SentFrames.Where(f => f.Data.Span[0] == XcpPid.Download).ToList();
+        downloads.Should().HaveCount(1, "DOWNLOAD 良性探测恰一次（D7）");
+        downloads[0].Data.Span[1].Should().Be(0x00, "BYTE_COUNT=0：探测帧不含任何写数据");
+
+        await vm.StopAsync();
+    }
+
+    /// <summary>
+    /// 真机样本验收解锁（D7 / spec §4 验收判据 1）：App_merge_INCA.a2l 声明 DOWNLOAD
+    ///（15 条 OPTIONAL_CMD），实测链含 DOWNLOAD 后<b>对账必须通过</b>（本测试钉住）。
+    /// 缺省 loadA2l = Core XcpA2lLoader.Load（D4 单源），黄金样本从机 = spec §1 基线
+    ///（与 CLI probe 同源）。范围说明：只钉对账——真机全量 Plan/轮转的地址翻译 fail-loud
+    ///（未翻译轮询条目）是 planner/轮转层语义，归 T11 E2E 验收。
+    /// </summary>
+    [Fact]
+    public async Task Real_machine_a2l_with_download_declared_reconciliation_passes()
+    {
+        var realA2l = Path.Combine(AppContext.BaseDirectory, "TestData", "App_merge_INCA.a2l");
+        var loaded = XcpA2lLoader.Load(realA2l) as XcpA2lLoadResult.Loaded;
+        loaded.Should().NotBeNull("真机样本必须成功加载（A-4 声明 ID 偏差是对账告警，不是加载失败）");
+
+        var transport = new ScriptedTransport();
+        using var master = new XcpMaster(
+            transport, new XcpMasterOptions(new CanId(0x18FFF667, FrameFormat.Extended)));
+        // A-4 台架核实前占位（CLI probe 基线同口径）：声明 0x98FFF666/67 超 29 位（CanId
+        // 构造即拒绝），实测用实际基线 ID 0x18FFF667/66——差异由对账告警表达。
+        var probe = await XcpCapabilityProber.ProbeAsync(master, 0x18FFF667, 0x18FFF666);
+
+        var report = XcpCapabilityReconciler.Reconcile(loaded!.IfData, loaded.ValidationNotes, probe.Measured);
+        report.RejectedStart.Should().BeFalse("D7：DOWNLOAD 已实测，真机样本对账放行");
+        report.Findings.Should().NotContain(f =>
             f.Code == "COMMAND_DECLARED_NOT_MEASURED" && f.Message.Contains("0xF0"));
-        // DOWNLOAD 零入口（spec §1/T10 守卫）：全流程零 0xF0 帧，宁可拒绝不探测写命令。
-        transport.SentPids.Should().NotContain(XcpPid.Download);
+        probe.Measured.OptionalCommands.Should().Contain("DOWNLOAD");
+        transport.SentPids.Count(p => p == XcpPid.Download).Should().Be(1, "0 字节良性探测恰一次");
     }
 
     [Fact]
@@ -734,6 +882,12 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         connection.ConnectionState.Should().Be(XcpConnectionState.Loaded);
     }
 
+    /// <summary>
+    /// L1：CAN ID 实测自证说明——VM 把 XCP_ON_CAN 声明值原样传入 XcpCapabilityProber，
+    /// 实测 CAN ID = 声明值（自证），A-4 CAN_ID_MISMATCH 告警在 VM 路径退化为恒不触发
+    ///（声明与实际使用天然一致）；声明 vs 线上真实 ID 的独立核对归 CLI probe / T19 台架。
+    /// 本测试钉的是退化后的剩余保证：主站发送帧一律用声明 CAN ID。
+    /// </summary>
     [Fact]
     public async Task Master_frames_use_declared_can_id()
     {

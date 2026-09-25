@@ -29,9 +29,9 @@ namespace PeakCan.Host.App.ViewModels.Xcp;
 /// <para>
 /// 通道来源：T3 连接面板（Q2 定案，本面板不做连接控件）；transport 由
 /// <see cref="XcpCanTransport"/> 包装 ICanChannel（App 允许依赖 Infrastructure 先例）。
-/// 能力实测链（CONNECT/GET_DAQ_*_INFO/必要命令探测）照 XcpProbeCommand 的实测口径，
-/// 但<b>绝不探测 DOWNLOAD</b>（spec §1 DOWNLOAD 零入口，T10 守卫钉住）：A2L 声明
-/// DOWNLOAD 而从机实测清单缺它时对账会拒绝——宁可不采，不产生任何写流量。
+/// 能力实测链（S3-T7b / D7 裁决）：下沉 Core <see cref="PeakCan.Host.Core.Xcp.Capability.XcpCapabilityProber"/>
+/// 单源消费（CLI probe 同口径），含 0 字节 DOWNLOAD 良性探测（BYTE_COUNT=0，无数据可写，从机零效应——
+/// 良性探测 ≠ 写流量，"DOWNLOAD 零入口"约束的是写数据路径）。App 层零 XcpCommandEncoder 引用，T10 守卫自然成立。
 /// </para>
 /// </summary>
 public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposable
@@ -47,6 +47,13 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     private IXcpTransport? _transport;
     private CancellationTokenSource? _pollCts;
     private Task? _pollLoop;
+
+    /// <summary>
+    /// H1 启动占位（SemaphoreSlim Wait(0) 语义）：入口原子占位——"启动中"（对账/规划/
+    /// 轮转在途）与"运行中"都纳入门禁，并发第二个 StartAsync 立即拒绝；占位在退出
+    /// 路径必然释放（含启动失败）。
+    /// </summary>
+    private readonly SemaphoreSlim _startGate = new(1, 1);
 
     /// <summary>可空注入构造（沿 App VM 测试构造先例：无参可建、测试点零回归）。</summary>
     /// <param name="connection">T3 连接面板（LoadedResult / SelectedChannel / Mark*）。</param>
@@ -99,6 +106,27 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     [RelayCommand(CanExecute = nameof(CanStartAcquisition))]
     public async Task<bool> StartAsync()
     {
+        // H1：入口原子占位（Wait(0)，不等待）——并发第二个 StartAsync 立即拒绝；
+        // 占位由 finally 统一释放（含启动失败路径）。
+        if (!await _startGate.WaitAsync(0).ConfigureAwait(true))
+        {
+            ShowStatus("采集正在启动或运行中：并发启动被拒绝（占位门禁）。");
+            return false;
+        }
+
+        try
+        {
+            return await StartCoreAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _startGate.Release();
+        }
+    }
+
+    /// <summary>Start 主体（调用时已持有启动占位）。</summary>
+    private async Task<bool> StartCoreAsync()
+    {
         if (IsAcquiring)
         {
             ShowStatus("采集正在进行中：运行中禁止重 Start（先 Stop 再启动）。");
@@ -126,7 +154,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         }
         var onCan = loaded.IfData.OnCan[0];
 
-        IXcpTransport transport;
+        IXcpTransport? transport = null;
         XcpAcquisitionSession session;
         try
         {
@@ -138,6 +166,10 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         }
         catch (Exception ex)
         {
+            // M3（T7 评审）：会话构造失败也必须释放已构造的 transport（XcpMaster 事件
+            // 订阅失败等路径），否则底层 channel 包装泄漏。
+            if (transport is not null)
+                await transport.DisposeAsync().ConfigureAwait(true);
             ShowStatus($"无法启动采集：会话构造失败（{ex.GetType().Name}: {ex.Message}）。");
             return false;
         }
@@ -145,13 +177,23 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         try
         {
             // ---- ① 对账：CONNECT + 能力实测 vs A2L 声明（不匹配即停，宁可不采）----
-            var measured = await MeasureCapabilitiesAsync(session.Master, onCan, CancellationToken.None);
+            // S3-T7b（D7）：实测链改调 Core XcpCapabilityProber（含 0 字节 DOWNLOAD
+            // 良性探测，CLI probe 同源）；App 层 XcpCommandEncoder 引用清零。
+            // L1：实测 CAN ID = 本 VM 传入的声明值（自证）——A-4 CAN_ID_MISMATCH 告警
+            // 在 VM 路径退化为恒不触发（声明与实际使用天然一致）；声明 vs 线上真实 ID
+            // 的独立核对归 CLI probe / T19 台架。
+            var probe = await XcpCapabilityProber.ProbeAsync(
+                session.Master, onCan.MasterCanIdRaw, onCan.SlaveCanIdRaw, CancellationToken.None);
+            var measured = probe.Measured;
             var report = XcpCapabilityReconciler.Reconcile(
                 loaded.IfData, loaded.ValidationNotes, measured);
             CapabilityReport = report;
             if (report.RejectedStart)
             {
+                // L5（T7 评审）：拒绝路径必须清空旧覆盖清单——残留行会谎报本次采集覆盖面。
+                CoverageEntries.Clear();
                 ShowStatus(report.Findings);
+                AppendQueryFailures(probe.QueryFailures);
                 StatusLines.Add($"对账拒绝启动：{report.Findings.Count(f => f.Severity == XcpCapabilitySeverity.Reject)} 项硬约束不匹配。");
                 await DisposeSessionAsync(session, transport);
                 return false;
@@ -161,6 +203,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             StatusLines.Clear();
             foreach (var warning in report.Warnings)
                 StatusLines.Add($"[Warning] {warning.Code}: {warning.Message}");
+            AppendQueryFailures(probe.QueryFailures);
 
             // ---- ② Plan（纯规划；未翻译地址等 fail-loud 由 planner/轮转负责）----
             var plan = session.Plan(loaded.Contracts, AcquisitionPlan.Build(loaded.Document));
@@ -188,6 +231,8 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // L5（T7 评审）：失败路径同样清空旧覆盖清单，与对账拒绝口径一致。
+            CoverageEntries.Clear();
             StatusLines.Clear();
             StatusLines.Add($"无法启动采集：{ex.GetType().Name}: {ex.Message}");
             CapabilityReport = null;
@@ -220,7 +265,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             cts.Cancel();
         if (loop is not null)
         {
-            try { await loop.ConfigureAwait(false); }
+            try { await loop.ConfigureAwait(true); }
             catch { /* 静默收尾：循环内部已归因，Dispose 前 await 静默即可 */ }
         }
         cts?.Dispose();
@@ -233,105 +278,18 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     }
 
     // ------------------------------------------------------------------
-    // 对账：CONNECT + 能力实测（XcpProbeCommand 实测口径，零 DOWNLOAD 探测）
+    // 状态区辅助
     // ------------------------------------------------------------------
 
-    private async Task<XcpMeasuredCapabilities> MeasureCapabilitiesAsync(
-        XcpMaster master, XcpOnCan onCan, CancellationToken ct)
+    /// <summary>
+    /// L2（T7 评审）：实测链单项查询失败归因出站——XcpCapabilityProber 的归因清单
+    /// 原样转成状态区人读行（拒绝/放行两条路径都要浮出，不得静默）。
+    /// </summary>
+    private void AppendQueryFailures(IReadOnlyList<XcpCapabilityQueryFailure> failures)
     {
-        var maxObservedResponseLength = 0;
-        var measuredCommands = new List<string>();
-
-        async Task<byte[]> SendAsync(XcpCtoFrame command)
-        {
-            var response = await master.SendAsync(command, ct).ConfigureAwait(false);
-            if (response.Length > maxObservedResponseLength)
-                maxObservedResponseLength = response.Length;
-            return response;
-        }
-
-        // CONNECT 失败即断链：不进对账（无实测可比）。
-        _ = XcpResponseDecoder.Connect(await SendAsync(XcpCommandEncoder.Connect()).ConfigureAwait(false));
-
-        // 能力查询全链（probe 同口径）：单项失败不终止——用默认值进对账，
-        // 硬约束字段"实测缺"会以拒绝/失配形状浮出，绝不静默放行。
-        var (processor, okProcessor) = await TryQueryAsync(
-            SendAsync, XcpCommandEncoder.GetDaqProcessorInfo(), response => XcpResponseDecoder.GetDaqProcessorInfo(response));
-        if (okProcessor) measuredCommands.Add("GET_DAQ_PROCESSOR_INFO");
-        var (resolution, okResolution) = await TryQueryAsync(
-            SendAsync, XcpCommandEncoder.GetDaqResolutionInfo(), response => XcpResponseDecoder.GetDaqResolutionInfo(response));
-        if (okResolution) measuredCommands.Add("GET_DAQ_RESOLUTION_INFO");
-        var (listInfo, okList) = await TryQueryAsync(
-            SendAsync, XcpCommandEncoder.GetDaqListInfo(0), response => XcpResponseDecoder.GetDaqListInfo(response));
-        if (okList) measuredCommands.Add("GET_DAQ_LIST_INFO");
-        var (eventInfo, okEvent) = await TryQueryAsync(
-            SendAsync, XcpCommandEncoder.GetDaqEventInfo(0), response => XcpResponseDecoder.GetDaqEventInfo(response));
-        if (okEvent) measuredCommands.Add("GET_DAQ_EVENT_INFO");
-        var (_, okComm) = await TryQueryAsync(
-            SendAsync, XcpCommandEncoder.GetCommModeInfo(), response => XcpResponseDecoder.GetCommModeInfo(response));
-        if (okComm) measuredCommands.Add("GET_COMM_MODE_INFO");
-
-        // OPTIONAL_CMD 逐命令良性探测（probe 同款帧，0 效应）。
-        // DOWNLOAD 不探测：spec §1 DOWNLOAD 零入口——声明了 DOWNLOAD 的 A2L
-        // 会以 COMMAND_DECLARED_NOT_MEASURED 拒绝启动，这是设计内行为。
-        var probes = new (string Name, XcpCtoFrame Frame)[]
-        {
-            ("SET_MTA", XcpCommandEncoder.SetMta(0x00, 0x00000000)),
-            ("UPLOAD", XcpCommandEncoder.Upload(1)),
-            ("SHORT_UPLOAD", XcpCommandEncoder.ShortUpload(1, 0x00000000, 0x00)),
-            ("SET_DAQ_PTR", XcpCommandEncoder.SetDaqPtr(0x00, 0x00000000)),
-            ("WRITE_DAQ", XcpCommandEncoder.WriteDaq(0, 1, 0x00, 0x00000000)),
-            ("CLEAR_DAQ_LIST", XcpCommandEncoder.ClearDaqList(0x00, 0)),
-            ("START_STOP_DAQ_LIST", XcpCommandEncoder.StartStopDaqList(0x00, 0)),
-            ("START_STOP_SYNCH", XcpCommandEncoder.StartStopSynch()),
-        };
-        foreach (var (name, frame) in probes)
-        {
-            try
-            {
-                await SendAsync(frame).ConfigureAwait(false);
-            }
-            catch (XcpErrorResponseException ex) when (ex.Response.Code == XcpError.CmdUnknown)
-            {
-                continue; // 从机不支持该命令：不进实测清单，交对账按声明比对。
-            }
-
-            measuredCommands.Add(name);
-        }
-
-        return new XcpMeasuredCapabilities(
-            MaxDaq: processor.MaxDaq,
-            MaxEventChannel: processor.MaxEventChannel,
-            MinDaq: processor.MinDaq,
-            MaxOdt: listInfo.MaxOdt,
-            MaxCto: (byte)Math.Max(maxObservedResponseLength, 1),
-            MaxDto: (byte)XcpCtoFrame.MaxByteLength,
-            MaxOdtEntrySizeDaq: resolution.MaxOdtEntrySizeDaq,
-            EventPeriodMicroseconds: XcpWireTimeUnit.TryConvertMicroseconds(
-                eventInfo.EventCycle, eventInfo.EventChannelTimeUnit, out var measuredPeriodUs)
-                ? measuredPeriodUs
-                : null,
-            OptionalCommands: measuredCommands,
-            SlaveCanIdRaw: onCan.SlaveCanIdRaw,
-            MasterCanIdRaw: onCan.MasterCanIdRaw);
+        foreach (var failure in failures)
+            StatusLines.Add($"[ProbeFailure] {failure.Command}: {failure.ExceptionType} ({failure.Marker})");
     }
-
-    /// <summary>单项能力查询的独立异常边界（probe TryQueryAsync 同款语义：不终止链）。</summary>
-    private static async Task<(T Value, bool Ok)> TryQueryAsync<T>(
-        Func<XcpCtoFrame, Task<byte[]>> send,
-        XcpCtoFrame command,
-        Func<byte[], T> decode)
-    {
-        try
-        {
-            return (decode(await send(command).ConfigureAwait(false)), true);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (default!, false);
-        }
-    }
-
     // ------------------------------------------------------------------
     // 生命周期内部件
     // ------------------------------------------------------------------
@@ -356,8 +314,8 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         {
             while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(period, _timeProvider, ct).ConfigureAwait(false);
-                await session.PollBeatAsync(ct).ConfigureAwait(false);
+                await Task.Delay(period, _timeProvider, ct).ConfigureAwait(true);
+                await session.PollBeatAsync(ct).ConfigureAwait(true);
             }
         }
         catch (OperationCanceledException)
@@ -373,7 +331,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     {
         session?.Dispose();
         if (transport is not null)
-            await transport.DisposeAsync().ConfigureAwait(false);
+            await transport.DisposeAsync().ConfigureAwait(true);
     }
 
     private void ShowStatus(IEnumerable<XcpCapabilityFinding> findings)
@@ -394,15 +352,24 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         canIdRaw > 0x7FF ? FrameFormat.Extended : FrameFormat.Standard;
 
     /// <summary>
-    /// CA1001 收尾口：T8 AppHostBuilder 接线时作为 singleton 挂到应用关闭路径。
-    /// 会话仍在跑则同步排干 StopAsync（阻塞仅发生在应用关闭线程，采集命令层
-    /// 有界超时，不会无限等待）。
+    /// CA1001 收尾口：T8 AppHostBuilder 接线时作为 singleton 挂到应用关闭路径（Shutdown）。
+    /// H2 后 VM 内 await 全部 ConfigureAwait(true)（留在 Dispatcher）：Dispatcher 上下文下
+    /// 同步等待 StopAsync 会死锁（其延续需回到正被阻塞的 Dispatcher），故应用关闭路径
+    /// 采用 fire-and-forget 语义（丢弃返回的 Task——Stop 内部自持取消/释放流程，不依赖
+    /// 调用方 await）；无 SyncContext 的测试/控制台路径保持同步排干，便于断言。
     /// </summary>
     public void Dispose()
     {
-        
-        GC.SuppressFinalize(this);if (!IsAcquiring)
+        GC.SuppressFinalize(this);
+        if (!IsAcquiring)
             return;
+
+        if (SynchronizationContext.Current is not null)
+        {
+            _ = StopAsync(); // fire-and-forget（L3/T8 接线挂 Shutdown，见上注）。
+            return;
+        }
+
         StopAsync().GetAwaiter().GetResult();
     }
 }
