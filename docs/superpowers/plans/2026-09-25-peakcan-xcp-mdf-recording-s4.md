@@ -37,9 +37,9 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T5 App 记录面板（D5，TDD）
 
-- [ ] 测试先红：`XcpRecordPanelViewModel`——Start 记录门禁（采集未运行禁用）；Stop 记录；采集 Stop 自动先停记录；写盘故障 → 记录自停 + 状态区红字 + 采集不受影响；状态行（路径/条数/丢条/时长）
-- [ ] 实现 VM + `XcpView.xaml` 记录控件带 + 组合根注册（照 S3 XCP 面板先例）
-- [ ] 文件路径：默认会话目录，可浏览改选
+- [x] 测试先红：`XcpRecordPanelViewModel`——Start 记录门禁（采集未运行禁用）；Stop 记录；采集 Stop 自动先停记录；写盘故障 → 记录自停 + 状态区红字 + 采集不受影响；状态行（路径/条数/丢条/时长）
+- [x] 实现 VM + `XcpView.xaml` 记录控件带 + 组合根注册（照 S3 XCP 面板先例）
+- [x] 文件路径：默认会话目录，可浏览改选
 
 ## T6 触发记录 + 环形缓冲（D6，TDD）
 

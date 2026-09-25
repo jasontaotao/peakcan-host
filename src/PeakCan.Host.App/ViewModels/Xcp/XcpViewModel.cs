@@ -36,6 +36,9 @@ public sealed partial class XcpViewModel : ObservableObject
     /// <summary>T7 采集面板（Start/Stop、会话状态、覆盖清单）。</summary>
     public XcpAcquisitionPanelViewModel Acquisition { get; }
 
+    /// <summary>S4-T5 记录面板（MDF 记录控件区，spec D5）。</summary>
+    public XcpRecordPanelViewModel Record { get; }
+
     /// <summary>
     /// 可空注入构造（保既有 VM 测试构造模式：无参可建）。
     /// DI 路径四面板均为 singleton，经本构造原样组装（AppHostBuilderXcpTests 钉住）。
@@ -44,13 +47,18 @@ public sealed partial class XcpViewModel : ObservableObject
         XcpConnectionPanelViewModel? connection = null,
         XcpCardPanelViewModel? cards = null,
         XcpAttributionPanelViewModel? attribution = null,
-        XcpAcquisitionPanelViewModel? acquisition = null)
+        XcpAcquisitionPanelViewModel? acquisition = null,
+        XcpRecordPanelViewModel? record = null)
     {
         Connection = connection ?? new XcpConnectionPanelViewModel();
         Cards = cards ?? new XcpCardPanelViewModel();
         Attribution = attribution ?? new XcpAttributionPanelViewModel();
         // 缺省组装：采集面板接 T3 连接面板 + T5 卡片 sink（D3 管线同一实例）。
         Acquisition = acquisition ?? new XcpAcquisitionPanelViewModel(Connection, Cards.Sink);
+        // S4-T5：记录面板（D4 广播装配的记录 sink 由组合根注入；缺省自建测试面）。
+        Record = record ?? new XcpRecordPanelViewModel(Acquisition, Cards, Connection);
+        // D5：采集 Stop 先停记录（尾部样本落盘）——同一面板实例。
+        Acquisition.BeforeStopAsync ??= Record.StopBeforeAcquisitionAsync;
 
         // T6 接力：归因面板订阅卡片 GapObserved（幂等——DI 路径已在 ctor 订阅）。
         Attribution.Attach(Cards);

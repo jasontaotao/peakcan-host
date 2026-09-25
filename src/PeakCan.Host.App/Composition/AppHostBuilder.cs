@@ -363,12 +363,35 @@ public partial class AppHostBuilder
                 connectedChannels: sp.GetRequiredService<PeakCan.Host.App.Services.IConnectedChannelsSource>()));
         // T6 归因面板：ctor 注入卡片面板即完成 GapObserved 接力订阅（Attach 幂等）。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAttributionPanelViewModel>();
-        // T7 采集面板：显式工厂转发连接面板 + 卡片 sink（MS DI 工厂不回填可选参，
-        // 漏转发即生产静默裸跑——AppShell SecOC 三件套同款教训）。
+        // S4-T5（spec D4）：记录 sink singleton——MDF 记录文件落会话 recordings 目录。
+        builder.Services.AddSingleton<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>(sp =>
+            new PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink(
+                new PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSinkOptions
+                {
+                    Directory = System.IO.Path.Combine(AppContext.BaseDirectory, "recordings"),
+                }));
+        // S4-T5（spec D4 广播装配）：采集出站 = 广播 sink（卡片 sink + 记录 sink）。
+        // 记录未启用时记录 sink 入队恒 no-op（未记录态直返）——零行为变化。
+        builder.Services.AddSingleton(sp =>
+            new PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink(new PeakCan.Host.Core.Xcp.Receive.IXcpAcquisitionSink[]
+            {
+                sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>(),
+            }));
+        // S4-T5 记录面板：显式工厂转发广播装配的记录 sink + 面板三件。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>()));
+        // T7 采集面板：显式工厂转发连接面板 + 广播 sink（D4：卡片+记录 fan-out；
+        // MS DI 工厂不回填可选参，漏转发即生产静默裸跑——AppShell SecOC 三件套同款教训）。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>()));
+                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink>()));
+
         // Orchestrator：可空可选参 auto-resolve 四面板 singleton 原样组装。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>();
         // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync

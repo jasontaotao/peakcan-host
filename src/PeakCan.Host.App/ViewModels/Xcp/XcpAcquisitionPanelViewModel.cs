@@ -242,6 +242,12 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     }
 
     /// <summary>
+    /// S4-T5（spec D5）：StopAsync 入口回调——先停记录再停采集，保证尾部样本落盘。
+    /// 组合根/编排器接线到记录面板的 StopBeforeAcquisitionAsync；null = 无前置动作。
+    /// </summary>
+    public Func<Task>? BeforeStopAsync { get; set; }
+
+    /// <summary>
     /// D6 Stop：停表（取消轮询并 await 会话静默——S2 gate/quiesce 契约的调用侧义务）
     /// → Dispose 会话 → MarkDisconnected。幂等：未启动时调用直接返回。
     /// </summary>
@@ -250,6 +256,9 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     {
         if (!IsAcquiring)
             return;
+
+        if (BeforeStopAsync is { } beforeStop)
+            await beforeStop().ConfigureAwait(true);
 
         IsAcquiring = false;
         var cts = _pollCts;

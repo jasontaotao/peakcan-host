@@ -63,12 +63,9 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         if (options.QueueCapacity < 1)
             throw new ArgumentOutOfRangeException(nameof(options), "QueueCapacity 必须 ≥ 1");
-        if (options.Channels.Count == 0)
-            throw new ArgumentException("通道清单不能为空", nameof(options));
+        // Channels 允许为空：S4-T5 组合根在 Start 时按关注集给定通道清单（运行期动态）。
         _options = options;
         _channelIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (var i = 0; i < options.Channels.Count; i++)
-            _channelIndexByName.TryAdd(options.Channels[i].Name, i);
     }
 
     /// <summary>记录文件全路径（Start 后非空）。</summary>
@@ -97,10 +94,29 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
         ? TimeSpan.Zero
         : (_stoppedUtc ?? DateTimeOffset.UtcNow) - _startedUtc.Value;
 
-    /// <summary>开始记录：落元数据块 + 启动后台写线程。</summary>
-    public async Task StartAsync(DateTimeOffset startTimeUtc, CancellationToken ct = default)
+    /// <summary>开始记录（用 options.Channels / options.ContractSnapshot）。</summary>
+    public Task StartAsync(DateTimeOffset startTimeUtc, CancellationToken ct = default) =>
+        StartAsync(startTimeUtc, null, null, ct);
+
+    /// <summary>开始记录（S4-T5：通道清单可按次给定——关注集运行期动态）。</summary>
+    public Task StartAsync(DateTimeOffset startTimeUtc, IReadOnlyList<MdfChannelSpec>? channels, CancellationToken ct = default) =>
+        StartAsync(startTimeUtc, channels, null, ct);
+
+    /// <summary>
+    /// 开始记录（S4-T5：通道清单/契约快照可按次给定——关注集运行期动态；
+    /// null = 用 options 同名值）。
+    /// </summary>
+    public async Task StartAsync(DateTimeOffset startTimeUtc, IReadOnlyList<MdfChannelSpec>? channels, A2lEditor.Core.Layout.ContractSnapshot? snapshot, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(_options.Directory);
+        var effective = channels ?? _options.Channels;
+        if (effective.Count == 0)
+            throw new ArgumentException("通道清单不能为空", nameof(channels));
+        if (effective.Count > 64)
+            throw new ArgumentException("通道数超写子集上限 64", nameof(channels));
+        _channelIndexByName.Clear();
+        for (var i = 0; i < effective.Count; i++)
+            _channelIndexByName.TryAdd(effective[i].Name, i);
         await _lifecycle.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -114,19 +130,20 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
             FilePath = System.IO.Path.Combine(_options.Directory, name);
 
             if (_options.WriterFactory is not null)
-                _writer = _options.WriterFactory(FilePath, _options.Channels);
+                _writer = _options.WriterFactory(FilePath, effective);
             else
-                _writer = Mdf4StreamWriter.Create(FilePath, _options.Channels, startTimeUtc);
+                _writer = Mdf4StreamWriter.Create(FilePath, effective, startTimeUtc);
 
             // S4-T3：契约快照 Start 即落附件（spec D2）——崩溃语义下 UnFinMF 抢救
             // 文件同样带得上快照；附件写失败视同启动失败，不静默。
-            if (_options.ContractSnapshot is { } snapshot)
+            var effectiveSnapshot = snapshot ?? _options.ContractSnapshot;
+            if (effectiveSnapshot is { } snap)
             {
                 var comment =
-                    $"contractSchemaVersion={snapshot.ContractSchemaVersion}; packageVersion={snapshot.PackageVersion}";
+                    $"contractSchemaVersion={snap.ContractSchemaVersion}; packageVersion={snap.PackageVersion}";
                 await _writer!.WriteAttachmentAsync(
                     "application/json", comment,
-                    System.Text.Encoding.UTF8.GetBytes(ContractSnapshotCodec.Encode(snapshot)),
+                    System.Text.Encoding.UTF8.GetBytes(ContractSnapshotCodec.Encode(snap)),
                     ct).ConfigureAwait(false);
             }
 
@@ -224,6 +241,7 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
     {
         if (IsRecording)
             await StopAsync().ConfigureAwait(false);
+        _channelIndexByName.Clear();
         _lifecycle.Dispose();
     }
 

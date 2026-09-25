@@ -92,6 +92,41 @@
             </StackPanel>
         </GroupBox>
 
+        <!-- ===== S4-T5：MDF 记录控件带（spec D5）：开始/停止 + 目录 + 状态行 ===== -->
+        <GroupBox Grid.Row="1" Header="MDF 记录" Padding="6" Margin="0,8,0,0">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,12,0">
+                        <Button Content="开始记录" Command="{Binding Record.StartRecordCommand}"
+                                MinWidth="72" Margin="0,0,4,0" />
+                        <Button Content="停止记录" Command="{Binding Record.StopRecordCommand}" MinWidth="72" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Width="280"
+                             Text="{Binding Record.RecordDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             VerticalContentAlignment="Center" Margin="0,0,4,0"
+                             ToolTip="记录文件目录（spec D5：默认会话目录，可改选）" />
+                    <Button Grid.Column="2" Content="浏览..." Click="OnBrowseRecordDirectory"
+                            HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="3" VerticalAlignment="Center" Foreground="Gray">
+                        <Run Text="已写 " /><Run Text="{Binding Record.WrittenCount, Mode=OneWay}" />
+                        <Run Text=" 条，丢 " /><Run Text="{Binding Record.DroppedCount, Mode=OneWay}" />
+                        <Run Text=" 条，时长 " /><Run Text="{Binding Record.DurationText, Mode=OneWay}" />
+                    </TextBlock>
+                </Grid>
+                <TextBlock Text="{Binding Record.FilePath, StringFormat='文件：{0}'}"
+                           Margin="0,4,0,0" TextTrimming="CharacterEllipsis" Foreground="Gray" />
+                <TextBlock Text="{Binding Record.StatusText}" Margin="0,4,0,0" />
+                <!-- 故障红字（spec D5：写盘故障状态区红字，采集不受影响）。 -->
+                <TextBlock Text="{Binding Record.FaultText}" Foreground="Red" TextWrapping="Wrap" />
+            </StackPanel>
+        </GroupBox>
+
         <!-- ===== 主区：左卡片总览（显示集）/ 右采集覆盖清单 + 归因合并表 ===== -->
         <Grid Grid.Row="2" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>

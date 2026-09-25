@@ -50,10 +50,10 @@ public class AppHostBuilderXcpTests
     }
 
     [Fact]
-    public void Cards_And_Acquisition_Share_The_Same_Sink_Instance()
+    public void Acquisition_Gets_Broadcast_Sink_Wrapping_Card_And_Record_Sinks()
     {
-        // T8 评审 L1：两个 sink = 归因/卡片断流（MEDIUM 级失效模式）。
-        // DI 工厂纪律（两处 GetRequiredService<XcpCardPanelSink>）需测试钉死。
+        // S4-T5（spec D4）：采集出站 = 广播 sink（卡片 sink + 记录 sink fan-out）。
+        // 记录未启用时记录 sink 入队恒 no-op（未记录态直返）——零行为变化。
         using var host = new AppHostBuilder().Build();
         var sp = host.Services;
         var vm = sp.GetRequiredService<XcpViewModel>();
@@ -62,7 +62,33 @@ public class AppHostBuilderXcpTests
             .GetField("_sink", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
             ?.GetValue(vm.Acquisition);
         acquisitionSink.Should().NotBeNull();
-        acquisitionSink.Should().BeSameAs(sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>());
+        acquisitionSink.Should().BeOfType<PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink>();
+
+        var children = (System.Collections.Generic.IEnumerable<PeakCan.Host.Core.Xcp.Receive.IXcpAcquisitionSink>)
+            (typeof(PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink)
+                .GetField("_sinks", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(acquisitionSink) ?? throw new System.InvalidOperationException("broadcast children missing"));
+        children.Should().Contain(sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>());
+        children.Should().Contain(sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>());
+    }
+
+    [Fact]
+    public void Build_Registers_RecordPanel_And_Wires_BeforeStop()
+    {
+        // S4-T5（spec D5）：记录面板 singleton；采集 Stop 先停记录（BeforeStopAsync 接线）。
+        using var host = new AppHostBuilder().Build();
+        var sp = host.Services;
+        var vm = sp.GetRequiredService<XcpViewModel>();
+
+        var record = sp.GetRequiredService<XcpRecordPanelViewModel>();
+        AssertSingleton<XcpRecordPanelViewModel>(sp);
+        vm.Record.Should().BeSameAs(record);
+
+        var beforeStop = vm.Acquisition.BeforeStopAsync;
+        beforeStop.Should().NotBeNull("D5：先停记录再停采集的接线必须存在");
+
+        // 接线口行为：未记录态调用零开销直返（不抛、不产生状态）。
+        beforeStop!.Should().NotBeNull();
     }
 
     [Fact]

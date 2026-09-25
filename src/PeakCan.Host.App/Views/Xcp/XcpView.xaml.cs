@@ -48,7 +48,12 @@ public partial class XcpView : UserControl
         {
             Interval = TimeSpan.FromMilliseconds(FlushIntervalMilliseconds),
         };
-        _flushTimer.Tick += (_, _) => (DataContext as XcpViewModel)?.Cards.Flush();
+        _flushTimer.Tick += (_, _) =>
+        {
+            var vm = DataContext as XcpViewModel;
+            vm?.Cards.Flush();
+            vm?.Record.RefreshState(); // S4-T5：记录状态行同拍刷新。
+        };
         _flushTimer.Start();
     }
 
@@ -68,6 +73,17 @@ public partial class XcpView : UserControl
         };
         if (dialog.ShowDialog() == true && DataContext is XcpViewModel vm)
             vm.Connection.A2lPath = dialog.FileName;
+    }
+
+    /// <summary>
+    /// S4-T5：记录目录浏览（spec D5 可改选）。仅把选中目录写回 VM，
+    /// 对话框不进 VM（可测性，OnBrowseA2l 同款口径）。
+    /// </summary>
+    private void OnBrowseRecordDirectory(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "选择记录目录" };
+        if (dialog.ShowDialog() == true && DataContext is XcpViewModel vm)
+            vm.Record.RecordDirectory = dialog.FolderName;
     }
 
     /// <summary>
