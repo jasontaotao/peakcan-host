@@ -6,7 +6,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-peakcan-xcp-host-wiring-s3.md`（v0.2，D1–D6+Q1/Q2 已定，逐条是硬约束）。上游：S2 spec（全数继承）+ S1 spec §5.5/§5.6/§5.7。执行者必须三份一起读。
 
-**全局门禁（每个任务收尾步）**：全仓 `dotnet test PeakCan.Host.slnx` 通过且总数 ≥ 4116（S2 后基线）；新增编译警告即失败；NetArchTest 现有守卫不放松。新增代码覆盖 ≥ 80%（App 层地板）。
+**全局门禁（每个任务收尾步）**：全仓 \dotnet test PeakCan.Host.slnx\（**无过滤**，Debug，全 solution）通过且 **total ≥ 4243**（passed 4234 + skipped 11；2026-09-25 于 T7b 后实测钉死，T7b-review M-1 复核同值）。口径说明：CI 过滤器口径（排除 Manual/Performance）数字更小属正常，任务门禁一律用无过滤 total；新增编译警告即失败；NetArchTest 现有守卫不放松。新增代码覆盖 ≥ 80%（App 层地板）。
 
 **分支**：`s3-xcp-host-wiring`（自 main `808169c1` 起）。
 
