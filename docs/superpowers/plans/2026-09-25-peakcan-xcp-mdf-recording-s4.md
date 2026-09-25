@@ -6,10 +6,10 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T0 MdfLibrary 前置验证（硬门，D1/Q3）
 
-- [ ] NuGet `MdfLibrary` 存在性 + license 检查（MIT/Apache 级才过）
-- [ ] spike：最小 MF4 写入（HD + 一个 DG/CG/CN + 若干样本）
-- [ ] 第三方工具打开验证：`pip install asammdf` + CLI 读取，通道名/值/时间对上
-- [ ] 结论回写 spec D1（通过→定库；license/读写失败→回退自研最小写子集，计划任务不变只换实现面）
+- [x] NuGet `MdfLibrary` 存在性 + license 检查 → **不存在**（flat-container 404；全库检索无 MF4 写入库，AsamMdf/BinaryMesh 均只读）
+- [x] spike → **裁决回退自研最小写子集**（mdflib C# 绑定无 NuGet、原生互操作更重）；asammdf 8.8.27 + Py3.13 写读链验通，golden 样本 `artifacts/s4-spike-golden.mf4`
+- [x] 第三方工具验证：asammdf 创建/读回 Rpm 通道值与时间轴一致（SPIKE OK）
+- [x] 结论回写 spec D1：自研未压缩 MDF 4.10 写子集（只写），asammdf 作人工验收读取器，CI 用 golden 断言
 
 ## T1 Core XcpBroadcastSink（D4，TDD）
 
@@ -63,3 +63,4 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 - MdfLibrary license/可用性不过 → T0 即回退自研（T2-T4 实现面换手写 MF4 写子集，接口面不变）
 - asammdf CI 不可用（python 依赖）→ 判据 1 拆模拟档（golden 字节断言）+ 真机人工档，待台架
 - 触发环内存：60 s × 1500 条/s × 8B ≈ 720 KB 量级，安全；按条率动态核算并在配置拒绝时提示
+

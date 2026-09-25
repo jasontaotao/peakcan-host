@@ -24,11 +24,11 @@
 
 ## 2. 决策点（D1–D6，待拍板）
 
-### D1 MF4 写入器选型【已定：NuGet MdfLibrary + T0 硬门】
+### D1 MF4 写入器选型【已定：自研最小 MF4 写子集（T0 裁决 2026-09-25）】
 
-- **倾向：NuGet 现成库**（候选 `MdfLibrary`，纯托管 C#，支持 MDF 4.1 写入）。理由：MF4 块结构（ID/HD/DG/CG/CN/CC/AT）自研最小写子集也是 1-2 个任务量的新协议面 + golden 测试，而库省掉的就是"格式对了但工具读不出来"的隐性问题；写入面是 S4 唯一新外部依赖。
-- 备选：自研最小 MF4 写子集（未压缩 + 固定记录布局，照 repo BLF/ASC 手写解析先例）。代价：CN/CC 布局、附件块、截断处理全要自证，golden 对拍样本得自己造。
-- 选型验证前置任务：T0 拿 `MdfLibrary` 写一个最小 MF4 + 用第三方工具（Vector MDF Editor / asammdf）打开验证，不通即回退自研。
+- **T0 实测结论：NuGet 库路线判死，回退自研**。证据链：① 候选 `MdfLibrary` 在 NuGet 不存在（flat-container BlobNotFound）；② 全库检索仅 `AsamMdf` v0.4.0（**只读** MDF4）与 `BinaryMesh.Data.Mdf` v1.2.5（**只读到 MDF 3.3**）沾边，均无写入面；③ 上游 mdflib（MIT，v2.3.0）C# 绑定 `mdflibrary` 只在 GitHub 源码发布、无 NuGet 包，引入即拖 C++ 原生互操作——比手写重，否。
+- **自研口径**：未压缩 MDF 4.10 写子集（ID/HD/DG/CG/CN/TX/SD/AT 必需块 + 固定记录布局），只写不读；结构对拍 golden 样本由 asammdf 生成（`artifacts/s4-spike-golden.mf4`，工具链已验通：asammdf 8.8.27 + Python 3.13 能写能读）。
+- **验收读取器**：asammdf 作本地/人工验收工具（判据 1 真机人工档）；CI 不引 python 依赖，判据 1 模拟档用 golden 字节/结构断言。
 
 ### D2 快照与通道组织【已定：S1 已定方向，S4 落地口径】
 
@@ -86,5 +86,6 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 - Q1（已定，见 D3）：不回改 S2，快照 Notes 承载对象级归因。
 - Q2（已定，见 D6）：60 s 硬顶。
 - Q3（已定，见 D1）：T0 前置验证含 license 硬门（MIT/Apache 级），不满足即回退自研最小写子集。
+
 
 
