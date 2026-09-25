@@ -370,13 +370,28 @@ public partial class AppHostBuilder
                 {
                     Directory = System.IO.Path.Combine(AppContext.BaseDirectory, "recordings"),
                 }));
-        // S4-T5（spec D4 广播装配）：采集出站 = 广播 sink（卡片 sink + 记录 sink）。
+        // S4-T6（spec D6）：触发记录引擎 singleton——常驻环（广播第三子），
+        // 触发落独立 xcp_trigger 文件；通道/快照取触发时刻关注集（运行期动态）。
+        builder.Services.AddSingleton<PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine>(sp =>
+            new PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine(
+                new PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordOptions
+                {
+                    Directory = System.IO.Path.Combine(AppContext.BaseDirectory, "recordings"),
+                    ChannelProvider = () => sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>()
+                        .Cards.Select(c => new PeakCan.Host.Core.Xcp.Record.MdfChannelSpec(c.Name, c.Contract.Unit)).ToList(),
+                    SnapshotFactory = () => sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>()
+                        .BuildSnapshotFromConnection(),
+                }));
+        // S4-T6：脚本触发源（xcp-trigger: 出站口 → 触发引擎，spec D6 触发源 v0.2）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Xcp.XcpScriptTriggerSource>();
+        // S4-T5（spec D4 广播装配）：采集出站 = 广播 sink（卡片 sink + 记录 sink + 触发环）。
         // 记录未启用时记录 sink 入队恒 no-op（未记录态直返）——零行为变化。
         builder.Services.AddSingleton(sp =>
             new PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink(new PeakCan.Host.Core.Xcp.Receive.IXcpAcquisitionSink[]
             {
                 sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>(),
                 sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine>(),
             }));
         // S4-T5 记录面板：显式工厂转发广播装配的记录 sink + 面板三件。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(sp =>
@@ -384,7 +399,8 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
-                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>()));
+                sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>(),
+                trigger: sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine>()));
         // T7 采集面板：显式工厂转发连接面板 + 广播 sink（D4：卡片+记录 fan-out；
         // MS DI 工厂不回填可选参，漏转发即生产静默裸跑——AppShell SecOC 三件套同款教训）。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(sp =>

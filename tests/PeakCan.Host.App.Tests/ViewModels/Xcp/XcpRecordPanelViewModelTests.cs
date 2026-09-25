@@ -166,6 +166,72 @@ public sealed class XcpRecordPanelViewModelTests
     }
 
     /// <summary>消费线程异步落的计数：轮询至条件成立（20ms 步进，2s 上限）。</summary>
+    private static XcpTriggerRecordEngine TriggerEngine(string? dir = null) =>
+        new(new XcpTriggerRecordOptions
+        {
+            Directory = dir ?? NewTempDir(),
+            Channels = [new MdfChannelSpec("EngineSpeed", "rpm")],
+        });
+
+    [Fact]
+    public void Trigger_is_blocked_when_acquisition_not_running()
+    {
+        var engine = TriggerEngine();
+        var vm = new XcpRecordPanelViewModel(
+            cards: CardsWithWatch(), sink: Sink(), trigger: engine, directory: NewTempDir());
+
+        vm.TriggerRecordCommand.CanExecute(null).Should().BeFalse("D6 门禁：采集未运行禁用触发");
+        vm.TriggerRecordCommand.ExecuteAsync(null).IsCompleted.Should().BeTrue();
+        engine.IsCapturing.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Trigger_applies_windows_and_starts_capture_then_close_on_acquisition_stop()
+    {
+        var engine = TriggerEngine();
+        var acquisition = new XcpAcquisitionPanelViewModel { IsAcquiring = true };
+        var vm = new XcpRecordPanelViewModel(
+            acquisition: acquisition, cards: CardsWithWatch(), sink: Sink(),
+            trigger: engine, directory: NewTempDir());
+        vm.PreTriggerSecondsText = "1";
+        vm.PostTriggerSecondsText = "60"; // 长窗口保持 capturing 状态确定
+
+        await vm.TriggerRecordCommand.ExecuteAsync(null);
+
+        engine.IsCapturing.Should().BeTrue();
+        engine.PreTriggerSeconds.Should().Be(1);
+        engine.PostTriggerSeconds.Should().Be(60);
+        engine.CaptureFilePath.Should().Contain("xcp_trigger_");
+        vm.IsCapturing.Should().BeTrue();
+        vm.StatusText.Should().Contain("触发记录已开始");
+
+        // 采集 Stop 先关触发窗（spec D5 先停记录口径延伸到触发窗）。
+        await vm.StopBeforeAcquisitionAsync();
+        engine.IsCapturing.Should().BeFalse();
+        System.IO.File.Exists(engine.CaptureFilePath!).Should().BeTrue();
+
+        vm.RefreshState();
+        vm.TriggerStatusText.Should().Contain("已捕获 1 次");
+    }
+
+    [Fact]
+    public async Task Trigger_with_out_of_range_window_is_rejected_with_status()
+    {
+        var engine = TriggerEngine();
+        var acquisition = new XcpAcquisitionPanelViewModel { IsAcquiring = true };
+        var vm = new XcpRecordPanelViewModel(
+            acquisition: acquisition, cards: CardsWithWatch(), sink: Sink(),
+            trigger: engine, directory: NewTempDir());
+        vm.PreTriggerSecondsText = "61"; // Q2 硬顶
+
+        await vm.TriggerRecordCommand.ExecuteAsync(null);
+
+        engine.IsCapturing.Should().BeFalse();
+        engine.PreTriggerSeconds.Should().Be(10, "配置拒绝时保持原值");
+        vm.StatusText.Should().Contain("触发窗口配置拒绝");
+        vm.TriggerRecordCommand.CanExecute(null).Should().BeTrue("拒绝后仍可修正再触发");
+    }
+
     private static async System.Threading.Tasks.Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);

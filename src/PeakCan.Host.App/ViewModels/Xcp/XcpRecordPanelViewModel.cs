@@ -29,6 +29,7 @@ namespace PeakCan.Host.App.ViewModels.Xcp;
 public partial class XcpRecordPanelViewModel : ObservableObject
 {
     private readonly XcpMdfRecordSink? _sink;
+    private readonly XcpTriggerRecordEngine? _trigger;
     private readonly XcpAcquisitionPanelViewModel? _acquisition;
     private readonly XcpCardPanelViewModel? _cards;
     private readonly XcpConnectionPanelViewModel? _connection;
@@ -48,12 +49,14 @@ public partial class XcpRecordPanelViewModel : ObservableObject
         XcpConnectionPanelViewModel? connection = null,
         XcpMdfRecordSink? sink = null,
         Func<ContractSnapshot?>? snapshotFactory = null,
-        string? directory = null)
+        string? directory = null,
+        XcpTriggerRecordEngine? trigger = null)
     {
         _acquisition = acquisition;
         _cards = cards;
         _connection = connection;
         _sink = sink;
+        _trigger = trigger;
         _snapshotFactory = snapshotFactory ?? BuildSnapshotFromConnection;
         _directory = string.IsNullOrWhiteSpace(directory)
             ? Path.Combine(AppContext.BaseDirectory, "recordings")
@@ -63,6 +66,9 @@ public partial class XcpRecordPanelViewModel : ObservableObject
 
     /// <summary>Core 记录 sink（组合根广播装配的同一实例）。</summary>
     public XcpMdfRecordSink? Sink => _sink;
+
+    /// <summary>触发记录引擎（S4-T6：组合根广播装配的同一实例）。</summary>
+    public XcpTriggerRecordEngine? Trigger => _trigger;
 
     /// <summary>记录目录（spec D5：可浏览改选；Start 时生效）。</summary>
     [ObservableProperty]
@@ -95,6 +101,26 @@ public partial class XcpRecordPanelViewModel : ObservableObject
     /// <summary>最近一条启停事件（人读文本）。</summary>
     [ObservableProperty]
     private string? _statusText;
+
+    /// <summary>触发前窗口秒数（文本态，触发时应用；1–60，越界状态区提示）。</summary>
+    [ObservableProperty]
+    private string _preTriggerSecondsText = "10";
+
+    /// <summary>触发后窗口秒数（文本态，触发时应用；1–60，越界状态区提示）。</summary>
+    [ObservableProperty]
+    private string _postTriggerSecondsText = "10";
+
+    /// <summary>触发捕获进行中（引擎镜像）。</summary>
+    [ObservableProperty]
+    private bool _isCapturing;
+
+    /// <summary>触发文件路径（捕获中/完成后非空）。</summary>
+    [ObservableProperty]
+    private string? _captureFilePath;
+
+    /// <summary>触发状态行（计数面：捕获/拒绝/丢条）。</summary>
+    [ObservableProperty]
+    private string? _triggerStatusText;
 
     /// <summary>写盘故障红字（IsFaulted 后非空，spec D5 状态区红字）。</summary>
     [ObservableProperty]
@@ -143,12 +169,47 @@ public partial class XcpRecordPanelViewModel : ObservableObject
 
     private bool CanStopRecord() => _sink is not null && IsRecording;
 
+    private bool CanTriggerRecord() =>
+        _trigger is not null
+        && !IsCapturing
+        && (_acquisition?.IsAcquiring ?? false)
+        && (_cards?.Cards.Count ?? 0) > 0;
+
+    /// <summary>
+    /// 触发记录（S4-T6，spec D6）：环（触发前 N 秒）+ 后续流落独立 xcp_trigger 文件。
+    /// 先应用窗口配置（1–60；越界拒绝在状态区提示并保持原值——spec Q2），再触发。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanTriggerRecord))]
+    private async Task TriggerRecordAsync()
+    {
+        if (_trigger is null || !CanTriggerRecord())
+            return; // WPF 按钮走 CanExecute；直调 ExecuteAsync 在此被拦（同一门禁）。
+
+        var preParsed = int.TryParse(PreTriggerSecondsText, out var pre);
+        var postParsed = int.TryParse(PostTriggerSecondsText, out var post);
+        if (!preParsed || !postParsed || !_trigger.TrySetWindows(pre, post))
+        {
+            StatusText = "触发窗口配置拒绝：前/后秒数必须 1–60（60 s 硬顶），保持原值。";
+            return;
+        }
+
+        var accepted = await _trigger.TriggerAsync(DateTimeOffset.Now, "manual");
+        StatusText = accepted
+            ? $"触发记录已开始：{_trigger.CaptureFilePath}"
+            : "触发被拒绝（捕获进行中）。";
+        RefreshState();
+    }
+
     /// <summary>
     /// 采集 Stop 的先停记录口（spec D5：先停记录再停采集）。组合根经
     /// XcpAcquisitionPanelViewModel.BeforeStopAsync 接线；记录未运行时零开销直返。
     /// </summary>
     public async Task StopBeforeAcquisitionAsync()
     {
+        // S4-T6：采集 Stop 先关触发窗（尾部样本落盘语义与记录 sink 一致）。
+        if (_trigger is { } capturing && capturing.IsCapturing)
+            await capturing.CloseCaptureAsync();
+
         if (_sink is null || !IsRecording)
             return;
         await _sink.StopAsync().ConfigureAwait(true);
@@ -174,8 +235,22 @@ public partial class XcpRecordPanelViewModel : ObservableObject
 
         if (_sink.IsFaulted)
             FaultText = $"记录写入器故障，记录已自停（采集不受影响）：{_sink.LastError?.Message}";
+
+        // S4-T6：触发引擎状态面镜像（丢弃必须可见——环丢/拒触发计数进状态行）。
+        if (_trigger is { } trigger)
+        {
+            IsCapturing = trigger.IsCapturing;
+            CaptureFilePath = trigger.CaptureFilePath;
+            TriggerStatusText =
+                $"触发：已捕获 {trigger.CaptureCount} 次，拒 {trigger.RejectedTriggerCount}，"
+                + $"环丢 {trigger.RingDroppedCount}，post 丢 {trigger.PostDroppedCount}，未知对象 {trigger.UnknownSampleCount}";
+            if (trigger.IsFaulted)
+                TriggerStatusText += $"（故障：{trigger.LastError?.Message}）";
+        }
+
         StartRecordCommand.NotifyCanExecuteChanged();
         StopRecordCommand.NotifyCanExecuteChanged();
+        TriggerRecordCommand.NotifyCanExecuteChanged();
     }
 
     private void AfterStop()
@@ -187,7 +262,7 @@ public partial class XcpRecordPanelViewModel : ObservableObject
     }
 
     /// <summary>组合根缺省快照工厂（spec D2）：LoadedResult → 包 API 导出。</summary>
-    private ContractSnapshot? BuildSnapshotFromConnection()
+    public ContractSnapshot? BuildSnapshotFromConnection()
     {
         var loaded = _connection?.LoadedResult;
         if (loaded is null)

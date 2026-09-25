@@ -70,6 +70,8 @@ public class AppHostBuilderXcpTests
                 ?.GetValue(acquisitionSink) ?? throw new System.InvalidOperationException("broadcast children missing"));
         children.Should().Contain(sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>());
         children.Should().Contain(sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>());
+        // S4-T6：触发记录引擎为广播第三子（常驻环）。
+        children.Should().Contain(sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine>());
     }
 
     [Fact]
