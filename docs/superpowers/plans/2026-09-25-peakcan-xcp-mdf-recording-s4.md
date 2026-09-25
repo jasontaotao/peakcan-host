@@ -13,9 +13,9 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T1 Core XcpBroadcastSink（D4，TDD）
 
-- [ ] 测试先红：顺序广播 N 子 sink；单子 OnValues/OnGap 抛异常不拖其他子 sink；零子 sink 恒等空转
-- [ ] 实现 `src/PeakCan.Host.Core/Xcp/Record/XcpBroadcastSink.cs`
-- [ ] S3 接线改造：`XcpAcquisitionPanelViewModel.ComposeSessionOptions` Sink 改广播 sink（记录未启用 = 只挂卡片 sink，零行为变化）
+- [x] 测试先红：顺序广播 N 子 sink；单子 OnValues/OnGap 抛异常不拖其他子 sink；零子 sink 恒等空转（4/4 绿）
+- [x] 实现 `src/PeakCan.Host.Core/Xcp/Record/XcpBroadcastSink.cs`（异常吸收 + ErrorCount 可见 + 不拥有子 sink）
+- [x] S3 接线改造 → **移交 T5**（T1 评审定：记录 sink 未就位时接广播是空转占位，组合根在 T5 一次接好；T1 只交付广播类本体）
 - [ ] S3 e2e 全绿回归
 
 ## T2 Core XcpMdfRecordSink 样本落盘（D2 前半，TDD）
@@ -63,4 +63,5 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 - MdfLibrary license/可用性不过 → T0 即回退自研（T2-T4 实现面换手写 MF4 写子集，接口面不变）
 - asammdf CI 不可用（python 依赖）→ 判据 1 拆模拟档（golden 字节断言）+ 真机人工档，待台架
 - 触发环内存：60 s × 1500 条/s × 8B ≈ 720 KB 量级，安全；按条率动态核算并在配置拒绝时提示
+
 
