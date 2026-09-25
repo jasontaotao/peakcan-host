@@ -20,7 +20,7 @@
 - **卡片渲染禁止现算量程（S1 §5.5）**：单位/`Format`/上下限/扩展上下限/可写判定只读 `ValueContract` 解析期字段。
 - **显示集与采集集分离（S1 §5.5）**：卡片只显示关注集（十几个）；采集集 = `ContractSet.All` 全量后台采集（planner 预算内），两个列表禁止合并。
 - **归因合并表（S1 §5.7）**：卡片归因显示必须用本 spec §2-D5 的合并表，包五值 + host 两态逐格标生产者；记录文件口径不动（S4 的事）。
-- **DOWNLOAD 零入口**：S3 App 层不出现任何写流量路径（以审计断言钉住 App VM 内禁引用 Encoder Download 面）。
+- **DOWNLOAD 零入口（v0.3 精确化，见 D7）**：S3 无任何**写数据**路径；能力实测链中的 DOWNLOAD **0 字节良性探测帧**（S2 CLI probe 先例：BYTE_COUNT=0、无数据可写、从机零效应）不算写流量入口。App VM 禁直接引用 XcpCommandEncoder——实测链下沉 Core 后此约束自然成立（T10 守卫口径不变）。
 - **UI 节流（先例：host batched UI flush）**：sink 实现入队不阻塞，Dispatcher 侧 20 Hz 批量 flush；卡片停更标灰并显示"多久没更新"（S1 §5.5 卡片格要求）。
 
 ## 2. 决策点（D1–D6，待拍板）
@@ -64,6 +64,14 @@ CLI probe 已有 `ParseDeclaration` / `ResolveDeclaredBaudRate`（XcpProbeComman
 
 Start = 选通道（复用现有 ICanChannel 提供方与连接 UI 语义）→ `XcpCanTransport` 包装 → CONNECT + 能力对账（`XcpCapabilityReconciler`，不匹配即停，宁可不采）→ `Plan` → `ConfigureRotationAsync` → 轮询循环。Stop = 停表 → Dispose 会话（沿 S2 gate/quiesce 契约，调用侧义务在 VM 内执行）。对账拒绝/规划失败在状态区显示 `XcpCapabilityReport` / 覆盖清单，**不准静默降级后照常启动**。
 
+### D7 能力实测链归置【已定：下沉 Core XcpCapabilityProber，含良性 DOWNLOAD 探测】（2026-09-25 补，T7 执行中发现）
+
+T7 实测链若不含 DOWNLOAD 探测，声明了 DOWNLOAD 的真机 A2L（App_merge_INCA.a2l 的 15 条 OPTIONAL_CMD 含 DOWNLOAD）会被 `COMMAND_DECLARED_NOT_MEASURED` 拒绝启动——与验收判据 1 直接冲突。裁决：
+
+- **实测链下沉 Core** `XcpCapabilityProber`（CONNECT + GET_COMM_MODE_INFO + GET_DAQ_* + OPTIONAL_CMD 逐条探测**含 0 字节 DOWNLOAD**），CLI probe 与 T7 VM 同源消费（D4 单源原则延伸）；探测逻辑本就照抄 CLI probe，消除 App 层复制的同漂移风险。
+- **良性探测 ≠ 写流量**：0 字节 DOWNLOAD 帧 slave 侧零效应（S2 probe 已钉），"DOWNLOAD 零入口"约束的对象是写数据路径，不是命令码字节本身。
+- T10 守卫口径不变：App VM 禁引用 `XcpCommandEncoder`（Prober 在 Core，Encoder 引用只存在于 Core 协议层——与 S2 T18 分层守卫同构）。
+
 ## 3. App 层结构
 
 ```
@@ -97,4 +105,5 @@ AppShell 接线照 UDS 先例（ctor 注入 XcpViewModel → MainTabs 追加 →
 
 - Q1：D2 若选复用 ITraceSessionService，`.tmtrace` 序列化增量字段命名——待定（默认不启用该备选）。
 - Q2（已定）：复用主窗口已连接通道快照（IConnectedChannelsSource），XCP tab 不做独立连接控件，避免双连接状态源。
+
 

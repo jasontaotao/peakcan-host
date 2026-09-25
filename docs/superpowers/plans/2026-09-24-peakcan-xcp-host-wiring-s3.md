@@ -91,7 +91,17 @@
 
 ## 阶段 C：视图与守卫（T8–T11）
 
-### T8 — XcpView.xaml + 主 tab 接线（D1）
+### T7b — XcpCapabilityProber 下沉 + T7 消费（D7，2026-09-25 增补）
+
+**背景**：T7 执行发现 spec 张力——实测链不含 DOWNLOAD 探测 → 真机 A2L 对账拒绝 → 验收判据 1 失败。裁决见 spec D7。
+
+**写集**：新建 `src/PeakCan.Host.Core/Xcp/Capability/XcpCapabilityProber.cs`；改 `XcpProbeCommand.cs`（转发调用，行为零变化）；改 `XcpAcquisitionPanelViewModel.cs`（实测链改调 Prober，含 DOWNLOAD 良性探测）；对应测试文件。**不碰** T8 侧任何文件。
+
+- [ ] 红：Prober 测试——(a) 全命令链含 0 字节 DOWNLOAD 探测（Spy 断言 DOWNLOAD 恰 1 次且 BYTE_COUNT=0）；(b) probe 转发后 XcpProbeCommandTests 78/78 绿（零行为变化）；(c) T7 真机样本对账通过（DOWNLOAD 声明已实测——验收判据 1 解锁）。
+- [ ] 绿：实现 + VM/probe 转发。
+- [ ] 门禁 + commit `(S3-T7b)`。
+
+### T8 — XcpView.xaml + 主 tab 接线（D1）'
 
 **T5 评审移交（本任务必须吸收）**：(1) stalePeriod 接线不得照抄全局 100 Hz——轮转表中更新周期 >30ms 的对象会常驻停更灰显，按对象实际节奏设置；(2) 视图绑定不得越 XcpCardViewModel.Contract 允许消费面（Unit/Format/Limits——评审发现 Contract 属性暴露了完整 ValueContract，T8 review 查绑定）。
 
@@ -140,6 +150,8 @@
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
+
 
 
 
