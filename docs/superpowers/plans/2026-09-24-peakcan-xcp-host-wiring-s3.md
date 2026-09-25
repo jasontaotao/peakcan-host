@@ -136,7 +136,7 @@
 
 ### T11 — E2E 模拟链路 + 文档收尾
 
-**T8 评审移交**：文档收尾时把 T7b L-3/T8 L3『关闭期间 Start 在途的交叠窗口』写进已知限制；XcpView 补 T9 选择器入口按钮（构造 XcpObjectPickerViewModel(Connection.LoadedResult?.Contracts, traceSession) → OK 后 AddWatch；未加载态按钮禁用）。
+**T9 评审移交（T11 必须吸收）**：**M-1**——同名异类去重键不对称：picker 按 (name, category) 允许 Rpm/MEASUREMENT + Rpm/CHARACTERISTIC 同存，但卡片 AddWatch 与 ContractSet 索引都按名——ConfirmedRows→contract 必须扫 Contracts.All 按 (name, category) 对查，**不准走按名索引**；同名异类卡片碰撞取舍写进收尾文档（L1 组名搜索产生可见空组、L2 窗口双重 InitializeComponent、L3 纯增量关注语义、L4 必须 ShowDialog 打开、L5 死接线 CollectionChanged 可删，均记录）。**T8 评审移交**：文档收尾时把 T7b L-3/T8 L3『关闭期间 Start 在途的交叠窗口』写进已知限制；XcpView 补 T9 选择器入口按钮（构造 XcpObjectPickerViewModel(Connection.LoadedResult?.Contracts, traceSession) → OK 后 AddWatch；未加载态按钮禁用）。
 
 - [ ] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
 - [ ] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
@@ -154,6 +154,7 @@
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
 
 
 
