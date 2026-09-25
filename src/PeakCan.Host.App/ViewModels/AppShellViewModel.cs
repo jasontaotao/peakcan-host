@@ -18,6 +18,7 @@ using PeakCan.Host.App.Views;
 using PeakCan.Host.App.Views.HIL;
 using PeakCan.Host.App.ViewModels.HIL;
 using PeakCan.Host.App.ViewModels.Uds;
+using PeakCan.Host.App.ViewModels.Xcp;
 using PeakCan.Host.App.Windows;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Devices;
@@ -359,7 +360,10 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         // SecOC App 接线（2026-09-16 plan）：连接路径 PDU provider + 徽章 joiner。
         // null = 测试构造点/未启用零回归（与 secOcVerdicts 同模式）。
         Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>? secOcPduProvider = null,
-        PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner? secOcBadgeJoiner = null)
+        PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner? secOcBadgeJoiner = null,
+        // S3-T8（D1）：XCP 主 tab VM。可选注入沿 Nodes tab 先例——既有测试构造
+        // 不传即 null，MainTabs 不追加 "XCP" tab（AppShellViewModelTests 既有断言零回归）。
+        XcpViewModel? xcpViewModel = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _traceViewModel = traceViewModel ?? throw new ArgumentNullException(nameof(traceViewModel));
@@ -471,6 +475,12 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             // unreachable from the product.
             new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
         };
+        // S3-T8（D1）：XCP 主 tab 追加（懒创建 TabSpec——ctor 不实例化 UserControl）。
+        // 仅在注入了 XcpViewModel 时追加，保持既有测试构造点的 MainTabs 形状不变。
+        if (xcpViewModel is not null)
+        {
+            mainTabs.Add(new TabSpec("XCP", () => new Views.Xcp.XcpView { DataContext = xcpViewModel }));
+        }
         MainTabs = mainTabs;
         RightTabs = new[]
         {

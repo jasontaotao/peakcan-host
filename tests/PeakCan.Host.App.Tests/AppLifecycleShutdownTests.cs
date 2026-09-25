@@ -124,6 +124,7 @@ public class AppLifecycleShutdownTests : IDisposable
         public RecordingTraceSessionService(ITraceSessionService inner) => _inner = inner;
 
         public ObservableCollection<WatchedSignalRow> WatchedSignals => _inner.WatchedSignals;
+        public ObservableCollection<XcpWatchRow> XcpWatchedObjects => _inner.XcpWatchedObjects;
         public ObservableCollection<WatchedSignalGroup> SignalGroups => _inner.SignalGroups;
         public string? MasterSourceId
         {

@@ -48,6 +48,13 @@ public sealed class TraceSessionBundleDto
     [JsonPropertyName("watchedSignals")]
     public List<BundleWatchedSignalDto> WatchedSignals { get; set; } = new();
 
+    /// <summary>S3-T1 (D2): persisted XCP watch list rows (object name +
+    /// category). Forward-compat: old bundles without this field
+    /// deserialize as empty list. Adding fields is non-breaking — schema
+    /// string stays tmtrace/v1.</summary>
+    [JsonPropertyName("xcpWatch")]
+    public List<BundleXcpWatchDto> XcpWatch { get; set; } = new();
+
     /// <summary>v12 Step 7: persisted signal groups. Forward-compat:
     /// old bundles without this field deserialize as empty list.</summary>
     [JsonPropertyName("groups")]
@@ -277,6 +284,17 @@ public sealed class BundleWatchedSignalDto
 
     [JsonPropertyName("alias")]
     public string? Alias { get; set; }
+}
+/// <summary>S3-T1 (D2): one persisted XCP watch row — the watched object
+/// name plus its A2L object category (e.g. MEASUREMENT /
+/// CHARACTERISTIC). App-layer shape; must not reference Core.Xcp types.</summary>
+public sealed class BundleXcpWatchDto
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("category")]
+    public string Category { get; set; } = "";
 }
 
 /// <summary>v12 Step 7: one persisted signal group.</summary>

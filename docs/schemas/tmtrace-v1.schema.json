@@ -70,6 +70,12 @@
       "type": "array",
       "items": { "$ref": "#/$defs/BundleGroupDto" },
       "default": []
+    },
+    "xcpWatch": {
+      "description": "S3-T1 (D2): persisted XCP watch list rows. Each entry captures a watched A2L object by name + category. Forward-compat: old bundles without this field deserialize as empty list.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/BundleXcpWatchDto" },
+      "default": []
     }
   },
   "$defs": {
@@ -284,6 +290,27 @@
         "alias": {
           "description": "Optional user-assigned alias for the signal.",
           "type": ["string", "null"]
+        }
+      }
+    },
+    "BundleXcpWatchDto": {
+      "description": "S3-T1 (D2): one persisted XCP watch row — the watched A2L object name plus its category (e.g. MEASUREMENT / CHARACTERISTIC).",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "name",
+        "category"
+      ],
+      "properties": {
+        "name": {
+          "description": "A2L object name, e.g. 'EngineRPM'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "description": "A2L object category, e.g. 'MEASUREMENT' or 'CHARACTERISTIC'.",
+          "type": "string",
+          "minLength": 1
         }
       }
     },

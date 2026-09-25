@@ -64,3 +64,8 @@ large-100mb.asc
 small-test.asc
 .acceptance/
 .worktrees/
+core-trx/
+coverage-rel/
+coverage-rel2/
+coverage-results/
+full-trx/

@@ -22,6 +22,12 @@ public interface ITraceSessionService : INotifyPropertyChanged
 {
     /// <summary>watch 列表行（占位行由 BuildSnapshot 过滤，不进 bundle）。</summary>
     ObservableCollection<WatchedSignalRow> WatchedSignals { get; }
+    /// <summary>
+    /// S3-T1 (D2): XCP 关注集（对象名 + 类别）。与 <see cref="WatchedSignals"/>
+    /// 同一持久化语义——随会话显式保存（BuildSnapshot / OpenSessionAsync），
+    /// 不做逐变更自动落盘。
+    /// </summary>
+    ObservableCollection<XcpWatchRow> XcpWatchedObjects { get; }
 
     /// <summary>信号分组（v12 Step 7 持久化形状，与 watch 列表相互独立）。</summary>
     ObservableCollection<WatchedSignalGroup> SignalGroups { get; }
@@ -61,3 +67,11 @@ public interface ITraceSessionService : INotifyPropertyChanged
     /// </summary>
     event Action? SessionRestored;
 }
+
+/// <summary>
+/// S3-T1 (D2): XCP 关注集一行——被关注对象名 + 类别（如 MEASUREMENT /
+/// CHARACTERISTIC）。不可变行类型；App 层自持形状，不引用 Core.Xcp 类型。
+/// </summary>
+/// <param name="Name">A2L 对象名（如 EngineRPM）。</param>
+/// <param name="Category">A2L 对象类别（如 MEASUREMENT / CHARACTERISTIC）。</param>
+public sealed record XcpWatchRow(string Name, string Category);

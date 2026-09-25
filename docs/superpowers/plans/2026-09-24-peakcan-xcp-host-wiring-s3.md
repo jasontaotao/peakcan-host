@@ -6,7 +6,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-peakcan-xcp-host-wiring-s3.md`（v0.2，D1–D6+Q1/Q2 已定，逐条是硬约束）。上游：S2 spec（全数继承）+ S1 spec §5.5/§5.6/§5.7。执行者必须三份一起读。
 
-**全局门禁（每个任务收尾步）**：全仓 `dotnet test PeakCan.Host.slnx` 通过且总数 ≥ 4116（S2 后基线）；新增编译警告即失败；NetArchTest 现有守卫不放松。新增代码覆盖 ≥ 80%（App 层地板）。
+**全局门禁（每个任务收尾步）**：全仓 \dotnet test PeakCan.Host.slnx\（**无过滤**，Debug，全 solution）通过且 **total ≥ 4243**（passed 4234 + skipped 11；2026-09-25 于 T7b 后实测钉死，T7b-review M-1 复核同值）。口径说明：CI 过滤器口径（排除 Manual/Performance）数字更小属正常，任务门禁一律用无过滤 total；新增编译警告即失败；NetArchTest 现有守卫不放松。新增代码覆盖 ≥ 80%（App 层地板）。
 
 **分支**：`s3-xcp-host-wiring`（自 main `808169c1` 起）。
 
@@ -91,7 +91,19 @@
 
 ## 阶段 C：视图与守卫（T8–T11）
 
-### T8 — XcpView.xaml + 主 tab 接线（D1）
+### T7b — XcpCapabilityProber 下沉 + T7 消费（D7，2026-09-25 增补）
+
+**背景**：T7 执行发现 spec 张力——实测链不含 DOWNLOAD 探测 → 真机 A2L 对账拒绝 → 验收判据 1 失败。裁决见 spec D7。
+
+**写集**：新建 `src/PeakCan.Host.Core/Xcp/Capability/XcpCapabilityProber.cs`；改 `XcpProbeCommand.cs`（转发调用，行为零变化）；改 `XcpAcquisitionPanelViewModel.cs`（实测链改调 Prober，含 DOWNLOAD 良性探测）；对应测试文件。**不碰** T8 侧任何文件。
+
+- [ ] 红：Prober 测试——(a) 全命令链含 0 字节 DOWNLOAD 探测（Spy 断言 DOWNLOAD 恰 1 次且 BYTE_COUNT=0）；(b) probe 转发后 XcpProbeCommandTests 78/78 绿（零行为变化）；(c) T7 真机样本对账通过（DOWNLOAD 声明已实测——验收判据 1 解锁）。
+- [ ] 绿：实现 + VM/probe 转发。
+- [ ] 门禁 + commit `(S3-T7b)`。
+
+### T8 — XcpView.xaml + 主 tab 接线（D1）'
+
+**T7b 评审移交（本任务必须吸收）**：(1) App 关闭路径必须真正等待 StopAsync（fire-and-forget 会丢 S2 quiesce 契约，L-2）；(2) L-1 OCE 泄漏路径与 L-3 Stop/Start 交叠窗口记录在案，本轮不修。(3) stalePeriod 接线按对象实际节奏设置（T5 移交项延续）。**T5 评审移交（本任务必须吸收）**：(1) stalePeriod 接线不得照抄全局 100 Hz——轮转表中更新周期 >30ms 的对象会常驻停更灰显，按对象实际节奏设置；(2) 视图绑定不得越 XcpCardViewModel.Contract 允许消费面（Unit/Format/Limits——评审发现 Contract 属性暴露了完整 ValueContract，T8 review 查绑定）。
 
 **上下文指路**：spec D1；AppShell MainTabs `TabSpec` 懒创建先例（Nodes tab 追加同款）；AppHostBuilder UdsViewModel 注册先例。
 
@@ -114,6 +126,8 @@
 
 ### T10 — 架构守卫扩展
 
+**T8 评审移交**：(1) L2——LoadA2L 的 Connected 态门从视图 DataTrigger 下沉 VM CanExecute（[NotifyCanExecuteChangedFor]，视图层 IsEnabled 只覆盖单按钮实例）；(2) L4——XcpConnectionPanelViewModel 显式工厂注册（防未来注册 Func<string, XcpA2lLoadResult> 静默顶掉默认 loader）。
+
 **上下文指路**：S2 T18 `XcpLayeringTests.cs` 先例；spec §1 DOWNLOAD 零入口。
 
 - [ ] **红**：`tests/PeakCan.Host.App.Tests/Architecture/XcpAppLayeringTests.cs`——(a) App XCP VM/Services 禁引用 `Peak.Can.*`；(b) 禁引用 `XcpCommandEncoder` 的 Download 命令面（符号级断言，对齐 S2 T18 手法）；(c) XcpCardPanelSink 实现于 App 层且仅依赖 Core.Xcp.Receive 接口。
@@ -122,15 +136,34 @@
 
 ### T11 — E2E 模拟链路 + 文档收尾
 
-- [ ] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
-- [ ] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
-- [ ] spec §4 验收 3/4/5 逐条核对记录。
-- [ ] **门禁**：全仓 Release 全量 + 覆盖率实测 ≥ 80%（新增代码）；commit `(S3-T11)`。
+**T9 评审移交（T11 必须吸收）**：**M-1**——同名异类去重键不对称：picker 按 (name, category) 允许 Rpm/MEASUREMENT + Rpm/CHARACTERISTIC 同存，但卡片 AddWatch 与 ContractSet 索引都按名——ConfirmedRows→contract 必须扫 Contracts.All 按 (name, category) 对查，**不准走按名索引**；同名异类卡片碰撞取舍写进收尾文档（L1 组名搜索产生可见空组、L2 窗口双重 InitializeComponent、L3 纯增量关注语义、L4 必须 ShowDialog 打开、L5 死接线 CollectionChanged 可删，均记录）。**T8 评审移交**：文档收尾时把 T7b L-3/T8 L3『关闭期间 Start 在途的交叠窗口』写进已知限制；XcpView 补 T9 选择器入口按钮（构造 XcpObjectPickerViewModel(Connection.LoadedResult?.Contracts, traceSession) → OK 后 AddWatch；未加载态按钮禁用）。
+
+- [x] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
+- [x] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
+- [x] spec §4 验收 3/4/5 逐条核对记录。
+- [x] **门禁**：全仓 Release 全量 + 覆盖率实测 ≥ 80%（新增代码）；commit `(S3-T11)`。
 
 ---
 
 ## 风险与挂钩
 
+- S3 收尾 backlog（不阻塞）：traceSession 从 App.Services 静态口收敛到 XcpViewModel 构造注入（T11 评审 LOW-3）；E2E 停止静默检查的固定 50ms 延时换确定性信号（LOW-2）。
+
+- T3 评审 LOW-3 移交：Connected 态下重载 A2L 成功会把状态降回 Loaded（归因格窗口期说谎）——T8 接线时给 LoadA2LCommand 加 CanExecute 门（Connected 态禁用），T7 无需处理。
+
+- T2 评审遗留 LOW（不阻塞，后续顺手项）：probe 路径 ContractSet 双重构建（loader 已建一次、BitfieldStatisticsOf 又建一次）——可让 ParseDeclaration 穿出 loaded.Contracts 复用；XcpA2lLoader.Load 的 IO 异常归 T3 VM 预检处理（已转执行者）。
+
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
+
+
+
+
+
+
+
+
+
+
