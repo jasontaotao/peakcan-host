@@ -334,8 +334,17 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             await transport.DisposeAsync().ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 关闭路径静默开关（T8 评审 M2）：host.StopAsync 无 SyncContext，关闭期
+    /// StopAsync 的延续落线程池——此时写 StatusLines 会触发跨线程
+    /// CollectionChanged 异常且被 shutdown wrapper 吞掉（误导日志）。
+    /// Shutdown service 在调 StopAsync 前置 true，跳过全部状态区刷新。
+    /// </summary>
+    internal bool SuppressStatusOutput { get; set; }
+
     private void ShowStatus(IEnumerable<XcpCapabilityFinding> findings)
     {
+        if (SuppressStatusOutput) return;
         StatusLines.Clear();
         foreach (var finding in findings)
             StatusLines.Add($"[{finding.Severity}] {finding.Code}: {finding.Message}");
@@ -343,6 +352,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
 
     private void ShowStatus(string line)
     {
+        if (SuppressStatusOutput) return;
         StatusLines.Clear();
         StatusLines.Add(line);
     }

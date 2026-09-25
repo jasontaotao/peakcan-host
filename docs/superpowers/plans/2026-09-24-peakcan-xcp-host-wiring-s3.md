@@ -126,6 +126,8 @@
 
 ### T10 — 架构守卫扩展
 
+**T8 评审移交**：(1) L2——LoadA2L 的 Connected 态门从视图 DataTrigger 下沉 VM CanExecute（[NotifyCanExecuteChangedFor]，视图层 IsEnabled 只覆盖单按钮实例）；(2) L4——XcpConnectionPanelViewModel 显式工厂注册（防未来注册 Func<string, XcpA2lLoadResult> 静默顶掉默认 loader）。
+
 **上下文指路**：S2 T18 `XcpLayeringTests.cs` 先例；spec §1 DOWNLOAD 零入口。
 
 - [ ] **红**：`tests/PeakCan.Host.App.Tests/Architecture/XcpAppLayeringTests.cs`——(a) App XCP VM/Services 禁引用 `Peak.Can.*`；(b) 禁引用 `XcpCommandEncoder` 的 Download 命令面（符号级断言，对齐 S2 T18 手法）；(c) XcpCardPanelSink 实现于 App 层且仅依赖 Core.Xcp.Receive 接口。
@@ -133,6 +135,8 @@
 - [ ] **门禁** + commit `(S3-T10)`。
 
 ### T11 — E2E 模拟链路 + 文档收尾
+
+**T8 评审移交**：文档收尾时把 T7b L-3/T8 L3『关闭期间 Start 在途的交叠窗口』写进已知限制；XcpView 补 T9 选择器入口按钮（构造 XcpObjectPickerViewModel(Connection.LoadedResult?.Contracts, traceSession) → OK 后 AddWatch；未加载态按钮禁用）。
 
 - [ ] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
 - [ ] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
@@ -150,6 +154,7 @@
 - `ITraceSessionService` 形状变更是本轮最大回归面（watchedSignals 语义复制时别动旧行为）——T1 红测必须含旧 bundle 兼容用例。
 - XcpAcquisitionSession 并发契约（重 Plan/Dispose 不得与在途操作并发）是 VM 层义务——T7(e) 钉运行中禁止重 Start；Dispose 路径走 Dispatcher 异步时必须 await 会话静默。
 - App 层 ViewModel 测试基线有现成构造模式（可选参数注入），新 VM 沿用可空注入以保测试构造点零回归。
+
 
 
 

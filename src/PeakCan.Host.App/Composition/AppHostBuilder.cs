@@ -508,15 +508,36 @@ internal sealed class XcpAcquisitionShutdownService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        // 关闭路径异常容忍（App.OnExit teardown 契约同款）：StopAsync 内部已
-        // 自持取消/释放流程，此处只保证 await 到位，不向 shutdown 传播异常。
+        // T8 评审 M2：关闭路径在线程池线程触碰 UI 绑定集合会炸——置静默开关，
+        // quiesce（停表→静默→Dispose）本身与 UI 无关，跳过状态区刷新。
+        _acquisition.SuppressStatusOutput = true;
+
+        // T8 评审 M1：host.StopAsync 的 10s CTS 必须可执行——Task.WhenAny 包预算，
+        // 超时记 Warning（会话卡在不可取消的 CAN 重试窗口时退出不再无限挂起）。
+        var stopTask = _acquisition.StopAsync();
+        var completed = await Task.WhenAny(
+            stopTask,
+            Task.Delay(ShutdownStopBudget, cancellationToken)).ConfigureAwait(false);
+        if (completed != stopTask)
+        {
+            Serilog.Log.Warning(
+                "XCP acquisition StopAsync exceeded {BudgetMs} ms shutdown budget — session may not be fully quiesced",
+                ShutdownStopBudget.TotalMilliseconds);
+            return;
+        }
+
+        // 关闭路径异常容忍（App.OnExit teardown 契约同款）：只保证 await 到位，
+        // 不向 shutdown 传播异常。
         try
         {
-            await _acquisition.StopAsync().ConfigureAwait(false);
+            await stopTask.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Serilog.Log.Warning(ex, "XCP acquisition StopAsync failed during shutdown");
         }
     }
+
+    /// <summary>关闭等待预算（与 host.StopAsync 的 10s 上限同量级，略短留余量）。</summary>
+    internal static readonly TimeSpan ShutdownStopBudget = TimeSpan.FromSeconds(8);
 }

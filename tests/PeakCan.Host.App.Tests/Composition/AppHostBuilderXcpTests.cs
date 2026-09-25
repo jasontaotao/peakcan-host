@@ -48,6 +48,22 @@ public class AppHostBuilderXcpTests
     }
 
     [Fact]
+    public void Cards_And_Acquisition_Share_The_Same_Sink_Instance()
+    {
+        // T8 评审 L1：两个 sink = 归因/卡片断流（MEDIUM 级失效模式）。
+        // DI 工厂纪律（两处 GetRequiredService<XcpCardPanelSink>）需测试钉死。
+        using var host = new AppHostBuilder().Build();
+        var sp = host.Services;
+        var vm = sp.GetRequiredService<XcpViewModel>();
+
+        var acquisitionSink = typeof(PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel)
+            .GetField("_sink", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?.GetValue(vm.Acquisition);
+        acquisitionSink.Should().NotBeNull();
+        acquisitionSink.Should().BeSameAs(sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>());
+    }
+
+    [Fact]
     public void Build_Wires_Gap_Relay_From_Cards_To_Attribution()
     {
         using var host = new AppHostBuilder().Build();
