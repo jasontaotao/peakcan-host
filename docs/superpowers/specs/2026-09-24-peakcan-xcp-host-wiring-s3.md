@@ -153,4 +153,5 @@ AppShell 接线照 UDS 先例（ctor 注入 XcpViewModel → MainTabs 追加 →
 6. **T9 L5 死接线**：窗口 ctor 订阅 `Roots/Children.CollectionChanged` 仅刷选中计数，树构造后不再变化，订阅可删。
 7. **T7b L-1 OCE 泄漏路径**：Stop/关闭路径存在 `OperationCanceledException` 未完全吸收的泄漏路径（T7b 评审记录在案，本轮不修）。
 8. **T7b L-3 / T8 L3 关闭期 Start 在途交叠窗口**：App 关闭路径 `StopAsync` 与用户在途 `StartAsync`（对账/规划中）存在交叠窗口——Shutdown service 已强制停采集并抑制状态区输出，但 Start 门不感知关闭态；交叠结果由 Stop 的幂等 Dispose 收敛，窗口期行为未闭环。
-9. **stalePeriod 全局固定取舍**：卡片停更阈值用 VM 级全局 `stalePeriod`（默认 10 ms，对齐 100 Hz 节拍；T5 移交的"按对象实际节奏设置"未做）——轮转表中实际更新周期 >30 ms 的对象会常驻停更灰显。
+9. **stalePeriod 全局固定取舍**：卡片停更阈值用 VM 级全局 `stalePeriod`（组合根当前接线 100 ms（T8 MVP，停更阈值 300 ms）——默认常量 10 ms（T11 评审 LOW-1 精确化），对齐 100 Hz 节拍；T5 移交的"按对象实际节奏设置"未做）——轮转表中实际更新周期 >30 ms 的对象会常驻停更灰显。
+
