@@ -87,6 +87,44 @@ public class XcpLayeringTests
     }
 
     [Fact]
+    public void Xcp_Record_namespace_dependency_face_is_pinned()
+    {
+        // S4-T7（S4 plan）：记录面依赖 = Core.Xcp.Receive（样本/gap 契约）+
+        // Core.Xcp.Scheduling（PlannedDaqEntry）+ A2lEditor.Core.Layout（快照面，
+        // spec D2）+ BCL。禁 Uds/HIL/Infrastructure/App/驱动/WPF——记录面永远
+        // 不该长出诊断或驱动依赖（S3 红线延续：包与内核零 API 变更）。
+        var core = typeof(PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink).Assembly;
+
+        // 非空守卫：记录 sink 确实依赖 Receive 面——依赖检测机器坏了这里先炸，
+        // 下面的封禁不会对空集 vacuous pass（照 Scheduling 锚点先例）。
+        var anchor = Types.InAssembly(core)
+            .That().HaveName("XcpMdfRecordSink")
+            .Should().HaveDependencyOn(ReceiveNamespace)
+            .GetResult();
+        Assert.True(anchor.IsSuccessful,
+            "Record namespace selection or dependency detection is broken (XcpMdfRecordSink must consume XcpDaqSample): " +
+            string.Join(", ", anchor.FailingTypeNames ?? Array.Empty<string>()));
+
+        foreach (var banned in new[]
+                 {
+                     "PeakCan.Host.Core.Uds",
+                     "PeakCan.Host.Core.HIL",
+                     "PeakCan.Host.Infrastructure",
+                     "PeakCan.Host.App",
+                     "Peak.Can",
+                     "System.Windows",
+                 })
+        {
+            var result = Types.InAssembly(core)
+                .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Record")
+                .ShouldNot().HaveDependencyOn(banned)
+                .GetResult();
+            Assert.True(result.IsSuccessful,
+                $"{banned}: {string.Join(", ", result.FailingTypeNames ?? Array.Empty<string>())}");
+        }
+    }
+
+    [Fact]
     public void Xcp_Scheduling_does_not_touch_package_segment_address_types()
     {
         // S2-T10 (e)：地址换算唯一入口是包侧 XcpAddressMap.TryTranslate（spec [H1]）。

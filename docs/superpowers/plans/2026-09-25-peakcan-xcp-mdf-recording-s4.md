@@ -49,9 +49,9 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T7 e2e + 验收 + 门禁
 
-- [ ] 判据 1 e2e：记录 Start→落盘→Stop，asammdf 读回通道名/条数/时间轴一致（CI 可跑：asammdf 进 test 依赖或 golden 断言 + 人工档标注）
-- [ ] 判据 2/3/4/5 测试钉满；判据 6 全仓无过滤跑，total ≥ 4280，0 失败 0 新警告
-- [ ] S3 分层守卫回归（记录 sink 依赖面 = Core.Xcp.Record + Receive + 包快照面）
+- [x] 判据 1 e2e：记录 Start→落盘→Stop，asammdf 读回通道名/条数/时间轴一致（CI 可跑：asammdf 进 test 依赖或 golden 断言 + 人工档标注）
+- [x] 判据 2/3/4/5 测试钉满；判据 6 全仓无过滤跑，total ≥ 4280，0 失败 0 新警告
+- [x] S3 分层守卫回归（记录 sink 依赖面 = Core.Xcp.Record + Receive + 包快照面）
 
 ## T8 评审收尾
 
