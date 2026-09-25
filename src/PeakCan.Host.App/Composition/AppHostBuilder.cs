@@ -339,6 +339,38 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
+
+        // ================================================================
+        // S3-T8：XCP tab 接线（spec D1）。四面板 + orchestrator 全 singleton
+        //（运行状态跨 tab 切换保持，UdsViewModel 先例）。
+        // ================================================================
+        // D3 管线 sink singleton：卡片面板与采集面板共享同一实例（采集出站 → 卡片入队）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>();
+        // 卡片面板：stalePeriod = 100 ms（T8 第 6 步 MVP 取舍：全局 3×30ms 阈值近似。
+        // T5 评审移交"按对象实际节奏设置"——轮转表中更新周期 >30ms 的对象会被推迟
+        // 标灰（宁迟勿误报）；逐对象周期接线留待 T11/后续任务，此处显式钉住全局口径。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>(),
+                stalePeriod: TimeSpan.FromMilliseconds(100)));
+        // T3 连接面板：可空可选参 auto-resolve——loadA2l 缺省 Core XcpA2lLoader.Load（D4 单源），
+        // connectedChannels 解析 IConnectedChannelsSource singleton（Q2 已连接通道快照）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+        // T6 归因面板：ctor 注入卡片面板即完成 GapObserved 接力订阅（Attach 幂等）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAttributionPanelViewModel>();
+        // T7 采集面板：显式工厂转发连接面板 + 卡片 sink（MS DI 工厂不回填可选参，
+        // 漏转发即生产静默裸跑——AppShell SecOC 三件套同款教训）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Xcp.XcpCardPanelSink>()));
+        // Orchestrator：可空可选参 auto-resolve 四面板 singleton 原样组装。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>();
+        // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync
+        //（fire-and-forget 会丢 S2 quiesce 契约）。IHostedService.StopAsync 在
+        // App.RunShutdownAsync 的 host.StopAsync（10s 上限）内被真正 await。
+        builder.Services.AddHostedService(sp => new XcpAcquisitionShutdownService(
+            sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>()));
         // Sprint 3: HIL test runner (Infrastructure implementation, Core interface)
         builder.Services.AddSingleton<PeakCan.Host.Core.HIL.IHilRunnerService, Infrastructure.HIL.HilRunnerService>();
         // P1-2（2026-09-06）: 已连接通道快照源（无依赖 singleton，先于 shell/HilVM 解析，
@@ -437,12 +469,54 @@ public partial class AppHostBuilder
             // 转发——MS DI 对工厂注册不回填未提供的可选参数，遗漏即生产静默裸跑。
             secOcVerdicts: sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable>(),
             secOcPduProvider: sp.GetRequiredService<Func<ushort, IReadOnlyDictionary<uint, PeakCan.Host.Infrastructure.Channel.SecOc.SecOcPduConfig>?>>(),
-            secOcBadgeJoiner: sp.GetRequiredService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>()));
+            secOcBadgeJoiner: sp.GetRequiredService<PeakCan.Host.App.Services.SecOc.SecOcBadgeJoiner>(),
+            // S3-T8（D1）：XCP 主 tab VM——显式工厂必须显式转发可选参（见上注）。
+            xcpViewModel: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>()));
 
         // === Flow G: Window + hosted services extracted to AppHostBuilder/WindowAndHostedServicesFlow.cs (W11 Task 6 — LAST extraction) ===
         RegisterWindowAndHostedServices(builder.Services);
 
         return builder.Build();
     }
+
 }
 
+/// <summary>
+/// T7b 评审 L-2 修复：XCP 采集会话关闭宿主（S3-T8）。
+/// <para>
+/// IHostedService.StopAsync 在 App.RunShutdownAsync 的 host.StopAsync 内被
+/// <b>真正 await</b>——保证 S2 quiesce 契约（停表 → 会话静默 → Dispose）在进程
+/// 退出前完成，替代 VM Dispose 在 Dispatcher 上下文下的 fire-and-forget 兜底。
+/// 注意：host stop 路径无 SyncContext，StopAsync 内部 ConfigureAwait(true) 的
+/// 延续直接在线程池恢复，同步等待不会死锁（Dispatcher 上下文的死锁口径见
+/// XcpAcquisitionPanelViewModel.Dispose 注释）。与 singleton 采集面板同实例
+///（AppHostBuilderXcpTests 钉住）。
+/// </para>
+/// </summary>
+internal sealed class XcpAcquisitionShutdownService : IHostedService
+{
+    private readonly PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel _acquisition;
+
+    public XcpAcquisitionShutdownService(
+        PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel acquisition) =>
+        _acquisition = acquisition;
+
+    /// <summary>关闭路径消费的采集面板（同 singleton 实例；测试断言口）。</summary>
+    public PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel Acquisition => _acquisition;
+
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // 关闭路径异常容忍（App.OnExit teardown 契约同款）：StopAsync 内部已
+        // 自持取消/释放流程，此处只保证 await 到位，不向 shutdown 传播异常。
+        try
+        {
+            await _acquisition.StopAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "XCP acquisition StopAsync failed during shutdown");
+        }
+    }
+}
