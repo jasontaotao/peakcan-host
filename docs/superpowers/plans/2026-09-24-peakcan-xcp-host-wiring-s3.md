@@ -138,10 +138,10 @@
 
 **T9 评审移交（T11 必须吸收）**：**M-1**——同名异类去重键不对称：picker 按 (name, category) 允许 Rpm/MEASUREMENT + Rpm/CHARACTERISTIC 同存，但卡片 AddWatch 与 ContractSet 索引都按名——ConfirmedRows→contract 必须扫 Contracts.All 按 (name, category) 对查，**不准走按名索引**；同名异类卡片碰撞取舍写进收尾文档（L1 组名搜索产生可见空组、L2 窗口双重 InitializeComponent、L3 纯增量关注语义、L4 必须 ShowDialog 打开、L5 死接线 CollectionChanged 可删，均记录）。**T8 评审移交**：文档收尾时把 T7b L-3/T8 L3『关闭期间 Start 在途的交叠窗口』写进已知限制；XcpView 补 T9 选择器入口按钮（构造 XcpObjectPickerViewModel(Connection.LoadedResult?.Contracts, traceSession) → OK 后 AddWatch；未加载态按钮禁用）。
 
-- [ ] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
-- [ ] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
-- [ ] spec §4 验收 3/4/5 逐条核对记录。
-- [ ] **门禁**：全仓 Release 全量 + 覆盖率实测 ≥ 80%（新增代码）；commit `(S3-T11)`。
+- [x] **红/绿**：`tests/PeakCan.Host.App.Tests/ViewModels/Xcp/XcpWiringE2ETests.cs`——模拟从机 transport 注入 → 连接面板加载 A2L → 对账 → Start → sink 出样本 → 卡片 100 Hz 更新 → Stop 全链路（spec §4 验收 1 模拟档进 CI）。
+- [x] 断链自查表落 spec 附录（S1 §5.6 判据 2：逐界面元素列"字段 ← 生产者"）。
+- [x] spec §4 验收 3/4/5 逐条核对记录。
+- [x] **门禁**：全仓 Release 全量 + 覆盖率实测 ≥ 80%（新增代码）；commit `(S3-T11)`。
 
 ---
 
