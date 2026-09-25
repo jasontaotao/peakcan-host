@@ -15,6 +15,13 @@ public interface IMdfRecordWriter : IAsyncDisposable
     /// <summary>向 <paramref name="channelIndex"/>（构造时通道序）追加一条记录。</summary>
     Task WriteRecordAsync(int channelIndex, double timeSeconds, double value, CancellationToken ct = default);
 
+    /// <summary>追加一条失效记录（空窗标记：value 载荷 NaN + invalidation 位置位，spec D3）。</summary>
+    Task WriteInvalidRecordAsync(int channelIndex, double timeSeconds, CancellationToken ct = default);
+
+    /// <summary>追加一条归因事件（事件组：时间/kind/cause/detail/receive_kind/预期时长，spec D3）。</summary>
+    Task WriteGapEventAsync(double timeSeconds, string kind, string cause, string detail,
+        string receiveKind, double expectedMaxSeconds, CancellationToken ct = default);
+
     /// <summary>向文件追加附件块（S4-T3 ContractSnapshot JSON 落盘；嵌入式未压缩）。</summary>
     Task WriteAttachmentAsync(string mimeType, string comment, ReadOnlyMemory<byte> data, CancellationToken ct = default);
 

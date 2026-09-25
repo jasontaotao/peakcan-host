@@ -44,6 +44,12 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
     private readonly long[] _openDt;     // 当前未封口的 DT 块偏移（0 = 无）
     private readonly long[] _dtPayload;  // 当前 DT 已写载荷
     private readonly int[] _dlSlot;      // 当前 DL 槽位游标
+    // 事件组 SD 载荷（kind/cause/detail/receive_kind；Finalize 落盘回链）。
+    // VLSD 语义：记录存 SD 内条目起始偏移，条目 = [u32 len][utf8 bytes]（asammdf extract 口径）。
+    private readonly List<byte>[] _sdPayloads = new List<byte>[4];
+    private readonly int[] _sdLengths = new int[4];
+    private readonly long[] _sdCnOffsets = new long[4];
+    private bool _sdWritten;
     private long _atTail;    // 附件链尾（0 = 链空）
     private long _total;
     private bool _finalized;
@@ -53,7 +59,7 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
     {
         _stream = stream;
         _channels = [.. channels];
-        var n = _channels.Length;
+        var n = _channels.Length + 1; // 末位 = 归因事件组（spec D3）
         _dlOffsets = new long[n];
         _cgOffsets = new long[n];
         _payloadLens = new long[n];
@@ -105,15 +111,102 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)channelIndex, (uint)_channels.Length);
 
         var buf = _buffers[channelIndex] ??= new byte[64 * 1024];
-        if (_bufferLens[channelIndex] + 16 > buf.Length)
+        if (_bufferLens[channelIndex] + 17 > buf.Length)
             await FlushChannelAsync(channelIndex, ct).ConfigureAwait(false);
 
         var off = _bufferLens[channelIndex];
         BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off, 8), timeSeconds);
         BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off + 8, 8), value);
-        _bufferLens[channelIndex] = off + 16;
+        buf[off + 16] = 0; // invalidation bit 清零 = 有效样本
+        _bufferLens[channelIndex] = off + 17;
         _counts[channelIndex]++;
         Interlocked.Increment(ref _total);
+    }
+
+    /// <summary>
+    /// 追加一条失效记录（spec D3 空窗标记）：value 载荷 NaN（不可当数据），
+    /// invalidation 位置位——回放侧据此把空窗画成空窗而非连线。
+    /// </summary>
+    public async Task WriteInvalidRecordAsync(int channelIndex, double timeSeconds, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)channelIndex, (uint)_channels.Length);
+
+        var buf = _buffers[channelIndex] ??= new byte[64 * 1024];
+        if (_bufferLens[channelIndex] + 17 > buf.Length)
+            await FlushChannelAsync(channelIndex, ct).ConfigureAwait(false);
+
+        var off = _bufferLens[channelIndex];
+        BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off, 8), timeSeconds);
+        BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off + 8, 8), double.NaN);
+        buf[off + 16] = 0x01; // invalidation bit 0 置位
+        _bufferLens[channelIndex] = off + 17;
+        _counts[channelIndex]++;
+        Interlocked.Increment(ref _total);
+    }
+
+    /// <summary>追加一条归因事件（spec D3 事件组：时间 + kind/cause/detail/receive_kind（SD 字符串）+ 预期时长）。</summary>
+    public async Task WriteGapEventAsync(double timeSeconds, string kind, string cause,
+        string detail, string receiveKind, double expectedMaxSeconds, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var idx = _channels.Length; // 事件组
+        var buf = _buffers[idx] ??= new byte[64 * 1024];
+        if (_bufferLens[idx] + 32 > buf.Length)
+            await FlushChannelAsync(idx, ct).ConfigureAwait(false);
+
+        var off = _bufferLens[idx];
+        BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off, 8), timeSeconds);
+        BinaryPrimitives.WriteDoubleLittleEndian(buf.AsSpan(off + 8, 8), expectedMaxSeconds);
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(off + 16, 4), (uint)AppendSd(0, kind));
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(off + 20, 4), (uint)AppendSd(1, cause));
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(off + 24, 4), (uint)AppendSd(2, detail));
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(off + 28, 4), (uint)AppendSd(3, receiveKind));
+        _bufferLens[idx] = off + 32;
+        _counts[idx]++;
+        Interlocked.Increment(ref _total);
+    }
+
+    /// <summary>追加 SD 条目 [u32 len][utf8] 并返回条目起始偏移（记录字段值）；空串也占位。</summary>
+    private int AppendSd(int slot, string text)
+    {
+        var start = _sdLengths[slot];
+        var list = _sdPayloads[slot] ??= new List<byte>();
+        var bytes = string.IsNullOrEmpty(text) ? [] : Encoding.UTF8.GetBytes(text);
+        list.AddRange(BitConverter.GetBytes(bytes.Length));
+        list.AddRange(bytes);
+        _sdLengths[slot] = start + 4 + bytes.Length;
+        return start;
+    }
+
+    /// <summary>Finalize 时把 SD 块落到文件尾并回填事件 CN.data（幂等；无事件不落块）。</summary>
+    private async Task FlushSdBlocksAsync(CancellationToken ct)
+    {
+        if (_sdWritten)
+            return;
+        _sdWritten = true;
+        _stream.Seek(0, SeekOrigin.End);
+        for (var i = 0; i < 4; i++)
+        {
+            var payload = _sdPayloads[i];
+            if (payload is null || payload.Count == 0)
+                continue; // 无事件：CN.data 保持 0（cycles=0 时读取器不读 SD）
+            var sdOff = _stream.Position;
+            var blockLen = (24 + payload.Count + 7) & ~7;
+            var head = new byte[24];
+            WriteBlockHead(head, "##SD", blockLen, 0);
+            await _stream.WriteAsync(head, ct).ConfigureAwait(false);
+            await _stream.WriteAsync(payload.ToArray(), ct).ConfigureAwait(false);
+            for (var pad = 24 + payload.Count; (pad & 7) != 0; pad++)
+                _stream.WriteByte(0);
+
+            _stream.Seek(_sdCnOffsets[i] + 64, SeekOrigin.Begin); // cn.data link
+            var link = new byte[8];
+            BinaryPrimitives.WriteUInt64LittleEndian(link, (ulong)sdOff);
+            await _stream.WriteAsync(link, ct).ConfigureAwait(false);
+            _stream.Seek(0, SeekOrigin.End);
+        }
     }
 
     /// <summary>
@@ -178,13 +271,14 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
         _finalized = true;
 
         await FlushAllAsync(ct).ConfigureAwait(false);
-        for (var i = 0; i < _channels.Length; i++)
+        for (var i = 0; i < _channels.Length + 1; i++)
         {
             await CloseOpenDtAsync(i, ct).ConfigureAwait(false);
             PatchDlCount(i);
             PatchCycles(i);
         }
 
+        await FlushSdBlocksAsync(ct).ConfigureAwait(false);
         _stream.Seek(0, SeekOrigin.Begin);
         await _stream.WriteAsync("MDF     "u8.ToArray(), ct).ConfigureAwait(false);
         await _stream.FlushAsync(ct).ConfigureAwait(false);
@@ -201,12 +295,14 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
             if (!_finalized)
             {
                 await FlushAllAsync(CancellationToken.None).ConfigureAwait(false);
-                for (var i = 0; i < _channels.Length; i++)
+                for (var i = 0; i < _channels.Length + 1; i++)
                 {
                     await CloseOpenDtAsync(i, CancellationToken.None).ConfigureAwait(false);
                     PatchDlCount(i);
                     PatchCycles(i);
                 }
+
+                await FlushSdBlocksAsync(CancellationToken.None).ConfigureAwait(false);
             }
         }
         catch
@@ -283,12 +379,13 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
             BinaryPrimitives.WriteUInt64LittleEndian(d.AsSpan(40, 8), (ulong)dlOff);
             _stream.Write(d);
 
-            // CG：first_ch=time CN；rec_id=1, samples_byte_nr=16, inval=0。
+            // CG：first_ch=time CN；rec_id=1, samples_byte_nr=16（不含失效位），inval_bytes_nr=1（spec D3）。
             var cg = new byte[CgBlockSize];
             WriteBlockHead(cg, "##CG", CgBlockSize, 6);
             BinaryPrimitives.WriteUInt64LittleEndian(cg.AsSpan(32, 8), (ulong)cnTimeOff);
             BinaryPrimitives.WriteUInt32LittleEndian(cg.AsSpan(72, 4), 1);
             BinaryPrimitives.WriteUInt32LittleEndian(cg.AsSpan(96, 4), 16);
+            BinaryPrimitives.WriteUInt32LittleEndian(cg.AsSpan(100, 4), 1);
             _stream.Write(cg);
 
             var txNameTime = WriteTx("time");
@@ -297,30 +394,115 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
             var txUnit = string.IsNullOrEmpty(ch.Unit) ? 0L : WriteTx(ch.Unit!);
 
             WriteChannelBlock(nextCn: cnTimeOff + CnBlockSize, name: txNameTime, unit: txUnitTime,
-                channelType: 2, syncType: 1, byteOffset: 0);
+                channelType: 2, syncType: 1, byteOffset: 0, invalBit: 7); // master 指向永不置位的 bit7
             WriteChannelBlock(nextCn: 0, name: txName, unit: txUnit,
-                channelType: 0, syncType: 0, byteOffset: 8);
+                channelType: 0, syncType: 0, byteOffset: 8, flags: 0x2, invalBit: 0); // flags bit1 = invalidation present
 
             WriteDataList();
         }
+
+        // 链接：最后一个样本 DG.next → 事件 DG（否则事件组成孤儿块）。
+        var lastDg = dgOffsets[_channels.Length - 1];
+        _stream.Seek(lastDg + 24, SeekOrigin.Begin);
+        var link = new byte[8];
+        BinaryPrimitives.WriteUInt64LittleEndian(link, (ulong)pos);
+        _stream.Write(link);
+        _stream.Seek(0, SeekOrigin.End);
+
+        WriteEventGroup(pos);
+    }
+
+    /// <summary>归因事件组（spec D3）：独立 DG，字符串通道走 SD（Finalize 落盘回链）。</summary>
+    private void WriteEventGroup(long evDgOff)
+    {
+        var evIdx = _channels.Length;
+        var evCgOff = evDgOff + DgBlockSize;
+        var txTimeOff = evCgOff + CgBlockSize;
+        var txSOff = txTimeOff + TxBlockSize("time");
+        var txKindOff = txSOff + TxBlockSize("s");
+        var txCauseOff = txKindOff + TxBlockSize("kind");
+        var txDetailOff = txCauseOff + TxBlockSize("cause");
+        var txRecvOff = txDetailOff + TxBlockSize("detail");
+        var txExpOff = txRecvOff + TxBlockSize("receive_kind");
+        var cnTimeOff = txExpOff + TxBlockSize("expected_max_duration_s");
+        var cnKindOff = cnTimeOff + CnBlockSize;
+        var cnCauseOff = cnKindOff + CnBlockSize;
+        var cnDetailOff = cnCauseOff + CnBlockSize;
+        var cnRecvOff = cnDetailOff + CnBlockSize;
+        var cnExpOff = cnRecvOff + CnBlockSize;
+        var dlOff = cnExpOff + CnBlockSize;
+        _cgOffsets[evIdx] = evCgOff;
+        _dlOffsets[evIdx] = dlOff;
+        _sdCnOffsets[0] = cnKindOff;
+        _sdCnOffsets[1] = cnCauseOff;
+        _sdCnOffsets[2] = cnDetailOff;
+        _sdCnOffsets[3] = cnRecvOff;
+
+        var d = new byte[DgBlockSize];
+        WriteBlockHead(d, "##DG", DgBlockSize, 4);
+        BinaryPrimitives.WriteUInt64LittleEndian(d.AsSpan(32, 8), (ulong)evCgOff);
+        BinaryPrimitives.WriteUInt64LittleEndian(d.AsSpan(40, 8), (ulong)dlOff);
+        _stream.Write(d);
+
+        // CG：rec_id=1, samples=32（time+expected f64 + 4×u32 SD 偏移），无失效位。
+        var cg = new byte[CgBlockSize];
+        WriteBlockHead(cg, "##CG", CgBlockSize, 6);
+        BinaryPrimitives.WriteUInt64LittleEndian(cg.AsSpan(32, 8), (ulong)cnTimeOff);
+        BinaryPrimitives.WriteUInt32LittleEndian(cg.AsSpan(72, 4), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(cg.AsSpan(96, 4), 32);
+        _stream.Write(cg);
+
+        WriteTx("time");
+        WriteTx("s");
+        WriteTx("kind");
+        WriteTx("cause");
+        WriteTx("detail");
+        WriteTx("receive_kind");
+        WriteTx("expected_max_duration_s");
+
+        // CN 链：time → kind → cause → detail → receive_kind → expected。
+        WriteChannelBlock(nextCn: cnKindOff, name: txTimeOff, unit: txSOff,
+            channelType: 2, syncType: 1, byteOffset: 0, invalBit: 7);
+        WriteChannelBlock(nextCn: cnCauseOff, name: txKindOff, unit: 0,
+            channelType: 1, syncType: 0, byteOffset: 16,
+            dataType: 0, bitCount: 32); // VLSD 通道：记录存 SD 内偏移（u32）
+        WriteChannelBlock(nextCn: cnDetailOff, name: txCauseOff, unit: 0,
+            channelType: 1, syncType: 0, byteOffset: 20,
+            dataType: 0, bitCount: 32);
+        WriteChannelBlock(nextCn: cnRecvOff, name: txDetailOff, unit: 0,
+            channelType: 1, syncType: 0, byteOffset: 24,
+            dataType: 0, bitCount: 32);
+        WriteChannelBlock(nextCn: cnExpOff, name: txRecvOff, unit: 0,
+            channelType: 1, syncType: 0, byteOffset: 28,
+            dataType: 0, bitCount: 32);
+        WriteChannelBlock(nextCn: 0, name: txExpOff, unit: 0,
+            channelType: 0, syncType: 0, byteOffset: 8);
+
+        WriteDataList();
     }
 
     private void WriteChannelBlock(long nextCn, long name, long unit,
-        byte channelType, byte syncType, int byteOffset)
+        byte channelType, byte syncType, int byteOffset,
+        byte dataType = 4, int bitCount = 64, uint flags = 0, long dataLink = 0, int invalBit = -1)
     {
         var b = new byte[CnBlockSize];
         WriteBlockHead(b, "##CN", CnBlockSize, 8);
         // links @24: next, component, name, source, conversion, data, unit, comment
         BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(24, 8), (ulong)nextCn);
         BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(40, 8), (ulong)name);
-        BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(64, 8), (ulong)unit);
+        BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(64, 8), (ulong)dataLink); // cn_data（SD 块：事件字符串通道）
+        BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(72, 8), (ulong)unit);
         // 数据 @88: type/sync/dtype/bitoff(1B), byteoff, bitcnt, flags, invalbit, prec, res, att, 6×double
         b[88] = channelType;
         b[89] = syncType;
-        b[90] = 4; // REAL_LE（golden 参照）
+        b[90] = dataType;
         BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(92, 4), (uint)byteOffset);
-        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(96, 4), 64);
-        b[104] = 0xFF; // precision 未指定
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(96, 4), (uint)bitCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(100, 4), flags);
+        if (invalBit >= 0)
+            BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(104, 4), (uint)invalBit);
+        else
+            b[104] = 0xFF; // 无失效位通道（inval_bytes_nr=0 的 CG 内字段被忽略，与 T2 行为一致）
         _stream.Write(b);
     }
 
@@ -443,7 +625,7 @@ public sealed class Mdf4StreamWriter : IMdfRecordWriter
 
     private async Task FlushAllAsync(CancellationToken ct)
     {
-        for (var i = 0; i < _channels.Length; i++)
+        for (var i = 0; i < _channels.Length + 1; i++)
             await FlushChannelAsync(i, ct).ConfigureAwait(false);
         await _stream.FlushAsync(ct).ConfigureAwait(false);
     }

@@ -31,9 +31,9 @@ Spec：`docs/superpowers/specs/2026-09-25-peakcan-xcp-mdf-recording-s4.md`（v0.
 
 ## T4 invalidation bits + 归因事件组（D3/Q1，TDD）
 
-- [ ] 测试先红：样本通道配 invalidation bit；OnGap 写归因事件组（时间/kind/cause 字符串/Detail/ExpectedMaxDuration）；PlanGap/断流/逐帧归因全落
-- [ ] host 两态不落盘（S3 D5 口径回归钉）
-- [ ] 空窗判据测试：制造 MissingCause + PlanGap → 失效位置位 + 事件条目时间区间可对上（判据 3）
+- [x] 测试先红：样本通道配 invalidation bit；OnGap 写归因事件组（时间/kind/cause 字符串/Detail/ExpectedMaxDuration）；PlanGap/断流/逐帧归因全落
+- [x] host 两态不落盘（S3 D5 口径回归钉）
+- [x] 空窗判据测试：制造 MissingCause + PlanGap → 失效位置位 + 事件条目时间区间可对上（判据 3）
 
 ## T5 App 记录面板（D5，TDD）
 

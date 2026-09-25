@@ -41,8 +41,11 @@ public sealed class XcpMdfRecordSinkOptions
 /// </summary>
 public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
 {
+    /// <summary>样本与 gap 混排的队列元素：按到达序消费，保证文件行时间序。</summary>
+    private readonly record struct RecordItem(XcpDaqSample? Sample, DateTimeOffset GapAt, XcpAcquisitionGap? Gap);
+
     private readonly XcpMdfRecordSinkOptions _options;
-    private readonly ConcurrentQueue<XcpDaqSample> _queue = new();
+    private readonly ConcurrentQueue<RecordItem> _queue = new();
     private readonly Dictionary<string, int> _channelIndexByName;
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private IMdfRecordWriter? _writer;
@@ -146,7 +149,24 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
         if (sample is null || !IsRecording || _stopping)
             return;
 
-        _queue.Enqueue(sample);
+        Enqueue(new RecordItem(sample, default, null));
+    }
+
+    /// <summary>
+    /// 归因条目落盘（spec D3）：事件组一行 + 各样本通道一条失效行（空窗时刻无有效样本）。
+    /// S2 gap 无时间字段——消费侧 OnGap 到达时刻打点（T8 已知限制）。
+    /// </summary>
+    public void OnGap(XcpAcquisitionGap gap)
+    {
+        if (gap is null || !IsRecording || _stopping)
+            return;
+
+        Enqueue(new RecordItem(null, DateTimeOffset.UtcNow, gap));
+    }
+
+    private void Enqueue(RecordItem item)
+    {
+        _queue.Enqueue(item);
         if (Interlocked.Increment(ref _queueCount) <= _options.QueueCapacity)
             return;
 
@@ -155,12 +175,6 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
             Interlocked.Decrement(ref _queueCount);
             Interlocked.Increment(ref _dropped);
         }
-    }
-
-    /// <summary>归因条目（S4-T4 落盘；本任务暂不入文件）。</summary>
-    public void OnGap(XcpAcquisitionGap gap)
-    {
-        // T4 接管：invalidation bits + 归因事件组。
     }
 
     /// <summary>停止记录：排空队列 → Finalize → 关闭（幂等；故障路径吞 Finalize 异常进 LastError）。</summary>
@@ -242,7 +256,7 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
     private bool DrainOnce()
     {
         var drained = false;
-        while (_queue.TryDequeue(out var sample))
+        while (_queue.TryDequeue(out var item))
         {
             Interlocked.Decrement(ref _queueCount);
             drained = true;
@@ -250,6 +264,13 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
             if (_writer is null || IsFaulted)
                 continue;
 
+            if (item.Gap is { } gap)
+            {
+                WriteGapSync(gap, item.GapAt);
+                continue;
+            }
+
+            var sample = item.Sample!;
             if (!_channelIndexByName.TryGetValue(sample.Entry.ObjectName, out var idx))
             {
                 Interlocked.Increment(ref _unknown);
@@ -262,6 +283,21 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
         }
 
         return drained;
+    }
+
+    /// <summary>gap 落盘：事件组一行 + 全样本通道各一条失效行（会话级归因，对象面靠失效位对位）。</summary>
+    private void WriteGapSync(XcpAcquisitionGap gap, DateTimeOffset gapAt)
+    {
+        var seconds = (gapAt - _startedUtc!.Value).TotalSeconds;
+        _writer!.WriteGapEventAsync(
+            seconds,
+            gap.Kind.ToString(),
+            gap.Cause?.ToString() ?? string.Empty,
+            gap.Detail,
+            gap.ReceiveKind?.ToString() ?? string.Empty,
+            gap.ExpectedMaxDuration?.TotalSeconds ?? 0).GetAwaiter().GetResult();
+        for (var i = 0; i < _options.Channels.Count; i++)
+            _writer.WriteInvalidRecordAsync(i, seconds).GetAwaiter().GetResult();
     }
 }
 

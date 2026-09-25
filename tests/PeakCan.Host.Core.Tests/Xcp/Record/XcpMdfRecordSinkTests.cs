@@ -284,6 +284,13 @@ internal sealed class ExplodingWriter : IMdfRecordWriter
     public Task WriteAttachmentAsync(string mimeType, string comment, ReadOnlyMemory<byte> data, CancellationToken ct = default) =>
         throw new IOException("disk exploded");
 
+    public Task WriteInvalidRecordAsync(int channelIndex, double timeSeconds, CancellationToken ct = default) =>
+        throw new IOException("disk exploded");
+
+    public Task WriteGapEventAsync(double timeSeconds, string kind, string cause, string detail,
+        string receiveKind, double expectedMaxSeconds, CancellationToken ct = default) =>
+        throw new IOException("disk exploded");
+
     public Task FinalizeAsync(CancellationToken ct = default) => throw new IOException("disk exploded");
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -316,13 +323,21 @@ internal sealed record Mdf4Layout(
             Assert.Equal("##DG", Encoding.ASCII.GetString(b, (int)dg, 4));
             var cg = U64((int)dg + 32);
             var dl = U64((int)dg + 40);
-            dgCount++;
 
             // DL → DT 槽位（DL 设计：DG.data 指向 DL，DT 在槽位表）。
 
             // CG：links @cg+24（next/first_ch/acqn/acqs/sr/cm），数据 @cg+72。
             Assert.Equal("##CG", Encoding.ASCII.GetString(b, (int)cg, 4));
             var firstCh = U64((int)cg + 32);
+
+            // T4 归因事件组（独立 DG、无失效位）不属于样本面，跳过。
+            if (U32((int)cg + 100) == 0)
+            {
+                dg = U64((int)dg + 24);
+                continue;
+            }
+
+            dgCount++;
             lastCycles = (long)U64((int)cg + 80);
             recordSize = (int)U32((int)cg + 96);
 
@@ -338,7 +353,7 @@ internal sealed record Mdf4Layout(
             var dt = U64((int)dl + 32); // 首数据槽位（小数据量单 DT）
             Assert.Equal("##DT", Encoding.ASCII.GetString(b, (int)dt, 4));
             var dtLen = (long)U64((int)dt + 8);
-            for (var off = (int)dt + 24; off < (int)dt + dtLen; off += 16)
+            for (var off = (int)dt + 24; off + 17 <= (int)dt + dtLen; off += 17)
                 records.Add((BitConverter.ToDouble(b, off), BitConverter.ToDouble(b, off + 8)));
 
             dg = U64((int)dg + 24); // dg.next
