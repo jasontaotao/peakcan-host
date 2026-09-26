@@ -14,10 +14,10 @@
 
 ## T2 写回内核 XcpCalibrationWriter（D1/D4，TDD）
 
-- [ ] 字节级黄金样本：SET_MTA + DOWNLOAD 1..4B；>4B 分片序列（按 T0 裁决的 MTA 自增语义）；DOWNLOAD 负响应重试/耗尽
-- [ ] 写后回读：UPLOAD 逐字节比对；回读失败 ≠ 写失败，状态分列
-- [ ] 拒绝面：地址覆盖不到 / Encode 拒绝 / 指纹不符 → 拒绝且零线上流量（流量审计断言）
-- [ ] single-flight：写序列内不可插命令（与采集共享 XcpMaster 纪律）
+- [x] 字节级黄金样本：SET_MTA + DOWNLOAD 1..4B；>4B 分片序列（按 T0 裁决的 MTA 自增语义）；DOWNLOAD 负响应重试/耗尽
+- [x] 写后回读：UPLOAD 逐字节比对；回读失败 ≠ 写失败，状态分列
+- [x] 拒绝面：地址覆盖不到 / Encode 拒绝 / 指纹不符 → 拒绝且零线上流量（流量审计断言）
+- [x] single-flight：写序列内不可插命令（与采集共享 XcpMaster 纪律）
 
 ## T3 批量编排 CalibrationReconciler（D3/D4，TDD）
 
