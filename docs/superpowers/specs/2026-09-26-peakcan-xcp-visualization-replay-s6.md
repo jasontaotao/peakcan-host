@@ -148,3 +148,32 @@ receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值
 3. **只读红线钉**：`XcpMapReaderTests` 断言线上零 DOWNLOAD（0xF0）帧；App 层不构造协议命令（分层守卫）。
 4. **离线兜底口径**：A2L/参数集均无 MAP 元素静态值（S5 参数集对多元素对象拒绝导出）——离线渲染
    = 索引轴 + NaN 网格（仅结构，Detail 明示"离线模式"），不伪造数据（§4.8 同口径）。
+
+
+## 附录 A：断链自查（验收判据 → 实现 → 测试）
+
+| 判据 | 实现落点 | 测试钉 |
+| --- | --- | --- |
+| 1 回放：MF4 加载→通道勾选→ScottPlot 曲线 + NaN 空窗断线 + 归因竖线 + 指纹警示 | `Mdf4StreamReader` → `XcpReplayDecoder`（元数据装配 + 指纹门禁）→ `XcpReplayPanelViewModel/View`（TabControl 第二页） | `Mdf4StreamReaderTests`(7) round-trip；`XcpReplayDecoderTests`(6)；`XcpReplayPanelViewModelTests`(5) |
+| 2 MAP 只读可视化：在线 UPLOAD + heatmap + 悬停读值；离线结构兜底 | `XcpUploadReader` + `XcpMapReader` → `XcpMapPanelViewModel/View` | `XcpMapReaderTests`(3)：在线格值 + 零 DOWNLOAD 帧钉 + 离线 NaN；`XcpMapPanelViewModelTests`(4) |
+| 3 diff：两份参数集对比行 + 越限标红 + 定位联动 | `CalibrationParameterSetDiff` + `XcpDiffPanelViewModel/View`（TabControl 第四页）+ `XcpView` 卡片 BringIntoView | `CalibrationParameterSetDiffTests`(3：稳定性钉 + 越限钉)；`XcpDiffPanelViewModelTests`(6：指纹警示 + 失败面 + 定位事件) |
+| 4 多段写：拆段写序列 + 分段回读 + 门禁解除回归钉 | `CalibrationRunPlanner.PlanWriteRuns` + `XcpCalibrationWriter.WriteAsync(contract, doc, value)` + reconciler 逐 run 读 | `CalibrationMultiSegmentWriteTests`(7)：跨段拆 run、广播、首段失败中断、未覆盖零流量、reconciler 端到端；`XcpCalibrationWriterTests` 原 P1-1 钉改广播/原分片路径钉 |
+| 5 门禁：全仓无过滤 ≥4350 / 0 失败；分层守卫回归 | — | 2026-09-26 实测 4392 通过 / 0 失败（见附录 B）；`XcpAppLayeringTests` 全绿（App 不依赖 XcpCommandEncoder / PeakCan 家族） |
+| e2e：采集→落盘→回放数据一致 | `XcpAcquisitionSession` → `XcpMdfRecordSink` → `Mdf4StreamReader` | `AcquisitionReplayE2ETests`：DTO 注入 42 → MF4 → 回放 42 + gap 失效行如实在盘 |
+
+## 附录 B：验收记录（2026-09-26）
+
+- 全仓无过滤 `dotnet test PeakCan.Host.slnx`：**4392 通过 / 0 失败**（≥4350 达标）。
+  分项：Core 1542 / App 1696 / Infrastructure 730 / Mobile.Core 275 / Cli 78 / Security 48 / PromptCacheProbe 23。
+- 分层守卫（`XcpAppLayeringTests`）：App 层不依赖 XcpCommandEncoder、不引用 PeakCan 驱动家族——回归通过。
+- 提交链：`18ce4b8b` spec v0.1 → `f7ef4392` v0.2 → `ca820df2` T0 → `203eaeaf` T1 → `151f45cd` T2 → `b1d6264a` T3 → `abf95aaf` T4 → `1468a620` plan 修复 → `e7854b46` T5 → `4affe87a` T6 → T7 收尾。
+
+## 附录 C：已知限制（v1.0 收尾）
+
+1. 只回放自家 writer 产物（D1 定案）；通用 MDF 另立项。
+2. gap 时间戳口径继承 S4 附录 C-1（到达序）。
+3. ScottPlot 5.0.55 复用既有 Trace Viewer 引擎（D2/T4 errata：T0 spike 的 5.1.59 + NU1701 预案作废，未引入）。
+4. diff 面跨固件：指纹与当前 A2L 不符仅警示（只读比较面），下发仍被 S5 `EnsureMatches` 拒绝。
+5. **广播写语义**：多元素对象（CURVE/MAP/VAL_BLK）经参数集/卡片写值 = 同值广播全元素——真机上对整 MAP 覆盖的行为需台架确认是否合期望；若需要"逐元素差异写"，须扩参数集格式（数组值），挂账 S7 候选。
+6. **跨段映射真机形态**：包侧 SegmentList 恒单段（T6 补记 1）；真机 A2L 是否出现"单 ValueSegment 但跨 ADDRESS_MAPPING"的对象待台架实证（`CalibrationRunPlanner` 已覆盖该形态）。
+7. 在线 MAP 渲染的上传耗时与 DAQ 并发行为（S5 A-x 挂账延伸）：模拟从机已验证零 DOWNLOAD 与格值正确，真机并发待验。
