@@ -103,4 +103,4 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 | A2L `OPTIONAL_CMD` 是 AML 接口枚举（命令全集），非"已声明支持"清单 | `App_merge_INCA.a2l` | 写回能力对账以**运行期 GET_COMM_MODE_INFO optional 位图**（S2 探针已取）为准，不以 A2L 文本为准 |
 | PAG | 从机有 Pag 模块 | v0.1 不做 SET_CAL_PAGE（spec 非目标）；写回地址 = A2L 段映射物理地址（与 S2 采集 UPLOAD 同一翻译面，`XcpAddressMap.TryTranslate` 唯一入口） |
 
-对象级 ByteSize 分布（>4B 分片对象数量）留 T1 经包侧 `ValueContract.ByteSize` 统计落本节。
+对象分布（T1 回填，A2L 文本两遍统计，1377 个 CHARACTERISTIC 全部映射成功、0 未映射）：FLOAT32_IEEE 866 / UBYTE 366 / ULONG 63 / UWORD 58 / SWORD 13 / SBYTE 9 / SLONG 2——**元素级全部 ≤4B，单元素对象单帧 DOWNLOAD 可写**；分片仅发生在多元素对象（VALUE 1232 / CURVE 82 / VAL_BLK 48 / MAP 15 的 N 元素连续写，按内存序 `DOWNLOAD`×⌈n/4⌉）。元素编码字节序由包侧 `ByteLayout`（BigEndian）承载，S1 §7 MOD_COMMON↔IF_DATA 字节序冲突已裁决。

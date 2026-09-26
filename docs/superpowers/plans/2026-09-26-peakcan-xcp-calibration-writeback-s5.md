@@ -8,9 +8,9 @@
 
 ## T1 参数集 codec（D2，TDD）
 
-- [ ] 测试先红：header（schemaVersion/a2lSha256/exportedAt/source）+ calibrations 每对象一行、对象名排序、两次导出字节一致
-- [ ] 指纹校验：加载时与当前 A2L 比对，不符拒绝
-- [ ] 格式钉子：UTF-8 无 BOM、LF、2 空格缩进、物理值主存储 + raw 可选参考
+- [x] 测试先红：header（schemaVersion/a2lSha256/exportedAt/source）+ calibrations 每对象一行、对象名排序、两次导出字节一致
+- [x] 指纹校验：加载时与当前 A2L 比对，不符拒绝
+- [x] 格式钉子：UTF-8 无 BOM、LF、2 空格缩进、物理值主存储 + raw 可选参考
 
 ## T2 写回内核 XcpCalibrationWriter（D1/D4，TDD）
 
