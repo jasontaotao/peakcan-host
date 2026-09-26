@@ -401,6 +401,22 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpMdfRecordSink>(),
                 trigger: sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpTriggerRecordEngine>()));
+        // S5-T4（spec D5）：标定写回面板——行内写值链路 + 参数集导出/下发；
+        // master 提供者接采集面板 ActiveMaster（写回共用采集连接），指纹接记录面板快照工厂。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>(sp =>
+        {
+            var acquisition = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>();
+            var cards = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>();
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            var record = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>();
+            var vm = new PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel(
+                cards,
+                masterProvider: () => acquisition.ActiveMaster,
+                snapshotFactory: () => record.BuildSnapshotFromConnection(),
+                documentProvider: () => connection.LoadedResult?.Document);
+            cards.AttachWriteback(vm.WriteSingleAsync);
+            return vm;
+        });
         // T7 采集面板：显式工厂转发连接面板 + 广播 sink（D4：卡片+记录 fan-out；
         // MS DI 工厂不回填可选参，漏转发即生产静默裸跑——AppShell SecOC 三件套同款教训）。
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(sp =>
@@ -409,7 +425,14 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink>()));
 
         // Orchestrator：可空可选参 auto-resolve 四面板 singleton 原样组装。
-        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>();
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Xcp.XcpViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpCardPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAttributionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(),
+                writeback: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>()));
         // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync
         //（fire-and-forget 会丢 S2 quiesce 契约）。IHostedService.StopAsync 在
         // App.RunShutdownAsync 的 host.StopAsync（10s 上限）内被真正 await。

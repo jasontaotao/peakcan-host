@@ -5,7 +5,10 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using A2lEditor.Core.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Services.Xcp;
+using PeakCan.Host.Core.Xcp.Calibration;
 using PeakCan.Host.Core.Xcp.Receive;
 
 namespace PeakCan.Host.App.ViewModels.Xcp;
@@ -93,8 +96,78 @@ public sealed class XcpCardViewModel : ObservableObject
         _limitState = LimitStateOf(Contract, sample.Value);
         OnPropertyChanged(nameof(LimitState));
 
+        _lastNumericValue = sample.Value; // S5-T4：写值/参数集导出需要数值面（DisplayValue 是格式化文本）
+        OnPropertyChanged(nameof(LastNumericValue));
+
         _lastUpdate = sample.ReceivedAt;
         OnPropertyChanged(nameof(LastUpdate)); // T5 评审 MEDIUM：绑定属性必须随更新通知（原漏报）
+    }
+
+    // ===== S5-T4（spec D5）：标定写值入口（组合根经面板 AttachWriteback 接线） =====
+
+    /// <summary>最近一次样本数值（写值/参数集导出的数值面；DisplayValue 是格式化文本）。</summary>
+    public double? LastNumericValue => _lastNumericValue;
+
+    private double? _lastNumericValue;
+
+    /// <summary>写回处理器（组合根经面板 AttachWriteback 接线；null = 未接线，写按钮禁用）。</summary>
+    public Func<XcpCardViewModel, double, Task<CalibrationWriteOutcome>>? WriteHandler { get; set; }
+
+    /// <summary>是否可写（CHARACTERISTIC 卡片且写回已接线）。</summary>
+    public bool CanWrite =>
+        string.Equals(Category, "CHARACTERISTIC", StringComparison.OrdinalIgnoreCase) && WriteHandler is not null;
+
+    /// <summary>写入物理值文本（不变文化解析）。</summary>
+    public string? WriteValueText
+    {
+        get => _writeValueText;
+        set
+        {
+            if (_writeValueText == value)
+                return;
+            _writeValueText = value;
+            OnPropertyChanged();
+            WriteValueCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private string? _writeValueText;
+
+    /// <summary>最近一次写值结果（人读状态行）。</summary>
+    public string? LastWriteStatus
+    {
+        get => _lastWriteStatus;
+        private set
+        {
+            if (_lastWriteStatus == value)
+                return;
+            _lastWriteStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private string? _lastWriteStatus;
+
+    private bool CanWriteValue() =>
+        CanWrite && double.TryParse(WriteValueText, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out _);
+
+    /// <summary>D5 行内写值命令（写 + 回读 + 状态行）。</summary>
+    public RelayCommand WriteValueCommand => _writeValueCommand ??= new RelayCommand(WriteValueAsync, CanWriteValue);
+
+    private RelayCommand? _writeValueCommand;
+
+    private async void WriteValueAsync()
+    {
+        if (WriteHandler is null
+            || !double.TryParse(WriteValueText, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value))
+        {
+            return;
+        }
+
+        var outcome = await WriteHandler(this, value);
+        LastWriteStatus = $"{outcome.Status}：{outcome.Detail}";
     }
 
     /// <summary>停更刷新（Flush 每拍重算"距今多久"，计时经 VM 注入的 TimeProvider）。</summary>
@@ -233,13 +306,27 @@ public partial class XcpCardPanelViewModel : ObservableObject
     public event Action<XcpAcquisitionGap>? GapObserved;
 
     /// <summary>关注集加入一个对象（按对象名去重；合同必须来自解析期 ContractSet）。</summary>
+    // S5-T4：写回处理器（AttachWriteback 接线；新增卡片自动带上）。
+    private Func<XcpCardViewModel, double, Task<CalibrationWriteOutcome>>? _writeHandler;
+
+    /// <summary>S5-T4（spec D5）：接线/解除卡片写回处理器（null = 解除）。</summary>
+    public void AttachWriteback(Func<XcpCardViewModel, double, Task<CalibrationWriteOutcome>>? handler)
+    {
+        _writeHandler = handler;
+        foreach (var card in Cards)
+            card.WriteHandler = handler;
+    }
+
     public void AddWatch(string name, string category, ValueContract contract)
     {
         ArgumentNullException.ThrowIfNull(contract);
         if (_cardsByName.ContainsKey(name))
             return;
 
-        var card = new XcpCardViewModel(name, category, contract);
+        var card = new XcpCardViewModel(name, category, contract)
+        {
+            WriteHandler = _writeHandler, // S5-T4：新增卡片带上已接线的写回处理器
+        };
         _cardsByName.Add(name, card);
         Cards.Add(card);
     }

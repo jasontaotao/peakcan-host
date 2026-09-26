@@ -85,6 +85,9 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     /// <summary>最近一次对账报告（拒绝时明细进状态区，形状原样暴露供上层消费）。</summary>
     public XcpCapabilityReport? CapabilityReport { get; private set; }
 
+    /// <summary>S5-T4：当前采集会话的协议主站（写回共用同一连接；未采集 null）。</summary>
+    public PeakCan.Host.Core.Xcp.Protocol.XcpMaster? ActiveMaster => _session?.Master;
+
     /// <summary>状态区行（对账明细 / 失败提示 / 停启事件，人读文本）。</summary>
     public ObservableCollection<string> StatusLines { get; } = new();
 

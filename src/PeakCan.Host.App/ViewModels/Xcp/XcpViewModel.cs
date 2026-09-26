@@ -39,6 +39,9 @@ public sealed partial class XcpViewModel : ObservableObject
     /// <summary>S4-T5 记录面板（MDF 记录控件区，spec D5）。</summary>
     public XcpRecordPanelViewModel Record { get; }
 
+    /// <summary>S5-T4 标定写回面板（spec D5 行内写值 + 参数集导出/下发）。</summary>
+    public XcpWritebackViewModel? Writeback { get; }
+
     /// <summary>
     /// 可空注入构造（保既有 VM 测试构造模式：无参可建）。
     /// DI 路径四面板均为 singleton，经本构造原样组装（AppHostBuilderXcpTests 钉住）。
@@ -48,7 +51,8 @@ public sealed partial class XcpViewModel : ObservableObject
         XcpCardPanelViewModel? cards = null,
         XcpAttributionPanelViewModel? attribution = null,
         XcpAcquisitionPanelViewModel? acquisition = null,
-        XcpRecordPanelViewModel? record = null)
+        XcpRecordPanelViewModel? record = null,
+        XcpWritebackViewModel? writeback = null)
     {
         Connection = connection ?? new XcpConnectionPanelViewModel();
         Cards = cards ?? new XcpCardPanelViewModel();
@@ -57,6 +61,8 @@ public sealed partial class XcpViewModel : ObservableObject
         Acquisition = acquisition ?? new XcpAcquisitionPanelViewModel(Connection, Cards.Sink);
         // S4-T5：记录面板（D4 广播装配的记录 sink 由组合根注入；缺省自建测试面）。
         Record = record ?? new XcpRecordPanelViewModel(Acquisition, Cards, Connection);
+        // S5-T4：写回面板（可空——无写回接线时卡片写按钮禁用，零行为变化）。
+        Writeback = writeback;
         // D5：采集 Stop 先停记录（尾部样本落盘）——同一面板实例。
         Acquisition.BeforeStopAsync ??= Record.StopBeforeAcquisitionAsync;
 

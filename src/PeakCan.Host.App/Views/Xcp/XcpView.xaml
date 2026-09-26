@@ -8,8 +8,12 @@
     <!-- S3-T8：XCP 主 tab 视图壳。全部绑定走 XcpViewModel 单一入口；
          卡片 DataTemplate 只消费 T5 评审允许面（值/单位/限值状态/停更态），
          禁止绑定 Contract 完整面（T5 评审 LOW 红线）。 -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </UserControl.Resources>
     <Grid Margin="8">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -147,8 +151,30 @@
             </StackPanel>
         </GroupBox>
 
+        <!-- ===== S5-T4：标定写回控件带（spec D5）：参数集导出/下发 + 行内写值 ===== -->
+        <GroupBox Grid.Row="2" Header="标定写回" Padding="6" Margin="0,8,0,0">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBox Width="360"
+                             Text="{Binding Writeback.ParameterSetPath, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                             VerticalContentAlignment="Center" Margin="0,0,4,0"
+                             ToolTip="参数集文件路径（.json，明文可 diff；导出/下发共用）" />
+                    <Button Content="导出参数集" Command="{Binding Writeback.ExportParameterSetCommand}"
+                            MinWidth="80" Margin="0,0,4,0"
+                            ToolTip="关注集 CHARACTERISTIC 当前数值 → 明文 JSON（绑定当前 A2L 指纹）" />
+                    <Button Content="下发参数集" Command="{Binding Writeback.ApplyParameterSetCommand}"
+                            MinWidth="80" Margin="0,0,4,0"
+                            ToolTip="加载 → 指纹校验 → 差异对账 → 只写差异项 → 结果单（D3）" />
+                    <TextBlock Text="{Binding Writeback.StatusText}" VerticalAlignment="Center"
+                               Foreground="Gray" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <TextBlock Text="行内写值：CHARACTERISTIC 卡片内输入物理值点[写值]；写入后自动回读校验（D4）。未采集时写值禁用。"
+                           Foreground="Gray" FontSize="11" Margin="0,4,0,0" />
+            </StackPanel>
+        </GroupBox>
+
         <!-- ===== 主区：左卡片总览（显示集）/ 右采集覆盖清单 + 归因合并表 ===== -->
-        <Grid Grid.Row="2" Margin="0,8,0,0">
+        <Grid Grid.Row="3" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="5" />
@@ -198,6 +224,18 @@
                                         </TextBlock>
                                         <TextBlock Text="{Binding Unit}" Foreground="Gray" />
                                         <TextBlock Text="{Binding StaleDuration}" FontSize="11" Foreground="Gray" />
+                                        <!-- S5-T4（D5）：行内写值（CHARACTERISTIC 卡片；未接线/非标定时按钮禁用）。 -->
+                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                                                    Visibility="{Binding CanWrite, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBox Width="70"
+                                                     Text="{Binding WriteValueText, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                                                     VerticalContentAlignment="Center" Margin="0,0,2,0"
+                                                     ToolTip="目标物理值（写后自动回读校验）" />
+                                            <Button Content="写值" Command="{Binding WriteValueCommand}"
+                                                    MinWidth="36" Padding="2,0" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding LastWriteStatus}" FontSize="10"
+                                                   Foreground="DarkOrange" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
