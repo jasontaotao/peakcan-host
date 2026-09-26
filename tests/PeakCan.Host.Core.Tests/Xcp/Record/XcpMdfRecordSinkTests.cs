@@ -141,6 +141,35 @@ public sealed class XcpMdfRecordSinkTests
             Channels = [Rpm],
         });
 
+    [Fact]
+    public async Task Gap_writes_invalid_rows_for_runtime_channels_when_options_channels_empty()
+    {
+        // T8 评审 P1-1 回归钉：生产 DI 形状 = 组合根不配 options.Channels，
+        // 通道清单经 StartAsync 传入——gap 失效行必须按生效通道数写（S1 §5.3-6）。
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"s4sink_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var writer = new CapturingWriter();
+            var sink = new XcpMdfRecordSink(new XcpMdfRecordSinkOptions
+            {
+                Directory = dir,
+                WriterFactory = (_, _) => writer, // options.Channels 保持空 []
+            });
+
+            var channels = new List<MdfChannelSpec> { new("Rpm", "rpm"), new("Speed", "km/h") };
+            await sink.StartAsync(DateTimeOffset.UtcNow, channels);
+            sink.OnGap(new XcpAcquisitionGap(XcpAcquisitionGapKind.PlanGapOpened, "plan gap"));
+            await sink.StopAsync();
+
+            Assert.Equal(2, writer.InvalidRecords.Count);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     private static PlannedDaqEntry Entry(int i) =>
         new(1, 0, 0, "Rpm", 0, 2, 0, 0x1000, null);
 

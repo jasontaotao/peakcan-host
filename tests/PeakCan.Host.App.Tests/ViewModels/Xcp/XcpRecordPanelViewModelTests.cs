@@ -166,6 +166,25 @@ public sealed class XcpRecordPanelViewModelTests
     }
 
     /// <summary>消费线程异步落的计数：轮询至条件成立（20ms 步进，2s 上限）。</summary>
+    [Fact]
+    public async Task Start_record_uses_selected_directory()
+    {
+        // T8 评审 P1-2 回归钉：浏览/手输目录必须真正决定落盘位置（D5 可改选）。
+        var selected = NewTempDir();
+        var sink = Sink(NewTempDir()); // options 目录故意不同
+        var acquisition = new XcpAcquisitionPanelViewModel { IsAcquiring = true };
+        var vm = new XcpRecordPanelViewModel(
+            acquisition: acquisition, cards: CardsWithWatch(), sink: sink,
+            snapshotFactory: () => null, directory: NewTempDir());
+        vm.RecordDirectory = selected;
+
+        await vm.StartRecordCommand.ExecuteAsync(null);
+
+        sink.IsRecording.Should().BeTrue();
+        sink.FilePath!.Should().StartWith(selected);
+        await sink.StopAsync();
+    }
+
     private static XcpTriggerRecordEngine TriggerEngine(string? dir = null) =>
         new(new XcpTriggerRecordOptions
         {

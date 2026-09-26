@@ -49,6 +49,7 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
     private readonly Dictionary<string, int> _channelIndexByName;
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private IMdfRecordWriter? _writer;
+    private IReadOnlyList<MdfChannelSpec> _effectiveChannels = [];
     private Task? _consumer;
     private CancellationTokenSource? _consumerCts;
     private long _written;
@@ -106,7 +107,11 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
     /// 开始记录（S4-T5：通道清单/契约快照可按次给定——关注集运行期动态；
     /// null = 用 options 同名值）。
     /// </summary>
-    public async Task StartAsync(DateTimeOffset startTimeUtc, IReadOnlyList<MdfChannelSpec>? channels, A2lEditor.Core.Layout.ContractSnapshot? snapshot, CancellationToken ct = default)
+    public Task StartAsync(DateTimeOffset startTimeUtc, IReadOnlyList<MdfChannelSpec>? channels, A2lEditor.Core.Layout.ContractSnapshot? snapshot, CancellationToken ct = default) =>
+        StartAsync(startTimeUtc, channels, snapshot, null, ct);
+
+    /// <summary>开始记录（T8 评审 P1-2：目录可按次给定——spec D5 记录目录可改选；null = 用 options.Directory）。</summary>
+    public async Task StartAsync(DateTimeOffset startTimeUtc, IReadOnlyList<MdfChannelSpec>? channels, A2lEditor.Core.Layout.ContractSnapshot? snapshot, string? directory, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(_options.Directory);
         var effective = channels ?? _options.Channels;
@@ -117,6 +122,7 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
         _channelIndexByName.Clear();
         for (var i = 0; i < effective.Count; i++)
             _channelIndexByName.TryAdd(effective[i].Name, i);
+        _effectiveChannels = effective; // T8 评审 P1-1：gap 失效行按生效通道写（组合根 options.Channels 为空）
         await _lifecycle.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -125,9 +131,10 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
             if (IsFaulted)
                 throw new InvalidOperationException("写入器已故障，不可重启（创建新 sink）");
 
-            System.IO.Directory.CreateDirectory(_options.Directory);
+            var effectiveDirectory = string.IsNullOrWhiteSpace(directory) ? _options.Directory : directory!;
+            System.IO.Directory.CreateDirectory(effectiveDirectory);
             var name = $"{_options.FilePrefix}_{startTimeUtc.ToLocalTime().ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture)}.mf4";
-            FilePath = System.IO.Path.Combine(_options.Directory, name);
+            FilePath = System.IO.Path.Combine(effectiveDirectory, name);
 
             if (_options.WriterFactory is not null)
                 _writer = _options.WriterFactory(FilePath, effective);
@@ -314,7 +321,7 @@ public sealed class XcpMdfRecordSink : IXcpAcquisitionSink, IAsyncDisposable
             gap.Detail,
             gap.ReceiveKind?.ToString() ?? string.Empty,
             gap.ExpectedMaxDuration?.TotalSeconds ?? 0).GetAwaiter().GetResult();
-        for (var i = 0; i < _options.Channels.Count; i++)
+        for (var i = 0; i < _effectiveChannels.Count; i++)
             _writer.WriteInvalidRecordAsync(i, seconds).GetAwaiter().GetResult();
     }
 }

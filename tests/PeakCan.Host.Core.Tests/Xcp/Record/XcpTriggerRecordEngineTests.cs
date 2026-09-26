@@ -25,6 +25,125 @@ public sealed class XcpTriggerRecordEngineTests
     }
 
     [Fact]
+    public async Task Trigger_with_unwritable_directory_faults_and_unlocks_engine()
+    {
+        // T8 评审 P1-3 回归钉：目录/writer 创建失败必须复位 _capturing 并完成 TCS，
+        // 否则引擎永久锁死（后续触发全拒 + 采集 Stop 无限等待）。
+        var filePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"s4trig_{Guid.NewGuid():N}.f");
+        await System.IO.File.WriteAllTextAsync(filePath, "not a directory");
+        try
+        {
+            var engine = new XcpTriggerRecordEngine(new XcpTriggerRecordOptions
+            {
+                Directory = filePath, // 用文件路径当目录 → CreateDirectory 抛
+                PreTriggerSeconds = 1,
+                PostTriggerSeconds = 1,
+                EstimatedRatePerSecond = 10,
+                Channels = [Rpm],
+                WriterFactory = (_, _) => new CapturingWriter(),
+            });
+
+            var accepted = await engine.TriggerAsync(DateTimeOffset.Now, "test");
+            Assert.True(accepted);
+            await engine.WaitCaptureAsync(); // 必须能完成（修复前无限等待）
+
+            Assert.False(engine.IsCapturing, "失败路径必须复位 capturing");
+            Assert.True(engine.IsFaulted);
+            Assert.NotNull(engine.LastError);
+
+            // 引擎未锁死：可再次触发（这次目录正常）。
+            var dir = TempDir();
+            try
+            {
+                var engine2 = engine;
+                Assert.True(await engine2.TriggerAsync(DateTimeOffset.Now, "retry"));
+                await engine2.CloseCaptureAsync();
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        finally
+        {
+            System.IO.File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task Post_queue_capacity_covers_post_window()
+    {
+        // T8 评审 P2-2 回归钉：post > pre 时窗口内样本不得因容量 = pre×rate 被丢。
+        var dir = TempDir();
+        try
+        {
+            var writerBox = new CapturingWriter[1];
+            var engine = new XcpTriggerRecordEngine(new XcpTriggerRecordOptions
+            {
+                Directory = dir,
+                PreTriggerSeconds = 1,
+                PostTriggerSeconds = 2,
+                EstimatedRatePerSecond = 10, // 旧实现 post 容量 = 10，本测试喂 15 条 post
+                Channels = [Rpm],
+                WriterFactory = (_, _) => writerBox[0] = new CapturingWriter(),
+            });
+
+            var triggerAt = DateTimeOffset.Now;
+            Assert.True(await engine.TriggerAsync(triggerAt, "test"));
+            for (var i = 0; i < 15; i++)
+                engine.OnValues(new XcpDaqSample(Entry("Rpm"), i, triggerAt.AddMilliseconds(100 + i * 100)));
+            await engine.CloseCaptureAsync();
+
+            Assert.NotNull(writerBox[0]);
+            Assert.Equal(15, writerBox[0]!.Records.Count); // 窗口内 15 条全落盘
+            Assert.Equal(0, engine.PostDroppedCount);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Ring_snapshot_is_trimmed_to_pre_window_by_time()
+    {
+        // T8 评审 P2-3 回归钉：实际条率低于估计时环内是远超 N 秒的数据，
+        // 触发文件前窗必须按时间裁剪（无过期样本、无负相对时间）。
+        var dir = TempDir();
+        try
+        {
+            var writerBox = new CapturingWriter[1];
+            var engine = new XcpTriggerRecordEngine(new XcpTriggerRecordOptions
+            {
+                Directory = dir,
+                PreTriggerSeconds = 2,
+                PostTriggerSeconds = 1,
+                EstimatedRatePerSecond = 10, // 容量 20 远大于本测试条数 → 低条率方向
+                Channels = [Rpm],
+                WriterFactory = (_, _) => writerBox[0] = new CapturingWriter(),
+            });
+
+            var triggerAt = DateTimeOffset.Now;
+            engine.OnValues(new XcpDaqSample(Entry("Rpm"), 1.0, triggerAt.AddSeconds(-10))); // 过期
+            engine.OnValues(new XcpDaqSample(Entry("Rpm"), 2.0, triggerAt.AddSeconds(-8)));  // 过期
+            engine.OnValues(new XcpDaqSample(Entry("Rpm"), 3.0, triggerAt.AddSeconds(-1)));  // 窗内
+            engine.OnValues(new XcpDaqSample(Entry("Rpm"), 4.0, triggerAt.AddSeconds(-0.5))); // 窗内
+
+            Assert.True(await engine.TriggerAsync(triggerAt, "test"));
+            await engine.CloseCaptureAsync();
+
+            Assert.NotNull(writerBox[0]);
+            var times = writerBox[0]!.Records.Select(r => r.TimeSeconds).ToArray();
+            double[] expected = [1.0, 1.5];
+            Assert.Equal(expected, times); // fileStart = trigger - 2
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Options_reject_pre_and_post_out_of_range()
     {
         // Q2：60 s 硬顶；1–60 可配，越界构造即拒（配置错误 fail-fast）。

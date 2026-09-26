@@ -148,7 +148,18 @@ public partial class XcpRecordPanelViewModel : ObservableObject
             .ToList();
 
         var snapshot = _snapshotFactory!();
-        await _sink.StartAsync(DateTimeOffset.Now, channels, snapshot).ConfigureAwait(true);
+        try
+        {
+            // T8 评审 P1-2/P2-4：目录按次传 sink（D5 可改选落地）；启动失败可见（红字）。
+            await _sink.StartAsync(DateTimeOffset.Now, channels, snapshot, RecordDirectory).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            FaultText = $"记录启动失败：{ex.Message}";
+            StatusText = "记录启动失败（详见红字）。";
+            RefreshState();
+            return;
+        }
 
         IsRecording = true;
         FilePath = _sink.FilePath;
@@ -193,7 +204,19 @@ public partial class XcpRecordPanelViewModel : ObservableObject
             return;
         }
 
-        var accepted = await _trigger.TriggerAsync(DateTimeOffset.Now, "manual");
+        bool accepted;
+        try
+        {
+            accepted = await _trigger.TriggerAsync(DateTimeOffset.Now, "manual");
+        }
+        catch (Exception ex)
+        {
+            // T8 评审 P2-4：触发失败（如空清单/路径异常）必须可见，不静默。
+            TriggerStatusText = $"触发失败：{ex.Message}";
+            StatusText = "触发失败（详见触发状态行）。";
+            RefreshState();
+            return;
+        }
         StatusText = accepted
             ? $"触发记录已开始：{_trigger.CaptureFilePath}"
             : "触发被拒绝（捕获进行中）。";

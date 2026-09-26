@@ -66,6 +66,7 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
     private readonly Queue<TriggerItem> _ring = new();
     private readonly Queue<TriggerItem> _postQueue = new();
     private int _ringCapacity;
+    private int _postCapacity;
     private readonly TimeProvider _timeProvider;
 
     private int _preSeconds;
@@ -97,6 +98,7 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
         _preSeconds = options.PreTriggerSeconds;
         _postSeconds = options.PostTriggerSeconds;
         _ringCapacity = Math.Max(1, (int)Math.Ceiling(options.PreTriggerSeconds * options.EstimatedRatePerSecond));
+        _postCapacity = Math.Max(1, (int)Math.Ceiling(Math.Max(options.PreTriggerSeconds, options.PostTriggerSeconds) * options.EstimatedRatePerSecond));
         _timeProvider = options.TimeProvider ?? TimeProvider.System;
     }
 
@@ -121,6 +123,7 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
             _preSeconds = preSeconds;
             _postSeconds = postSeconds;
             _ringCapacity = Math.Max(1, (int)Math.Ceiling(preSeconds * _options.EstimatedRatePerSecond));
+            _postCapacity = Math.Max(1, (int)Math.Ceiling(Math.Max(preSeconds, postSeconds) * _options.EstimatedRatePerSecond));
             while (_ring.Count > _ringCapacity)
             {
                 _ring.Dequeue();
@@ -176,16 +179,16 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
     {
         lock (_lock)
         {
-            PushBounded(_ring, item, ref _ringDropped);
+            PushBounded(_ring, item, ref _ringDropped, _ringCapacity);
             if (_capturing)
-                PushBounded(_postQueue, item, ref _postDropped);
+                PushBounded(_postQueue, item, ref _postDropped, _postCapacity); // T8 评审 P2-2：post 容量独立，post>pre 不丢窗内样本
         }
     }
 
-    private void PushBounded(Queue<TriggerItem> queue, TriggerItem item, ref long dropped)
+    private void PushBounded(Queue<TriggerItem> queue, TriggerItem item, ref long dropped, int capacity)
     {
         queue.Enqueue(item);
-        if (queue.Count <= _ringCapacity)
+        if (queue.Count <= capacity)
             return;
         queue.Dequeue();
         Interlocked.Increment(ref dropped);
@@ -217,22 +220,28 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
             _captureCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
-        System.IO.Directory.CreateDirectory(_options.Directory);
         var fileStart = triggerAtUtc.AddSeconds(-_preSeconds);
-        var name = $"xcp_trigger_{triggerAtUtc.ToLocalTime().ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture)}.mf4";
-        _captureFilePath = System.IO.Path.Combine(_options.Directory, name);
         _windowEnd = triggerAtUtc.AddSeconds(_postSeconds);
+        // T8 评审 P2-3：环快照按时间裁剪到 [fileStart, 触发]——实际条率低于估计时
+        // 环内装的是远超 N 秒的数据，按条数落盘会出现过期样本与负相对时间。
+        ringSnapshot = [.. ringSnapshot.Where(item => item.Timestamp >= fileStart)];
 
         var channelIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var i = 0; i < channels.Count; i++)
             channelIndexByName.TryAdd(channels[i].Name, i);
 
-        var writer = _options.WriterFactory is not null
-            ? _options.WriterFactory(_captureFilePath, channels)
-            : Mdf4StreamWriter.Create(_captureFilePath, channels, fileStart);
-
+        // T8 评审 P1-3：writer 创建/目录准备纳入 try——失败路径必须复位 _capturing
+        // 并完成 TCS，否则引擎永久锁死（后续触发全拒 + 采集 Stop 无限等待）。
+        IMdfRecordWriter? writer = null;
         try
         {
+            System.IO.Directory.CreateDirectory(_options.Directory);
+            var name = $"xcp_trigger_{triggerAtUtc.ToLocalTime().ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture)}.mf4";
+            _captureFilePath = System.IO.Path.Combine(_options.Directory, name);
+            writer = _options.WriterFactory is not null
+                ? _options.WriterFactory(_captureFilePath, channels)
+                : Mdf4StreamWriter.Create(_captureFilePath, channels, fileStart);
+
             // D2：触发文件同样自包含——快照在触发时刻导出落 AT 附件。
             var snapshot = _options.SnapshotFactory?.Invoke();
             if (snapshot is { } snap)
@@ -249,7 +258,26 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
         }
         catch (Exception ex)
         {
-            await FaultAsync(writer, ex).ConfigureAwait(false);
+            if (writer is not null)
+            {
+                try
+                {
+                    await writer.DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // 故障路径收尾异常不再外抛（LastError 已承载首个故障）。
+                }
+            }
+            _faulted = true;
+            _lastError = ex;
+            Interlocked.Increment(ref _captures);
+            lock (_lock)
+            {
+                _capturing = false;
+                _postQueue.Clear();
+            }
+            _captureCompletion.TrySetResult();
             return true;
         }
 
@@ -278,13 +306,17 @@ public sealed class XcpTriggerRecordEngine : IXcpAcquisitionSink, IAsyncDisposab
     /// <summary>提前关窗（采集停止先关触发窗；停摆兜底）：排空 post 队列后 Finalize。</summary>
     public async Task CloseCaptureAsync(CancellationToken ct = default)
     {
+        // T8 评审 P2-1：锁内绑定本次捕获的 completion——A 完成后新捕获 B 复位
+        // _closeRequested/换 TCS 也不会让本次 Close 等 B 的窗口。
+        Task completion;
         lock (_lock)
         {
             if (!_capturing)
                 return;
             _closeRequested = true;
+            completion = _captureCompletion.Task;
         }
-        await WaitCaptureAsync(ct).ConfigureAwait(false);
+        await completion.WaitAsync(ct).ConfigureAwait(false);
     }
 
     private async Task CaptureLoopAsync(IMdfRecordWriter writer, Dictionary<string, int> channelIndexByName,

@@ -1,12 +1,13 @@
 # PeakCan XCP MDF 记录（S4）设计 v0.1
 
-状态：v0.2 定案（D1–D6 + Q1/Q2 已拍板，实施计划已出）。
+状态：v0.3 实施完成（D1–D6 + Q1/Q2 已拍板；T0–T8 全部落地，附录 A/B/C 为 T8 交付物）。
 上游：S3 spec（`2026-09-24-peakcan-xcp-host-wiring-s3.md`，全数继承）+ S2 spec §0/S1 §5.3-5/§5.3-6/四条钉子。
 
 ## 变更记录
 
 - v0.1（2026-09-25）：初稿，基于 S1/S2/S3 已钉口径反推 S4 范围。
 - v0.2（2026-09-25）：用户拍板——D1–D6 全按倾向定案；Q1 裁决"现有字段够用，不回改 S2"（快照 SnapshottedContract.Notes 自带对象级归因面）；Q2 钉 60 s 硬顶。
+- v0.3（2026-09-26）：T0–T8 实施完成；附录 A（断链自查表）/ B（验收记录）/ C（已知限制）定稿。
 
 ## 0. 范围
 
@@ -87,5 +88,48 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 - Q2（已定，见 D6）：60 s 硬顶。
 - Q3（已定，见 D1）：T0 前置验证含 license 硬门（MIT/Apache 级），不满足即回退自研最小写子集。
 
+## 附录 A：断链自查表（记录控件/状态行逐元素"字段 ← 生产者"）
 
+| UI 元素 | 绑定字段/命令 | 生产者（谁写这个值） |
+| --- | --- | --- |
+| 开始记录按钮 | `Record.StartRecordCommand` | `XcpRecordPanelViewModel`（门禁：采集运行 + 关注集非空 + 未故障，D5） |
+| 停止记录按钮 | `Record.StopRecordCommand` | VM → `XcpMdfRecordSink.StopAsync`（排空队列 + Finalize） |
+| 记录目录 + 浏览 | `Record.RecordDirectory` | VM（组合根缺省 `<basedir>\recordings`） |
+| 已写/丢/时长行 | `Record.WrittenCount` / `DroppedCount` / `DurationText` | `XcpMdfRecordSink` 状态面（`RefreshState` 由视图 20 Hz 节拍镜像） |
+| 文件路径行 | `Record.FilePath` | `sink.FilePath`（Start 后非空） |
+| 启停状态行 | `Record.StatusText` | VM（Start/Stop/触发/配置拒绝文本） |
+| 故障红字 | `Record.FaultText` | `sink.IsFaulted`/`LastError`（D5：记录自停、采集不受影响） |
+| 触发记录按钮 | `Record.TriggerRecordCommand` | VM → `XcpTriggerRecordEngine.TriggerAsync`（T6/D6；门禁：采集运行 + 关注集非空 + 未捕获中） |
+| 前/后秒配置 | `Record.PreTriggerSecondsText` / `PostTriggerSecondsText` | VM 文本态；触发时 `TrySetWindows` 应用（1–60，Q2 硬顶；越界状态区提示） |
+| 触发状态行 | `Record.TriggerStatusText` | engine：`CaptureCount`/`RejectedTriggerCount`/`RingDroppedCount`/`PostDroppedCount`/`UnknownSampleCount`/`IsFaulted` |
+| 触发文件路径 | `Record.CaptureFilePath` | `engine.CaptureFilePath`（`xcp_trigger_{ts}.mf4`） |
+| 采集 Stop 先停记录/关触发窗 | `BeforeStopAsync` | 组合根接线（D5 先停记录；T6 延伸：先关触发窗） |
+| 脚本触发 | `ScriptOutputHub.OutputReceived` | `XcpScriptTriggerSource`（`xcp-trigger:` 前缀行，大小写不敏感）→ engine |
+| 卡片/清单更新 | 广播 fan-out | `XcpBroadcastSink`（卡片 sink + 记录 sink + 触发环，D4；异常吸收计数 `ErrorCount`） |
 
+## 附录 B：验收记录（2026-09-26，分支 s4-mdf-recording）
+
+| 判据 | 结果 | 证据 |
+| --- | --- | --- |
+| 1 落盘可读 | ✅ | 链路：`XcpWiringE2ETests.Full_chain_load_reconcile_start_sample_flush_stop`；字节级：`Mdf4StreamWriterTests`（ID/HD/DG/CG 链 + 记录回写）；asammdf 8.8.27 人工档：`artifacts/probe_t3_asammdf.py`、`probe_t4_final.py`、`probe_t6_asammdf.py`（触发样本 `s4-t6-trigger-sample.mf4`：环 0.5–1.9 s + post 2.1–3.0 s，通道名/条数/时间轴一致，关窗条正确排除） |
+| 2 快照独立解码 | ✅ | `XcpMdfAttachmentTests.Snapshot_attachment_restores_contract_set_without_a2l` |
+| 3 空窗回放 | ✅ | `XcpMdfGapRecordTests.Missing_cause_gap_then_plan_gap_marks_invalidation_and_events_align` |
+| 4 压测不阻塞 | ✅ | `XcpMdfRecordSinkTests.Full_queue_drops_oldest_without_blocking`；触发面：`Ring_drops_oldest_and_counts` |
+| 5 广播隔离 | ✅ | `XcpBroadcastSinkTests.Isolates_throwing_child_without_poisoning_siblings` + `Writer_fault_isolates_and_marks_faulted` |
+| 6 门禁 | ✅ | 全仓无过滤：**4313 通过 / 0 失败**（PeakCan.Host.slnx，≥ S3 基线 4280）；分层守卫回归 + 新增 `XcpLayeringTests.Xcp_Record_namespace_dependency_face_is_pinned`（记录面依赖钉 = Receive + Scheduling + 快照面） |
+
+覆盖率注记：判据 6 的 80% 覆盖地板沿用既有 CI 口径；S4 新增代码测试钉面清单 = Core 记录 5 文件 38 测试（writer/sink/attachment/gap/trigger/broadcast）+ App 记录面板与脚本触发源 9 测试；coverlet 单独实测未跑（CI 配置无变化）。
+
+独立评审对账（2026-09-26，评审 Verdict: WARNING）：P1×3 全修（gap 失效行按生效通道写 / 记录目录改选真正落盘 / 触发 writer 创建失败解锁引擎）、P2×4 全修（CloseCapture 绑定本次 TCS / post 队列容量 = max(pre,post)×rate / 环快照按时间裁剪 / Start·Trigger 失败可见），各配回归钉测试；P3×4 记入附录 C-9 backlog。修复后全仓门禁复跑 **4318 通过 / 0 失败**。
+
+## 附录 C：已知限制
+
+1. **gap 时间戳 = OnGap 到达时刻**（S2 gap 无时间字段）：回放空窗区间以到达序为准，非协议时刻。
+2. **asammdf 读回 VLSD 字符串带 numpy 定宽 `\0` 填充**：显示层现象，文件数据无损。
+3. **通道 unit 在 asammdf 读回有显示层差异**（T4 实测记录）：数值面不受影响。
+4. **post 窗口结束口径（D6 未钉，T6 实现注记）**：默认 10 s、可配 1–60；样本到达时间 ≥ 触发 + post 即关窗（该条不入文件）；停摆兜底 = 墙钟窗口 + 60 s 宽限或采集 Stop 的 `CloseCaptureAsync`。
+5. **触发文件快照**：引擎未配 `SnapshotFactory` 时不落附件；组合根已接 `ExportSnapshot` 保障自包含（D2）。
+6. **环容量按估计条率核算**（默认 1500 条/s，非实测条率）：实际条率超估计时最旧条挤出，计入 `RingDroppedCount` 可见；触发文件前窗按时间戳裁剪到 [触发−pre, 触发]（T8 评审 P2-3），低条率方向不会出现过期样本或负相对时间。
+9. **独立评审 P3 backlog**（不阻塞合并）：gap 打点用真实时钟未走 TimeProvider seam；engine 状态字段无 volatile（UI 轮询下无实际危害）；sink Start 未清残留队列（纳秒窗口单条风险）；触发启动故障返回 true 的瞬态状态文本（故障行随后纠正）。
+7. **并发触发**：捕获进行中拒绝（`RejectedTriggerCount` 可见），不做多文件并发捕获。
+8. **脚本触发异常面**：仅记 `XcpScriptTriggerSource.LastError`（事件链内不外抛），未上 UI 状态行；触发受理计数经引擎计数可见。
