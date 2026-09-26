@@ -113,9 +113,23 @@ public sealed class CalibrationParameterSet
             .OrderBy(e => e.Name, StringComparer.Ordinal)
             .ToArray();
 
-        var exportedAt = string.IsNullOrEmpty(dto.ExportedAt)
-            ? DateTimeOffset.UtcNow
-            : DateTimeOffset.Parse(dto.ExportedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        DateTimeOffset exportedAt;
+        if (string.IsNullOrEmpty(dto.ExportedAt))
+        {
+            exportedAt = DateTimeOffset.UtcNow;
+        }
+        else
+        {
+            try
+            {
+                exportedAt = DateTimeOffset.Parse(dto.ExportedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            }
+            catch (FormatException ex)
+            {
+                // T7 评审 P2-4：手工编辑的非法时间戳收敛为统一的拒绝面（App catch 面覆盖）。
+                throw new InvalidOperationException("参数集 exportedAt 时间戳无效：" + ex.Message, ex);
+            }
+        }
 
         return new(dto.SchemaVersion, dto.A2lSha256, exportedAt, dto.Source ?? string.Empty, entries);
     }

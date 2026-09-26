@@ -53,8 +53,14 @@ public static class XcpMapReader
         var xRaw = await ReadUnderGateAsync(master, xContract, xAddr, ct).ConfigureAwait(false);
         var yRaw = await ReadUnderGateAsync(master, yContract, yAddr, ct).ConfigureAwait(false);
 
-        var grid = new double[yCount, xCount];
+        // T7 评审 P1-1：网格字节数必须与轴点数乘积一致——不一致的 A2L 让
+        // raw.AsSpan 越界裸抛，按 §4.8 fail-loud 拒绝（不猜布局）。
         var elemBytes = ByteLayout.SizeOf(mc.DataType!.Value);
+        if (mapRaw.Length < xCount * yCount * elemBytes)
+            throw new InvalidOperationException(
+                $"MAP '{objectName}' 数据不足：读回 {mapRaw.Length}B < 网格 {xCount}×{yCount}×{elemBytes}B（A2L 布局不一致，拒绝渲染）");
+
+        var grid = new double[yCount, xCount];
         for (var y = 0; y < yCount; y++)
         for (var x = 0; x < xCount; x++)
         {
@@ -93,6 +99,9 @@ public static class XcpMapReader
         var (yCount, yAddr) = ResolveAxis(contracts, map, 1);
         if (!XcpAddressMap.TryTranslate(doc, mc.Segments[0].Address, out var mapAddr))
             throw new InvalidOperationException($"MAP '{objectName}' 段映射覆盖不到 {mc.Segments[0].Address:X}");
+        // T7 评审 P1-3：读原语按 uint 寻址——超界拒绝，绝不静默截断。
+        if (mapAddr > uint.MaxValue)
+            throw new InvalidOperationException($"MAP '{objectName}' 物理地址 0x{mapAddr:X} 超出 uint 寻址（拒绝读取）");
 
         return (map, mc, xCount, yCount, (uint)mapAddr, xAddr, yAddr);
     }
@@ -112,6 +121,8 @@ public static class XcpMapReader
             throw new InvalidOperationException($"AXIS_PTS '{axis.Name}' 缺 ECU_ADDRESS");
         if (!XcpAddressMap.TryTranslate(contracts.Document, axis.EcuAddress.Value, out var addr))
             throw new InvalidOperationException($"AXIS_PTS '{axis.Name}' 段映射覆盖不到 {axis.EcuAddress.Value:X}");
+        if (addr > uint.MaxValue)
+            throw new InvalidOperationException($"AXIS_PTS '{axis.Name}' 物理地址 0x{addr:X} 超出 uint 寻址（拒绝读取）");
 
         return ((int)points, (uint)addr);
     }

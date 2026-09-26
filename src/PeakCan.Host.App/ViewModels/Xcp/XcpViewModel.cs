@@ -77,8 +77,8 @@ public sealed partial class XcpViewModel : ObservableObject
         Writeback = writeback;
         // S6-T3：回放面板（可空注入，与 Writeback 同款保既有 VM 测试构造）。
         Replay = replay;
-        // S6-T4：MAP 面板（可空注入，同款保既有 VM 测试构造）。
-        Map = map;
+        // S6-T4：MAP 面板（缺省自建——A2L 加载后的 MAP 清单装配走本类接线）。
+        Map = map ?? new XcpMapPanelViewModel();
         // S6-T5：参数集 diff 面板（可空注入，同款保既有 VM 测试构造）。
         Diff = diff;
 
@@ -91,12 +91,21 @@ public sealed partial class XcpViewModel : ObservableObject
         // D5 host 两态直喂：连接状态机 → 归因面板（初始态立即喂一次）。
         Connection.PropertyChanged += OnConnectionPropertyChanged;
         Attribution.ObserveHostAttribution(Connection.AttributionCell);
+
+        // S6-T7 评审 P0-1：A2L 加载 → MAP 清单装配（组合根→VM 的最后一跳）。
+        // 初始态已 Loaded/Connected 也装配一次（A2L 先于本 VM 创建的场景）。
+        if (Connection.ConnectionState != XcpConnectionState.Disconnected)
+            Map?.RefreshMaps();
     }
 
     private void OnConnectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         // 只在连接状态机变化时刷新 host 归因格（AttributionCell 派生自该状态）。
         if (e.PropertyName is null or nameof(XcpConnectionPanelViewModel.ConnectionState))
+        {
             Attribution.ObserveHostAttribution(Connection.AttributionCell);
+            // P0-1：A2L 加载/切换后重装 MAP 清单（幂等；Disconnected 态清空）。
+            Map?.RefreshMaps();
+        }
     }
 }

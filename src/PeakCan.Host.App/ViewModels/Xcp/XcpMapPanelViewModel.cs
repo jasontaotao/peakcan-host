@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.Host.Core.Xcp.Protocol;
 using PeakCan.Host.Core.Xcp.Replay;
 
 namespace PeakCan.Host.App.ViewModels.Xcp;
@@ -71,9 +72,14 @@ public sealed partial class XcpMapPanelViewModel : ObservableObject
             StatusText = Result.Detail;
             RequestRender();
         }
-        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException)
+        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException
+            or XcpErrorResponseException)
         {
-            StatusText = $"读取失败：{ex.Message}";
+            // T7 评审 P1-1：从机负响应（ACCESS_DENIED/BUSY 耗尽等）必须进状态区，
+            // 不允许 AsyncRelayCommand 静默吞掉（写路径 writer 同口径）。
+            StatusText = ex is XcpErrorResponseException nacked
+                ? $"读取失败：从机负响应 {nacked.Response.Code}"
+                : $"读取失败：{ex.Message}";
         }
         finally
         {

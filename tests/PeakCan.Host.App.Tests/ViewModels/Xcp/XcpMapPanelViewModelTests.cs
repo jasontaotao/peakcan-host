@@ -1,6 +1,7 @@
 using A2lEditor.Core;
 using A2lEditor.Core.Layout;
 using PeakCan.Host.App.ViewModels.Xcp;
+using PeakCan.Host.Core.Xcp.Protocol;
 using PeakCan.Host.Core.Xcp.Replay;
 
 namespace PeakCan.Host.App.Tests.ViewModels.Xcp;
@@ -74,5 +75,22 @@ public sealed class XcpMapPanelViewModelTests
         await vm.ReadAsync();
         Assert.Contains("选择", vm.StatusText);
         Assert.Null(vm.Result);
+    }
+
+    [Fact]
+    public async Task Negative_response_lands_in_status_text_not_silently_swallowed()
+    {
+        // T7 评审 P1-1：从机负响应必须进状态区（AsyncRelayCommand 不得静默吞）。
+        var vm = new XcpMapPanelViewModel(
+            mapsProvider: () => ["Km"],
+            readMap: (_, _) => Task.FromException<XcpMapData>(
+                new XcpErrorResponseException(new XcpErrorResponse(XcpError.AccessDenied))));
+        vm.Maps.Add("Km");
+        vm.SelectedMap = "Km";
+
+        await vm.ReadCommand.ExecuteAsync(null);
+
+        Assert.Contains("负响应", vm.StatusText);
+        Assert.Contains("AccessDenied", vm.StatusText);
     }
 }

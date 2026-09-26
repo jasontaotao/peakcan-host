@@ -27,7 +27,8 @@ public sealed class CalibrationMultiSegmentWriteTests
 
     /// <summary>VAL_BLK 2×F32 @0x1500：逻辑区间 [0x1500,0x1508) 跨两个映射。</summary>
     private static (A2lDocument Doc, ContractSet Contracts) MakeCrossDoc(
-        uint? secondMappingPhysical = 0x3000, uint? secondAddrExt = null, bool gapAfterFirst = false)
+        ulong? secondMappingPhysical = 0x3000, uint? secondAddrExt = 0, bool gapAfterFirst = false,
+        bool overlap = false, bool secondAddrExtMissing = false)
     {
         var rl = new A2lRecordLayout("RL_F32",
             new[] { new RecordLayoutEntry("FNC_VALUES", 0, "FLOAT32_IEEE", "COLUMN_SCAL", "DIRECT", null, null) },
@@ -50,7 +51,10 @@ public sealed class CalibrationMultiSegmentWriteTests
                 MakeSegment("SEG_A", 0x1500, 0x1500, 4),
                 gapAfterFirst
                     ? MakeSegment("SEG_B", 0x1504, 0x3000, 4, skipMapping: true)
-                    : MakeSegment("SEG_B", 0x1504, secondMappingPhysical ?? 0x3000, 4, secondAddrExt),
+                    : overlap
+                        ? MakeSegment("SEG_B", 0x1502, 0x7000, 4) // 与 SEG_A 的 run 区间部分重叠
+                        : MakeSegment("SEG_B", 0x1504, secondMappingPhysical ?? 0x3000ul, 4,
+                            secondAddrExtMissing ? null : secondAddrExt),
             });
         var doc = new A2lDocument(A2lVersion.V1_6x, "P", "", "",
             new A2lModCommon("", A2lByteOrder.MSB_LAST, null, null, null, new LineRange(1, 1)),
@@ -60,8 +64,8 @@ public sealed class CalibrationMultiSegmentWriteTests
     }
 
     private static A2lMemorySegment MakeSegment(
-        string name, uint logical, uint physical, uint length,
-        uint? addressExtension = null, bool skipMapping = false)
+        string name, uint logical, ulong physical, uint length,
+        uint? addressExtension = 0, bool skipMapping = false)
     {
         var mappings = skipMapping
             ? Array.Empty<XcpAddressMapping>()
@@ -129,6 +133,44 @@ public sealed class CalibrationMultiSegmentWriteTests
 
         // 部分覆盖（只要 5B，第二 run 只需 1B 仍在映射内）→ 不为 null；但完全越界为 null
         Assert.Null(CalibrationRunPlanner.PlanWriteRuns(MakeCrossDoc().Doc, 0x9000, 8));
+    }
+
+    [Fact]
+    public async Task Plan_runs_partially_overlapping_mapping_is_null_and_writer_rejects_zero_traffic()
+    {
+        // T7 评审 P1-2：run 内部部分重叠（B 覆盖 A run 的后半段）→ 拒绝规划。
+        var (overlapDoc, _) = MakeCrossDoc(overlap: true);
+        Assert.Null(CalibrationRunPlanner.PlanWriteRuns(overlapDoc, Logical, 8));
+
+        var (doc, contracts) = MakeCrossDoc(overlap: true);
+        var (writer, _, spy, _) = MakeWriter();
+        contracts.TryGet("KmMap", out var contract).Should().BeTrue();
+        var outcome = await writer.WriteAsync(contract!, doc, 3.5);
+        Assert.Equal(CalibrationWriteStatus.Rejected, outcome.Status);
+        Assert.Equal(0, spy.WriteCount);
+    }
+
+    [Fact]
+    public void Plan_runs_missing_addr_extension_is_null()
+    {
+        // T7 评审 P2-1：addrExt 缺失 = 未声明语义，不静默当 0（AcquisitionPlanner R3 同口径）。
+        var (doc, _) = MakeCrossDoc(secondAddrExtMissing: true);
+        Assert.Null(CalibrationRunPlanner.PlanWriteRuns(doc, Logical, 8));
+    }
+
+    [Fact]
+    public async Task Plan_runs_physical_beyond_uint_is_null()
+    {
+        // T7 评审 P1-3：物理地址超出 uint 寻址 → 拒绝，绝不静默截断回绕。
+        var (doc, _) = MakeCrossDoc(secondMappingPhysical: 0x1_0000_0000);
+        Assert.Null(CalibrationRunPlanner.PlanWriteRuns(doc, Logical, 8));
+
+        var (doc2, contracts) = MakeCrossDoc(secondMappingPhysical: 0x1_0000_0000);
+        var (writer, _, spy, _) = MakeWriter();
+        contracts.TryGet("KmMap", out var contract).Should().BeTrue();
+        var outcome = await writer.WriteAsync(contract!, doc2, 3.5);
+        Assert.Equal(CalibrationWriteStatus.Rejected, outcome.Status);
+        Assert.Equal(0, spy.WriteCount);
     }
 
     // ---------------- writer：跨段写 + 广播 ----------------

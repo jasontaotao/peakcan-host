@@ -58,6 +58,8 @@ public partial class XcpView : UserControl
         // S6-T5：diff 面板"定位对象卡片"承接——滚动卡片格到目标对象（视图层义务）。
         if (DataContext is XcpViewModel { Diff: { } diff })
             diff.CardLocateRequested += OnDiffCardLocateRequested;
+        // P0-1：tab 晚于 A2L 加载创建时补装 MAP 清单（幂等）。
+        (DataContext as XcpViewModel)?.Map?.RefreshMaps();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

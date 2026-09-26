@@ -150,6 +150,33 @@ receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值
    = 索引轴 + NaN 网格（仅结构，Detail 明示"离线模式"），不伪造数据（§4.8 同口径）。
 
 
+## T7 独立评审对账记录（2026-09-26，code-reviewer，初判 Verdict: FAIL → 修复后复审）
+
+独立评审（diff main...HEAD 全量精读）裁定 FAIL：P0×1 + P1×3。逐项处置：
+
+1. **P0-1 MAP 面板生产接线断裂（已修）**：`RefreshMaps()` 在 src/ 零调用——A2L 加载后
+   MAP 下拉框恒空，判据 3 在应用内不可达。修复：`XcpViewModel` 订阅 `Connection.PropertyChanged`
+   （ConnectionState 变化 → `Map.RefreshMaps()`）+ ctor 初始装配（A2L 先加载场景）+
+   `XcpView.OnLoaded` 补装（tab 晚创建场景）；`Map` 改缺省自建。钉：`XcpMapPanelWiringTests`
+   两条路径（后加载 / 先加载，真机 fixture 15 个 MAP）。
+2. **P1-1 在线 MAP 读取异常面未收敛（已修）**：`XcpMapReader` 网格字节数与轴点数不一致时
+   fail-loud `InvalidOperationException`（§4.8 不猜）；`XcpMapPanelViewModel` catch 面加
+   `XcpErrorResponseException` → 状态区"从机负响应 <码>"。钉：VM 负响应测试。
+3. **P1-2 重叠映射检测不完整（已修）**：原实现只对 run 起点查歧义，run 内部部分重叠被
+   静默按第一映射写（错地址写）。修复：run 整个逻辑区间全量重叠扫描（同三元组重复声明
+   视为同一映射）。钉：重叠 → planner null + writer Rejected 零流量。
+4. **P1-3 物理地址静默截断 uint（已修）**：翻译物理 > `uint.MaxValue` → planner null /
+   map reader `InvalidOperationException`（读写两路径），绝不回绕错写。钉：超界 → 零流量。
+5. **P2-1 addrExt 缺失静默当 0（已修）**：planner 对 ADDRESS_EXTENSION 缺失（null）与
+   非 0 同样拒绝（AcquisitionPlanner R3 同口径，写路径更不应兜底）。钉：缺失 → null。
+6. **P2-4 diff 面板 catch 缺口（已修）**：`CalibrationParameterSet.Parse` 把非法
+   exportedAt 的 `FormatException` 收敛为 `InvalidOperationException`。
+7. **P2-2 回放加载同步阻塞 UI / P2-3 onlyChanged 对多元素恒判差异**：记录在案不阻塞合并
+   ——P2-2 挂账后续优化（Task.Run + IsBusy）；P2-3 是广播语义的必然推论，并入附录 C-5
+   台架确认项（"未改动的行也会被标差异并覆写"）。
+8. 复审门禁：全仓无过滤 **4398 通过 / 0 失败**（含修复新增钉；Infrastructure 首轮 1 例
+   失败为既有偶发，单独复跑两轮全绿）。
+
 ## 附录 A：断链自查（验收判据 → 实现 → 测试）
 
 | 判据 | 实现落点 | 测试钉 |
