@@ -1,4 +1,4 @@
-状态：v0.2 定案（D1–D7 全按倾向拍板，D6 砍；实施计划已出）。
+状态：v0.3 实施完成（D1–D7 已定案；T0–T6 全部落地，附录 A/B/C 为 T6 交付物）。
 
 ## 变更记录
 
@@ -104,3 +104,40 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 | PAG | 从机有 Pag 模块 | v0.1 不做 SET_CAL_PAGE（spec 非目标）；写回地址 = A2L 段映射物理地址（与 S2 采集 UPLOAD 同一翻译面，`XcpAddressMap.TryTranslate` 唯一入口） |
 
 对象分布（T1 回填，A2L 文本两遍统计，1377 个 CHARACTERISTIC 全部映射成功、0 未映射）：FLOAT32_IEEE 866 / UBYTE 366 / ULONG 63 / UWORD 58 / SWORD 13 / SBYTE 9 / SLONG 2——**元素级全部 ≤4B，单元素对象单帧 DOWNLOAD 可写**；分片仅发生在多元素对象（VALUE 1232 / CURVE 82 / VAL_BLK 48 / MAP 15 的 N 元素连续写，按内存序 `DOWNLOAD`×⌈n/4⌉）。元素编码字节序由包侧 `ByteLayout`（BigEndian）承载，S1 §7 MOD_COMMON↔IF_DATA 字节序冲突已裁决。
+
+## 附录 A：断链自查表（写回控件/状态行逐元素"字段 ← 生产者"）
+
+| UI 元素 | 绑定字段/命令 | 生产者 |
+| --- | --- | --- |
+| 卡片行内写值 TextBox + 写值按钮 | `card.WriteValueText` / `WriteValueCommand` | `XcpCardViewModel`（CanExecute：CHARACTERISTIC + 写回已接线 + 不变文化可解析） |
+| 写值结果状态行 | `card.LastWriteStatus` | writer `CalibrationWriteOutcome`（Written/Rejected/WriteFailed/ReadBackMismatch + Detail） |
+| 参数集路径 TextBox | `Writeback.ParameterSetPath` | 用户输入（导出/下发共用） |
+| 导出参数集按钮 | `Writeback.ExportParameterSetCommand` | 关注集 CHARACTERISTIC 卡片 `LastNumericValue`（S4 样本数值面）+ `ContractSnapshot.A2lSha256` 指纹 |
+| 下发参数集按钮 | `Writeback.ApplyParameterSetCommand` | `CalibrationReconciler.ApplyAsync`（指纹校验 → 差异对账 → 只写差异项） |
+| 写回状态行 | `Writeback.StatusText` | 结果单摘要（写/跳过/失败计数 + 首因） |
+| 写值物理→原始 | `ValueContract.Encode` | 包侧（S1 已交付）；拒绝 = ConversionUnsupported |
+| 地址翻译 | `XcpAddressMap.TryTranslate` | 包侧唯一入口；覆盖不到 → 拒绝且零流量 |
+| 协议主站 | `Acquisition.ActiveMaster` | 采集会话（写回共用采集连接；未采集 → 拒绝可见） |
+| 禁用语义 | 测量类卡片无写入口 | `XcpCardViewModel.CanWrite`（MEASUREMENT/AxisPts 不出写按钮） |
+
+## 附录 B：验收记录（2026-09-26，分支 s5-calibration-writeback）
+
+| 判据 | 结果 | 证据 |
+| --- | --- | --- |
+| 1 字节级 | ✅ | `XcpCalibrationWriterTests`（真机 fixture 契约 + 内存从机：1B 单帧、8B 两帧分片、MTA 自增、BUSY 重试、WRITE_PROTECTED 不重试） |
+| 2 端到端 + 拒绝面 | ✅ | `WriteSingleAsync_writes_via_writer_and_memory_updated`；拒绝面零流量审计：`Measurement_contract_is_rejected_with_zero_traffic`（spy.WriteCount==0） |
+| 3 参数集 | ✅ | `CalibrationParameterSetTests`：同输入两次导出字节一致、格式钉死、指纹不符 EnsureMatches 抛出；导出测试断言解析回读 |
+| 4 批量下发 | ✅ | `CalibrationReconcilerTests`：只写差异项、单项失败批量继续、重跑幂等（零新写流量）、对象缺失零流量 |
+| ~~5 UDS 触发~~ | — | D6 已砍（处置记录见 D6 节） |
+| 6 门禁 | ✅ | 全仓无过滤 **4345 通过 / 0 失败**（≥ S4 基线 4318）；守卫：`Xcp_Calibration_is_the_write_face_with_pinned_dependency`（新增）+ Scheduling/Receive DOWNLOAD 成员级扫描（既有，未放松）+ App 禁 Encoder（既有） |
+
+## 附录 C：已知限制与台架挂账
+
+1. **SHORT_DOWNLOAD 不用**：从机帧布局 4 字节地址（非标 24 位），host 编码器对不上——统一 SET_MTA+DOWNLOAD。
+2. **块模式不用**：从机 `XCP_MASTER_BLOCK_MODE_SUPPORT=OFF`；A2L AML 枚举的 BLOCK 声明与从机配置矛盾——台架以 GET_COMM_MODE_INFO 实测位图为准（A-10 挂账延伸）。
+3. **从机无写校验回调**（CHECK_WRITEMTA_CBK=OFF）：写错地址从机不拦——host 侧拒绝面/指纹/差异对账是唯一防线。
+4. **多段对象 v0.1 不支持**（MAP/部分 CURVE）：下发对账单标注 MultiSegmentUnsupported；S6 扩展跨段编排。
+5. **D1 台架挂账**：真机 Cal 写期间 DAQ 表行为、真机 MTA 自增与分片时序、CAN 号合规性（A-4）——模拟从机验证不代表真机验收。
+6. **写回与采集共享连接**：写回命令与采集命令经 XcpMaster 串行（单飞行），批量下发期间采集继续（D1）；批量进行中 IsBusy 禁重复触发。
+7. **参数集导出源 = 卡片数值面**：未收到数据的卡片不进导出（LastNumericValue null）；导出不写 raw 参考列。
+8. **独立评审 P3 backlog**：记录于评审对账记录（T6）。
