@@ -33,9 +33,9 @@
 
 ## T5 守卫 + e2e + 门禁（D7）
 
-- [ ] 分层守卫：Xcp.Calibration = DOWNLOAD 唯一合法调用点（非空锚点）；Scheduling/Receive 禁 DOWNLOAD 扫描不动；App 禁 Encoder 不动
-- [ ] 模拟从机端到端：写 VALUE → 回读一致；拒绝面零流量审计
-- [ ] 全仓无过滤跑：total ≥ 4318，0 失败 0 新警告
+- [x] 分层守卫：Xcp.Calibration = DOWNLOAD 唯一合法调用点（非空锚点）；Scheduling/Receive 禁 DOWNLOAD 扫描不动；App 禁 Encoder 不动
+- [x] 模拟从机端到端：写 VALUE → 回读一致；拒绝面零流量审计
+- [x] 全仓无过滤跑：total ≥ 4318，0 失败 0 新警告
 
 ## T6 评审收尾
 

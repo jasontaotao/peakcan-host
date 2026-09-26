@@ -87,6 +87,45 @@ public class XcpLayeringTests
     }
 
     [Fact]
+    public void Xcp_Calibration_is_the_write_face_with_pinned_dependency()
+    {
+        // S5-T5（spec D7）：DOWNLOAD 唯一合法调用点 = Xcp.Calibration（写前对账 +
+        // 写后回读的唯一写入口）。Scheduling/Receive 的 DOWNLOAD 成员级扫描
+        //（本文件既有规则）继续封禁旧面；App 层禁 Encoder 守卫不动。
+        // 本条钉 Calibration 依赖面 = Protocol + Layout（编码/地址翻译）+ Scheduling
+        //（无）——禁 Uds/HIL/Infrastructure/App/驱动/WPF。
+        var core = typeof(PeakCan.Host.Core.Xcp.Calibration.XcpCalibrationWriter).Assembly;
+
+        // 非空守卫：writer 必须依赖 Protocol（XcpCommandEncoder.Download）——
+        // 依赖检测机器坏了这里先炸（照 Record 守卫锚点先例）。
+        var anchor = Types.InAssembly(core)
+            .That().HaveName("XcpCalibrationWriter")
+            .Should().HaveDependencyOn(ProtocolNamespace)
+            .GetResult();
+        Assert.True(anchor.IsSuccessful,
+            "Calibration selection or dependency detection is broken (writer must use XcpCommandEncoder): " +
+            string.Join(", ", anchor.FailingTypeNames ?? Array.Empty<string>()));
+
+        foreach (var banned in new[]
+                 {
+                     "PeakCan.Host.Core.Uds",
+                     "PeakCan.Host.Core.HIL",
+                     "PeakCan.Host.Infrastructure",
+                     "PeakCan.Host.App",
+                     "Peak.Can",
+                     "System.Windows",
+                 })
+        {
+            var result = Types.InAssembly(core)
+                .That().ResideInNamespace("PeakCan.Host.Core.Xcp.Calibration")
+                .ShouldNot().HaveDependencyOn(banned)
+                .GetResult();
+            Assert.True(result.IsSuccessful,
+                $"{banned}: {string.Join(", ", result.FailingTypeNames ?? Array.Empty<string>())}");
+        }
+    }
+
+    [Fact]
     public void Xcp_Record_namespace_dependency_face_is_pinned()
     {
         // S4-T7（S4 plan）：记录面依赖 = Core.Xcp.Receive（样本/gap 契约）+
