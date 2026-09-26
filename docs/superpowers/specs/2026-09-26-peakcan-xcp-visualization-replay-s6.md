@@ -1,7 +1,7 @@
 # PeakCan S6 — 回放 UI / 曲线 / MAP 可视化 设计 v0.1（草稿）
 
 - 日期：2026-09-26
-- 状态：**v0.1 草稿，D1–D7 待拍板**
+- 状态：**v0.2 已定案（2026-09-26，D1–D7 全按推荐拍板）**
 - 上游：S1 spec（`a2l-editor/docs/superpowers/specs/2026-09-20-peakcan-asap2-package-design.md`）+ S4 spec（MDF 记录）+ S5 spec（标定写回）
 - 落地仓库：`peakcan-host`，分支 `s6-visualization-replay`
 
@@ -30,17 +30,17 @@ S6 是 S1–S6 主线的最后一段（"A2L 变体 = 基线 + delta"为 S6 之�
 | 多段对象 v0.1 不支持，S6 扩展跨段编排 | S5 附录 C-4 | D6 决策点 |
 | 通道 unit 有 asammdf 显示层差异 | S4 附录 C-3 | 自研读取则此差异天然消除（D1 佐证） |
 
-## 2. D 决策点（v0.1 待拍板）
+## 2. D 决策点（v0.2 已定案）
 
 ### D1：MDF 读取方案
 
-- **推荐：自研最小 MF4 读取器**（Core 层，只覆盖自家 `Mdf4StreamWriter` 的子集：ID/HD/DG/CG/SI/DT/SD/事件/invalidation bits/attachment）。理由：与 S4 writer 形成 round-trip 闭环测试；零外部依赖零许可风险；S4 附录 C-2/C-3 的 asammdf 显示层差异天然不引入。代价：只读自家文件，通用 MDF 支持另立项。
+- **拍板：自研最小 MF4 读取器**（Core 层，只覆盖自家 `Mdf4StreamWriter` 的子集：ID/HD/DG/CG/SI/DT/SD/事件/invalidation bits/attachment）。理由：与 S4 writer 形成 round-trip 闭环测试；零外部依赖零许可风险；S4 附录 C-2/C-3 的 asammdf 显示层差异天然不引入。代价：只读自家文件，通用 MDF 支持另立项。
 - 备选 A：NuGet MDF 库（Mdf4Lib 等）——通用性好，但引入依赖 + 行为不受控 + 许可审查。
 - 备选 B：asammdf 导出 CSV 再读——UX 割裂，违背"加载即看"。
 
 ### D2：曲线渲染技术选型
 
-- **推荐：ScottPlot 5（WPF 控件）**。理由：MIT 许可、百万点级性能、缩放/游标/图例/多轴现成；WPF 绑定成熟。代价：新 NuGet 依赖（第一个图表库）。
+- **拍板：ScottPlot 5（WPF 控件）**。理由：MIT 许可、百万点级性能、缩放/游标/图例/多轴现成；WPF 绑定成熟。代价：新 NuGet 依赖（第一个图表库）。
 - 备选：WPF 自绘 StreamGeometry——零依赖，但缩放/游标/图例全自造，工作量数倍于引入库。
 
 ### D3：回放数据口径
@@ -52,37 +52,44 @@ S6 是 S1–S6 主线的最后一段（"A2L 变体 = 基线 + delta"为 S6 之�
 
 ### D4：MAP/3D 可视化数据源
 
-- **推荐：在线 UPLOAD 读值渲染**——连接 ECU 后选 MAP 对象，UPLOAD 拉全元素（读不涉及 S5 写门禁），按两轴点数构造网格，曲面/热图只读渲染 + 当前值游标。
+- **拍板：在线 UPLOAD 读值渲染**——连接 ECU 后选 MAP 对象，UPLOAD 拉全元素（读不涉及 S5 写门禁），按两轴点数构造网格，曲面/热图只读渲染 + 当前值游标。
 - 备选：离线渲染参数集/A2L 静态值——无连接可用，但"可视化看 ECU 现状"的场景价值低。
 - 3D 控件：跟随 D2——ScottPlot 有 heatmap/contour，够只读用，不引 3D 专用库。
 
 ### D5：参数集 diff 可视化形态
 
-- **推荐：双文件表格 diff**（对象名 / 原值 / 新值 / 单位 / 上下限 / 越限标红）+ 选中行定位到 XcpView 对象卡片。只读展示；"应用"仍走 S5 既有 apply 链路，diff 面不新增写路径。
+- **拍板：双文件表格 diff**（对象名 / 原值 / 新值 / 单位 / 上下限 / 越限标红）+ 选中行定位到 XcpView 对象卡片。只读展示；"应用"仍走 S5 既有 apply 链路，diff 面不新增写路径。
 - 不做：树状结构 diff、三方合并（参数集是每对象一行的平面 JSON，表格够用）。
 
 ### D6：多段写扩展是否进 S6
 
-- **推荐：进，作为独立任务（S6 末位）**。S5 附录 C-4 钉了"S6 扩展跨段编排"；MAP 15 个对象是 BMS 日常曲线的家。范围：`XcpCalibrationWriter` 按 `MEMORY_SEGMENT` 地址映射拆分写序列 + 回读比对分段执行；reconciler/卡片门禁同步解除 MultiSegmentUnsupported 拒绝。
+- **拍板：进，作为独立任务（S6 末位）**。S5 附录 C-4 钉了"S6 扩展跨段编排"；MAP 15 个对象是 BMS 日常曲线的家。范围：`XcpCalibrationWriter` 按 `MEMORY_SEGMENT` 地址映射拆分写序列 + 回读比对分段执行；reconciler/卡片门禁同步解除 MultiSegmentUnsupported 拒绝。
 - 备选：砍到 S7 单独立项——S6 主题是可视化，混协议工作有 scope 漂移风险。
 
 ### D7：UI 落点
 
-- **推荐：`XcpView` 主区（Grid.Row=3）改 TabControl**：`实时采集`（现归因合并表迁移）/ `回放` / `MAP 可视化` / `参数集 diff`。顶部四行控件带（连接/记录/写回）不动。
+- **拍板：`XcpView` 主区（Grid.Row=3）改 TabControl**：`实时采集`（现归因合并表迁移）/ `回放` / `MAP 可视化` / `参数集 diff`。顶部四行控件带（连接/记录/写回）不动。
 - 备选：独立 XcpReplayView 顶栏切换——与 DBC `ReplayView`（v3.8 遗产，CAN 域）命名撞车且割裂 XCP 上下文。
 
-## 3. 验收判据（v0.1 预填，拍板后细化）
+## 3. 验收判据（v0.2）
 
 1. 回放：加载 S4 产 MF4，曲线可见、可缩放/游标；空窗断线 + 归因标注可对上文件（round-trip 测试钉）。
 2. 指纹门禁：A2L 不符 → 原始值降级 + 警示，不出现错误物理值。
 3. MAP 只读：在线 UPLOAD 渲染 15 个真机 MAP 对象之一，只读（无写入口）。
 4. diff：两份参数集对比行列出、越限标红、定位联动。
-5. 多段写（若 D6 进）：真机形态 MAP 对象写回 → 回读比对全绿 → MultiSegmentUnsupported 拒绝解除有回归钉。
+5. 多段写（D6 已定进）：真机形态 MAP 对象写回 → 回读比对全绿 → MultiSegmentUnsupported 拒绝解除有回归钉。
 6. 门禁：全仓无过滤 ≥ 4350 通过 / 0 失败；分层守卫回归。
 
 ## 4. 已知限制（v0.1 预填）
 
-- 只回放自家 writer 产物（D1 拍板确认后写死）。
+- 只回放自家 writer 产物（D1 已定案）。
 - gap 时间戳口径继承 S4 附录 C-1（到达序）。
-- ScottPlot 依赖引入（D2 拍板后补许可与 lock 记录）。
+- ScottPlot 依赖引入（D2 已定案；T0 落地时补版本与 lock 记录）。
 - 在线 MAP 渲染的上传耗时与 DAQ 并发行为 = 台架核实项（S5 A-x 挂账延伸）。
+
+## 变更记录
+
+| 版本 | 内容 |
+| --- | --- |
+| v0.1 | 初稿，D1–D7 开放 |
+| v0.2 | D1–D7 全按推荐定案（自研 MF4 读取器 / ScottPlot 5 / 指纹门禁回放 / 在线 UPLOAD MAP / 表格 diff / 多段写进 S6 / XcpView 主区 TabControl） |
