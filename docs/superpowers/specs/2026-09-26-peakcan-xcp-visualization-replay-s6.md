@@ -115,3 +115,15 @@ receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值
 4. 空窗面：Invalid 行（NaN 值）+ 归因事件直通渲染层。
 
 实现：`Xcp/Replay/XcpReplayDecoder`（6 测试钉：Trusted/Mismatched/外部合同/无来源/空窗标注/单通道降级）。
+
+## T4 补记（2026-09-26，D2 实现裁定修正 + MAP 结构事实）
+
+1. **D2 裁定修正**：ScottPlot **早已是本仓 Trace Viewer 的渲染引擎**（`ScottPlot.Wpf 5.0.55`，
+   v3.62 引入，`Directory.Packages.props:44`）。T0 补记"第一个图表库依赖 / NU1701 豁免预案"作废
+   ——T4/T3 直接复用 5.0.55（已过全仓 gate 的版本），不升级不新增依赖。
+2. **MAP 第二轴结构事实**：包侧 `ValueContract.Axis` 只承载第一个 AXIS_DESCR（`ValueContractFactory`
+   MAP 分支 `axis = AxisOf(c.AxisDescrs[0])`），第二轴的点数/引用只能从 `contracts.Document` 模型直读。
+   `XcpMapReader` 据此实现（文档模型取两轴 AXIS_PTS → 合同解析换算 → 地址翻译 → UPLOAD）。
+3. **只读红线钉**：`XcpMapReaderTests` 断言线上零 DOWNLOAD（0xF0）帧；App 层不构造协议命令（分层守卫）。
+4. **离线兜底口径**：A2L/参数集均无 MAP 元素静态值（S5 参数集对多元素对象拒绝导出）——离线渲染
+   = 索引轴 + NaN 网格（仅结构，Detail 明示"离线模式"），不伪造数据（§4.8 同口径）。

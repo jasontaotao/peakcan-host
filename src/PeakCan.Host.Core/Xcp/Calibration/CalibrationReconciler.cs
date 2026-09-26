@@ -195,20 +195,9 @@ public sealed class CalibrationReconciler : IAsyncDisposable
         };
     }
 
-    private async Task<byte[]> ReadRawAsync(ValueContract contract, uint address, CancellationToken ct)
-    {
-        var setMta = await _master.SendAsync(XcpCommandEncoder.SetMta(0, address), ct).ConfigureAwait(false);
-        XcpResponseDecoder.SetMta(setMta);
-
-        var buffer = new byte[contract.TotalByteLength];
-        for (var offset = 0; offset < buffer.Length; offset += MaxUploadBytes)
-        {
-            var n = Math.Min(MaxUploadBytes, buffer.Length - offset);
-            var response = await _master.SendAsync(XcpCommandEncoder.Upload((byte)n), ct).ConfigureAwait(false);
-            XcpResponseDecoder.Upload(response).CopyTo(buffer, offset);
-        }
-        return buffer;
-    }
+    private Task<byte[]> ReadRawAsync(ValueContract contract, uint address, CancellationToken ct)
+        // S6-T4：分块 UPLOAD 上提协议原语 XcpUploadReader（序列门由调用方持有，行为不变）。
+        => XcpUploadReader.ReadAsync(_master, address, contract.TotalByteLength, ct);
 
     private static double? SafeDecode(ValueContract contract, byte[] raw)
     {

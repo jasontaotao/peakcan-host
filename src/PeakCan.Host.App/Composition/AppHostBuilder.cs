@@ -441,6 +441,28 @@ public partial class AppHostBuilder
                             loaded.Document.RawText);
                 });
         });
+        // S6-T4：MAP 只读可视化面板（spec D4）。在线读走 Core XcpMapReader（序列门 + 零
+        // DOWNLOAD）；无连接时离线兜底（仅结构）。App 不构造协议命令（分层守卫红线）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>(sp =>
+        {
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            var acquisition = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>();
+            return new PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel(
+                mapsProvider: () => connection.LoadedResult?.Document.Modules
+                    .SelectMany(m => m.Characteristics)
+                    .Where(c => c.Type == "MAP")
+                    .Select(c => c.Name)
+                    .ToList() ?? [],
+                readMap: (name, ct) =>
+                {
+                    var loaded = connection.LoadedResult
+                        ?? throw new InvalidOperationException("未加载 A2L（MAP 结构不可用）");
+                    var master = acquisition.ActiveMaster;
+                    return master is null
+                        ? Task.FromResult(PeakCan.Host.Core.Xcp.Replay.XcpMapReader.ReadOffline(loaded.Contracts, name))
+                        : PeakCan.Host.Core.Xcp.Replay.XcpMapReader.ReadOnlineAsync(master, loaded.Contracts, name, ct);
+                });
+        });
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.Xcp.XcpViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
@@ -449,7 +471,8 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(),
                 writeback: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>(),
-                replay: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel>()));
+                replay: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel>(),
+                map: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>()));
         // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync
         //（fire-and-forget 会丢 S2 quiesce 契约）。IHostedService.StopAsync 在
         // App.RunShutdownAsync 的 host.StopAsync（10s 上限）内被真正 await。

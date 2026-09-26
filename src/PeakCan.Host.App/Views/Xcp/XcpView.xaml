@@ -295,6 +295,9 @@
             <TabItem Header="回放">
                 <local:XcpReplayView DataContext="{Binding Replay}" />
             </TabItem>
+            <TabItem Header="MAP 可视化">
+                <local:XcpMapView DataContext="{Binding Map}" />
+            </TabItem>
         </TabControl>
     </Grid>
 </UserControl>
