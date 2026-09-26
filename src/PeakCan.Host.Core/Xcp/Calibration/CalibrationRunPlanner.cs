@@ -83,10 +83,10 @@ public static class CalibrationRunPlanner
                     return null;
             }
 
-            // T7 评审 P1-3：物理地址必须落在 uint 寻址内——S2 写/读原语用 uint，
-            // 静默截断会把数据写到回绕后的错误地址（宁可不写不错写）。
+            // T7 评审 P1-3 + P2-6：物理地址必须整体落在 uint 寻址内（含 run 末字节）
+            // ——S2 写/读原语用 uint，静默截断会把数据写到回绕后的错误地址（宁可不写不错写）。
             var physical = covering.PhysicalAddress + (logical - covering.LogicalAddress);
-            if (physical > uint.MaxValue)
+            if (physical > uint.MaxValue || physical + (ulong)runLength - 1 > uint.MaxValue)
                 return null;
 
             runs.Add(new CalibrationWriteRun(logical, (uint)physical, runLength, sourceOffset));

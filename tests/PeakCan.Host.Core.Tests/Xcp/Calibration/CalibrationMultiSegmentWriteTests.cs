@@ -28,7 +28,8 @@ public sealed class CalibrationMultiSegmentWriteTests
     /// <summary>VAL_BLK 2×F32 @0x1500：逻辑区间 [0x1500,0x1508) 跨两个映射。</summary>
     private static (A2lDocument Doc, ContractSet Contracts) MakeCrossDoc(
         ulong? secondMappingPhysical = 0x3000, uint? secondAddrExt = 0, bool gapAfterFirst = false,
-        bool overlap = false, bool secondAddrExtMissing = false)
+        bool overlap = false, bool secondAddrExtMissing = false,
+        ulong firstMappingPhysical = 0x1500, uint firstMappingLength = 4)
     {
         var rl = new A2lRecordLayout("RL_F32",
             new[] { new RecordLayoutEntry("FNC_VALUES", 0, "FLOAT32_IEEE", "COLUMN_SCAL", "DIRECT", null, null) },
@@ -48,7 +49,7 @@ public sealed class CalibrationMultiSegmentWriteTests
             new LineRange(1, 1),
             MemorySegments: new[]
             {
-                MakeSegment("SEG_A", 0x1500, 0x1500, 4),
+                MakeSegment("SEG_A", 0x1500, firstMappingPhysical, firstMappingLength),
                 gapAfterFirst
                     ? MakeSegment("SEG_B", 0x1504, 0x3000, 4, skipMapping: true)
                     : overlap
@@ -148,6 +149,15 @@ public sealed class CalibrationMultiSegmentWriteTests
         var outcome = await writer.WriteAsync(contract!, doc, 3.5);
         Assert.Equal(CalibrationWriteStatus.Rejected, outcome.Status);
         Assert.Equal(0, spy.WriteCount);
+    }
+
+    [Fact]
+    public void Plan_runs_spanning_uint_boundary_is_null()
+    {
+        // T7 评审 P2-6：run 末字节跨过 uint 边界（0xFFFFFFFC + 8B）→ 拒绝，绝不回绕错写。
+        var (doc, _) = MakeCrossDoc(
+            gapAfterFirst: true, firstMappingPhysical: 0xFFFFFFFC, firstMappingLength: 8);
+        Assert.Null(CalibrationRunPlanner.PlanWriteRuns(doc, Logical, 8));
     }
 
     [Fact]

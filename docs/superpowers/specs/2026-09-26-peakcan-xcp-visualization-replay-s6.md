@@ -171,11 +171,15 @@ receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值
    非 0 同样拒绝（AcquisitionPlanner R3 同口径，写路径更不应兜底）。钉：缺失 → null。
 6. **P2-4 diff 面板 catch 缺口（已修）**：`CalibrationParameterSet.Parse` 把非法
    exportedAt 的 `FormatException` 收敛为 `InvalidOperationException`。
-7. **P2-2 回放加载同步阻塞 UI / P2-3 onlyChanged 对多元素恒判差异**：记录在案不阻塞合并
-   ——P2-2 挂账后续优化（Task.Run + IsBusy）；P2-3 是广播语义的必然推论，并入附录 C-5
-   台架确认项（"未改动的行也会被标差异并覆写"）。
-8. 复审门禁：全仓无过滤 **4398 通过 / 0 失败**（含修复新增钉；Infrastructure 首轮 1 例
-   失败为既有偶发，单独复跑两轮全绿）。
+7. **P2-6 run 跨 uint 边界（复审新增，已修）**：P1-3 守卫只查 run 起点——起点 ≤ uint 但
+   末字节越过 0xFFFFFFFF 的 run 仍会回绕错写；planner 补 `physical + runLength - 1 > uint.MaxValue`
+   拒绝 + 测试钉。
+8. **P2-2 回放加载同步阻塞 UI / P2-3 onlyChanged 对多元素恒判差异 / P2-5 Loaded→Loaded 换
+   A2L 不刷新 Maps**：记录在案不阻塞合并——P2-2 挂账后续优化（Task.Run + IsBusy）；P2-3 是
+   广播语义的必然推论，并入附录 C-5 台架确认项（"未改动的行也会被标差异并覆写"）；P2-5
+   挂账 S7（A2L 加载成功路径直接调 RefreshMaps，不依赖状态机值变化）。
+9. **复审 Verdict: PASS**（六项修复全落地 + 测试钉，P0/P1 清零）。复审后门禁：全仓无过滤
+   4398 通过 / 0 失败 + P2-6 修复钉（Infrastructure 首轮 1 例失败为既有偶发，复跑两轮全绿）。
 
 ## 附录 A：断链自查（验收判据 → 实现 → 测试）
 
