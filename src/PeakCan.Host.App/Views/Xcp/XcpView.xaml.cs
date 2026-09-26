@@ -55,6 +55,11 @@ public partial class XcpView : UserControl
             vm?.Record.RefreshState(); // S4-T5：记录状态行同拍刷新。
         };
         _flushTimer.Start();
+        // S6-T5：diff 面板"定位对象卡片"承接——滚动卡片格到目标对象（视图层义务）。
+        if (DataContext is XcpViewModel { Diff: { } diff })
+            diff.CardLocateRequested += OnDiffCardLocateRequested;
+        // P0-1：tab 晚于 A2L 加载创建时补装 MAP 清单（幂等）。
+        (DataContext as XcpViewModel)?.Map?.RefreshMaps();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -62,6 +67,25 @@ public partial class XcpView : UserControl
         // tab 切走即停拍（singleton VM 状态保留，切回 Loaded 重启）。
         _flushTimer?.Stop();
         _flushTimer = null;
+        if (DataContext is XcpViewModel { Diff: { } diff })
+            diff.CardLocateRequested -= OnDiffCardLocateRequested;
+    }
+
+    /// <summary>S6-T5：滚动卡片格到 diff 选中的对象（无该卡片时状态不变化）。</summary>
+    private void OnDiffCardLocateRequested(string objectName)
+    {
+        var vm = DataContext as XcpViewModel;
+        if (vm is null || CardsItemsControl is null)
+            return;
+        var generator = CardsItemsControl.ItemContainerGenerator;
+        for (var i = 0; i < vm.Cards.Cards.Count; i++)
+        {
+            if (!string.Equals(vm.Cards.Cards[i].Name, objectName, System.StringComparison.Ordinal))
+                continue;
+            if (generator.ContainerFromIndex(i) is System.Windows.FrameworkElement container)
+                container.BringIntoView();
+            return;
+        }
     }
 
     private void OnBrowseA2l(object sender, RoutedEventArgs e)

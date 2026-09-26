@@ -426,6 +426,43 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.Core.Xcp.Record.XcpBroadcastSink>()));
 
         // Orchestrator：可空可选参 auto-resolve 四面板 singleton 原样组装。
+        // S6-T3：回放面板（文件读取走 Core Mdf4StreamReader；指纹基准 = 当前 A2L RawText SHA-256，与快照同口径）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel>(sp =>
+        {
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            return new PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel(
+                readFile: PeakCan.Host.Core.Xcp.Record.Mdf4StreamReader.Read,
+                currentA2lSha256Provider: () =>
+                {
+                    var loaded = connection.LoadedResult;
+                    return loaded is null
+                        ? null
+                        : PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel.ComputeA2lSha256(
+                            loaded.Document.RawText);
+                });
+        });
+        // S6-T4：MAP 只读可视化面板（spec D4）。在线读走 Core XcpMapReader（序列门 + 零
+        // DOWNLOAD）；无连接时离线兜底（仅结构）。App 不构造协议命令（分层守卫红线）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>(sp =>
+        {
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            var acquisition = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>();
+            return new PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel(
+                mapsProvider: () => connection.LoadedResult?.Document.Modules
+                    .SelectMany(m => m.Characteristics)
+                    .Where(c => c.Type == "MAP")
+                    .Select(c => c.Name)
+                    .ToList() ?? [],
+                readMap: (name, ct) =>
+                {
+                    var loaded = connection.LoadedResult
+                        ?? throw new InvalidOperationException("未加载 A2L（MAP 结构不可用）");
+                    var master = acquisition.ActiveMaster;
+                    return master is null
+                        ? Task.FromResult(PeakCan.Host.Core.Xcp.Replay.XcpMapReader.ReadOffline(loaded.Contracts, name))
+                        : PeakCan.Host.Core.Xcp.Replay.XcpMapReader.ReadOnlineAsync(master, loaded.Contracts, name, ct);
+                });
+        });
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpViewModel>(sp =>
             new PeakCan.Host.App.ViewModels.Xcp.XcpViewModel(
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>(),
@@ -433,7 +470,32 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAttributionPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpAcquisitionPanelViewModel>(),
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(),
-                writeback: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>()));
+                writeback: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>(),
+                replay: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel>(),
+                map: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>(),
+                diff: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel>()));
+        // S6-T5：参数集 diff 面板（spec D5）。文件加载走 Core Parse（明文 JSON）；
+        // 指纹基准 = 当前 A2L RawText SHA-256（与回放页同口径）；限值来源 =
+        // 解析期 ContractSet（App 不现算量程）。App 层零协议命令（分层守卫红线）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel>(sp =>
+        {
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            return new PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel(
+                loadSet: (path, ct) => Task.Run(
+                    () => PeakCan.Host.Core.Xcp.Calibration.CalibrationParameterSet.Parse(File.ReadAllText(path)), ct),
+                currentA2lSha256Provider: () =>
+                {
+                    var loaded = connection.LoadedResult;
+                    return loaded is null
+                        ? null
+                        : PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel.ComputeA2lSha256(
+                            loaded.Document.RawText);
+                },
+                limitsLookupProvider: () => connection.LoadedResult is null
+                    ? null
+                    : PeakCan.Host.Core.Xcp.Diff.CalibrationParameterSetDiff.FromContractSet(
+                        connection.LoadedResult.Contracts));
+        });
         // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync
         //（fire-and-forget 会丢 S2 quiesce 契约）。IHostedService.StopAsync 在
         // App.RunShutdownAsync 的 host.StopAsync（10s 上限）内被真正 await。

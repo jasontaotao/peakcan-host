@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:PeakCan.Host.App.Views.Xcp"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="1100">
     <!-- S3-T8：XCP 主 tab 视图壳。全部绑定走 XcpViewModel 单一入口；
@@ -174,7 +175,10 @@
         </GroupBox>
 
         <!-- ===== 主区：左卡片总览（显示集）/ 右采集覆盖清单 + 归因合并表 ===== -->
-        <Grid Grid.Row="3" Margin="0,8,0,0">
+        <!-- S6-T3（D7）：主区改 TabControl——实时采集（原归因合并表区迁移）/ 回放。 -->
+        <TabControl Grid.Row="3" Margin="0,8,0,0">
+            <TabItem Header="实时采集">
+                        <Grid Grid.Row="3" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="5" />
@@ -184,7 +188,7 @@
             <!-- 卡片格（S1 §5.5：第一屏常驻可扫；停更灰显由 IsStale 驱动）。 -->
             <GroupBox Grid.Column="0" Header="关注集卡片" Padding="6">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Cards.Cards}">
+                    <ItemsControl x:Name="CardsItemsControl" ItemsSource="{Binding Cards.Cards}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel />
@@ -286,6 +290,17 @@
                     </ScrollViewer>
                 </GroupBox>
             </DockPanel>
-        </Grid>
+                </Grid>
+            </TabItem>
+            <TabItem Header="回放">
+                <local:XcpReplayView DataContext="{Binding Replay}" />
+            </TabItem>
+            <TabItem Header="MAP 可视化">
+                <local:XcpMapView DataContext="{Binding Map}" />
+            </TabItem>
+            <TabItem Header="参数集 diff">
+                <local:XcpDiffView DataContext="{Binding Diff}" />
+            </TabItem>
+        </TabControl>
     </Grid>
 </UserControl>

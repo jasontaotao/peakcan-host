@@ -1,4 +1,5 @@
 using A2lEditor.Core.Layout;
+using A2lEditor.Core.Model;
 using PeakCan.Host.Core.Xcp.Protocol;
 
 namespace PeakCan.Host.Core.Xcp.Calibration;
@@ -42,7 +43,7 @@ public sealed class XcpCalibrationWriterOptions
 }
 
 /// <summary>
-/// S5-T2 写回内核（spec D1/D4 + T0 裁决）：唯一合法 DOWNLOAD 写入口。
+/// S5-T2 写回内核（spec D1/D4 + T0 裁决；S6-T6 扩多段）：唯一合法 DOWNLOAD 写入口。
 /// <para>
 /// 写序列 = SET_MTA → DOWNLOAD×⌈n/4⌉（从机 MTA 按 nbytes 自增，T0 源码裁决）→
 /// 重臂 SET_MTA → UPLOAD×⌈n/7⌉ 回读 → 与 Encode 结果逐字节比对（D4 每写必回读）。
@@ -50,8 +51,15 @@ public sealed class XcpCalibrationWriterOptions
 /// 不可插其他命令（XcpMaster 单飞行 + 本层串行）。
 /// </para>
 /// <para>
-/// 拒绝面（零线上流量，§1 宁可不写不错写）：非标定对象 / DataType 缺失 /
-/// 物理值非有限 / Encode 拒绝（ConversionUnsupported）。
+/// S6-T6 多段扩展（spec D6）：对象逻辑区间经 <see cref="CalibrationRunPlanner"/>
+/// 按 MEMORY_SEGMENT ADDRESS_MAPPING 切 run，逐 run 写 + 分段回读比对；
+/// 单 run 失败中断后续 run（宁可不写不错写）。多元素对象以"同值广播全元素"写入
+/// （S5 评审 P1-1 预告的元素广播语义——Encode 只写首元素的静默清零问题就此解除）。
+/// </para>
+/// <para>
+/// 拒绝面（零线上流量）：非标定对象 / DataType 缺失 / 物理值非有限 /
+/// Encode 拒绝（ConversionUnsupported）/ 字节长度非元素整数倍 / run 规划失败
+///（映射空洞、重叠、addrExt≠0）。
 /// </para>
 /// </summary>
 public sealed class XcpCalibrationWriter
@@ -74,30 +82,124 @@ public sealed class XcpCalibrationWriter
     }
 
     /// <summary>
-    /// 写单标定对象：物理值经包侧 <c>ValueContract.Encode</c> 编码 → 写序列 → 回读校验。
-    /// 地址必须已过段映射（调用侧 <c>XcpAddressMap.TryTranslate</c> 唯一入口）。
+    /// 写单标定对象（S5 原分片路径，调用方已过段映射）：物理值经包侧
+    /// <c>ValueContract.Encode</code> 广播编码 → 单地址写序列 → 回读校验。
     /// </summary>
     public async Task<CalibrationWriteOutcome> WriteAsync(
         ValueContract contract, uint physicalAddress, double physicalValue,
         byte addressExtension = 0, CancellationToken ct = default)
     {
+        var image = PrepareImage(contract, physicalValue, out var elementCount);
+        if (image.Outcome is not null)
+            return image.Outcome;
+
+        // ---- 写序列（原子性，S5 评审 P1-2）：整体持有 master 的 MTA 序列门——
+        // 序列内不可被卡片写值/批量下发/轮询读等其他 MTA 命令插入。----
+        using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
+        var outcome = await WriteSliceGuardedAsync(contract.ObjectName, physicalAddress, addressExtension, image.Data!, ct)
+            .ConfigureAwait(false);
+        return Decorate(outcome, elementCount);
+    }
+
+    /// <summary>
+    /// 写单标定对象（S6-T6 多段入口）：从 A2L 文档规划写 run（单映射退化为
+    /// S5 原分片路径），逐 run 写 + 分段回读比对；规划失败零线上流量拒绝。
+    /// </summary>
+    public async Task<CalibrationWriteOutcome> WriteAsync(
+        ValueContract contract, A2lDocument document, double physicalValue,
+        byte addressExtension = 0, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var image = PrepareImage(contract, physicalValue, out var elementCount);
+        if (image.Outcome is not null)
+            return image.Outcome;
+
+        var runs = CalibrationRunPlanner.PlanWriteRuns(document, contract.Segments[0].Address, contract.TotalByteLength);
+        if (runs is null)
+            return CalibrationWriteOutcome.Rejected(
+                $"对象 '{contract.ObjectName}' 段映射规划失败（映射覆盖不到 / 重叠 / 地址扩展非 0），拒绝写");
+
+        using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
+        if (runs.Count == 1)
+        {
+            var outcome = await WriteSliceGuardedAsync(
+                    contract.ObjectName, runs[0].PhysicalAddress, addressExtension, image.Data!, ct)
+                .ConfigureAwait(false);
+            return Decorate(outcome, elementCount);
+        }
+
+        // 多 run：单段失败中断后续（D6 中断语义），Detail 指明失败 run。
+        for (var i = 0; i < runs.Count; i++)
+        {
+            var run = runs[i];
+            var slice = new byte[run.ByteLength];
+            Array.Copy(image.Data!, run.SourceOffset, slice, 0, run.ByteLength);
+            CalibrationWriteOutcome runOutcome;
+            try
+            {
+                runOutcome = await WriteSliceAsync(run.PhysicalAddress, addressExtension, slice, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (XcpErrorResponseException ex)
+            {
+                return CalibrationWriteOutcome.WriteFailed(
+                    $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段从机负响应：{ex.Response.Code}（后续段中断）");
+            }
+            catch (XcpTimeoutException ex)
+            {
+                return CalibrationWriteOutcome.WriteFailed(
+                    $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段命令超时：{ex.Message}（后续段中断）");
+            }
+            catch (InvalidOperationException ex)
+            {
+                return CalibrationWriteOutcome.WriteFailed(
+                    $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段写序列异常：{ex.Message}（后续段中断）");
+            }
+            catch (ArgumentException ex)
+            {
+                return CalibrationWriteOutcome.WriteFailed(
+                    $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段应答解码异常：{ex.Message}（后续段中断）");
+            }
+
+            if (runOutcome.Status is not CalibrationWriteStatus.Written)
+            {
+                return runOutcome.Status switch
+                {
+                    CalibrationWriteStatus.ReadBackMismatch =>
+                        CalibrationWriteOutcome.ReadBackMismatch(
+                            $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段回读不一致：{runOutcome.Detail}（后续段中断）"),
+                    _ => CalibrationWriteOutcome.WriteFailed(
+                        $"对象 '{contract.ObjectName}' 第 {i + 1}/{runs.Count} 段失败：{runOutcome.Detail}（后续段中断）"),
+                };
+            }
+        }
+
+        return Decorate(CalibrationWriteOutcome.Written(), elementCount,
+            $"（{runs.Count} 段逐段写 + 回读一致）");
+    }
+
+    // ---------------- 拒绝面 + 广播编码（零线上流量） ----------------
+
+    private (CalibrationWriteOutcome? Outcome, byte[]? Data, int ElementCount) PrepareImage(
+        ValueContract contract, double physicalValue)
+    {
         ArgumentNullException.ThrowIfNull(contract);
 
         // ---- 拒绝面（零线上流量）----
         if (contract.Category != A2lObjectCategory.Characteristic)
-            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 非标定对象（{contract.Category}），无写入口");
+            return (CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 非标定对象（{contract.Category}），无写入口"), null, 0);
         if (contract.DataType is null)
-            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 元素数据类型未知（RECORD_LAYOUT/FNC_VALUES 缺失）");
+            return (CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 元素数据类型未知（RECORD_LAYOUT/FNC_VALUES 缺失）"), null, 0);
         if (!double.IsFinite(physicalValue))
-            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 物理值非有限（{physicalValue}）");
+            return (CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 物理值非有限（{physicalValue}）"), null, 0);
         if (contract.TotalByteLength <= 0)
-            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 字节长度为 0");
-        // S5 评审 P1-1：Encode 只写首元素——多元素对象（CURVE/MAP/VAL_BLK）会静默清零
-        // 其余元素且被回读校验掩盖。v0.1 拒绝（宁可不写不错写），S6 再扩元素广播语义。
+            return (CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 字节长度为 0"), null, 0);
+
         var elementBytes = ByteLayout.SizeOf(contract.DataType.Value);
-        if (contract.TotalByteLength > elementBytes)
-            return CalibrationWriteOutcome.Rejected(
-                $"对象 '{contract.ObjectName}' 为多元素对象（总 {contract.TotalByteLength}B > 元素 {elementBytes}B），v0.1 不支持");
+        if (contract.TotalByteLength % elementBytes != 0)
+            return (CalibrationWriteOutcome.Rejected(
+                $"对象 '{contract.ObjectName}' 字节长度 {contract.TotalByteLength}B 不是元素 {elementBytes}B 的整数倍（布局异常，宁可不写）"), null, 0);
 
         var raw = new byte[contract.TotalByteLength];
         try
@@ -106,57 +208,93 @@ public sealed class XcpCalibrationWriter
         }
         catch (DecodeException ex)
         {
-            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 编码拒绝：{ex.Message}");
+            return (CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 编码拒绝：{ex.Message}"), null, 0);
         }
 
-        // ---- 写序列（原子性，S5 评审 P1-2）：整体持有 master 的 MTA 序列门——
-        // 序列内不可被卡片写值/批量下发/轮询读等其他 MTA 命令插入。----
-        using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
+        var elementCount = contract.TotalByteLength / elementBytes;
+        // S6-T6 元素广播：Encode 只填首元素，其余元素以同值重复（不再静默清零）。
+        for (var offset = elementBytes; offset < raw.Length; offset += elementBytes)
+            Array.Copy(raw, 0, raw, offset, elementBytes);
+        return (null, raw, elementCount);
+    }
+
+    private (CalibrationWriteOutcome? Outcome, byte[]? Data, int ElementCount) PrepareImage(
+        ValueContract contract, double physicalValue, out int elementCount)
+    {
+        var result = PrepareImage(contract, physicalValue);
+        elementCount = result.ElementCount;
+        return result;
+    }
+
+    /// <summary>广播/分段信息的 Detail 装饰（单元素不加字）。</summary>
+    private CalibrationWriteOutcome Decorate(CalibrationWriteOutcome outcome, int elementCount, string? suffix = null)
+    {
+        if (outcome.Status is not CalibrationWriteStatus.Written || elementCount <= 1)
+            return outcome;
+        return outcome with
+        {
+            Detail = outcome.Detail + $"；广播 {elementCount} 元素" + suffix,
+        };
+    }
+
+    /// <summary>
+    /// 单地址切片写序列（S5 原分片路径本体）：SET_MTA → DOWNLOAD 分片 →
+    /// 重臂 SET_MTA → UPLOAD 回读逐字节比对。调用方持有 MTA 序列门。
+    /// </summary>
+    private async Task<CalibrationWriteOutcome> WriteSliceAsync(
+        uint physicalAddress, byte addressExtension, byte[] data, CancellationToken ct)
+    {
+        await SendAndDecodeAsync(XcpCommandEncoder.SetMta(addressExtension, physicalAddress),
+            r => { XcpResponseDecoder.SetMta(r); return true; }, ct).ConfigureAwait(false);
+
+        for (var offset = 0; offset < data.Length; offset += MaxDownloadBytes)
+        {
+            var n = Math.Min(MaxDownloadBytes, data.Length - offset);
+            await SendDownloadWithBusyRetryAsync(data.AsSpan(offset, n).ToArray(), ct).ConfigureAwait(false);
+        }
+
+        // D4 每写必回读：重臂 SET_MTA（DOWNLOAD 已把 MTA 推到队尾）再 UPLOAD 比对。
+        await SendAndDecodeAsync(XcpCommandEncoder.SetMta(addressExtension, physicalAddress),
+            r => { XcpResponseDecoder.SetMta(r); return true; }, ct).ConfigureAwait(false);
+        var readBack = new byte[data.Length];
+        for (var offset = 0; offset < data.Length; offset += MaxUploadBytes)
+        {
+            var n = Math.Min(MaxUploadBytes, data.Length - offset);
+            var response = await SendAndDecodeAsync(XcpCommandEncoder.Upload((byte)n),
+                r => XcpResponseDecoder.Upload(r), ct).ConfigureAwait(false);
+            response.CopyTo(readBack, offset);
+        }
+
+        if (!readBack.AsSpan().SequenceEqual(data))
+            return CalibrationWriteOutcome.ReadBackMismatch(
+                $"回读不一致（写 {Convert.ToHexString(data)}，读 {Convert.ToHexString(readBack)}）");
+
+        return CalibrationWriteOutcome.Written();
+    }
+
+    /// <summary>单 run 写 + 异常→outcome 转换（S5 评审 P3-6 口径，序列门由调用方持有）。</summary>
+    private async Task<CalibrationWriteOutcome> WriteSliceGuardedAsync(
+        string objectName, uint physicalAddress, byte addressExtension, byte[] data, CancellationToken ct)
+    {
         try
         {
-            await SendAndDecodeAsync(XcpCommandEncoder.SetMta(addressExtension, physicalAddress),
-                r => { XcpResponseDecoder.SetMta(r); return true; }, ct).ConfigureAwait(false);
-
-            for (var offset = 0; offset < raw.Length; offset += MaxDownloadBytes)
-            {
-                var n = Math.Min(MaxDownloadBytes, raw.Length - offset);
-                await SendDownloadWithBusyRetryAsync(raw.AsSpan(offset, n).ToArray(), ct).ConfigureAwait(false);
-            }
-
-            // D4 每写必回读：重臂 SET_MTA（DOWNLOAD 已把 MTA 推到队尾）再 UPLOAD 比对。
-            await SendAndDecodeAsync(XcpCommandEncoder.SetMta(addressExtension, physicalAddress),
-                r => { XcpResponseDecoder.SetMta(r); return true; }, ct).ConfigureAwait(false);
-            var readBack = new byte[raw.Length];
-            for (var offset = 0; offset < raw.Length; offset += MaxUploadBytes)
-            {
-                var n = Math.Min(MaxUploadBytes, raw.Length - offset);
-                var response = await SendAndDecodeAsync(XcpCommandEncoder.Upload((byte)n),
-                    r => XcpResponseDecoder.Upload(r), ct).ConfigureAwait(false);
-                response.CopyTo(readBack, offset);
-            }
-
-            if (!readBack.AsSpan().SequenceEqual(raw))
-                return CalibrationWriteOutcome.ReadBackMismatch(
-                    $"对象 '{contract.ObjectName}' 回读不一致（写 {Convert.ToHexString(raw)}，读 {Convert.ToHexString(readBack)}）");
-
-            return CalibrationWriteOutcome.Written();
+            return await WriteSliceAsync(physicalAddress, addressExtension, data, ct).ConfigureAwait(false);
         }
         catch (XcpErrorResponseException ex)
         {
-            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 从机负响应：{ex.Response.Code}");
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{objectName}' 从机负响应：{ex.Response.Code}");
         }
         catch (XcpTimeoutException ex)
         {
-            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 命令超时：{ex.Message}");
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{objectName}' 命令超时：{ex.Message}");
         }
         catch (InvalidOperationException ex)
         {
-            // 应答形态违规 / master 并发拒绝——转可见失败，不外逃崩溃（S5 评审 P3-6）。
-            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 写序列异常：{ex.Message}");
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{objectName}' 写序列异常：{ex.Message}");
         }
         catch (ArgumentException ex)
         {
-            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 应答解码异常：{ex.Message}");
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{objectName}' 应答解码异常：{ex.Message}");
         }
     }
 

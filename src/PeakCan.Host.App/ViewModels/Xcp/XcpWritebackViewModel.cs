@@ -79,19 +79,17 @@ public partial class XcpWritebackViewModel : ObservableObject
         if (!IsDownloadSupported())
             return CalibrationWriteOutcome.Rejected("能力对账拒绝：从机未实测 DOWNLOAD 支持（零线上流量）");
 
-        if (card.Contract.Segments.Count != 1)
-            return CalibrationWriteOutcome.Rejected($"对象 '{card.Name}' 多段对象 v0.1 不支持");
         if (card.Contract.DataType is null)
             return CalibrationWriteOutcome.Rejected($"对象 '{card.Name}' 元素数据类型未知");
 
         var loaded = LoadedDocument;
         if (loaded is null)
             return CalibrationWriteOutcome.WriteFailed("A2L 未加载，无法做段映射");
-        if (!XcpAddressMap.TryTranslate(loaded, card.Contract.Segments[0].Address, out var physical))
-            return CalibrationWriteOutcome.Rejected($"对象 '{card.Name}' 段映射覆盖不到该地址（拒绝写）");
 
+        // S6-T6：多段/多元素门禁解除——写入口经 CalibrationRunPlanner 切 run +
+        // 元素广播（拒绝面在 writer 内，零线上流量）。
         await using var writer = new XcpCalibrationWriter(master);
-        var outcome = await writer.WriteAsync(card.Contract, (uint)physical, physicalValue).ConfigureAwait(true);
+        var outcome = await writer.WriteAsync(card.Contract, loaded, physicalValue).ConfigureAwait(true);
         return outcome;
     }
 
