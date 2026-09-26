@@ -2,9 +2,9 @@
 
 ## T0 选型落地预检（裁决任务，先行）
 
-- [ ] ScottPlot 5（ScottPlot.WPF NuGet）版本核实 + spike：最小 WPF 控件渲染 + heatmap 可用性确认；版本与 license 记录进 spec T0 补记
-- [ ] MF4 writer 块清单盘点：从 `Mdf4StreamWriter` 提取 reader 必须覆盖的块集合（ID/HD/DG/CG/SI/DT/SD/事件/invalidation/attachment 的实际写面），verdict 落 spec
-- [ ] MAP 读路径核实：`XcpMaster` UPLOAD 多元素读现状（`EnterMemorySequenceAsync` 序列门是否覆盖"SET_MTA + UPLOAD×⌈n/4⌉"整段），不够则 T4 补
+- [x] ScottPlot 5（ScottPlot.WPF NuGet）版本核实 + spike：最小 WPF 控件渲染 + heatmap 可用性确认；版本与 license 记录进 spec T0 补记
+- [x] MF4 writer 块清单盘点：从 `Mdf4StreamWriter` 提取 reader 必须覆盖的块集合（ID/HD/DG/CG/SI/DT/SD/事件/invalidation/attachment 的实际写面），verdict 落 spec
+- [x] MAP 读路径核实：`XcpMaster` UPLOAD 多元素读现状（`EnterMemorySequenceAsync` 序列门是否覆盖"SET_MTA + UPLOAD×⌈n/4⌉"整段），不够则 T4 补
 
 ## T1 MF4 读取器（D1，TDD，Core）
 

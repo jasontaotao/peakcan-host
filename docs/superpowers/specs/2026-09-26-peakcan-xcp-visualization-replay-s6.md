@@ -93,3 +93,9 @@ S6 是 S1–S6 主线的最后一段（"A2L 变体 = 基线 + delta"为 S6 之�
 | --- | --- |
 | v0.1 | 初稿，D1–D7 开放 |
 | v0.2 | D1–D7 全按推荐定案（自研 MF4 读取器 / ScottPlot 5 / 指纹门禁回放 / 在线 UPLOAD MAP / 表格 diff / 多段写进 S6 / XcpView 主区 TabControl） |
+
+## T0 补记（2026-09-26，选型落地预检 verdict）
+
+1. **ScottPlot 裁定：可行，选 5.1.59**。spike 证据（`artifacts/spike_scottplot/`，本地不提交）：net8.0-windows 下 `Plot.Add.Heatmap` 无头渲染 PNG 成功 + `ScottPlot.WPF.WpfPlot` STA 构造/Refresh 成功。**关键发现**：传递依赖 `SkiaSharp.Views.WPF 3.119.0` 仅含 .NET Framework 资产，还原触发 NU1701 回退警告；仓库根 `Directory.Build.props` 全局 `TreatWarningsAsErrors=true` 会使其变 error。处置：消费 csproj（App）加 `<WarningsNotAsErrors>$(WarningsNotAsErrors);NU1701</WarningsNotAsErrors>`（警告可见、不致命，T3 落地）。
+2. **MF4 块清单裁定**（`Mdf4StreamWriter.cs` 通读）：写面 = `##HD`（104B/6链）+ `##DG`（64B/4链，每对象一 DG）+ `##CG`（104B/6链）+ `##CN`（160B/8链）+ `##DL`（1024 槽）+ `##DT`（16MB 目标，24B 头）+ `##SD`（4 条事件通道 VLSD：kind/cause/detail/receive_kind）+ `##AT`（附件链）+ `##TX`（md 元数据/通道名）。**无 CC 块**（纯原始值，S1 A1 口径）、**无 EV 块**（事件走 SD 通道）。Reader 范围 = 上述集合 + 未知块显式报错。
+3. **MAP 读路径裁定**：`XcpMaster` 公开面只有 `SendAsync` + `EnterMemorySequenceAsync`，无多元素 UPLOAD 便携手；S5 reconciliation 已有"SET_MTA+UPLOAD×⌈n/4⌉ 持门"成熟模式。T4 按同模式建 Core 只读 helper（不新开并发面）。
