@@ -21,6 +21,7 @@ namespace PeakCan.Host.App.Tests.ViewModels.Xcp;
 public sealed class XcpWritebackViewModelTests
 {
     private static readonly CanId MasterId = new(0x18FFF667, FrameFormat.Extended);
+    private static readonly string[] DefaultMeasured = ["DOWNLOAD", "UPLOAD", "SET_MTA"];
 
     private static readonly Lazy<(A2lDocument Doc, ContractSet Contracts, List<(string Name, uint Addr, ValueContract C)> Cals)> Fixture =
         new(() =>
@@ -67,7 +68,8 @@ public sealed class XcpWritebackViewModelTests
 
     private static (XcpCardPanelViewModel Cards, MemorySlaveTransport Slave, XcpTransportSpy Spy, XcpMaster Master,
         XcpWritebackViewModel Vm, List<(string Name, uint Addr, ValueContract C)> Cals) Make(
-        Func<XcpMaster?>? masterProvider = null)
+        Func<XcpMaster?>? masterProvider = null,
+        System.Collections.Generic.IReadOnlyList<string>? measured = null)
     {
         var (doc, contracts, cals) = Fixture.Value;
         var cards = new XcpCardPanelViewModel();
@@ -82,7 +84,8 @@ public sealed class XcpWritebackViewModelTests
             cards,
             masterProvider ?? (() => master),
             snapshotFactory: () => new ContractSnapshot(1, Sha, new A2lFingerprint(0, 0, 0, 0, 0), "test", []),
-            documentProvider: () => doc);
+            documentProvider: () => doc,
+            measuredCommandsProvider: () => measured ?? DefaultMeasured);
         cards.AttachWriteback(vm.WriteSingleAsync);
         return (cards, slave, spy, master, vm, cals);
     }
@@ -164,11 +167,84 @@ public sealed class XcpWritebackViewModelTests
         System.IO.File.WriteAllBytes(path, set.ToJsonBytes());
         vm.ParameterSetPath = path;
 
+        // 两阶段确认（S5 评审 P2-2）：首击只对账（零写流量），再击确认才写入。
+        await vm.ApplyParameterSetCommand.ExecuteAsync(null);
+        slave.DownloadCount.Should().Be(0, "首击只对账不写入");
+        vm.StatusText.Should().Contain("差异");
+
         await vm.ApplyParameterSetCommand.ExecuteAsync(null);
 
         vm.StatusText.Should().Contain("写 2");
         slave.Memory[(int)(cals[0].Addr & 0xFFFF)].Should().NotBe(0);
         slave.Memory[(int)(cals[1].Addr & 0xFFFF)].Should().NotBe(0);
+    }
+
+    [Fact]
+    public async Task Apply_without_confirm_only_reconciles_with_zero_write_traffic()
+    {
+        // S5 评审 P2-2 回归钉：首击 = 对账预览（零写流量）。
+        var (_, slave, _, _, vm, cals) = Make();
+        vm.ParameterSetPath = NewParamFile(cals);
+        vm.PendingReport.Should().BeNull();
+
+        await vm.ApplyParameterSetCommand.ExecuteAsync(null);
+
+        vm.PendingReport.Should().NotBeNull();
+        slave.DownloadCount.Should().Be(0);
+        vm.StatusText.Should().Contain("2 项差异");
+    }
+
+    [Fact]
+    public async Task Capability_gate_rejects_without_traffic()
+    {
+        // S5 评审 P2-1 回归钉：实测命令面无 DOWNLOAD → 拒绝且零线上流量。
+        var (cards, slave, spy, _, vm, cals) = Make(measured: []);
+        var (name, _, _) = cals[0];
+        var card = vm_cards(cards, name)!;
+
+        var outcome = await vm.WriteSingleAsync(card, 1);
+
+        outcome.Status.Should().Be(CalibrationWriteStatus.Rejected);
+        outcome.Detail.Should().Contain("能力对账");
+        spy.WriteCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Write_single_rejected_during_batch_apply()
+    {
+        // S5 评审 P1-2 回归钉：批量进行中卡片写值被拒（序列原子性保护）。
+        var (cards, slave, _, _, vm, cals) = Make();
+        vm.ParameterSetPath = NewParamFile(cals);
+        await vm.ApplyParameterSetCommand.ExecuteAsync(null); // 首击 → pending
+        vm.IsBusy.Should().BeFalse("首击对账完成后 IsBusy 复位");
+        // 模拟批量进行中：直接验证 WriteSingleAsync 在 IsBusy 下的行为
+        typeof(XcpWritebackViewModel)
+            .GetProperty("IsBusy")!.SetValue(vm, true);
+        try
+        {
+            var card = vm_cards(cards, cals[0].Name)!;
+            var outcome = await vm.WriteSingleAsync(card, 1);
+            outcome.Status.Should().Be(CalibrationWriteStatus.WriteFailed);
+            outcome.Detail.Should().Contain("批量下发进行中");
+        }
+        finally
+        {
+            typeof(XcpWritebackViewModel).GetProperty("IsBusy")!.SetValue(vm, false);
+        }
+        await vm.ApplyParameterSetCommand.ExecuteAsync(null); // 清 pending
+    }
+
+    private static string NewParamFile(List<(string Name, uint Addr, ValueContract C)> cals)
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"s5app_{Guid.NewGuid():N}.json");
+        var set = CalibrationParameterSet.Export(
+            new List<CalibrationEntry>
+            {
+                new(cals[0].Name, 11, null, null),
+                new(cals[1].Name, 22, null, null),
+            }, Sha, "test");
+        System.IO.File.WriteAllBytes(path, set.ToJsonBytes());
+        return path;
     }
 
     [Fact]

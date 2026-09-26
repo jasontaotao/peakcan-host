@@ -27,7 +27,12 @@ public partial class XcpWritebackViewModel : ObservableObject
     private readonly Func<ContractSnapshot?>? _snapshotFactory;
     private readonly Func<A2lDocument?> _documentProvider;
     private readonly Func<XcpMaster?> _masterProvider;
+    private readonly Func<System.Collections.Generic.IReadOnlyList<string>?>? _measuredCommandsProvider;
     private readonly string _directory;
+
+    /// <summary>两阶段确认（S5 评审 P2-2）：首击 Reconcile 出差异清单，再击确认执行写入。</summary>
+    [ObservableProperty]
+    private CalibrationReconcileReport? _pendingReport;
 
     /// <summary>可空注入构造（App VM 测试构造先例）。</summary>
     /// <param name="masterProvider">协议主站提供者（采集运行时返回 ActiveMaster）。</param>
@@ -37,12 +42,14 @@ public partial class XcpWritebackViewModel : ObservableObject
         Func<XcpMaster?>? masterProvider = null,
         Func<ContractSnapshot?>? snapshotFactory = null,
         Func<A2lDocument?>? documentProvider = null,
+        Func<System.Collections.Generic.IReadOnlyList<string>?>? measuredCommandsProvider = null,
         string? directory = null)
     {
         _cards = cards;
         _masterProvider = masterProvider ?? (() => null);
         _snapshotFactory = snapshotFactory;
         _documentProvider = documentProvider ?? (() => null);
+        _measuredCommandsProvider = measuredCommandsProvider;
         _directory = string.IsNullOrWhiteSpace(directory)
             ? Path.Combine(AppContext.BaseDirectory, "recordings")
             : directory!;
@@ -67,6 +74,10 @@ public partial class XcpWritebackViewModel : ObservableObject
         var master = _masterProvider();
         if (master is null)
             return CalibrationWriteOutcome.WriteFailed("采集未运行（无协议连接），拒绝写值");
+        if (IsBusy)
+            return CalibrationWriteOutcome.WriteFailed("批量下发进行中，写值被拒绝（序列原子性保护）");
+        if (!IsDownloadSupported())
+            return CalibrationWriteOutcome.Rejected("能力对账拒绝：从机未实测 DOWNLOAD 支持（零线上流量）");
 
         if (card.Contract.Segments.Count != 1)
             return CalibrationWriteOutcome.Rejected($"对象 '{card.Name}' 多段对象 v0.1 不支持");
@@ -173,17 +184,47 @@ public partial class XcpWritebackViewModel : ObservableObject
             return;
         }
 
+        if (!IsDownloadSupported())
+        {
+            StatusText = "下发拒绝：能力对账未实测 DOWNLOAD 支持（零线上流量）。";
+            return;
+        }
+
         IsBusy = true;
         try
         {
             await using var writer = new XcpCalibrationWriter(master);
             var reconciler = new CalibrationReconciler(writer, master);
+
+            // S5 评审 P2-2（D3 两阶段）：首击只对账出差异清单，再击确认才写入。
+            if (PendingReport is null)
+            {
+                var preview = await reconciler.ReconcileAsync(set, new ContractSet(loaded), ct: default)
+                    .ConfigureAwait(true);
+                var diffs = preview.Entries.Count(e => e.Status == CalibrationEntryStatus.DiffFound);
+                if (diffs == 0)
+                {
+                    StatusText = "对账完成：无差异项，无需下发。";
+                    return;
+                }
+                PendingReport = preview;
+                StatusText = $"对账发现 {diffs} 项差异。再次点击[下发参数集]确认写入（其余项将跳过）。";
+                return;
+            }
+
             var report = await reconciler.ApplyAsync(set, new ContractSet(loaded), onlyChanged: true)
                 .ConfigureAwait(true);
+            PendingReport = null;
 
             StatusText = $"下发完成：写 {report.WrittenCount}，跳过 {report.NoDifferenceCount + report.SkippedCount}，"
                 + $"失败 {report.WriteFailedCount + report.ReadBackMismatchCount}（共 {report.Entries.Count} 项）"
                 + (report.WriteFailedCount + report.ReadBackMismatchCount > 0 ? "——详见各项归因。" : "。");
+        }
+        catch (Exception ex)
+        {
+            // 批量编排异常（含 master 并发拒绝）转可见失败，不外逃（S5 评审 P1-2）。
+            StatusText = $"下发失败：{ex.Message}";
+            PendingReport = null;
         }
         finally
         {
@@ -201,6 +242,11 @@ public partial class XcpWritebackViewModel : ObservableObject
     }
 
     private A2lDocument? LoadedDocument => _documentProvider();
+
+    /// <summary>能力对账门禁（S5 评审 P2-1）：实测命令面无 DOWNLOAD → 写路径零流量拒绝。</summary>
+    private bool IsDownloadSupported() =>
+        _measuredCommandsProvider?.Invoke() is not { } commands
+        || commands.Any(c => c.Equals("DOWNLOAD", StringComparison.OrdinalIgnoreCase));
 
     private string? SnapshotSha() => _snapshotFactory?.Invoke()?.A2lSha256;
 }

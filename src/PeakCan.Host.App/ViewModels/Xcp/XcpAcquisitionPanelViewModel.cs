@@ -85,6 +85,9 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     /// <summary>最近一次对账报告（拒绝时明细进状态区，形状原样暴露供上层消费）。</summary>
     public XcpCapabilityReport? CapabilityReport { get; private set; }
 
+    /// <summary>S5 评审 P2-1：OPTIONAL_CMD 实测支持命令名（能力对账写回门禁数据源；未采集 null）。</summary>
+    public System.Collections.Generic.IReadOnlyList<string>? MeasuredOptionalCommands { get; private set; }
+
     /// <summary>S5-T4：当前采集会话的协议主站（写回共用同一连接；未采集 null）。</summary>
     public PeakCan.Host.Core.Xcp.Protocol.XcpMaster? ActiveMaster => _session?.Master;
 
@@ -191,6 +194,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             var report = XcpCapabilityReconciler.Reconcile(
                 loaded.IfData, loaded.ValidationNotes, measured);
             CapabilityReport = report;
+            MeasuredOptionalCommands = measured.OptionalCommands;
             if (report.RejectedStart)
             {
                 // L5（T7 评审）：拒绝路径必须清空旧覆盖清单——残留行会谎报本次采集覆盖面。
@@ -239,6 +243,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             StatusLines.Clear();
             StatusLines.Add($"无法启动采集：{ex.GetType().Name}: {ex.Message}");
             CapabilityReport = null;
+            MeasuredOptionalCommands = null;
             await DisposeSessionAsync(session, transport);
             return false;
         }

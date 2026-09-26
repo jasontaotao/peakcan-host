@@ -54,7 +54,7 @@ public sealed class XcpCalibrationWriterOptions
 /// 物理值非有限 / Encode 拒绝（ConversionUnsupported）。
 /// </para>
 /// </summary>
-public sealed class XcpCalibrationWriter : IAsyncDisposable
+public sealed class XcpCalibrationWriter
 {
     /// <summary>单帧 DOWNLOAD 数据上限（CTO 8B − 4B header；与从机 maxCto 校验一致）。</summary>
     private const int MaxDownloadBytes = XcpCtoFrame.MaxByteLength - 4;
@@ -65,7 +65,6 @@ public sealed class XcpCalibrationWriter : IAsyncDisposable
     private readonly XcpMaster _master;
     private readonly XcpCalibrationWriterOptions _options;
     private readonly TimeProvider _timeProvider;
-    private readonly SemaphoreSlim _singleFlight = new(1, 1);
 
     public XcpCalibrationWriter(XcpMaster master, XcpCalibrationWriterOptions? options = null)
     {
@@ -93,6 +92,12 @@ public sealed class XcpCalibrationWriter : IAsyncDisposable
             return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 物理值非有限（{physicalValue}）");
         if (contract.TotalByteLength <= 0)
             return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 字节长度为 0");
+        // S5 评审 P1-1：Encode 只写首元素——多元素对象（CURVE/MAP/VAL_BLK）会静默清零
+        // 其余元素且被回读校验掩盖。v0.1 拒绝（宁可不写不错写），S6 再扩元素广播语义。
+        var elementBytes = ByteLayout.SizeOf(contract.DataType.Value);
+        if (contract.TotalByteLength > elementBytes)
+            return CalibrationWriteOutcome.Rejected(
+                $"对象 '{contract.ObjectName}' 为多元素对象（总 {contract.TotalByteLength}B > 元素 {elementBytes}B），v0.1 不支持");
 
         var raw = new byte[contract.TotalByteLength];
         try
@@ -104,8 +109,9 @@ public sealed class XcpCalibrationWriter : IAsyncDisposable
             return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 编码拒绝：{ex.Message}");
         }
 
-        // ---- 写序列（single-flight）----
-        await _singleFlight.WaitAsync(ct).ConfigureAwait(false);
+        // ---- 写序列（原子性，S5 评审 P1-2）：整体持有 master 的 MTA 序列门——
+        // 序列内不可被卡片写值/批量下发/轮询读等其他 MTA 命令插入。----
+        using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
         try
         {
             await SendAndDecodeAsync(XcpCommandEncoder.SetMta(addressExtension, physicalAddress),
@@ -143,9 +149,14 @@ public sealed class XcpCalibrationWriter : IAsyncDisposable
         {
             return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 命令超时：{ex.Message}");
         }
-        finally
+        catch (InvalidOperationException ex)
         {
-            _singleFlight.Release();
+            // 应答形态违规 / master 并发拒绝——转可见失败，不外逃崩溃（S5 评审 P3-6）。
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 写序列异常：{ex.Message}");
+        }
+        catch (ArgumentException ex)
+        {
+            return CalibrationWriteOutcome.WriteFailed($"对象 '{contract.ObjectName}' 应答解码异常：{ex.Message}");
         }
     }
 
@@ -175,9 +186,5 @@ public sealed class XcpCalibrationWriter : IAsyncDisposable
         return decode(response);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        _singleFlight.Dispose();
-        await ValueTask.CompletedTask.ConfigureAwait(false);
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

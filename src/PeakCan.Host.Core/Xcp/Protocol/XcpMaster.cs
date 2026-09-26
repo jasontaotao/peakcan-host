@@ -33,6 +33,7 @@ public sealed class XcpMaster : IDisposable
     private readonly XcpMasterOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _requestLock = new(1, 1);
+    private readonly SemaphoreSlim _memorySequenceGate = new(1, 1);
 
     // 与 UdsClient 同型的响应关联句柄：所有访问经 Volatile.Read/Write，
     // 保证 FrameReceived 回调线程（transport 分发循环）观察到最新值。
@@ -157,10 +158,28 @@ public sealed class XcpMaster : IDisposable
         // 其余 PID（DAQ DTO 0x00–0xFB、EV 0xFD、SERV 0xFC）：消费并忽略。
     }
 
+    /// <summary>
+    /// MTA 共享态序列互斥（S5-T8 评审 P1-2）：SET_MTA 之后的多命令序列
+    /// （写回序列、轮询高地址 SET_MTA+UPLOAD 读）必须整体持有本门，
+    /// 防止序列间交错命令劫持从机 MTA 导致数据写错地址。
+    /// 非内存序列命令（DAQ 配置等）不持门、不受影响。
+    /// </summary>
+    public async ValueTask<IDisposable> EnterMemorySequenceAsync(CancellationToken ct = default)
+    {
+        await _memorySequenceGate.WaitAsync(ct).ConfigureAwait(false);
+        return new MemorySequenceReleaser(_memorySequenceGate);
+    }
+
+    private sealed class MemorySequenceReleaser(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
+
     public void Dispose()
     {
         _transport.FrameReceived -= OnFrameReceived;
         _requestLock.Dispose();
+        _memorySequenceGate.Dispose();
     }
 }
 

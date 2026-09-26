@@ -1,5 +1,7 @@
 using A2lEditor.Core;
 using A2lEditor.Core.Layout;
+using A2lEditor.Core.Model;
+using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Xcp.Abstractions;
@@ -71,11 +73,38 @@ public sealed class XcpCalibrationWriterTests
         Assert.Equal(4, spy.WriteCount);
     }
 
+    /// <summary>内存合成 FLOAT64 单元素 VALUE 对象（TotalByteLength 8 = 元素 8B，单元素合法）。</summary>
+    private static ValueContract Float64Contract()
+    {
+        var rl = new A2lRecordLayout("RL_F64",
+            new[] { new RecordLayoutEntry("FNC_VALUES", 0, "FLOAT64_IEEE", "COLUMN_SCAL", "DIRECT", null, null) },
+            new LineRange(1, 1));
+        var ch = new A2lCharacteristic("Ch64", "d", "VALUE", "RL_F64", 0x2000_1500,
+            "0", "100", null, "CM_ID", new LineRange(1, 1));
+        var module = new A2lModule("M", "m",
+            Array.Empty<A2lMeasurement>(), new[] { ch }, Array.Empty<A2lAxisPts>(),
+            new[]
+            {
+                new A2lCompuMethod("CM_ID", "id", "IDENTICAL", "%.2f", "unit",
+                    new IdenticalConversion(), new LineRange(10, 10)),
+            },
+            new[] { rl }, Array.Empty<A2lGroup>(), null,
+            Array.Empty<A2lAxisDescr>(), Array.Empty<A2lUserRights>(),
+            Array.Empty<A2lVersionInfo>(), Array.Empty<A2lAxisPtsX>(),
+            new LineRange(1, 1));
+        var doc = new A2lDocument(A2lVersion.V1_6x, "P", "", "",
+            new A2lModCommon("", A2lByteOrder.MSB_LAST, null, null, null, new LineRange(1, 1)),
+            new[] { module }, "", 1);
+        var contracts = new ContractSet(doc);
+        contracts.TryGet("Ch64", out var contract).Should().BeTrue();
+        return contract!;
+    }
+
     [Fact]
     public async Task Write_8byte_value_slices_into_two_downloads_with_mta_autoincrement()
     {
         var (writer, slave, _) = MakeWriter();
-        var contract = CalContract(8);
+        var contract = Float64Contract();
         Assert.Equal(8, contract.TotalByteLength);
 
         var outcome = await writer.WriteAsync(contract, Addr, 3.14);
@@ -85,6 +114,21 @@ public sealed class XcpCalibrationWriterTests
         var expected = new byte[8];
         contract.Encode(3.14, expected);
         Assert.Equal(expected, slave.Memory.AsSpan((int)(Addr & 0xFFFF), 8).ToArray());
+    }
+
+    [Fact]
+    public async Task Multi_element_object_is_rejected_with_zero_traffic()
+    {
+        // S5 评审 P1-1 回归钉：多元素对象（VAL_BLK 2×F32）Encode 只写首元素，
+        // 其余元素会被静默清零——v0.1 拒绝且零线上流量。
+        var (writer, _, spy) = MakeWriter();
+        var contract = CalContract(8);
+        Assert.True(contract.TotalByteLength > ByteLayout.SizeOf(contract.DataType!.Value));
+
+        var outcome = await writer.WriteAsync(contract, Addr, 3.14);
+
+        Assert.Equal(CalibrationWriteStatus.Rejected, outcome.Status);
+        Assert.Equal(0, spy.WriteCount);
     }
 
     [Fact]

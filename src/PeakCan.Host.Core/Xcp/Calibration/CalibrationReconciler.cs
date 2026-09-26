@@ -33,6 +33,9 @@ public enum CalibrationEntryStatus
 
     /// <summary>多段对象 v0.1 不支持（连续写需跨段编排，S6 扩展）。</summary>
     MultiSegmentUnsupported,
+
+    /// <summary>多元素对象 v0.1 不支持（Encode 只写首元素，S5 评审 P1-1；S6 扩元素广播）。</summary>
+    MultiElementUnsupported,
 }
 
 /// <summary>结果单行。</summary>
@@ -127,6 +130,11 @@ public sealed class CalibrationReconciler : IAsyncDisposable
                 $"多段对象（{contract.Segments.Count} 段）v0.1 不支持", null);
         if (!double.IsFinite(item.Physical))
             return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected, $"物理值非有限（{item.Physical}）", null);
+        // S5 评审 P1-1：多元素对象（CURVE/MAP/VAL_BLK）Encode 只写首元素——拒绝静默清零。
+        var elementBytes = ByteLayout.SizeOf(contract.DataType.Value);
+        if (contract.TotalByteLength > elementBytes)
+            return new(item.Name, item.Physical, CalibrationEntryStatus.MultiElementUnsupported,
+                $"多元素对象（总 {contract.TotalByteLength}B > 元素 {elementBytes}B）v0.1 不支持", null);
 
         var targetRaw = new byte[contract.TotalByteLength];
         try
@@ -145,6 +153,7 @@ public sealed class CalibrationReconciler : IAsyncDisposable
         byte[] currentRaw;
         try
         {
+            using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
             currentRaw = await ReadRawAsync(contract, (uint)physical, ct).ConfigureAwait(false);
         }
         catch (XcpErrorResponseException ex)

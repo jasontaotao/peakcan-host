@@ -357,6 +357,9 @@ public sealed class PollingScheduler : IDisposable
         else
         {
             // 路径二：SET_MTA 一次 + UPLOAD 按 7B 分块（MTA 随 UPLOAD 后自增，XCP 标准）。
+            // S5 评审 P1-2：MTA 是共享态——多命令序列整体持有 master 内存序列门，
+            // 防止与写回序列交错劫持 MTA（写错地址）。
+            using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
             await _master.SendAsync(XcpCommandEncoder.SetMta(AddressExtension, (uint)address), ct)
                 .ConfigureAwait(false);
             var chunks = new List<byte>(entry.ByteLength);

@@ -413,7 +413,8 @@ public partial class AppHostBuilder
                 cards,
                 masterProvider: () => acquisition.ActiveMaster,
                 snapshotFactory: () => record.BuildSnapshotFromConnection(),
-                documentProvider: () => connection.LoadedResult?.Document);
+                documentProvider: () => connection.LoadedResult?.Document,
+                measuredCommandsProvider: () => acquisition.MeasuredOptionalCommands);
             cards.AttachWriteback(vm.WriteSingleAsync);
             return vm;
         });
