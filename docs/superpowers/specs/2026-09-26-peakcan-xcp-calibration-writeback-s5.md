@@ -129,7 +129,7 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 | 3 参数集 | ✅ | `CalibrationParameterSetTests`：同输入两次导出字节一致、格式钉死、指纹不符 EnsureMatches 抛出；导出测试断言解析回读 |
 | 4 批量下发 | ✅ | `CalibrationReconcilerTests`：只写差异项、单项失败批量继续、重跑幂等（零新写流量）、对象缺失零流量 |
 | ~~5 UDS 触发~~ | — | D6 已砍（处置记录见 D6 节） |
-| 6 门禁 | ✅ | 全仓无过滤 **4345 通过 / 0 失败**（≥ S4 基线 4318）；守卫：`Xcp_Calibration_is_the_write_face_with_pinned_dependency`（新增）+ Scheduling/Receive DOWNLOAD 成员级扫描（既有，未放松）+ App 禁 Encoder（既有） |
+| 6 门禁 | ✅ | 全仓无过滤 **4350 通过 / 0 失败**（≥ S4 基线 4318）；守卫：`Xcp_Calibration_is_the_write_face_with_pinned_dependency`（新增）+ Scheduling/Receive DOWNLOAD 成员级扫描（既有，未放松）+ App 禁 Encoder（既有） |
 
 ## 附录 C：已知限制与台架挂账
 
@@ -140,4 +140,7 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 5. **D1 台架挂账**：真机 Cal 写期间 DAQ 表行为、真机 MTA 自增与分片时序、CAN 号合规性（A-4）——模拟从机验证不代表真机验收。
 6. **写回与采集共享连接**：写回命令与采集命令经 XcpMaster 串行（单飞行），批量下发期间采集继续（D1）；批量进行中 IsBusy 禁重复触发。
 7. **参数集导出源 = 卡片数值面**：未收到数据的卡片不进导出（LastNumericValue null）；导出不写 raw 参考列。
-8. **独立评审 P3 backlog**：记录于评审对账记录（T6）。
+8. **独立评审对账（2026-09-26，Verdict: WARNING）**：P1×2 修复——
+   ① 多元素对象写回静默清零（Encode 只写首元素）且被回读校验掩盖 → writer/reconciler/卡片门禁三级拒绝（MultiElementUnsupported，零线上流量），8B 分片测试改用内存合成 FLOAT64 单元素对象（不再钉错误行为）；
+   ② 写序列原子性（MTA 共享态被交错劫持）→ `XcpMaster.EnterMemorySequenceAsync` 序列门：写回序列/对账读/轮询高地址 SET_MTA+UPLOAD 读整体持门，卡片写值在批量 IsBusy 期间拒绝，async void 与批量编排异常兜底转可见失败。P2×2 修复——能力对账门禁（实测命令面无 DOWNLOAD → 零流量拒绝）+ D3 两阶段确认（首击对账预览、再击确认写入）。各配回归钉测试（+11）。
+   P3×7 记录 backlog：守卫为锚点式非唯一性扫描、回读失败与写失败同态分类、导出时间戳致字节一致仅注入时钟成立、Rejected→WriteFailed 映射、既有 S4 计时 flaky（Post_queue_capacity_covers_post_window 对环境敏感）、写路径异常兜底（已随 P1-2 转可见）、UPLOAD 响应长度不校验（防御性）。
