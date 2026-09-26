@@ -99,3 +99,19 @@ S6 是 S1–S6 主线的最后一段（"A2L 变体 = 基线 + delta"为 S6 之�
 1. **ScottPlot 裁定：可行，选 5.1.59**。spike 证据（`artifacts/spike_scottplot/`，本地不提交）：net8.0-windows 下 `Plot.Add.Heatmap` 无头渲染 PNG 成功 + `ScottPlot.WPF.WpfPlot` STA 构造/Refresh 成功。**关键发现**：传递依赖 `SkiaSharp.Views.WPF 3.119.0` 仅含 .NET Framework 资产，还原触发 NU1701 回退警告；仓库根 `Directory.Build.props` 全局 `TreatWarningsAsErrors=true` 会使其变 error。处置：消费 csproj（App）加 `<WarningsNotAsErrors>$(WarningsNotAsErrors);NU1701</WarningsNotAsErrors>`（警告可见、不致命，T3 落地）。
 2. **MF4 块清单裁定**（`Mdf4StreamWriter.cs` 通读）：写面 = `##HD`（104B/6链）+ `##DG`（64B/4链，每对象一 DG）+ `##CG`（104B/6链）+ `##CN`（160B/8链）+ `##DL`（1024 槽）+ `##DT`（16MB 目标，24B 头）+ `##SD`（4 条事件通道 VLSD：kind/cause/detail/receive_kind）+ `##AT`（附件链）+ `##TX`（md 元数据/通道名）。**无 CC 块**（纯原始值，S1 A1 口径）、**无 EV 块**（事件走 SD 通道）。Reader 范围 = 上述集合 + 未知块显式报错。
 3. **MAP 读路径裁定**：`XcpMaster` 公开面只有 `SendAsync` + `EnterMemorySequenceAsync`，无多元素 UPLOAD 便携手；S5 reconciliation 已有"SET_MTA+UPLOAD×⌈n/4⌉ 持门"成熟模式。T4 按同模式建 Core 只读 helper（不新开并发面）。
+
+## T2 补记（2026-09-26，D3 口径修正）
+
+**原 D3 文字"物理值换算走包侧 `ValueContract.Decode`"与 S4 实现事实不符**：S4 sink 落盘的是
+receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值**（`XcpMdfRecordSink.cs:306`
+写 `sample.Value`），记录文件里没有原始值可解。快照附件承载的是元数据（unit/限值/类别/轴结构）
+与指纹，不是回放期换算依据。**修正后的 D3 执行口径**：
+
+1. 回放层不做数值 Decode——文件值即物理值，曲线直接画。
+2. 元数据装配：内嵌快照（`ContractSnapshotCodec.Decode` → `Asap2PackageApi.ImportSnapshot`）优先，
+   外部 `ContractSet` 兜底，都无则元数据缺失。
+3. 指纹门禁：快照 `A2lSha256` 与当前 A2L 比对，不符 → 元数据整面拒绝（unit/限值/MAP 轴结构不应用）
+   + 警示；曲线仍可用（数值本身无歧义）。"降级原始值曲线"原措辞废止。
+4. 空窗面：Invalid 行（NaN 值）+ 归因事件直通渲染层。
+
+实现：`Xcp/Replay/XcpReplayDecoder`（6 测试钉：Trusted/Mismatched/外部合同/无来源/空窗标注/单通道降级）。
