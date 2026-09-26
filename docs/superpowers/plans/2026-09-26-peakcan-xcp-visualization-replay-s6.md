@@ -39,9 +39,9 @@
 
 ## T6 多段写扩展（D6，TDD，Core+App）
 
-- [ ] 测试先红：真机形态 MAP 对象（跨 MEMORY_SEGMENT）→ `XcpCalibrationWriter` 按 `XcpAddressMap` 拆段写序列 + 分段回读比对
-- [ ] `CalibrationReconciler`/卡片门禁解除 MultiSegmentUnsupported（有回归钉：多元素但不跨段仍走原分片路径）
-- [ ] 单段失败中断语义 + 对账单可见（沿用 S5 批量口径）
+- [x] 测试先红：真机形态 MAP 对象（跨 MEMORY_SEGMENT）→ `XcpCalibrationWriter` 按 `XcpAddressMap` 拆段写序列 + 分段回读比对
+- [x] `CalibrationReconciler`/卡片门禁解除 MultiSegmentUnsupported（有回归钉：多元素但不跨段仍走原分片路径）
+- [x] 单段失败中断语义 + 对账单可见（沿用 S5 批量口径）
 
 ## T7 守卫 + e2e + 门禁 + 评审收尾
 

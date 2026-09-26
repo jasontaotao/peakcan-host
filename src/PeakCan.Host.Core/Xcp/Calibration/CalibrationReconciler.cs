@@ -31,10 +31,10 @@ public enum CalibrationEntryStatus
     /// <summary>地址未映射（段映射覆盖不到，宁可不写不错写）。</summary>
     AddressUnmapped,
 
-    /// <summary>多段对象 v0.1 不支持（连续写需跨段编排，S6 扩展）。</summary>
+    /// <summary>多段对象 v0.1 不支持（S6-T6 已解除，保留枚举兼容结果单消费者——新结果恒不产生）。</summary>
     MultiSegmentUnsupported,
 
-    /// <summary>多元素对象 v0.1 不支持（Encode 只写首元素，S5 评审 P1-1；S6 扩元素广播）。</summary>
+    /// <summary>多元素对象 v0.1 不支持（S6-T6 以元素广播解除，保留枚举兼容结果单消费者——新结果恒不产生）。</summary>
     MultiElementUnsupported,
 }
 
@@ -125,16 +125,14 @@ public sealed class CalibrationReconciler : IAsyncDisposable
             return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected, $"非标定对象（{contract.Category}）", null);
         if (contract.DataType is null)
             return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected, "元素数据类型未知（RECORD_LAYOUT/FNC_VALUES 缺失）", null);
-        if (contract.Segments.Count != 1)
-            return new(item.Name, item.Physical, CalibrationEntryStatus.MultiSegmentUnsupported,
-                $"多段对象（{contract.Segments.Count} 段）v0.1 不支持", null);
+        // S6-T6（spec D6）：多段/多元素门禁解除——写路径经 CalibrationRunPlanner
+        // 切 run + 元素广播，Encode 只写首元素的静默清零问题就此消除。
         if (!double.IsFinite(item.Physical))
             return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected, $"物理值非有限（{item.Physical}）", null);
-        // S5 评审 P1-1：多元素对象（CURVE/MAP/VAL_BLK）Encode 只写首元素——拒绝静默清零。
         var elementBytes = ByteLayout.SizeOf(contract.DataType.Value);
-        if (contract.TotalByteLength > elementBytes)
-            return new(item.Name, item.Physical, CalibrationEntryStatus.MultiElementUnsupported,
-                $"多元素对象（总 {contract.TotalByteLength}B > 元素 {elementBytes}B）v0.1 不支持", null);
+        if (contract.TotalByteLength % elementBytes != 0)
+            return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected,
+                $"字节长度 {contract.TotalByteLength}B 不是元素 {elementBytes}B 的整数倍（布局异常）", null);
 
         var targetRaw = new byte[contract.TotalByteLength];
         try
@@ -146,15 +144,18 @@ public sealed class CalibrationReconciler : IAsyncDisposable
             return new(item.Name, item.Physical, CalibrationEntryStatus.Rejected, $"编码拒绝：{ex.Message}", null);
         }
 
-        if (!XcpAddressMap.TryTranslate(contracts.Document, contract.Segments[0].Address, out var physical))
-            return new(item.Name, item.Physical, CalibrationEntryStatus.AddressUnmapped, "段映射覆盖不到该地址", null);
+        var runs = CalibrationRunPlanner.PlanWriteRuns(
+            contracts.Document, contract.Segments[0].Address, contract.TotalByteLength);
+        if (runs is null)
+            return new(item.Name, item.Physical, CalibrationEntryStatus.AddressUnmapped,
+                "段映射规划失败（映射覆盖不到 / 重叠 / 地址扩展非 0）", null);
 
-        // ---- 读当前值（原始字节级比对，物理值比对有浮点舍入歧义）----
+        // ---- 读当前值（原始字节级比对，物理值比对有浮点舍入歧义；S6-T6 起逐 run 读再拼接）----
         byte[] currentRaw;
         try
         {
             using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
-            currentRaw = await ReadRawAsync(contract, (uint)physical, ct).ConfigureAwait(false);
+            currentRaw = await ReadRawAsync(runs, ct).ConfigureAwait(false);
         }
         catch (XcpErrorResponseException ex)
         {
@@ -176,7 +177,7 @@ public sealed class CalibrationReconciler : IAsyncDisposable
         if (onlyChanged)
         {
             // D3：只写差异项；写失败不中断（逐项独立）。
-            var outcome = await _writer.WriteAsync(contract, (uint)physical, item.Physical, 0, ct).ConfigureAwait(false);
+            var outcome = await _writer.WriteAsync(contract, contracts.Document, item.Physical, 0, ct).ConfigureAwait(false);
             return outcome.Status switch
             {
                 CalibrationWriteStatus.Written => new(item.Name, item.Physical, CalibrationEntryStatus.Written, outcome.Detail, currentPhysical),
@@ -186,7 +187,7 @@ public sealed class CalibrationReconciler : IAsyncDisposable
         }
 
         // onlyChanged=false：无差异也强制写（D3 可选项）——直接走 writer。
-        var forced = await _writer.WriteAsync(contract, (uint)physical, item.Physical, 0, ct).ConfigureAwait(false);
+        var forced = await _writer.WriteAsync(contract, contracts.Document, item.Physical, 0, ct).ConfigureAwait(false);
         return forced.Status switch
         {
             CalibrationWriteStatus.Written => new(item.Name, item.Physical, CalibrationEntryStatus.Written, forced.Detail, currentPhysical),
@@ -195,9 +196,21 @@ public sealed class CalibrationReconciler : IAsyncDisposable
         };
     }
 
-    private Task<byte[]> ReadRawAsync(ValueContract contract, uint address, CancellationToken ct)
+    private async Task<byte[]> ReadRawAsync(IReadOnlyList<CalibrationWriteRun> runs, CancellationToken ct)
+    {
         // S6-T4：分块 UPLOAD 上提协议原语 XcpUploadReader（序列门由调用方持有，行为不变）。
-        => XcpUploadReader.ReadAsync(_master, address, contract.TotalByteLength, ct);
+        // S6-T6：逐 run 读再拼接——跨 MEMORY_SEGMENT 对象的物理地址不连续，连续读会读错段。
+        var raw = new byte[runs.Sum(r => r.ByteLength)];
+        var offset = 0;
+        foreach (var run in runs)
+        {
+            var part = await XcpUploadReader.ReadAsync(_master, run.PhysicalAddress, run.ByteLength, ct)
+                .ConfigureAwait(false);
+            part.CopyTo(raw, offset);
+            offset += run.ByteLength;
+        }
+        return raw;
+    }
 
     private static double? SafeDecode(ValueContract contract, byte[] raw)
     {

@@ -87,6 +87,27 @@ S6 是 S1–S6 主线的最后一段（"A2L 变体 = 基线 + delta"为 S6 之�
 - ScottPlot 依赖引入（D2 已定案；T0 落地时补版本与 lock 记录）。
 - 在线 MAP 渲染的上传耗时与 DAQ 并发行为 = 台架核实项（S5 A-x 挂账延伸）。
 
+## T6 补记（2026-09-26，两个实施口径裁定）
+
+1. **MultiSegmentUnsupported 是死门**：包侧 `ValueContractFactory.SegmentList` 恒返回单段
+   （对象起始地址 + 总字节数；多段列表是给 Task 22 DAQ 打包预留的）。S5 reconciler 的
+   `Segments.Count != 1` 拒绝在实际合同上永不触发。跨 MEMORY_SEGMENT 的真正风险是：
+   对象逻辑区间被切进多个 ADDRESS_MAPPING 时**物理地址不连续**，而 S5 writer 按
+   "起始物理地址连续写 TotalByteLength"——会把第二段的数据错写到第一段映射后面。
+2. **实施 = run 切分（Core，零包侧变更）**：新增 `CalibrationRunPlanner.PlanWriteRuns`
+   （`Xcp/Calibration/`）——按 ADDRESS_MAPPING 覆盖把对象逻辑区间切成连续 run
+   （各带物理地址）；映射空洞 / 重叠 / addrExt≠0 / 长度≤0 → null（宁可不写）。
+   writer 新入口 `WriteAsync(contract, A2lDocument, value)`：单 run 退化为 S5 原分片路径
+   （帧序不变，回归钉钉住）；多 run 逐段"SET_MTA → DOWNLOAD → 重臂 → UPLOAD 比对"，
+   **单段失败中断后续段**，Detail 带段序号。reconciler 读当前值同步改逐 run 读再拼接。
+3. **多元素 = 广播语义**（S5 枚举注释"S6 扩元素广播"的兑现）：`Encode` 只填首元素，
+   writer 以同值广播填满 TotalByteLength（需 TotalByteLength 是元素字节整数倍，否则拒绝），
+   P1-1 的静默清零问题就此解除而非简单放行。MultiElementUnsupported / MultiSegmentUnsupported
+   枚举值保留（结果单消费者兼容），新结果恒不产生。卡片门禁（CanWrite）不感知该变化，
+   行为随 writer 自动解除；MAP 卡片行内写值=整对象广播，Detail 明示"广播 N 元素"。
+4. 台架挂账（并入附录 C）：真机跨段对象的映射形态（VAL_BLK/MAX_ODT 拆分是否产生
+   多段合同）与广播写对真机标定页的影响待验。
+
 ## 变更记录
 
 | 版本 | 内容 |

@@ -117,18 +117,25 @@ public sealed class XcpCalibrationWriterTests
     }
 
     [Fact]
-    public async Task Multi_element_object_is_rejected_with_zero_traffic()
+    public async Task Multi_element_single_run_object_broadcasts_via_original_chunk_path()
     {
-        // S5 评审 P1-1 回归钉：多元素对象（VAL_BLK 2×F32）Encode 只写首元素，
-        // 其余元素会被静默清零——v0.1 拒绝且零线上流量。
-        var (writer, _, spy) = MakeWriter();
+        // S6-T6 回归钉（spec D6）：多元素但不跨段对象仍走 S5 原分片路径
+        //（单地址 SET_MTA + 分片 DOWNLOAD），值以"元素广播"填满全对象——
+        // S5 评审 P1-1 的静默清零问题就此解除（Encode 只填首元素 → 广播补齐）。
+        var (writer, slave, spy) = MakeWriter();
         var contract = CalContract(8);
         Assert.True(contract.TotalByteLength > ByteLayout.SizeOf(contract.DataType!.Value));
 
         var outcome = await writer.WriteAsync(contract, Addr, 3.14);
 
-        Assert.Equal(CalibrationWriteStatus.Rejected, outcome.Status);
-        Assert.Equal(0, spy.WriteCount);
+        Assert.Equal(CalibrationWriteStatus.Written, outcome.Status);
+        Assert.Equal(2, slave.DownloadCount); // 8B = 4B + 4B（原分片路径，MTA 自增续写）
+        Assert.Equal(6, spy.WriteCount);      // MTA + 2×DL + MTA(重臂) + 2×UP（单 run，无跨段额外 MTA）
+        var element = new byte[ByteLayout.SizeOf(contract.DataType.Value)];
+        contract.Encode(3.14, element);
+        for (var offset = 0; offset < contract.TotalByteLength; offset += element.Length)
+            Assert.Equal(element, slave.Memory.AsSpan((int)(Addr & 0xFFFF) + offset, element.Length).ToArray());
+        Assert.Contains("广播", outcome.Detail);
     }
 
     [Fact]
