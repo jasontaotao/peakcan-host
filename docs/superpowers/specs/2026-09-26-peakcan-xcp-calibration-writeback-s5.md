@@ -88,3 +88,19 @@ src/PeakCan.Host.App/ViewModels/Xcp/
 4. 批量下发：差异对账 → 写 → 回读 → 结果对账单；重跑幂等（D3 中断语义）。
 5. ~~UDS 触发~~（D6 已砍，见 D6 处置记录）。
 6. 门禁：全仓测试 ≥ S4 基线（4318），0 失败 0 新警告；分层守卫不放松（D7）；新增代码覆盖照 Core/App 地板。
+
+## T0 补记：从机写语义裁决（2026-09-26，实读 `S32K148_EAS_EB_3399A/BSW/EAS_BSW/Xcp/` + `EAS_Cfg/Config/Xcp_Cal_Cfg.h`）
+
+| 事实 | 依据 | S5 落地裁定 |
+| --- | --- | --- |
+| `XCP_CAL_SUPPORTED=ON`、`XCP_MASTER_BLOCK_MODE_SUPPORT=**OFF**` | `Xcp_Cal_Cfg.h` | **写回不用块模式**（DOWNLOAD_NEXT 编译不进去）。A2L AML 枚举含 BLOCK 声明与从机 Cal 配置矛盾——A-10 台架挂账加一条：GET_COMM_MODE_INFO 实测位图为准 |
+| `XCP_CHECK_WRITEMTA_CBK_SUPPORT=OFF` | `Xcp_Cal_Cfg.h` | 从机**不拦写错地址**（无 `Xcp_AppCheckWriteAddr` 回调）——host 侧"宁可不写不错写"（§1）从建议升级为硬要求 |
+| `XCP_SPECIAL_ACCESS_RAM=OFF`、`XCP_AG=1` | `Xcp_Cfg.h` | 直接写内存（CALRAM）；地址粒度 1B |
+| DOWNLOAD（0xF0）：`NumOfElement==0` → OUT_OF_RANGE；`n + 4 > maxCto(8)` → OUT_OF_RANGE；**写后 MTA 按 nbytes 自增** | `Xcp_Cal.c Xcp_FuncDownload` | 分片序列 = `SET_MTA` + `DOWNLOAD`×⌈n/4⌉（每片 1–4B），MTA 自增已由从机源码证实；单帧上限与 host 编码器（CTO 8B − 4B header）一致 |
+| SHORT_DOWNLOAD（0xED）从机帧布局 = `[PID, n, addrExt, addr[0..3]]`（**4 字节地址**，非标 24 位） | `Xcp_Cal.c Xcp_FuncShortDownload`、`Xcp_Make32Bits(BYTE4..BYTE7)` | **v0.1 不用 SHORT_DOWNLOAD**（host 编码器是标准 24 位语义，帧布局对不上）——统一走 SET_MTA+DOWNLOAD |
+| DOWNLOAD_NEXT/DOWNLOAD_MAX（0xEF/0xEE） | `Xcp_Process.c` 命令表（块模式门控） | 不可用（块模式 OFF） |
+| Cal 写与 DAQ 无从机侧互锁（DOWNLOAD 直接写内存 + SchM 临界区） | `Xcp_Cal.c` | D1"写回期间采集继续"成立；master 侧 single-flight 串行即足够；真机行为仍挂台架核实 |
+| A2L `OPTIONAL_CMD` 是 AML 接口枚举（命令全集），非"已声明支持"清单 | `App_merge_INCA.a2l` | 写回能力对账以**运行期 GET_COMM_MODE_INFO optional 位图**（S2 探针已取）为准，不以 A2L 文本为准 |
+| PAG | 从机有 Pag 模块 | v0.1 不做 SET_CAL_PAGE（spec 非目标）；写回地址 = A2L 段映射物理地址（与 S2 采集 UPLOAD 同一翻译面，`XcpAddressMap.TryTranslate` 唯一入口） |
+
+对象级 ByteSize 分布（>4B 分片对象数量）留 T1 经包侧 `ValueContract.ByteSize` 统计落本节。

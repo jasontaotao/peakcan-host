@@ -2,9 +2,9 @@
 
 ## T0 从机语义预检（裁决任务，先行）
 
-- [ ] 核实从机 C 源（`S32K148_EAS_EB_3399A/BSW/EAS_BSW/Xcp/`）Cal 写路径：DOWNLOAD 处理、MTA 自增语义（DOWNLOAD 后地址是否按 nbytes 自增）、>4B 对象分片行为、BUSY 负响应条件、Cal 写期间 DAQ 表行为（D1 台架挂账 A-x 求证）
-- [ ] 核实 A2L 能力面：App_merge_INCA.a2l 声明的 OPTIONAL_CMD DOWNLOAD / 标定对象 ByteSize 分布（>4B 对象有多少）
-- [ ] verdict 落 spec（T0 补记节）
+- [x] 核实从机 C 源（`S32K148_EAS_EB_3399A/BSW/EAS_BSW/Xcp/`）Cal 写路径：DOWNLOAD 处理、MTA 自增语义（DOWNLOAD 后地址是否按 nbytes 自增）、>4B 对象分片行为、BUSY 负响应条件、Cal 写期间 DAQ 表行为（D1 台架挂账 A-x 求证）
+- [x] 核实 A2L 能力面：App_merge_INCA.a2l 声明的 OPTIONAL_CMD DOWNLOAD / 标定对象 ByteSize 分布（>4B 对象有多少）
+- [x] verdict 落 spec（T0 补记节）
 
 ## T1 参数集 codec（D2，TDD）
 
