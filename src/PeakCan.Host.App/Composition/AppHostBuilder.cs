@@ -472,7 +472,30 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpRecordPanelViewModel>(),
                 writeback: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpWritebackViewModel>(),
                 replay: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel>(),
-                map: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>()));
+                map: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpMapPanelViewModel>(),
+                diff: sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel>()));
+        // S6-T5：参数集 diff 面板（spec D5）。文件加载走 Core Parse（明文 JSON）；
+        // 指纹基准 = 当前 A2L RawText SHA-256（与回放页同口径）；限值来源 =
+        // 解析期 ContractSet（App 不现算量程）。App 层零协议命令（分层守卫红线）。
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel>(sp =>
+        {
+            var connection = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Xcp.XcpConnectionPanelViewModel>();
+            return new PeakCan.Host.App.ViewModels.Xcp.XcpDiffPanelViewModel(
+                loadSet: (path, ct) => Task.Run(
+                    () => PeakCan.Host.Core.Xcp.Calibration.CalibrationParameterSet.Parse(File.ReadAllText(path)), ct),
+                currentA2lSha256Provider: () =>
+                {
+                    var loaded = connection.LoadedResult;
+                    return loaded is null
+                        ? null
+                        : PeakCan.Host.App.ViewModels.Xcp.XcpReplayPanelViewModel.ComputeA2lSha256(
+                            loaded.Document.RawText);
+                },
+                limitsLookupProvider: () => connection.LoadedResult is null
+                    ? null
+                    : PeakCan.Host.Core.Xcp.Diff.CalibrationParameterSetDiff.FromContractSet(
+                        connection.LoadedResult.Contracts));
+        });
         // T7b 评审 L-2：App 关闭路径必须真正等待 XcpAcquisitionPanelViewModel.StopAsync
         //（fire-and-forget 会丢 S2 quiesce 契约）。IHostedService.StopAsync 在
         // App.RunShutdownAsync 的 host.StopAsync（10s 上限）内被真正 await。

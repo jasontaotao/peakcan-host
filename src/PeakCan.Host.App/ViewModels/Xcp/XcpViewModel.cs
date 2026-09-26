@@ -48,6 +48,9 @@ public sealed partial class XcpViewModel : ObservableObject
     /// <summary>S6-T4 MAP 只读可视化面板（spec D7 第三页；可空注入）。</summary>
     public XcpMapPanelViewModel? Map { get; }
 
+    /// <summary>S6-T5 参数集 diff 面板（spec D7 第四页；可空注入）。</summary>
+    public XcpDiffPanelViewModel? Diff { get; }
+
     /// <summary>
     /// 可空注入构造（保既有 VM 测试构造模式：无参可建）。
     /// DI 路径四面板均为 singleton，经本构造原样组装（AppHostBuilderXcpTests 钉住）。
@@ -60,7 +63,8 @@ public sealed partial class XcpViewModel : ObservableObject
         XcpRecordPanelViewModel? record = null,
         XcpWritebackViewModel? writeback = null,
         XcpReplayPanelViewModel? replay = null,
-        XcpMapPanelViewModel? map = null)
+        XcpMapPanelViewModel? map = null,
+        XcpDiffPanelViewModel? diff = null)
     {
         Connection = connection ?? new XcpConnectionPanelViewModel();
         Cards = cards ?? new XcpCardPanelViewModel();
@@ -75,6 +79,8 @@ public sealed partial class XcpViewModel : ObservableObject
         Replay = replay;
         // S6-T4：MAP 面板（可空注入，同款保既有 VM 测试构造）。
         Map = map;
+        // S6-T5：参数集 diff 面板（可空注入，同款保既有 VM 测试构造）。
+        Diff = diff;
 
         // D5：采集 Stop 先停记录（尾部样本落盘）——同一面板实例。
         Acquisition.BeforeStopAsync ??= Record.StopBeforeAcquisitionAsync;

@@ -33,9 +33,9 @@
 
 ## T5 参数集 diff 可视化（D5）
 
-- [ ] diff 计算：两份 `CalibrationParameterSet` → 行集（对象名/原值/新值/单位/上下限/越限标志）
-- [ ] 表格 UI：越限标红、选中行定位 XcpView 对象卡片；只读，应用走 S5 既有 apply 链路
-- [ ] 测试钉：diff 稳定性（同输入两次结果一致）、越限判定
+- [x] diff 计算：两份 `CalibrationParameterSet` → 行集（对象名/原值/新值/单位/上下限/越限标志）
+- [x] 表格 UI：越限标红、选中行定位 XcpView 对象卡片；只读，应用走 S5 既有 apply 链路
+- [x] 测试钉：diff 稳定性（同输入两次结果一致）、越限判定
 
 ## T6 多段写扩展（D6，TDD，Core+App）
 
