@@ -8,10 +8,10 @@
 
 ## T1 MF4 读取器（D1，TDD，Core）
 
-- [ ] 测试先红：S4 writer 产文件 → `Mdf4StreamReader` → 通道名/数据/时间轴/事件条目/invalidation bits/attachment 与写入面一致（round-trip 钉）
-- [ ] 块解析覆盖 T0 盘点的全部写面块；未识别块报错不静默
-- [ ] 空窗面：invalidation 置位区间 + 归因事件（MissingCause 五值 + AcquisitionInterrupted）可提取
-- [ ] 触发记录文件同口径可读（attachment 快照还原）
+- [x] 测试先红：S4 writer 产文件 → `Mdf4StreamReader` → 通道名/数据/时间轴/事件条目/invalidation bits/attachment 与写入面一致（round-trip 钉）
+- [x] 块解析覆盖 T0 盘点的全部写面块；未识别块报错不静默
+- [x] 空窗面：invalidation 置位区间 + 归因事件（MissingCause 五值 + AcquisitionInterrupted）可提取
+- [x] 触发记录文件同口径可读（attachment 快照还原）
 
 ## T2 回放数据服务（D3，TDD）
 
