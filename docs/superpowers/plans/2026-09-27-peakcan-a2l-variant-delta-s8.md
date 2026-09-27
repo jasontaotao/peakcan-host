@@ -5,10 +5,10 @@
 
 ## 任务清单
 
-- [ ] T1 Core：`CalibrationVariantDelta` codec——`Extract(baseline, variant, a2lSha256, source, variantName)` 静态提取（只留差异项）；`ContentFingerprint(entries)` 内容指纹（sorted entries → deterministic 序列化 → SHA256）；`ToJson()` 字节级确定（与 S5 同风格：每对象一行、Ordinal 排序、2 空格缩进、LF、UTF-8 无 BOM）；`Parse(json)` 校验 schemaVersion/variantName/baselineFingerprint/a2lSha256；`EnsureBaselineMatches(baselineSet)` 内容指纹比对。先红后绿
-- [ ] T2 Core 边界钉：空 delta（0 差异项）合法；非有限物理值拒绝；指纹确定性钉（同 entries → 同指纹，exportedAt 无关）；指纹不符拒绝；diff 稳定钉（同输入两次 `ToJson()` 字节一致）
-- [ ] T3 App VM：`XcpWritebackViewModel` 变体区——`BaselineParameterSet` 属性 + `MarkBaselineCommand`（当前参数集标记为基线）+ `ExtractDeltaCommand`（基线 vs 当前参数集 → delta 落盘）+ `LoadDeltaCommand`（加载 delta 文件 → 参数集 = delta 条目 + 状态行明示"变体 delta（N 项子集）"）。先红后绿
-- [ ] T4 收尾：全仓门禁 ≥ S7 基线；分层守卫不放松（`Xcp.Calibration` DOWNLOAD 唯一入口不变）；自检 spec/plan 文件完整性
+- [x] T1 Core：`CalibrationVariantDelta` codec——`Extract(baseline, variant, a2lSha256, source, variantName)` 静态提取（只留差异项）；`ContentFingerprint(entries)` 内容指纹（sorted entries → deterministic 序列化 → SHA256）；`ToJson()` 字节级确定（与 S5 同风格：每对象一行、Ordinal 排序、2 空格缩进、LF、UTF-8 无 BOM）；`Parse(json)` 校验 schemaVersion/variantName/baselineFingerprint/a2lSha256；`EnsureBaselineMatches(baselineSet)` 内容指纹比对。先红后绿
+- [x] T2 Core 边界钉：空 delta（0 差异项）合法；非有限物理值拒绝；指纹确定性钉（同 entries → 同指纹，exportedAt 无关）；指纹不符拒绝；diff 稳定钉（同输入两次 `ToJson()` 字节一致）
+- [x] T3 App VM：`XcpWritebackViewModel` 变体区——`BaselineParameterSet` 属性 + `MarkBaselineCommand`（当前参数集标记为基线）+ `ExtractDeltaCommand`（基线 vs 当前参数集 → delta 落盘）+ `LoadDeltaCommand`（加载 delta 文件 → 参数集 = delta 条目 + 状态行明示"变体 delta（N 项子集）"）。先红后绿
+- [x] T4 收尾：全仓门禁 ≥ S7 基线；分层守卫不放松（`Xcp.Calibration` DOWNLOAD 唯一入口不变）；自检 spec/plan 文件完整性
 
 ## 依赖与红线
 
