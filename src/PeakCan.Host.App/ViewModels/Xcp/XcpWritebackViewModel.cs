@@ -67,6 +67,24 @@ public partial class XcpWritebackViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>S8 变体区：基线参数集文件路径。</summary>
+    [ObservableProperty]
+    private string? _baselinePath;
+
+    /// <summary>S8 变体区：delta 变体名（提取时写入文件 header）。</summary>
+    [ObservableProperty]
+    private string? _variantName;
+
+    /// <summary>S8 变体区：delta 文件路径（提取输出 / 加载输入共用）。</summary>
+    [ObservableProperty]
+    private string? _deltaPath;
+
+    /// <summary>S8 变体区：当前已加载变体 delta（非 null 时 Apply 走 delta 链路）。</summary>
+    public bool IsDeltaLoaded => _loadedDelta is not null;
+
+    private CalibrationVariantDelta? _loadedDelta;
+    private CalibrationParameterSet? _baselineSet;
+
     /// <summary>D5 行内写值链路：卡片契约 → 段映射唯一入口 → writer（写 + 回读）。</summary>
     public async Task<CalibrationWriteOutcome> WriteSingleAsync(XcpCardViewModel card, double physicalValue)
     {
@@ -173,7 +191,21 @@ public partial class XcpWritebackViewModel : ObservableObject
         try
         {
             var bytes = await File.ReadAllBytesAsync(ParameterSetPath).ConfigureAwait(true);
-            set = CalibrationParameterSet.Parse(Encoding.UTF8.GetString(bytes));
+            var json = Encoding.UTF8.GetString(bytes);
+            if (json.Contains("\"schemaVersion\": 2"))
+            {
+                // S8：变体 delta 文件——解析为 delta，包装 entries 走 S5 差异对账（D3-B）。
+                var delta = _loadedDelta ?? CalibrationVariantDelta.Parse(json);
+                delta.EnsureA2lMatches(sha);
+                if (_baselineSet is not null)
+                    delta.EnsureBaselineMatches(_baselineSet);
+                set = CalibrationParameterSet.Export(
+                    delta.Entries.ToList(), delta.A2lSha256, $"delta:{delta.VariantName}");
+            }
+            else
+            {
+                set = CalibrationParameterSet.Parse(json);
+            }
             set.EnsureMatches(sha); // D2：指纹不符拒绝下发
         }
         catch (Exception ex)
@@ -232,6 +264,92 @@ public partial class XcpWritebackViewModel : ObservableObject
     }
 
     private bool CanApply() => !IsBusy && !string.IsNullOrWhiteSpace(ParameterSetPath);
+
+    /// <summary>S8-T3 delta 提取（D3-B）：基线参数集 + 变体全量 → 差异项 delta 文件。</summary>
+    [RelayCommand(CanExecute = nameof(CanExtractDelta))]
+    private async Task ExtractDeltaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(BaselinePath) || !File.Exists(BaselinePath))
+        {
+            StatusText = "delta 提取失败：基线参数集文件不存在。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(ParameterSetPath) || !File.Exists(ParameterSetPath))
+        {
+            StatusText = "delta 提取失败：变体参数集文件不存在。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(VariantName))
+        {
+            StatusText = "delta 提取失败：请输入变体名。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(DeltaPath))
+        {
+            StatusText = "delta 提取失败：请设置 delta 文件路径。";
+            return;
+        }
+
+        try
+        {
+            var baselineBytes = await File.ReadAllBytesAsync(BaselinePath).ConfigureAwait(true);
+            var baseline = CalibrationParameterSet.Parse(Encoding.UTF8.GetString(baselineBytes));
+            var variantBytes = await File.ReadAllBytesAsync(ParameterSetPath).ConfigureAwait(true);
+            var variant = CalibrationParameterSet.Parse(Encoding.UTF8.GetString(variantBytes));
+
+            if (!string.Equals(baseline.A2lSha256, variant.A2lSha256, StringComparison.Ordinal))
+            {
+                StatusText = "delta 提取拒绝：基线与变体的 A2L 指纹不一致。";
+                return;
+            }
+
+            var delta = CalibrationVariantDelta.Extract(VariantName!, baseline, variant, "extract");
+            await File.WriteAllBytesAsync(DeltaPath, delta.ToJsonBytes()).ConfigureAwait(true);
+            _baselineSet = baseline;
+            StatusText = $"delta 提取完成：{VariantName}（{delta.Entries.Count} 项差异）→ {DeltaPath}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"delta 提取失败：{ex.Message}";
+        }
+        ExtractDeltaCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanExtractDelta() => !IsBusy;
+
+    /// <summary>S8-T3 delta 加载：解析 delta 文件 → 校验 A2L 指纹 → 存为待下发子集。</summary>
+    [RelayCommand(CanExecute = nameof(CanLoadDelta))]
+    private async Task LoadDeltaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(DeltaPath) || !File.Exists(DeltaPath))
+        {
+            StatusText = "delta 加载失败：delta 文件不存在。";
+            return;
+        }
+        var sha = SnapshotSha();
+        if (sha is null)
+        {
+            StatusText = "delta 加载失败：A2L 未加载（无指纹可比对）。";
+            return;
+        }
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(DeltaPath).ConfigureAwait(true);
+            var delta = CalibrationVariantDelta.Parse(Encoding.UTF8.GetString(bytes));
+            delta.EnsureA2lMatches(sha);
+            _loadedDelta = delta;
+            StatusText = $"变体 delta 已加载：{delta.VariantName}（{delta.Entries.Count} 项子集）。使用 [下发参数集] 应用。";
+        }
+        catch (Exception ex)
+        {
+            _loadedDelta = null;
+            StatusText = $"delta 加载失败：{ex.Message}";
+        }
+        LoadDeltaCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanLoadDelta() => !IsBusy;
 
     partial void OnParameterSetPathChanged(string? value)
     {
