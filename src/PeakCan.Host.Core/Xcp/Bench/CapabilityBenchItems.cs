@@ -30,18 +30,17 @@ public static class CapabilityBenchItems
                 ["queryFailureCount"] = probe.QueryFailures.Count.ToString(CultureInfo.InvariantCulture),
             });
 
-        // A-2：事件节拍（事件通道数 + 事件周期）。
-        var a2 = new BenchItem("A-2", BenchItemStatus.Measured, "事件节拍（GET_DAQ_EVENT_INFO）",
+        // A-2：事件节拍。探针单项查询失败时结果字段是类型默认值——标 NotCollected 不冒充实测
+        //（真机从机 GET_DAQ_EVENT_INFO 有已钉死布局偏差，失败是现实路径）。
+        var a2 = Failed(probe, "GET_DAQ_EVENT_INFO")
+            ? NotCollected("A-2", "事件节拍查询失败（探针归因见能力探针清单）——不冒充实测")
+            : new BenchItem("A-2", BenchItemStatus.Measured, "事件节拍（GET_DAQ_EVENT_INFO）",
             Facts: new Dictionary<string, string>
             {
                 ["eventChannelCount"] = probe.EventInfo.EventChannel.ToString(CultureInfo.InvariantCulture),
                 ["maxDaqList"] = probe.EventInfo.MaxDaqList.ToString(CultureInfo.InvariantCulture),
                 ["priority"] = probe.EventInfo.Priority.ToString(CultureInfo.InvariantCulture),
             });
-
-        // A-3：抖动不在能力链——指向 B-1 并发场景计时，不冒充。
-        var a3 = new BenchItem("A-3", BenchItemStatus.NotCollected,
-            "DAQ 间隔/抖动：由 B-1（Cal 写期间 DAQ 并行观测）场景计时采集");
 
         // A-4：CAN 号合规（双 ID + 29 位判定；探针占位的台架回填即本条）。
         var a4 = new BenchItem("A-4", BenchItemStatus.Measured, "CAN 号合规性",
@@ -53,8 +52,10 @@ public static class CapabilityBenchItems
                     && slaveCanIdRaw <= MaxExtendedCanId).ToString().ToLowerInvariant(),
             });
 
-        // A-5：ODT 打包上限。
-        var a5 = new BenchItem("A-5", BenchItemStatus.Measured, "ODT 打包上限（GET_DAQ_LIST_INFO）",
+        // A-5：ODT 打包上限（同 P1-2 口径）。
+        var a5 = Failed(probe, "GET_DAQ_LIST_INFO")
+            ? NotCollected("A-5", "ODT 上限查询失败（探针归因见能力探针清单）——不冒充实测")
+            : new BenchItem("A-5", BenchItemStatus.Measured, "ODT 打包上限（GET_DAQ_LIST_INFO）",
             Facts: new Dictionary<string, string>
             {
                 ["maxOdt"] = probe.ListInfo.MaxOdt.ToString(CultureInfo.InvariantCulture),
@@ -62,15 +63,22 @@ public static class CapabilityBenchItems
                 ["firstPid"] = probe.ListInfo.FirstPid.ToString(CultureInfo.InvariantCulture),
             });
 
-        // A-10：块模式位图（GET_COMM_MODE_INFO 实测为准——S5 附录 C-2/A-10 延伸钉）。
-        // COMM_MODE_OPTIONAL bit0 = MASTER_BLOCK_MODE（ASAM XCP Part 3）。
-        var a10 = new BenchItem("A-10", BenchItemStatus.Measured, "块模式能力（GET_COMM_MODE_INFO 实测位图）",
+        // A-10：块模式位图（GET_COMM_MODE_INFO 实测为准——S5 附录 C-2/A-10 延伸钉；同 P1-2 口径）。
+        var a10 = Failed(probe, "GET_COMM_MODE_INFO")
+            ? NotCollected("A-10", "COMM_MODE 查询失败（探针归因见能力探针清单）——不冒充实测")
+            : new BenchItem("A-10", BenchItemStatus.Measured, "块模式能力（GET_COMM_MODE_INFO 实测位图）",
             Facts: new Dictionary<string, string>
             {
                 ["commModeOptionalBitmap"] = $"0x{probe.CommMode.CommModeOptional:X2}",
                 ["masterBlockMode"] = ((probe.CommMode.CommModeOptional & 0x01) != 0).ToString().ToLowerInvariant(),
             });
 
-        return [a1, a2, a3, a4, a5, a10];
+        return [a1, a2, a4, a5, a10];
     }
+
+    private static bool Failed(XcpCapabilityProbeResult probe, string command) =>
+        probe.QueryFailures.Any(f => f.Command == command);
+
+    private static BenchItem NotCollected(string itemId, string summary) =>
+        new(itemId, BenchItemStatus.NotCollected, summary);
 }

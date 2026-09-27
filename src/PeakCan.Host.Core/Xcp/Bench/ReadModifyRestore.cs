@@ -80,7 +80,19 @@ public static class ReadModifyRestore
                 Detail: $"保存原值失败（{readEx.GetType().Name}: {readEx.Message}）——零写入，从机未变更");
         }
 
-        var originalPhysical = contract.Decode(originalRaw);
+        // 原值 Decode 仅用于报告展示；真机原值是任意字节，换算可能不可解
+        // （DecodeException）——不外溢（报告仍须落盘），还原走原始镜像不受影响。
+        var decodeNote = string.Empty;
+        double originalPhysical;
+        try
+        {
+            originalPhysical = contract.Decode(originalRaw);
+        }
+        catch (DecodeException ex)
+        {
+            originalPhysical = double.NaN; // 镜像不变，仅展示层归因
+            decodeNote = $"；原值换算不可解（{ex.Message}），报告以镜像字节为准";
+        }
 
         // ---- 2) 写测试值（writer 内部持门 + 回读校验）→ 3) 还原 ----
         // 写步异常（超时/传输故障）不外溢：记为 WriteFailed 事实后强制走还原——
@@ -136,7 +148,7 @@ public static class ReadModifyRestore
         }
 
         var detail = $"原值 {Format(originalPhysical)}；测试值 {Format(testPhysical)}；" +
-                     $"写场景 {writeOutcome.Status}{detailTail}";
+                     $"写场景 {writeOutcome.Status}{decodeNote}{detailTail}";
 
         return new ReadModifyRestoreResult(
             scenarioName, originalPhysical, testPhysical, writeVerified, restored, detail);

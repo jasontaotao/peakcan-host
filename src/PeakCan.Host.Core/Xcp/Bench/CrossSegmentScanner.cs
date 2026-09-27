@@ -43,6 +43,8 @@ public static class CrossSegmentScanner
         {
             if (!contracts.TryGet(ch.Name, out var contract))
                 continue;
+            if (contract.Segments.Count == 0 || contract.TotalByteLength <= 0)
+                continue; // 无地址/无长度合同（异形对象）——不进写路径扫描口径
             scanned++;
 
             var runs = Calibration.CalibrationRunPlanner.PlanWriteRuns(

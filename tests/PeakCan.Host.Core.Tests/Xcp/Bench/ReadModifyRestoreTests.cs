@@ -139,4 +139,59 @@ public sealed class ReadModifyRestoreTests
         Assert.Equal(2.5f, ReadF32(slave, 0x9000), 3);
         Assert.Equal(0, spy.WriteCount);
     }
+
+    [Fact]
+    public async Task Save_failure_means_zero_write_and_trivial_restore()
+    {
+        // P1-4 钉 1：静默从机 → 保存原值读超时 → 零写入（DOWNLOAD 0 次），从机未变更。
+        var (doc, contracts) = MakeScalarDoc();
+        var (writer, slave, spy, master) = MakeWriter();
+        SeedF32(slave, Logical, 1.5f);
+        slave.Silent = true;
+
+        var result = await ReadModifyRestore.RunAsync(
+            writer, master, contracts.All[0], doc, 9.0f, "save_fail");
+
+        Assert.False(result.WriteVerified);
+        Assert.True(result.Restored);
+        Assert.Contains("零写入", result.Detail);
+        Assert.Equal(1.5f, ReadF32(slave, Logical), 3);
+        Assert.Equal(0, slave.DownloadCount);
+    }
+
+    [Fact]
+    public async Task Write_exception_still_restores_original()
+    {
+        // P1-4 钉 2：写步失败（WRITE_PROTECTED）→ 强制还原路径仍执行。
+        var (doc, contracts) = MakeScalarDoc();
+        var (writer, slave, spy, master) = MakeWriter();
+        SeedF32(slave, Logical, 1.5f);
+        slave.WriteProtectedOnce = true; // 消耗在测试值写上
+
+        var result = await ReadModifyRestore.RunAsync(
+            writer, master, contracts.All[0], doc, 9.0f, "write_fail_restore");
+
+        Assert.False(result.WriteVerified);
+        Assert.True(result.Restored); // 还原写未被保护，成功回到原值
+        Assert.Equal(1.5f, ReadF32(slave, Logical), 3);
+    }
+
+    [Fact]
+    public async Task Restore_failure_is_recorded_fail_loud()
+    {
+        // P1-4 钉 3：还原也失败 → Restored=false + "需人工检查 ECU"（fail-loud 记报告）。
+        // BUSY 注入 4 次：测试值写 2 次（含 1 重试）+ 还原写 2 次（含 1 重试）全 BUSY。
+        var (doc, contracts) = MakeScalarDoc();
+        var (writer, slave, spy, master) = MakeWriter();
+        SeedF32(slave, Logical, 1.5f);
+        slave.BusyDownloadsRemaining = 4;
+
+        var result = await ReadModifyRestore.RunAsync(
+            writer, master, contracts.All[0], doc, 9.0f, "restore_fail");
+
+        Assert.False(result.WriteVerified);
+        Assert.False(result.Restored);
+        Assert.Contains("需人工检查 ECU", result.Detail);
+        // 从机内容未变（写从未成功）——但结论口径仍是 Restored=false（不确定即按失败处理）。
+    }
 }

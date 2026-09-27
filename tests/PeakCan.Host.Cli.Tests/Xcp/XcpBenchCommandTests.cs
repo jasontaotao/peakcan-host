@@ -47,6 +47,9 @@ public class XcpBenchCommandTests
         foreach (var id in new[] { "A-1", "A-2", "A-3", "A-4", "A-5", "A-10", "A-11", "B-1", "B-2", "B-3", "B-4", "C-1", "C-2", "C-3" })
             Assert.Contains(id, itemIds);
 
+        // P1-1 钉：14 项每项恰一行（探针与 CLI 汇总层不得重复出栏）。
+        Assert.Single(itemIds, id => id == "A-3");
+
         // C-2 静态扫描必然完成（离线，无传输依赖）。
         var c2 = doc.RootElement.GetProperty("items")
             .EnumerateArray().First(i => i.GetProperty("itemId").GetString() == "C-2");

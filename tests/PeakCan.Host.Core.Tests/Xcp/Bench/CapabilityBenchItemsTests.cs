@@ -38,10 +38,6 @@ public class CapabilityBenchItemsTests
         Assert.Equal(BenchItemStatus.Measured, byId["A-2"].Status);
         Assert.True(byId["A-2"].Facts!.ContainsKey("eventChannelCount"));
 
-        // A-3 抖动：不在能力链——标注指向 B-1 并发场景（宁可不采不冒充）。
-        Assert.Equal(BenchItemStatus.NotCollected, byId["A-3"].Status);
-        Assert.Contains("B-1", byId["A-3"].Summary);
-
         // A-4 CAN 号：双 ID 记录 + 29 位合规判定。
         Assert.Equal(BenchItemStatus.Measured, byId["A-4"].Status);
         Assert.Equal("0x18FFF667", byId["A-4"].Facts!["masterCanId"]);
@@ -71,5 +67,29 @@ public class CapabilityBenchItemsTests
         Assert.Equal("0x1FFFFFFF", a4.Facts!["masterCanId"]);
         Assert.Equal("0x1", a4.Facts!["slaveCanId"]);
         Assert.Equal("true", a4.Facts!["canId29BitCompliant"]);
+    }
+
+    [Fact]
+    public async Task Mapping_marks_not_collected_when_query_failed_instead_of_fabricating()
+    {
+        // P1-2 钉：探针单项查询失败时结果字段是类型默认值——对应项必须 NotCollected。
+        // 手工构造带 QueryFailures 的探针结果（真机从机 EVENT/LIST_INFO 布局偏差是现实路径）。
+        var probe = await ProbeAgainstAsync();
+        var withFailures = probe with
+        {
+            QueryFailures =
+            [
+                new XcpCapabilityQueryFailure("GET_DAQ_EVENT_INFO", "ArgumentException", "expected-deviation"),
+                new XcpCapabilityQueryFailure("GET_DAQ_LIST_INFO", "ArgumentException", "expected-deviation"),
+            ],
+        };
+
+        var items = CapabilityBenchItems.FromProbeResult(withFailures, MasterCanIdRaw, SlaveCanIdRaw);
+        var byId = items.ToDictionary(i => i.ItemId);
+
+        Assert.Equal(BenchItemStatus.NotCollected, byId["A-2"].Status);
+        Assert.Equal(BenchItemStatus.NotCollected, byId["A-5"].Status);
+        // COMM_MODE 查询没失败 → A-10 保持实测。
+        Assert.Equal(BenchItemStatus.Measured, byId["A-10"].Status);
     }
 }

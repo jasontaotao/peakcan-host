@@ -111,6 +111,24 @@ public sealed class CScenariosTests
         Assert.Contains(report.Findings, f => f.RunCount == 0);
     }
 
+    [Fact]
+    public void Scan_real_fixture_completes_and_skips_segmentless_contracts()
+    {
+        // P2-a 钉：真机 A2L 存在无地址/无长度合同——扫描器必须跳过而非越界
+        //（回归钉：App_merge_INCA.a2l 首轮实跑崩在 Segments[0]）。
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "TestData", "App_merge_INCA.a2l");
+        var parsed = Asap2PackageApi.ParseFile(path);
+        Assert.NotNull(parsed.Value);
+        var contracts = Asap2PackageApi.Contracts(parsed.Value!);
+
+        var report = CrossSegmentScanner.Scan(contracts.Document, contracts);
+
+        Assert.True(report.ObjectsScanned > 0);
+        // 真机首份结论（T0 预检交付）：扫描完成即分类完毕，无异常穿透。
+        Assert.True(report.SingleRunObjects + report.CrossSegmentObjects + report.UnmappedObjects
+            <= report.ObjectsScanned);
+    }
+
     // ---------------- C-1 广播写 ----------------
 
     [Fact]

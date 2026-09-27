@@ -134,7 +134,7 @@ public static class XcpBenchCommand
             items.Add(new BenchItem("A-10", BenchItemStatus.NotCollected, "依赖能力探针（未采）"));
         }
 
-        // A-3：抖动需要 DAQ 时钟同步——本批次 host 侧口径未覆盖，指向台架人工观测。
+        // A-3：抖动需要 DAQ 时钟同步——本批次唯一出栏（mapper 不产，防 P1-1 重复）。
         items.Add(new BenchItem("A-3", BenchItemStatus.NotCollected,
             "DAQ 间隔/抖动：本批次无时钟同步口径，留台架人工观测"));
 
@@ -158,8 +158,7 @@ public static class XcpBenchCommand
                 ["crossSegmentObjects"] = scan.CrossSegmentObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["unmappedObjects"] = scan.UnmappedObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
             }));
-        foreach (var finding in scan.Findings)
-            restores.Add(new BenchRestoreRecord($"C2_scan_{finding.ObjectName}", true, finding.Detail));
+        // P2-e：扫描发现不进 Restores（那是"零遗留证据"专用列表，判据 3）——findings 已在 C-2 项的 Facts/Summary 承载。
 
         // ---- 写场景（spec D3：显式旗标才执行）----
         if (options.SafeStateConfirmed)
@@ -221,7 +220,9 @@ public static class XcpBenchCommand
             Directory.CreateDirectory(dir);
         File.WriteAllText(outputPath, json);
 
-        return new XcpBenchResult(connectionOk ? 0 : 1, json, outputPath);
+        // P2-c：还原失败 = ECU 可能遗留测试值——退出码 2（脚本化批次不得静默吞掉安全事件）。
+        var exitCode = !connectionOk ? 1 : restores.Any(r => !r.Restored) ? 2 : 0;
+        return new XcpBenchResult(exitCode, json, outputPath);
     }
 
     private static async Task RunWriteScenariosAsync(
@@ -284,21 +285,30 @@ public static class XcpBenchCommand
             }));
 
         // ---- B-4：越限值拒绝面行为（host 拒绝面是唯一防线——S5 附录 C-3）----
+        // 无 UpperLimit 的对象无法构造有意义的越限值——NotCollected，不冒充实测（P2-b）。
         var upper = contract.UpperLimit;
-        var outOfLimitValue = (upper ?? 100d) + 1d;
-        var b4 = await ReadModifyRestore.RunAsync(
-            writer, master, contract, document, outOfLimitValue, "B4_out_of_limit", ct: ct);
-        restores.Add(b4.ToRestoreRecord());
-        items.Add(new BenchItem("B-4", BenchItemStatus.Measured,
-            b4.WriteVerified
-                ? $"host writer 接受越限值（UpperLimit={upper}）——拒绝面在 UI/导出层，writer 无限值检查（事实记录）"
-                : $"writer 拒绝越限值（{b4.Detail}）",
-            Facts: new Dictionary<string, string>
-            {
-                ["upperLimit"] = upper?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
-                ["writeVerified"] = b4.WriteVerified.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant(),
-            },
-            HumanVerdict: "越限写拒绝面应在哪一层强制——台架判定"));
+        if (upper is null)
+        {
+            items.Add(new BenchItem("B-4", BenchItemStatus.NotCollected,
+                $"对象 '{contract.ObjectName}' 无 UpperLimit，无法构造越限值（换对象或台架手工构造）"));
+        }
+        var outOfLimitValue = (upper ?? 0d) + 1d;
+        if (upper is not null)
+        {
+            var b4 = await ReadModifyRestore.RunAsync(
+                writer, master, contract, document, outOfLimitValue, "B4_out_of_limit", ct: ct);
+            restores.Add(b4.ToRestoreRecord());
+            items.Add(new BenchItem("B-4", BenchItemStatus.Measured,
+                b4.WriteVerified
+                    ? $"host writer 接受越限值（UpperLimit={upper.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}）——拒绝面在 UI/导出层，writer 无限值检查（事实记录）"
+                    : $"writer 拒绝越限值（{b4.Detail}）",
+                Facts: new Dictionary<string, string>
+                {
+                    ["upperLimit"] = upper.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["writeVerified"] = b4.WriteVerified.ToString().ToLowerInvariant(),
+                },
+                HumanVerdict: "越限写拒绝面应在哪一层强制——台架判定"));
+        }
 
         // ---- C-1：广播写（多元素对象）----
         var elementCount = contract.DataType is { } dt
