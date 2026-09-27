@@ -84,3 +84,17 @@ S5/S6 的标定写回、多段写、广播写、在线 MAP 全部只经模拟从
    Document, contract.Segments[0].Address, contract.TotalByteLength)，**runs.Count > 1
    即跨段对象**（S6 planner 语义直接复用）。离线可算，真机 A2L 接入即出结论；fixture
    App_merge_INCA.a2l 的扫描结果进首份报告（T5 交付）。
+
+## T6 补记（2026-09-27，CLI 落地口径）
+
+1. **退出码语义细化**：0 = 批次完成且连接正常；1 = 批次跑完但连接级失败
+   （真机接不上/从机不支持——报告仍落盘，"宁全不全"；A2L 解析失败为唯一无报告路径，
+   直接抛）。与 xcp-probe 的"对账拒绝 = 非零且事实清单仍输出"先例同源。
+2. **B-1 host 侧口径**：批次场景 = 写前后轮询读流不中断（模拟从机 + 真机同口径可自动采）；
+   真机 DAQ 表行为 = 批次运行时人工观察（报告 HumanVerdict 栏承接）。
+3. **B-4 观测事实**：writer 无限值检查（越限值若可编码即接受）——host 拒绝面在
+   UI/导出层；报告记事实，"拒绝面应在哪一层强制"留台架判定。
+4. **C-2 计数口径**：只扫 CHARACTERISTIC（写路径对象）；无地址/无长度合同跳过。
+5. **T3 衍生**：RMR 还原走原始字节镜像（新增 \XcpCalibrationWriter.WriteRawAsync\，
+   仍是 DOWNLOAD 唯一入口）——多元素对象 Decode→广播还原会破坏第二元素起原值
+   （T5 测试抓出，已修）。
