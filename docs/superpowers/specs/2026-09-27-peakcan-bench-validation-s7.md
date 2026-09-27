@@ -72,3 +72,15 @@ S5/S6 的标定写回、多段写、广播写、在线 MAP 全部只经模拟从
 | --- | --- |
 | v0.1 | 初稿，D1–D4 开放 |
 | v0.2 | D1–D4 全按倾向定案（CLI 批次命令 / 全量回填 / 读-改-还原 + 旗标门禁 / JSON 进仓 + spec 回填表） |
+
+## T0 补记（2026-09-27，预检 verdict）
+
+1. **探针命令结构可复用**：XcpProbeCommand（CLI）= 装配 + 事实清单采集 + 机读 JSON 输出
+   + 退出码，xcp-bench 照此骨架；Core 侧事实采集下沉 XcpCapabilityProber（D7 既有口径）。
+2. **模拟从机装配路径**：MemorySlaveTransport / XcpVirtualSlave（TestKit 既有）+
+   XcpCapabilityProberTests 装配模式；批次场景测试全部走该路径，真机样本由用户台架采集。
+3. **C-2 静态扫描可行性确认（零新地址逻辑）**：输入 = XcpA2lLoadResult（Document +
+   ContractSet 全量合同枚举）；判定 = 逐合同 CalibrationRunPlanner.PlanWriteRuns(
+   Document, contract.Segments[0].Address, contract.TotalByteLength)，**runs.Count > 1
+   即跨段对象**（S6 planner 语义直接复用）。离线可算，真机 A2L 接入即出结论；fixture
+   App_merge_INCA.a2l 的扫描结果进首份报告（T5 交付）。
