@@ -30,6 +30,12 @@ public static class Program
                 return await RunXcpProbeAsync(args[1..]);
             }
 
+            // S7-T6: xcp-bench 子命令 —— 台架验证批次（独立参数解析，与常规 HIL 流程无关）。
+            if (args.Length > 0 && args[0].Equals("xcp-bench", StringComparison.OrdinalIgnoreCase))
+            {
+                return await RunXcpBenchAsync(args[1..]);
+            }
+
             var cli = CliArgsParser.Parse(args);
 
             // SecOc key management mode (spec D4): no DI container needed
@@ -260,6 +266,39 @@ public static class Program
 
             await using var transport = new XcpCanTransport(channel);
             return await XcpProbeCommand.RunAsync(options, transport);
+        }
+        finally
+        {
+            await channel.DisconnectAsync();
+        }
+    }
+
+    /// <summary>
+    /// xcp-bench 真机入口：--hw 指定 PCAN 通道，波特率取 A2L 声明值（不猜）。
+    /// CI/测试路径直接调 XcpBenchCommand.RunAsync 注入模拟从机 transport。
+    /// </summary>
+    private static async Task<int> RunXcpBenchAsync(string[] args)
+    {
+        var options = XcpBenchCommand.ParseArgs(args);
+        if (options.HardwareChannel is not { } hardwareChannel)
+            throw new ArgumentException("xcp-bench requires --hw <channel> — no default CAN channel (D3).");
+
+        var baudRate = XcpProbeCommand.ResolveDeclaredBaudRate(options.A2LPath);
+        var handle = HeadlessHostBuilder.ParseChannelHandle(hardwareChannel);
+        var channel = new PeakCanChannel(new ChannelId(handle), null);
+        try
+        {
+            var connectResult = await channel.ConnectAsync(baudRate, fd: false);
+            if (!connectResult.IsSuccess)
+            {
+                Console.Error.WriteLine($"Error: XCP bench channel connect failed: {connectResult.Error?.Message}");
+                return 1;
+            }
+
+            await using var transport = new XcpCanTransport(channel);
+            var result = await XcpBenchCommand.RunAsync(options, transport);
+            Console.WriteLine($"xcp-bench report written: {result.OutputPath} (exit {result.ExitCode})");
+            return result.ExitCode;
         }
         finally
         {
