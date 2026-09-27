@@ -10,7 +10,7 @@
 - [x] T2 Core：只读场景执行器（复用 `XcpCapabilityProber` → A 系字段；连接失败 fail-loud）；测试用 `MemorySlaveTransport`
 - [x] T3 Core：读-改-还原编排骨架（保存原值→写→校验→还原→确认还原；try/finally 中断安全；还原失败 fail-loud 记报告）；B-4 越限写拒绝面场景
 - [x] T4 Core：B 系场景（B-1 Cal 写期间 DAQ 并行观测、B-2 MTA 分片时序记录、B-3 与 A-10 共用位图）
-- [ ] T5 Core：C 系场景（C-1 广播写 + 还原、C-2 静态跨段扫描（离线，`XcpA2lLoader` 输入）、C-3 在线 MAP 上传耗时 + DAQ 并发计时）
+- [x] T5 Core：C 系场景（C-1 广播写 + 还原、C-2 静态跨段扫描（离线，`XcpA2lLoader` 输入）、C-3 在线 MAP 上传耗时 + DAQ 并发计时）
 - [ ] T6 CLI：`xcp-bench` 命令装配 + `--i-have-verified-safe-state` 旗标（缺旗标只跑只读场景）+ 退出码（0 批次完成 / 1 fail-loud）+ 报告落盘 `docs/bench/`
 - [ ] T7 收尾：全仓门禁 ≥ S6 基线 4398；spec 附录回填表模板；独立评审
 

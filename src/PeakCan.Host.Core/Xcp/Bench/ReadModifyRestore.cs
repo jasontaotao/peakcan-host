@@ -114,8 +114,10 @@ public static class ReadModifyRestore
             string? restoreExText = null;
             try
             {
-                var restoreOutcome = await writer.WriteAsync(
-                    contract, document, originalPhysical, addressExtension, ct).ConfigureAwait(false);
+                // 还原走原始字节镜像（WriteRawAsync）：多元素对象原值异值，
+                // Decode→广播物理值还原会破坏第二元素起的原值——spec D3"还原原值"按字节兑现。
+                var restoreOutcome = await writer.WriteRawAsync(
+                    contract, document, originalRaw, addressExtension, ct).ConfigureAwait(false);
                 restoreOk = restoreOutcome.Status == CalibrationWriteStatus.Written;
                 if (!restoreOk)
                     restoreExText = $"{restoreOutcome.Status}: {restoreOutcome.Detail}";

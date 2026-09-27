@@ -129,12 +129,54 @@ public sealed class XcpCalibrationWriter
             return Decorate(outcome, elementCount);
         }
 
-        // 多 run：单段失败中断后续（D6 中断语义），Detail 指明失败 run。
+        return Decorate(
+            await WriteRunsGuardedAsync(contract, runs, image.Data!, addressExtension, ct).ConfigureAwait(false),
+            elementCount, $"（{runs.Count} 段逐段写 + 回读一致）");
+    }
+
+    /// <summary>
+    /// S7-T3：原始字节镜像写（读-改-还原的还原路径）——多元素对象的原值是异值的
+    /// 整体镜像，Decode→广播物理值还原会破坏第二元素起的原值；还原必须按原字节写回。
+    /// 仍是 DOWNLOAD 唯一合法入口（Xcp.Calibration 红线不动），拒绝面 = 长度一致 + 段规划。
+    /// </summary>
+    public async Task<CalibrationWriteOutcome> WriteRawAsync(
+        ValueContract contract, A2lDocument document, byte[] raw,
+        byte addressExtension = 0, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(raw);
+
+        if (contract.Category != A2lObjectCategory.Characteristic)
+            return CalibrationWriteOutcome.Rejected($"对象 '{contract.ObjectName}' 非标定对象（{contract.Category}），无写入口");
+        if (raw.Length != contract.TotalByteLength)
+            return CalibrationWriteOutcome.Rejected(
+                $"对象 '{contract.ObjectName}' 镜像长度 {raw.Length}B ≠ 对象 {contract.TotalByteLength}B，拒绝写");
+
+        var runs = CalibrationRunPlanner.PlanWriteRuns(
+            document, contract.Segments[0].Address, contract.TotalByteLength);
+        if (runs is null)
+            return CalibrationWriteOutcome.Rejected(
+                $"对象 '{contract.ObjectName}' 段映射规划失败（映射覆盖不到 / 重叠 / 地址扩展非 0），拒绝写");
+
+        using var sequence = await _master.EnterMemorySequenceAsync(ct).ConfigureAwait(false);
+        if (runs.Count == 1)
+            return await WriteSliceGuardedAsync(
+                contract.ObjectName, runs[0].PhysicalAddress, addressExtension, raw, ct).ConfigureAwait(false);
+
+        return await WriteRunsGuardedAsync(contract, runs, raw, addressExtension, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>多 run 写入（单段失败中断后续，D6 中断语义）——Encode 镜像与原值镜像共用。</summary>
+    private async Task<CalibrationWriteOutcome> WriteRunsGuardedAsync(
+        ValueContract contract, IReadOnlyList<CalibrationWriteRun> runs, byte[] image,
+        byte addressExtension, CancellationToken ct)
+    {
         for (var i = 0; i < runs.Count; i++)
         {
             var run = runs[i];
             var slice = new byte[run.ByteLength];
-            Array.Copy(image.Data!, run.SourceOffset, slice, 0, run.ByteLength);
+            Array.Copy(image, run.SourceOffset, slice, 0, run.ByteLength);
             CalibrationWriteOutcome runOutcome;
             try
             {
@@ -175,8 +217,7 @@ public sealed class XcpCalibrationWriter
             }
         }
 
-        return Decorate(CalibrationWriteOutcome.Written(), elementCount,
-            $"（{runs.Count} 段逐段写 + 回读一致）");
+        return CalibrationWriteOutcome.Written();
     }
 
     // ---------------- 拒绝面 + 广播编码（零线上流量） ----------------
