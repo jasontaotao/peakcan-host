@@ -56,22 +56,46 @@ public static class ReadModifyRestore
         }
 
         // ---- 1) 保存原值：逐 run 读拼接（reconciler 同口径），整体持门 ----
-        var originalRaw = new byte[contract.TotalByteLength];
-        using (var gate = await master.EnterMemorySequenceAsync(ct).ConfigureAwait(false))
+        // ---- 1) 保存原值：逐 run 读拼接（reconciler 同口径），整体持门 ----
+        // 读失败（超时/负响应）= 不动从机（读不到原值就绝不写——无法保证还原）。
+        byte[] originalRaw;
+        try
         {
-            foreach (var run in runs)
+            originalRaw = new byte[contract.TotalByteLength];
+            using (var gate = await master.EnterMemorySequenceAsync(ct).ConfigureAwait(false))
             {
-                var chunk = await XcpUploadReader.ReadAsync(
-                    master, run.PhysicalAddress, run.ByteLength, ct).ConfigureAwait(false);
-                chunk.CopyTo(originalRaw, run.SourceOffset);
+                foreach (var run in runs)
+                {
+                    var chunk = await XcpUploadReader.ReadAsync(
+                        master, run.PhysicalAddress, run.ByteLength, ct).ConfigureAwait(false);
+                    chunk.CopyTo(originalRaw, run.SourceOffset);
+                }
             }
+        }
+        catch (Exception readEx) when (readEx is not OperationCanceledException)
+        {
+            return new ReadModifyRestoreResult(
+                scenarioName, double.NaN, testPhysical,
+                WriteVerified: false, Restored: true,
+                Detail: $"保存原值失败（{readEx.GetType().Name}: {readEx.Message}）——零写入，从机未变更");
         }
 
         var originalPhysical = contract.Decode(originalRaw);
 
-        // ---- 2) 写测试值（writer 内部持门 + 回读校验）→ 3) 还原（try/finally 保证）----
-        var writeOutcome = await writer.WriteAsync(
-            contract, document, testPhysical, addressExtension, ct).ConfigureAwait(false);
+        // ---- 2) 写测试值（writer 内部持门 + 回读校验）→ 3) 还原 ----
+        // 写步异常（超时/传输故障）不外溢：记为 WriteFailed 事实后强制走还原——
+        // 真机上 MTA 可能已推进，"没把握写没写"就必须尝试还原（spec D3 中断安全）。
+        CalibrationWriteOutcome writeOutcome;
+        try
+        {
+            writeOutcome = await writer.WriteAsync(
+                contract, document, testPhysical, addressExtension, ct).ConfigureAwait(false);
+        }
+        catch (Exception writeEx) when (writeEx is not OperationCanceledException)
+        {
+            writeOutcome = CalibrationWriteOutcome.WriteFailed(
+                $"写步异常：{writeEx.GetType().Name}: {writeEx.Message}");
+        }
 
         var writeVerified = writeOutcome.Status == CalibrationWriteStatus.Written;
         bool restored;
@@ -86,12 +110,27 @@ public static class ReadModifyRestore
         else
         {
             // 写已发生（成功或失败）——必须还原，还原失败本身 fail-loud 记录。
-            var restoreOutcome = await writer.WriteAsync(
-                contract, document, originalPhysical, addressExtension, ct).ConfigureAwait(false);
-            restored = restoreOutcome.Status == CalibrationWriteStatus.Written;
+            bool restoreOk;
+            string? restoreExText = null;
+            try
+            {
+                var restoreOutcome = await writer.WriteAsync(
+                    contract, document, originalPhysical, addressExtension, ct).ConfigureAwait(false);
+                restoreOk = restoreOutcome.Status == CalibrationWriteStatus.Written;
+                if (!restoreOk)
+                    restoreExText = $"{restoreOutcome.Status}: {restoreOutcome.Detail}";
+                else
+                    restoreExText = null;
+            }
+            catch (Exception restoreEx) when (restoreEx is not OperationCanceledException)
+            {
+                restoreOk = false;
+                restoreExText = $"还原步异常 {restoreEx.GetType().Name}: {restoreEx.Message}";
+            }
+            restored = restoreOk;
             detailTail = restored
                 ? "；原值已还原并回读确认"
-                : $"；还原失败（{restoreOutcome.Status}: {restoreOutcome.Detail}）——需人工检查 ECU";
+                : $"；还原失败（{restoreExText}）——需人工检查 ECU";
         }
 
         var detail = $"原值 {Format(originalPhysical)}；测试值 {Format(testPhysical)}；" +
