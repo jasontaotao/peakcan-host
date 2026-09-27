@@ -208,3 +208,23 @@ receive 链（`XcpReceiveLoop`）已经 `ValueContract.Decode` 过的**物理值
 5. **广播写语义**：多元素对象（CURVE/MAP/VAL_BLK）经参数集/卡片写值 = 同值广播全元素——真机上对整 MAP 覆盖的行为需台架确认是否合期望；若需要"逐元素差异写"，须扩参数集格式（数组值），挂账 S7 候选。
 6. **跨段映射真机形态**：包侧 SegmentList 恒单段（T6 补记 1）；真机 A2L 是否出现"单 ValueSegment 但跨 ADDRESS_MAPPING"的对象待台架实证（`CalibrationRunPlanner` 已覆盖该形态）。
 7. 在线 MAP 渲染的上传耗时与 DAQ 并发行为（S5 A-x 挂账延伸）：模拟从机已验证零 DOWNLOAD 与格值正确，真机并发待验。
+
+## 核对补记（2026-09-27，spec ↔ 实现功能核对）
+
+合并 main 后独立做了一轮 spec ↔ 实现逐条核对（六条验收判据 + D1–D7 落地 +
+T2/T6 实施口径，CodeGraph + 源码行级验证 + 全仓测试实测复跑），结论：**六条验收
+判据全部有实现落点，无功能漏项**。两处记录偏差修正如下：
+
+1. **附录 A e2e 测试路径不精确（errata）**：AcquisitionReplayE2ETests.cs 实际位于
+   `tests/PeakCan.Host.Core.Tests/Xcp/Replay/`（Xcp/Replay/ 子目录），非 Xcp/ 根。
+   功能在，路径记录不精确。
+2. **偶发测试位置修正 + S7 挂账**：附录 B 记"Infrastructure 首轮 1 例失败为既有偶发"；
+   2026-09-27 复跑实测偶发出现在 Core 的
+   `XcpTriggerRecordEngineTests.Post_queue_capacity_covers_post_window`
+   （S4 触发记录引擎，全仓并发负载下偶发；隔离复跑 ✅、整类 13 例复跑 ✅，非 S6 回归）。
+   **挂账 S7**：统一治理全仓时序类测试的并发偶发（虚拟时钟注入或收敛并行度），覆盖
+   Infrastructure 与 Core 两处已观测样本。
+
+其余核对项（回放 NaN 断线 + 归因竖线、指纹门禁 T2 修正口径、MAP 在线/离线双路径、
+diff 三态 + 越限 + 定位联动、RunPlanner 五项拒绝面、广播语义、TabControl 四页、
+RefreshMaps 三处挂接、AppHostBuilder 全部闭包接线）均与实现一致，不再赘述。
