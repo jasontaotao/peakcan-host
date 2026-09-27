@@ -64,4 +64,33 @@ public sealed class XcpMapPanelWiringTests
             .Where(c => c.Type == "MAP")
             .Select(c => c.Name)
             .ToList() ?? []);
+
+    [Fact]
+    public async Task A2l_reloaded_while_loaded_refreshes_map_list()
+    {
+        // S6 挂账 P2-5 钉：Loaded→Loaded 重载不触发 PropertyChanged——
+        // 显式 A2lLoaded 事件必须驱动 RefreshMaps（重载后清单仍是新 LoadedResult 的）。
+        var connection = new XcpConnectionPanelViewModel();
+        var refreshCount = 0;
+        var map = new XcpMapPanelViewModel(mapsProvider: () =>
+        {
+            refreshCount++;
+            return connection.LoadedResult?.Document.Modules
+                .SelectMany(m => m.Characteristics)
+                .Where(c => c.Type == "MAP")
+                .Select(c => c.Name)
+                .ToList() ?? [];
+        });
+        _ = new XcpViewModel(connection: connection, map: map);
+
+        connection.A2lPath = FindSharedRealA2L();
+        connection.LoadA2LCommand.Execute(null);
+        var afterFirst = refreshCount;
+
+        connection.LoadA2LCommand.Execute(null); // 重载（状态机恒 Loaded，无 PropertyChanged）
+
+        Assert.True(afterFirst >= 1);
+        Assert.True(refreshCount > afterFirst, "重载必须再触发一次 RefreshMaps（P2-5）");
+        Assert.NotEmpty(map.Maps);
+    }
 }

@@ -82,6 +82,35 @@ public sealed class XcpReplayPanelViewModel : ObservableObject
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
     }
 
+    /// <summary>S6 挂账 P2-2：加载中标志（防重入 + 视图可接禁用）。</summary>
+    public bool IsBusy
+    {
+        get;
+        private set
+        {
+            field = value;
+            OnPropertyChanged(nameof(IsBusy));
+        }
+    }
+
+    /// <summary>
+    /// P2-2：异步加载入口（解析/解码移出 UI 线程）。LoadFile 同步核保留给既有测试。
+    /// </summary>
+    public async Task LoadFileAsync(string path)
+    {
+        if (IsBusy)
+            return;
+        IsBusy = true;
+        try
+        {
+            await Task.Run(() => LoadFile(path)).ConfigureAwait(true);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     /// <summary>
     /// 加载 MF4（主记录或触发记录）。解析/解码失败 → 状态区红字，不裸抛（S4 sink 故障面惯例）。
     /// </summary>

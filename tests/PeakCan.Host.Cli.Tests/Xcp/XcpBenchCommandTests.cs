@@ -1,4 +1,6 @@
 using System.Text.Json;
+using PeakCan.HIL.Core;
+using PeakCan.Host.Core.Xcp.Protocol;
 using A2lEditor.Core;
 using A2lEditor.Core.Layout;
 using PeakCan.Host.Cli;
@@ -98,6 +100,58 @@ public class XcpBenchCommandTests
         Assert.True(doc.RootElement.GetProperty("restores").GetArrayLength() >= 2);
     }
 
+    [Fact]
+    public async Task Restore_failure_escalates_exit_code_to_two()
+    {
+        // R1 钉：还原失败（Restored=false）→ exit 2——ECU 脏态不得静默（P2-c 组合路径）。
+        // 载体：MemorySlave（有内存写语义）+ CONNECT 应答装饰器（探针不抛）+ BUSY 注入
+        // 8 次（探针良性 DOWNLOAD 1 + 测试写 2 + 还原写 2，余量覆盖）→ 写与还原全失败。
+        await using var slave = new ConnectAwareMemoryTransport();
+        slave.BusyDownloadsRemaining = 8;
+        var outputPath = TempJsonPath();
+
+        var options = XcpBenchCommand.ParseArgs(
+        [
+            "--a2l", RealA2LPath,
+            "--xcp-master-id", "0x18FFF667",
+            "--xcp-slave-id", "0x18FFF666",
+            "--object", PickBenchObject(),
+            "--value", "9.0",
+            "--i-have-verified-safe-state",
+            "--output", outputPath,
+        ]);
+        var result = await XcpBenchCommand.RunAsync(options, slave);
+
+        Assert.Equal(2, result.ExitCode);
+        using var doc = JsonDocument.Parse(File.ReadAllText(outputPath));
+        Assert.Contains(doc.RootElement.GetProperty("restores").EnumerateArray(),
+            r => r.GetProperty("restored").GetBoolean() == false);
+    }
+
+    [Fact]
+    public void Offline_report_persists_static_facts_when_channel_connect_fails()
+    {
+        // P2-f 钉：CAN 连接失败 → 离线报告仍落盘（C-2/A-11 事实不丢），exit 1。
+        var outputPath = TempJsonPath();
+        var options = XcpBenchCommand.ParseArgs(
+        [
+            "--a2l", RealA2LPath,
+            "--xcp-master-id", "0x18FFF667",
+            "--xcp-slave-id", "0x18FFF666",
+            "--output", outputPath,
+        ]);
+        var result = XcpBenchCommand.RunOfflineReport(options);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.True(File.Exists(outputPath));
+        using var doc = JsonDocument.Parse(File.ReadAllText(outputPath));
+        var items = doc.RootElement.GetProperty("items").EnumerateArray()
+            .ToDictionary(i => i.GetProperty("itemId").GetString()!, i => i);
+        Assert.Equal("Measured", items["C-2"].GetProperty("status").GetString());
+        Assert.Equal("Measured", items["A-11"].GetProperty("status").GetString());
+        Assert.Equal("NotCollected", items["A-1"].GetProperty("status").GetString());
+    }
+
     /// <summary>动态选一个可写多元素对象（C-1 广播语义可测；S5 写回测试同 fixture 口径）。</summary>
     private static string PickBenchObject()
     {
@@ -117,4 +171,43 @@ public class XcpBenchCommandTests
         }
         throw new InvalidOperationException("fixture 找不到可写的多元素对象");
     }
+
+/// <summary>P2-c/R1 测试载体：MemorySlave（内存写语义）+ CONNECT 正应答注入（探针不抛）。</summary>
+internal sealed class ConnectAwareMemoryTransport : PeakCan.Host.Core.Xcp.Abstractions.IXcpTransport
+{
+    private readonly MemorySlaveTransport _inner = new();
+
+    // 字段式事件：转发内层从机帧，同时允许本类在 WriteAsync 里直接 Invoke CONNECT 应答。
+    public event Action<CanFrame>? FrameReceived;
+
+    public long FramesDropped => _inner.FramesDropped;
+
+    public byte[] Memory => _inner.Memory;
+
+    public int BusyDownloadsRemaining
+    {
+        set => _inner.BusyDownloadsRemaining = value;
+    }
+
+    public ConnectAwareMemoryTransport()
+    {
+        _inner.FrameReceived += frame => FrameReceived?.Invoke(frame);
+    }
+
+    public ValueTask<Result<Unit>> WriteAsync(CanFrame frame, CancellationToken ct = default)
+    {
+        if (frame.Data.Span[0] == 0xFF) // CONNECT：注入正应答，探针链不抛
+        {
+            FrameReceived?.Invoke(new CanFrame(
+                new CanId(0x18FFF666, FrameFormat.Extended),
+                XcpGoldenSamples.ConnectPositiveResponse.ToArray(),
+                FrameFlags.None, ChannelId.None, default));
+            return ValueTask.FromResult(Result<Unit>.Ok(default));
+        }
+        return _inner.WriteAsync(frame, ct);
+    }
+
+    public ValueTask DisposeAsync() => _inner.DisposeAsync();
+}
+
 }

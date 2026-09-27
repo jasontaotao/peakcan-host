@@ -96,6 +96,8 @@ public sealed partial class XcpViewModel : ObservableObject
         // 初始态已 Loaded/Connected 也装配一次（A2L 先于本 VM 创建的场景）。
         if (Connection.ConnectionState != XcpConnectionState.Disconnected)
             Map?.RefreshMaps();
+        // S6 挂账 P2-5：Loaded→Loaded 重载不触发 PropertyChanged——订阅显式事件重装。
+        Connection.A2lLoaded += () => Map?.RefreshMaps();
     }
 
     private void OnConnectionPropertyChanged(object? sender, PropertyChangedEventArgs e)

@@ -59,6 +59,9 @@ public enum XcpHostAttributionCell
 /// </summary>
 public partial class XcpConnectionPanelViewModel : ObservableObject
 {
+    /// <summary>P2-5：A2L 加载成功（含 Loaded→Loaded 重载）显式出站——MAP 清单重装信号。</summary>
+    public event Action? A2lLoaded;
+
     private readonly Func<string, XcpA2lLoadResult> _loadA2l;
     private readonly IConnectedChannelsSource? _connectedChannels;
 
@@ -184,6 +187,9 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
                     StatusLines.Add(FormatNote(note));
                 StatusLines.Add($"A2L 加载成功: {loaded.Contracts.All.Count} 个合同对象。");
                 ConnectionState = XcpConnectionState.Loaded;
+                // P2-5：Loaded→Loaded 重载不触发 PropertyChanged——显式事件通知
+                // MAP 清单重装（XcpViewModel 订阅）。
+                A2lLoaded?.Invoke();
                 break;
             }
 

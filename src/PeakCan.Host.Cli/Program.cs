@@ -291,8 +291,11 @@ public static class Program
             var connectResult = await channel.ConnectAsync(baudRate, fd: false);
             if (!connectResult.IsSuccess)
             {
+                // P2-f：连接失败仍出离线报告（C-2/A-11 事实不丢），退出码 1。
                 Console.Error.WriteLine($"Error: XCP bench channel connect failed: {connectResult.Error?.Message}");
-                return 1;
+                var offline = XcpBenchCommand.RunOfflineReport(options);
+                Console.WriteLine($"xcp-bench offline report written: {offline.OutputPath}");
+                return offline.ExitCode;
             }
 
             await using var transport = new XcpCanTransport(channel);

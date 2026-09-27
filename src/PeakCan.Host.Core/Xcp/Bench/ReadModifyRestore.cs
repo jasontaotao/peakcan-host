@@ -108,6 +108,24 @@ public static class ReadModifyRestore
             writeOutcome = CalibrationWriteOutcome.WriteFailed(
                 $"写步异常：{writeEx.GetType().Name}: {writeEx.Message}");
         }
+        catch (OperationCanceledException)
+        {
+            // P2-d：取消发生在"写已发出"之后也必须尝试还原——安全还原用不取消的
+            // token（宁多一次写，不留测试值在 ECU 里）；还原后再按取消语义外抛。
+            try
+            {
+                await writer.WriteRawAsync(
+                    contract, document, originalRaw, addressExtension, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception restoreEx)
+            {
+                // 还原失败无法经正常报告面通知（调用方已取消）——保留原始异常语义，
+                // 恢复责任回调用侧（批次命令的 fail-loud 汇总/人工检查）。
+                _ = restoreEx;
+            }
+            throw;
+        }
 
         var writeVerified = writeOutcome.Status == CalibrationWriteStatus.Written;
         bool restored;

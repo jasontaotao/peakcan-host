@@ -130,3 +130,22 @@ P2-a/b/c/e/g 全 PASS；P2-c 无假阳性路径。**S7 可合并上台架执行*
 
 最终门禁：全仓无过滤 4415+ 通过 / 0 失败（Infrastructure 单项既有偶发复跑全绿）。
 提交链：`c499a323` spec+plan → T0-T6 各一提交 → 评审修复 `34ad9d04`。
+
+## 挂账清理补记（2026-09-27，无环境阶段批次一）
+
+1. **R1（已修）**：exit 2 组合路径测试钉——ConnectAwareMemoryTransport（内存写语义 +
+   CONNECT 应答注入）+ BUSY×8（探针良性 DOWNLOAD 1 + 写 2 + 还原 2，余量覆盖）
+   → 写/还原全失败 → exit 2。
+2. **R2（已修）**：TAB_VERB 合同原值 Decode 必抛 → OriginalPhysical=NaN + Detail 归因，
+   报告照常产出（还原走镜像字节）。
+3. **P2-d（已修）**：RMR 写步 OCE 取消 → 以 CancellationToken.None 强制尝试还原后再外抛
+   （宁多一次写，不留测试值）。还原失败在取消语义下无法经报告面通知——责任回调用侧
+   （fail-loud 汇总/人工检查），记录在案。
+4. **P2-f（已修）**：新增 \XcpBenchCommand.RunOfflineReport\——CAN 连接失败时
+   C-2/A-11 离线事实仍出报告（exit 1 不变）；Program 连接失败路径接入。
+5. **P2-2（已修，S6 挂账）**：回放 VM 加载改异步（LoadFileAsync + Task.Run + IsBusy
+   防重入），UI 线程不再被解析/解码阻塞；LoadFile 同步核保留给既有测试。
+6. **P2-5（已修，S6 挂账）**：ConnectionPanel 增加 A2lLoaded 显式事件（Loaded→Loaded
+   重载无 PropertyChanged），XcpViewModel 订阅 → Map.RefreshMaps；重载刷新钉补齐。
+7. **未清（时序测试偶发治理）**：Engine 已有 TimeProvider 注入口，但偶发复现需专门
+   诊断（全仓并发下 Core/Infra 各一处样本）——留独立任务，不冒进。

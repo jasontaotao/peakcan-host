@@ -37,7 +37,7 @@ public partial class XcpReplayView : UserControl
         Dispatcher.BeginInvoke(new Action(Render));
     }
 
-    private void OnLoadFileClick(object sender, RoutedEventArgs e)
+    private async void OnLoadFileClick(object sender, RoutedEventArgs e)
     {
         if (Vm is null)
             return;
@@ -47,7 +47,7 @@ public partial class XcpReplayView : UserControl
             Filter = "MDF4 记录 (*.mf4)|*.mf4|所有文件 (*.*)|*.*",
         };
         if (dialog.ShowDialog() == true)
-            Vm.LoadFile(dialog.FileName);
+            await Vm.LoadFileAsync(dialog.FileName);
     }
 
     private void Render()

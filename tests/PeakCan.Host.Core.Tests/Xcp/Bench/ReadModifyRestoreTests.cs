@@ -194,4 +194,49 @@ public sealed class ReadModifyRestoreTests
         Assert.Contains("需人工检查 ECU", result.Detail);
         // 从机内容未变（写从未成功）——但结论口径仍是 Restored=false（不确定即按失败处理）。
     }
+
+    [Fact]
+    public async Task Undecodable_original_yields_nan_fact_and_report_still_fresh()
+    {
+        // R2 钉（P1-3）：TAB_VERB 换算对任意 raw 不可解 → 原值 Decode 异常不外溢，
+        // OriginalPhysical=NaN + Detail 归因，报告照常产出（还原走镜像字节）。
+        var (doc, contracts) = MakeTabVerbDoc();
+        var (writer, slave, spy, master) = MakeWriter();
+
+        var result = await ReadModifyRestore.RunAsync(
+            writer, master, contracts.All[0], doc, 1.0f, "tab_verb_undecodable");
+
+        Assert.True(double.IsNaN(result.OriginalPhysical));
+        Assert.Contains("换算不可解", result.Detail);
+        Assert.True(result.Restored);
+    }
+
+    /// <summary>TAB_VERB 标量夹具——Decode 对任意 raw 都抛 DecodeException（ConversionUnsupported）。</summary>
+    private static (A2lEditor.Core.Model.A2lDocument Doc, A2lEditor.Core.Layout.ContractSet Contracts) MakeTabVerbDoc()
+    {
+        var rl = new A2lRecordLayout("RL_F32",
+            new[] { new RecordLayoutEntry("FNC_VALUES", 0, "FLOAT32_IEEE", "COLUMN_SCAL", "DIRECT", null, null) },
+            new LineRange(1, 1));
+        var ch = new A2lCharacteristic("KmText", "d", "VALUE", "RL_F32", 0x1500,
+            "0", "100", null, "CM_TEXT", new LineRange(1, 1));
+        var module = new A2lModule("M", "m",
+            Array.Empty<A2lMeasurement>(), new[] { ch }, Array.Empty<A2lAxisPts>(),
+            new[]
+            {
+                new A2lCompuMethod("CM_TEXT", "tab", "TAB_VERB", "%.0f", "state",
+                    new TabVerbConversion(true,
+                        new[] { new CompuAxisPoint(0, "Off"), new CompuAxisPoint(1, "On") },
+                        false),
+                    new LineRange(10, 10)),
+            },
+            new[] { rl }, Array.Empty<A2lGroup>(), null,
+            Array.Empty<A2lAxisDescr>(), Array.Empty<A2lUserRights>(),
+            Array.Empty<A2lVersionInfo>(), Array.Empty<A2lAxisPtsX>(),
+            new LineRange(1, 1),
+            MemorySegments: new[] { BenchDocs.MakeSegment("SEG_A", 0x1500, 0x1500, 4) });
+        var doc = new A2lDocument(A2lVersion.V1_6x, "P", "", "",
+            new A2lModCommon("", A2lByteOrder.MSB_LAST, null, null, null, new LineRange(1, 1)),
+            new[] { module }, "", 1);
+        return (doc, new A2lEditor.Core.Layout.ContractSet(doc));
+    }
 }

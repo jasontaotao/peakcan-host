@@ -225,6 +225,69 @@ public static class XcpBenchCommand
         return new XcpBenchResult(exitCode, json, outputPath);
     }
 
+    /// <summary>
+    /// P2-f：离线报告——CAN 通道连接失败时，C-2/A-11 等离线事实仍出报告
+    /// （"宁全不全"兑现到连接层）。退出码恒 1（fail-loud 信号不变）。
+    /// </summary>
+    public static XcpBenchResult RunOfflineReport(XcpBenchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var parsed = Asap2PackageApi.ParseFile(options.A2LPath);
+        var document = parsed?.Value
+            ?? throw new InvalidOperationException($"A2L parse failed: {options.A2LPath}");
+        var contracts = Asap2PackageApi.Contracts(document);
+
+        var items = new List<BenchItem>
+        {
+            new("C-2", BenchItemStatus.Measured, "静态扫描（离线可算，不依赖连接）"),
+            new("A-11", BenchItemStatus.Measured, "位域/聚合体粗口径（离线可算）"),
+        };
+        foreach (var id in new[] { "A-1", "A-2", "A-3", "A-4", "A-5", "A-10" })
+            items.Add(new BenchItem(id, BenchItemStatus.NotCollected, "CAN 通道连接失败（离线报告）"));
+        foreach (var id in new[] { "B-1", "B-2", "B-3", "B-4", "C-1", "C-3" })
+            items.Add(new BenchItem(id, BenchItemStatus.NotCollected, "离线批次（不可在线采）"));
+
+        var scan = CrossSegmentScanner.Scan(document, contracts);
+        var c2 = items[0] with
+        {
+            Summary = scan.HasCrossSegmentObjects
+                ? $"存在 {scan.CrossSegmentObjects} 个跨段对象（写路径将拆段执行）"
+                : "无跨段对象（写路径恒单段）",
+            Facts = new Dictionary<string, string>
+            {
+                ["objectsScanned"] = scan.ObjectsScanned.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["crossSegmentObjects"] = scan.CrossSegmentObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["unmappedObjects"] = scan.UnmappedObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            },
+        };
+        items[0] = c2;
+        var bitfieldLike = contracts.All
+            .Count(c => c.TotalByteLength is not (1 or 2 or 4 or 8));
+        items[1] = items[1] with
+        {
+            Facts = new Dictionary<string, string>
+            {
+                ["nonStandardByteLengthObjects"] = bitfieldLike.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            },
+        };
+
+        var report = new BenchReport(
+            GeneratedAtUtc: DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            A2lName: System.IO.Path.GetFileName(options.A2LPath),
+            Mode: BenchRunMode.ReadOnly,
+            Items: items.OrderBy(i => i.ItemId, StringComparer.Ordinal).ToList(),
+            Restores: []);
+        var json = BenchReportJson.Serialize(report);
+        var outputPath = options.OutputPath ?? System.IO.Path.Combine(
+            "docs", "bench", $"bench-run-{DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture)}.json");
+        var dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(outputPath));
+        if (dir is not null)
+            Directory.CreateDirectory(dir);
+        File.WriteAllText(outputPath, json);
+        return new XcpBenchResult(1, json, outputPath);
+    }
+
     private static async Task RunWriteScenariosAsync(
         XcpBenchOptions options,
         XcpMaster master,
