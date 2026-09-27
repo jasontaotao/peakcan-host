@@ -6,7 +6,7 @@
 ## 任务清单
 
 - [x] T0 预检 spike：探针命令结构复用确认；模拟从机批次场景装配路径；C-2 静态扫描对真机 fixture `App_merge_INCA.a2l` 出首份结论；补记 spec
-- [ ] T1 Core：`BenchReport` 模型 + JSON 序列化（meta / A 系 7 项 / B 系 4 项 / C 系 3 项 / 每写场景还原校验记录 / 人工判定栏）；先红后绿
+- [x] T1 Core：`BenchReport` 模型 + JSON 序列化（meta / A 系 7 项 / B 系 4 项 / C 系 3 项 / 每写场景还原校验记录 / 人工判定栏）；先红后绿
 - [ ] T2 Core：只读场景执行器（复用 `XcpCapabilityProber` → A 系字段；连接失败 fail-loud）；测试用 `MemorySlaveTransport`
 - [ ] T3 Core：读-改-还原编排骨架（保存原值→写→校验→还原→确认还原；try/finally 中断安全；还原失败 fail-loud 记报告）；B-4 越限写拒绝面场景
 - [ ] T4 Core：B 系场景（B-1 Cal 写期间 DAQ 并行观测、B-2 MTA 分片时序记录、B-3 与 A-10 共用位图）
