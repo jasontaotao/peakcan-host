@@ -128,6 +128,62 @@ public sealed class TraceViewLayoutTests
     }
 
     [Fact]
+    public void Filter_Builder_And_Advanced_Expander_Contract()
+    {
+        var doc = LoadXaml();
+
+        // 高级过滤：默认折叠，且收纳了全部批量输入字段。
+        var advanced = doc.Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute(X + "Name") == "AdvancedFilterExpander");
+        ((string?)advanced.Attribute("IsExpanded")).Should().Be("False", "默认折叠，日常入口是条件条");
+        var advancedTextBoxes = advanced.Descendants(P + "TextBox")
+            .Select(t => (string?)t.Attribute("Text")).Where(t => t != null).ToList();
+        foreach (var field in new[] { "IdListText", "PgnText", "SaText", "DaText",
+                                      "PayloadOffsetText", "PayloadMaskHex", "PayloadValueHex" })
+            advancedTextBoxes.Should().Contain(t => t!.Contains(field), $"{field} 应留在高级区");
+        advanced.Descendants(P + "ComboBox").Select(c => (string?)c.Attribute("Text"))
+            .Should().Contain(t => t != null && t.Contains("DbcMessageName"));
+        advanced.Descendants(P + "ComboBox").Select(c => (string?)c.Attribute("SelectedValue"))
+            .Should().Contain(t => t != null && t.Contains("ChannelFilter"));
+        advanced.Descendants(P + "CheckBox").Select(c => (string?)c.Attribute("IsChecked"))
+            .Should().Contain(t => t != null && t.Contains("ExcludeMatch"));
+
+        // 高频开关必须留在常驻工具栏：折叠高级区后仍可一键操作。
+        foreach (var binding in new[] { "IsPaused", "ShowErrorsOnly" })
+        {
+            advanced.Descendants(P + "CheckBox").Select(c => (string?)c.Attribute("IsChecked"))
+                .Should().NotContain(t => t != null && t.Contains(binding), $"{binding} 不能被折进高级区");
+            doc.Descendants(P + "CheckBox").Select(c => (string?)c.Attribute("IsChecked"))
+                .Should().Contain(t => t != null && t.Contains(binding));
+        }
+
+        // 「+ 条件」按钮 + 弹层：弹层绑 IsBuilderOpen，内部有字段选择与添加命令。
+        var addButton = doc.Descendants(P + "Button")
+            .Single(b => (string?)b.Attribute("Content") == "+ 条件");
+        // 只做"打开"不做 toggle：Toggle 与 StaysOpen=False 会互抢鼠标捕获，按钮会关不掉。
+        ((string?)addButton.Attribute("Command"))!.Should().Contain("OpenFilterBuilderCommand");
+
+        var popup = doc.Descendants(P + "Popup").Single();
+        var isOpen = (string?)popup.Attribute("IsOpen");
+        isOpen.Should().NotBeNull();
+        isOpen!.Should().Contain("IsBuilderOpen");
+        // 外部点击关闭后必须把 VM 也写回 false，否则下次点击会把 false 再翻成 false（按钮永远打不开）。
+        isOpen.Should().Contain("Mode=TwoWay");
+        ((string?)popup.Attribute("StaysOpen")).Should().Be("False", "点弹层外部应关闭");
+        popup.Descendants(P + "Button").Select(b => (string?)b.Attribute("Command"))
+            .Should().Contain(t => t != null && t.Contains("CloseFilterBuilderCommand"), "弹层要有显式关闭入口");
+        ((string?)popup.Attribute("PlacementTarget"))!.Should().Contain("AddConditionButton");
+        popup.Descendants(P + "ComboBox").Select(c => (string?)c.Attribute("ItemsSource"))
+            .Should().Contain(t => t != null && t.Contains("FilterBuilderFields"));
+        popup.Descendants(P + "ComboBox").Select(c => (string?)c.Attribute("SelectedItem"))
+            .Should().Contain(t => t != null && t.Contains("SelectedBuilderField"));
+        popup.Descendants(P + "Button").Select(b => (string?)b.Attribute("Command"))
+            .Should().Contain(t => t != null && t.Contains("AddFilterConditionCommand"));
+        popup.Descendants(P + "TextBlock").Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain(t => t != null && t.Contains("BuilderError"));
+    }
+
+    [Fact]
     public void Filter_Chip_Bar_Binds_To_FilterChips()
     {
         var doc = LoadXaml();

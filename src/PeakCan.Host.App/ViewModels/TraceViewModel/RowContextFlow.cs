@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.App.ViewModels;
 
@@ -15,6 +16,14 @@ public sealed partial class TraceViewModel
     /// 用户对着界面找字符串不会对不上。
     /// </summary>
     internal static string FormatIdHex(TraceEntry entry) => entry.Id.ToString();
+
+    /// <summary>
+    /// 裸 ID 的过滤文本形式（与 <see cref="FormatIdHex(TraceEntry)"/> 同一格式：
+    /// 标准帧 3 位 / 扩展帧 8 位补零）。条件构建器的排除标签用它，
+    /// 否则同一个 ID 在右键与构建器里会显示成 <c>0x01A</c> / <c>0x1A</c> 两种写法。
+    /// </summary>
+    internal static string FormatIdHex(uint raw)
+        => new CanId(raw, raw > 0x7FF ? FrameFormat.Extended : FrameFormat.Standard).ToString();
 
     /// <summary>
     /// 只看这个 ID：覆盖 ID allow-list，清掉 DBC 消息名（其解析结果会并集
