@@ -20,6 +20,14 @@
                 keeping inverse-Boolean as a per-view resource since it is
                 used only there.
             -->
+            <!-- P2 表格密度：所有 DataGrid 统一从这里取行高。
+                 视图里**不要**再写本地 RowHeight，否则会覆盖这个动态资源、菜单里
+                 切「紧凑表格」时那一张表不跟随。AppShellViewModel.IsCompactTables
+                 在 18 / 22 之间切换本资源。 -->
+            <sys:Double x:Key="DataGridRowHeight">22</sys:Double>
+            <Style TargetType="DataGrid">
+                <Setter Property="RowHeight" Value="{DynamicResource DataGridRowHeight}" />
+            </Style>
             <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
             <conv:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter" />
             <!-- v3.2.0 MINOR: Trace Viewer legend strip + chart subplots. -->

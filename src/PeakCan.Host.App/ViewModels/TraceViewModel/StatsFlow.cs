@@ -53,11 +53,18 @@ public sealed partial class TraceViewModel
     /// 统计行的语义就是"只看这个 ID"）→ 走正常 spec 重建管线。闭环依据：
     /// <c>_messageCounts</c> key 是裸 <c>f.Id.Raw</c>，<see cref="MessageIdStatRow.IdHex"/>
     /// 已是 0x 前缀裸 ID，经 <see cref="TraceFilterParser"/> hex 解析后与 <c>entry.Id.Raw</c> 直接匹配。
+    /// <para>
+    /// 与 <see cref="ShowOnlyThisId"/> 同口径：先清掉会**反转/并集**的另外两个条件——
+    /// 排除模式会把"只看这个 ID"整体取反；DBC 消息名会把它的全部 ID 并进 allow-list。
+    /// 不先清，用户之前留下的开关会让这次点击得到相反的结果。
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void SetFilterToId(MessageIdStatRow row)
     {
         if (row is null) return;
+        DbcMessageName = "";
+        ExcludeMatch = false;
         IdListText = row.IdHex; // 触发 OnIdListTextChanged → TryRebuildSpec
     }
 }

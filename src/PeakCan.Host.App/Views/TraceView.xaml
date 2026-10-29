@@ -67,12 +67,12 @@
                               ToolTip="整体取反（黑名单语义）" />
                 </WrapPanel>
                 <WrapPanel Margin="0,4,0,0">
-                    <TextBlock Text="Payload" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="字节模式过滤：(payload[offset] &amp; mask) == value；三字段全空=无条件，部分填=错误" />
-                    <TextBlock Text="offset" VerticalAlignment="Center" />
+                    <TextBlock Text="载荷" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="字节模式过滤：(payload[offset] &amp; mask) == value；三字段全空=无条件，部分填=错误" />
+                    <TextBlock Text="偏移" VerticalAlignment="Center" />
                     <TextBox Text="{Binding PayloadOffsetText, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" Margin="2,0,0,0" />
-                    <TextBlock Text="mask(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
+                    <TextBlock Text="掩码(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
                     <TextBox Text="{Binding PayloadMaskHex, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" />
-                    <TextBlock Text="value(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
+                    <TextBlock Text="值(hex)" VerticalAlignment="Center" Margin="6,0,2,0" />
                     <TextBox Text="{Binding PayloadValueHex, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalAlignment="Center" />
                 </WrapPanel>
             </StackPanel>
@@ -151,11 +151,11 @@
                                        Visibility="{Binding IsBuilderFlagVisible, Converter={StaticResource BoolToVis}}" />
                             <WrapPanel Margin="0,6,0,0"
                                        Visibility="{Binding IsBuilderPayloadVisible, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="offset" VerticalAlignment="Center" />
+                                <TextBlock Text="偏移" VerticalAlignment="Center" />
                                 <TextBox Text="{Binding BuilderPayloadOffset, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="2,0,8,0" />
-                                <TextBlock Text="mask(hex)" VerticalAlignment="Center" />
+                                <TextBlock Text="掩码(hex)" VerticalAlignment="Center" />
                                 <TextBox Text="{Binding BuilderPayloadMask, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="2,0,8,0" />
-                                <TextBlock Text="value(hex)" VerticalAlignment="Center" />
+                                <TextBlock Text="值(hex)" VerticalAlignment="Center" />
                                 <TextBox Text="{Binding BuilderPayloadValue, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="2,0,0,0" />
                             </WrapPanel>
                             <TextBlock Text="{Binding BuilderError}" Foreground="{StaticResource Error}"
@@ -234,7 +234,7 @@
             <TextBlock Text="{Binding FilterErrorText}" Foreground="{StaticResource Error}" VerticalAlignment="Center" />
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextSecondary}" />
             <TextBlock Text="上限" VerticalAlignment="Center" Margin="16,0,2,0" Foreground="{StaticResource TextSecondary}" />
-            <TextBox Text="{Binding MaxRowsText, UpdateSourceTrigger=PropertyChanged}" Width="50" VerticalAlignment="Center" ToolTip="MaxRows [100, 50000]" />
+            <TextBox Text="{Binding MaxRowsText, UpdateSourceTrigger=PropertyChanged}" Width="50" VerticalAlignment="Center" ToolTip="最大行数 [100, 50000]" />
             <TextBlock Text="行" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
             <TextBlock Text="{Binding MaxRowsErrorText}" Foreground="{StaticResource Error}" VerticalAlignment="Center" Margin="12,0,0,0" />
         </StackPanel>
@@ -254,7 +254,6 @@
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               HeadersVisibility="Column"
-                              RowHeight="22"
                               MaxHeight="140"
                               AlternatingRowBackground="{StaticResource RowAlternate}">
                         <DataGrid.Columns>
@@ -311,7 +310,6 @@
               VirtualizingPanel.ScrollUnit="Pixel"
               ScrollViewer.CanContentScroll="True"
               ScrollViewer.ScrollChanged="OnScrollChanged"
-              RowHeight="20"
               AlternatingRowBackground="{StaticResource RowAlternate}"
               PreviewMouseRightButtonDown="OnGridPreviewMouseRightButtonDown"
               ContextMenuOpening="OnGridContextMenuOpening">
@@ -473,31 +471,47 @@
             <Expander.Header>
                 <TextBlock Text="报文统计（Top-20）" FontWeight="SemiBold" />
             </Expander.Header>
-            <DataGrid ItemsSource="{Binding StatsRows}"
-                      AutoGenerateColumns="False"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      HeadersVisibility="Column"
-                      RowHeight="22"
-                      MaxHeight="180">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="ID" Binding="{Binding IdHex}" Width="100" />
-                    <DataGridTextColumn Header="DBC 消息" Binding="{Binding DbcName}" Width="140" />
-                    <DataGridTextColumn Header="计数" Binding="{Binding Count}" Width="70" />
-                    <DataGridTextColumn Header="占比" Binding="{Binding Percent, StringFormat={}{0:F1}%}" Width="80" />
-                    <DataGridTemplateColumn Header="设为过滤" Width="80">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <Button Content="设为过滤"
-                                        Padding="4,0"
-                                        HorizontalAlignment="Center"
-                                        Command="{Binding DataContext.SetFilterToIdCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        CommandParameter="{Binding}" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-                </DataGrid.Columns>
-            </DataGrid>
+            <Grid>
+                <DataGrid ItemsSource="{Binding StatsRows}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          MaxHeight="180">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding IdHex}" Width="100" />
+                        <DataGridTextColumn Header="DBC 消息" Binding="{Binding DbcName}" Width="140" />
+                        <DataGridTextColumn Header="计数" Binding="{Binding Count}" Width="70" />
+                        <DataGridTextColumn Header="占比" Binding="{Binding Percent, StringFormat={}{0:F1}%}" Width="80" />
+                        <DataGridTemplateColumn Header="设为过滤" Width="80">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="设为过滤"
+                                            Padding="4,0"
+                                            HorizontalAlignment="Center"
+                                            Command="{Binding DataContext.SetFilterToIdCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <!-- P0 空态：统计要等帧到了才有内容，空着时说明它在等什么。 -->
+                <controls:EmptyStatePanel Title="还没有 ID 统计"
+                                          Description="收到帧后，这里会列出出现次数最多的 20 个 ID。"
+                                          AutomationProperties.Name="空态：还没有 ID 统计">
+                    <controls:EmptyStatePanel.Style>
+                        <Style TargetType="controls:EmptyStatePanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatsRows.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:EmptyStatePanel.Style>
+                </controls:EmptyStatePanel>
+            </Grid>
         </Expander>
 
         <!-- J1939TP 会话事件：在线 SessionEvent（丢包/超时/被取代/驱逐）实时面板。
@@ -508,44 +522,60 @@
             <Expander.Header>
                 <TextBlock Text="J1939TP 会话事件" FontWeight="SemiBold" />
             </Expander.Header>
-            <DataGrid ItemsSource="{Binding J1939SessionEvents}"
-                      AutoGenerateColumns="False"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      HeadersVisibility="Column"
-                      RowHeight="20"
-                      MaxHeight="180">
-                <DataGrid.RowStyle>
-                    <Style TargetType="DataGridRow">
-                        <Style.Triggers>
-                            <!-- PacketLoss/Timeout 视为会话致命 → 错误帧底色；Superseded 中性告警；Evicted 容量事件最弱 -->
-                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.PacketLoss}">
-                                <Setter Property="Background" Value="{StaticResource FrameBgError}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Timeout}">
-                                <Setter Property="Background" Value="{StaticResource FrameBgError}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Superseded}">
-                                <Setter Property="Background" Value="{StaticResource TraceHl3}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Evicted}">
-                                <Setter Property="Background" Value="{StaticResource RowAlternate}" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.RowStyle>
-                <DataGrid.Columns>
-                    <!-- 时刻 = bus 秒（F3，与主网格/离线面板同基准）；通道 = 触发帧所属通道 -->
-                    <DataGridTextColumn Header="时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
-                    <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="60" />
-                    <DataGridTextColumn Header="事件" Binding="{Binding Kind}" Width="90" />
-                    <DataGridTextColumn Header="SA" Binding="{Binding Sa, StringFormat=0x{0:X2}}" Width="50" />
-                    <DataGridTextColumn Header="DA" Binding="{Binding Da, StringFormat=0x{0:X2}}" Width="50" />
-                    <DataGridTextColumn Header="PGN" Binding="{Binding Pgn, StringFormat=0x{0:X4}}" Width="80" />
-                    <DataGridTextColumn Header="模式" Binding="{Binding Mode}" Width="70" />
-                    <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <Grid>
+                <DataGrid ItemsSource="{Binding J1939SessionEvents}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          MaxHeight="180">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <!-- PacketLoss/Timeout 视为会话致命 → 错误帧底色；Superseded 中性告警；Evicted 容量事件最弱 -->
+                                <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.PacketLoss}">
+                                    <Setter Property="Background" Value="{StaticResource FrameBgError}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Timeout}">
+                                    <Setter Property="Background" Value="{StaticResource FrameBgError}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Superseded}">
+                                    <Setter Property="Background" Value="{StaticResource TraceHl3}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Kind}" Value="{x:Static core:SessionEventKind.Evicted}">
+                                    <Setter Property="Background" Value="{StaticResource RowAlternate}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <!-- 时刻 = bus 秒（F3，与主网格/离线面板同基准）；通道 = 触发帧所属通道 -->
+                        <DataGridTextColumn Header="时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
+                        <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="60" />
+                        <DataGridTextColumn Header="事件" Binding="{Binding Kind}" Width="90" />
+                        <DataGridTextColumn Header="SA" Binding="{Binding Sa, StringFormat=0x{0:X2}}" Width="50" />
+                        <DataGridTextColumn Header="DA" Binding="{Binding Da, StringFormat=0x{0:X2}}" Width="50" />
+                        <DataGridTextColumn Header="PGN" Binding="{Binding Pgn, StringFormat=0x{0:X4}}" Width="80" />
+                        <DataGridTextColumn Header="模式" Binding="{Binding Mode}" Width="70" />
+                        <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <!-- P0 空态：J1939TP 会话事件是异常触发型，空着是常态，别让用户以为坏了。 -->
+                <controls:EmptyStatePanel Title="还没有 J1939 会话事件"
+                                          Description="只有 J1939TP 会话出现丢包、超时、被取代或驱逐时，事件才会出现在这里。"
+                                          AutomationProperties.Name="空态：还没有 J1939 会话事件">
+                    <controls:EmptyStatePanel.Style>
+                        <Style TargetType="controls:EmptyStatePanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding J1939SessionEvents.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:EmptyStatePanel.Style>
+                </controls:EmptyStatePanel>
+            </Grid>
         </Expander>
     </DockPanel>
 </UserControl>

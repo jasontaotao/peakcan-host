@@ -274,6 +274,9 @@ public sealed partial class AppShellViewModel
         StatusMessage = "正在断开所有通道";
         ConnectionState = "断开中...";
         await _coordinator.DisconnectAllAsync().ConfigureAwait(true);
+        // 通道断开后 ECU 侧状态不可知：安全等级按"未解锁"处理
+        //（状态栏徽章常驻可见，错报"已解锁"会误导后续写操作）。
+        _udsViewModel.Session.ResetForConnectionChange();
         ConnectionState = "已断开";
         StatusMessage = "已断开";
         NotifyConnectionStateChanged();

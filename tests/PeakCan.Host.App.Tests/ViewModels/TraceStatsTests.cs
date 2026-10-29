@@ -113,6 +113,31 @@ public class TraceStatsTests
         vm.EntriesView.Count.Should().Be(1, "统计行设过滤 → 只显示该 ID");
     }
 
+    /// <summary>
+    /// 统计行「设为过滤」是"只看这个 ID"语义，必须顺手关掉会反转/并集的其它条件：
+    /// 排除模式会把结果整体取反，DBC 消息名会把它的全部 ID 并进 allow-list。
+    /// （与 <c>ShowOnlyThisId</c> / <c>ClearFilters</c> 同口径。）
+    /// </summary>
+    [Fact]
+    public void SetFilterToId_Clears_Exclude_Mode_And_Dbc_Name()
+    {
+        var vm = new TraceViewModel();
+        vm.AppendBatchCore(new[] { Frame(0x100), Frame(0x200) });
+        vm.StatsExpanded = true;
+        var row = vm.StatsRows.Single(r => r.IdHex == "0x100");
+
+        vm.ExcludeMatch = true;
+        vm.DbcMessageName = "SomeMessage";
+
+        vm.SetFilterToIdCommand.Execute(row);
+
+        vm.ExcludeMatch.Should().BeFalse("排除模式会把「只看这个 ID」整体反转");
+        vm.DbcMessageName.Should().BeEmpty("DBC 名会并集扩 ID，与「只看」矛盾");
+        vm.IdListText.Should().Be("0x100");
+        vm.EntriesView.Cast<TraceEntry>().Should().ContainSingle()
+          .Which.Id.Raw.Should().Be(0x100u, "最终只放行该 ID");
+    }
+
     [Fact]
     public void SetFilterToId_Overrides_Previous_HandEntered_Ids()
     {

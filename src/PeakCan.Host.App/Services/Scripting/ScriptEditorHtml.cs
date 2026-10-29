@@ -7,9 +7,11 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// <para>
 /// 页面与 C# 之间只说一种话：<c>window.chrome.webview.postMessage(JSON)</c>，
 /// 消息形如 <c>{type:'text'|'run', text}</c>，由 <see cref="ScriptEditorBridge"/> 解析。
-/// 反过来 C# 不需要往页面里灌数据——初始草稿直接嵌在 HTML 里，
-/// 既避免了 <c>NavigationCompleted</c> 的时序竞争，也让每次 tab 重入
-/// 重建 textarea 时内容自然恢复。
+/// 反方向有一条**受控**的通道：C# 侧整段替换文本（打开脚本文件时）经
+/// <see cref="BuildSetTextMessage"/> + <c>PostWebMessageAsString</c> 发 <c>{type:'setText'}</c>，
+/// 页面监听后写回 textarea。<b>初始草稿**不用**这条通道</b>——它直接嵌在 HTML 里，
+/// 既避免 <c>NavigationCompleted</c> 的时序竞争，也让每次 tab 重入重建 textarea 时内容自然恢复；
+/// 运行期替换才走 setText（视图在导航完成后再补推一次权威文本兜底）。
 /// </para>
 /// <para>
 /// 转义：初始脚本经 <see cref="JsonSerializer"/> 生成 JS 字面量。默认 encoder 会把
@@ -85,9 +87,31 @@ public static class ScriptEditorHtml
                         post({ type: 'run', text: textarea.value });
                     }
                 });
+
+                // C# → 页面：打开文件后整段替换编辑内容。
+                // 程序化改 value 不会触发 input 事件，所以不会把同样的文本再回传一次。
+                window.chrome?.webview?.addEventListener('message', (e) => {
+                    try {
+                        const msg = JSON.parse(e.data);
+                        if (msg && msg.type === 'setText' && typeof msg.text === 'string') {
+                            textarea.value = msg.text;
+                            textarea.focus();
+                        }
+                    } catch {
+                        // 非本协议的消息（宿主其它通道）忽略即可。
+                    }
+                });
             </script>
         </body>
         </html>
         """;
     }
+
+    /// <summary>
+    /// 生成 C# → 页面的「整段替换文本」消息（JSON 字符串，经
+    /// <c>CoreWebView2.PostWebMessageAsString</c> 发送）。
+    /// 与页面里的 <c>{type:'setText', text}</c> 监听一一对应。
+    /// </summary>
+    public static string BuildSetTextMessage(string text)
+        => JsonSerializer.Serialize(new { type = "setText", text = text ?? "" });
 }

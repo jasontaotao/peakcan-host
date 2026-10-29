@@ -45,6 +45,10 @@ public partial class AppHostBuilder
                 WindowStateStore = windowStateStore,
                 // P2-6: layout persistence (right-panel width + tab selection).
                 LayoutStateStore = layoutStore,
+                // P1 防事故：退出时若正在刷写要弹确认。注入 DI 单例，
+                // 与 AppShellViewModel（断开确认）和 UdsWindow（关窗确认）用同一条通道。
+                Prompt = sp.GetRequiredService<
+                    PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
             };
         });
 

@@ -54,7 +54,30 @@ public partial class ScriptView : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = false;
+        // VM 是 DI 单例：不注销就是永久引用，而且下次 Loaded 会重复订阅。
+        _viewModel?.EditorTextReplaceRequested -= OnEditorTextReplaceRequested;
+        EditorWebView.NavigationCompleted -= OnEditorNavigationCompleted;
     }
+
+    /// <summary>
+    /// C# 侧（打开脚本文件）要求整段替换编辑器内容。
+    /// </summary>
+    private void OnEditorTextReplaceRequested(string text) => PostEditorText(text);
+
+    /// <summary>
+    /// 每次导航完成都把 VM 里的权威文本推一遍。页面重建（切 tab）与
+    /// "导航途中点了打开"两种时序都靠它兜底；WebView 未就绪时 <c>CoreWebView2</c>
+    /// 为 null，直接跳过——<see cref="OnLoaded"/> 会用 <c>ScriptText</c> 重建页面。
+    /// </summary>
+    private void OnEditorNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess || _viewModel is null) return;
+        PostEditorText(_viewModel.ScriptText);
+    }
+
+    private void PostEditorText(string text)
+        => EditorWebView.CoreWebView2?.PostWebMessageAsString(
+            ScriptEditorHtml.BuildSetTextMessage(text));
 
     // v1.2.13 PATCH Item 6: test helpers — drive Loaded / Unloaded events
     // synchronously from unit tests without instantiating a full WPF
@@ -76,6 +99,10 @@ public partial class ScriptView : UserControl
         _isLoaded = true;
         // DataContext 可能被换掉（视图实例被复用），桥必须跟着换，不能缓存旧的 VM。
         _bridge = null;
+        // C# → 页面的回灌通道（打开文件后整段替换）。先退订再订阅：
+        // WPF 会重复触发 Loaded，重复订阅会让一次打开推两遍。
+        _viewModel.EditorTextReplaceRequested -= OnEditorTextReplaceRequested;
+        _viewModel.EditorTextReplaceRequested += OnEditorTextReplaceRequested;
 
         try
         {
@@ -83,6 +110,12 @@ public partial class ScriptView : UserControl
 
             // v1.2.13 PATCH Item 6: guard post-await VM writes.
             if (!_isLoaded) return;
+
+            // 导航完成后补推一次权威文本：页面里的 message 监听器是在文档解析后
+            // 才注册的，导航途中发出的 setText 会被丢掉（用户切回本 tab 后立刻
+            // 点「打开」就能撞上）。这一推把初值与运行期回灌统一成一条路径。
+            EditorWebView.NavigationCompleted -= OnEditorNavigationCompleted;
+            EditorWebView.NavigationCompleted += OnEditorNavigationCompleted;
 
             // 编辑器页面 + 回填草稿。初值直接嵌在 HTML 里而不是导航后再灌：
             // 每次切回本 tab 都会重新 NavigateToString，嵌入初值才能保住草稿。

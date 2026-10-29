@@ -6,8 +6,14 @@
         xmlns:local="clr-namespace:PeakCan.Host.App"
         xmlns:views="clr-namespace:PeakCan.Host.App.Views"
         xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
+        xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Height="720" Width="1280">
+    <Window.Resources>
+        <!-- 本地注册：STA 测试/设计器只合并 Colors.xaml，不加载 App.xaml 的转换器；
+             StaticResource 找不到会直接抛 XamlParseException（已实测）。 -->
+        <conv:BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
     <!--
         P1 全局快捷键（唯一注册点）。
         作用域规则：导航类永远可用；页面动作类（Ctrl+L/P/E、Ctrl+←/→、Ctrl+B）
@@ -81,6 +87,17 @@
                 <!-- 脚本与 XCP 此前只能点标签页，菜单里没有任何入口。 -->
                 <MenuItem Header="脚本(_C)" Command="{Binding ShowScriptCommand}" InputGestureText="Ctrl+4" />
                 <MenuItem Header="XCP(_X)" Command="{Binding ShowXcpCommand}" InputGestureText="Ctrl+5" />
+                <Separator />
+                <!-- P2 显示偏好：主标签子集 + 表格密度（都持久化在 layout.json）。 -->
+                <MenuItem Header="主标签(_L)">
+                    <MenuItem Header="追踪" IsCheckable="True" IsChecked="{Binding ShowTraceTab, Mode=TwoWay}" />
+                    <MenuItem Header="DBC" IsCheckable="True" IsChecked="{Binding ShowDbcTab, Mode=TwoWay}" />
+                    <MenuItem Header="回放" IsCheckable="True" IsChecked="{Binding ShowReplayTab, Mode=TwoWay}" />
+                    <MenuItem Header="脚本" IsCheckable="True" IsChecked="{Binding ShowScriptTab, Mode=TwoWay}" />
+                    <MenuItem Header="XCP" IsCheckable="True" IsEnabled="{Binding HasXcpTab}" IsChecked="{Binding ShowXcpTab, Mode=TwoWay}" />
+                </MenuItem>
+                <MenuItem Header="紧凑表格(_D)" IsCheckable="True"
+                          IsChecked="{Binding IsCompactTables, Mode=TwoWay}" />
                 <MenuItem Header="追踪查看器(_V)…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="ECU 脚本编辑器(_E)" Command="{Binding ShowEcuScriptEditorCommand}" />
                 <MenuItem Header="批量发送(_M)..." Command="{Binding OpenMultiFrameCommand}" />
@@ -176,8 +193,36 @@
                            ToolTip="SecOC 启用状态：未启用 = 无 PDU 配置；配置错误 = 检查 SecOc 设置（密钥/格式）" />
             </ToolBar>
         </ToolBarTray>
+        <!-- 底部状态栏：左=最近一条状态消息；右=诊断会话徽章。
+             会话状态是 ECU 侧的真值，关掉 UDS 诊断窗口也不会重置，所以在主窗口常驻可见——
+             否则用户要反复开窗才能确认"还在扩展会话吗 / 安全解锁了吗"。 -->
         <StatusBar DockPanel.Dock="Bottom">
-            <TextBlock Text="{Binding StatusMessage}" />
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusMessage}" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
+                    <TextBlock Text="{Binding Uds.Session.CurrentSession, StringFormat='会话: {0}'}" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem>
+                <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
+                    <TextBlock Text="{Binding Uds.Session.SecurityLevelText, StringFormat='安全: {0}'}" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding Uds.Session.TesterPresentActive, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}"
+                        BorderThickness="1" Padding="6,2" CornerRadius="3">
+                    <TextBlock Foreground="{StaticResource WarnText}" Text="TesterPresent 保活中" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding Uds.Flash.IsFlashing, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource ErrorBg}" BorderBrush="{StaticResource Error}"
+                        BorderThickness="1" Padding="6,2" CornerRadius="3">
+                    <TextBlock Foreground="{StaticResource Error}" Text="刷写中" />
+                </Border>
+            </StatusBarItem>
         </StatusBar>
         <!-- v3.50.1 PATCH-A: Recording panel as a docked Expander. Always
              mounted (cheap), only expanded when the toolbar toggle is on.
@@ -207,6 +252,14 @@
             </Grid.ColumnDefinitions>
             <TabControl Grid.Column="0" ItemsSource="{Binding MainTabs}"
                         SelectedIndex="{Binding SelectedMainTabIndex}">
+                <!-- P2 主标签可隐藏：隐藏项只是折叠（索引不变），所以选中索引、
+                     快捷键与持久化语义都不需要重映射。 -->
+                <TabControl.ItemContainerStyle>
+                    <Style TargetType="TabItem">
+                        <Setter Property="Visibility"
+                                Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+                    </Style>
+                </TabControl.ItemContainerStyle>
                 <TabControl.ItemTemplate>
                     <DataTemplate><TextBlock Text="{Binding Header}" Margin="6,2" /></DataTemplate>
                 </TabControl.ItemTemplate>

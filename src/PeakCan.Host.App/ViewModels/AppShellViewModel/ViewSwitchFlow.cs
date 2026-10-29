@@ -32,10 +32,10 @@ public sealed partial class AppShellViewModel
 
     // 主区域索引用 AppShellViewModel.cs 里的常量（与快捷键共用同一份定义）。
     [RelayCommand]
-    private void ShowTrace() => SelectedMainTabIndex = TraceTabIndex;
+    private void ShowTrace() => TrySelectMainTab(TraceTabIndex);
 
     [RelayCommand]
-    private void ShowDbc() => SelectedMainTabIndex = DbcTabIndex;
+    private void ShowDbc() => TrySelectMainTab(DbcTabIndex);
 
     [RelayCommand]
     private void ShowSend() => SelectedRightTabIndex = 0;
@@ -86,7 +86,7 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowReplay() => SelectedMainTabIndex = ReplayTabIndex;
+    private void ShowReplay() => TrySelectMainTab(ReplayTabIndex);
 
     [RelayCommand]
     private void OpenMultiFrame()

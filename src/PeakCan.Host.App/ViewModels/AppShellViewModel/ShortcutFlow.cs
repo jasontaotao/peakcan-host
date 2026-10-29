@@ -118,15 +118,15 @@ public sealed partial class AppShellViewModel
     // ====================================================================
 
     [RelayCommand]
-    private void ShowScript() => SelectedMainTabIndex = ScriptTabIndex;
+    private void ShowScript() => TrySelectMainTab(ScriptTabIndex);
 
     /// <summary>Ctrl+5：未注入 XcpViewModel 时 MainTabs 只有 4 项，命令不可用。</summary>
     [RelayCommand(CanExecute = nameof(CanShowXcp))]
     private void ShowXcp()
     {
         if (!CanShowXcp()) return;
-        SelectedMainTabIndex = XcpTabIndex;
+        TrySelectMainTab(XcpTabIndex);
     }
 
-    private bool CanShowXcp() => MainTabs.Count > XcpTabIndex;
+    private bool CanShowXcp() => HasXcpTab;
 }

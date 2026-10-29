@@ -27,7 +27,7 @@
                 </StackPanel>
             </Button>
             <Button Command="{Binding StopCommand}"
-                    ToolTip="Stop the running script"
+                    ToolTip="停止正在运行的脚本"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Stop}"
@@ -37,7 +37,7 @@
             </Button>
             <Separator />
             <Button Command="{Binding OpenCommand}"
-                    ToolTip="Open a script file"
+                    ToolTip="打开脚本文件（.js）"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.OpenFolder}"
@@ -46,7 +46,7 @@
                 </StackPanel>
             </Button>
             <Button Command="{Binding SaveCommand}"
-                    ToolTip="Save the current script"
+                    ToolTip="保存当前脚本"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"

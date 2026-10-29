@@ -300,6 +300,26 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// P2-1 真拆类后委托至 coordinator（同一实例）。</summary>
     public SendService SendService => _coordinator.SendService;
 
+    /// <summary>
+    /// 刷写进行中的只读投影。主窗口 <c>Closing</c> 用它决定要不要弹
+    /// 「退出会中止刷写」的确认（见 <c>AppShell.ShouldCancelExit</c>）；
+    /// 这里不另存状态，真源始终是 <see cref="UdsViewModel.Flash"/>。
+    /// </summary>
+    public bool IsFlashing => _udsViewModel.Flash.IsFlashing;
+
+    /// <summary>
+    /// 脚本页是否有未保存的改动。退出确认与刷写一起提示——脚本页现在有真正的
+    /// 「保存」了，退出时静默丢弃会和"换文件会问、退出不问"形成矛盾。
+    /// </summary>
+    public bool HasUnsavedScript => _scriptViewModel.HasUnsavedChanges;
+
+    /// <summary>
+    /// 诊断面板的只读投影，给主窗口状态栏的会话徽章绑定用
+    /// （<c>Uds.Session.CurrentSession</c> / <c>Uds.Flash.IsFlashing</c> 等）。
+    /// 会话状态是 ECU 侧的真值，关掉 UDS 窗口也不会重置——所以要在主窗口常驻可见。
+    /// </summary>
+    public UdsViewModel Uds => _udsViewModel;
+
     public AppShellViewModel(
         ChannelRouter router,
         ILogger<AppShellViewModel> logger,
@@ -464,22 +484,23 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         _coordinator.ConnectionsChanged += NotifyConnectionStateChanged;
 
         // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
+        // key 用于持久化可见子集（不能用索引，插标签时会把旧配置藏错页）。
         var mainTabs = new List<TabSpec>
         {
-            new("追踪", () => new TraceView { DataContext = _traceViewModel }),
-            new("DBC", () => new DbcView { DataContext = _dbcViewModel }),
-            new("回放", () => new ReplayView { DataContext = _replayViewModel }),
+            new("追踪", () => new TraceView { DataContext = _traceViewModel }, key: "T"),
+            new("DBC", () => new DbcView { DataContext = _dbcViewModel }, key: "D"),
+            new("回放", () => new ReplayView { DataContext = _replayViewModel }, key: "R"),
             // F1-3: the JS-scripting surface was orphaned — the VM was constructed
             // and injected into the shell but no tab/menu ever hosted ScriptView,
             // so the whole feature (WebView2 + CodeMirror + CAN/DBC script API) was
             // unreachable from the product.
-            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
+            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }, key: "S"),
         };
         // S3-T8（D1）：XCP 主 tab 追加（懒创建 TabSpec——ctor 不实例化 UserControl）。
         // 仅在注入了 XcpViewModel 时追加，保持既有测试构造点的 MainTabs 形状不变。
         if (xcpViewModel is not null)
         {
-            mainTabs.Add(new TabSpec("XCP", () => new Views.Xcp.XcpView { DataContext = xcpViewModel }));
+            mainTabs.Add(new TabSpec("XCP", () => new Views.Xcp.XcpView { DataContext = xcpViewModel }, key: "X"));
         }
         MainTabs = mainTabs;
         RightTabs = new[]

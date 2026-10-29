@@ -43,7 +43,7 @@ public sealed partial class DbcViewModel
             _lastOpenPath = path;
             NotifyRecoveryCommands();
             LoadedPath = path;
-            Status = "Parsing...";
+            Status = "解析中…";
             LogOpenInvoked(_logger, path);
             await _svc.LoadAsync(path).ConfigureAwait(true);
         }
@@ -152,7 +152,7 @@ public sealed partial class DbcViewModel
             TotalMessages = doc.Messages.Count;
             TotalSignals = doc.Messages.Sum(m => m.Signals.Count);
             var fileName = string.IsNullOrEmpty(LoadedPath) ? "(memory)" : Path.GetFileName(LoadedPath);
-            Status = $"Loaded {TotalMessages} messages, {TotalSignals} signals from {fileName}";
+            Status = $"已加载 {TotalMessages} 条消息、{TotalSignals} 个信号：{fileName}";
             // 成功即撤销错误条：留着会让用户以为还坏着。
             LoadError = null;
         })).RunOnUi();

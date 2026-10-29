@@ -22,11 +22,18 @@ public sealed partial class ScriptViewModel : ObservableObject
 {
     private readonly ILogger<ScriptViewModel> _logger;
     private readonly ScriptEngine _engine;
+    // 文件对话框/确认弹窗都可以为 null：测试构造点不参与文件流。
+    // 生产 DI 两个都注册（WpfFileDialogService / WpfMessageBoxPrompt），漏装配时
+    // 命令会把原因写进 StatusText，而不是像以前那样静默什么都不做。
+    private readonly PeakCan.HIL.Core.IFileDialogService? _fileDialog;
+    private readonly PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? _prompt;
 
     // Timer for flushing output buffer to UI at 30 Hz.
     private readonly System.Windows.Threading.DispatcherTimer _flushTimer;
 
     [ObservableProperty]
+    // 编辑内容一变，未保存状态也要跟着变（工具栏将来要显示脏标记）。
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges))]
     private string _scriptText = "";
 
     [ObservableProperty]
@@ -50,13 +57,18 @@ public sealed partial class ScriptViewModel : ObservableObject
 
     public ScriptViewModel(
         ILogger<ScriptViewModel> logger,
-        ScriptEngine engine)
+        ScriptEngine engine,
+        // 可选：既有测试构造点（2 参）不涉及文件流，不必改动。
+        PeakCan.HIL.Core.IFileDialogService? fileDialog = null,
+        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(engine);
 
         _logger = logger;
         _engine = engine;
+        _fileDialog = fileDialog;
+        _prompt = prompt;
 
         // Subscribe to script engine output.
         _engine.OutputReceived += OnOutputReceived;

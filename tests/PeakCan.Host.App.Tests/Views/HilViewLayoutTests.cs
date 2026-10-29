@@ -95,7 +95,8 @@ public sealed class HilViewLayoutTests
         var xaml = File.ReadAllText(ResolveHilViewPath());
         xaml.Should().Contain("OpenHistoryReportCommand");
         xaml.Should().Contain("LoadHistorySuiteCommand");
-        xaml.Should().Contain("尚无运行记录");
+        // 历史页的空态已从一行纯文字升级为 EmptyStatePanel（与其余空表统一）。
+        xaml.Should().Contain("Title=\"还没有运行记录\"");
         xaml.Should().Contain("{Binding CurrentCaseName");
         xaml.Should().Contain("{Binding RunElapsedText");
         xaml.Should().Contain("ContextMenuOpening=\"StepContextMenu_Opening\"");

@@ -82,4 +82,29 @@ public sealed class ScriptEditorHtmlTests
         html.Should().Contain("preventDefault");
         html.Should().MatchRegex("type\\s*:\\s*'run'");
     }
+
+    [Fact]
+    public void Page_Listens_For_Whole_Text_Replace_From_CSharp()
+    {
+        var html = ScriptEditorHtml.Build("");
+
+        // 打开文件后必须能把整段文本推回编辑器；没有这条通道，用户下一次键入
+        // 会用编辑器里的旧内容覆盖刚打开的文件。
+        html.Should().Contain("addEventListener('message'");
+        html.Should().Contain("'setText'");
+        html.Should().Contain("textarea.value = msg.text");
+    }
+
+    [Fact]
+    public void SetText_Message_Is_Valid_Json_With_The_Exact_Text()
+    {
+        // 引号、反斜杠、换行、结束标签都要能原样还原。
+        const string text = "a\"b\\c\n</script>";
+
+        var json = ScriptEditorHtml.BuildSetTextMessage(text);
+
+        var doc = JsonDocument.Parse(json).RootElement;
+        doc.GetProperty("type").GetString().Should().Be("setText");
+        doc.GetProperty("text").GetString().Should().Be(text);
+    }
 }

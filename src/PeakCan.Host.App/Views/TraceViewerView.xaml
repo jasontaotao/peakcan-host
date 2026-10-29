@@ -10,7 +10,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Trace Viewer"
+        Title="追踪查看器"
         Width="1200" Height="800">
     <DockPanel>
         <!-- Toolbar -->
@@ -26,12 +26,12 @@
                  it forced AddTraceAsync to receive an empty string, which then
                  tripped PathNormalizer.Normalize's "path must be non-empty" guard.
                  The VM now opens the dialog itself via IFileDialogService. -->
-            <Button Content="Add trace…" Command="{Binding AddTraceCommand}"
+            <Button Content="添加追踪…" Command="{Binding AddTraceCommand}"
                     Padding="8,2" Margin="0,0,4,0"
-                    ToolTip="Append a CAN trace to this session (.asc or .blf)" />
+                    ToolTip="把 CAN 追踪文件加入本会话 (.asc 或 .blf)" />
             <!-- v3.16.0 MINOR: opens DbcTreePickerWindow for the user
                  to pick DBC signals to add to the watch list. -->
-            <Button Content="+ Add to watch…" Click="OnAddToWatchClick"
+            <Button Content="+ 加入监视…" Click="OnAddToWatchClick"
                     Padding="8,2" Margin="0,0,4,0" />
             <!-- v3.15.0 MINOR: loaded DBC path (filename only) shown in
                  the toolbar; full path in tooltip. B1 fix for the
@@ -54,13 +54,13 @@
             <Separator />
 
             <!-- v3.3.0 MINOR: master picker (the "clock source") -->
-            <TextBlock Text="Master:" VerticalAlignment="Center" Margin="8,0,4,0" />
+            <TextBlock Text="主时钟:" VerticalAlignment="Center" Margin="8,0,4,0" />
             <ComboBox Width="180" Margin="0,0,8,0" VerticalAlignment="Center"
                       ItemsSource="{Binding Sources}"
                       SelectedValuePath="SourceId"
                       SelectedValue="{Binding MasterSourceId, Mode=TwoWay}"
                       DisplayMemberPath="DisplayName"
-                      ToolTip="Clock source for multi-trace sync playback"
+                      ToolTip="多追踪同步回放使用的时钟源"
                       Visibility="{Binding HasSources, Converter={StaticResource BoolToVis}}" />
 
             <Separator />
@@ -72,14 +72,14 @@
                  rely on the field, and the field is still rehydratable from
                  .tmtrace). To restore: remove the Visibility=Collapsed lines
                  on the 3 elements below. -->
-            <TextBlock Text="Filter CAN IDs:" VerticalAlignment="Center" Margin="0,0,4,0"
+            <TextBlock Text="过滤 CAN ID:" VerticalAlignment="Center" Margin="0,0,4,0"
                        Visibility="Collapsed" />
             <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      Width="180" VerticalAlignment="Center" Margin="0,0,4,0"
-                     ToolTip="Comma-separated CAN IDs to show (decimal or 0x-hex). Empty = all frames."
+                     ToolTip="逗号分隔的 CAN ID（十进制或 0x 十六进制）。留空 = 全部帧。"
                      Visibility="Collapsed" />
-            <Button Content="Clear" Command="{Binding ClearCanIdFilterCommand}"
-                    Padding="6,2" Margin="0,0,4,0" ToolTip="Clear filter (show all frames)"
+            <Button Content="清空" Command="{Binding ClearCanIdFilterCommand}"
+                    Padding="6,2" Margin="0,0,4,0" ToolTip="清除过滤（显示全部帧）"
                     Visibility="Collapsed" />
 
             <!-- v3.50.4 PATCH: playback controls REMOVED — user-marked
@@ -111,7 +111,7 @@
             </ToggleButton>
             <ToggleButton IsChecked="{Binding IsBlueLineVisible, Mode=TwoWay}"
                           Padding="6,2" Margin="4,0,0,0"
-                          ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, watch list Blue 列读该时刻解码值, Δ = Blue - 当前">
+                          ToolTip="比较锚点: 蓝线, 右键设第二个 anchor, 「蓝色」列读该时刻解码值, Δ = Blue - 当前">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Record}"
                                FontFamily="Segoe Fluent Icons" Foreground="Blue" Margin="0,0,4,0" />
@@ -159,7 +159,7 @@
                                 <RadioButton GroupName="MasterGroup" Margin="0,0,6,0" VerticalAlignment="Center"
                                              Command="{Binding DataContext.SetMasterCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                              CommandParameter="{Binding SourceId}"
-                                             ToolTip="Make this the master (clock source)">
+                                             ToolTip="设为主时钟源">
                                     <RadioButton.IsChecked>
                                         <MultiBinding Converter="{x:Static conv:SourceIdEqualsMasterConverter.Instance}"
                                                       Mode="OneWay">
@@ -178,11 +178,11 @@
                                      row compact; tooltip explains the override vs inherit semantics. -->
                                 <TextBox Text="{Binding CanIdFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Width="80" Margin="6,0,0,0" Padding="2,0" VerticalAlignment="Center"
-                                         ToolTip="Per-source filter (decimal or 0x-hex CAN IDs, comma-separated). Empty = inherit global." />
+                                         ToolTip="按来源过滤（十进制或 0x 十六进制 CAN ID，逗号分隔）。留空 = 继承全局。" />
                                 <Button Margin="6,0,0,0" Padding="4,0"
                                         Command="{Binding DataContext.RemoveTraceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding SourceId}"
-                                        ToolTip="Unload this trace">
+                                        ToolTip="卸载这条追踪">
                                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Dismiss}"
                                                FontFamily="Segoe Fluent Icons" />
                                 </Button>
@@ -238,7 +238,7 @@
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
                                         <Button Content="[Focus]" Click="OnFocusSubplotClick" Margin="8,0,4,0" Padding="4,0" />
                                         <Button Content="[Fit]" Click="OnFitSubplotClick" Margin="0,0,4,0" Padding="4,0" />
-                                        <Button Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0"><StackPanel Orientation="Horizontal"><TextBlock Text="{x:Static icons:FluentIconGlyphs.ChevronDown}" FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" /><TextBlock Text="Collapse" /></StackPanel></Button>
+                                        <Button Click="OnCollapseSubplotClick" Margin="0,0,4,0" Padding="4,0"><StackPanel Orientation="Horizontal"><TextBlock Text="{x:Static icons:FluentIconGlyphs.ChevronDown}" FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" /><TextBlock Text="收起" /></StackPanel></Button>
                                     </StackPanel>
                                     <!-- v3.50.0 MINOR T3: PlotView drag handler.
                                          Background=Transparent is REQUIRED so the
@@ -294,7 +294,7 @@
                     <TabControl Grid.Row="0">
                     <!-- Tab 1: Watch List (v3.15.0 MINOR source of truth).
                          Always visible regardless of window size. -->
-                    <TabItem Header="Watch List">
+                    <TabItem Header="监视列表">
                         <DataGrid ItemsSource="{Binding WatchedSignals}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -304,11 +304,11 @@
                                   VirtualizingPanel.VirtualizationMode="Recycling"
                                   VirtualizingPanel.ScrollUnit="Pixel"
                                   ScrollViewer.CanContentScroll="True"
-                                  RowHeight="22">
+>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex}" Width="64" />
-                                <DataGridTextColumn Header="Signal" Binding="{Binding DisplayName}" Width="*" />
-                                <DataGridTemplateColumn Header="Plot" Width="36">
+                                <DataGridTextColumn Header="信号" Binding="{Binding DisplayName}" Width="*" />
+                                <DataGridTemplateColumn Header="曲线" Width="36">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <CheckBox IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -319,7 +319,7 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="N" Binding="{Binding FrameCount}" Width="32" />
-                                <DataGridTextColumn Header="Latest"
+                                <DataGridTextColumn Header="最新值"
                                                     Binding="{Binding GreenAnchorText}"
                                                     Width="80" />
                                 <!-- v3.50.5 PATCH: enum signals show "—" in Δ
@@ -329,7 +329,7 @@
                                 <DataGridTextColumn Header="Δ"
                                                     Binding="{Binding DeltaText}"
                                                     Width="50" />
-                                <DataGridTextColumn Header="Blue"
+                                <DataGridTextColumn Header="蓝色"
                                                     Binding="{Binding BlueText}"
                                                     Width="80" />
                                 <!-- v3.50.4 PATCH: ✕ Remove column. VM has
@@ -347,7 +347,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Button Padding="2,0"
-                                                    ToolTip="Remove this watch entry"
+                                                    ToolTip="移除这条监视项"
                                                     Command="{Binding DataContext.RemoveFromWatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}">
                                                 <TextBlock Text="{x:Static icons:FluentIconGlyphs.Dismiss}"
@@ -361,21 +361,21 @@
                     </TabItem>
                     <!-- Tab 2: Sampling Table (v3.49.0 MINOR Q1). Hidden when
                          no watched signals exist; otherwise always present. -->
-                    <TabItem Header="Sampling Table"
+                    <TabItem Header="采样表"
                              Visibility="{Binding HasWatchedSignals, Converter={StaticResource BoolToVis}}">
                         <DataGrid ItemsSource="{Binding SamplingRows}"
                                   AutoGenerateColumns="False" IsReadOnly="True"
-                                  EnableRowVirtualization="False" RowHeight="22">
+                                  EnableRowVirtualization="False">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Signal" Binding="{Binding DisplayName}" Width="*" />
-                                <DataGridTextColumn Header="Unit" Binding="{Binding Unit}" Width="40" />
-                                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="60" />
+                                <DataGridTextColumn Header="信号" Binding="{Binding DisplayName}" Width="*" />
+                                <DataGridTextColumn Header="单位" Binding="{Binding Unit}" Width="40" />
+                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="60" />
                                 <!-- Task 10 L1: J1939-21 TP 行内注解（非 TP 帧为空串） -->
                                 <DataGridTextColumn Header="TP" Binding="{Binding TpInfo}" Width="220" IsReadOnly="True" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </TabItem>
-                    <TabItem Header="AI Chat">
+                    <TabItem Header="AI 对话">
                         <ContentControl Content="{Binding ChatPanelContent}" />
                     </TabItem>
                     </TabControl>

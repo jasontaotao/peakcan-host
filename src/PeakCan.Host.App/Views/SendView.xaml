@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             xmlns:controls="clr-namespace:PeakCan.Host.App.Views.Controls"
              d:DataContext="{d:DesignInstance Type=vm:SendViewModel}"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -28,7 +29,7 @@
                                   IsEnabled="{Binding IsFd}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Data (hex):" Width="80" VerticalAlignment="Center" />
+                        <TextBlock Text="数据 (hex):" Width="80" VerticalAlignment="Center" />
                         <!-- P1-5: 右侧常驻面板窄栏（~300px）——数据输入自适应栏宽 -->
                         <TextBox Text="{Binding DataText, UpdateSourceTrigger=PropertyChanged}" MinWidth="160" />
                     </StackPanel>
@@ -67,7 +68,7 @@
                                 Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                                 Visibility="{Binding RateLimitRejectedVisibility}">
                             <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
-                                <Run Text="rate limit rejected: " />
+                                <Run Text="限流拒绝: " />
                                 <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                             </TextBlock>
                         </Border>
@@ -96,7 +97,7 @@
                         </ComboBox>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Payload (hex)" VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <TextBlock Text="载荷 (hex)" VerticalAlignment="Center" Margin="0,0,4,0" />
                         <TextBox Text="{Binding J1939.PayloadHex, UpdateSourceTrigger=PropertyChanged}" Width="420" />
                         <TextBlock Text="周期(ms,0=单次)" VerticalAlignment="Center" Margin="12,0,4,0" />
                         <TextBox Text="{Binding J1939.IntervalMs}" Width="60" />
@@ -141,28 +142,45 @@
                                 Margin="8,0,0,0" />
                         <Button Content="刷新" Command="{Binding RefreshLibraryCommand}" Margin="8,0,0,0" />
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding Library}" AutoGenerateColumns="False" IsReadOnly="True"
-                              MaxHeight="200" SelectedItem="{Binding SelectedLibraryFrame}">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="120" />
-                            <DataGridTextColumn Header="ID" Binding="{Binding RawId}" Width="80" />
-                            <DataGridTextColumn Header="Data" Binding="{Binding DataHex}" Width="*" />
-                            <DataGridTemplateColumn Header="" Width="160">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal">
-                                            <Button Content="加载" Width="50" Margin="0,0,4,0"
-                                                    Command="{Binding DataContext.LoadFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}" />
-                                            <Button Content="删除" Width="50"
-                                                    Command="{Binding DataContext.DeleteFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding Library}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  MaxHeight="200" SelectedItem="{Binding SelectedLibraryFrame}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="120" />
+                                <DataGridTextColumn Header="ID" Binding="{Binding RawId}" Width="80" />
+                                <DataGridTextColumn Header="数据" Binding="{Binding DataHex}" Width="*" />
+                                <DataGridTemplateColumn Header="" Width="160">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="加载" Width="50" Margin="0,0,4,0"
+                                                        Command="{Binding DataContext.LoadFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" />
+                                                <Button Content="删除" Width="50"
+                                                        Command="{Binding DataContext.DeleteFromLibraryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <!-- P0 空态：帧库为空时给一句解释（保存动作就在上面一行）。 -->
+                        <controls:EmptyStatePanel Title="帧库还是空的"
+                                                  Description="在发送区组好一帧后，点上面的「保存当前」把它存进这里。"
+                                                  AutomationProperties.Name="空态：帧库还是空的">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Library.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+                    </Grid>
                 </StackPanel>
             </Expander>
 
@@ -193,15 +211,32 @@
                                   SelectedItem="{Binding SelectedDbcMessage, Mode=TwoWay}"
                                   DisplayMemberPath="Name" Width="200" />
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding SignalRows}"
-                              AutoGenerateColumns="False"
-                              MaxHeight="200" Margin="0,0,0,4">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="信号" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
-                            <DataGridTextColumn Header="类型" Binding="{Binding ValueType}" IsReadOnly="True" Width="80" />
-                            <DataGridTextColumn Header="值" Binding="{Binding Value, Mode=TwoWay, TargetNullValue=''}" Width="100" />
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding SignalRows}"
+                                  AutoGenerateColumns="False"
+                                  MaxHeight="200" Margin="0,0,0,4">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="信号" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
+                                <DataGridTextColumn Header="类型" Binding="{Binding ValueType}" IsReadOnly="True" Width="80" />
+                                <DataGridTextColumn Header="值" Binding="{Binding Value, Mode=TwoWay, TargetNullValue=''}" Width="100" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <!-- P0 空态：没选 DBC 消息时信号表自然是空的，说明下一步做什么。 -->
+                        <controls:EmptyStatePanel Title="先选一条 DBC 消息"
+                                                  Description="在上面的下拉框选中消息后，它的信号会出现在这里，可直接改值发送。"
+                                                  AutomationProperties.Name="空态：先选一条 DBC 消息">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SignalRows.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+                    </Grid>
                     <StackPanel Orientation="Horizontal">
                         <Button Content="发送" Command="{Binding SendCommand}" Width="80" />
                         <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource Error}"
@@ -213,7 +248,7 @@
                                 Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                                 Visibility="{Binding RateLimitRejectedVisibility}">
                             <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
-                                <Run Text="rate limit rejected: " />
+                                <Run Text="限流拒绝: " />
                                 <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                             </TextBlock>
                         </Border>

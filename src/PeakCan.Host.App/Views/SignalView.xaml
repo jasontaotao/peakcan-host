@@ -52,7 +52,6 @@
                       VirtualizingPanel.VirtualizationMode="Recycling"
                       VirtualizingPanel.ScrollUnit="Pixel"
                       ScrollViewer.CanContentScroll="True"
-                      RowHeight="20"
                       AlternatingRowBackground="{StaticResource RowAlternate}"
                       CellEditEnding="OnCellEditEnding">
                 <DataGrid.Columns>

@@ -117,7 +117,9 @@ public class AppShellViewModelTests
         // 既有调用点一行不用改。
         UdsViewModel? udsVm = null,
         RecordViewModel? recordVm = null,
-        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null)
+        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null,
+        // P1 防事故（退出确认）：脚本页的未保存状态也要能摆出来。
+        ScriptViewModel? scriptVm = null)
     {
         // v3.6.0 MINOR T3: RecentSessionsService + IFileDialogService
         // added to AppShellViewModel ctor. Both have no on-disk side
@@ -143,7 +145,7 @@ public class AppShellViewModelTests
             new SendViewModel(new SendService(NullLogger<SendService>.Instance), NullLogger<SendViewModel>.Instance, new SendViewModelTests.FakeCyclicSendService(), null),
             new SignalViewModel(),
             new StatsViewModel(),
-            new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
+            scriptVm ?? new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
             udsVm ?? NewUdsVmForTests(),
                 // v3.50.1 PATCH-A: RecordViewModel arg restored.

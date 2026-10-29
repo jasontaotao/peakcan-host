@@ -67,7 +67,7 @@ public sealed class UdsWindowLayoutTests
     public void Flashing_Tab_Stays_Usable()
     {
         var tab = UdsWindow().Descendants(P + "TabItem")
-            .Single(t => (string?)t.Attribute("Header") == "Flashing");
+            .Single(t => (string?)t.Attribute("Header") == "刷写");
 
         tab.Attribute("IsEnabled").Should().BeNull("刷写页自己当然不能锁，否则没法停止刷写");
     }
